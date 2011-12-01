@@ -1,0 +1,21 @@
+Name:                distributed-process
+Version:             0.0.1
+Description:         Distributed processes for message based concurrency.
+License:             BSD3
+License-file:        LICENSE
+Author:              Duncan Coutts, Nicolas Wu
+Maintainer:          duncan@well-typed.com
+Homepage:            http://github.com/haskell-distributed/
+Build-Type:          Simple
+Cabal-Version:       >=1.2
+
+Library
+  Build-Depends:     base >= 3 && < 5,
+                     bytestring >= 0.9,
+                     containers >= 0.4,
+                     mtl >= 2.0,
+                     network-transport >= 0.0
+  Exposed-modules:   Control.Distributed.Process
+  Extensions:        ExplicitForAll ScopedTypeVariables
+  ghc-options:       -Wall
+  HS-Source-Dirs:    src
