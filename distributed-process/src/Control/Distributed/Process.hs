@@ -1,4 +1,5 @@
 {-# LANGUAGE ExplicitForAll, ScopedTypeVariables #-}
+
 module Control.Distributed.Process (
     -- * Processes
     Process,
@@ -30,16 +31,13 @@ import qualified Data.ByteString.Char8 as BS
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.IntMap as IntMap
 import Data.IntMap (IntMap)
-import Data.IORef
 import Control.Applicative
 import Control.Monad
 import Control.Monad.Trans
 import Control.Concurrent.MVar
 import Control.Concurrent.Chan
 import Control.Concurrent
-import Control.Exception
 import Data.Typeable
-
 
 ------------------------
 -- Cloud Haskell layer
