@@ -120,12 +120,12 @@ forkProcess :: LocalNode -> Process () -> IO ProcessId
 forkProcess node (Process action) = do
 
     (sendAddr, chan) <- Trans.newConnection (ndTransport node)
-    sendEnd <- Trans.connectWith sendAddr Trans.SendHints
+    sendEnd <- Trans.connect sendAddr
     processTable@(ProcessTable lpid _) <- takeMVar (ndProcessTable node)
     let pid = ProcessId sendEnd NodeId lpid
     forkIO $ do
       tid  <- myThreadId
-      lpid <- putMVar (ndProcessTable node) (insertProcess tid processTable)
+      putMVar (ndProcessTable node) (insertProcess tid processTable)
       queue <- newCQueue
       forkIO $ receiverPump chan queue
 
