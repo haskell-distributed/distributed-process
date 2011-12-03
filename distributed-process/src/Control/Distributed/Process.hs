@@ -94,7 +94,9 @@ data LocalNode = LocalNode {
     ndTransport     :: !Transport
   }
 
-data ProcessTable = ProcessTable !LocalProcessId !(IntMap ProcessTableEntry)
+data ProcessTable = ProcessTable
+  !LocalProcessId              -- ^ Value of next ProcessTableEntry index
+  !(IntMap ProcessTableEntry)  -- ^ Index from LocalProcessIds to ProcessTableEntry
 data ProcessTableEntry = ProcessTableEntry {
     pteThread :: !ThreadId
   }
