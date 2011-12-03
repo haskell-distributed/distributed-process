@@ -148,8 +148,8 @@ forkProcess node (Process action) = do
     receiverPump chan queue = do
       msgBlobs <- Trans.receive chan
       let (typerep, body) = read (concatMap BS.unpack msgBlobs)
---      print ("receiverPump", typerep, body)
       enqueue queue (Message typerep body)
+      receiverPump chan queue
 
 send :: (Typeable a, Show a) => ProcessId -> a -> Process ()
 send (ProcessId chan _ _) msg =
