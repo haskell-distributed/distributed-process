@@ -1,2 +1,5 @@
-dist/
+*~
+*#
+tags
 TAGS
+dist/
