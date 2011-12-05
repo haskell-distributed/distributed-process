@@ -116,27 +116,20 @@ runProcess node proc = do
          --TODO: should use linking for waiting for the end
   takeMVar waitVar
 
+-- | `forkProcess` forks and executes process on a given node. This
+-- returns the ProcessId when the new process has been created.
 forkProcess :: LocalNode -> Process () -> IO ProcessId
 forkProcess node (Process action) = do
-
     (sendAddr, chan) <- Trans.newConnection (ndTransport node)
     sendEnd <- Trans.connect sendAddr
     processTable@(ProcessTable lpid _) <- takeMVar (ndProcessTable node)
     let pid = ProcessId sendEnd NodeId lpid
-    forkIO $ do
+    _ <- forkIO $ do
       tid  <- myThreadId
       putMVar (ndProcessTable node) (insertProcess tid processTable)
       queue <- newCQueue
-      forkIO $ receiverPump chan queue
-
-      let pstate = ProcessState {
-            prPid  = pid,
-            prChan = chan,
-            prQueue= queue,
-            prNode = node
-          }
-
-      action pstate
+      _ <- forkIO $ receiverPump chan queue
+      action $ ProcessState pid chan queue node
     return pid
 
   where
@@ -145,11 +138,11 @@ forkProcess node (Process action) = do
       let pte = ProcessTableEntry tid
        in ProcessTable (nextPid+1) (IntMap.insert nextPid pte table)
 
-    receiverPump chan queue = do
+    receiverPump :: Trans.ReceiveEnd -> CQueue Message -> IO ()
+    receiverPump chan queue = forever $ do
       msgBlobs <- Trans.receive chan
       let (typerep, body) = read (concatMap BS.unpack msgBlobs)
       enqueue queue (Message typerep body)
-      receiverPump chan queue
 
 send :: (Typeable a, Show a) => ProcessId -> a -> Process ()
 send (ProcessId chan _ _) msg =
