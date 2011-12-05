@@ -7,17 +7,6 @@ import System.Environment
 import Control.Monad
 import qualified Data.ByteString.Char8 as BS
 
-
--- TODO:
--- * wikify duncan's email
--- * add current design to wiki
--- * link to CCI
--- * explain how to address peter's points
--- * package architecture:
---   * application layer
---   * cloud haskell layer
---   * transport layer
-
 main :: IO ()
 main = do
   [mode, numberStr, addressStr, portStr] <- getArgs
