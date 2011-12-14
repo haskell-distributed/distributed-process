@@ -109,6 +109,8 @@ newLocalNode trans = do
       ndTransport     = trans
     }
 
+-- | `runProcess` executes a process on a given node, and waits for the process
+-- to finish before returning.
 runProcess :: LocalNode -> Process () -> IO ()
 runProcess node proc = do
   waitVar <- newEmptyMVar
