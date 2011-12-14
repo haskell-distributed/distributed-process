@@ -36,10 +36,9 @@ mkTransport = do
   where
     mkSendAddr :: Chans -> Int -> SendAddr
     mkSendAddr channels addr = SendAddr
-      { connectWith = \_ -> mkSendEnd channels $ addr
+      { connectWith = \_ -> mkSendEnd channels addr
       , serialize   = BS.pack (show addr)
       }
-    -- mkSendEnd channels sendAddr
 
     mkSendEnd :: Chans -> Int -> IO SendEnd
     mkSendEnd channels addr = do
