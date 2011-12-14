@@ -12,7 +12,9 @@ Cabal-Version:       >=1.2
 Library
   Build-Depends:     base >= 3 && < 5,
                      bytestring >= 0.9,
-                     containers >= 0.4
+                     containers >= 0.4,
+                     network >= 2.3,
+                     safe >= 0.3
   Exposed-modules:   Network.Transport,
                      Network.Transport.MVar,
                      Network.Transport.TCP
