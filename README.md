@@ -1,8 +1,8 @@
 Haskell Distributed Project
 ===========================
 
-This repository holds an implementation of Cloud Haskell based on the work
-of Jeff Epstein, Andrew Black, and Simon Peyton-Jones [1].
+This repository holds an implementation of [Cloud Haskell][1] based on the work
+of Jeff Epstein, Andrew Black, and Simon Peyton-Jones.
 
 At present, this repository hosts two packages:
 
