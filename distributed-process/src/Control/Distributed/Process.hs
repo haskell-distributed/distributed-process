@@ -39,6 +39,8 @@ import Control.Concurrent.Chan
 import Control.Concurrent
 import Data.Typeable
 
+import Debug.Trace
+
 ------------------------
 -- Cloud Haskell layer
 --
@@ -143,8 +145,15 @@ forkProcess node (Process action) = do
     receiverPump :: Trans.ReceiveEnd -> CQueue Message -> IO ()
     receiverPump chan queue = forever $ do
       msgBlobs <- Trans.receive chan
-      let (typerep, body) = read (concatMap BS.unpack msgBlobs)
-      enqueue queue (Message typerep body)
+      readBlobs (concatMap BS.unpack msgBlobs)
+     where
+      readBlobs :: String -> IO ()
+      readBlobs [] = return ()
+      readBlobs bs = do
+        -- TODO: replace reads with something safer and faster.
+        let [((typerep, body), bs')] = reads bs
+        enqueue queue (Message typerep body)
+        readBlobs bs'
 
 send :: (Typeable a, Show a) => ProcessId -> a -> Process ()
 send (ProcessId chan _ _) msg =
