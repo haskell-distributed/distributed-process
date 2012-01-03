@@ -14,12 +14,8 @@ demo1 = do
   runProcess node $ do
     liftIO $ print "Starting process"
     lpid1 <- spawnLocal (logger 1)
---    liftIO $ print "baz"
---    lpid2 <- spawnLocal (logger 2)
     spawnLocal (chatty "jim1" lpid1)
---    spawnLocal (chatty "jim2" lpid2)
     spawnLocal (chatty "bob1" lpid1)
---    spawnLocal (chatty "bob2" lpid2)
     liftIO $ threadDelay 500000
     return ()
 
