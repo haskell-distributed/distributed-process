@@ -66,12 +66,12 @@ mkTransport (TCPConfig _hints host service) = withSocketsDo $ do
   where
     mkSendAddr :: HostName -> ServiceName -> ChanId -> SendAddr
     mkSendAddr host service chanId = SendAddr
-      { connectWith = \_ -> mkSendEnd chanId
+      { connectWith = \_ -> mkSendEnd host service chanId
       , serialize   = BS.pack . show $ (host, service, chanId)
       }
 
-    mkSendEnd :: ChanId -> IO SendEnd
-    mkSendEnd chanId = withSocketsDo $ do
+    mkSendEnd :: HostName -> ServiceName -> ChanId -> IO SendEnd
+    mkSendEnd host service chanId = withSocketsDo $ do
       serverAddrs <- getAddrInfo Nothing (Just host) (Just service)
       let serverAddr = case serverAddrs of
                          [] -> error "mkSendEnd: getAddrInfo returned []"
