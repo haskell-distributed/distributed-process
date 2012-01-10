@@ -14,7 +14,20 @@ import Debug.Trace
 type ChanId = Int
 
 -- | This example demonstrates how a master can be connected to slaves using
--- the transport layer.
+-- the transport layer. After compiling, the following will initialize a new
+-- master that waits for two clients to connect on the local machine:
+--
+--     ./DemoTCP 127.0.0.1 8080 2
+--
+-- Following this, two slaves should be created that will connect to the master:
+--
+--     ./DemoTCP 127.0.0.1 8081
+--     ./DemoTCP 127.0.0.1 8082
+--
+-- Once the connection is established, the slaves will provide the master
+-- with their SendAddr. The master then decodes this, and sends a message
+-- back. After processing this message, the slaves respond to the master,
+-- which then outputs some data.
 main :: IO ()
 main = do
   args <- getArgs
