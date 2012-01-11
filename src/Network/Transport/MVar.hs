@@ -22,35 +22,35 @@ mkTransport = do
     { newConnectionWith = \_ -> do
         (i, m) <- takeMVar channels
         receiveChan <- newEmptyMVar
-        let sendAddr = i
+        let sourceAddr = i
             !i'      = i+1
             !m'      = IntMap.insert i receiveChan m
         putMVar channels (i', m')
-        return (mkSendAddr channels sendAddr, mkReceiveEnd receiveChan)
+        return (mkSourceAddr channels sourceAddr, mkTargetEnd receiveChan)
     , newMulticastWith = undefined
     , deserialize = \bs ->
         case BS.readInt bs of
-          Nothing    -> error "dummyBackend.deserializeSendEnd: cannot parse"
-          Just (n,_) -> Just . mkSendAddr channels $ n
+          Nothing    -> error "dummyBackend.deserializeSourceEnd: cannot parse"
+          Just (n,_) -> Just . mkSourceAddr channels $ n
     }
   where
-    mkSendAddr :: Chans -> Int -> SendAddr
-    mkSendAddr channels addr = SendAddr
-      { connectWith = \_ -> mkSendEnd channels addr
+    mkSourceAddr :: Chans -> Int -> SourceAddr
+    mkSourceAddr channels addr = SourceAddr
+      { connectWith = \_ -> mkSourceEnd channels addr
       , serialize   = BS.pack (show addr)
       }
 
-    mkSendEnd :: Chans -> Int -> IO SendEnd
-    mkSendEnd channels addr = do
+    mkSourceEnd :: Chans -> Int -> IO SourceEnd
+    mkSourceEnd channels addr = do
       (_, m) <- readMVar channels
       case IntMap.lookup addr m of
         Nothing   -> fail "dummyBackend.send: bad send address"
-        Just chan -> return SendEnd
+        Just chan -> return SourceEnd
           { send = realSend chan
           }
 
-    mkReceiveEnd :: MVar [ByteString] -> ReceiveEnd
-    mkReceiveEnd chan = ReceiveEnd
+    mkTargetEnd :: MVar [ByteString] -> TargetEnd
+    mkTargetEnd chan = TargetEnd
       { receive = takeMVar chan
       }
 
