@@ -31,8 +31,8 @@ type ChanId  = Int
 data TCPConfig = TCPConfig Hints HostName ServiceName
 
 -- | This creates a TCP connection between a server and a number of
--- clients. Behind the scenes, the server hostname is passed as the SendAddr
--- and when a connection is made, messages sent down the SendEnd go
+-- clients. Behind the scenes, the server hostname is passed as the SourceAddr
+-- and when a connection is made, messages sent down the SourceEnd go
 -- via a socket made for the client that connected.
 -- Messages are all queued using an unbounded Chan.
 mkTransport :: TCPConfig -> IO Transport
@@ -55,37 +55,37 @@ mkTransport (TCPConfig _hints host service) = withSocketsDo $ do
         (chanId, chanMap) <- takeMVar channels
         chan <- newChan
         putMVar channels (chanId + 1, IntMap.insert chanId chan chanMap)
-        return (mkSendAddr host service chanId, mkReceiveEnd chan)
+        return (mkSourceAddr host service chanId, mkTargetEnd chan)
     , newMulticastWith = undefined
     , deserialize = \bs ->
         case readMay . BS.unpack $ bs of
           Nothing                      -> error "deserialize: cannot parse"
-          Just (host, service, chanId) -> Just $ mkSendAddr host service chanId
+          Just (host, service, chanId) -> Just $ mkSourceAddr host service chanId
     }
 
   where
-    mkSendAddr :: HostName -> ServiceName -> ChanId -> SendAddr
-    mkSendAddr host service chanId = SendAddr
-      { connectWith = \_ -> mkSendEnd host service chanId
+    mkSourceAddr :: HostName -> ServiceName -> ChanId -> SourceAddr
+    mkSourceAddr host service chanId = SourceAddr
+      { connectWith = \_ -> mkSourceEnd host service chanId
       , serialize   = BS.pack . show $ (host, service, chanId)
       }
 
-    mkSendEnd :: HostName -> ServiceName -> ChanId -> IO SendEnd
-    mkSendEnd host service chanId = withSocketsDo $ do
+    mkSourceEnd :: HostName -> ServiceName -> ChanId -> IO SourceEnd
+    mkSourceEnd host service chanId = withSocketsDo $ do
       serverAddrs <- getAddrInfo Nothing (Just host) (Just service)
       let serverAddr = case serverAddrs of
-                         [] -> error "mkSendEnd: getAddrInfo returned []"
+                         [] -> error "mkSourceEnd: getAddrInfo returned []"
                          as -> head as
       sock <- socket (addrFamily serverAddr) Stream defaultProtocol
-      setSocketOption sock KeepAlive 1
+      setSocketOption sock ReuseAddr 1
       N.connect sock (addrAddress serverAddr)
       NBS.sendAll sock $ BS.pack . show $ chanId
-      return $ SendEnd
+      return $ SourceEnd
         { Network.Transport.send = \bss -> NBS.sendMany sock bss
         }
 
-    mkReceiveEnd :: Chan ByteString -> ReceiveEnd
-    mkReceiveEnd chan = ReceiveEnd
+    mkTargetEnd :: Chan ByteString -> TargetEnd
+    mkTargetEnd chan = TargetEnd
       { -- for now we will implement this as a Chan
         receive = do
           bs <- readChan chan

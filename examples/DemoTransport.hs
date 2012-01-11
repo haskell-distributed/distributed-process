@@ -20,14 +20,14 @@ demo0 :: IO ()
 demo0 = do
   trans <- mkTransport $ TCPConfig undefined "127.0.0.1" "8080"
 
-  (sendAddr, receiveEnd) <- newConnection trans
+  (sourceAddr, targetEnd) <- newConnection trans
 
-  forkIO $ logServer "logServer" receiveEnd
+  forkIO $ logServer "logServer" targetEnd
   threadDelay 100000
 
-  sendEnd <- connect sendAddr
+  sourceEnd <- connect sourceAddr
 
-  mapM_ (\n -> send sendEnd [BS.pack ("hello " ++ show n)]) [1 .. 10]
+  mapM_ (\n -> send sourceEnd [BS.pack ("hello " ++ show n)]) [1 .. 10]
   threadDelay 100000
 
 -- | Check endpoint serialization and deserialization.
@@ -36,19 +36,19 @@ demo1 = do
   -- trans <- mkTransport
   trans <- mkTransport $ TCPConfig undefined "127.0.0.1" "8080"
 
-  (sendAddr, receiveEnd) <- newConnection trans
+  (sourceAddr, targetEnd) <- newConnection trans
 
-  forkIO $ logServer "logServer" receiveEnd
+  forkIO $ logServer "logServer" targetEnd
   threadDelay 100000
 
-  sendEnd <- connect sendAddr
+  sourceEnd <- connect sourceAddr
 
   -- This use of Just is slightly naughty
-  let Just sendAddr' = deserialize trans (serialize sendAddr)
-  sendEnd' <- connect sendAddr'
+  let Just sourceAddr' = deserialize trans (serialize sourceAddr)
+  sourceEnd' <- connect sourceAddr'
 
-  send sendEnd  [BS.pack "hello 1"]
-  send sendEnd' [BS.pack "hello 2"]
+  send sourceEnd  [BS.pack "hello 1"]
+  send sourceEnd' [BS.pack "hello 2"]
   threadDelay 100000
 
 -- | Check that messages can be sent before receive is set up.
@@ -57,13 +57,13 @@ demo2 = do
   -- trans <- mkTransport
   trans <- mkTransport $ TCPConfig undefined "127.0.0.1" "8080"
 
-  (sendAddr, receiveEnd) <- newConnection trans
+  (sourceAddr, targetEnd) <- newConnection trans
 
-  sendEnd <- connect sendAddr
-  forkIO $ send sendEnd [BS.pack "hello 1"]
+  sourceEnd <- connect sourceAddr
+  forkIO $ send sourceEnd [BS.pack "hello 1"]
   threadDelay 100000
 
-  forkIO $ logServer "logServer" receiveEnd
+  forkIO $ logServer "logServer" targetEnd
   return ()
 
 -- | Check that two different transports can be created.
@@ -72,17 +72,17 @@ demo3 = do
   trans1 <- mkTransport $ TCPConfig undefined "127.0.0.1" "8080"
   trans2 <- mkTransport $ TCPConfig undefined "127.0.0.1" "8081"
 
-  (sendAddr1, receiveEnd1) <- newConnection trans1
-  (sendAddr2, receiveEnd2) <- newConnection trans2
+  (sourceAddr1, targetEnd1) <- newConnection trans1
+  (sourceAddr2, targetEnd2) <- newConnection trans2
 
-  forkIO $ logServer "logServer1" receiveEnd1
-  forkIO $ logServer "logServer2" receiveEnd2
+  forkIO $ logServer "logServer1" targetEnd1
+  forkIO $ logServer "logServer2" targetEnd2
 
-  sendEnd1 <- connect sendAddr1
-  sendEnd2 <- connect sendAddr2
+  sourceEnd1 <- connect sourceAddr1
+  sourceEnd2 <- connect sourceAddr2
 
-  send sendEnd1 [BS.pack "hello1"]
-  send sendEnd2 [BS.pack "hello2"]
+  send sourceEnd1 [BS.pack "hello1"]
+  send sourceEnd2 [BS.pack "hello2"]
 
 -- | Check that two different connections on the same transport can be created.
 demo4 :: IO ()
@@ -90,19 +90,19 @@ demo4 = do
   trans <- mkTransport $ TCPConfig undefined "127.0.0.1" "8080"
   -- trans <- Network.Transport.MVar.mkTransport
 
-  (sendAddr1, receiveEnd1) <- newConnection trans
-  (sendAddr2, receiveEnd2) <- newConnection trans
+  (sourceAddr1, targetEnd1) <- newConnection trans
+  (sourceAddr2, targetEnd2) <- newConnection trans
 
-  forkIO $ logServer "logServer1" receiveEnd1
-  forkIO $ logServer "logServer2" receiveEnd2
+  forkIO $ logServer "logServer1" targetEnd1
+  forkIO $ logServer "logServer2" targetEnd2
 
-  sendEnd1 <- connect sendAddr1
-  sendEnd2 <- connect sendAddr2
+  sourceEnd1 <- connect sourceAddr1
+  sourceEnd2 <- connect sourceAddr2
 
-  send sendEnd1 [BS.pack "hello1"]
-  send sendEnd2 [BS.pack "hello2"]
+  send sourceEnd1 [BS.pack "hello1"]
+  send sourceEnd2 [BS.pack "hello2"]
 
-logServer :: String -> ReceiveEnd -> IO ()
-logServer name receiveEnd = forever $ do
-  x <- receive receiveEnd
+logServer :: String -> TargetEnd -> IO ()
+logServer name targetEnd = forever $ do
+  x <- receive targetEnd
   trace (name ++ ": " ++ show x) $ return ()

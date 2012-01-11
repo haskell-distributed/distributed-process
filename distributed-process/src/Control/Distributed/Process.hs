@@ -45,12 +45,12 @@ import Debug.Trace
 -- Cloud Haskell layer
 --
 
-data NodeId = NodeId -- !Trans.SendEnd !Trans.SendEnd
+data NodeId = NodeId -- !Trans.SourceEnd !Trans.SourceEnd
 
-data ProcessId = ProcessId !Trans.SendEnd !NodeId !LocalProcessId
+data ProcessId = ProcessId !Trans.SourceEnd !NodeId !LocalProcessId
 type LocalProcessId = Int
 
-newtype SendPort a = SendPort Trans.SendEnd
+newtype SourcePort a = SourcePort Trans.SourceEnd
 
 newtype Process a = Process { unProcess :: ProcessState -> IO a }
 
@@ -81,7 +81,7 @@ getSelfPid = prPid <$> getProcessState
 --
 data ProcessState = ProcessState {
     prPid   :: !ProcessId,
-    prChan  :: !Trans.ReceiveEnd,
+    prChan  :: !Trans.TargetEnd,
     prQueue :: !(CQueue Message),
     prNode  :: !LocalNode
   }
@@ -124,10 +124,10 @@ runProcess node proc = do
 -- returns the ProcessId when the new process has been created.
 forkProcess :: LocalNode -> Process () -> IO ProcessId
 forkProcess node (Process action) = do
-    (sendAddr, chan) <- Trans.newConnection (ndTransport node)
-    sendEnd <- Trans.connect sendAddr
+    (sourceAddr, chan) <- Trans.newConnection (ndTransport node)
+    sourceEnd <- Trans.connect sourceAddr
     processTable@(ProcessTable lpid _) <- takeMVar (ndProcessTable node)
-    let pid = ProcessId sendEnd NodeId lpid
+    let pid = ProcessId sourceEnd NodeId lpid
     _ <- forkIO $ do
       tid  <- myThreadId
       putMVar (ndProcessTable node) (insertProcess tid processTable)
@@ -142,7 +142,7 @@ forkProcess node (Process action) = do
       let pte = ProcessTableEntry tid
        in ProcessTable (nextPid+1) (IntMap.insert nextPid pte table)
 
-    receiverPump :: Trans.ReceiveEnd -> CQueue Message -> IO ()
+    receiverPump :: Trans.TargetEnd -> CQueue Message -> IO ()
     receiverPump chan queue = forever $ do
       msgBlobs <- Trans.receive chan
       readBlobs (concatMap BS.unpack msgBlobs)
@@ -179,9 +179,9 @@ spawnLocal proc = do
 send   :: Serializable a -> ProcessId -> a -> Process ()
 expect :: Serializable a -> Process a
 
-newChan     :: Serializable a => Process (SendPort a, ReceivePort a)
-sendChan    :: Serializable a => SendPort a -> a -> Process ()
-receiveChan :: Serializable a => ReceivePort a -> Process a
+newChan     :: Serializable a => Process (SourcePort a, TargetPort a)
+sendChan    :: Serializable a => SourcePort a -> a -> Process ()
+receiveChan :: Serializable a => TargetPort a -> Process a
 
 spawn       :: NodeId -> Closure (Process ()) -> Process ProcessId
 terminate   :: ProcessM a
