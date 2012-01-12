@@ -17,12 +17,12 @@ type ChanId = Int
 -- the transport layer. After compiling, the following will initialize a new
 -- master that waits for two clients to connect on the local machine:
 --
---     ./DemoTCP 127.0.0.1 8080 2
+--     ./DemoTCP 127.0.0.1 8080 sourceAddrFile 2
 --
 -- Following this, two slaves should be created that will connect to the master:
 --
---     ./DemoTCP 127.0.0.1 8081
---     ./DemoTCP 127.0.0.1 8082
+--     ./DemoTCP 127.0.0.1 8081 sourceAddrFile
+--     ./DemoTCP 127.0.0.1 8082 sourceAddrFile
 --
 -- Once the connection is established, the slaves will provide the master
 -- with their SourceAddr. The master then decodes this, and sends a message
