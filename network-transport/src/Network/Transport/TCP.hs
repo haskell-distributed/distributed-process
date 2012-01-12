@@ -15,7 +15,7 @@ import Network.Socket
   ( AddrInfoFlag (AI_PASSIVE), HostName, ServiceName, Socket
   , SocketType (Stream), SocketOption (ReuseAddr)
   , accept, addrAddress, addrFlags, addrFamily, bindSocket, defaultProtocol
-  , getAddrInfo, listen, setSocketOption, socket, withSocketsDo )
+  , getAddrInfo, listen, setSocketOption, socket, sClose, withSocketsDo )
 import Safe
 
 import qualified Data.ByteString.Char8 as BS
@@ -23,7 +23,7 @@ import qualified Data.IntMap as IntMap
 import qualified Network.Socket as N
 import qualified Network.Socket.ByteString as NBS
 
-type Chans   = MVar (Int, IntMap (Chan ByteString))
+type Chans   = MVar (Int, IntMap (Chan ByteString, MVar [Socket]))
 type ChanId  = Int
 
 -- | This deals with several different configuration properties:
@@ -51,14 +51,15 @@ mkTransport (TCPConfig _hints host service) = withSocketsDo $ do
   sock <- socket (addrFamily serverAddr) Stream defaultProtocol
   bindSocket sock (addrAddress serverAddr)
   listen sock 5
-  forkIO $ procConnections channels sock
+  _ <- forkIO $ procConnections channels sock
 
   return Transport
     { newConnectionWith = \_ -> do
         (chanId, chanMap) <- takeMVar channels
         chan <- newChan
-        putMVar channels (chanId + 1, IntMap.insert chanId chan chanMap)
-        return (mkSourceAddr host service chanId, mkTargetEnd chan)
+        socks <- newMVar [sock]
+        putMVar channels (chanId + 1, IntMap.insert chanId (chan, socks) chanMap)
+        return (mkSourceAddr host service chanId, mkTargetEnd chan socks)
     , newMulticastWith = undefined
     , deserialize = \bs ->
         case readMay . BS.unpack $ bs of
@@ -85,14 +86,16 @@ mkTransport (TCPConfig _hints host service) = withSocketsDo $ do
       NBS.sendAll sock $ BS.pack . show $ chanId
       return $ SourceEnd
         { send = \bss -> NBS.sendMany sock bss
+        , close = sClose sock
         }
 
-    mkTargetEnd :: Chan ByteString -> TargetEnd
-    mkTargetEnd chan = TargetEnd
+    mkTargetEnd :: Chan ByteString -> MVar [Socket] -> TargetEnd
+    mkTargetEnd chan socks = TargetEnd
       { -- for now we will implement this as a Chan
         receive = do
           bs <- readChan chan
           return [bs]
+      , closeAll = takeMVar socks >>= mapM_ sClose
       }
 
     procConnections :: Chans -> Socket -> IO ()
@@ -107,9 +110,11 @@ mkTransport (TCPConfig _hints host service) = withSocketsDo $ do
           (_, chanMap) <- readMVar chans
           case IntMap.lookup chanId chanMap of
             Nothing   -> error "procConnections: cannot find chanId"
-            Just chan -> forkIO $ do
-              unless (BS.null bs') $ writeChan chan bs'
-              procMessages chan clientSock
+            Just (chan, socks) -> do
+              modifyMVar_ socks (return . (clientSock :))
+              forkIO $ do
+                unless (BS.null bs') $ writeChan chan bs'
+                procMessages chan clientSock
 
     procMessages :: Chan ByteString -> Socket -> IO ()
     procMessages chan sock = forever $ do
