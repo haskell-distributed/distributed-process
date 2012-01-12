@@ -11,7 +11,6 @@ import Control.Concurrent.MVar
 import Control.Monad (forever, unless)
 import Data.ByteString.Char8 (ByteString)
 import Data.IntMap (IntMap)
-import Data.Word
 import Network.Socket
   ( AddrInfoFlag (AI_PASSIVE), HostName, ServiceName, Socket
   , SocketType (Stream), SocketOption (ReuseAddr)
