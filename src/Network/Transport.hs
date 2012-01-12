@@ -72,7 +72,7 @@ defaultSourceHints = SourceHints
 -- end. Connections between other sources the target end remain unaffected
 data SourceEnd = SourceEnd
   { send :: [ByteString] -> IO ()
-  , close :: IO ()
+  , closeSourceEnd :: IO ()
   }
 
 -- | A `TargetEnd` provides a `receive` function that allows messages
@@ -81,7 +81,7 @@ data SourceEnd = SourceEnd
 -- and all new connections will be refused.
 data TargetEnd = TargetEnd
   { receive :: IO [ByteString]
-  , closeAll :: IO ()
+  , closeTargetEnd :: IO ()
   }
 
 newtype MulticastSourceEnd = MulticastSourceEnd
