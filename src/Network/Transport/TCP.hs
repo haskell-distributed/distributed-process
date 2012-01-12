@@ -13,6 +13,10 @@ import Data.ByteString.Char8 (ByteString)
 import Data.IntMap (IntMap)
 import Data.Word
 import Network.Socket
+  ( AddrInfoFlag (AI_PASSIVE), HostName, ServiceName, Socket
+  , SocketType (Stream), SocketOption (ReuseAddr)
+  , accept, addrAddress, addrFlags, addrFamily, bindSocket, defaultProtocol
+  , getAddrInfo, listen, setSocketOption, socket, withSocketsDo )
 import Safe
 
 import qualified Data.ByteString.Char8 as BS
@@ -81,7 +85,7 @@ mkTransport (TCPConfig _hints host service) = withSocketsDo $ do
       N.connect sock (addrAddress serverAddr)
       NBS.sendAll sock $ BS.pack . show $ chanId
       return $ SourceEnd
-        { Network.Transport.send = \bss -> NBS.sendMany sock bss
+        { send = \bss -> NBS.sendMany sock bss
         }
 
     mkTargetEnd :: Chan ByteString -> TargetEnd
