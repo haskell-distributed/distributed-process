@@ -86,7 +86,7 @@ mkTransport (TCPConfig _hints host service) = withSocketsDo $ do
       NBS.sendAll sock $ BS.pack . show $ chanId
       return $ SourceEnd
         { send = \bss -> NBS.sendMany sock bss
-        , close = sClose sock
+        , closeSourceEnd = sClose sock
         }
 
     mkTargetEnd :: Chan ByteString -> MVar [Socket] -> TargetEnd
@@ -95,7 +95,7 @@ mkTransport (TCPConfig _hints host service) = withSocketsDo $ do
         receive = do
           bs <- readChan chan
           return [bs]
-      , closeAll = takeMVar socks >>= mapM_ sClose
+      , closeTargetEnd = takeMVar socks >>= mapM_ sClose
       }
 
     procConnections :: Chans -> Socket -> IO ()

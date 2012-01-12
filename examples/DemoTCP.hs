@@ -45,7 +45,7 @@ main = do
         [clientMessage] <- receive masterTargetEnd
         print clientMessage
 
-      closeAll masterTargetEnd
+      closeTargetEnd masterTargetEnd
       putStrLn "master: close connections"
 
     -- Slave:
@@ -61,7 +61,7 @@ main = do
       send masterSourceEnd [BS.pack message]
       putStrLn "slave: sent message to master"
 
-      close masterSourceEnd
+      closeSourceEnd masterSourceEnd
       putStrLn "slave: close connection"
 
     _ -> error "Unexpected arguments"
