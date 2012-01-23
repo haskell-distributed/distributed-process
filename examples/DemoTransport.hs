@@ -7,7 +7,7 @@ import Network.Transport.TCP (mkTransport, TCPConfig (..))
 import Control.Concurrent
 import Control.Monad
 
-import qualified Data.ByteString.Char8 as BS
+import qualified Data.ByteString.Lazy.Char8 as BS
 
 import Debug.Trace
 

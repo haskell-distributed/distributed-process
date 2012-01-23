@@ -9,19 +9,18 @@ import Control.Concurrent (forkIO)
 import Control.Concurrent.Chan
 import Control.Concurrent.MVar
 import Control.Monad (forever, unless)
-import Data.ByteString.Char8 (ByteString)
+import Data.ByteString.Lazy.Char8 (ByteString)
 import Data.IntMap (IntMap)
-import Data.Word
 import Network.Socket
 import Safe
 
-import qualified Data.ByteString.Char8 as BS
+import qualified Data.ByteString.Lazy.Char8 as BS
 import qualified Data.IntMap as IntMap
 import qualified Network.Socket as N
-import qualified Network.Socket.ByteString as NBS
+import qualified Network.Socket.ByteString.Lazy as NBS
 
-type Chans   = MVar (Int, IntMap (Chan ByteString))
-type ChanId  = Int
+type ChanId = Int
+type Chans  = MVar (ChanId, IntMap (Chan ByteString))
 
 -- | This deals with several different configuration properties:
 --   * Buffer size, specified in Hints
@@ -56,7 +55,7 @@ mkTransport (TCPConfig _hints host service) = withSocketsDo $ do
         chan <- newChan
         putMVar channels (chanId + 1, IntMap.insert chanId chan chanMap)
         return (mkSourceAddr host service chanId, mkTargetEnd chan)
-    , newMulticastWith = undefined
+    , newMulticastWith = error "newMulticastWith: not defined"
     , deserialize = \bs ->
         case readMay . BS.unpack $ bs of
           Nothing                      -> error "deserialize: cannot parse"
@@ -80,8 +79,8 @@ mkTransport (TCPConfig _hints host service) = withSocketsDo $ do
       setSocketOption sock ReuseAddr 1
       N.connect sock (addrAddress serverAddr)
       NBS.sendAll sock $ BS.pack . show $ chanId
-      return $ SourceEnd
-        { Network.Transport.send = \bss -> NBS.sendMany sock bss
+      return SourceEnd
+        { Network.Transport.send = mapM_ (NBS.send sock)
         }
 
     mkTargetEnd :: Chan ByteString -> TargetEnd

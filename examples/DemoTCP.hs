@@ -7,7 +7,7 @@ import Control.Monad
 import Network.Socket (HostName, ServiceName)
 import System.Environment
 
-import qualified Data.ByteString.Char8 as BS
+import qualified Data.ByteString.Lazy.Char8 as BS
 
 import Debug.Trace
 
