@@ -77,7 +77,7 @@ data SourceEnd = SourceEnd
 
 -- | A `TargetEnd` provides a `receive` function that allows messages
 -- to be received from the corresponding `SourceEnd`s.
--- The `closeAll` function closes all connections to this target,
+-- The `closeTargetEnd` function closes all connections to this target,
 -- and all new connections will be refused.
 data TargetEnd = TargetEnd
   { receive :: IO [ByteString]
