@@ -11,6 +11,7 @@ Cabal-Version:       >=1.2
 
 Library
   Build-Depends:     base >= 3 && < 5,
+                     binary >= 0.5,
                      bytestring >= 0.9,
                      containers >= 0.4,
                      network >= 2.3,
