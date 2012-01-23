@@ -8,11 +8,15 @@ import Network.Transport
 import Control.Concurrent (forkIO)
 import Control.Concurrent.Chan
 import Control.Concurrent.MVar
-import Control.Monad (forever, unless)
+import Control.Monad (forever)
 import Data.ByteString.Lazy.Char8 (ByteString)
 import Data.IntMap (IntMap)
 import Data.Int
 import Network.Socket
+  ( AddrInfoFlag (AI_PASSIVE), HostName, ServiceName, Socket
+  , SocketType (Stream), SocketOption (ReuseAddr)
+  , accept, addrAddress, addrFlags, addrFamily, bindSocket, defaultProtocol
+  , getAddrInfo, listen, setSocketOption, socket, sClose, withSocketsDo )
 import Safe
 
 import qualified Data.Binary as B
@@ -21,8 +25,8 @@ import qualified Data.IntMap as IntMap
 import qualified Network.Socket as N
 import qualified Network.Socket.ByteString.Lazy as NBS
 
-type ChanId = Int
-type Chans  = MVar (ChanId, IntMap (Chan ByteString))
+type ChanId  = Int
+type Chans   = MVar (ChanId, IntMap (Chan ByteString, MVar [Socket]))
 
 -- | This deals with several different configuration properties:
 --   * Buffer size, specified in Hints
@@ -49,14 +53,15 @@ mkTransport (TCPConfig _hints host service) = withSocketsDo $ do
   sock <- socket (addrFamily serverAddr) Stream defaultProtocol
   bindSocket sock (addrAddress serverAddr)
   listen sock 5
-  forkIO $ procConnections channels sock
+  _ <- forkIO $ procConnections channels sock
 
   return Transport
     { newConnectionWith = \_ -> do
         (chanId, chanMap) <- takeMVar channels
         chan <- newChan
-        putMVar channels (chanId + 1, IntMap.insert chanId chan chanMap)
-        return (mkSourceAddr host service chanId, mkTargetEnd chan)
+        socks <- newMVar [sock]
+        putMVar channels (chanId + 1, IntMap.insert chanId (chan, socks) chanMap)
+        return (mkSourceAddr host service chanId, mkTargetEnd chan socks)
     , newMulticastWith = error "newMulticastWith: not defined"
     , deserialize = \bs ->
         let (host, service, chanId) = B.decode bs in
@@ -81,18 +86,20 @@ mkTransport (TCPConfig _hints host service) = withSocketsDo $ do
       N.connect sock (addrAddress serverAddr)
       NBS.sendAll sock $ B.encode (fromIntegral chanId :: Int64)
       return SourceEnd
-        { Network.Transport.send = \bs -> do
-            let size = fromIntegral (sum . map BS.length $ bs) :: Int64
+        { send = \bss -> do
+            let size = fromIntegral (sum . map BS.length $ bss) :: Int64
             NBS.sendAll sock (B.encode size)
-            mapM_ (NBS.sendAll sock) bs
+            mapM_ (NBS.sendAll sock) bss
+        , closeSourceEnd = sClose sock
         }
 
-    mkTargetEnd :: Chan ByteString -> TargetEnd
-    mkTargetEnd chan = TargetEnd
+    mkTargetEnd :: Chan ByteString -> MVar [Socket] -> TargetEnd
+    mkTargetEnd chan socks = TargetEnd
       { -- for now we will implement this as a Chan
         receive = do
           bs <- readChan chan
           return [bs]
+      , closeTargetEnd = takeMVar socks >>= mapM_ sClose
       }
 
     procConnections :: Chans -> Socket -> IO ()
@@ -104,7 +111,9 @@ mkTransport (TCPConfig _hints host service) = withSocketsDo $ do
       (_, chanMap) <- readMVar chans
       case IntMap.lookup chanId chanMap of
         Nothing   -> error "procConnections: cannot find chanId"
-        Just chan -> forkIO $ procMessages chan clientSock
+        Just (chan, socks) -> do
+          modifyMVar_ socks (return . (clientSock :))
+          forkIO $ procMessages chan clientSock
 
     -- This function first extracts a header of type Int64, which determines
     -- the size of the ByteString that follows. The ByteString is then

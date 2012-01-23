@@ -45,6 +45,9 @@ main = do
         [clientMessage] <- receive masterTargetEnd
         print clientMessage
 
+      closeTargetEnd masterTargetEnd
+      putStrLn "master: close connections"
+
     -- Slave:
     -- Each slave provides its own host and service, as well as details of
     -- the master it wishes to connect to.
@@ -57,6 +60,9 @@ main = do
 
       send masterSourceEnd [BS.pack message]
       putStrLn "slave: sent message to master"
+
+      closeSourceEnd masterSourceEnd
+      putStrLn "slave: close connection"
 
     _ -> error "Unexpected arguments"
 
