@@ -68,14 +68,20 @@ defaultSourceHints = SourceHints
 
 -- | A `SourceEnd` provides a `send` function that allows vectored messages
 -- to be sent to the corresponding `TargetEnd`.
-newtype SourceEnd = SourceEnd
+-- The `close` function closes the connection between this source and the target
+-- end. Connections between other sources the target end remain unaffected
+data SourceEnd = SourceEnd
   { send :: [ByteString] -> IO ()
+  , closeSourceEnd :: IO ()
   }
 
 -- | A `TargetEnd` provides a `receive` function that allows messages
 -- to be received from the corresponding `SourceEnd`s.
-newtype TargetEnd = TargetEnd
+-- The `closeAll` function closes all connections to this target,
+-- and all new connections will be refused.
+data TargetEnd = TargetEnd
   { receive :: IO [ByteString]
+  , closeTargetEnd :: IO ()
   }
 
 newtype MulticastSourceEnd = MulticastSourceEnd
