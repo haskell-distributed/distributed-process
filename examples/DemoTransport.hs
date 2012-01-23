@@ -30,7 +30,7 @@ demo0 = do
   mapM_ (\n -> send sourceEnd [BS.pack ("hello " ++ show n)]) [1 .. 10]
   threadDelay 100000
 
-  closeAll targetEnd
+  closeTargetEnd targetEnd
 
 -- | Check endpoint serialization and deserialization.
 demo1 :: IO ()
