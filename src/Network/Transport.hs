@@ -33,6 +33,7 @@ data Transport = Transport
   { newConnectionWith :: Hints -> IO (SourceAddr, TargetEnd)
   , newMulticastWith  :: Hints -> IO (MulticastSourceEnd, MulticastTargetAddr)
   , deserialize       :: ByteString -> Maybe SourceAddr
+  , closeTransport    :: IO ()
   }
 
 -- | This is a convenience function that creates a new connection on a transport
