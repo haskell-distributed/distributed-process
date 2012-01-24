@@ -5,10 +5,10 @@ module Network.Transport.TCP
 
 import Network.Transport
 
-import Control.Concurrent (forkIO)
+import Control.Concurrent (forkIO, ThreadId, killThread)
 import Control.Concurrent.Chan
 import Control.Concurrent.MVar
-import Control.Monad (forever)
+import Control.Monad (forever, forM_)
 import Data.ByteString.Lazy.Char8 (ByteString)
 import Data.IntMap (IntMap)
 import Data.Int
@@ -25,8 +25,10 @@ import qualified Data.IntMap as IntMap
 import qualified Network.Socket as N
 import qualified Network.Socket.ByteString.Lazy as NBS
 
+import Debug.Trace
+
 type ChanId  = Int
-type Chans   = MVar (ChanId, IntMap (Chan ByteString, MVar [Socket]))
+type Chans   = MVar (ChanId, IntMap (Chan ByteString, [(ThreadId, Socket)]))
 
 -- | This deals with several different configuration properties:
 --   * Buffer size, specified in Hints
@@ -42,7 +44,7 @@ data TCPConfig = TCPConfig Hints HostName ServiceName
 -- Messages are all queued using an unbounded Chan.
 mkTransport :: TCPConfig -> IO Transport
 mkTransport (TCPConfig _hints host service) = withSocketsDo $ do
-  channels <- newMVar (0, IntMap.empty)
+  chans <- newMVar (0, IntMap.empty)
   serverAddrs <- getAddrInfo
     (Just (N.defaultHints { addrFlags = [AI_PASSIVE] }))
     Nothing
@@ -51,21 +53,31 @@ mkTransport (TCPConfig _hints host service) = withSocketsDo $ do
                      [] -> error "mkTransport: getAddrInfo returned []"
                      as -> head as
   sock <- socket (addrFamily serverAddr) Stream defaultProtocol
+  setSocketOption sock ReuseAddr 1
   bindSocket sock (addrAddress serverAddr)
   listen sock 5
-  _ <- forkIO $ procConnections channels sock
+  threadId <- forkIO $ procConnections chans sock
 
   return Transport
     { newConnectionWith = \_ -> do
-        (chanId, chanMap) <- takeMVar channels
+        (chanId, chanMap) <- takeMVar chans
         chan <- newChan
-        socks <- newMVar [sock]
-        putMVar channels (chanId + 1, IntMap.insert chanId (chan, socks) chanMap)
-        return (mkSourceAddr host service chanId, mkTargetEnd chan socks)
+        putMVar chans (chanId + 1, IntMap.insert chanId (chan, []) chanMap)
+        return (mkSourceAddr host service chanId, mkTargetEnd chans chanId chan)
     , newMulticastWith = error "newMulticastWith: not defined"
     , deserialize = \bs ->
         let (host, service, chanId) = B.decode bs in
         Just $ mkSourceAddr host service chanId
+    , closeTransport = do
+        -- Kill the transport channel process
+        killThread threadId
+        sClose sock
+        -- Kill all target end processes
+        (chanId, chanMap) <- takeMVar chans
+        forM_ (IntMap.elems chanMap) (\(chan, socks) ->
+          forM_ socks (\(threadId', sock') -> do
+            killThread threadId'
+            sClose sock'))
     }
 
   where
@@ -93,13 +105,22 @@ mkTransport (TCPConfig _hints host service) = withSocketsDo $ do
         , closeSourceEnd = sClose sock
         }
 
-    mkTargetEnd :: Chan ByteString -> MVar [Socket] -> TargetEnd
-    mkTargetEnd chan socks = TargetEnd
+    mkTargetEnd :: Chans -> ChanId -> Chan ByteString -> TargetEnd
+    mkTargetEnd chans chanId chan = TargetEnd
       { -- for now we will implement this as a Chan
         receive = do
           bs <- readChan chan
           return [bs]
-      , closeTargetEnd = takeMVar socks >>= mapM_ sClose
+      , closeTargetEnd = do
+          (chanId', chanMap) <- takeMVar chans
+          case IntMap.lookup chanId chanMap of
+            Nothing         -> putMVar chans (chanId', chanMap)
+            Just (_, socks) -> do
+              forM_ socks $ \(threadId, sock) -> do
+                killThread threadId
+                sClose sock
+              let chanMap' = IntMap.delete chanId chanMap
+              putMVar chans (chanId', chanMap')
       }
 
     procConnections :: Chans -> Socket -> IO ()
@@ -108,36 +129,50 @@ mkTransport (TCPConfig _hints host service) = withSocketsDo $ do
       -- decode the first message to find the correct chanId
       bs <- recvExact clientSock 8
       let chanId = fromIntegral (B.decode bs :: Int64)
-      (_, chanMap) <- readMVar chans
+      (chanId', chanMap) <- takeMVar chans
       case IntMap.lookup chanId chanMap of
-        Nothing   -> error "procConnections: cannot find chanId"
+        Nothing   -> do
+          putMVar chans (chanId', chanMap)
+          error "procConnections: cannot find chanId"
         Just (chan, socks) -> do
-          modifyMVar_ socks (return . (clientSock :))
-          forkIO $ procMessages chan clientSock
+          threadId <- forkIO $ procMessages chans chanId chan clientSock
+          let chanMap' = IntMap.insert chanId (chan, (threadId, clientSock):socks) chanMap
+          putMVar chans (chanId', chanMap')
 
     -- This function first extracts a header of type Int64, which determines
     -- the size of the ByteString that follows. The ByteString is then
     -- extracted from the socket, and then written to the Chan only when
-    -- complete.
-    procMessages :: Chan ByteString -> Socket -> IO ()
-    procMessages chan sock = forever $ do
+    -- complete. A length of -1 indicates that the socket has finished
+    -- communicating.
+    procMessages :: Chans -> ChanId -> Chan ByteString -> Socket -> IO ()
+    procMessages chans chanId chan sock = do
       sizeBS <- recvExact sock 8
       let size = B.decode sizeBS
-      bs <- recvExact sock size
-      writeChan chan bs
+      if size == -1
+        then do
+          (chanId', chanMap) <- takeMVar chans
+          case IntMap.lookup chanId chanMap of
+            Nothing            -> do
+              putMVar chans (chanId', chanMap)
+              error "procMessages: chanId not found."
+            Just (chan, socks) -> do
+              let socks'   = filter ((/= sock) . snd) socks
+              let chanMap' = IntMap.insert chanId (chan, socks') chanMap
+              putMVar chans (chanId', chanMap')
+          sClose sock
+        else do
+          bs <- recvExact sock size
+          writeChan chan bs
+          procMessages chans chanId chan sock
 
--- The result of `recvExact sock n` is a `ByteString` whose length is exactly
--- `n`. No more bytes than necessary are read from the socket.
+-- | The result of `recvExact sock n` is a `ByteString` of length `n`, received
+-- from `sock`. No more bytes than necessary are read from the socket.
 -- NB: This uses Network.Socket.ByteString.recv, which may *discard*
 -- superfluous input depending on the socket type.
 recvExact :: Socket -> Int64 -> IO ByteString
-recvExact sock n = do
-  bs <- NBS.recv sock n
-  let remainder = n  - BS.length bs
-  if remainder > 0
-    then do
-      bs' <- recvExact sock remainder
-      return (BS.append bs bs')
-    else
-      return bs
-
+recvExact sock n = go BS.empty sock n
+ where
+  go bs sock 0 = return bs
+  go bs sock n = do
+    bs' <- NBS.recv sock n
+    go (BS.append bs bs') sock (n - BS.length bs')
