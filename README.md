@@ -38,7 +38,7 @@ The first demo, `demo0` yields the following output:
     logServer: [Chunk "hello 7" Empty]
     logServer: [Chunk "hello 8" Empty]
     logServer: [Chunk "hello 9" Empty]
-    logServer: [Chunk "hello 10" Empty
+    logServer: [Chunk "hello 10" Empty]
 
 See the source code for more details.
 
@@ -52,7 +52,7 @@ This is demonstrated using the `demo1` function:
 
 The output of the example is as follows:
 
-    *DemoProcess> demo1 
+    *DemoProcess> demo1
     "Starting node"
     "Starting process"
     1: jim1 says: hi there
@@ -86,10 +86,10 @@ which then outputs some data.
 Benchmarks
 ----------
 
-The Transport.TCP backend uses Network.ByteString.Lazy as its undelying
+The `Transport.TCP` backend uses `Network.ByteString.Lazy` as its underlying
 protocol, so we produce a benchmark that compares it directly with this.
-Furthermore, the Data.Binary package is used for converting values
-to ByteStrings for transmission.
+Furthermore, the `Data.Binary` package is used for converting values
+to `ByteStrings` for transmission.
 
 The benchmarking is performed on the client side using criterion:
 the server must be set up before benching is performed.
