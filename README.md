@@ -102,5 +102,13 @@ are sent between a server and client. Full details can be found in:
     ./benchmarks/PingTCP.hs
     ./benchmarks/PingTransport.hs
 
+### Send
+
+This benchmark measures how quickly a number of bytes can be sent from
+a client to a server. full details can be found in the following files:
+
+    ./benchmarks/SendTCP.hs
+    ./benchmarks/SendTransport.hs
+
 [1]: http://research.microsoft.com/en-us/um/people/simonpj/papers/parallel/remote.pdf
 [2]: https://github.com/haskell-distributed/distributed-process/wiki
