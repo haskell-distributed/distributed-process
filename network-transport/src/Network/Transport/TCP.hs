@@ -12,6 +12,7 @@ import Control.Monad (forever, forM_)
 import Data.ByteString.Lazy.Char8 (ByteString)
 import Data.IntMap (IntMap)
 import Data.Int
+import Data.Word
 import Network.Socket
   ( AddrInfoFlag (AI_PASSIVE), HostName, ServiceName, Socket
   , SocketType (Stream), SocketOption (ReuseAddr)
@@ -99,7 +100,12 @@ mkSourceEnd host service chanId = withSocketsDo $ do
   return SourceEnd
     { send = \bss -> do
         let size = fromIntegral (sum . map BS.length $ bss) :: Int64
-        NBS.sendAll sock (B.encode size)
+        if size <= fromIntegral (maxBound :: Word8)
+          then
+            NBS.sendAll sock (B.encode (fromIntegral size :: Word8))
+          else do
+            NBS.sendAll sock (B.encode (0 :: Word8))
+            NBS.sendAll sock (B.encode size)
         mapM_ (NBS.sendAll sock) bss
     , closeSourceEnd = sClose sock
     }
@@ -122,60 +128,88 @@ mkTargetEnd chans chanId chan = TargetEnd
           putMVar chans (chanId', chanMap')
   }
 
+-- | This function waits for inbound connections. If a connection fails
+-- for some reason, an error is raised.
 procConnections :: Chans -> Socket -> IO ()
 procConnections chans sock = forever $ do
   (clientSock, _clientAddr) <- accept sock
   -- decode the first message to find the correct chanId
-  bs <- recvExact clientSock 8
-  let chanId = fromIntegral (B.decode bs :: Int64)
-  (chanId', chanMap) <- takeMVar chans
-  case IntMap.lookup chanId chanMap of
-    Nothing   -> do
-      putMVar chans (chanId', chanMap)
-      error "procConnections: cannot find chanId"
-    Just (chan, socks) -> do
-      threadId <- forkIO $ procMessages chans chanId chan clientSock
-      let chanMap' = IntMap.insert chanId (chan, (threadId, clientSock):socks) chanMap
-      putMVar chans (chanId', chanMap')
-
--- | This function first extracts a header of type Int64, which determines
--- the size of the ByteString that follows. The ByteString is then
--- extracted from the socket, and then written to the Chan only when
--- complete.
-procMessages :: Chans -> ChanId -> Chan ByteString -> Socket -> IO ()
-procMessages chans chanId chan sock = do
-  sizeBS <- recvExact sock 8
-  if BS.null sizeBS
-    then do
+  mBs <- recvExact clientSock 8
+  case mBs of
+    Nothing -> error "procConnections: inbound chanId aborted"
+    Just bs -> do
+      let chanId = fromIntegral (B.decode bs :: Int64)
       (chanId', chanMap) <- takeMVar chans
       case IntMap.lookup chanId chanMap of
-        Nothing            -> do
+        Nothing   -> do
           putMVar chans (chanId', chanMap)
-          error "procMessages: chanId not found."
+          error "procConnections: cannot find chanId"
         Just (chan, socks) -> do
-          let socks'   = filter ((/= sock) . snd) socks
-          let chanMap' = IntMap.insert chanId (chan, socks') chanMap
+          threadId <- forkIO $ procMessages chans chanId chan clientSock
+          let chanMap' = IntMap.insert chanId (chan, (threadId, clientSock):socks) chanMap
           putMVar chans (chanId', chanMap')
-      sClose sock
-    else do
-      let size = B.decode sizeBS
-      bs <- recvExact sock size
-      writeChan chan bs
-      procMessages chans chanId chan sock
 
--- | The result of `recvExact sock n` is a `ByteString` of length `n`, received
--- from `sock`. No more bytes than necessary are read from the socket.
+-- | This function first extracts a header of type Word8, which determines
+-- the size of the ByteString that follows. If this size is 0, this indicates
+-- that the ByteString is large, so the next value is an Int64, which
+-- determines the size of the ByteString that follows. The ByteString is then
+-- extracted from the socket, and then written to the Chan only when
+-- complete. If either of the first header size is null this indicates the
+-- socket has closed.
+procMessages :: Chans -> ChanId -> Chan ByteString -> Socket -> IO ()
+procMessages chans chanId chan sock = do
+  mSizeBS <- recvExact sock 1
+  case mSizeBS of
+    Nothing     -> closeSocket
+    Just sizeBS -> do
+      let size = fromIntegral (B.decode sizeBS :: Word8)
+      if size == 0
+        then do
+          mSizeBS' <- recvExact sock 8
+          case mSizeBS' of
+            Nothing      -> closeSocket
+            Just sizeBS' -> procMessage (B.decode sizeBS' :: Int64)
+        else procMessage size
+ where
+  closeSocket :: IO ()
+  closeSocket = do
+    (chanId', chanMap) <- takeMVar chans
+    case IntMap.lookup chanId chanMap of
+      Nothing            -> do
+        putMVar chans (chanId', chanMap)
+        error "procMessages: chanId not found."
+      Just (chan, socks) -> do
+        let socks'   = filter ((/= sock) . snd) socks
+        let chanMap' = IntMap.insert chanId (chan, socks') chanMap
+        putMVar chans (chanId', chanMap')
+    sClose sock
+  procMessage :: Int64 -> IO ()
+  procMessage size = do
+    mBs <- recvExact sock size
+    case mBs of
+      Nothing -> closeSocket
+      Just bs -> do
+        writeChan chan bs
+        procMessages chans chanId chan sock
+
+-- | The result of `recvExact sock n` is a `Maybe ByteString` of length `n`,
+-- received from `sock`. No more bytes than necessary are read from the socket.
 -- NB: This uses Network.Socket.ByteString.recv, which may *discard*
 -- superfluous input depending on the socket type. Also note that
 -- if `recv` returns an empty `ByteString` then this means that the socket
 -- was closed: in this case, we return the empty `ByteString`.
-recvExact :: Socket -> Int64 -> IO ByteString
+-- NB: It may be appropriate to change the return type to
+-- IO (Either ByteString ByteString), where `return Left bs` indicates
+-- a partial retrieval since the socket was closed, and `return Right bs`
+-- indicates success. This hasn't been implemented, since a Transport `receive`
+-- represents an atomic receipt of a message.
+recvExact :: Socket -> Int64 -> IO (Maybe ByteString)
 recvExact sock n = go BS.empty sock n
  where
-  go bs sock 0 = return bs
+  go bs sock 0 = return (Just bs)
   go bs sock n = do
     bs' <- NBS.recv sock n
     if BS.null bs'
-      then return bs'
+      then return Nothing
       else go (BS.append bs bs') sock (n - BS.length bs')
 
