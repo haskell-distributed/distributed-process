@@ -138,16 +138,14 @@ procConnections chans sock = forever $ do
       let chanMap' = IntMap.insert chanId (chan, (threadId, clientSock):socks) chanMap
       putMVar chans (chanId', chanMap')
 
--- This function first extracts a header of type Int64, which determines
+-- | This function first extracts a header of type Int64, which determines
 -- the size of the ByteString that follows. The ByteString is then
 -- extracted from the socket, and then written to the Chan only when
--- complete. A length of -1 indicates that the socket has finished
--- communicating.
+-- complete.
 procMessages :: Chans -> ChanId -> Chan ByteString -> Socket -> IO ()
 procMessages chans chanId chan sock = do
   sizeBS <- recvExact sock 8
-  let size = B.decode sizeBS
-  if size == -1
+  if BS.null sizeBS
     then do
       (chanId', chanMap) <- takeMVar chans
       case IntMap.lookup chanId chanMap of
@@ -160,6 +158,7 @@ procMessages chans chanId chan sock = do
           putMVar chans (chanId', chanMap')
       sClose sock
     else do
+      let size = B.decode sizeBS
       bs <- recvExact sock size
       writeChan chan bs
       procMessages chans chanId chan sock
@@ -167,11 +166,16 @@ procMessages chans chanId chan sock = do
 -- | The result of `recvExact sock n` is a `ByteString` of length `n`, received
 -- from `sock`. No more bytes than necessary are read from the socket.
 -- NB: This uses Network.Socket.ByteString.recv, which may *discard*
--- superfluous input depending on the socket type.
+-- superfluous input depending on the socket type. Also note that
+-- if `recv` returns an empty `ByteString` then this means that the socket
+-- was closed: in this case, we return the empty `ByteString`.
 recvExact :: Socket -> Int64 -> IO ByteString
 recvExact sock n = go BS.empty sock n
  where
   go bs sock 0 = return bs
   go bs sock n = do
     bs' <- NBS.recv sock n
-    go (BS.append bs bs') sock (n - BS.length bs')
+    if BS.null bs'
+      then return bs'
+      else go (BS.append bs bs') sock (n - BS.length bs')
+
