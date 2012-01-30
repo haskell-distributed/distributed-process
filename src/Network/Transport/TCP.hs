@@ -26,8 +26,6 @@ import qualified Data.IntMap as IntMap
 import qualified Network.Socket as N
 import qualified Network.Socket.ByteString.Lazy as NBS
 
-import Debug.Trace
-
 type ChanId  = Int
 type Chans   = MVar (ChanId, IntMap (Chan ByteString, [(ThreadId, Socket)]))
 
@@ -168,7 +166,9 @@ procMessages chans chanId chan sock = do
           mSizeBS' <- recvExact sock 8
           case mSizeBS' of
             Nothing      -> closeSocket
-            Just sizeBS' -> procMessage (B.decode sizeBS' :: Int64)
+            Just sizeBS' -> do
+            let size' = B.decode sizeBS' :: Int64
+            procMessage size'
         else procMessage size
  where
   closeSocket :: IO ()
