@@ -83,5 +83,24 @@ with their `SourceAddr`. The master then decodes this, and sends a message
 back. After processing this message, the slaves respond to the master,
 which then outputs some data.
 
+Benchmarks
+----------
+
+The Transport.TCP backend uses Network.ByteString.Lazy as its undelying
+protocol, so we produce a benchmark that compares it directly with this.
+Furthermore, the Data.Binary package is used for converting values
+to ByteStrings for transmission.
+
+The benchmarking is performed on the client side using criterion:
+the server must be set up before benching is performed.
+
+### Ping
+
+This benchmark measures how quickly a sequence of ping/pong messages
+are sent between a server and client. Full details can be found in:
+
+    ./benchmarks/PingTCP.hs
+    ./benchmarks/PingTransport.hs
+
 [1]: http://research.microsoft.com/en-us/um/people/simonpj/papers/parallel/remote.pdf
 [2]: https://github.com/haskell-distributed/distributed-process/wiki
