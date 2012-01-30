@@ -100,11 +100,11 @@ mkSourceEnd host service chanId = withSocketsDo $ do
   return SourceEnd
     { send = \bss -> do
         let size = fromIntegral (sum . map BS.length $ bss) :: Int64
-        if size <= fromIntegral (maxBound :: Word8)
+        if size < 255
           then
             NBS.sendAll sock (B.encode (fromIntegral size :: Word8))
           else do
-            NBS.sendAll sock (B.encode (0 :: Word8))
+            NBS.sendAll sock (B.encode (255 :: Word8))
             NBS.sendAll sock (B.encode size)
         mapM_ (NBS.sendAll sock) bss
     , closeSourceEnd = sClose sock
@@ -163,7 +163,7 @@ procMessages chans chanId chan sock = do
     Nothing     -> closeSocket
     Just sizeBS -> do
       let size = fromIntegral (B.decode sizeBS :: Word8)
-      if size == 0
+      if size == 255
         then do
           mSizeBS' <- recvExact sock 8
           case mSizeBS' of
