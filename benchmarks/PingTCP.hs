@@ -68,21 +68,21 @@ main = do
       -- benchmark the pings
       withArgs args' $ defaultMain [ benchPing sock pings ]
 
--- | Each `ping` sends a single `Int64`, and expects to receive one
+-- | Each `ping` sends a single byte, and expects to receive one
 -- back in return.
-ping :: Socket -> Int64 -> IO Int64
-ping sock n = do
-  NBS.send sock $ encode n
-  bs <- NBS.recv sock 8
+ping :: Socket -> IO Word8
+ping sock = do
+  NBS.send sock $ encode (0 :: Word8)
+  bs <- NBS.recv sock 1
   return $ decode bs
 
 pong :: Socket -> IO ()
 pong sock = do
-  bs <- NBS.recv sock 8
+  bs <- NBS.recv sock 1
   NBS.sendAll sock bs
   return ()
 
 benchPing :: Socket -> Int64 -> Benchmark
 benchPing sock n = bench "TCP Ping" $
-  nfIO (mapM_ (ping sock) [1 .. n])
+  nfIO (replicateM_ (fromIntegral n) (ping sock))
 

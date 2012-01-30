@@ -3,7 +3,7 @@ module Main where
 import Network.Transport
 import Network.Transport.TCP (mkTransport, TCPConfig (..))
 
-import Control.Monad (forever)
+import Control.Monad (forever, replicateM_)
 import Criterion.Main (Benchmark, bench, defaultMain, nfIO)
 import Data.Binary
 import Data.Maybe (fromJust)
@@ -77,9 +77,9 @@ pong targetEndPing sourceEndPong = do
 -- | The effect of `ping sourceEndPing targetEndPong n` is to send the number
 -- `n` using `sourceEndPing`, and to then receive the a number from
 -- `targetEndPong`, which is then returned.
-ping :: SourceEnd -> TargetEnd -> Int64 -> IO Int64
-ping sourceEndPing targetEndPong n = do
-  send sourceEndPing [encode n]
+ping :: SourceEnd -> TargetEnd -> IO Int64
+ping sourceEndPing targetEndPong = do
+  send sourceEndPing [BS.empty]
   [bs] <- receive targetEndPong
   return $ decode bs
 
@@ -88,5 +88,5 @@ ping sourceEndPing targetEndPong n = do
 -- taken is benchmarked.
 benchPing :: SourceEnd -> TargetEnd -> Int64 -> Benchmark
 benchPing sourceEndPing targetEndPong n = bench "Transport Ping" $
-  nfIO (mapM_ (ping sourceEndPing targetEndPong) [1 .. n])
+  nfIO (replicateM_ (fromIntegral n) (ping sourceEndPing targetEndPong))
 
