@@ -54,7 +54,6 @@ main = do
 
     "client" : host : service : sourceAddrFilePath : sizeStr : args' -> do
       let size = read sizeStr
-      let bs = BS.replicate size 0
 
       -- establish transport
       transport <- mkTransport $ TCPConfig defaultHints host service
@@ -67,7 +66,8 @@ main = do
       (sourceAddrPong, targetEndPong) <- newConnection transport
       send sourceEndPing [serialize sourceAddrPong]
 
-      -- benchmark the pings
+      -- benchmark the data
+      let bs = BS.replicate size 0
       withArgs args' $ defaultMain [ benchSend sourceEndPing targetEndPong bs ]
 
 -- | The effect of `ping sourceEndPing targetEndPong bs` is to send the
@@ -91,6 +91,6 @@ pong targetEndPing sourceEndPong = do
 -- `bs` pings down `sourceEndPing` using the `ping` function. The time
 -- taken is benchmarked.
 benchSend :: SourceEnd -> TargetEnd -> ByteString -> Benchmark
-benchSend sourceEndPing targetEndPong bs = bench "Transport Ping" $
+benchSend sourceEndPing targetEndPong bs = bench "SendTransport" $
   nfIO (ping sourceEndPing targetEndPong bs)
 

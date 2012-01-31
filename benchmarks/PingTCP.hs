@@ -83,6 +83,6 @@ pong sock = do
   return ()
 
 benchPing :: Socket -> Int64 -> Benchmark
-benchPing sock n = bench "TCP Ping" $
+benchPing sock n = bench "PingTCP" $
   nfIO (replicateM_ (fromIntegral n) (ping sock))
 

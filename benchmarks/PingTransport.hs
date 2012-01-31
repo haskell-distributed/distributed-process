@@ -87,6 +87,6 @@ ping sourceEndPing targetEndPong = do
 -- `n` pings down `sourceEndPing` using the `ping` function. The time
 -- taken is benchmarked.
 benchPing :: SourceEnd -> TargetEnd -> Int64 -> Benchmark
-benchPing sourceEndPing targetEndPong n = bench "Transport Ping" $
+benchPing sourceEndPing targetEndPong n = bench "PingTransport" $
   nfIO (replicateM_ (fromIntegral n) (ping sourceEndPing targetEndPong))
 
