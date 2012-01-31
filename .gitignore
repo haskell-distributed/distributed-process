@@ -3,5 +3,9 @@ TAGS
 dist/
 \#*#
 *~
+*.aux
+*.hp
 *.hi
 *.o
+*.prof
+*.ps
