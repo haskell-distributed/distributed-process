@@ -136,10 +136,10 @@ logServer name targetEnd = forever $ do
 runWAllTranports :: (IO Transport -> IO ()) -> Int -> IO ()
 runWAllTranports demo offset = do
    putStrLn "------------------------------------------------------------"
---   putStrLn "   MVAR transport:"
---   demo Network.Transport.MVar.mkTransport
-   putStrLn "\n   TCP transport:"   
+   putStrLn "   MVAR transport:"
+   demo Network.Transport.MVar.mkTransport
 
+   putStrLn "\n   TCP transport:"   
    cntr <- newIORef 0
    demo$ do cnt <- readIORef cntr
             writeIORef cntr (cnt+1)
