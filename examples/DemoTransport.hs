@@ -9,12 +9,13 @@ import Network.Transport.TCP (mkTransport, TCPConfig (..))
 import Control.Concurrent
 import Control.Monad
 
--- import qualified Data.ByteString.Lazy.Char8 as BS
-import qualified Data.ByteString.Char8 as BS
+import qualified Data.ByteString.Lazy.Char8 as BS
+-- import qualified Data.ByteString.Char8 as BS
 
+import Data.IORef
 import Debug.Trace
 
-closeTransport _ = return ()
+-- closeTransport _ = return ()
 
 -------------------------------------------
 -- Example program using backend directly
@@ -76,10 +77,10 @@ demo2 mktrans = do
   closeTransport trans
 
 -- | Check that two different transports can be created.
-demo3 :: (Int -> IO Transport) -> Int -> IO ()
-demo3 mktrans offset = do
-  trans1 <- mktrans (offset + 0)
-  trans2 <- mktrans (offset + 1)
+demo3 :: IO Transport -> IO ()
+demo3 mktrans = do
+  trans1 <- mktrans 
+  trans2 <- mktrans 
 
   (sourceAddr1, targetEnd1) <- newConnection trans1
   (sourceAddr2, targetEnd2) <- newConnection trans2
@@ -102,10 +103,9 @@ demo3 mktrans offset = do
 
 
 -- | Check that two different connections on the same transport can be created.
-demo4 :: IO ()
-demo4 = do
-  trans <- mkTransport $ TCPConfig undefined "127.0.0.1" "8080"
-  -- trans <- Network.Transport.MVar.mkTransport
+demo4 :: IO Transport -> IO ()
+demo4 mktrans = do
+  trans <- mktrans
 
   (sourceAddr1, targetEnd1) <- newConnection trans
   (sourceAddr2, targetEnd2) <- newConnection trans
@@ -125,22 +125,28 @@ demo4 = do
   killThread threadId2
   closeTransport trans
 
+--------------------------------------------------------------------------------
+
 logServer :: String -> TargetEnd -> IO ()
 logServer name targetEnd = forever $ do
   x <- receive targetEnd
   trace (name ++ " rcvd: " ++ show x) $ return ()
 
 
---------------------------------------------------------------------------------
-
+runWAllTranports :: (IO Transport -> IO ()) -> Int -> IO ()
 runWAllTranports demo offset = do
    putStrLn "------------------------------------------------------------"
-   putStrLn "   MVAR transport:"
-   demo Network.Transport.MVar.mkTransport
-   putStrLn "\n   TCP transport:"
-   demo$ mkTransport $ TCPConfig undefined "127.0.0.1" (show (8080 + offset))
-   putStrLn "\n   PIPES transport:"
-   demo Network.Transport.Pipes.mkTransport
+--   putStrLn "   MVAR transport:"
+--   demo Network.Transport.MVar.mkTransport
+   putStrLn "\n   TCP transport:"   
+
+   cntr <- newIORef 0
+   demo$ do cnt <- readIORef cntr
+            writeIORef cntr (cnt+1)
+            mkTransport (TCPConfig undefined "127.0.0.1" (show (8080 + offset + cnt)))
+	    
+--   putStrLn "\n   PIPES transport:"
+--   demo Network.Transport.Pipes.mkTransport
    putStrLn "\n"
 
 main = do 
@@ -152,6 +158,12 @@ main = do
 
    putStrLn "Demo2:"
    runWAllTranports demo2 20
+
+   putStrLn "Demo3:"
+   runWAllTranports demo3 30
+
+   putStrLn "Demo4:"
+   runWAllTranports demo4 40
 
    putStrLn "Done with all demos!"
 
