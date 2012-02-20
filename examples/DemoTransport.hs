@@ -133,10 +133,18 @@ logServer name targetEnd = forever $ do
   trace (name ++ " rcvd: " ++ show x) $ return ()
 
 
+
+-- do cnt <- readIORef cntr
+--             writeIORef cntr (cnt+1)
+--             mkTransport (TCPConfig undefined "127.0.0.1" (show (8080 + offset + cnt)))
+
+--mkTCP = do cntr <- newIORef 0
+--	   mkTCPOff 8080
+
 runWAllTranports :: (IO Transport -> IO ()) -> Int -> IO ()
 runWAllTranports demo offset = do
    putStrLn "------------------------------------------------------------"
-{-
+
    putStrLn "   MVAR transport:"
    demo Network.Transport.MVar.mkTransport
 
@@ -145,28 +153,30 @@ runWAllTranports demo offset = do
    demo$ do cnt <- readIORef cntr
             writeIORef cntr (cnt+1)
             mkTransport (TCPConfig undefined "127.0.0.1" (show (8080 + offset + cnt)))
--}	    
+
    putStrLn "\n   PIPES transport:"
    demo Network.Transport.Pipes.mkTransport
    putStrLn "\n"
 
 main = do 
+
    putStrLn "Demo0:"
    runWAllTranports demo0 0
-{-
+
    putStrLn "Demo1:"
    runWAllTranports demo1 10
 
-   putStrLn "Demo2:"
-   runWAllTranports demo2 20
+--   putStrLn "Demo2:"
+--   runWAllTranports demo2 20
 
-   putStrLn "Demo3:"
-   runWAllTranports demo3 30
+--   putStrLn "Demo3:"
+--   runWAllTranports demo3 30
 
-   putStrLn "Demo4:"
-   runWAllTranports demo4 40
--}
+--   putStrLn "Demo4:"
+--   runWAllTranports demo4 40
+
    threadDelay (500 * 1000)
+
    putStrLn "Done with all demos!"
 
 --  trans <- mkTransport $ TCPConfig undefined "127.0.0.1" "8080"
