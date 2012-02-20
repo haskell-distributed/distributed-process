@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 -- module DemoTransport where
 module Main where
 
@@ -38,9 +40,12 @@ demo0 mkTrans = do
 
   (sourceAddr, targetEnd) <- newConnection trans
 
---  forkWithExceptions forkIO "receiver thread" $ logServer "logServer" targetEnd
---  forkWithExceptions forkOS "receiver thread" $ logServer "logServer" targetEnd
+#ifdef EXNTREE
+  -- [2012.02.19] I'm seeing indefinite MVar errors cropping up here:
+  forkWithExceptions forkOS "receiver thread" $ logServer "logServer" targetEnd
+#else
   forkIO $ logServer "logServer" targetEnd
+#endif
   threadDelay 100000
 
   sourceEnd <- connect sourceAddr
