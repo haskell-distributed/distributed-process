@@ -61,6 +61,9 @@ mkTransport = do
 		mkTargetEnd filename lock)
     , newMulticastWith = error "Pipes.hs: newMulticastWith not implemented yet"
     , deserialize = \bs -> return$ mkSourceAddr (BS.unpack bs)
+    , closeTransport = do 
+--       removeFile filename
+       return ()
     }
   where
     mkSourceAddr :: String -> SourceAddr
