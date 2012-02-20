@@ -16,6 +16,7 @@ Library
                      network >= 2.3,
                      safe >= 0.3,
                      unix >= 2.5.0.0, random, cereal
+--                     , unix-bytestring
   Exposed-modules:   Network.Transport,
                      Network.Transport.MVar,
                      Network.Transport.TCP,
