@@ -5,6 +5,7 @@ module Network.Transport.Pipes
   ) where
 
 import Control.Monad (when, unless)
+import Control.Exception (evaluate)
 import Control.Concurrent.MVar
 import Control.Concurrent (threadDelay, forkOS)
 import Data.IntMap (IntMap)
@@ -16,8 +17,14 @@ import qualified Data.IntMap as IntMap
 import qualified Data.ByteString.Char8 as BSS
 import qualified Data.ByteString.Lazy.Char8 as BS
 
-import Data.Binary (encode,decode)
--- import Data.Serialize (encode,decode)
+-- For some STRANGE reason this is not working with Data.Binary [2012.02.20]:
+#define CEREAL
+#ifdef CEREAL
+import Data.Serialize (encode,decode) -- Uses strict BS
+#else
+import Data.Binary    (encode,decode) -- Uses lazy BS
+#endif
+
 import Data.List (foldl')
 import Network.Transport
 import System.Random (randomIO)
@@ -27,6 +34,7 @@ import System.Posix.Files (createNamedPipe, unionFileModes, ownerReadMode, owner
 import System.Posix.Types (Fd)
 
 -- define DEBUG
+-- define USE_UNIX_BYTESTRING
 
 #ifdef USE_UNIX_BYTESTRING
 import qualified "unix-bytestring" System.Posix.IO.ByteString as PIO
@@ -79,11 +87,19 @@ mkTransport = do
       -- Initiate but do not block on file opening:
       -- Note: Linux fifo semantics are NOT to block on open-RW, but this is not Posix standard.
       --
-      -- We may protect from blocking other threads by running on a separate (OS) thread:
+
+      -- All THREE of the below options were observed to work on a simple demo:
+
+      --  OPTION (1)
+      -- Here we protect from blocking other threads by running on a separate (OS) thread:
 --      mv <- onOSThread$ PIO.openFd filename PIO.ReadWrite Nothing PIO.defaultFileFlags
---      fd <- PIO.openFd filename PIO.ReadWrite Nothing PIO.defaultFileFlags
-      fd <- PIO.openFd filename PIO.WriteOnly Nothing PIO.defaultFileFlags
 --      fd <- takeMVar mv
+
+      --  OPTION (2)
+--      fd <- PIO.openFd filename PIO.ReadWrite Nothing PIO.defaultFileFlags
+
+      --  OPTION (3)
+      fd <- PIO.openFd filename PIO.WriteOnly Nothing PIO.defaultFileFlags
       dbgprint1$ "GOT WRITING END OPEN ... "
 
       return $ 
@@ -92,7 +108,7 @@ mkTransport = do
       -- we have to do something more sophisticated.
         SourceEnd
         { send = \bss -> do
-            dbgprint1$ "SENDING ... "++ show bss
+            dbgprint1$ "Sending.. "++ show bss
 
 	    -- This may happen on multiple processes/threads:
 	    let msgsize :: Word32 = fromIntegral$ foldl' (\n s -> n + BS.length s) 0 bss
@@ -100,7 +116,8 @@ mkTransport = do
 	       error "Message larger than blocksize written atomically to a named pipe.  Unimplemented."
             -- Otherwise it's just a simple write:
 	    -- We append the length as a header. TODO - REMOVE EXTRA COPY HERE:
-            let finalmsg = BS.concat (encode msgsize : bss)
+--            let finalmsg = BS.concat (encode msgsize : bss)
+            let finalmsg = BS.concat ((BS.fromChunks[encode msgsize]) : bss)
             dbgprint1$ "  Final send msg: " ++ show finalmsg
            
             -- OPTION 2: Speculative file opening, plus this synchronnization:
@@ -132,7 +149,8 @@ mkTransport = do
 	  let spinread :: Int64 -> IO BS.ByteString
               spinread desired = do 
 #ifdef DEBUG
---               hPutStr stderr "."
+               hPutStr stderr "."
+--               dbgprint2$ "  SPINREAD  "++ show desired
                BSS.hPutStr stdout (BSS.pack$ " "++show desired)
 #endif
                (bytes,len) <- oneread desired
@@ -144,8 +162,16 @@ mkTransport = do
 		             show desired ++" bytes) got "++ show l ++ " bytes"
 
           hdr <- spinread sizeof_header
-          dbgprint2$ "  Got header "++ show hdr ++ " attempt read payload"
-          payload  <- case decode hdr of
+          dbgprint2$ "  Got header "++ show hdr ++ ", next attempt to read payload:"
+#ifdef CEREAL 
+          let decoded = decode (BSS.concat$ BS.toChunks hdr)
+--          dbgprint2$ "  DECODING HDR, bytes "++ show (BS.length hdr) ++ ": "++show hdr
+--          evaluate decoded
+--          dbgprint2$ "  DONE DECODING HDR"
+#else 
+          let decoded = decode hdr	  
+#endif
+          payload  <- case decoded of
 		        Left err -> error$ "ERROR: "++ err
 			Right size -> spinread (fromIntegral (size::Word32))
           dbgprint2$ "  Got payload "++ show payload
