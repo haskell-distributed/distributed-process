@@ -5,9 +5,10 @@ module Network.Transport.TCP
 
 import Network.Transport
 
-import Control.Concurrent (forkIO, ThreadId, killThread)
+import Control.Concurrent (forkIO, ThreadId, killThread, myThreadId)
 import Control.Concurrent.Chan
 import Control.Concurrent.MVar
+import Control.Exception (SomeException, throwTo, catch)
 import Control.Monad (forever, forM_)
 import Data.ByteString.Lazy.Char8 (ByteString)
 import Data.IntMap (IntMap)
@@ -19,6 +20,7 @@ import Network.Socket
   , accept, addrAddress, addrFlags, addrFamily, bindSocket, defaultProtocol
   , getAddrInfo, listen, setSocketOption, socket, sClose, withSocketsDo )
 import Safe
+import System.IO (stderr, hPutStrLn)
 
 import qualified Data.Binary as B
 import qualified Data.ByteString.Lazy.Char8 as BS
@@ -55,7 +57,8 @@ mkTransport (TCPConfig _hints host service) = withSocketsDo $ do
   setSocketOption sock ReuseAddr 1
   bindSocket sock (addrAddress serverAddr)
   listen sock 5
-  threadId <- forkIO $ procConnections chans sock
+  threadId <- forkWithExceptions forkIO "Connection Listener" $ 
+	      procConnections chans sock
 
   return Transport
     { newConnectionWith = {-# SCC "newConnectionWith" #-}\_ -> do
@@ -142,7 +145,8 @@ procConnections chans sock = forever $ do
           putMVar chans (chanId', chanMap)
           error "procConnections: cannot find chanId"
         Just (chan, socks) -> do
-          threadId <- forkIO $ procMessages chans chanId chan clientSock
+          threadId <- forkWithExceptions forkIO "Message Listener" $ 
+		      procMessages chans chanId chan clientSock
           let chanMap' = IntMap.insert chanId (chan, (threadId, clientSock):socks) chanMap
           putMVar chans (chanId', chanMap')
 
@@ -157,16 +161,17 @@ procMessages :: Chans -> ChanId -> Chan [ByteString] -> Socket -> IO ()
 procMessages chans chanId chan sock = do
   sizeBSs <- recvExact sock 1
   case sizeBSs of
-    [] -> closeSocket
-    _  -> do
-      let size = fromIntegral (B.decode . BS.concat $ sizeBSs :: Word8)
+    []   -> closeSocket
+    [onebyte] -> do
+      let size = fromIntegral (B.decode onebyte :: Word8)
       if size == 255
         then do
           sizeBSs' <- recvExact sock 8
           case sizeBSs' of
             [] -> closeSocket
-            _  -> procMessage (B.decode . BS.concat $ sizeBSs' :: Int64)
+            _  -> procMessage (B.decode . BS.concat$ sizeBSs' :: Int64)
         else procMessage size
+    ls -> error "Shouldn't receive more than one bytestring when expecting a single byte!"
  where
   closeSocket :: IO ()
   closeSocket = do
@@ -211,4 +216,16 @@ recvExact sock n = go [] sock n
     if BS.null bs
       then return []
       else go (bs:bss) sock (n - BS.length bs)
+
+
+
+forkWithExceptions :: (IO () -> IO ThreadId) -> String -> IO () -> IO ThreadId
+forkWithExceptions forkit descr action = do 
+   parent <- myThreadId
+   forkit $ 
+      Control.Exception.catch action
+	 (\ e -> do
+	  hPutStrLn stderr $ "Exception inside child thread "++descr++": "++show e
+	  throwTo parent (e::SomeException)
+	 )
 
