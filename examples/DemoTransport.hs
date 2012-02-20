@@ -1,7 +1,9 @@
-module DemoTransport where
+{-# LANGUAGE NamedFieldPuns #-}
+module Main where
 
-import Network.Transport
-import qualified Network.Transport.MVar
+import Network.Transport 
+import qualified Network.Transport.MVar  
+import qualified Network.Transport.Pipes 
 import Network.Transport.TCP (mkTransport, TCPConfig (..))
 
 import Control.Concurrent
@@ -16,9 +18,10 @@ import Debug.Trace
 --
 
 -- | Check if multiple messages can be sent on the same connection.
-demo0 :: IO ()
-demo0 = do
-  trans <- mkTransport $ TCPConfig undefined "127.0.0.1" "8080"
+demo0 :: IO Transport -> IO ()
+demo0 mktrans = do
+--  trans@Transport{closeTransport} <- mktrans
+  trans <- mktrans
 
   (sourceAddr, targetEnd) <- newConnection trans
 
@@ -30,11 +33,14 @@ demo0 = do
   mapM_ (\n -> send sourceEnd [BS.pack ("hello " ++ show n)]) [1 .. 10]
   threadDelay 100000
 
+--  closeSourceEnd sourceEnd
+--  closeTransport trans
+
+
 -- | Check endpoint serialization and deserialization.
-demo1 :: IO ()
-demo1 = do
-  -- trans <- mkTransport
-  trans <- mkTransport $ TCPConfig undefined "127.0.0.1" "8080"
+demo1 :: IO Transport -> IO ()
+demo1 mktrans = do
+  trans <- mktrans
 
   (sourceAddr, targetEnd) <- newConnection trans
 
@@ -105,4 +111,26 @@ demo4 = do
 logServer :: String -> TargetEnd -> IO ()
 logServer name targetEnd = forever $ do
   x <- receive targetEnd
-  trace (name ++ ": " ++ show x) $ return ()
+  trace (name ++ " rcvd: " ++ show x) $ return ()
+
+
+--------------------------------------------------------------------------------
+
+runWAllTranports demo = do
+   putStrLn "------------------------------------------------------------"
+   putStrLn "   MVAR transport:"
+   demo Network.Transport.MVar.mkTransport
+   putStrLn "\n   TCP transport:"
+   demo$ mkTransport $ TCPConfig undefined "127.0.0.1" "8080"
+   putStrLn "\n   PIPES transport:"
+   demo Network.Transport.Pipes.mkTransport
+   putStrLn "\n"
+
+main = do 
+   putStrLn "Demo0:"
+   runWAllTranports demo0
+
+--   putStrLn "Demo1:"
+--   runWAllTranports demo1
+
+
