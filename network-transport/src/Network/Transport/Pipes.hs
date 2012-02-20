@@ -24,22 +24,11 @@ import System.IO     (IOMode(ReadMode,AppendMode,WriteMode,ReadWriteMode),
 		      openFile, hClose, hPutStrLn, hPutStr, stderr, stdout)
 import System.Posix.Files (createNamedPipe, unionFileModes, ownerReadMode, ownerWriteMode)
 
--- Option 1: low level unix routines:
--- Option 2: ByteString-provided IO routines
-#define UNIXIO
-#ifdef UNIXIO
--- Added in unix-2.5.1.0.  Let's not depend on this yet:
--- import qualified System.Posix.IO.ByteString as PIO
+-- Basing this on low level unix routines:
 import qualified System.Posix.IO as PIO
+-- Bytestring-version added in unix-2.5.1.0.  Let's not depend on this yet:
+-- import qualified System.Posix.IO.ByteString as PIO
 import System.Posix.Types (Fd)
-#else
-
-#endif
-
-
--- An address is just a filename -- the named pipe.
-data Addr = Addr String 
-  deriving (Show,Read)
 
 -- The msg header consists of just a length field represented as a Word32
 sizeof_header = 4
@@ -70,16 +59,12 @@ mkTransport = do
 
     mkSourceEnd :: String -> IO SourceEnd
     mkSourceEnd filename = do
-#  ifndef KEEP_CLOSED
---      fd <- openFile filename AppendMode
---      _ <- openFile filename WriteMode
---      mv <- onOSThread$ openFile filename WriteMode
-      mv <- onOSThread$ PIO.openFd filename PIO.ReadWrite Nothing PIO.defaultFileFlags
+      -- Initiate but do not block on file opening:
+      -- Note: Linux fifo semantics are NOT to block on open until 
+--      mv <- onOSThread$ PIO.openFd filename PIO.ReadWrite Nothing PIO.defaultFileFlags
+--      fd <- PIO.openFd filename PIO.ReadWrite Nothing PIO.defaultFileFlags
+      fd <- PIO.openFd filename PIO.WriteOnly Nothing PIO.defaultFileFlags
 
-      -- [2012.02.19] Still getting indefinite MVar block errors even
-      -- using IORefs here:
---      fdref <- newIORef Nothing
-#  endif
       return $ 
       -- Write to the named pipe.  If the message is less than
       -- PIPE_BUF (4KB on linux) then this should be atomic, otherwise
@@ -94,61 +79,34 @@ mkTransport = do
 	       error "Message larger than blocksize written atomically to a named pipe.  Unimplemented."
             -- Otherwise it's just a simple write:
 	    -- We append the length as a header. TODO - REMOVE EXTRA COPY HERE:
-            
-#  ifdef KEEP_CLOSED
---            fd <- openFile filename AppendMode
-            fd <- openFile filename WriteMode
-#  else
-            -- OPTION 1: Lazy opening:
-            -- r <- readIORef fdref             
-	    -- fd <- case r of 
-            --        Nothing -> do 
-	    -- 		         dbgprint1$ "  (No FD for sending yet... opening) "
-            --                      fd <- openFile filename AppendMode
-	    -- 			 writeIORef fdref (Just fd)
-	    -- 			 return fd
-	    -- 	   Just fd -> return fd
-
-            -- OPTION 2: Speculative file opening, plus this synchronnization:
-            fd <- readMVar mv
-            dbgprint1$ "  (sending... got file descriptor) "
-#  endif
-
--- TODO: Consider nonblocking opening of file to make things simpler.
-
             let finalmsg = BS.concat (encode msgsize : bss)
             dbgprint1$ "  Final send msg: " ++ show finalmsg
+           
+            -- OPTION 2: Speculative file opening, plus this synchronnization:
+--            fd <- readMVar mv
+--            dbgprint1$ "  (sending... got file descriptor) "
+
             ----------------------------------------
-	    -- BS.hPut fd finalmsg  -- The actual send!
             cnt <- PIO.fdWrite fd (BS.unpack finalmsg) -- inefficient!
             unless (fromIntegral cnt == BS.length finalmsg) $ 
 	      error$ "Failed to write message in one go, length: "++ show (BS.length finalmsg)
             ----------------------------------------
-#  ifdef KEEP_CLOSED
-            hClose fd -- TEMP -- opening and closing on each send!
-#   endif
+
             return ()
         }
 
-
---    mkTargetEnd :: Fd -> MVar () -> TargetEnd
+    mkTargetEnd :: String -> MVar () -> TargetEnd
     mkTargetEnd filename lock = TargetEnd
       { receive = do
           dbgprint2$ "Begin receive action..."
           -- This should only happen on a single process.  But it may
           -- happen on multiple threads so we grab a lock.
           takeMVar lock
-#ifdef UNIXIO
---          fd <- PIO.openFd filename PIO.ReadOnly Nothing PIO.defaultFileFlags
+
           mv <- onOSThread$ PIO.openFd filename PIO.ReadWrite Nothing PIO.defaultFileFlags
 	  fd <- takeMVar mv
           let oneread n = do (s,cnt) <- PIO.fdRead fd (fromIntegral n)
 			     return (BS.pack s, fromIntegral cnt)
-#else
-          fd <- openFile filename ReadMode
-          let oneread n = do bs <- BS.hGet fd n; 
-			     return (bs, BS.length bs)
-#endif
           dbgprint2$ "  Attempt read header..."
         
 	  let spinread :: Int -> IO BS.ByteString
