@@ -26,6 +26,8 @@ import System.IO     (IOMode(ReadMode,AppendMode,WriteMode,ReadWriteMode),
 import System.Posix.Files (createNamedPipe, unionFileModes, ownerReadMode, ownerWriteMode)
 import System.Posix.Types (Fd)
 
+-- define DEBUG
+
 #ifdef USE_UNIX_BYTESTRING
 import qualified "unix-bytestring" System.Posix.IO.ByteString as PIO
 import System.Posix.IO as PIO (openFd, defaultFileFlags, OpenMode(ReadWrite, WriteOnly)) 

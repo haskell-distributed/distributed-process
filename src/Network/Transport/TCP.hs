@@ -8,7 +8,8 @@ import Network.Transport
 import Control.Concurrent (forkIO, ThreadId, killThread, myThreadId)
 import Control.Concurrent.Chan
 import Control.Concurrent.MVar
-import Control.Exception (SomeException, throwTo, catch)
+import Control.Exception (SomeException, IOException, AsyncException(ThreadKilled), 
+			  fromException, throwTo, throw, catch, handle)
 import Control.Monad (forever, forM_)
 import Data.ByteString.Lazy.Char8 (ByteString)
 import Data.IntMap (IntMap)
@@ -23,6 +24,7 @@ import Safe
 import System.IO (stderr, hPutStrLn)
 
 import qualified Data.Binary as B
+import qualified Data.ByteString.Char8 as BSS
 import qualified Data.ByteString.Lazy.Char8 as BS
 import qualified Data.IntMap as IntMap
 import qualified Network.Socket as N
@@ -207,7 +209,9 @@ procMessages chans chanId chan sock = do
 -- indicates success. This hasn't been implemented, since a Transport `receive`
 -- represents an atomic receipt of a message.
 recvExact :: Socket -> Int64 -> IO [ByteString]
-recvExact sock n = go [] sock n
+recvExact sock n = 
+   interceptAllExn "recvExact" $ 
+   go [] sock n
  where
   go :: [ByteString] -> Socket -> Int64 -> IO [ByteString]
   go bss _    0 = return (reverse bss)
@@ -218,6 +222,10 @@ recvExact sock n = go [] sock n
       else go (bs:bss) sock (n - BS.length bs)
 
 
+interceptAllExn msg = 
+   Control.Exception.handle $ \ e -> do
+      BSS.hPutStrLn stderr $ BSS.pack$  "Exception inside "++msg++": "++show e
+      throw (e :: SomeException)
 
 forkWithExceptions :: (IO () -> IO ThreadId) -> String -> IO () -> IO ThreadId
 forkWithExceptions forkit descr action = do 
@@ -225,7 +233,12 @@ forkWithExceptions forkit descr action = do
    forkit $ 
       Control.Exception.catch action
 	 (\ e -> do
-	  hPutStrLn stderr $ "Exception inside child thread "++descr++": "++show e
-	  throwTo parent (e::SomeException)
+          case fromException e of 
+            Just ThreadKilled -> 
+--    	      BSS.hPutStrLn stderr $ BSS.pack$ "Note: Child thread killed: "++descr
+              return ()
+	    _ -> do
+	      BSS.hPutStrLn stderr $ BSS.pack$ "Exception inside child thread "++descr++": "++show e
+	      throwTo parent (e::SomeException)
 	 )
 
