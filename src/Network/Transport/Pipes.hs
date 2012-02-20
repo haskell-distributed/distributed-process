@@ -13,7 +13,7 @@ import Data.Word
 import Data.Int
 import Data.IORef
 import qualified Data.IntMap as IntMap
--- import qualified Data.ByteString.Char8 as BS
+import qualified Data.ByteString.Char8 as BSS
 import qualified Data.ByteString.Lazy.Char8 as BS
 
 import Data.Binary (encode,decode)
@@ -80,10 +80,11 @@ mkTransport = do
       -- Note: Linux fifo semantics are NOT to block on open-RW, but this is not Posix standard.
       --
       -- We may protect from blocking other threads by running on a separate (OS) thread:
-      mv <- onOSThread$ PIO.openFd filename PIO.ReadWrite Nothing PIO.defaultFileFlags
+--      mv <- onOSThread$ PIO.openFd filename PIO.ReadWrite Nothing PIO.defaultFileFlags
 --      fd <- PIO.openFd filename PIO.ReadWrite Nothing PIO.defaultFileFlags
---      fd <- PIO.openFd filename PIO.WriteOnly Nothing PIO.defaultFileFlags
-      fd <- takeMVar mv
+      fd <- PIO.openFd filename PIO.WriteOnly Nothing PIO.defaultFileFlags
+--      fd <- takeMVar mv
+      dbgprint1$ "GOT WRITING END OPEN ... "
 
       return $ 
       -- Write to the named pipe.  If the message is less than
@@ -130,7 +131,10 @@ mkTransport = do
         
 	  let spinread :: Int64 -> IO BS.ByteString
               spinread desired = do 
+#ifdef DEBUG
 --               hPutStr stderr "."
+               BSS.hPutStr stdout (BSS.pack$ " "++show desired)
+#endif
                (bytes,len) <- oneread desired
 	       case len of 
                  n | n == desired -> return bytes
@@ -151,8 +155,8 @@ mkTransport = do
       }
 
 #ifdef DEBUG
-dbgprint2 = hPutStrLn stdout
-dbgprint1 = hPutStrLn stderr
+dbgprint1 s = BSS.hPutStrLn stderr (BSS.pack s)
+dbgprint2 s = BSS.hPutStrLn stdout (BSS.pack s)
 #else
 dbgprint1 _ = return ()
 dbgprint2 _ = return ()
