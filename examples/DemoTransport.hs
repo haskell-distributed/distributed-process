@@ -37,7 +37,7 @@ demo0 mktrans = do
   mapM_ (\n -> send sourceEnd [BS.pack ("hello " ++ show n)]) [1 .. 10]
   threadDelay 100000
 
-  closeTransport trans
+--  closeTransport trans
 
 -- | Check endpoint serialization and deserialization.
 demo1 :: IO Transport -> IO ()
@@ -136,6 +136,7 @@ logServer name targetEnd = forever $ do
 runWAllTranports :: (IO Transport -> IO ()) -> Int -> IO ()
 runWAllTranports demo offset = do
    putStrLn "------------------------------------------------------------"
+{-
    putStrLn "   MVAR transport:"
    demo Network.Transport.MVar.mkTransport
 
@@ -144,7 +145,7 @@ runWAllTranports demo offset = do
    demo$ do cnt <- readIORef cntr
             writeIORef cntr (cnt+1)
             mkTransport (TCPConfig undefined "127.0.0.1" (show (8080 + offset + cnt)))
-	    
+-}	    
    putStrLn "\n   PIPES transport:"
    demo Network.Transport.Pipes.mkTransport
    putStrLn "\n"
