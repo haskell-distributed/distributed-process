@@ -3,6 +3,7 @@ module DemoProcess where
 import Control.Distributed.Process
 import Control.Concurrent (threadDelay)
 
+import Network.Transport (closeTransport)
 import Network.Transport.TCP (mkTransport, TCPConfig (..))
 
 import Debug.Trace
@@ -16,8 +17,9 @@ demo1 = do
     lpid1 <- spawnLocal (logger 1)
     spawnLocal (chatty "jim1" lpid1)
     spawnLocal (chatty "bob1" lpid1)
-    liftIO $ threadDelay 500000
     return ()
+  threadDelay 600000
+  closeTransport trans
 
 chatty :: String -> ProcessId -> Process ()
 chatty name target = do

@@ -6,10 +6,10 @@ module Network.Transport.MVar
 
 import Control.Concurrent.MVar
 import Data.IntMap (IntMap)
-import Data.ByteString.Char8 (ByteString)
+import Data.ByteString.Lazy.Char8 (ByteString)
 
 import qualified Data.IntMap as IntMap
-import qualified Data.ByteString.Char8 as BS
+import qualified Data.ByteString.Lazy.Char8 as BS
 
 import Network.Transport
 

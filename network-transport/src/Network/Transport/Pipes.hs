@@ -10,13 +10,14 @@ import Control.Concurrent (threadDelay, forkOS)
 import Data.IntMap (IntMap)
 -- import Data.ByteString.Char8 (ByteString)
 import Data.Word
+import Data.Int
 import Data.IORef
 import qualified Data.IntMap as IntMap
-import qualified Data.ByteString.Char8 as BS
--- import qualified Data.ByteString.Lazy.Char8 as BS
+-- import qualified Data.ByteString.Char8 as BS
+import qualified Data.ByteString.Lazy.Char8 as BS
 
--- import Data.Binary (decode)
-import Data.Serialize (encode,decode)
+import Data.Binary (encode,decode)
+-- import Data.Serialize (encode,decode)
 import Data.List (foldl')
 import Network.Transport
 import System.Random (randomIO)
@@ -116,11 +117,12 @@ mkTransport = do
 
           mv <- onOSThread$ PIO.openFd filename PIO.ReadWrite Nothing PIO.defaultFileFlags
 	  fd <- takeMVar mv
-          let oneread n = do bs <- readit fd (fromIntegral n)
+          let oneread :: Int64 -> IO (BS.ByteString, Int64)
+	      oneread n = do bs <- readit fd (fromIntegral n)
 			     return (bs, BS.length bs)
           dbgprint2$ "  Attempt read header..."
         
-	  let spinread :: Int -> IO BS.ByteString
+	  let spinread :: Int64 -> IO BS.ByteString
               spinread desired = do 
 --               hPutStr stderr "."
                (bytes,len) <- oneread desired

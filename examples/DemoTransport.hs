@@ -9,9 +9,12 @@ import Network.Transport.TCP (mkTransport, TCPConfig (..))
 import Control.Concurrent
 import Control.Monad
 
+-- import qualified Data.ByteString.Lazy.Char8 as BS
 import qualified Data.ByteString.Char8 as BS
 
 import Debug.Trace
+
+closeTransport _ = return ()
 
 -------------------------------------------
 -- Example program using backend directly
@@ -33,9 +36,7 @@ demo0 mktrans = do
   mapM_ (\n -> send sourceEnd [BS.pack ("hello " ++ show n)]) [1 .. 10]
   threadDelay 100000
 
---  closeSourceEnd sourceEnd
---  closeTransport trans
-
+  closeTransport trans
 
 -- | Check endpoint serialization and deserialization.
 demo1 :: IO Transport -> IO ()
@@ -56,6 +57,7 @@ demo1 mktrans = do
   send sourceEnd  [BS.pack "hello 1"]
   send sourceEnd' [BS.pack "hello 2"]
   threadDelay 100000
+  closeTransport trans
 
 -- | Check that messages can be sent before receive is set up.
 demo2 :: IO ()
@@ -70,7 +72,9 @@ demo2 = do
   threadDelay 100000
 
   forkIO $ logServer "logServer" targetEnd
-  return ()
+  threadDelay 100000
+
+  closeTransport trans
 
 -- | Check that two different transports can be created.
 demo3 :: IO ()
@@ -81,14 +85,21 @@ demo3 = do
   (sourceAddr1, targetEnd1) <- newConnection trans1
   (sourceAddr2, targetEnd2) <- newConnection trans2
 
-  forkIO $ logServer "logServer1" targetEnd1
-  forkIO $ logServer "logServer2" targetEnd2
+  threadId1 <- forkIO $ logServer "logServer1" targetEnd1
+  threadId2 <- forkIO $ logServer "logServer2" targetEnd2
 
   sourceEnd1 <- connect sourceAddr1
   sourceEnd2 <- connect sourceAddr2
 
   send sourceEnd1 [BS.pack "hello1"]
   send sourceEnd2 [BS.pack "hello2"]
+
+  threadDelay 100000
+
+  killThread threadId1
+  killThread threadId2
+  closeTransport trans1
+  closeTransport trans2
 
 -- | Check that two different connections on the same transport can be created.
 demo4 :: IO ()
@@ -99,14 +110,20 @@ demo4 = do
   (sourceAddr1, targetEnd1) <- newConnection trans
   (sourceAddr2, targetEnd2) <- newConnection trans
 
-  forkIO $ logServer "logServer1" targetEnd1
-  forkIO $ logServer "logServer2" targetEnd2
+  threadId1 <- forkIO $ logServer "logServer1" targetEnd1
+  threadId2 <- forkIO $ logServer "logServer2" targetEnd2
 
   sourceEnd1 <- connect sourceAddr1
   sourceEnd2 <- connect sourceAddr2
 
   send sourceEnd1 [BS.pack "hello1"]
   send sourceEnd2 [BS.pack "hello2"]
+
+  threadDelay 100000
+
+  killThread threadId1
+  killThread threadId2
+  closeTransport trans
 
 logServer :: String -> TargetEnd -> IO ()
 logServer name targetEnd = forever $ do

@@ -12,7 +12,7 @@ module Network.Transport
   , newMulticast
   ) where
 
-import Data.ByteString.Char8 (ByteString)
+import Data.ByteString.Lazy.Char8 (ByteString)
 
 -- | The `Hints` and `SourceHints` provide hints to the underlying transport
 -- about the kind of connection that is required. This might include details
@@ -33,6 +33,7 @@ data Transport = Transport
   { newConnectionWith :: Hints -> IO (SourceAddr, TargetEnd)
   , newMulticastWith  :: Hints -> IO (MulticastSourceEnd, MulticastTargetAddr)
   , deserialize       :: ByteString -> Maybe SourceAddr
+  , closeTransport    :: IO ()
   }
 
 -- | This is a convenience function that creates a new connection on a transport
@@ -68,14 +69,20 @@ defaultSourceHints = SourceHints
 
 -- | A `SourceEnd` provides a `send` function that allows vectored messages
 -- to be sent to the corresponding `TargetEnd`.
-newtype SourceEnd = SourceEnd
+-- The `close` function closes the connection between this source and the target
+-- end. Connections between other sources the target end remain unaffected
+data SourceEnd = SourceEnd
   { send :: [ByteString] -> IO ()
+  , closeSourceEnd :: IO ()
   }
 
 -- | A `TargetEnd` provides a `receive` function that allows messages
 -- to be received from the corresponding `SourceEnd`s.
-newtype TargetEnd = TargetEnd
+-- The `closeTargetEnd` function closes all connections to this target,
+-- and all new connections will be refused.
+data TargetEnd = TargetEnd
   { receive :: IO [ByteString]
+  , closeTargetEnd :: IO ()
   }
 
 newtype MulticastSourceEnd = MulticastSourceEnd
