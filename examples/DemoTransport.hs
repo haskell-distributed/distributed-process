@@ -145,14 +145,14 @@ runWAllTranports demo offset = do
             writeIORef cntr (cnt+1)
             mkTransport (TCPConfig undefined "127.0.0.1" (show (8080 + offset + cnt)))
 	    
---   putStrLn "\n   PIPES transport:"
---   demo Network.Transport.Pipes.mkTransport
+   putStrLn "\n   PIPES transport:"
+   demo Network.Transport.Pipes.mkTransport
    putStrLn "\n"
 
 main = do 
    putStrLn "Demo0:"
    runWAllTranports demo0 0
-
+{-
    putStrLn "Demo1:"
    runWAllTranports demo1 10
 
@@ -164,7 +164,8 @@ main = do
 
    putStrLn "Demo4:"
    runWAllTranports demo4 40
-
+-}
+   threadDelay (500 * 1000)
    putStrLn "Done with all demos!"
 
 --  trans <- mkTransport $ TCPConfig undefined "127.0.0.1" "8080"
