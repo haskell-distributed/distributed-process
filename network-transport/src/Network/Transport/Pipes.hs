@@ -1,4 +1,4 @@
-{-# LANGUAGE BangPatterns, CPP, ScopedTypeVariables #-}
+{-# LANGUAGE BangPatterns, CPP, ScopedTypeVariables, PackageImports #-}
 
 module Network.Transport.Pipes
   ( mkTransport
@@ -23,12 +23,23 @@ import System.Random (randomIO)
 import System.IO     (IOMode(ReadMode,AppendMode,WriteMode,ReadWriteMode), 
 		      openFile, hClose, hPutStrLn, hPutStr, stderr, stdout)
 import System.Posix.Files (createNamedPipe, unionFileModes, ownerReadMode, ownerWriteMode)
-
--- Basing this on low level unix routines:
-import qualified System.Posix.IO as PIO
--- Bytestring-version added in unix-2.5.1.0.  Let's not depend on this yet:
--- import qualified System.Posix.IO.ByteString as PIO
 import System.Posix.Types (Fd)
+
+#ifdef USE_UNIX_BYTESTRING
+import qualified "unix-bytestring" System.Posix.IO.ByteString as PIO
+import System.Posix.IO as PIO (openFd, defaultFileFlags, OpenMode(ReadWrite, WriteOnly)) 
+(fromS,toS)  = (BS.pack, BS.unpack)
+(fromBS,toBS) = (id,id)
+readit fd n = PIO.fdRead fd n
+#else
+import qualified System.Posix.IO            as PIO
+(toS,fromS)  = (id,id)
+(fromBS,toBS) = (BS.unpack, BS.pack)
+readit fd n = do (s,_) <- PIO.fdRead fd n
+		 return (BS.pack s)
+#endif
+
+----------------------------------------------------------------------------------------------------
 
 -- The msg header consists of just a length field represented as a Word32
 sizeof_header = 4
@@ -60,7 +71,9 @@ mkTransport = do
     mkSourceEnd :: String -> IO SourceEnd
     mkSourceEnd filename = do
       -- Initiate but do not block on file opening:
-      -- Note: Linux fifo semantics are NOT to block on open until 
+      -- Note: Linux fifo semantics are NOT to block on open-RW, but this is not Posix standard.
+      --
+      -- We may protect from blocking other threads by running on a separate (OS) thread:
 --      mv <- onOSThread$ PIO.openFd filename PIO.ReadWrite Nothing PIO.defaultFileFlags
 --      fd <- PIO.openFd filename PIO.ReadWrite Nothing PIO.defaultFileFlags
       fd <- PIO.openFd filename PIO.WriteOnly Nothing PIO.defaultFileFlags
@@ -84,10 +97,8 @@ mkTransport = do
            
             -- OPTION 2: Speculative file opening, plus this synchronnization:
 --            fd <- readMVar mv
---            dbgprint1$ "  (sending... got file descriptor) "
-
             ----------------------------------------
-            cnt <- PIO.fdWrite fd (BS.unpack finalmsg) -- inefficient!
+            cnt <- PIO.fdWrite fd (fromBS finalmsg) -- inefficient to use String here!
             unless (fromIntegral cnt == BS.length finalmsg) $ 
 	      error$ "Failed to write message in one go, length: "++ show (BS.length finalmsg)
             ----------------------------------------
@@ -105,8 +116,8 @@ mkTransport = do
 
           mv <- onOSThread$ PIO.openFd filename PIO.ReadWrite Nothing PIO.defaultFileFlags
 	  fd <- takeMVar mv
-          let oneread n = do (s,cnt) <- PIO.fdRead fd (fromIntegral n)
-			     return (BS.pack s, fromIntegral cnt)
+          let oneread n = do bs <- readit fd (fromIntegral n)
+			     return (bs, BS.length bs)
           dbgprint2$ "  Attempt read header..."
         
 	  let spinread :: Int -> IO BS.ByteString
