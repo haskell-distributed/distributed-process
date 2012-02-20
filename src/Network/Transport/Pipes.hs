@@ -4,12 +4,13 @@ module Network.Transport.Pipes
   ( mkTransport
   ) where
 
-import Control.Monad (when)
+import Control.Monad (when, unless)
 import Control.Concurrent.MVar
 import Control.Concurrent (threadDelay, forkOS)
 import Data.IntMap (IntMap)
 -- import Data.ByteString.Char8 (ByteString)
 import Data.Word
+import Data.IORef
 import qualified Data.IntMap as IntMap
 import qualified Data.ByteString.Char8 as BS
 -- import qualified Data.ByteString.Lazy.Char8 as BS
@@ -69,8 +70,16 @@ mkTransport = do
 
     mkSourceEnd :: String -> IO SourceEnd
     mkSourceEnd filename = do
+#  ifndef KEEP_CLOSED
 --      fd <- openFile filename AppendMode
+--      _ <- openFile filename WriteMode
 --      mv <- onOSThread$ openFile filename WriteMode
+      mv <- onOSThread$ PIO.openFd filename PIO.ReadWrite Nothing PIO.defaultFileFlags
+
+      -- [2012.02.19] Still getting indefinite MVar block errors even
+      -- using IORefs here:
+--      fdref <- newIORef Nothing
+#  endif
       return $ 
       -- Write to the named pipe.  If the message is less than
       -- PIPE_BUF (4KB on linux) then this should be atomic, otherwise
@@ -85,19 +94,42 @@ mkTransport = do
 	       error "Message larger than blocksize written atomically to a named pipe.  Unimplemented."
             -- Otherwise it's just a simple write:
 	    -- We append the length as a header. TODO - REMOVE EXTRA COPY HERE:
-
---            fd <- readMVar mv
-            dbgprint1$ "  (sending... got file descriptor) "
+            
+#  ifdef KEEP_CLOSED
 --            fd <- openFile filename AppendMode
             fd <- openFile filename WriteMode
+#  else
+            -- OPTION 1: Lazy opening:
+            -- r <- readIORef fdref             
+	    -- fd <- case r of 
+            --        Nothing -> do 
+	    -- 		         dbgprint1$ "  (No FD for sending yet... opening) "
+            --                      fd <- openFile filename AppendMode
+	    -- 			 writeIORef fdref (Just fd)
+	    -- 			 return fd
+	    -- 	   Just fd -> return fd
+
+            -- OPTION 2: Speculative file opening, plus this synchronnization:
+            fd <- readMVar mv
+            dbgprint1$ "  (sending... got file descriptor) "
+#  endif
 
 -- TODO: Consider nonblocking opening of file to make things simpler.
 
             let finalmsg = BS.concat (encode msgsize : bss)
             dbgprint1$ "  Final send msg: " ++ show finalmsg
-	    BS.hPut fd finalmsg
+            ----------------------------------------
+	    -- BS.hPut fd finalmsg  -- The actual send!
+            cnt <- PIO.fdWrite fd (BS.unpack finalmsg) -- inefficient!
+            unless (fromIntegral cnt == BS.length finalmsg) $ 
+	      error$ "Failed to write message in one go, length: "++ show (BS.length finalmsg)
+            ----------------------------------------
+#  ifdef KEEP_CLOSED
             hClose fd -- TEMP -- opening and closing on each send!
+#   endif
+            return ()
         }
+
 
 --    mkTargetEnd :: Fd -> MVar () -> TargetEnd
     mkTargetEnd filename lock = TargetEnd
@@ -108,7 +140,8 @@ mkTransport = do
           takeMVar lock
 #ifdef UNIXIO
 --          fd <- PIO.openFd filename PIO.ReadOnly Nothing PIO.defaultFileFlags
-          fd <- PIO.openFd filename PIO.ReadWrite Nothing PIO.defaultFileFlags
+          mv <- onOSThread$ PIO.openFd filename PIO.ReadWrite Nothing PIO.defaultFileFlags
+	  fd <- takeMVar mv
           let oneread n = do (s,cnt) <- PIO.fdRead fd (fromIntegral n)
 			     return (BS.pack s, fromIntegral cnt)
 #else
@@ -117,7 +150,7 @@ mkTransport = do
 			     return (bs, BS.length bs)
 #endif
           dbgprint2$ "  Attempt read header..."
-          
+        
 	  let spinread :: Int -> IO BS.ByteString
               spinread desired = do 
 --               hPutStr stderr "."
@@ -140,10 +173,13 @@ mkTransport = do
           return [payload]
       }
 
--- dbgprint2 = hPutStrLn stdout
--- dbgprint1 = hPutStrLn stderr
+#ifdef DEBUG
+dbgprint2 = hPutStrLn stdout
+dbgprint1 = hPutStrLn stderr
+#else
 dbgprint1 _ = return ()
 dbgprint2 _ = return ()
+#endif
 
 
 -- Execute an action on its own OS thread.  Return an MVar to synchronize on.
@@ -152,3 +188,4 @@ onOSThread action = do
   mv <- newEmptyMVar
   forkOS (action >>= putMVar mv )
   return mv
+-- [2012.02.19] This didn't seem to help.
