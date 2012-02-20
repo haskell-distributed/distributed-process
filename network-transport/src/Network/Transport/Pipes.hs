@@ -75,9 +75,10 @@ mkTransport = do
       -- Note: Linux fifo semantics are NOT to block on open-RW, but this is not Posix standard.
       --
       -- We may protect from blocking other threads by running on a separate (OS) thread:
---      mv <- onOSThread$ PIO.openFd filename PIO.ReadWrite Nothing PIO.defaultFileFlags
+      mv <- onOSThread$ PIO.openFd filename PIO.ReadWrite Nothing PIO.defaultFileFlags
 --      fd <- PIO.openFd filename PIO.ReadWrite Nothing PIO.defaultFileFlags
-      fd <- PIO.openFd filename PIO.WriteOnly Nothing PIO.defaultFileFlags
+--      fd <- PIO.openFd filename PIO.WriteOnly Nothing PIO.defaultFileFlags
+      fd <- takeMVar mv
 
       return $ 
       -- Write to the named pipe.  If the message is less than

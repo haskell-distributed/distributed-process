@@ -60,10 +60,9 @@ demo1 mktrans = do
   closeTransport trans
 
 -- | Check that messages can be sent before receive is set up.
-demo2 :: IO ()
-demo2 = do
-  -- trans <- mkTransport
-  trans <- mkTransport $ TCPConfig undefined "127.0.0.1" "8080"
+demo2 :: IO Transport -> IO ()
+demo2 mktrans = do
+  trans <- mktrans
 
   (sourceAddr, targetEnd) <- newConnection trans
 
@@ -77,10 +76,10 @@ demo2 = do
   closeTransport trans
 
 -- | Check that two different transports can be created.
-demo3 :: IO ()
-demo3 = do
-  trans1 <- mkTransport $ TCPConfig undefined "127.0.0.1" "8080"
-  trans2 <- mkTransport $ TCPConfig undefined "127.0.0.1" "8081"
+demo3 :: (Int -> IO Transport) -> Int -> IO ()
+demo3 mktrans offset = do
+  trans1 <- mktrans (offset + 0)
+  trans2 <- mktrans (offset + 1)
 
   (sourceAddr1, targetEnd1) <- newConnection trans1
   (sourceAddr2, targetEnd2) <- newConnection trans2
@@ -100,6 +99,7 @@ demo3 = do
   killThread threadId2
   closeTransport trans1
   closeTransport trans2
+
 
 -- | Check that two different connections on the same transport can be created.
 demo4 :: IO ()
@@ -133,21 +133,31 @@ logServer name targetEnd = forever $ do
 
 --------------------------------------------------------------------------------
 
-runWAllTranports demo = do
+runWAllTranports demo offset = do
    putStrLn "------------------------------------------------------------"
    putStrLn "   MVAR transport:"
    demo Network.Transport.MVar.mkTransport
    putStrLn "\n   TCP transport:"
-   demo$ mkTransport $ TCPConfig undefined "127.0.0.1" "8080"
+   demo$ mkTransport $ TCPConfig undefined "127.0.0.1" (show (8080 + offset))
    putStrLn "\n   PIPES transport:"
    demo Network.Transport.Pipes.mkTransport
    putStrLn "\n"
 
 main = do 
    putStrLn "Demo0:"
-   runWAllTranports demo0
+   runWAllTranports demo0 0
 
---   putStrLn "Demo1:"
---   runWAllTranports demo1
+   putStrLn "Demo1:"
+   runWAllTranports demo1 10
+
+   putStrLn "Demo2:"
+   runWAllTranports demo2 20
+
+   putStrLn "Done with all demos!"
+
+--  trans <- mkTransport $ TCPConfig undefined "127.0.0.1" "8080"
+
+--   trans1 <- mkTransport $ TCPConfig undefined "127.0.0.1" "8080"
+--   trans2 <- mkTransport $ TCPConfig undefined "127.0.0.1" "8081"
 
 
