@@ -1,7 +1,7 @@
 module Main where
 
 import Network.Transport
-import Network.Transport.TCP (mkTransport, TCPConfig (..))
+import Network.Transport.Pipes (mkTransport)
 
 import Control.Monad (forever, replicateM_)
 import Criterion.Main (Benchmark, bench, defaultMain, nfIO)
@@ -19,21 +19,21 @@ import qualified Data.ByteString.Lazy.Char8 as BS
 --
 -- To use the compiled binary, first set up a server:
 --
---     ./benchmarks/PingTransport server 0.0.0.0 8080 sourceAddr
+--     ./benchmarks/PingPipes server sourceAddr
 --
 -- Once this is established, launch a client to perform the benchmark. The
 -- following command sends 1000 pings per mark.
 --
---     ./benchmarks/PingTransport client 0.0.0.0 8081 sourceAddr 1000
+--     ./benchmarks/PingPipes client sourceAddr 1000
 --
 -- The server must be restarted between benchmarks.
 main :: IO ()
 main = do
   args <- getArgs
   case args of
-    "server" : host : service : sourceAddrFilePath : [] -> do
+    "server" : sourceAddrFilePath : [] -> do
       -- establish transport
-      transport <- mkTransport $ TCPConfig defaultHints host service
+      transport <- mkTransport 
 
       -- create ping end
       putStrLn "server: creating ping end"
@@ -50,10 +50,10 @@ main = do
       forever $ pong targetEndPing sourceEndPong
 
 
-    "client" : host : service : sourceAddrFilePath : pingsStr : args' -> do
+    "client" : sourceAddrFilePath : pingsStr : args' -> do
       let pings = read pingsStr
       -- establish transport
-      transport <- mkTransport $ TCPConfig defaultHints host service
+      transport <- mkTransport 
 
       -- create ping end
       sourceAddrPingBS <- BS.readFile sourceAddrFilePath
@@ -66,6 +66,7 @@ main = do
       -- benchmark the pings
 --      withArgs args' $ defaultMain [ benchPing sourceEndPing targetEndPong pings]
       replicateM_ pings (ping sourceEndPing targetEndPong)
+      putStrLn "Done with all ping/pongs."
 
 -- | This function takes a `TargetEnd` for the pings, and a `SourceEnd` for
 -- pongs. Whenever a ping is received from the `TargetEnd`, a pong is sent

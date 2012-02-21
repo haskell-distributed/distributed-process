@@ -67,6 +67,7 @@ main = do
 
       -- benchmark the pings
       withArgs args' $ defaultMain [ benchPing sock pings ]
+--      replicateM_ pings (ping sock)
 
 -- | Each `ping` sends a single byte, and expects to receive one
 -- back in return.
@@ -83,6 +84,7 @@ pong sock = do
   return ()
 
 benchPing :: Socket -> Int64 -> Benchmark
-benchPing sock n = bench "PingTCP" $
+benchPing sock n = 
+  bench "PingTCP" $
   nfIO (replicateM_ (fromIntegral n) (ping sock))
 

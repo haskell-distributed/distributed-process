@@ -41,16 +41,19 @@ import Network.Transport
 import System.Random (randomIO)
 import System.IO     (IOMode(ReadMode,AppendMode,WriteMode,ReadWriteMode), 
 		      openFile, hClose, hPutStrLn, hPutStr, stderr, stdout, hFlush)
+import System.IO.Error (ioeGetHandle)
 import System.Posix.Files (createNamedPipe, unionFileModes, ownerReadMode, ownerWriteMode)
 import System.Posix.Types (Fd)
 import System.Directory (doesFileExist, removeFile)
+import System.Mem (performGC)
 
 -- define DEBUG
 -- define USE_UNIX_BYTESTRING
 
 #ifdef USE_UNIX_BYTESTRING
 import qualified "unix-bytestring" System.Posix.IO.ByteString as PIO
-import System.Posix.IO as PIO (openFd, defaultFileFlags, OpenMode(ReadWrite, WriteOnly)) 
+import System.Posix.IO as PIO (openFd, closeFd, defaultFileFlags, 
+			       OpenMode(ReadWrite, WriteOnly)) 
 (fromS,toS)  = (BS.pack, BS.unpack)
 (fromBS,toBS) = (id,id)
 readit fd n = PIO.fdRead fd n
@@ -91,8 +94,14 @@ mkTransport = do
 
   return Transport
     { newConnectionWith = \ _ -> do
+	-- Here we protect from blocking other threads by running on a separate (OS) thread:
+	-- Opening the file on the reader side should always succeed:
+        mv <- onOSThread$ tryUntilNoIOErr $ 
+--	      spinTillThere filename
+	      PIO.openFd filename PIO.ReadOnly Nothing fileFlags
+
         return (mkSourceAddr filename, 
-		mkTargetEnd filename lock)
+		mkTargetEnd mv lock)
     , newMulticastWith = error "Pipes.hs: newMulticastWith not implemented yet"
     , deserialize = \bs -> return$ mkSourceAddr (BS.unpack bs)
     , closeTransport = removeFile filename
@@ -107,11 +116,9 @@ mkTransport = do
     mkSourceEnd :: String -> IO SourceEnd
     mkSourceEnd filename = do
       -- Initiate but do not block on file opening:
-
-      -- Here we protect from blocking other threads by running on a separate (OS) thread:
       mv <- onOSThread$ tryUntilNoIOErr $ 
             -- The reader must connect first, the writer here spins with backoff.
-	    PIO.openFd filename PIO.WriteOnly Nothing fileFlags
+            PIO.openFd filename PIO.WriteOnly Nothing fileFlags
 
       return $ 
       -- Write to the named pipe.  If the message is less than
@@ -128,31 +135,26 @@ mkTransport = do
 --            let finalmsg = BS.concat (encode msgsize : bss)
             let finalmsg = BS.concat ((BS.fromChunks[encode msgsize]) : bss)
                        
-            fd <- readMVar mv -- Synchronnize with file opening.
+            fd <- readMVar mv -- Synchronize with file opening.
             ----------------------------------------
             cnt <- PIO.fdWrite fd (fromBS finalmsg) -- inefficient to use String here!
             unless (fromIntegral cnt == BS.length finalmsg) $ 
 	      error$ "Failed to write message in one go, length: "++ show (BS.length finalmsg)
             ----------------------------------------
             return ()
-	, closeSourceEnd = error "Pipes.hs: closeSourceEnd not yet implemented"
+	, closeSourceEnd = do
+            fd <- readMVar mv 
+            PIO.closeFd fd
         }
 
-    mkTargetEnd :: String -> MVar () -> TargetEnd
-    mkTargetEnd filename lock = TargetEnd
+    mkTargetEnd :: MVar Fd -> MVar () -> TargetEnd
+    mkTargetEnd mv lock = TargetEnd
       { receive = do
+          fd <- readMVar mv -- Make sure Fd is there before
+
           -- This should only happen on a single process.  But it may
           -- happen on multiple threads so we grab a lock.
           takeMVar lock
-
-          spinTillThere filename
-	  -- Opening the file on the reader side should always succeed:
-          fd <- PIO.openFd filename PIO.ReadOnly Nothing fileFlags
-
-          let oneread fd n = 
-                  do bs <- tryUntilNoIOErr$ 
-			   readit fd (fromIntegral n)
-		     return (bs, BS.length bs)
         
 	  let spinread :: Int64 -> IO BS.ByteString
               spinread desired = do 
@@ -178,7 +180,9 @@ mkTransport = do
 			Right size -> spinread (fromIntegral (size::Word32))
           putMVar lock () 
           return [payload]
-      , closeTargetEnd = error "Pipes.hs: closeTargetEnd not yet implemented"
+      , closeTargetEnd = do 
+         fd <- readMVar mv
+	 PIO.closeFd fd
       }
 
 spinTillThere :: String -> IO ()
@@ -202,6 +206,10 @@ tryUntilNoIOErr action = mkBackoff >>= loop
   loop bkoff = 
     handle (\ (e :: IOException) -> 
 	     do bkoff 
+--                BSS.hPutStr stderr$ BSS.pack$ "    got IO err: " ++ show e
+	        -- case ioeGetHandle e of 
+	        --   Nothing -> BSS.hPutStrLn stderr$ BSS.pack$ "  no hndl io err."
+	        --   Just x  -> BSS.hPutStrLn stderr$ BSS.pack$ "  HNDL on io err!" ++ show x
 	        loop bkoff) $ 
 	   action
 
