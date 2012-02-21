@@ -25,10 +25,10 @@ The `DemoTransport.hs` file contains a number of different functions named
 To try them out, launch `ghci`, including the appropriate sources:
 
     ghci -idistributed-process/src -inetwork-transport/src examples/DemoTransport.hs
+        
+The first demo, `demo0` yields the following output when run with the TCP transport:
 
-The first demo, `demo0` yields the following output:
-
-    *DemoTransport> demo0
+    *DemoTransport> tcp >>= demo0
     logServer: [Chunk "hello 1" Empty]
     logServer: [Chunk "hello 2" Empty]
     logServer: [Chunk "hello 3" Empty]

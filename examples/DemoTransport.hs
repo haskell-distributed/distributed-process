@@ -1,7 +1,9 @@
-module DemoTransport where
+{-# LANGUAGE NamedFieldPuns #-}
+module Main where
 
-import Network.Transport
-import qualified Network.Transport.MVar
+import Network.Transport 
+import qualified Network.Transport.MVar  
+import qualified Network.Transport.Pipes 
 import Network.Transport.TCP (mkTransport, TCPConfig (..))
 
 import Control.Concurrent
@@ -9,16 +11,27 @@ import Control.Monad
 
 import qualified Data.ByteString.Lazy.Char8 as BS
 
+import Data.IORef
 import Debug.Trace
 
 -------------------------------------------
--- Example program using backend directly
---
+
+{- Run a demo above with one of these tranpsort shorthands like this:
+   tcp >>= demo0
+ -}
+tcp   = mkTCPOff 8080
+mvar  = return Network.Transport.MVar.mkTransport
+pipes = return Network.Transport.Pipes.mkTransport
+
+
+-------------------------------------------
+-- Example programs using backend directly
+
 
 -- | Check if multiple messages can be sent on the same connection.
-demo0 :: IO ()
-demo0 = do
-  trans <- mkTransport $ TCPConfig undefined "127.0.0.1" "8080"
+demo0 :: IO Transport -> IO ()
+demo0 mktrans = do
+  trans <- mktrans
 
   (sourceAddr, targetEnd) <- newConnection trans
 
@@ -32,11 +45,11 @@ demo0 = do
 
   closeTransport trans
 
+
 -- | Check endpoint serialization and deserialization.
-demo1 :: IO ()
-demo1 = do
-  -- trans <- mkTransport
-  trans <- mkTransport $ TCPConfig undefined "127.0.0.1" "8080"
+demo1 :: IO Transport -> IO ()
+demo1 mktrans = do
+  trans <- mktrans
 
   (sourceAddr, targetEnd) <- newConnection trans
 
@@ -54,28 +67,28 @@ demo1 = do
   threadDelay 100000
   closeTransport trans
 
+
 -- | Check that messages can be sent before receive is set up.
-demo2 :: IO ()
-demo2 = do
-  -- trans <- mkTransport
-  trans <- mkTransport $ TCPConfig undefined "127.0.0.1" "8080"
+demo2 :: IO Transport -> IO ()
+demo2 mktrans = do
+  trans <- mktrans
 
   (sourceAddr, targetEnd) <- newConnection trans
-
   sourceEnd <- connect sourceAddr
+
   forkIO $ send sourceEnd [BS.pack "hello 1"]
   threadDelay 100000
 
   forkIO $ logServer "logServer" targetEnd
   threadDelay 100000
-
   closeTransport trans
 
+
 -- | Check that two different transports can be created.
-demo3 :: IO ()
-demo3 = do
-  trans1 <- mkTransport $ TCPConfig undefined "127.0.0.1" "8080"
-  trans2 <- mkTransport $ TCPConfig undefined "127.0.0.1" "8081"
+demo3 :: IO Transport -> IO ()
+demo3 mktrans = do
+  trans1 <- mktrans 
+  trans2 <- mktrans 
 
   (sourceAddr1, targetEnd1) <- newConnection trans1
   (sourceAddr2, targetEnd2) <- newConnection trans2
@@ -96,11 +109,11 @@ demo3 = do
   closeTransport trans1
   closeTransport trans2
 
+
 -- | Check that two different connections on the same transport can be created.
-demo4 :: IO ()
-demo4 = do
-  trans <- mkTransport $ TCPConfig undefined "127.0.0.1" "8080"
-  -- trans <- Network.Transport.MVar.mkTransport
+demo4 :: IO Transport -> IO ()
+demo4 mktrans = do
+  trans <- mktrans
 
   (sourceAddr1, targetEnd1) <- newConnection trans
   (sourceAddr2, targetEnd2) <- newConnection trans
@@ -120,7 +133,44 @@ demo4 = do
   killThread threadId2
   closeTransport trans
 
+--------------------------------------------------------------------------------
+
 logServer :: String -> TargetEnd -> IO ()
 logServer name targetEnd = forever $ do
   x <- receive targetEnd
-  trace (name ++ ": " ++ show x) $ return ()
+  trace (name ++ " rcvd: " ++ show x) $ return ()
+
+mkTCPOff off = do 
+  cntr <- newIORef 0
+  return$ do cnt <- readIORef cntr
+	     writeIORef cntr (cnt+1)
+	     mkTransport (TCPConfig undefined "127.0.0.1" (show (off + cnt)))
+
+--------------------------------------------------------------------------------
+
+runWAllTranports :: (IO Transport -> IO ()) -> Int -> IO ()
+runWAllTranports demo offset = do
+   putStrLn "------------------------------------------------------------"
+   putStrLn "   MVAR transport:"
+   mvar >>= demo
+   putStrLn "\n   TCP transport:"   
+   tcp >>= demo
+   putStrLn "\n   PIPES transport:"
+   pipes >>= demo
+   putStrLn "\n"
+
+
+main = do 
+   putStrLn "Demo0:"
+   runWAllTranports demo0 0
+   putStrLn "Demo1:"
+   runWAllTranports demo1 10
+   putStrLn "Demo2:"
+   runWAllTranports demo2 20
+   putStrLn "Demo3:"
+   runWAllTranports demo3 30
+   putStrLn "Demo4:"
+   runWAllTranports demo4 40
+
+   threadDelay (300 * 1000)
+   putStrLn "Done with all demos!"

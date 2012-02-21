@@ -32,6 +32,7 @@ mkTransport = do
         case BS.readInt bs of
           Nothing    -> error "dummyBackend.deserializeSourceEnd: cannot parse"
           Just (n,_) -> Just . mkSourceAddr channels $ n
+    , closeTransport = return ()
     }
   where
     mkSourceAddr :: Chans -> Int -> SourceAddr

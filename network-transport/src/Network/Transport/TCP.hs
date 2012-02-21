@@ -5,9 +5,11 @@ module Network.Transport.TCP
 
 import Network.Transport
 
-import Control.Concurrent (forkIO, ThreadId, killThread)
+import Control.Concurrent (forkIO, ThreadId, killThread, myThreadId)
 import Control.Concurrent.Chan
 import Control.Concurrent.MVar
+import Control.Exception (SomeException, IOException, AsyncException(ThreadKilled), 
+			  fromException, throwTo, throw, catch, handle)
 import Control.Monad (forever, forM_)
 import Data.ByteString.Lazy.Char8 (ByteString)
 import Data.IntMap (IntMap)
@@ -19,8 +21,10 @@ import Network.Socket
   , accept, addrAddress, addrFlags, addrFamily, bindSocket, defaultProtocol
   , getAddrInfo, listen, setSocketOption, socket, sClose, withSocketsDo )
 import Safe
+import System.IO (stderr, hPutStrLn)
 
 import qualified Data.Binary as B
+import qualified Data.ByteString.Char8 as BSS
 import qualified Data.ByteString.Lazy.Char8 as BS
 import qualified Data.IntMap as IntMap
 import qualified Network.Socket as N
@@ -55,7 +59,8 @@ mkTransport (TCPConfig _hints host service) = withSocketsDo $ do
   setSocketOption sock ReuseAddr 1
   bindSocket sock (addrAddress serverAddr)
   listen sock 5
-  threadId <- forkIO $ procConnections chans sock
+  threadId <- forkWithExceptions forkIO "Connection Listener" $ 
+	      procConnections chans sock
 
   return Transport
     { newConnectionWith = {-# SCC "newConnectionWith" #-}\_ -> do
@@ -142,7 +147,8 @@ procConnections chans sock = forever $ do
           putMVar chans (chanId', chanMap)
           error "procConnections: cannot find chanId"
         Just (chan, socks) -> do
-          threadId <- forkIO $ procMessages chans chanId chan clientSock
+          threadId <- forkWithExceptions forkIO "Message Listener" $ 
+		      procMessages chans chanId chan clientSock
           let chanMap' = IntMap.insert chanId (chan, (threadId, clientSock):socks) chanMap
           putMVar chans (chanId', chanMap')
 
@@ -157,16 +163,17 @@ procMessages :: Chans -> ChanId -> Chan [ByteString] -> Socket -> IO ()
 procMessages chans chanId chan sock = do
   sizeBSs <- recvExact sock 1
   case sizeBSs of
-    [] -> closeSocket
-    _  -> do
-      let size = fromIntegral (B.decode . BS.concat $ sizeBSs :: Word8)
+    []   -> closeSocket
+    [onebyte] -> do
+      let size = fromIntegral (B.decode onebyte :: Word8)
       if size == 255
         then do
           sizeBSs' <- recvExact sock 8
           case sizeBSs' of
             [] -> closeSocket
-            _  -> procMessage (B.decode . BS.concat $ sizeBSs' :: Int64)
+            _  -> procMessage (B.decode . BS.concat$ sizeBSs' :: Int64)
         else procMessage size
+    ls -> error "Shouldn't receive more than one bytestring when expecting a single byte!"
  where
   closeSocket :: IO ()
   closeSocket = do
@@ -202,7 +209,9 @@ procMessages chans chanId chan sock = do
 -- indicates success. This hasn't been implemented, since a Transport `receive`
 -- represents an atomic receipt of a message.
 recvExact :: Socket -> Int64 -> IO [ByteString]
-recvExact sock n = go [] sock n
+recvExact sock n = 
+   interceptAllExn "recvExact" $ 
+   go [] sock n
  where
   go :: [ByteString] -> Socket -> Int64 -> IO [ByteString]
   go bss _    0 = return (reverse bss)
@@ -211,4 +220,29 @@ recvExact sock n = go [] sock n
     if BS.null bs
       then return []
       else go (bs:bss) sock (n - BS.length bs)
+
+
+interceptAllExn msg = 
+   Control.Exception.handle $ \ e -> 
+     case fromException e of 
+       Just ThreadKilled -> throw e
+       Nothing -> do 
+	 BSS.hPutStrLn stderr $ BSS.pack$  "Exception inside "++msg++": "++show e
+	 throw e
+--	 throw (e :: SomeException)
+
+forkWithExceptions :: (IO () -> IO ThreadId) -> String -> IO () -> IO ThreadId
+forkWithExceptions forkit descr action = do 
+   parent <- myThreadId
+   forkit $ 
+      Control.Exception.catch action
+	 (\ e -> do
+          case fromException e of 
+            Just ThreadKilled -> 
+--    	      BSS.hPutStrLn stderr $ BSS.pack$ "Note: Child thread killed: "++descr
+              return ()
+	    _ -> do
+	      BSS.hPutStrLn stderr $ BSS.pack$ "Exception inside child thread "++descr++": "++show e
+	      throwTo parent (e::SomeException)
+	 )
 

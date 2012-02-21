@@ -15,10 +15,13 @@ Library
                      bytestring >= 0.9,
                      containers >= 0.4,
                      network >= 2.3,
-                     safe >= 0.3
+                     safe >= 0.3,
+                     unix >= 2.5.0.0, random, cereal
+--                     , unix-bytestring
   Exposed-modules:   Network.Transport,
                      Network.Transport.MVar,
-                     Network.Transport.TCP
+                     Network.Transport.TCP,
+                     Network.Transport.Pipes
   Extensions:        BangPatterns
   ghc-options:       -Wall
   HS-Source-Dirs:    src
