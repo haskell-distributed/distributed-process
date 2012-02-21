@@ -5,7 +5,7 @@ ifeq ($(GHC),)
 endif
 
 all:
-	$(GHC) -threaded --make DemoTransport.hs -o DemoTransport.exe -fforce-recomp
+	$(GHC) -threaded --make -i../network-transport/src DemoTransport.hs -o DemoTransport.exe -fforce-recomp
 
 
 clean: 
