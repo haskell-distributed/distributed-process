@@ -223,9 +223,13 @@ recvExact sock n =
 
 
 interceptAllExn msg = 
-   Control.Exception.handle $ \ e -> do
-      BSS.hPutStrLn stderr $ BSS.pack$  "Exception inside "++msg++": "++show e
-      throw (e :: SomeException)
+   Control.Exception.handle $ \ e -> 
+     case fromException e of 
+       Just ThreadKilled -> throw e
+       Nothing -> do 
+	 BSS.hPutStrLn stderr $ BSS.pack$  "Exception inside "++msg++": "++show e
+	 throw e
+--	 throw (e :: SomeException)
 
 forkWithExceptions :: (IO () -> IO ThreadId) -> String -> IO () -> IO ThreadId
 forkWithExceptions forkit descr action = do 

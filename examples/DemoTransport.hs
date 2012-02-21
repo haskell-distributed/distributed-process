@@ -162,18 +162,16 @@ main = do
 
    putStrLn "Demo0:"
    runWAllTranports demo0 0
-
    putStrLn "Demo1:"
    runWAllTranports demo1 10
 
---   putStrLn "Demo2:"
---   runWAllTranports demo2 20
+--    putStrLn "Demo2:"
+--    runWAllTranports demo2 20
 
---   putStrLn "Demo3:"
---   runWAllTranports demo3 30
-
---   putStrLn "Demo4:"
---   runWAllTranports demo4 40
+   putStrLn "Demo3:"
+   runWAllTranports demo3 30
+   putStrLn "Demo4:"
+   runWAllTranports demo4 40
 
    threadDelay (500 * 1000)
 
@@ -183,5 +181,3 @@ main = do
 
 --   trans1 <- mkTransport $ TCPConfig undefined "127.0.0.1" "8080"
 --   trans2 <- mkTransport $ TCPConfig undefined "127.0.0.1" "8081"
-
-
