@@ -66,10 +66,13 @@ demo2 mktrans = do
   trans <- mktrans
 
   (sourceAddr, targetEnd) <- newConnection trans
-
+  putStrLn " ================= "
   sourceEnd <- connect sourceAddr
+  putStrLn " FRK TO SEND"
   forkIO $ send sourceEnd [BS.pack "hello 1"]
   threadDelay 100000
+
+  putStrLn " NEXT fork receiver (logServer):"
 
   forkIO $ logServer "logServer" targetEnd
   threadDelay 100000
@@ -132,7 +135,7 @@ logServer name targetEnd = forever $ do
   x <- receive targetEnd
   trace (name ++ " rcvd: " ++ show x) $ return ()
 
-
+-- Run a demo above with one of these tranpsort shorthands as argument:
 
 -- do cnt <- readIORef cntr
 --             writeIORef cntr (cnt+1)
@@ -140,6 +143,8 @@ logServer name targetEnd = forever $ do
 
 --mkTCP = do cntr <- newIORef 0
 --	   mkTCPOff 8080
+
+--------------------------------------------------------------------------------
 
 runWAllTranports :: (IO Transport -> IO ()) -> Int -> IO ()
 runWAllTranports demo offset = do
@@ -164,20 +169,12 @@ main = do
    runWAllTranports demo0 0
    putStrLn "Demo1:"
    runWAllTranports demo1 10
-
---    putStrLn "Demo2:"
---    runWAllTranports demo2 20
-
+   putStrLn "Demo2:"
+   runWAllTranports demo2 20
    putStrLn "Demo3:"
    runWAllTranports demo3 30
    putStrLn "Demo4:"
    runWAllTranports demo4 40
 
    threadDelay (500 * 1000)
-
    putStrLn "Done with all demos!"
-
---  trans <- mkTransport $ TCPConfig undefined "127.0.0.1" "8080"
-
---   trans1 <- mkTransport $ TCPConfig undefined "127.0.0.1" "8080"
---   trans2 <- mkTransport $ TCPConfig undefined "127.0.0.1" "8081"

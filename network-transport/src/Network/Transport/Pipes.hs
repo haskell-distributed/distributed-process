@@ -112,9 +112,10 @@ mkTransport = do
       --  OPTION (1)
       -- Here we protect from blocking other threads by running on a separate (OS) thread:
 --      mv <- onOSThread$ PIO.openFd filename PIO.ReadWrite Nothing fileFlags
+      dbgprint1$ "About to try opening writing end:"
       mv <- onOSThread$ tryUntilNoIOErr $ 
 	    PIO.openFd filename PIO.WriteOnly Nothing fileFlags
-      fd <- takeMVar mv
+--      fd <- takeMVar mv
 
       --  OPTION (2) / (3)
 --      spinTillThere filename
@@ -143,7 +144,7 @@ mkTransport = do
             dbgprint1$ "  Final send msg: " ++ show finalmsg
            
             -- OPTION 2: Speculative file opening, plus this synchronnization:
---            fd <- readMVar mv
+            fd <- readMVar mv
             ----------------------------------------
             cnt <- PIO.fdWrite fd (fromBS finalmsg) -- inefficient to use String here!
             unless (fromIntegral cnt == BS.length finalmsg) $ 
@@ -163,6 +164,7 @@ mkTransport = do
           dbgprint2$ "   (got lock)"
 
           spinTillThere filename
+	  -- Opening the file on the reader side should always succeed:
           fd <- PIO.openFd filename PIO.ReadOnly Nothing fileFlags
 --          fd <- PIO.openFd filename PIO.ReadWrite Nothing fileFlags
 --          mv <- onOSThread$ PIO.openFd filename PIO.ReadWrite Nothing fileFlags
@@ -224,47 +226,38 @@ mkTransport = do
 
 spinTillThere :: String -> IO ()
 spinTillThere filename = 
-  do dbgprint2$ "  Spinning till file present: "++ filename
-     loop 1
+  do dbgprint2$ "  Spinning till file present: "++ filename     
+     mkBackoff >>= loop 
   where
-   maxwait = 10 * 1000
-   loop t | t > maxwait = loop maxwait
-   loop t = do b <- doesFileExist filename
-	       unless b $ do 
-#ifdef DEBUG
-                 hPutStr stderr "?"
-#endif
-		 threadDelay t
-		 loop (2 * t)
---	       loop $ round (fromIntegral t * 1.5)
+   loop bkoff = do b <- doesFileExist filename
+		   unless b $ do bkoff; loop bkoff
 
-data InfIO = InfIO (IO (InfIO))
 
--- mkBackoff :: IO (IO ())
-
+mkBackoff :: IO (IO ())
 mkBackoff = 
   do tref <- newIORef 1
      return$ do t <- readIORef tref
-		writeIORef tref (min (10 * 1000) (2 * t))
+		writeIORef tref (min maxwait (2 * t))
 		threadDelay t
+ where 
+   maxwait = 50 * 1000
 
 tryUntilNoIOErr :: IO a -> IO a
 tryUntilNoIOErr action = mkBackoff >>= loop 
  where 
   loop bkoff = 
-    handle (\ (e :: IOException) -> bkoff >> loop bkoff) $ 
+    handle (\ (e :: IOException) -> 
+	     do bkoff 
+	        dbgprint2$ "            got IO exn: " ++ show e
+	        loop bkoff) $ 
 	   action
 
-
---   loop (InfIO bkoff) = 
---     handle (\ (e :: IOException) -> 
--- 	      do InfIO nxt <- bkoff
--- 	         loop nxt) $ 
--- 	   action
-
-  
-
-
+-- Execute an action on its own OS thread.  Return an MVar to synchronize on.
+onOSThread :: IO a -> IO (MVar a)
+onOSThread action = do 
+  mv <- newEmptyMVar
+  forkOS (action >>= putMVar mv )
+  return mv
 
 #ifdef DEBUG
 dbgprint1 s = do BSS.hPutStrLn stderr (BSS.pack s); hFlush stderr;
@@ -274,11 +267,3 @@ dbgprint1 _ = return ()
 dbgprint2 _ = return ()
 #endif
 
-
--- Execute an action on its own OS thread.  Return an MVar to synchronize on.
-onOSThread :: IO a -> IO (MVar a)
-onOSThread action = do 
-  mv <- newEmptyMVar
-  forkOS (action >>= putMVar mv )
-  return mv
--- [2012.02.19] This didn't seem to help.
