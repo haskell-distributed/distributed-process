@@ -10,21 +10,27 @@ import Control.Concurrent
 import Control.Monad
 
 import qualified Data.ByteString.Lazy.Char8 as BS
--- import qualified Data.ByteString.Char8 as BS
 
 import Data.IORef
 import Debug.Trace
 
--- closeTransport _ = return ()
+-------------------------------------------
+
+{- Run a demo above with one of these tranpsort shorthands like this:
+   tcp >>= demo0
+ -}
+tcp   = mkTCPOff 8080
+mvar  = return Network.Transport.MVar.mkTransport
+pipes = return Network.Transport.Pipes.mkTransport
+
 
 -------------------------------------------
--- Example program using backend directly
---
+-- Example programs using backend directly
+
 
 -- | Check if multiple messages can be sent on the same connection.
 demo0 :: IO Transport -> IO ()
 demo0 mktrans = do
---  trans@Transport{closeTransport} <- mktrans
   trans <- mktrans
 
   (sourceAddr, targetEnd) <- newConnection trans
@@ -37,7 +43,8 @@ demo0 mktrans = do
   mapM_ (\n -> send sourceEnd [BS.pack ("hello " ++ show n)]) [1 .. 10]
   threadDelay 100000
 
---  closeTransport trans
+  closeTransport trans
+
 
 -- | Check endpoint serialization and deserialization.
 demo1 :: IO Transport -> IO ()
@@ -60,24 +67,22 @@ demo1 mktrans = do
   threadDelay 100000
   closeTransport trans
 
+
 -- | Check that messages can be sent before receive is set up.
 demo2 :: IO Transport -> IO ()
 demo2 mktrans = do
   trans <- mktrans
 
   (sourceAddr, targetEnd) <- newConnection trans
-  putStrLn " ================= "
   sourceEnd <- connect sourceAddr
-  putStrLn " FRK TO SEND"
+
   forkIO $ send sourceEnd [BS.pack "hello 1"]
   threadDelay 100000
 
-  putStrLn " NEXT fork receiver (logServer):"
-
   forkIO $ logServer "logServer" targetEnd
   threadDelay 100000
-
   closeTransport trans
+
 
 -- | Check that two different transports can be created.
 demo3 :: IO Transport -> IO ()
@@ -135,36 +140,27 @@ logServer name targetEnd = forever $ do
   x <- receive targetEnd
   trace (name ++ " rcvd: " ++ show x) $ return ()
 
--- Run a demo above with one of these tranpsort shorthands as argument:
-
--- do cnt <- readIORef cntr
---             writeIORef cntr (cnt+1)
---             mkTransport (TCPConfig undefined "127.0.0.1" (show (8080 + offset + cnt)))
-
---mkTCP = do cntr <- newIORef 0
---	   mkTCPOff 8080
+mkTCPOff off = do 
+  cntr <- newIORef 0
+  return$ do cnt <- readIORef cntr
+	     writeIORef cntr (cnt+1)
+	     mkTransport (TCPConfig undefined "127.0.0.1" (show (off + cnt)))
 
 --------------------------------------------------------------------------------
 
 runWAllTranports :: (IO Transport -> IO ()) -> Int -> IO ()
 runWAllTranports demo offset = do
    putStrLn "------------------------------------------------------------"
-
    putStrLn "   MVAR transport:"
-   demo Network.Transport.MVar.mkTransport
-
+   mvar >>= demo
    putStrLn "\n   TCP transport:"   
-   cntr <- newIORef 0
-   demo$ do cnt <- readIORef cntr
-            writeIORef cntr (cnt+1)
-            mkTransport (TCPConfig undefined "127.0.0.1" (show (8080 + offset + cnt)))
-
+   tcp >>= demo
    putStrLn "\n   PIPES transport:"
-   demo Network.Transport.Pipes.mkTransport
+   pipes >>= demo
    putStrLn "\n"
 
-main = do 
 
+main = do 
    putStrLn "Demo0:"
    runWAllTranports demo0 0
    putStrLn "Demo1:"
@@ -176,5 +172,5 @@ main = do
    putStrLn "Demo4:"
    runWAllTranports demo4 40
 
-   threadDelay (500 * 1000)
+   threadDelay (300 * 1000)
    putStrLn "Done with all demos!"
