@@ -5,7 +5,8 @@ module Network.Transport.Pipes
   ) where
 
 import Control.Monad (when, unless)
-import Control.Exception (evaluate)
+import Control.Exception (evaluate, throw, handle, fromException,
+			  SomeException, IOException)
 import Control.Concurrent.MVar
 import Control.Concurrent (threadDelay, forkOS)
 import Data.IntMap (IntMap)
@@ -29,9 +30,10 @@ import Data.List (foldl')
 import Network.Transport
 import System.Random (randomIO)
 import System.IO     (IOMode(ReadMode,AppendMode,WriteMode,ReadWriteMode), 
-		      openFile, hClose, hPutStrLn, hPutStr, stderr, stdout)
+		      openFile, hClose, hPutStrLn, hPutStr, stderr, stdout, hFlush)
 import System.Posix.Files (createNamedPipe, unionFileModes, ownerReadMode, ownerWriteMode)
 import System.Posix.Types (Fd)
+import System.Directory (doesFileExist)
 
 -- define DEBUG
 -- define USE_UNIX_BYTESTRING
@@ -54,6 +56,23 @@ readit fd n = do (s,_) <- PIO.fdRead fd n
 
 -- The msg header consists of just a length field represented as a Word32
 sizeof_header = 4
+
+-- fileFlags = PIO.defaultFileFlags
+fileFlags = 
+ PIO.OpenFileFlags {
+    PIO.append    = False,
+    PIO.exclusive = False,
+    PIO.noctty    = False,
+--    PIO.nonBlock  = False,
+    PIO.nonBlock  = True,
+    -- In nonblocking mode opening for read will always succeed and
+    -- opening for write must happen second.
+    PIO.trunc     = False
+  }
+-- NOTE:
+-- "The only open file status flags that can be meaningfully applied
+--  to a pipe or FIFO are O_NONBLOCK and O_ASYNC. "
+
 
 mkTransport :: IO Transport
 mkTransport = do
@@ -92,14 +111,17 @@ mkTransport = do
 
       --  OPTION (1)
       -- Here we protect from blocking other threads by running on a separate (OS) thread:
---      mv <- onOSThread$ PIO.openFd filename PIO.ReadWrite Nothing PIO.defaultFileFlags
---      fd <- takeMVar mv
+--      mv <- onOSThread$ PIO.openFd filename PIO.ReadWrite Nothing fileFlags
+      mv <- onOSThread$ tryUntilNoIOErr $ 
+	    PIO.openFd filename PIO.WriteOnly Nothing fileFlags
+      fd <- takeMVar mv
 
-      --  OPTION (2)
---      fd <- PIO.openFd filename PIO.ReadWrite Nothing PIO.defaultFileFlags
+      --  OPTION (2) / (3)
+--      spinTillThere filename
 
-      --  OPTION (3)
-      fd <- PIO.openFd filename PIO.WriteOnly Nothing PIO.defaultFileFlags
+      -- The reader must connect first, the writer here spins with backoff:
+--      fd <- PIO.openFd filename PIO.WriteOnly Nothing fileFlags
+--      fd <- PIO.openFd filename PIO.ReadWrite Nothing fileFlags
       dbgprint1$ "GOT WRITING END OPEN ... "
 
       return $ 
@@ -138,22 +160,42 @@ mkTransport = do
           -- This should only happen on a single process.  But it may
           -- happen on multiple threads so we grab a lock.
           takeMVar lock
+          dbgprint2$ "   (got lock)"
 
-          mv <- onOSThread$ PIO.openFd filename PIO.ReadWrite Nothing PIO.defaultFileFlags
-	  fd <- takeMVar mv
-          let oneread :: Int64 -> IO (BS.ByteString, Int64)
-	      oneread n = do bs <- readit fd (fromIntegral n)
-			     return (bs, BS.length bs)
+          spinTillThere filename
+          fd <- PIO.openFd filename PIO.ReadOnly Nothing fileFlags
+--          fd <- PIO.openFd filename PIO.ReadWrite Nothing fileFlags
+--          mv <- onOSThread$ PIO.openFd filename PIO.ReadWrite Nothing fileFlags
+          dbgprint2$ "  spawned thread for open..."
+--          let dummy 0 acc = acc
+--	      dummy n acc = dummy (n-1) (1.1 * acc)
+--          dbgprint2$ "  Silly work: " ++ show (dummy 1000000 0.0001)
+
+--	  fd <- readMVar mv
+          let -- oneread :: Int64 -> IO (BS.ByteString, Int64)
+	      oneread fd n = 
+--                 handle (\e -> do 
+-- 			dbgprint2$ " Got Exception in read call! "++ show e
+-- 			case fromException e of 
+-- 			  Nothing -> dbgprint2$ "It's NOT an IO exception! "
+-- 			  Just e  -> dbgprint2$ "It's an IO exception! "++ show (e :: IOException)
+-- --			throw (e :: SomeException)
+-- 			return undefined
+-- 		       ) $ 
+                  do bs <- tryUntilNoIOErr$ 
+			   readit fd (fromIntegral n)
+		     return (bs, BS.length bs)
           dbgprint2$ "  Attempt read header..."
         
 	  let spinread :: Int64 -> IO BS.ByteString
               spinread desired = do 
 #ifdef DEBUG
-               hPutStr stderr "."
---               dbgprint2$ "  SPINREAD  "++ show desired
-               BSS.hPutStr stdout (BSS.pack$ " "++show desired)
+--               hPutStr stderr "."
+               dbgprint2$ "  SPINREAD  "++ show desired
+--               BSS.hPutStr stdout (BSS.pack$ " "++show desired)
 #endif
-               (bytes,len) <- oneread desired
+--               fd <- readMVar mv
+               (bytes,len) <- oneread fd desired
 	       case len of 
                  n | n == desired -> return bytes
 		 0 -> do threadDelay (10*1000)
@@ -180,9 +222,53 @@ mkTransport = do
           return [payload]
       }
 
+spinTillThere :: String -> IO ()
+spinTillThere filename = 
+  do dbgprint2$ "  Spinning till file present: "++ filename
+     loop 1
+  where
+   maxwait = 10 * 1000
+   loop t | t > maxwait = loop maxwait
+   loop t = do b <- doesFileExist filename
+	       unless b $ do 
 #ifdef DEBUG
-dbgprint1 s = BSS.hPutStrLn stderr (BSS.pack s)
-dbgprint2 s = BSS.hPutStrLn stdout (BSS.pack s)
+                 hPutStr stderr "?"
+#endif
+		 threadDelay t
+		 loop (2 * t)
+--	       loop $ round (fromIntegral t * 1.5)
+
+data InfIO = InfIO (IO (InfIO))
+
+-- mkBackoff :: IO (IO ())
+
+mkBackoff = 
+  do tref <- newIORef 1
+     return$ do t <- readIORef tref
+		writeIORef tref (min (10 * 1000) (2 * t))
+		threadDelay t
+
+tryUntilNoIOErr :: IO a -> IO a
+tryUntilNoIOErr action = mkBackoff >>= loop 
+ where 
+  loop bkoff = 
+    handle (\ (e :: IOException) -> bkoff >> loop bkoff) $ 
+	   action
+
+
+--   loop (InfIO bkoff) = 
+--     handle (\ (e :: IOException) -> 
+-- 	      do InfIO nxt <- bkoff
+-- 	         loop nxt) $ 
+-- 	   action
+
+  
+
+
+
+#ifdef DEBUG
+dbgprint1 s = do BSS.hPutStrLn stderr (BSS.pack s); hFlush stderr;
+dbgprint2 s = do BSS.hPutStrLn stdout (BSS.pack s); hFlush stdout;
 #else
 dbgprint1 _ = return ()
 dbgprint2 _ = return ()
