@@ -33,7 +33,7 @@ import System.IO     (IOMode(ReadMode,AppendMode,WriteMode,ReadWriteMode),
 		      openFile, hClose, hPutStrLn, hPutStr, stderr, stdout, hFlush)
 import System.Posix.Files (createNamedPipe, unionFileModes, ownerReadMode, ownerWriteMode)
 import System.Posix.Types (Fd)
-import System.Directory (doesFileExist)
+import System.Directory (doesFileExist, removeFile)
 
 -- define DEBUG
 -- define USE_UNIX_BYTESTRING
@@ -86,9 +86,7 @@ mkTransport = do
 		mkTargetEnd filename lock)
     , newMulticastWith = error "Pipes.hs: newMulticastWith not implemented yet"
     , deserialize = \bs -> return$ mkSourceAddr (BS.unpack bs)
-    , closeTransport = do 
---       removeFile filename
-       return ()
+    , closeTransport = removeFile filename
     }
   where
     mkSourceAddr :: String -> SourceAddr
@@ -128,6 +126,7 @@ mkTransport = do
 	      error$ "Failed to write message in one go, length: "++ show (BS.length finalmsg)
             ----------------------------------------
             return ()
+	, closeSourceEnd = error "Pipes.hs: closeSourceEnd not yet implemented"
         }
 
     mkTargetEnd :: String -> MVar () -> TargetEnd
@@ -170,6 +169,7 @@ mkTransport = do
 			Right size -> spinread (fromIntegral (size::Word32))
           putMVar lock () 
           return [payload]
+      , closeTargetEnd = error "Pipes.hs: closeTargetEnd not yet implemented"
       }
 
 spinTillThere :: String -> IO ()
