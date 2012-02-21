@@ -1,5 +1,15 @@
 {-# LANGUAGE BangPatterns, CPP, ScopedTypeVariables, PackageImports #-}
 
+----------------------------------------------------------------------------------------------------
+
+-- WARNING -- This transport is not yet completed.  TODO:
+
+--  * Add support for messages greater than 4096 bytes.
+--  * debug ODD problem with CEREAL below
+--  * switch to unix-bytestring after that package is updated for 7.4.1
+
+----------------------------------------------------------------------------------------------------
+
 module Network.Transport.Pipes
   ( mkTransport
   ) where
@@ -57,7 +67,6 @@ readit fd n = do (s,_) <- PIO.fdRead fd n
 -- The msg header consists of just a length field represented as a Word32
 sizeof_header = 4
 
--- fileFlags = PIO.defaultFileFlags
 fileFlags = 
  PIO.OpenFileFlags {
     PIO.append    = False,
