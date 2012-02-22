@@ -14,6 +14,7 @@ import Control.Monad (forever, forM_)
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import Data.ByteString.Internal
 
 import Data.Conduit
 import qualified Data.Conduit.Binary as CB
@@ -25,6 +26,9 @@ import qualified Data.IntMap as IntMap
 import Data.Int
 import Data.Serialize
 import Data.Word
+
+import Foreign.ForeignPtr (withForeignPtr)
+import Foreign.Ptr (Ptr, plusPtr)
 
 import Network.Socket
   ( AddrInfoFlag (AI_PASSIVE), HostName, ServiceName, Socket
@@ -151,9 +155,8 @@ procConnections chans sock = forever $ do
   -- decode the first message to find the correct chanId
   bss <- recvExact clientSock 8
   case bss of
-    [] -> err "inbound chanId aborted"
-    bss  -> do
-      let bs = BS.concat bss
+    Left _ -> err "inbound chanId aborted"
+    Right bs -> do
       let chanId = either err fromIntegral (decode bs :: Either String Int64)
       (chanId', chanMap) <- takeMVar chans
       case IntMap.lookup chanId chanMap of
@@ -174,16 +177,16 @@ procConnections chans sock = forever $ do
 -- socket has closed.
 procMessages :: Chans -> ChanId -> Chan [ByteString] -> Socket -> IO ()
 procMessages chans chanId chan sock = do
-  sizeBSs <- recvExact sock 1
-  case sizeBSs of
-    [] -> closeSocket
-    _  -> do
-      case decode . BS.concat $ sizeBSs :: Either String Word8 of
+  esizeBS <- recvExact sock 1
+  case esizeBS of
+    Left _ -> closeSocket
+    Right sizeBS -> do
+      case decode sizeBS :: Either String Word8 of
         Right 255 -> do
-          sizeBSs' <- recvExact sock 8
-          case sizeBSs' of
-            [] -> closeSocket
-            _  -> procMessage (decode . BS.concat $ sizeBSs')
+          esizeBS' <- recvExact sock 8
+          case esizeBS' of
+            Left _ -> closeSocket
+            Right sizeBS' -> procMessage $ decode sizeBS'
         esize -> procMessage (fromIntegral <$> esize)
  where
   err = error $ printf "procMessages: %s"
@@ -202,11 +205,11 @@ procMessages chans chanId chan sock = do
   procMessage :: Either String Int64 -> IO ()
   procMessage (Left  msg) = err msg
   procMessage (Right size) = do
-    bss <- recvExact sock size
-    case bss of
-      [] -> closeSocket
-      _  -> do
-        writeChan chan bss
+    ebs <- recvExact sock size
+    case ebs of
+      Left _ -> closeSocket
+      Right bs -> do
+        writeChan chan [bs]
         procMessages chans chanId chan sock
 
 -- | The result of `recvExact sock n` is a `[ByteString]` whose concatenation
@@ -221,14 +224,20 @@ procMessages chans chanId chan sock = do
 -- a partial retrieval since the socket was closed, and `return Right bs`
 -- indicates success. This hasn't been implemented, since a Transport `receive`
 -- represents an atomic receipt of a message.
-recvExact :: Socket -> Int64 -> IO [ByteString]
-recvExact sock n = go [] sock (fromIntegral n)
+recvExact :: Socket -> Int64 -> IO (Either ByteString ByteString)
+recvExact sock l = do
+  res <- createAndTrim (fromIntegral l) (go 0)
+  case BS.length res of
+    n | n == (fromIntegral l) -> return $ Right res
+    _                         -> return $ Left res
  where
-  go :: [ByteString] -> Socket -> Int -> IO [ByteString]
-  go bss _    0 = return (reverse bss)
-  go bss sock n = do
-    bs <- NBS.recv sock n
-    if BS.null bs
-      then return []
-      else go (bs:bss) sock (n - (fromIntegral $ BS.length bs))
+  go :: Int -> Ptr Word8 -> IO Int
+  go n ptr | n == (fromIntegral l) = return n
+  go n ptr = do
+    (p, off, len) <- toForeignPtr <$> NBS.recv sock n
+    if len == 0
+      then return n
+      else withForeignPtr p $ \p -> do
+             memcpy (ptr `plusPtr` n) (p `plusPtr` off) (fromIntegral len)
+             go (n+len) ptr 
 
