@@ -16,12 +16,10 @@ Library
                      containers >= 0.4,
                      network >= 2.3,
                      safe >= 0.3,
-                     unix >= 2.5.0.0, random, cereal, directory,
-                     unix-bytestring >= 0.3.5.3	
+                     unix >= 2.5.0.0
   Exposed-modules:   Network.Transport,
                      Network.Transport.MVar,
-                     Network.Transport.TCP,
-                     Network.Transport.Pipes
+                     Network.Transport.TCP
   Extensions:        BangPatterns
   ghc-options:       -Wall
   HS-Source-Dirs:    src
