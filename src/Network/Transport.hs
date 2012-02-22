@@ -12,7 +12,7 @@ module Network.Transport
   , newMulticast
   ) where
 
-import Data.ByteString.Lazy.Char8 (ByteString)
+import Data.ByteString (ByteString)
 
 -- | The `Hints` and `SourceHints` provide hints to the underlying transport
 -- about the kind of connection that is required. This might include details

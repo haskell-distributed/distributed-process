@@ -6,10 +6,11 @@ module Network.Transport.MVar
 
 import Control.Concurrent.MVar
 import Data.IntMap (IntMap)
-import Data.ByteString.Lazy.Char8 (ByteString)
+import Data.ByteString (ByteString)
+import Data.Serialize
 
 import qualified Data.IntMap as IntMap
-import qualified Data.ByteString.Lazy.Char8 as BS
+import qualified Data.ByteString as BS
 
 import Network.Transport
 
@@ -29,15 +30,15 @@ mkTransport = do
         return (mkSourceAddr channels sourceAddr, mkTargetEnd receiveChan)
     , newMulticastWith = undefined
     , deserialize = \bs ->
-        case BS.readInt bs of
-          Nothing    -> error "dummyBackend.deserializeSourceEnd: cannot parse"
-          Just (n,_) -> Just . mkSourceAddr channels $ n
+        either (error "dummyBackend.deserializeSourceEnd: cannot parse")
+               (Just . mkSourceAddr channels)
+               (decode bs)
     }
   where
     mkSourceAddr :: Chans -> Int -> SourceAddr
     mkSourceAddr channels addr = SourceAddr
       { connectWith = \_ -> mkSourceEnd channels addr
-      , serialize   = BS.pack (show addr)
+      , serialize   = encode addr
       }
 
     mkSourceEnd :: Chans -> Int -> IO SourceEnd

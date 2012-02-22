@@ -13,8 +13,11 @@ Library
   Build-Depends:     base >= 3 && < 5,
                      binary >= 0.5,
                      bytestring >= 0.9,
+                     cereal >= 0.3,
+                     conduit >= 0.2,
                      containers >= 0.4,
                      network >= 2.3,
+                     network-conduit >= 0.2,
                      safe >= 0.3
   Exposed-modules:   Network.Transport,
                      Network.Transport.MVar,
