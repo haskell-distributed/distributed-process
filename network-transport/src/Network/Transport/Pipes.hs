@@ -43,27 +43,29 @@ import System.IO     (IOMode(ReadMode,AppendMode,WriteMode,ReadWriteMode),
 		      openFile, hClose, hPutStrLn, hPutStr, stderr, stdout, hFlush)
 import System.IO.Error (ioeGetHandle)
 import System.Posix.Files (createNamedPipe, unionFileModes, ownerReadMode, ownerWriteMode)
-import System.Posix.Types (Fd)
+import System.Posix.Types (Fd, ByteCount)
 import System.Directory (doesFileExist, removeFile)
 import System.Mem (performGC)
 
--- define DEBUG
--- define USE_UNIX_BYTESTRING
-
+#define USE_UNIX_BYTESTRING
 #ifdef USE_UNIX_BYTESTRING
 import qualified "unix-bytestring" System.Posix.IO.ByteString as PIO
-import System.Posix.IO as PIO (openFd, closeFd, defaultFileFlags, 
-			       OpenMode(ReadWrite, WriteOnly)) 
-(fromS,toS)  = (BS.pack, BS.unpack)
-(fromBS,toBS) = (id,id)
+-- import qualified "unix-bytestring" System.Posix.IO.ByteString.Lazy as PIO
+import System.Posix.IO as PIO (openFd, closeFd, -- append, exclusive, noctty, nonBlock, trunc,
+			       OpenFileFlags(..), OpenMode(ReadOnly, WriteOnly))
+-- (fromS,toS)  = (BS.pack, BS.unpack)
+(fromS,toS)  = (BSS.pack, BSS.unpack)
+fromBS = id
 readit fd n = PIO.fdRead fd n
 #else
 import qualified System.Posix.IO            as PIO
 (toS,fromS)  = (id,id)
-(fromBS,toBS) = (BS.unpack, BS.pack)
+fromBS = BSS.unpack
 readit fd n = do (s,_) <- PIO.fdRead fd n
-		 return (BS.pack s)
+		 return (BSS.pack s)
 #endif
+-- readit :: Fd -> Int -> IO BS.ByteString
+readit :: Fd -> ByteCount -> IO BSS.ByteString
 
 ----------------------------------------------------------------------------------------------------
 
@@ -125,21 +127,30 @@ mkTransport = do
       -- PIPE_BUF (4KB on linux) then this should be atomic, otherwise
       -- we have to do something more sophisticated.
         SourceEnd
-        { send = \bss -> do
+        { send = \bsls -> do
 	    -- ThreadSafe: This may happen on multiple processes/threads:
-	    let msgsize :: Word32 = fromIntegral$ foldl' (\n s -> n + BS.length s) 0 bss
+	    let msgsize :: Word32 = fromIntegral$ foldl' (\n s -> n + BS.length s) 0 bsls
             when (msgsize > 4096)$ -- TODO, look up PIPE_BUF in foreign code
 	       error "Message larger than blocksize written atomically to a named pipe.  Unimplemented."
             -- Otherwise it's just a simple write:
 	    -- We append the length as a header. TODO - REMOVE EXTRA COPY HERE:
+
+            let hdrbss :: BSS.ByteString
+#ifdef CEREAL 
+                hdrbss = encode msgsize
+#else 
+--                hdrbss = BS.fromChunks[encode msgsize]
+                [hdrbss] = BS.toChunks (encode msgsize)
+#endif
+
 --            let finalmsg = BS.concat (encode msgsize : bss)
-            let finalmsg = BS.concat ((BS.fromChunks[encode msgsize]) : bss)
+            let finalmsg = BSS.concat (hdrbss : concatMap BS.toChunks bsls)
                        
             fd <- readMVar mv -- Synchronize with file opening.
             ----------------------------------------
             cnt <- PIO.fdWrite fd (fromBS finalmsg) -- inefficient to use String here!
-            unless (fromIntegral cnt == BS.length finalmsg) $ 
-	      error$ "Failed to write message in one go, length: "++ show (BS.length finalmsg)
+            unless (fromIntegral cnt == BSS.length finalmsg) $ 
+	      error$ "Failed to write message in one go, length: "++ show (BSS.length finalmsg)
             ----------------------------------------
             return ()
 	, closeSourceEnd = do
@@ -156,13 +167,13 @@ mkTransport = do
           -- happen on multiple threads so we grab a lock.
           takeMVar lock
         
-	  let spinread :: Int64 -> IO BS.ByteString
+	  let spinread :: Int -> IO BSS.ByteString
               spinread desired = do 
 
 	       bs <- tryUntilNoIOErr$ 
 		     readit fd (fromIntegral desired)
 
-	       case BS.length bs of 
+	       case BSS.length bs of 
                  n | n == desired -> return bs
 		 0 -> do threadDelay (10*1000)
 			 spinread desired
@@ -170,16 +181,19 @@ mkTransport = do
 		             show desired ++" bytes) got "++ show l ++ " bytes"
 
           hdr <- spinread sizeof_header
+          let -- decoded :: BSS.ByteString
 #ifdef CEREAL 
-          let decoded = decode (BSS.concat$ BS.toChunks hdr)
+--              decoded = decode (BSS.concat$ BS.toChunks hdr)
+              decoded = decode hdr	  
 #else 
-          let decoded = decode hdr	  
+--              decoded = decode hdr	  
+              decoded = decode (BS.fromChunks [hdr])
 #endif
           payload  <- case decoded of
 		        Left err -> error$ "ERROR: "++ err
 			Right size -> spinread (fromIntegral (size::Word32))
           putMVar lock () 
-          return [payload]
+          return [BS.fromChunks [payload]] -- How terribly listy.
       , closeTargetEnd = do 
          fd <- readMVar mv
 	 PIO.closeFd fd

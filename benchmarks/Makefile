@@ -6,11 +6,11 @@ endif
 
 all: pipes tcp transport
 tcp:
-	$(GHC) -O2 -threaded --make -i../network-transport/src PingTCP.hs -o PingTCP.exe 
+	$(GHC) -O2 -rtsopts -threaded --make -i../network-transport/src PingTCP.hs -o PingTCP.exe 
 transport:
-	$(GHC) -O2 -threaded --make -i../network-transport/src PingTransport.hs -o PingTransport.exe 
+	$(GHC) -O2 -rtsopts -threaded --make -i../network-transport/src PingTransport.hs -o PingTransport.exe 
 pipes:
-	$(GHC) -O2 -threaded --make -i../network-transport/src PingPipes.hs -o PingPipes.exe 
+	$(GHC) -O2 -rtsopts -threaded --make -i../network-transport/src PingPipes.hs -o PingPipes.exe 
 
 run: runBaseline runTransport
 runBaseline:
