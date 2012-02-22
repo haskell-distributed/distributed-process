@@ -5,26 +5,41 @@ module Network.Transport.TCP
 
 import Network.Transport
 
+import Control.Applicative
+
 import Control.Concurrent (forkIO, ThreadId, killThread)
 import Control.Concurrent.Chan
 import Control.Concurrent.MVar
 import Control.Monad (forever, forM_)
-import Data.ByteString.Lazy.Char8 (ByteString)
+
+import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
+
+import Data.Conduit
+import qualified Data.Conduit.Binary as CB
+import Data.Conduit.Network
+
 import Data.IntMap (IntMap)
+import qualified Data.IntMap as IntMap
+
 import Data.Int
+import Data.Serialize
 import Data.Word
+
 import Network.Socket
   ( AddrInfoFlag (AI_PASSIVE), HostName, ServiceName, Socket
   , SocketType (Stream), SocketOption (ReuseAddr)
   , accept, addrAddress, addrFlags, addrFamily, bindSocket, defaultProtocol
   , getAddrInfo, listen, setSocketOption, socket, sClose, withSocketsDo )
+import qualified Network.Socket as N
+import qualified Network.Socket.ByteString as NBS
+
+import Text.Printf
+
 import Safe
 
 import qualified Data.Binary as B
-import qualified Data.ByteString.Lazy.Char8 as BS
-import qualified Data.IntMap as IntMap
-import qualified Network.Socket as N
-import qualified Network.Socket.ByteString.Lazy as NBS
+    
 
 type ChanId  = Int
 type Chans   = MVar (ChanId, IntMap (Chan [ByteString], [(ThreadId, Socket)]))
@@ -65,7 +80,8 @@ mkTransport (TCPConfig _hints host service) = withSocketsDo $ do
         return (mkSourceAddr host service chanId, mkTargetEnd chans chanId chan)
     , newMulticastWith = error "newMulticastWith: not defined"
     , deserialize = {-# SCC "deserialize" #-} \bs ->
-        let (host, service, chanId) = B.decode bs in
+        let (host, service, chanId) =
+              either (error $ printf "deserialize: %s") id $ decode bs in
         Just $ mkSourceAddr host service chanId
     , closeTransport = {-# SCC "closeTransport" #-} do
         -- Kill the transport channel process
@@ -82,28 +98,30 @@ mkTransport (TCPConfig _hints host service) = withSocketsDo $ do
 mkSourceAddr :: HostName -> ServiceName -> ChanId -> SourceAddr
 mkSourceAddr host service chanId = SourceAddr
   { connectWith = {-# SCC "connectWith" #-} \_ -> mkSourceEnd host service chanId
-  , serialize   = {-# SCC "serialize" #-} B.encode (host, service, chanId)
+  , serialize   = {-# SCC "serialize" #-} encode (host, service, chanId)
   }
 
 mkSourceEnd :: HostName -> ServiceName -> ChanId -> IO SourceEnd
 mkSourceEnd host service chanId = withSocketsDo $ do
+  let err = error $ printf "mkSourceEnd: %s"
   serverAddrs <- getAddrInfo Nothing (Just host) (Just service)
   let serverAddr = case serverAddrs of
-                     [] -> error "mkSourceEnd: getAddrInfo returned []"
+                     [] -> err "getAddrInfo returned []"
                      as -> head as
   sock <- socket (addrFamily serverAddr) Stream defaultProtocol
   setSocketOption sock ReuseAddr 1
   N.connect sock (addrAddress serverAddr)
-  NBS.sendAll sock $ B.encode (fromIntegral chanId :: Int64)
+--  let sink = sinkSocket sock :: Sink ByteString IO ()
+  NBS.sendAll sock $ encode (fromIntegral chanId :: Int64)
   return SourceEnd
     { send = {-# SCC "send" #-} \bss -> do
         let size = fromIntegral (sum . map BS.length $ bss) :: Int64
         if size < 255
           then
-            NBS.sendAll sock (B.encode (fromIntegral size :: Word8))
+            NBS.sendAll sock (encode (fromIntegral size :: Word8))
           else do
-            NBS.sendAll sock (B.encode (255 :: Word8))
-            NBS.sendAll sock (B.encode size)
+            NBS.sendAll sock (encode (255 :: Word8))
+            NBS.sendAll sock (encode size)
         mapM_ (NBS.sendAll sock) bss
     , closeSourceEnd = {-# SCC "closeSourceEnd" #-} sClose sock
     }
@@ -128,19 +146,20 @@ mkTargetEnd chans chanId chan = TargetEnd
 -- for some reason, an error is raised.
 procConnections :: Chans -> Socket -> IO ()
 procConnections chans sock = forever $ do
+  let err = error $ printf "procConnections: %s"
   (clientSock, _clientAddr) <- accept sock
   -- decode the first message to find the correct chanId
   bss <- recvExact clientSock 8
   case bss of
-    [] -> error "procConnections: inbound chanId aborted"
+    [] -> err "inbound chanId aborted"
     bss  -> do
       let bs = BS.concat bss
-      let chanId = fromIntegral (B.decode bs :: Int64)
+      let chanId = either err fromIntegral (decode bs :: Either String Int64)
       (chanId', chanMap) <- takeMVar chans
       case IntMap.lookup chanId chanMap of
         Nothing   -> do
           putMVar chans (chanId', chanMap)
-          error "procConnections: cannot find chanId"
+          err "cannot find chanId"
         Just (chan, socks) -> do
           threadId <- forkIO $ procMessages chans chanId chan clientSock
           let chanMap' = IntMap.insert chanId (chan, (threadId, clientSock):socks) chanMap
@@ -159,29 +178,30 @@ procMessages chans chanId chan sock = do
   case sizeBSs of
     [] -> closeSocket
     _  -> do
-      let size = fromIntegral (B.decode . BS.concat $ sizeBSs :: Word8)
-      if size == 255
-        then do
+      case decode . BS.concat $ sizeBSs :: Either String Word8 of
+        Right 255 -> do
           sizeBSs' <- recvExact sock 8
           case sizeBSs' of
             [] -> closeSocket
-            _  -> procMessage (B.decode . BS.concat $ sizeBSs' :: Int64)
-        else procMessage size
+            _  -> procMessage (decode . BS.concat $ sizeBSs')
+        esize -> procMessage (fromIntegral <$> esize)
  where
+  err = error $ printf "procMessages: %s"
   closeSocket :: IO ()
   closeSocket = do
     (chanId', chanMap) <- takeMVar chans
     case IntMap.lookup chanId chanMap of
       Nothing            -> do
         putMVar chans (chanId', chanMap)
-        error "procMessages: chanId not found."
+        err "chanId not found."
       Just (chan, socks) -> do
         let socks'   = filter ((/= sock) . snd) socks
         let chanMap' = IntMap.insert chanId (chan, socks') chanMap
         putMVar chans (chanId', chanMap')
     sClose sock
-  procMessage :: Int64 -> IO ()
-  procMessage size = do
+  procMessage :: Either String Int64 -> IO ()
+  procMessage (Left  msg) = err msg
+  procMessage (Right size) = do
     bss <- recvExact sock size
     case bss of
       [] -> closeSocket
@@ -202,13 +222,13 @@ procMessages chans chanId chan sock = do
 -- indicates success. This hasn't been implemented, since a Transport `receive`
 -- represents an atomic receipt of a message.
 recvExact :: Socket -> Int64 -> IO [ByteString]
-recvExact sock n = go [] sock n
+recvExact sock n = go [] sock (fromIntegral n)
  where
-  go :: [ByteString] -> Socket -> Int64 -> IO [ByteString]
+  go :: [ByteString] -> Socket -> Int -> IO [ByteString]
   go bss _    0 = return (reverse bss)
   go bss sock n = do
     bs <- NBS.recv sock n
     if BS.null bs
       then return []
-      else go (bs:bss) sock (n - BS.length bs)
+      else go (bs:bss) sock (n - (fromIntegral $ BS.length bs))
 
