@@ -115,18 +115,13 @@ mkSourceEnd host service chanId = withSocketsDo $ do
   sock <- socket (addrFamily serverAddr) Stream defaultProtocol
   setSocketOption sock ReuseAddr 1
   N.connect sock (addrAddress serverAddr)
---  let sink = sinkSocket sock :: Sink ByteString IO ()
   NBS.sendAll sock $ encode (fromIntegral chanId :: Int64)
   return SourceEnd
     { send = {-# SCC "send" #-} \bss -> do
         let size = fromIntegral (sum . map BS.length $ bss) :: Int64
-        if size < 255
-          then
-            NBS.sendAll sock (encode (fromIntegral size :: Word8))
-          else do
-            NBS.sendAll sock (encode (255 :: Word8))
-            NBS.sendAll sock (encode size)
-        mapM_ (NBS.sendAll sock) bss
+            sizeStr | size < 255 = encode (fromIntegral size :: Word8)
+                    | otherwise  = BS.cons 255 (encode size)
+        NBS.sendMany sock (sizeStr:bss)
     , closeSourceEnd = {-# SCC "closeSourceEnd" #-} sClose sock
     }
 
