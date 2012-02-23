@@ -85,7 +85,8 @@ mkTransport (TCPConfig _hints host service) = withSocketsDo $ do
     , newMulticastWith = error "newMulticastWith: not defined"
     , deserialize = {-# SCC "deserialize" #-} \bs ->
         let (host, service, chanId) =
-              either (error $ printf "deserialize: %s") id $ decode bs in
+              either (\m -> error $ printf "deserialize: %s" m) 
+                     id $ decode bs in
         Just $ mkSourceAddr host service chanId
     , closeTransport = {-# SCC "closeTransport" #-} do
         -- Kill the transport channel process
@@ -107,7 +108,7 @@ mkSourceAddr host service chanId = SourceAddr
 
 mkSourceEnd :: HostName -> ServiceName -> ChanId -> IO SourceEnd
 mkSourceEnd host service chanId = withSocketsDo $ do
-  let err = error $ printf "mkSourceEnd: %s"
+  let err m = error $ printf "mkSourceEnd: %s" m
   serverAddrs <- getAddrInfo Nothing (Just host) (Just service)
   let serverAddr = case serverAddrs of
                      [] -> err "getAddrInfo returned []"
@@ -145,7 +146,7 @@ mkTargetEnd chans chanId chan = TargetEnd
 -- for some reason, an error is raised.
 procConnections :: Chans -> Socket -> IO ()
 procConnections chans sock = forever $ do
-  let err = error $ printf "procConnections: %s"
+  let err m = error $ printf "procConnections: %s" m
   (clientSock, _clientAddr) <- accept sock
   -- decode the first message to find the correct chanId
   bss <- recvExact clientSock 8
@@ -184,7 +185,7 @@ procMessages chans chanId chan sock = do
             Right sizeBS' -> procMessage $ decode sizeBS'
         esize -> procMessage (fromIntegral <$> esize)
  where
-  err = error $ printf "procMessages: %s"
+  err m = error $ printf "procMessages: %s" m
   closeSocket :: IO ()
   closeSocket = do
     (chanId', chanMap) <- takeMVar chans
