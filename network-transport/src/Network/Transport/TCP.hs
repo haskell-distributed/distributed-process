@@ -49,7 +49,7 @@ decode = Ser.decode
 import Data.ByteString.Lazy.Char8 (ByteString)
 import qualified Data.ByteString.Lazy.Char8 as BS
 import qualified Network.Socket.ByteString.Lazy as NBS
-sendNBS sock bs = NBS.sendAll sock $! head bs
+sendNBS sock = NBS.sendAll sock . BS.concat
 encode = Ser.encodeLazy
 decode = Ser.decodeLazy
 #endif
@@ -133,7 +133,7 @@ mkSourceEnd host service chanId = withSocketsDo $ do
   return SourceEnd
     { send = {-# SCC "send" #-} \bss -> do
         let size = fromIntegral (sum . map BS.length $ bss) :: Int32
-            sizeStr | size < 255 = encode (fromIntegral size :: Word8)
+            sizeStr | size < 255 = BS.singleton (toEnum $ fromEnum size)
                     | otherwise  = BS.cons (toEnum 255) (encode size)
         sendNBS sock (sizeStr:bss)
     , closeSourceEnd = {-# SCC "closeSourceEnd" #-} sClose sock
@@ -179,7 +179,7 @@ procConnections chans sock = forever $ do
 
 -- | This function first extracts a header of type Word8, which determines
 -- the size of the ByteString that follows. If this size is 0, this indicates
--- that the ByteString is large, so the next value is an Int64, which
+-- that the ByteString is large, so the next value is an Int32, which
 -- determines the size of the ByteString that follows. The ByteString is then
 -- extracted from the socket, and then written to the Chan only when
 -- complete. If either of the first header size is null this indicates the
@@ -221,18 +221,13 @@ procMessages chans chanId chan sock = do
         writeChan chan [bs]
         procMessages chans chanId chan sock
 
--- | The result of `recvExact sock n` is a `[ByteString]` whose concatenation
--- is of length `n`, received from `sock`. No more bytes than necessary are
--- read from the socket.
--- NB: This uses Network.Socket.ByteString.recv, which may *discard*
--- superfluous input depending on the socket type. Also note that
--- if `recv` returns an empty `ByteString` then this means that the socket
--- was closed: in this case, we return an empty list.
--- NB: It may be appropriate to change the return type to
--- IO (Either ByteString ByteString), where `return Left bs` indicates
--- a partial retrieval since the socket was closed, and `return Right bs`
--- indicates success. This hasn't been implemented, since a Transport `receive`
--- represents an atomic receipt of a message.
+-- | The normal result of `recvExact sock n` is `Right ByteString`
+-- whose string of length `n`, received from `sock`. If fewer than `n`
+-- bytes are read from `sock` before it closes, the result is `Left
+-- ByteString` whose string is those bytes that were received. No more
+-- bytes than necessary are read from the socket.  NB: This uses
+-- Network.Socket.ByteString.recv, which may *discard* superfluous
+-- input depending on the socket type.
 #ifndef LAZY
 recvExact :: Socket -> Int32 -> IO (Either ByteString ByteString)
 recvExact sock l = do

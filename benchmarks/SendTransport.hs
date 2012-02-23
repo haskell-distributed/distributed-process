@@ -92,12 +92,12 @@ main = do
 
 -- | The effect of `ping sourceEndPing targetEndPong bs` is to send the
 -- `ByteString` `bs` using `sourceEndPing`, and to then receive
--- a single byte back from `targetEndPong`.
-ping :: SourceEnd -> TargetEnd -> ByteString -> IO Bool
+-- that string back. Returns the length of the received message.
+ping :: SourceEnd -> TargetEnd -> ByteString -> IO Int
 ping sourceEndPing targetEndPong bs = do
   send sourceEndPing [bs]
   cs <- receive targetEndPong
-  return $! BS.head bs == BS.head (head cs)
+  return . fromIntegral $! sum (map BS.length cs)
 
 -- | This function takes a `TargetEnd` for the pings, and a `SourceEnd` for
 -- pongs. Whenever a ping is received from the `TargetEnd`, a pong is sent
