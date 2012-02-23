@@ -1,9 +1,13 @@
+{-# LANGUAGE CPP #-}
+
 module Main where
 
 import Control.Monad
 import Criterion.Main (Benchmark, bench, defaultMain, nfIO, bgroup)
-import Data.Binary
+
 import Data.Int
+import qualified Data.Serialize as Ser
+import Data.Word (Word8)
 import Network.Socket
   ( AddrInfoFlag (AI_PASSIVE), HostName, ServiceName, Socket
   , SocketType (Stream), SocketOption (ReuseAddr)
@@ -13,9 +17,24 @@ import Network.Socket
 import System.Environment (getArgs, withArgs)
 
 import qualified Network.Socket as N
-import qualified Network.Socket.ByteString.Lazy as NBS
 
 import Debug.Trace
+
+#ifndef LAZY
+import Data.ByteString (ByteString)
+import qualified Network.Socket.ByteString as NBS
+encode = Ser.encode
+decode = Ser.decode
+#else
+import Data.ByteString.Lazy (ByteString)
+import qualified Network.Socket.ByteString.Lazy as NBS
+encode = Ser.encodeLazy
+decode = Ser.decodeLazy
+#endif
+{-# INLINE encode #-}
+{-# INLINE decode #-}
+encode :: Ser.Serialize a => a -> ByteString
+decode :: Ser.Serialize a => ByteString -> Either String a
 
 -- | This performs a ping benchmark on a TCP connection created by
 -- Network.Socket. To compile this file, you might use:
@@ -71,15 +90,15 @@ main = do
 
 -- | Each `ping` sends a single byte, and expects to receive one
 -- back in return.
-ping :: Socket -> IO Word8
+ping :: Socket -> IO Int64
 ping sock = do
-  NBS.send sock $ encode (0 :: Word8)
-  bs <- NBS.recv sock 1
-  return $ decode bs
+  NBS.send sock $ encode (0 :: Int64)
+  bs <- NBS.recv sock 8
+  either error return $ decode bs
 
 pong :: Socket -> IO ()
 pong sock = do
-  bs <- NBS.recv sock 1
+  bs <- NBS.recv sock 8
   NBS.sendAll sock bs
   return ()
 

@@ -4,10 +4,12 @@ import Network.Transport
 import Network.Transport.TCP
 
 import Control.Monad
+import Data.Char
+import Data.String
 import Network.Socket (HostName, ServiceName)
 import System.Environment
 
-import qualified Data.ByteString.Lazy.Char8 as BS
+import qualified Data.ByteString.Char8 as BS
 
 import Debug.Trace
 
@@ -39,7 +41,8 @@ main = do
       transport <- mkTransport $ TCPConfig defaultHints host service
       (clientSourceEnds, masterTargetEnd) <- demoMaster transport sourceAddrFilePath numSlaves
       zipWithM_
-        (\clientSourceEnd clientId -> send clientSourceEnd [BS.pack . show $ clientId])
+        (\clientSourceEnd clientId -> 
+           send clientSourceEnd [BS.pack . show $ clientId])
         clientSourceEnds [0 .. numSlaves-1]
       replicateM_ numSlaves $ do
         [clientMessage] <- receive masterTargetEnd
@@ -56,7 +59,7 @@ main = do
       (masterSourceEnd, slaveTargetEnd) <- demoSlave transport sourceAddrFilePath
       [clientId] <- receive slaveTargetEnd
       putStrLn $ "slave: received clientId: " ++ show clientId
-      let message = "Connected to slave: " ++ BS.unpack clientId
+      let message = "Connected to slave: " ++ (BS.unpack clientId)
 
       send masterSourceEnd [BS.pack message]
       putStrLn "slave: sent message to master"

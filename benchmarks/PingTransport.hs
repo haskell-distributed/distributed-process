@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 module Main where
 
 import Network.Transport
@@ -5,12 +7,28 @@ import Network.Transport.TCP (mkTransport, TCPConfig (..))
 
 import Control.Monad (forever, replicateM_)
 import Criterion.Main (Benchmark, bench, defaultMain, nfIO)
-import Data.Binary
+import qualified Data.Serialize as Ser
 import Data.Maybe (fromJust)
 import Data.Int
 import System.Environment (getArgs, withArgs)
 
+#ifndef LAZY
+import qualified Data.ByteString.Char8 as BS
+import qualified Network.Socket.ByteString as NBS
+encode = Ser.encode
+decode = Ser.decode
+#else
 import qualified Data.ByteString.Lazy.Char8 as BS
+import qualified Network.Socket.ByteString.Lazy as NBS
+encode = Ser.encodeLazy
+decode = Ser.decodeLazy
+#endif
+{-# INLINE encode #-}
+{-# INLINE decode #-}
+encode :: Ser.Serialize a => a -> BS.ByteString
+decode :: Ser.Serialize a => BS.ByteString -> Either String a
+
+
 
 -- | This performs a ping benchmark on the TCP transport. This can be
 -- compiled using:
@@ -64,8 +82,8 @@ main = do
       send sourceEndPing [serialize sourceAddrPong]
 
       -- benchmark the pings
---      withArgs args' $ defaultMain [ benchPing sourceEndPing targetEndPong pings]
-      replicateM_ pings (ping sourceEndPing targetEndPong)
+      withArgs args' $ defaultMain [ benchPing sourceEndPing targetEndPong pings]
+--      replicateM_ pings (ping sourceEndPing targetEndPong)
 
 -- | This function takes a `TargetEnd` for the pings, and a `SourceEnd` for
 -- pongs. Whenever a ping is received from the `TargetEnd`, a pong is sent
@@ -78,16 +96,17 @@ pong targetEndPing sourceEndPong = do
 -- | The effect of `ping sourceEndPing targetEndPong n` is to send the number
 -- `n` using `sourceEndPing`, and to then receive the a number from
 -- `targetEndPong`, which is then returned.
-ping :: SourceEnd -> TargetEnd -> IO Int64
-ping sourceEndPing targetEndPong = do
-  send sourceEndPing [BS.empty]
+ping :: SourceEnd -> TargetEnd -> Int64 -> IO Int64
+ping sourceEndPing targetEndPong n = do
+  send sourceEndPing [encode n]
   [bs] <- receive targetEndPong
-  return $ decode bs
+  let (Right n) = decode bs
+  return $! n
 
 -- | The effect of `benchPing sourceEndPing targetEndPong n` is to send
 -- `n` pings down `sourceEndPing` using the `ping` function. The time
 -- taken is benchmarked.
 benchPing :: SourceEnd -> TargetEnd -> Int64 -> Benchmark
 benchPing sourceEndPing targetEndPong n = bench "PingTransport" $
-  nfIO (replicateM_ (fromIntegral n) (ping sourceEndPing targetEndPong))
+  nfIO (replicateM_ (fromIntegral n) (ping sourceEndPing targetEndPong 42))
 
