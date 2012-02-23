@@ -1,19 +1,37 @@
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE NoMonomorphismRestriction #-}
+
 module Main where
 
 import Network.Transport
 import Network.Transport.TCP (mkTransport, TCPConfig (..))
 
-import Control.DeepSeq (deepseq)
+import Control.Applicative
 import Control.Monad (forever, replicateM, replicateM_)
 import Criterion.Main (Benchmark, bench, defaultMain, nfIO)
-import Data.Serialize
-import Data.ByteString (ByteString)
+import qualified Data.Serialize as Ser
 import Data.Maybe (fromJust)
 import Data.Int
 import System.Environment (getArgs, withArgs)
 import System.Random
 
+#ifndef LAZY
+import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS
+import qualified Network.Socket.ByteString as NBS
+encode = Ser.encode
+decode = Ser.decode
+#else
+import Data.ByteString.Lazy (ByteString)
+import qualified Data.ByteString.Lazy.Char8 as BS
+import qualified Network.Socket.ByteString.Lazy as NBS
+encode = Ser.encodeLazy
+decode = Ser.decodeLazy
+#endif
+{-# INLINE encode #-}
+{-# INLINE decode #-}
+encode :: Ser.Serialize a => a -> ByteString
+decode :: Ser.Serialize a => ByteString -> Either String a
 
 -- | This performs a benchmark on the TCP transport to measure how long
 -- it takes to transfer a number of bytes. This can be compiled using:
@@ -69,9 +87,7 @@ main = do
       send sourceEndPing [serialize sourceAddrPong]
 
       -- benchmark the data
-      rands <- replicateM size randomIO        
-      let bs' = BS.pack (rands `deepseq` (rands :: [Char]))
-          bs  = BS.unpack bs' `deepseq` bs'
+      bs <- BS.pack <$> replicateM size randomIO        
       withArgs args' $ defaultMain [ benchSend sourceEndPing targetEndPong bs ]
 
 -- | The effect of `ping sourceEndPing targetEndPong bs` is to send the

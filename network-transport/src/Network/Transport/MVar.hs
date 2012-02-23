@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 
 module Network.Transport.MVar
   ( mkTransport
@@ -6,13 +7,27 @@ module Network.Transport.MVar
 
 import Control.Concurrent.MVar
 import Data.IntMap (IntMap)
-import Data.ByteString (ByteString)
-import Data.Serialize
+import qualified Data.Serialize as Ser
 
 import qualified Data.IntMap as IntMap
-import qualified Data.ByteString as BS
 
 import Network.Transport
+
+#ifndef LAZY
+import Data.ByteString.Char8 (ByteString)
+import qualified Data.ByteString.Char8 as BS
+encode = Ser.encode
+decode = Ser.decode
+#else
+import Data.ByteString.Lazy.Char8 (ByteString)
+import qualified Data.ByteString.Lazy.Char8 as BS
+encode = Ser.encodeLazy
+decode = Ser.decodeLazy
+#endif
+{-# INLINE encode #-}
+{-# INLINE decode #-}
+encode :: Ser.Serialize a => a -> ByteString
+decode :: Ser.Serialize a => ByteString -> Either String a
 
 type Chans = MVar (Int, IntMap (MVar [ByteString]))
 

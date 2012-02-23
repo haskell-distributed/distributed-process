@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 module Main where
 
 import Network.Transport
@@ -5,12 +7,28 @@ import Network.Transport.TCP (mkTransport, TCPConfig (..))
 
 import Control.Monad (forever, replicateM_)
 import Criterion.Main (Benchmark, bench, defaultMain, nfIO)
-import Data.Serialize
+import qualified Data.Serialize as Ser
 import Data.Maybe (fromJust)
 import Data.Int
 import System.Environment (getArgs, withArgs)
 
+#ifndef LAZY
 import qualified Data.ByteString.Char8 as BS
+import qualified Network.Socket.ByteString as NBS
+encode = Ser.encode
+decode = Ser.decode
+#else
+import qualified Data.ByteString.Lazy.Char8 as BS
+import qualified Network.Socket.ByteString.Lazy as NBS
+encode = Ser.encodeLazy
+decode = Ser.decodeLazy
+#endif
+{-# INLINE encode #-}
+{-# INLINE decode #-}
+encode :: Ser.Serialize a => a -> BS.ByteString
+decode :: Ser.Serialize a => BS.ByteString -> Either String a
+
+
 
 -- | This performs a ping benchmark on the TCP transport. This can be
 -- compiled using:
