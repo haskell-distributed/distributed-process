@@ -48,6 +48,7 @@ mkTransport = do
         either (error "dummyBackend.deserializeSourceEnd: cannot parse")
                (Just . mkSourceAddr channels)
                (decode bs)
+    , closeTransport = return ()
     }
   where
     mkSourceAddr :: Chans -> Int -> SourceAddr

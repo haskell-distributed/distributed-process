@@ -1,34 +1,16 @@
-{-# LANGUAGE CPP #-}
-
 module Main where
 
 import Network.Transport
-import Network.Transport.TCP (mkTransport, TCPConfig (..))
+import Network.Transport.Pipes (mkTransport)
 
 import Control.Monad (forever, replicateM_)
 import Criterion.Main (Benchmark, bench, defaultMain, nfIO)
-import qualified Data.Serialize as Ser
+import Data.Binary
 import Data.Maybe (fromJust)
 import Data.Int
 import System.Environment (getArgs, withArgs)
 
-#ifndef LAZY
-import qualified Data.ByteString.Char8 as BS
-import qualified Network.Socket.ByteString as NBS
-encode = Ser.encode
-decode = Ser.decode
-#else
 import qualified Data.ByteString.Lazy.Char8 as BS
-import qualified Network.Socket.ByteString.Lazy as NBS
-encode = Ser.encodeLazy
-decode = Ser.decodeLazy
-#endif
-{-# INLINE encode #-}
-{-# INLINE decode #-}
-encode :: Ser.Serialize a => a -> BS.ByteString
-decode :: Ser.Serialize a => BS.ByteString -> Either String a
-
-
 
 -- | This performs a ping benchmark on the TCP transport. This can be
 -- compiled using:
@@ -37,21 +19,21 @@ decode :: Ser.Serialize a => BS.ByteString -> Either String a
 --
 -- To use the compiled binary, first set up a server:
 --
---     ./benchmarks/PingTransport server 0.0.0.0 8080 sourceAddr
+--     ./benchmarks/PingPipes server sourceAddr
 --
 -- Once this is established, launch a client to perform the benchmark. The
 -- following command sends 1000 pings per mark.
 --
---     ./benchmarks/PingTransport client 0.0.0.0 8081 sourceAddr 1000
+--     ./benchmarks/PingPipes client sourceAddr 1000
 --
 -- The server must be restarted between benchmarks.
 main :: IO ()
 main = do
   args <- getArgs
   case args of
-    "server" : host : service : sourceAddrFilePath : [] -> do
+    "server" : sourceAddrFilePath : [] -> do
       -- establish transport
-      transport <- mkTransport $ TCPConfig defaultHints host service
+      transport <- mkTransport 
 
       -- create ping end
       putStrLn "server: creating ping end"
@@ -68,10 +50,10 @@ main = do
       forever $ pong targetEndPing sourceEndPong
 
 
-    "client" : host : service : sourceAddrFilePath : pingsStr : args' -> do
+    "client" : sourceAddrFilePath : pingsStr : args' -> do
       let pings = read pingsStr
       -- establish transport
-      transport <- mkTransport $ TCPConfig defaultHints host service
+      transport <- mkTransport 
 
       -- create ping end
       sourceAddrPingBS <- BS.readFile sourceAddrFilePath
@@ -82,8 +64,9 @@ main = do
       send sourceEndPing [serialize sourceAddrPong]
 
       -- benchmark the pings
-      withArgs args' $ defaultMain [ benchPing sourceEndPing targetEndPong pings]
---      replicateM_ pings (ping sourceEndPing targetEndPong)
+--      withArgs args' $ defaultMain [ benchPing sourceEndPing targetEndPong pings]
+      replicateM_ pings (ping sourceEndPing targetEndPong)
+      putStrLn "Done with all ping/pongs."
 
 -- | This function takes a `TargetEnd` for the pings, and a `SourceEnd` for
 -- pongs. Whenever a ping is received from the `TargetEnd`, a pong is sent
@@ -96,17 +79,16 @@ pong targetEndPing sourceEndPong = do
 -- | The effect of `ping sourceEndPing targetEndPong n` is to send the number
 -- `n` using `sourceEndPing`, and to then receive the a number from
 -- `targetEndPong`, which is then returned.
-ping :: SourceEnd -> TargetEnd -> Int64 -> IO Int64
-ping sourceEndPing targetEndPong n = do
-  send sourceEndPing [encode n]
+ping :: SourceEnd -> TargetEnd -> IO Int64
+ping sourceEndPing targetEndPong = do
+  send sourceEndPing [BS.empty]
   [bs] <- receive targetEndPong
-  let (Right n) = decode bs
-  return $! n
+  return $ decode bs
 
 -- | The effect of `benchPing sourceEndPing targetEndPong n` is to send
 -- `n` pings down `sourceEndPing` using the `ping` function. The time
 -- taken is benchmarked.
 benchPing :: SourceEnd -> TargetEnd -> Int64 -> Benchmark
 benchPing sourceEndPing targetEndPong n = bench "PingTransport" $
-  nfIO (replicateM_ (fromIntegral n) (ping sourceEndPing targetEndPong 42))
+  nfIO (replicateM_ (fromIntegral n) (ping sourceEndPing targetEndPong))
 

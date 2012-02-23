@@ -1,0 +1,28 @@
+Name:                network-transport-pipes
+Version:             0.0.1
+Description:         Named Pipes backend for network-transport interface.
+License:             BSD3
+License-file:        LICENSE
+Author:              Ryan Newton
+Maintainer:          rrnewton@gmail.com
+Homepage:            http://github.com/haskell-distributed/
+Build-Type:          Simple
+Cabal-Version:       >=1.2
+
+Library
+  Build-Depends:     base >= 3 && < 5,
+                     binary >= 0.5,
+                     cereal,
+                     bytestring >= 0.9,
+                     network-transport,
+                     containers >= 0.4,
+--                     network >= 2.3,
+--                     safe >= 0.3,
+                     unix >= 2.5.0.0, 
+                     random, 
+                     directory,
+                     unix-bytestring >= 0.3.5.3	
+  Exposed-modules:   Network.Transport.Pipes
+--  Extensions:        BangPatterns
+  ghc-options:       -Wall
+  HS-Source-Dirs:    src
