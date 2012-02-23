@@ -225,12 +225,14 @@ recvExact sock l = do
   res <- createAndTrim (fromIntegral l) (go 0)
   case BS.length res of
     n | n == (fromIntegral l) -> return $ Right res
-    _                         -> return $ Left res
+    n                         -> do
+                       printf "recvExact: expected %dB, got %dB\n" l n
+                       return $ Left res
  where
   go :: Int -> Ptr Word8 -> IO Int
   go n ptr | n == (fromIntegral l) = return n
   go n ptr = do
-    (p, off, len) <- toForeignPtr <$> NBS.recv sock n
+    (p, off, len) <- toForeignPtr <$> NBS.recv sock (fromIntegral l)
     if len == 0
       then return n
       else withForeignPtr p $ \p -> do

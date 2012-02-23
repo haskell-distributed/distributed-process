@@ -5,12 +5,12 @@ import Network.Transport.TCP (mkTransport, TCPConfig (..))
 
 import Control.Monad (forever, replicateM_)
 import Criterion.Main (Benchmark, bench, defaultMain, nfIO)
-import Data.Binary
+import Data.Serialize
 import Data.Maybe (fromJust)
 import Data.Int
 import System.Environment (getArgs, withArgs)
 
-import qualified Data.ByteString.Lazy.Char8 as BS
+import qualified Data.ByteString as BS
 
 -- | This performs a ping benchmark on the TCP transport. This can be
 -- compiled using:
@@ -77,16 +77,17 @@ pong targetEndPing sourceEndPong = do
 -- | The effect of `ping sourceEndPing targetEndPong n` is to send the number
 -- `n` using `sourceEndPing`, and to then receive the a number from
 -- `targetEndPong`, which is then returned.
-ping :: SourceEnd -> TargetEnd -> IO Int64
-ping sourceEndPing targetEndPong = do
-  send sourceEndPing [BS.empty]
+ping :: SourceEnd -> TargetEnd -> Int64 -> IO Int64
+ping sourceEndPing targetEndPong n = do
+  send sourceEndPing [encode n]
   [bs] <- receive targetEndPong
-  return $ decode bs
+  let (Right n) = decode bs
+  return $! n
 
 -- | The effect of `benchPing sourceEndPing targetEndPong n` is to send
 -- `n` pings down `sourceEndPing` using the `ping` function. The time
 -- taken is benchmarked.
 benchPing :: SourceEnd -> TargetEnd -> Int64 -> Benchmark
 benchPing sourceEndPing targetEndPong n = bench "PingTransport" $
-  nfIO (replicateM_ (fromIntegral n) (ping sourceEndPing targetEndPong))
+  nfIO (replicateM_ (fromIntegral n) (ping sourceEndPing targetEndPong 42))
 
