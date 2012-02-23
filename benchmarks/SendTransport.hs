@@ -3,6 +3,7 @@ module Main where
 import Network.Transport
 import Network.Transport.TCP (mkTransport, TCPConfig (..))
 
+import Control.Applicative
 import Control.DeepSeq (deepseq)
 import Control.Monad (forever, replicateM, replicateM_)
 import Criterion.Main (Benchmark, bench, defaultMain, nfIO)
@@ -69,9 +70,7 @@ main = do
       send sourceEndPing [serialize sourceAddrPong]
 
       -- benchmark the data
-      rands <- replicateM size randomIO        
-      let bs' = BS.pack (rands `deepseq` (rands :: [Char]))
-          bs  = BS.unpack bs' `deepseq` bs'
+      bs <- BS.pack <$> replicateM size randomIO        
       withArgs args' $ defaultMain [ benchSend sourceEndPing targetEndPong bs ]
 
 -- | The effect of `ping sourceEndPing targetEndPong bs` is to send the

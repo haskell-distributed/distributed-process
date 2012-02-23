@@ -19,12 +19,13 @@ import Data.ByteString.Internal
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
 
-import Data.Int
+import Data.Int (Int32)
 import Data.Serialize
-import Data.Word
+import Data.Word (Word8)
 
 import Foreign.ForeignPtr (withForeignPtr)
 import Foreign.Ptr (Ptr, plusPtr)
+import Foreign.Storable (sizeOf)
 
 import Network.Socket
   ( AddrInfoFlag (AI_PASSIVE), HostName, ServiceName, Socket
@@ -112,10 +113,10 @@ mkSourceEnd host service chanId = withSocketsDo $ do
   sock <- socket (addrFamily serverAddr) Stream defaultProtocol
   setSocketOption sock ReuseAddr 1
   N.connect sock (addrAddress serverAddr)
-  NBS.sendAll sock $ encode (fromIntegral chanId :: Int64)
+  NBS.sendAll sock $ encode (fromIntegral chanId :: Int32)
   return SourceEnd
     { send = {-# SCC "send" #-} \bss -> do
-        let size = fromIntegral (sum . map BS.length $ bss) :: Int64
+        let size = fromIntegral (sum . map BS.length $ bss) :: Int32
             sizeStr | size < 255 = encode (fromIntegral size :: Word8)
                     | otherwise  = BS.cons (toEnum 255) (encode size)
         NBS.sendMany sock (sizeStr:bss)
@@ -145,11 +146,11 @@ procConnections chans sock = forever $ do
   let err m = error $ printf "procConnections: %s" m
   (clientSock, _clientAddr) <- accept sock
   -- decode the first message to find the correct chanId
-  bss <- recvExact clientSock 8
+  bss <- recvExact clientSock (fromIntegral $ (sizeOf (0 :: Int32)))
   case bss of
     Left _ -> err "inbound chanId aborted"
     Right bs -> do
-      let chanId = either err fromIntegral (decode bs :: Either String Int64)
+      let chanId = either err fromIntegral (decode bs :: Either String Int32)
       (chanId', chanMap) <- takeMVar chans
       case IntMap.lookup chanId chanMap of
         Nothing   -> do
@@ -175,7 +176,7 @@ procMessages chans chanId chan sock = do
     Right sizeBS -> do
       case decode sizeBS :: Either String Word8 of
         Right 255 -> do
-          esizeBS' <- recvExact sock 8
+          esizeBS' <- recvExact sock (fromIntegral $ sizeOf (0 :: Int32))
           case esizeBS' of
             Left _ -> closeSocket
             Right sizeBS' -> procMessage $ decode sizeBS'
@@ -194,7 +195,7 @@ procMessages chans chanId chan sock = do
         let chanMap' = IntMap.insert chanId (chan, socks') chanMap
         putMVar chans (chanId', chanMap')
     sClose sock
-  procMessage :: Either String Int64 -> IO ()
+  procMessage :: Either String Int32 -> IO ()
   procMessage (Left  msg) = err msg
   procMessage (Right size) = do
     ebs <- recvExact sock size
@@ -216,19 +217,20 @@ procMessages chans chanId chan sock = do
 -- a partial retrieval since the socket was closed, and `return Right bs`
 -- indicates success. This hasn't been implemented, since a Transport `receive`
 -- represents an atomic receipt of a message.
-recvExact :: Socket -> Int64 -> IO (Either ByteString ByteString)
+recvExact :: Socket -> Int32 -> IO (Either ByteString ByteString)
 recvExact sock l = do
   res <- createAndTrim (fromIntegral l) (go 0)
   case BS.length res of
     n | n == (fromIntegral l) -> return $ Right res
     n                         -> do
-                       printf "recvExact: expected %dB, got %dB\n" l n
+--                       printf "recvExact: expected %dB, got %dB\n" l n
                        return $ Left res
  where
   go :: Int -> Ptr Word8 -> IO Int
   go n ptr | n == (fromIntegral l) = return n
   go n ptr = do
-    (p, off, len) <- toForeignPtr <$> NBS.recv sock (fromIntegral l)
+    (p, off, len) <- toForeignPtr <$> NBS.recv sock (min (fromIntegral l-n) 4096)
+--    printf "recvExact: received %d/%d\n" (n+len) l
     if len == 0
       then return n
       else withForeignPtr p $ \p -> do
