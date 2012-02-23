@@ -12,13 +12,9 @@ import Control.Concurrent.Chan
 import Control.Concurrent.MVar
 import Control.Monad (forever, forM_)
 
-import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
+import Data.ByteString.Char8 (ByteString)
+import qualified Data.ByteString.Char8 as BS
 import Data.ByteString.Internal
-
-import Data.Conduit
-import qualified Data.Conduit.Binary as CB
-import Data.Conduit.Network
 
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
@@ -121,7 +117,7 @@ mkSourceEnd host service chanId = withSocketsDo $ do
     { send = {-# SCC "send" #-} \bss -> do
         let size = fromIntegral (sum . map BS.length $ bss) :: Int64
             sizeStr | size < 255 = encode (fromIntegral size :: Word8)
-                    | otherwise  = BS.cons 255 (encode size)
+                    | otherwise  = BS.cons (toEnum 255) (encode size)
         NBS.sendMany sock (sizeStr:bss)
     , closeSourceEnd = {-# SCC "closeSourceEnd" #-} sClose sock
     }

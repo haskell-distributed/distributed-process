@@ -10,7 +10,7 @@ import Data.Maybe (fromJust)
 import Data.Int
 import System.Environment (getArgs, withArgs)
 
-import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BS
 
 -- | This performs a ping benchmark on the TCP transport. This can be
 -- compiled using:

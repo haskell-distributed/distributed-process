@@ -3,15 +3,17 @@ module Main where
 import Network.Transport
 import Network.Transport.TCP (mkTransport, TCPConfig (..))
 
-import Control.Monad (forever, replicateM_)
+import Control.DeepSeq (deepseq)
+import Control.Monad (forever, replicateM, replicateM_)
 import Criterion.Main (Benchmark, bench, defaultMain, nfIO)
-import Data.Binary
-import Data.ByteString.Lazy (ByteString)
+import Data.Serialize
+import Data.ByteString (ByteString)
 import Data.Maybe (fromJust)
 import Data.Int
 import System.Environment (getArgs, withArgs)
+import System.Random
 
-import qualified Data.ByteString.Lazy as BS
+import qualified Data.ByteString.Char8 as BS
 
 -- | This performs a benchmark on the TCP transport to measure how long
 -- it takes to transfer a number of bytes. This can be compiled using:
@@ -67,17 +69,19 @@ main = do
       send sourceEndPing [serialize sourceAddrPong]
 
       -- benchmark the data
-      let bs = BS.replicate size 0
+      rands <- replicateM size randomIO        
+      let bs' = BS.pack (rands `deepseq` (rands :: [Char]))
+          bs  = BS.unpack bs' `deepseq` bs'
       withArgs args' $ defaultMain [ benchSend sourceEndPing targetEndPong bs ]
 
 -- | The effect of `ping sourceEndPing targetEndPong bs` is to send the
 -- `ByteString` `bs` using `sourceEndPing`, and to then receive
 -- a single byte back from `targetEndPong`.
-ping :: SourceEnd -> TargetEnd -> ByteString -> IO Word8
+ping :: SourceEnd -> TargetEnd -> ByteString -> IO Bool
 ping sourceEndPing targetEndPong bs = do
   send sourceEndPing [bs]
-  [cs] <- receive targetEndPong
-  return $ decode cs
+  cs <- receive targetEndPong
+  return $! BS.head bs == BS.head (head cs)
 
 -- | This function takes a `TargetEnd` for the pings, and a `SourceEnd` for
 -- pongs. Whenever a ping is received from the `TargetEnd`, a pong is sent
@@ -85,7 +89,7 @@ ping sourceEndPing targetEndPong bs = do
 pong :: TargetEnd -> SourceEnd -> IO ()
 pong targetEndPing sourceEndPong = do
   bs <- receive targetEndPing
-  send sourceEndPong [encode (0 :: Word8)]
+  send sourceEndPong bs
 
 -- | The effect of `benchSend sourceEndPing targetEndPong bs` is to send
 -- `bs` pings down `sourceEndPing` using the `ping` function. The time
