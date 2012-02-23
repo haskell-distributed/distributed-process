@@ -21,7 +21,7 @@ import qualified Data.IntMap as IntMap
 
 import Data.Int (Int32)
 import qualified Data.Serialize as Ser
-import Data.Word
+import Data.Word (Word8)
 
 import Foreign.ForeignPtr (withForeignPtr)
 import Foreign.Ptr (Ptr, plusPtr)
