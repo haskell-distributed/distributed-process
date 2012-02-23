@@ -8,10 +8,11 @@ module Network.Transport.TCP
 import Network.Transport
 
 import Control.Applicative
-
-import Control.Concurrent (forkIO, ThreadId, killThread)
+import Control.Concurrent (forkIO, ThreadId, killThread, myThreadId)
 import Control.Concurrent.Chan
 import Control.Concurrent.MVar
+import Control.Exception (SomeException, IOException, AsyncException(ThreadKilled), 
+			  fromException, throwTo, throw, catch, handle)
 import Control.Monad (forever, forM_)
 
 import qualified Data.ByteString.Internal as BSI
@@ -37,6 +38,7 @@ import qualified Network.Socket as N
 import Text.Printf
 
 import Safe
+import System.IO (stderr, hPutStrLn)
 
 #ifndef LAZY
 import Data.ByteString.Char8 (ByteString)
@@ -87,7 +89,8 @@ mkTransport (TCPConfig _hints host service) = withSocketsDo $ do
   setSocketOption sock ReuseAddr 1
   bindSocket sock (addrAddress serverAddr)
   listen sock 5
-  threadId <- forkIO $ procConnections chans sock
+  threadId <- forkWithExceptions forkIO "Connection Listener" $ 
+	      procConnections chans sock
 
   return Transport
     { newConnectionWith = {-# SCC "newConnectionWith" #-}\_ -> do
@@ -173,7 +176,8 @@ procConnections chans sock = forever $ do
           putMVar chans (chanId', chanMap)
           err "cannot find chanId"
         Just (chan, socks) -> do
-          threadId <- forkIO $ procMessages chans chanId chan clientSock
+          threadId <- forkWithExceptions forkIO "Message Listener" $ 
+		      procMessages chans chanId chan clientSock
           let chanMap' = IntMap.insert chanId (chan, (threadId, clientSock):socks) chanMap
           putMVar chans (chanId', chanMap')
 
@@ -196,7 +200,8 @@ procMessages chans chanId chan sock = do
           case esizeBS' of
             Left _ -> closeSocket
             Right sizeBS' -> procMessage $ decode sizeBS'
-        esize -> procMessage (fromIntegral <$> esize)
+        esize@(Right _) -> procMessage (fromIntegral <$> esize)
+        Left msg -> error msg
  where
   err m = error $ printf "procMessages: %s" m
   closeSocket :: IO ()
@@ -230,7 +235,7 @@ procMessages chans chanId chan sock = do
 -- input depending on the socket type.
 #ifndef LAZY
 recvExact :: Socket -> Int32 -> IO (Either ByteString ByteString)
-recvExact sock l = do
+recvExact sock l = interceptAllExn "recvExact" $ do
   res <- BSI.createAndTrim (fromIntegral l) (go 0)
   case BS.length res of
     n | n == (fromIntegral l) -> return $ Right res
@@ -248,6 +253,7 @@ recvExact sock l = do
 #else
 recvExact :: Socket -> Int32 -> IO (Either ByteString ByteString)
 recvExact sock n = 
+   interceptAllExn "recvExact" $
    go [] sock n
  where
   go :: [ByteString] -> Socket -> Int32 -> IO (Either ByteString ByteString)
@@ -258,3 +264,28 @@ recvExact sock n =
       then return (Left $ BS.concat (reverse bss))
       else go (bs:bss) sock (n - (fromIntegral $ BS.length bs))
 #endif
+
+interceptAllExn msg = 
+   Control.Exception.handle $ \ e -> 
+     case fromException e of 
+       Just ThreadKilled -> throw e
+       Nothing -> do 
+	 BS.hPutStrLn stderr $ BS.pack$  "Exception inside "++msg++": "++show e
+	 throw e
+--	 throw (e :: SomeException)
+
+forkWithExceptions :: (IO () -> IO ThreadId) -> String -> IO () -> IO ThreadId
+forkWithExceptions forkit descr action = do 
+   parent <- myThreadId
+   forkit $ 
+      Control.Exception.catch action
+	 (\ e -> do
+          case fromException e of 
+            Just ThreadKilled -> 
+--    	      BSS.hPutStrLn stderr $ BSS.pack$ "Note: Child thread killed: "++descr
+              return ()
+	    _ -> do
+	      BS.hPutStrLn stderr $ BS.pack$ "Exception inside child thread "++descr++": "++show e
+	      throwTo parent (e::SomeException)
+	 )
+
