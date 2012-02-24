@@ -3,7 +3,8 @@
 module Main where
 
 import Control.Monad
-import Criterion.Main (Benchmark, bench, defaultMain, nfIO, bgroup)
+import Criterion.Main (Benchmark, bench, defaultMainWith, nfIO)
+import Criterion.Config (defaultConfig, ljust, Config(cfgSamples))
 
 import Data.Int
 import qualified Data.Serialize as Ser
@@ -73,7 +74,7 @@ main = do
       putStrLn "server: listening for pings"
       forever (pong clientSock)
 
-    "client": host : service : pingsStr : args' -> withSocketsDo $ do
+    "client": host : service : pingsStr : reps : args' -> withSocketsDo $ do
       let pings = read pingsStr
       serverAddrs <- getAddrInfo 
         Nothing
@@ -85,14 +86,24 @@ main = do
       N.connect sock (addrAddress serverAddr)
 
       -- benchmark the pings
-      withArgs args' $ defaultMain [ benchPing sock pings ]
+      case (read reps) :: Int of
+        0 -> error "What would zero reps mean?"
+        1 -> do putStrLn "Because you're timing only one trial, skipping Criterion..."
+                replicateM_ pings (ping sock)
+        n -> withArgs args' $ defaultMainWith 
+                               (defaultConfig{ cfgSamples = ljust n })
+			       (return ()) -- Init action.
+	                       [ benchPing sock (fromIntegral pings) ]
+      putStrLn "Done with all ping/pongs."
+
+--      withArgs args' $ defaultMain [ benchPing sock pings ]
 --      replicateM_ pings (ping sock)
 
 -- | Each `ping` sends a single byte, and expects to receive one
 -- back in return.
 ping :: Socket -> IO Int64
 ping sock = do
-  NBS.send sock $ encode (0 :: Int64)
+  NBS.send sock $ encode (42 :: Int64)
   bs <- NBS.recv sock 8
   either error return $ decode bs
 

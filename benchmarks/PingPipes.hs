@@ -1,16 +1,22 @@
 module Main where
 
-import Network.Transport
+-- TODO: Merge with PingTCPTransport and factor differences.
+
+import Network.Transport (newConnection, receive, connect, send,
+			  serialize, deserialize, SourceEnd, TargetEnd)
 import Network.Transport.Pipes (mkTransport)
 
 import Control.Monad (forever, replicateM_)
-import Criterion.Main (Benchmark, bench, defaultMain, nfIO)
-import Data.Binary
+import Criterion.Main (Benchmark, bench, defaultMainWith, nfIO)
+import Criterion.Config (defaultConfig, ljust, Config(cfgSamples))
+-- import Data.Binary (encode,decode)
+import Data.Serialize (encode,decode)
 import Data.Maybe (fromJust)
 import Data.Int
 import System.Environment (getArgs, withArgs)
 
-import qualified Data.ByteString.Lazy.Char8 as BS
+-- import qualified Data.ByteString.Lazy.Char8 as LBS
+import qualified Data.ByteString.Char8 as BS
 
 -- | This performs a ping benchmark on the TCP transport. This can be
 -- compiled using:
@@ -50,7 +56,7 @@ main = do
       forever $ pong targetEndPing sourceEndPong
 
 
-    "client" : sourceAddrFilePath : pingsStr : args' -> do
+    "client" : sourceAddrFilePath : pingsStr : reps : args' -> do
       let pings = read pingsStr
       -- establish transport
       transport <- mkTransport 
@@ -64,9 +70,16 @@ main = do
       send sourceEndPing [serialize sourceAddrPong]
 
       -- benchmark the pings
---      withArgs args' $ defaultMain [ benchPing sourceEndPing targetEndPong pings]
-      replicateM_ pings (ping sourceEndPing targetEndPong)
+      case (read reps) :: Int of
+        0 -> error "What would zero reps mean?"
+        1 -> do putStrLn "Because you're timing only one trial, skipping Criterion..."
+                replicateM_ pings (ping sourceEndPing targetEndPong)
+        n -> withArgs args' $ defaultMainWith 
+                               (defaultConfig{ cfgSamples = ljust n })
+			       (return ()) -- Init action.
+	                       [ benchPing sourceEndPing targetEndPong (fromIntegral pings) ]
       putStrLn "Done with all ping/pongs."
+
 
 -- | This function takes a `TargetEnd` for the pings, and a `SourceEnd` for
 -- pongs. Whenever a ping is received from the `TargetEnd`, a pong is sent
@@ -81,9 +94,14 @@ pong targetEndPing sourceEndPong = do
 -- `targetEndPong`, which is then returned.
 ping :: SourceEnd -> TargetEnd -> IO Int64
 ping sourceEndPing targetEndPong = do
-  send sourceEndPing [BS.empty]
+  -- send sourceEndPing [BS.empty]
+  send sourceEndPing [encode (42 :: Int64)]
+
   [bs] <- receive targetEndPong
-  return $ decode bs
+--  return $ decode bs
+  case decode bs of 
+    Left err -> error$ "decode failure: " ++ err
+    Right x  -> return x
 
 -- | The effect of `benchPing sourceEndPing targetEndPong n` is to send
 -- `n` pings down `sourceEndPing` using the `ping` function. The time

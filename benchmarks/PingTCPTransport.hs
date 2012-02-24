@@ -2,11 +2,14 @@
 
 module Main where
 
-import Network.Transport
+import Network.Transport (newConnection, receive, connect, send, defaultHints,
+			  serialize, deserialize, SourceEnd, TargetEnd)
 import Network.Transport.TCP (mkTransport, TCPConfig (..))
 
 import Control.Monad (forever, replicateM_)
-import Criterion.Main (Benchmark, bench, defaultMain, nfIO)
+import Criterion.Main (Benchmark, bench, defaultMainWith, nfIO)
+import Criterion.Config (defaultConfig, ljust, Config(cfgSamples))
+
 import qualified Data.Serialize as Ser
 import Data.Maybe (fromJust)
 import Data.Int
@@ -68,7 +71,7 @@ main = do
       forever $ pong targetEndPing sourceEndPong
 
 
-    "client" : host : service : sourceAddrFilePath : pingsStr : args' -> do
+    "client" : host : service : sourceAddrFilePath : pingsStr : reps : args' -> do
       let pings = read pingsStr
       -- establish transport
       transport <- mkTransport $ TCPConfig defaultHints host service
@@ -82,8 +85,15 @@ main = do
       send sourceEndPing [serialize sourceAddrPong]
 
       -- benchmark the pings
-      withArgs args' $ defaultMain [ benchPing sourceEndPing targetEndPong pings]
---      replicateM_ pings (ping sourceEndPing targetEndPong)
+      case (read reps) :: Int of
+        0 -> error "What would zero reps mean?"
+        1 -> do putStrLn "Because you're timing only one trial, skipping Criterion..."
+                replicateM_ pings (ping sourceEndPing targetEndPong 42)
+        n -> withArgs args' $ defaultMainWith 
+                               (defaultConfig{ cfgSamples = ljust n })
+			       (return ()) -- Init action.
+	                       [ benchPing sourceEndPing targetEndPong (fromIntegral pings)]
+      putStrLn "Done with all ping/pongs."
 
 -- | This function takes a `TargetEnd` for the pings, and a `SourceEnd` for
 -- pongs. Whenever a ping is received from the `TargetEnd`, a pong is sent

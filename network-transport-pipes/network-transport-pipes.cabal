@@ -1,5 +1,8 @@
 Name:                network-transport-pipes
-Version:             0.0.1
+Version:             0.0.1.1
+-- Version History:
+-- 0.0.1.1  - Initial
+
 Description:         Named Pipes backend for network-transport interface.
 License:             BSD3
 License-file:        LICENSE
@@ -14,7 +17,7 @@ Library
                      binary >= 0.5,
                      cereal,
                      bytestring >= 0.9,
-                     network-transport,
+                     network-transport >= 0.0.1.1,
                      containers >= 0.4,
 --                     network >= 2.3,
 --                     safe >= 0.3,
