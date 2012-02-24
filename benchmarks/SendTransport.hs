@@ -3,7 +3,8 @@
 
 module Main where
 
-import Network.Transport
+import Network.Transport (newConnection, receive, connect, send, defaultHints,
+			  serialize, deserialize, SourceEnd, TargetEnd)
 import Network.Transport.TCP (mkTransport, TCPConfig (..))
 
 import Control.Applicative
