@@ -1,5 +1,10 @@
 Name:                network-transport
-Version:             0.0.1
+Version:             0.0.1.1
+
+-- Version History:
+-- 0.0.1    - Initial
+-- 0.0.1.1  - Bump for Adam's change to strict BS.
+
 Description:         Network transport interface
 License:             BSD3
 License-file:        LICENSE
