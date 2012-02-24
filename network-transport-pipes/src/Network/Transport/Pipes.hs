@@ -25,8 +25,7 @@ import Data.Word
 import Data.Int
 import Data.IORef
 import qualified Data.IntMap as IntMap
-import qualified Data.ByteString.Char8 as BSS
-import qualified Data.ByteString.Lazy.Char8 as BS
+import qualified Data.ByteString.Char8 as BS
 
 -- For some STRANGE reason this is not working with Data.Binary [2012.02.20]:
 #define CEREAL
@@ -54,18 +53,18 @@ import qualified "unix-bytestring" System.Posix.IO.ByteString as PIO
 import System.Posix.IO as PIO (openFd, closeFd, -- append, exclusive, noctty, nonBlock, trunc,
 			       OpenFileFlags(..), OpenMode(ReadOnly, WriteOnly))
 -- (fromS,toS)  = (BS.pack, BS.unpack)
-(fromS,toS)  = (BSS.pack, BSS.unpack)
+(fromS,toS)  = (BS.pack, BS.unpack)
 fromBS = id
 readit fd n = PIO.fdRead fd n
 #else
 import qualified System.Posix.IO            as PIO
 (toS,fromS)  = (id,id)
-fromBS = BSS.unpack
+fromBS = BS.unpack
 readit fd n = do (s,_) <- PIO.fdRead fd n
-		 return (BSS.pack s)
+		 return (BS.pack s)
 #endif
 -- readit :: Fd -> Int -> IO BS.ByteString
-readit :: Fd -> ByteCount -> IO BSS.ByteString
+readit :: Fd -> ByteCount -> IO BS.ByteString
 
 ----------------------------------------------------------------------------------------------------
 
@@ -135,7 +134,7 @@ mkTransport = do
             -- Otherwise it's just a simple write:
 	    -- We append the length as a header. TODO - REMOVE EXTRA COPY HERE:
 
-            let hdrbss :: BSS.ByteString
+            let hdrbss :: BS.ByteString
 #ifdef CEREAL 
                 hdrbss = encode msgsize
 #else 
@@ -144,13 +143,13 @@ mkTransport = do
 #endif
 
 --            let finalmsg = BS.concat (encode msgsize : bss)
-            let finalmsg = BSS.concat (hdrbss : concatMap BS.toChunks bsls)
+            let finalmsg = BS.concat (hdrbss : bsls)
                        
             fd <- readMVar mv -- Synchronize with file opening.
             ----------------------------------------
             cnt <- PIO.fdWrite fd (fromBS finalmsg) -- inefficient to use String here!
-            unless (fromIntegral cnt == BSS.length finalmsg) $ 
-	      error$ "Failed to write message in one go, length: "++ show (BSS.length finalmsg)
+            unless (fromIntegral cnt == BS.length finalmsg) $ 
+	      error$ "Failed to write message in one go, length: "++ show (BS.length finalmsg)
             ----------------------------------------
             return ()
 	, closeSourceEnd = do
@@ -167,13 +166,13 @@ mkTransport = do
           -- happen on multiple threads so we grab a lock.
           takeMVar lock
         
-	  let spinread :: Int -> IO BSS.ByteString
+	  let spinread :: Int -> IO BS.ByteString
               spinread desired = do 
 
 	       bs <- tryUntilNoIOErr$ 
 		     readit fd (fromIntegral desired)
 
-	       case BSS.length bs of 
+	       case BS.length bs of 
                  n | n == desired -> return bs
 		 0 -> do threadDelay (10*1000)
 			 spinread desired
@@ -193,7 +192,7 @@ mkTransport = do
 		        Left err -> error$ "ERROR: "++ err
 			Right size -> spinread (fromIntegral (size::Word32))
           putMVar lock () 
-          return [BS.fromChunks [payload]] -- How terribly listy.
+          return [payload] -- How terribly listy.
       , closeTargetEnd = do 
          fd <- readMVar mv
 	 PIO.closeFd fd

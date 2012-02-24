@@ -1,10 +1,12 @@
+{-# LANGUAGE CPP #-}
+
 module Main where
 
 import Control.Monad
 import Criterion.Main (Benchmark, bench, defaultMain, nfIO, bgroup)
-import Data.Binary
-import Data.ByteString.Lazy (ByteString)
 import Data.Int
+import qualified Data.Serialize as Ser
+import Data.Word (Word8)
 import Network.Socket
   ( AddrInfoFlag (AI_PASSIVE), HostName, ServiceName, Socket
   , SocketType (Stream), SocketOption (ReuseAddr)
@@ -13,9 +15,25 @@ import Network.Socket
   , getAddrInfo, listen, setSocketOption, socket, sClose, withSocketsDo )
 import System.Environment (getArgs, withArgs)
 
-import qualified Data.ByteString.Lazy as BS
 import qualified Network.Socket as N
+
+#ifdef LAZY
+import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
+import qualified Network.Socket.ByteString as NBS
+encode = Ser.encode
+decode = Ser.decode
+#else
+import Data.ByteString.Lazy (ByteString)
+import qualified Data.ByteString.Lazy as BS
 import qualified Network.Socket.ByteString.Lazy as NBS
+encode = Ser.encodeLazy
+decode = Ser.decodeLazy
+#endif
+{-# INLINE encode #-}
+{-# INLINE decode #-}
+encode :: Ser.Serialize a => a -> ByteString
+decode :: Ser.Serialize a => ByteString -> Either String a
 
 -- | This performs a benchmark on a TCP connection to measure how long it takes
 -- to transfer a number of bytes.
@@ -78,9 +96,9 @@ ping :: Socket -> ByteString -> IO Word8
 ping sock bs = do
   NBS.send sock bs
   bs' <- NBS.recv sock 1
-  return $ decode bs
+  either error return $ decode bs
 
-pong :: Socket -> Int64 -> IO ()
+-- pong :: Socket -> Int64 -> IO ()
 pong sock size = do
   bs <- NBS.recv sock size
   NBS.sendAll sock (encode (0 :: Word8))

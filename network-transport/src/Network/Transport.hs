@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 module Network.Transport
   ( Hints (..)
   , TargetEnd (..)
@@ -12,7 +14,11 @@ module Network.Transport
   , newMulticast
   ) where
 
+#ifndef LAZY
+import Data.ByteString.Char8 (ByteString)
+#else
 import Data.ByteString.Lazy.Char8 (ByteString)
+#endif
 
 -- | The `Hints` and `SourceHints` provide hints to the underlying transport
 -- about the kind of connection that is required. This might include details
