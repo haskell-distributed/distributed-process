@@ -1,4 +1,4 @@
-{-# LANGUAGE ExplicitForAll, ScopedTypeVariables #-}
+{-# LANGUAGE CPP, ExplicitForAll, ScopedTypeVariables #-}
 
 module Control.Distributed.Process (
     -- * Processes
@@ -27,8 +27,6 @@ module Control.Distributed.Process (
 import qualified Network.Transport as Trans
 import Network.Transport (Transport)
 
-import qualified Data.ByteString.Lazy.Char8 as BS
-import Data.ByteString.Lazy.Char8 (ByteString)
 import qualified Data.IntMap as IntMap
 import Data.IntMap (IntMap)
 import Control.Applicative
@@ -40,6 +38,14 @@ import Control.Concurrent
 import Data.Typeable
 
 import Debug.Trace
+
+#ifndef LAZY
+import qualified Data.ByteString.Char8 as BS
+import Data.ByteString.Char8 (ByteString)
+#else
+import qualified Data.ByteString.Lazy.Char8 as BS
+import Data.ByteString.Lazy.Char8 (ByteString)
+#endif
 
 ------------------------
 -- Cloud Haskell layer
