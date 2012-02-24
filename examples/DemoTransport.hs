@@ -1,4 +1,4 @@
-{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE CPP, NamedFieldPuns #-}
 module Main where
 
 import Network.Transport 
@@ -9,7 +9,11 @@ import Network.Transport.TCP (mkTransport, TCPConfig (..))
 import Control.Concurrent
 import Control.Monad
 
+#ifndef LAZY
+import qualified Data.ByteString.Char8 as BS
+#else
 import qualified Data.ByteString.Lazy.Char8 as BS
+#endif
 
 import Data.IORef
 import Debug.Trace
