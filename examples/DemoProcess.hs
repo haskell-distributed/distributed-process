@@ -1,4 +1,4 @@
-module DemoProcess where
+module Main where
 
 import Control.Distributed.Process
 import Control.Concurrent (threadDelay)
@@ -32,3 +32,5 @@ logger n = do
   str <- expect
   liftIO . putStrLn $ show n ++ ": " ++ str
   logger (n+1)
+
+main = demo1

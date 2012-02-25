@@ -9,7 +9,8 @@ import Network.Transport.TCP (mkTransport, TCPConfig (..))
 import Control.Concurrent
 import Control.Monad
 
-import qualified Data.ByteString.Lazy.Char8 as BS
+-- import qualified Data.ByteString.Lazy.Char8 as BS
+import qualified Data.ByteString.Char8 as BS
 
 import Data.IORef
 import Debug.Trace
@@ -23,6 +24,9 @@ tcp   = mkTCPOff 8080
 mvar  = return Network.Transport.MVar.mkTransport
 pipes = return Network.Transport.Pipes.mkTransport
 
+tcp   :: IO (IO Transport)
+mvar  :: IO (IO Transport)
+pipes :: IO (IO Transport)
 
 -------------------------------------------
 -- Example programs using backend directly
@@ -103,11 +107,13 @@ demo3 mktrans = do
   send sourceEnd2 [BS.pack "hello2"]
 
   threadDelay 100000
-
+  putStrLn "demo3: Time, up, killing threads & closing transports.." 
   killThread threadId1
   killThread threadId2
+  putStrLn "demo3: Threads killed." 
   closeTransport trans1
   closeTransport trans2
+  putStrLn "demo3: Done." 
 
 
 -- | Check that two different connections on the same transport can be created.
@@ -129,9 +135,14 @@ demo4 mktrans = do
 
   threadDelay 100000
 
+  putStrLn "demo4: Time, up, killing threads & closing transports.." 
   killThread threadId1
   killThread threadId2
+  putStrLn "demo4: Threads killed." 
   closeTransport trans
+  putStrLn "demo4: Done." 
+
+
 
 --------------------------------------------------------------------------------
 
@@ -151,10 +162,12 @@ mkTCPOff off = do
 runWAllTranports :: (IO Transport -> IO ()) -> Int -> IO ()
 runWAllTranports demo offset = do
    putStrLn "------------------------------------------------------------"
+{-
    putStrLn "   MVAR transport:"
    mvar >>= demo
    putStrLn "\n   TCP transport:"   
    tcp >>= demo
+-}
    putStrLn "\n   PIPES transport:"
    pipes >>= demo
    putStrLn "\n"

@@ -6,7 +6,6 @@
 
 --  * Add support for messages greater than 4096 bytes.
 --  * debug ODD problem with CEREAL below
---  * switch to unix-bytestring after that package is updated for 7.4.1
 
 ----------------------------------------------------------------------------------------------------
 
@@ -88,9 +87,12 @@ fileFlags =
 
 mkTransport :: IO Transport
 mkTransport = do
-  uid <- randomIO :: IO Word64
+--  uid <- randomIO :: IO Word64
+  -- For backwards compatibility we shouldn't assume a Random instance for Word64:
+  uid <- randomIO :: IO Int
+
   lock <- newMVar ()
-  let filename = "/tmp/pipe_"++show uid
+  let filename = "/tmp/pipe_"++show (abs uid)
   createNamedPipe filename $ unionFileModes ownerReadMode ownerWriteMode
 
   return Transport
@@ -128,6 +130,7 @@ mkTransport = do
         SourceEnd
         { send = \bsls -> do
 	    -- ThreadSafe: This may happen on multiple processes/threads:
+  	    -- We don't need to lock because the write is atomic (for <4096):
 	    let msgsize :: Word32 = fromIntegral$ foldl' (\n s -> n + BS.length s) 0 bsls
             when (msgsize > 4096)$ -- TODO, look up PIPE_BUF in foreign code
 	       error "Message larger than blocksize written atomically to a named pipe.  Unimplemented."
@@ -162,10 +165,14 @@ mkTransport = do
       { receive = do
           fd <- readMVar mv -- Make sure Fd is there before
 
-          -- This should only happen on a single process.  But it may
+          -- This should only happen on a *single* process.  But it may
           -- happen on multiple threads so we grab a lock.
+
+	  -- If we don't lock, we cannot atomically read the length
+	  -- and THEN read the payload.  (A single read could be
+	  -- atomic, but not two reads.)
           takeMVar lock
-        
+
 	  let spinread :: Int -> IO BS.ByteString
               spinread desired = do 
 
@@ -174,23 +181,24 @@ mkTransport = do
 
 	       case BS.length bs of 
                  n | n == desired -> return bs
-		 0 -> do threadDelay (10*1000)
-			 spinread desired
+                 -- Because we're in non-blocking mode we deal with failed reads thusly:
+--		 0 -> do threadDelay (10*1000)
+--		         spinread desired
+                 0 -> error$ "receive: read zero bytes from pipe.  Even in non-blocking mode should have had an EAGAIN error instead."
                  l -> error$ "Inclomplete read expected either 0 bytes or complete msg ("++
 		             show desired ++" bytes) got "++ show l ++ " bytes"
 
           hdr <- spinread sizeof_header
-          let -- decoded :: BSS.ByteString
+          let 
 #ifdef CEREAL 
---              decoded = decode (BSS.concat$ BS.toChunks hdr)
               decoded = decode hdr	  
 #else 
---              decoded = decode hdr	  
               decoded = decode (BS.fromChunks [hdr])
 #endif
           payload  <- case decoded of
 		        Left err -> error$ "ERROR: "++ err
 			Right size -> spinread (fromIntegral (size::Word32))
+
           putMVar lock () 
           return [payload] -- How terribly listy.
       , closeTargetEnd = do 
