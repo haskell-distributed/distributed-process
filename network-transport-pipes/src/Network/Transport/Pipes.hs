@@ -25,6 +25,7 @@ import Data.Int
 import Data.IORef
 import qualified Data.IntMap as IntMap
 import qualified Data.ByteString.Char8 as BS
+import Data.Time.Clock (getCurrentTime, diffUTCTime) -- Not in 6.10
 
 -- For some STRANGE reason this is not working with Data.Binary [2012.02.20]:
 #define CEREAL
@@ -212,6 +213,7 @@ spinTillThere filename = mkBackoff >>= loop
    loop bkoff = do b <- doesFileExist filename
 		   unless b $ do bkoff; loop bkoff
 
+-- Wait successively longer between attempts.
 mkBackoff :: IO (IO ())
 mkBackoff = 
   do tref <- newIORef 1
@@ -222,17 +224,30 @@ mkBackoff =
    maxwait = 50 * 1000
 
 tryUntilNoIOErr :: IO a -> IO a
-tryUntilNoIOErr action = mkBackoff >>= loop 
+tryUntilNoIOErr action = 
+   do startTime <- getCurrentTime
+      bkoff <- mkBackoff 
+      loop startTime bkoff
+      
  where 
-  loop bkoff = 
+  loop start bkoff = 
     handle (\ (e :: IOException) -> 
-	     do bkoff 
+	     do maybeWarn start
+                bkoff 
 --                BSS.hPutStr stderr$ BSS.pack$ "    got IO err: " ++ show e
 	        -- case ioeGetHandle e of 
 	        --   Nothing -> BSS.hPutStrLn stderr$ BSS.pack$ "  no hndl io err."
 	        --   Just x  -> BSS.hPutStrLn stderr$ BSS.pack$ "  HNDL on io err!" ++ show x
-	        loop bkoff) $ 
+	        loop start bkoff) $ 
 	   action
+  -- After how many milleseconds should we start warning?
+  warn_lvl = 3000
+  maybeWarn start = do
+    now <- getCurrentTime
+    let seconds :: Double = fromRational $ toRational $ diffUTCTime now start
+    when (seconds * 1000 >= warn_lvl) $ 
+      BS.hPutStrLn stderr$ BS.pack$ "WARNING: have been trying an IO action for "++show seconds++ " seconds without success"
+    
 
 -- Execute an action on its own OS thread.  Return an MVar to synchronize on.
 onOSThread :: IO a -> IO (MVar a)

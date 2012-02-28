@@ -1,5 +1,5 @@
 Name:                network-transport-pipes
-Version:             0.0.1.1
+Version:             0.0.1.2
 -- Version History:
 -- 0.0.1.1  - Initial
 
@@ -25,7 +25,8 @@ Library
                      unix >= 2.4,
                      random, 
                      directory,
-                     unix-bytestring >= 0.3.5.3	
+                     unix-bytestring >= 0.3.5.3,
+                     time
   Exposed-modules:   Network.Transport.Pipes
 --  Extensions:        BangPatterns
   ghc-options:       -Wall
