@@ -165,12 +165,10 @@ mkTCPOff off = do
 runWAllTranports :: (IO Transport -> IO ()) -> Int -> IO ()
 runWAllTranports demo offset = do
    putStrLn "------------------------------------------------------------"
-{-
    putStrLn "   MVAR transport:"
    mvar >>= demo
    putStrLn "\n   TCP transport:"   
    tcp >>= demo
--}
    putStrLn "\n   PIPES transport:"
    pipes >>= demo
    putStrLn "\n"
