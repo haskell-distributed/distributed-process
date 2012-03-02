@@ -25,7 +25,7 @@ import Data.Int
 import Data.IORef
 import qualified Data.IntMap as IntMap
 import qualified Data.ByteString.Char8 as BS
-import Data.Time.Clock (getCurrentTime, diffUTCTime) -- Not in 6.10
+import Data.Time.Clock (getCurrentTime, diffUTCTime, UTCTime) -- Not in 6.10
 
 -- For some STRANGE reason this is not working with Data.Binary [2012.02.20]:
 #define CEREAL
@@ -100,7 +100,7 @@ mkTransport = do
     { newConnectionWith = \ _ -> do
 	-- Here we protect from blocking other threads by running on a separate (OS) thread:
 	-- Opening the file on the reader side should always succeed:
-        mv <- onOSThread$ tryUntilNoIOErr $ 
+        mv <- onOSThread$ tryUntilNoIOErr "open pipe for read" $ 
 --	      spinTillThere filename
 	      PIO.openFd filename PIO.ReadOnly Nothing fileFlags
 
@@ -120,7 +120,7 @@ mkTransport = do
     mkSourceEnd :: String -> IO SourceEnd
     mkSourceEnd filename = do
       -- Initiate but do not block on file opening:
-      mv <- onOSThread$ tryUntilNoIOErr $ 
+      mv <- onOSThread$ tryUntilNoIOErr "open pipe for write" $ 
             -- The reader must connect first, the writer here spins with backoff.
             PIO.openFd filename PIO.WriteOnly Nothing fileFlags
 
@@ -177,7 +177,7 @@ mkTransport = do
 	  let spinread :: Int -> IO BS.ByteString
               spinread desired = do 
 
-	       bs <- tryUntilNoIOErr$ 
+	       bs <- tryUntilNoIOErr "read pipe file descriptor"$ 
 		     readit fd (fromIntegral desired)
 
 	       case BS.length bs of 
@@ -207,13 +207,14 @@ mkTransport = do
 	 PIO.closeFd fd
       }
 
+-- | Wait untila file is present, with backoff.
 spinTillThere :: String -> IO ()
 spinTillThere filename = mkBackoff >>= loop 
   where
    loop bkoff = do b <- doesFileExist filename
 		   unless b $ do bkoff; loop bkoff
 
--- Wait successively longer between attempts.
+-- | Create a backoff action that waits successively longer between attempts.
 mkBackoff :: IO (IO ())
 mkBackoff = 
   do tref <- newIORef 1
@@ -223,31 +224,37 @@ mkBackoff =
  where 
    maxwait = 50 * 1000
 
-tryUntilNoIOErr :: IO a -> IO a
-tryUntilNoIOErr action = 
+-- | Try an IO action repeatedly (with backoff) until it succeeds without exception.
+tryUntilNoIOErr :: String -> IO a -> IO a
+tryUntilNoIOErr msg action = 
    do startTime <- getCurrentTime
       bkoff <- mkBackoff 
-      loop startTime bkoff
-      
+      loop startTime startTime bkoff
  where 
-  loop start bkoff = 
+  loop start lastWarned bkoff = 
     handle (\ (e :: IOException) -> 
-	     do maybeWarn start
+	     do lw <- maybeWarn start lastWarned
                 bkoff 
 --                BSS.hPutStr stderr$ BSS.pack$ "    got IO err: " ++ show e
 	        -- case ioeGetHandle e of 
 	        --   Nothing -> BSS.hPutStrLn stderr$ BSS.pack$ "  no hndl io err."
 	        --   Just x  -> BSS.hPutStrLn stderr$ BSS.pack$ "  HNDL on io err!" ++ show x
-	        loop start bkoff) $ 
+	        loop start lw bkoff) $ 
 	   action
   -- After how many milleseconds should we start warning?
   warn_lvl = 3000
-  maybeWarn start = do
+  maybeWarn :: UTCTime -> UTCTime -> IO UTCTime
+  maybeWarn start lastWarned = do
     now <- getCurrentTime
-    let seconds :: Double = fromRational $ toRational $ diffUTCTime now start
-    when (seconds * 1000 >= warn_lvl) $ 
-      BS.hPutStrLn stderr$ BS.pack$ "WARNING: have been trying an IO action for "++show seconds++ " seconds without success"
-    
+    let seconds     :: Double = fromRational $ toRational $ diffUTCTime now start
+	sinceWarned :: Double = fromRational $ toRational $ diffUTCTime now lastWarned
+    if (seconds * 1000 >= warn_lvl &&
+	sinceWarned >= 1.0 ) then do
+        BS.hPutStrLn stderr$ BS.pack$ "WARNING: have been trying an IO action ("++msg++
+	                     ") for "++show seconds++ " seconds without success"
+	return now
+     else 
+        return lastWarned
 
 -- Execute an action on its own OS thread.  Return an MVar to synchronize on.
 onOSThread :: IO a -> IO (MVar a)
