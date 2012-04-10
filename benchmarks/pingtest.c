@@ -7,8 +7,18 @@
 #include <unistd.h>
 #include <signal.h>
 #include <errno.h>
+#include <time.h>
+#include <sys/time.h>
+#include <math.h>
 
-int server(int pings) {
+// Note: this is not consistent across CPUs (and hence across threads on multicore machines) 
+double timestamp() {
+  struct timeval tp;
+  gettimeofday(&tp, NULL);
+  return ((double) tp.tv_sec) * 1e6 + (double) tp.tv_usec;
+}
+
+int server() {
   struct addrinfo hints, *res;
   int error, server_socket;
 
@@ -47,7 +57,7 @@ int server(int pings) {
   socklen_t addr_size;
   client_socket = accept(server_socket, (struct sockaddr *)&client_addr, &addr_size); 
 
-  for(int i = 0; i < pings; i++) {
+  for(;;) {
     char buf[8];
     ssize_t read = recv(client_socket, &buf, 8, 0);
     // printf("server received '%s'\n", buf);
@@ -85,36 +95,55 @@ int client(int pings) {
     return -1;
   }
 
+  double* round_trip_latency = (double*) calloc(pings, sizeof(double));
+
   for(int i = 0; i < pings; i++) {
+    double timestamp_before = timestamp();
+
     send(client_socket, "ping123", 8, 0);
-    
+
     char buf[8];
     ssize_t read = recv(client_socket, &buf, 8, 0);
     // printf("client received '%s'\n", buf);
+
+    double timestamp_after = timestamp();
+    round_trip_latency[i] = timestamp_after - timestamp_before;
   }
 
-  printf("pinged %d times\n", pings);
+  printf("client did %d pings\n", pings);
+
+  // compute average
+  double round_trip_latency_average = 0;
+  for(int i = 0; i < pings; i++) {
+    round_trip_latency_average += round_trip_latency[i];
+  };
+  round_trip_latency_average /= (double) pings;
+
+
+  // compute standard deviation
+  double round_trip_latency_stddev = 0;
+  for(int i = 0; i < pings; i++) {
+    round_trip_latency_stddev += pow(round_trip_latency[i] - round_trip_latency_average, 2);
+  }
+  round_trip_latency_stddev = sqrt(round_trip_latency_stddev / (double) (pings - 1));
+
+  printf("average round-trip latency: %lf us (standard devitation %lf us)\n", round_trip_latency_average, round_trip_latency_stddev);
 
   freeaddrinfo(res);
   return 0;
 }
 
 int usage(int argc, char** argv) {
-  printf("usage: %s (server | client) <number of pings>\n", argv[0]);
+  printf("usage: %s server or %s client <number of pings>\n", argv[0], argv[0]);
   return -1;
 }
 
 int main(int argc, char** argv) {
-  if(argc != 3) {
-    return usage(argc, argv);
-  }
-
-  int pings = 0;
-  sscanf(argv[2], "%d", &pings);
-
-  if(!strcmp(argv[1], "server")) {
-    return server(pings);
-  } else if(!strcmp(argv[1], "client")) {
+  if(argc == 2 && !strcmp(argv[1], "server")) {
+    return server();
+  } else if(argc == 3 && !strcmp(argv[1], "client")) {
+    int pings = 0;
+    sscanf(argv[2], "%d", &pings);
     return client(pings);
   } else {
     return usage(argc, argv);
