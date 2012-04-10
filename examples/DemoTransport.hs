@@ -133,14 +133,16 @@ demo4 mktrans = do
   sourceEnd1 <- connect sourceAddr1
   sourceEnd2 <- connect sourceAddr2
 
-  send sourceEnd1 [BS.pack "hello1"]
-  send sourceEnd2 [BS.pack "hello2"]
+  threadId3 <- forkIO $ forM_ [1..10] $ \i -> send sourceEnd1 [BS.pack ("A" ++ show i)]
+  threadId4 <- forkIO $ forM_ [1..10] $ \i -> send sourceEnd2 [BS.pack ("B" ++ show i)]
 
-  threadDelay 100000
+  threadDelay 1000000
 
   putStrLn "demo4: Time, up, killing threads & closing transports.." 
   killThread threadId1
   killThread threadId2
+  killThread threadId3
+  killThread threadId4
   putStrLn "demo4: Threads killed." 
   closeTransport trans
   putStrLn "demo4: Done." 
