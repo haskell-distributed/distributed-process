@@ -109,15 +109,23 @@ ping sock pings = go [] pings
       putStrLn $ "client did " ++ show pings ++ " pings"
     go rtl !i = do
       before <- getCurrentTime
-      NBS.send sock pingMessage 
-      bs <- NBS.recv sock 8
+      send sock pingMessage 
+      bs <- recv sock 8
       after <- getCurrentTime
       let latency = (1e6 :: Double) * realToFrac (diffUTCTime after before)
       latency `seq` go (latency : rtl) (i - 1)
 
 pong :: Socket -> IO ()
 pong sock = do
-  bs <- NBS.recv sock 8
+  bs <- recv sock 8
   when (BS.length bs > 0) $ do
-    NBS.sendAll sock bs
+    send sock bs
     pong sock
+
+-- | Wrapper around NBS.recv (for profiling) 
+recv :: Socket -> Int -> IO ByteString
+recv = NBS.recv
+
+-- | Wrapper around NBS.send (for profiling)
+send :: Socket -> ByteString -> IO Int
+send = NBS.send

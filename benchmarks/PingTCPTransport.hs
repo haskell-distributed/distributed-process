@@ -53,7 +53,8 @@ decode :: Ser.Serialize a => BS.ByteString -> Either String a
 main :: IO ()
 main = do
   [pingsStr] <- getArgs
-  serverReady <- newEmptyMVar
+  serverAddr <- newEmptyMVar
+  clientAddr <- newEmptyMVar
 
   -- Start the server
   forkIO $ do
@@ -63,19 +64,19 @@ main = do
     -- create ping end
     putStrLn "server: creating ping end"
     (sourceAddrPing, targetEndPing) <- newConnection transport
-    putMVar serverReady sourceAddrPing
+    putMVar serverAddr sourceAddrPing
 
     -- create pong end
     putStrLn "server: creating pong end"
-    [sourceAddrPongBS] <- receive targetEndPing
-    sourceEndPong <- connect . fromJust $ deserialize transport sourceAddrPongBS
+    sourceAddrPong <- takeMVar clientAddr
+    sourceEndPong <- connect sourceAddrPong
 
     -- always respond to a ping with a pong
     putStrLn "server: awaiting pings"
     pong targetEndPing sourceEndPong
 
   -- Client
-  sourceAddr <- takeMVar serverReady
+  sourceAddr <- takeMVar serverAddr
   let pings = read pingsStr
   -- establish transport
   transport <- mkTransport $ TCPConfig defaultHints "127.0.0.1" "8081" 
@@ -85,7 +86,7 @@ main = do
 
   -- create pong end
   (sourceAddrPong, targetEndPong) <- newConnection transport
-  send sourceEndPing [serialize sourceAddrPong]
+  putMVar clientAddr sourceAddrPong
 
   ping sourceEndPing targetEndPong pings 
   putStrLn "Done with all ping/pongs."
@@ -97,8 +98,9 @@ pingMessage = BS.pack "ping123"
 -- | Keep replying to pings (send pongs)
 pong :: TargetEnd -> SourceEnd -> IO ()
 pong targetEndPing sourceEndPong = do
-  bs <- receive targetEndPing
-  send sourceEndPong bs
+  [bs] <- receive targetEndPing
+  -- putStrLn $ "server got " ++ BS.unpack bs
+  send sourceEndPong [bs]
   pong targetEndPing sourceEndPong
 
 -- | Send a number of pings
@@ -113,6 +115,7 @@ ping sourceEndPing targetEndPong pings = go [] pings
       before <- getCurrentTime
       send sourceEndPing [pingMessage]
       [bs] <- receive targetEndPong
+      -- putStrLn $ "client got " ++ BS.unpack bs
       after <- getCurrentTime
       let latency = (1e6 :: Double) * realToFrac (diffUTCTime after before)
       latency `seq` go (latency : rtl) (i - 1)

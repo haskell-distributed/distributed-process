@@ -9,7 +9,7 @@ trials = 1
 INCLUDES= -i../network-transport/src -i../network-transport-pipes/src 
 
 # Enable for profiling 
-PROFILING=-prof -fprof-auto
+# PROFILING=-prof -fprof-auto
 
 ifeq ($(GHC),)
   GHC=ghc
