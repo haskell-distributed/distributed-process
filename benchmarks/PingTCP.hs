@@ -1,10 +1,8 @@
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE CPP, BangPatterns #-}
 
 module Main where
 
 import Control.Monad
-import Criterion.Main (Benchmark, bench, defaultMainWith, nfIO)
-import Criterion.Config (defaultConfig, ljust, Config(cfgSamples))
 
 import Data.Int
 import qualified Data.Serialize as Ser
@@ -16,6 +14,8 @@ import Network.Socket
   , defaultHints
   , getAddrInfo, listen, setSocketOption, socket, sClose, withSocketsDo )
 import System.Environment (getArgs, withArgs)
+import Data.Time (getCurrentTime, diffUTCTime, NominalDiffTime)
+import System.IO (withFile, IOMode(..), hPutStrLn)
 
 import qualified Network.Socket as N
 
@@ -23,11 +23,13 @@ import Debug.Trace
 
 #ifndef LAZY
 import Data.ByteString (ByteString)
+import Data.ByteString.Char8 (pack)
+import qualified Data.ByteString as BS
 import qualified Network.Socket.ByteString as NBS
 encode = Ser.encode
 decode = Ser.decode
 #else
-import Data.ByteString.Lazy (ByteString)
+import Data.ByteString.Lazy (ByteString, pack)
 import qualified Network.Socket.ByteString.Lazy as NBS
 encode = Ser.encodeLazy
 decode = Ser.decodeLazy
@@ -72,9 +74,9 @@ main = do
       (clientSock, clientAddr) <- accept sock
 
       putStrLn "server: listening for pings"
-      forever (pong clientSock)
+      pong clientSock
 
-    "client": host : service : pingsStr : reps : args' -> withSocketsDo $ do
+    "client": host : service : pingsStr : [] -> withSocketsDo $ do
       let pings = read pingsStr
       serverAddrs <- getAddrInfo 
         Nothing
@@ -85,36 +87,31 @@ main = do
 
       N.connect sock (addrAddress serverAddr)
 
-      -- benchmark the pings
-      case (read reps) :: Int of
-        0 -> error "What would zero reps mean?"
-        1 -> do putStrLn "Because you're timing only one trial, skipping Criterion..."
-                replicateM_ pings (ping sock)
-        n -> withArgs args' $ defaultMainWith 
-                               (defaultConfig{ cfgSamples = ljust n })
-			       (return ()) -- Init action.
-	                       [ benchPing sock (fromIntegral pings) ]
-      putStrLn "Done with all ping/pongs."
+      ping sock pings
 
---      withArgs args' $ defaultMain [ benchPing sock pings ]
---      replicateM_ pings (ping sock)
+pingMessage :: ByteString
+pingMessage = pack "ping123"
 
--- | Each `ping` sends a single byte, and expects to receive one
--- back in return.
-ping :: Socket -> IO Int64
-ping sock = do
-  NBS.send sock $ encode (42 :: Int64)
-  bs <- NBS.recv sock 8
-  either error return $ decode bs
+ping :: Socket -> Int -> IO () 
+ping sock pings = go [] pings
+  where
+    go :: [Double] -> Int -> IO ()
+    go rtl 0 = do 
+      withFile "round-trip-latency-tcp.data" WriteMode $ \h -> 
+        forM_ (zip [0..] rtl) $ \(i, latency) -> 
+          hPutStrLn h $ (show i) ++ " " ++ (show latency)
+      putStrLn $ "client did " ++ show pings ++ " pings"
+    go rtl !i = do
+      before <- getCurrentTime
+      NBS.send sock pingMessage 
+      bs <- NBS.recv sock 8
+      after <- getCurrentTime
+      let latency = (1e6 :: Double) * realToFrac (diffUTCTime after before)
+      latency `seq` go (latency : rtl) (i - 1)
 
 pong :: Socket -> IO ()
 pong sock = do
   bs <- NBS.recv sock 8
-  NBS.sendAll sock bs
-  return ()
-
-benchPing :: Socket -> Int64 -> Benchmark
-benchPing sock n = 
-  bench "PingTCP" $
-  nfIO (replicateM_ (fromIntegral n) (ping sock))
-
+  when (BS.length bs > 0) $ do
+    NBS.sendAll sock bs
+    pong sock

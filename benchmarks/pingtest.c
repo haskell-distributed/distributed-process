@@ -1,3 +1,23 @@
+/**
+ * Compute baseline average and standard deviancy ping latency 
+ *
+ * Compile using 
+ *
+ *   gcc -o pingtest -O2 -std=c99 pingtest.c
+ *
+ * Then start server
+ *
+ *   ./pingtest server &
+ *
+ * And finally start the client
+ *
+ *   ./pingtest client <number of pings; for instance, 10000>
+ *
+ * The server will terminate when the client does.
+ *
+ * Edsko de Vries <edsko@well-typed.com>
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
@@ -111,6 +131,13 @@ int client(int pings) {
   }
 
   printf("client did %d pings\n", pings);
+
+  // Write data to a file for plotting
+  FILE* data = fopen("round-trip-latency-c.data", "wt");
+  for(int i = 0; i < pings; i++) {
+    fprintf(data, "%i %lf\n", i, round_trip_latency[i]);
+  }
+  fclose(data);
 
   // compute average
   double round_trip_latency_average = 0;

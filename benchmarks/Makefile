@@ -8,6 +8,9 @@ trials = 1
 # Disable this to test installed packages only:
 INCLUDES= -i../network-transport/src -i../network-transport-pipes/src 
 
+# Enable for profiling 
+PROFILING=-prof -fprof-auto
+
 ifeq ($(GHC),)
   GHC=ghc
 endif
@@ -16,7 +19,7 @@ BENCHS= PingTCP.exe PingTCPTransport.exe PingPipes.exe SendTransport.exe
 
 all: $(BENCHS)
 $(BENCHS): %.exe: %.hs
-	$(GHC) -O2 -rtsopts -threaded --make $(INCLUDES) $< -o $@
+	$(GHC) -O2 -rtsopts -threaded --make $(INCLUDES) $(PROFILING) $< -o $@
 
 #-------------------------------------------------------------------------------
 # Shorthands for running benchmarks:

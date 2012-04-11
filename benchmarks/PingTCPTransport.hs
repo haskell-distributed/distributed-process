@@ -1,4 +1,4 @@
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE CPP, BangPatterns #-}
 
 module Main where
 
@@ -6,14 +6,14 @@ import Network.Transport (newConnection, receive, connect, send, defaultHints,
 			  serialize, deserialize, SourceEnd, TargetEnd)
 import Network.Transport.TCP (mkTransport, TCPConfig (..))
 
-import Control.Monad (forever, replicateM_)
-import Criterion.Main (Benchmark, bench, defaultMainWith, nfIO)
-import Criterion.Config (defaultConfig, ljust, Config(cfgSamples))
+import Control.Monad (forever, replicateM_, forM_)
 
 import qualified Data.Serialize as Ser
 import Data.Maybe (fromJust)
 import Data.Int
 import System.Environment (getArgs, withArgs)
+import Data.Time (getCurrentTime, diffUTCTime)
+import System.IO (withFile, IOMode(..), hPutStrLn)
 
 #ifndef LAZY
 import qualified Data.ByteString.Char8 as BS
@@ -68,10 +68,10 @@ main = do
 
       -- always respond to a ping with a pong
       putStrLn "server: awaiting pings"
-      forever $ pong targetEndPing sourceEndPong
+      pong targetEndPing sourceEndPong
 
 
-    "client" : host : service : sourceAddrFilePath : pingsStr : reps : args' -> do
+    "client" : host : service : sourceAddrFilePath : pingsStr : [] -> do
       let pings = read pingsStr
       -- establish transport
       transport <- mkTransport $ TCPConfig defaultHints host service
@@ -84,39 +84,39 @@ main = do
       (sourceAddrPong, targetEndPong) <- newConnection transport
       send sourceEndPing [serialize sourceAddrPong]
 
-      -- benchmark the pings
-      case (read reps) :: Int of
-        0 -> error "What would zero reps mean?"
-        1 -> do putStrLn "Because you're timing only one trial, skipping Criterion..."
-                replicateM_ pings (ping sourceEndPing targetEndPong 42)
-        n -> withArgs args' $ defaultMainWith 
-                               (defaultConfig{ cfgSamples = ljust n })
-			       (return ()) -- Init action.
-	                       [ benchPing sourceEndPing targetEndPong (fromIntegral pings)]
+      ping sourceEndPing targetEndPong pings 
       putStrLn "Done with all ping/pongs."
 
--- | This function takes a `TargetEnd` for the pings, and a `SourceEnd` for
--- pongs. Whenever a ping is received from the `TargetEnd`, a pong is sent
--- in reply down the `SourceEnd`, repeating whatever was sent.
+-- | The message we use to ping (CAF so that we don't keep encoding it)
+pingMessage :: BS.ByteString
+pingMessage = BS.pack "ping123"
+
+-- | Keep replying to pings (send pongs)
 pong :: TargetEnd -> SourceEnd -> IO ()
 pong targetEndPing sourceEndPong = do
   bs <- receive targetEndPing
   send sourceEndPong bs
+  pong targetEndPing sourceEndPong
 
--- | The effect of `ping sourceEndPing targetEndPong n` is to send the number
--- `n` using `sourceEndPing`, and to then receive the a number from
--- `targetEndPong`, which is then returned.
-ping :: SourceEnd -> TargetEnd -> Int64 -> IO Int64
-ping sourceEndPing targetEndPong n = do
-  send sourceEndPing [encode n]
-  [bs] <- receive targetEndPong
-  let (Right n) = decode bs
-  return $! n
+-- | Send a number of pings
+ping :: SourceEnd -> TargetEnd -> Int -> IO ()
+ping sourceEndPing targetEndPong pings = go [] pings
+  where
+    go :: [Double] -> Int -> IO ()
+    go rtl 0 = do
+      outputData rtl
+      putStrLn $ "client did " ++ show pings ++ " pings"
+    go rtl !i = do
+      before <- getCurrentTime
+      send sourceEndPing [pingMessage]
+      [bs] <- receive targetEndPong
+      after <- getCurrentTime
+      let latency = (1e6 :: Double) * realToFrac (diffUTCTime after before)
+      latency `seq` go (latency : rtl) (i - 1)
 
--- | The effect of `benchPing sourceEndPing targetEndPong n` is to send
--- `n` pings down `sourceEndPing` using the `ping` function. The time
--- taken is benchmarked.
-benchPing :: SourceEnd -> TargetEnd -> Int64 -> Benchmark
-benchPing sourceEndPing targetEndPong n = bench "PingTransport" $
-  nfIO (replicateM_ (fromIntegral n) (ping sourceEndPing targetEndPong 42))
-
+-- | Output latencies to a file to be plotted
+outputData :: [Double] -> IO ()
+outputData rtl = do
+  withFile "round-trip-latency-tcp-transport.data" WriteMode $ \h -> 
+    forM_ (zip [0..] rtl) $ \(i, latency) -> 
+      hPutStrLn h $ (show i) ++ " " ++ (show latency)
