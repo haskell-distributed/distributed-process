@@ -14,6 +14,8 @@ import Data.Int
 import System.Environment (getArgs, withArgs)
 import Data.Time (getCurrentTime, diffUTCTime)
 import System.IO (withFile, IOMode(..), hPutStrLn)
+import Control.Concurrent (forkIO)
+import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar)
 
 #ifndef LAZY
 import qualified Data.ByteString.Char8 as BS
@@ -50,42 +52,43 @@ decode :: Ser.Serialize a => BS.ByteString -> Either String a
 -- The server must be restarted between benchmarks.
 main :: IO ()
 main = do
-  args <- getArgs
-  case args of
-    "server" : host : service : sourceAddrFilePath : [] -> do
-      -- establish transport
-      transport <- mkTransport $ TCPConfig defaultHints host service
+  [pingsStr] <- getArgs
+  serverReady <- newEmptyMVar
 
-      -- create ping end
-      putStrLn "server: creating ping end"
-      (sourceAddrPing, targetEndPing) <- newConnection transport
-      BS.writeFile sourceAddrFilePath $ serialize sourceAddrPing
+  -- Start the server
+  forkIO $ do
+    -- establish transport
+    transport <- mkTransport $ TCPConfig defaultHints "127.0.0.1" "8080" 
 
-      -- create pong end
-      putStrLn "server: creating pong end"
-      [sourceAddrPongBS] <- receive targetEndPing
-      sourceEndPong <- connect . fromJust $ deserialize transport sourceAddrPongBS
+    -- create ping end
+    putStrLn "server: creating ping end"
+    (sourceAddrPing, targetEndPing) <- newConnection transport
+    putMVar serverReady sourceAddrPing
 
-      -- always respond to a ping with a pong
-      putStrLn "server: awaiting pings"
-      pong targetEndPing sourceEndPong
+    -- create pong end
+    putStrLn "server: creating pong end"
+    [sourceAddrPongBS] <- receive targetEndPing
+    sourceEndPong <- connect . fromJust $ deserialize transport sourceAddrPongBS
 
+    -- always respond to a ping with a pong
+    putStrLn "server: awaiting pings"
+    pong targetEndPing sourceEndPong
 
-    "client" : host : service : sourceAddrFilePath : pingsStr : [] -> do
-      let pings = read pingsStr
-      -- establish transport
-      transport <- mkTransport $ TCPConfig defaultHints host service
+  -- Client
+  sourceAddr <- takeMVar serverReady
+  let pings = read pingsStr
+  -- establish transport
+  transport <- mkTransport $ TCPConfig defaultHints "127.0.0.1" "8081" 
 
-      -- create ping end
-      sourceAddrPingBS <- BS.readFile sourceAddrFilePath
-      sourceEndPing <- connect . fromJust $ deserialize transport sourceAddrPingBS
+  -- create ping end
+  sourceEndPing <- connect sourceAddr 
 
-      -- create pong end
-      (sourceAddrPong, targetEndPong) <- newConnection transport
-      send sourceEndPing [serialize sourceAddrPong]
+  -- create pong end
+  (sourceAddrPong, targetEndPong) <- newConnection transport
+  send sourceEndPing [serialize sourceAddrPong]
 
-      ping sourceEndPing targetEndPong pings 
-      putStrLn "Done with all ping/pongs."
+  ping sourceEndPing targetEndPong pings 
+  putStrLn "Done with all ping/pongs."
 
 -- | The message we use to ping (CAF so that we don't keep encoding it)
 pingMessage :: BS.ByteString

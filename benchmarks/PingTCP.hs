@@ -16,6 +16,8 @@ import Network.Socket
 import System.Environment (getArgs, withArgs)
 import Data.Time (getCurrentTime, diffUTCTime, NominalDiffTime)
 import System.IO (withFile, IOMode(..), hPutStrLn)
+import Control.Concurrent (forkIO)
+import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar)
 
 import qualified Network.Socket as N
 
@@ -56,38 +58,42 @@ decode :: Ser.Serialize a => ByteString -> Either String a
 -- The server must be restarted between benchmarks.
 main :: IO ()
 main = do
-  args <- getArgs
-  case args of
-    "server" : service : [] -> withSocketsDo $ do
-      putStrLn "server: creating TCP connection"
-      serverAddrs <- getAddrInfo 
-        (Just (defaultHints { addrFlags = [AI_PASSIVE] } ))
-        Nothing
-        (Just service)
-      let serverAddr = head serverAddrs
-      sock <- socket (addrFamily serverAddr) Stream defaultProtocol
-      setSocketOption sock ReuseAddr 1
-      bindSocket sock (addrAddress serverAddr)
+  [pingsStr] <- getArgs
+  serverReady <- newEmptyMVar
 
-      putStrLn "server: awaiting client connection"
-      listen sock 1
-      (clientSock, clientAddr) <- accept sock
+  -- Start the server
+  forkIO $ do
+    putStrLn "server: creating TCP connection"
+    serverAddrs <- getAddrInfo 
+      (Just (defaultHints { addrFlags = [AI_PASSIVE] } ))
+      Nothing
+      (Just "8080")
+    let serverAddr = head serverAddrs
+    sock <- socket (addrFamily serverAddr) Stream defaultProtocol
+    setSocketOption sock ReuseAddr 1
+    bindSocket sock (addrAddress serverAddr)
 
-      putStrLn "server: listening for pings"
-      pong clientSock
+    putStrLn "server: awaiting client connection"
+    putMVar serverReady ()
+    listen sock 1
+    (clientSock, clientAddr) <- accept sock
 
-    "client": host : service : pingsStr : [] -> withSocketsDo $ do
-      let pings = read pingsStr
-      serverAddrs <- getAddrInfo 
-        Nothing
-        (Just host)
-        (Just service)
-      let serverAddr = head serverAddrs
-      sock <- socket (addrFamily serverAddr) Stream defaultProtocol
+    putStrLn "server: listening for pings"
+    pong clientSock
 
-      N.connect sock (addrAddress serverAddr)
+  -- Client
+  takeMVar serverReady
+  let pings = read pingsStr
+  serverAddrs <- getAddrInfo 
+    Nothing
+    (Just "127.0.0.1")
+    (Just "8080")
+  let serverAddr = head serverAddrs
+  sock <- socket (addrFamily serverAddr) Stream defaultProtocol
 
-      ping sock pings
+  N.connect sock (addrAddress serverAddr)
+
+  ping sock pings
 
 pingMessage :: ByteString
 pingMessage = pack "ping123"

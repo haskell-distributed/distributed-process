@@ -39,6 +39,8 @@ double timestamp() {
 }
 
 int server() {
+  printf("starting server\n");
+
   struct addrinfo hints, *res;
   int error, server_socket;
 
@@ -161,18 +163,21 @@ int client(int pings) {
 }
 
 int usage(int argc, char** argv) {
-  printf("usage: %s server or %s client <number of pings>\n", argv[0], argv[0]);
+  printf("usage: %s <number of pings>\n", argv[0]);
   return -1;
 }
 
 int main(int argc, char** argv) {
-  if(argc == 2 && !strcmp(argv[1], "server")) {
-    return server();
-  } else if(argc == 3 && !strcmp(argv[1], "client")) {
+  if(argc != 2) {
+    return usage(argc, argv);
+  } 
+
+  if(fork() == 0) {
+    // TODO: we should wait until we know the server is ready
     int pings = 0;
-    sscanf(argv[2], "%d", &pings);
+    sscanf(argv[1], "%d", &pings);
     return client(pings);
   } else {
-    return usage(argc, argv);
+    return server();
   }
 }
