@@ -30,6 +30,7 @@ main :: IO ()
 main = do
   [pingsStr] <- getArgs
   serverReady <- newEmptyMVar
+  clientDone <- newEmptyMVar
 
   -- Start the server
   forkIO $ do
@@ -52,18 +53,23 @@ main = do
     pong clientSock
 
   -- Client
-  takeMVar serverReady
-  let pings = read pingsStr
-  serverAddrs <- getAddrInfo 
-    Nothing
-    (Just "127.0.0.1")
-    (Just "8080")
-  let serverAddr = head serverAddrs
-  sock <- socket (addrFamily serverAddr) Stream defaultProtocol
+  forkIO $ do
+    takeMVar serverReady
+    let pings = read pingsStr
+    serverAddrs <- getAddrInfo 
+      Nothing
+      (Just "127.0.0.1")
+      (Just "8080")
+    let serverAddr = head serverAddrs
+    sock <- socket (addrFamily serverAddr) Stream defaultProtocol
+  
+    N.connect sock (addrAddress serverAddr)
+  
+    ping sock pings
+    putMVar clientDone ()
 
-  N.connect sock (addrAddress serverAddr)
-
-  ping sock pings
+  -- Wait for the client to be complete
+  takeMVar clientDone
 
 pingMessage :: ByteString
 pingMessage = pack "ping123"
@@ -94,15 +100,8 @@ pong sock = do
 
 -- | Wrapper around NBS.recv (for profiling) 
 recv :: Socket -> Int -> IO ByteString
-recv sock i = do
-  (header, payload) <- BS.splitAt 4 `fmap` NBS.recv sock (4 + i)
-  case Ser.decode header :: Either String Int32 of
-    Left _  -> error "Could not decode header"
-    Right _ -> return payload
+recv = NBS.recv
 
 -- | Wrapper around NBS.send (for profiling)
-send :: Socket -> ByteString -> IO () 
-send sock bs = do
-  let length :: Int32
-      length = fromIntegral $ BS.length bs
-  NBS.sendMany sock [Ser.encode length, bs]
+send :: Socket -> ByteString -> IO Int
+send = NBS.send

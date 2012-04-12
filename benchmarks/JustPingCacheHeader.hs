@@ -100,9 +100,11 @@ recv sock i = do
     Left _  -> error "Could not decode header"
     Right _ -> return payload
 
+-- | Cached header
+header :: ByteString
+header = Ser.encode (8 :: Int32) 
+
 -- | Wrapper around NBS.send (for profiling)
 send :: Socket -> ByteString -> IO () 
 send sock bs = do
-  let length :: Int32
-      length = fromIntegral $ BS.length bs
-  NBS.sendMany sock [Ser.encode length, bs]
+  NBS.sendMany sock [header, bs]

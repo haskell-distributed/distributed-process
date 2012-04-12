@@ -6,8 +6,10 @@ NUMPINGS=100000
 run: JustPingC.data \
      JustPingHaskell.data \
 		 JustPingHaskell2.data \
+		 JustPingForkClient.data \
 		 JustPingNaiveHeader.data \
-		 JustPingOneRecv.data
+		 JustPingOneRecv.data \
+		 JustPingCacheHeader.data
 	gnuplot ./JustPing.gnuplot
 
 JustPingC.data: JustPingC
@@ -19,11 +21,17 @@ JustPingHaskell.data: JustPingHaskell
 JustPingHaskell2.data: JustPingHaskell2
 	time ./JustPingHaskell2 $(NUMPINGS) 2>JustPingHaskell2.data
 
+JustPingForkClient.data: JustPingForkClient
+	time ./JustPingForkClient $(NUMPINGS) 2>JustPingForkClient.data
+
 JustPingNaiveHeader.data: JustPingNaiveHeader
 	time ./JustPingNaiveHeader $(NUMPINGS) 2>JustPingNaiveHeader.data
 
 JustPingOneRecv.data: JustPingOneRecv
 	time ./JustPingOneRecv $(NUMPINGS) 2>JustPingOneRecv.data
+
+JustPingCacheHeader.data: JustPingCacheHeader
+	time ./JustPingCacheHeader $(NUMPINGS) 2>JustPingCacheHeader.data
 
 JustPingC: JustPingC.c
 	gcc -o JustPingC -O2 -std=c99 JustPingC.c
@@ -34,14 +42,20 @@ JustPingHaskell: JustPingHaskell.hs
 JustPingHaskell2: JustPingHaskell.hs
 	ghc -o JustPingHaskell2 -O2 -threaded JustPingHaskell.hs
 
+JustPingForkClient: JustPingForkClient.hs
+	ghc -o JustPingForkClient -O2 -threaded JustPingForkClient.hs
+
 JustPingNaiveHeader: JustPingNaiveHeader.hs
 	ghc -o JustPingNaiveHeader -O2 -threaded JustPingNaiveHeader.hs
 
 JustPingOneRecv: JustPingOneRecv.hs
 	ghc -o JustPingOneRecv -O2 -threaded JustPingOneRecv.hs
 
+JustPingCacheHeader: JustPingCacheHeader.hs
+	ghc -o JustPingCacheHeader -O2 -threaded JustPingCacheHeader.hs
+
 .PHONY: clean
 clean:
-	rm -f *.data *.ps *.pdf JustPingC JustPingHaskell JustPingHaskell2 JustPingNaiveHeader 
+	rm -f *.data *.ps *.pdf JustPingC JustPingHaskell JustPingHaskell2 JustPingForkClient JustPingNaiveHeader JustPingOneRecv JustPingCacheHeader
 
 # vi:set noexpandtab:
