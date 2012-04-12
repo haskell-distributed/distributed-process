@@ -1,0 +1,21 @@
+# The "Just Ping" tests measure ping latency with as little overhead as possible
+
+NUMPINGS=10000
+
+.PHONY: run
+run: JustPingC JustPingHaskell
+	time ./JustPingC $(NUMPINGS) 2>JustPingC.data
+	time ./JustPingHaskell $(NUMPINGS) 2>JustPingHaskell.data
+	gnuplot ./JustPing.gnuplot
+
+JustPingC: JustPingC.c
+	gcc -o JustPingC -O2 -std=c99 JustPingC.c
+
+JustPingHaskell: JustPingHaskell.hs
+	ghc -o JustPingHaskell -O2 JustPingHaskell.hs
+
+.PHONY: clean
+clean:
+	rm -f JustPingC JustPingHaskell
+
+# vi:set noexpandtab:

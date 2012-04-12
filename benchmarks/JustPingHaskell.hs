@@ -15,47 +15,17 @@ import Network.Socket
   , getAddrInfo, listen, setSocketOption, socket, sClose, withSocketsDo )
 import System.Environment (getArgs, withArgs)
 import Data.Time (getCurrentTime, diffUTCTime, NominalDiffTime)
-import System.IO (withFile, IOMode(..), hPutStrLn, Handle)
+import System.IO (withFile, IOMode(..), hPutStrLn, Handle, stderr)
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar)
-
 import qualified Network.Socket as N
-
 import Debug.Trace
-
-#ifndef LAZY
 import Data.ByteString (ByteString)
-import Data.ByteString.Char8 (pack)
+import Data.ByteString.Char8 (pack, unpack)
 import qualified Data.ByteString as BS
 import qualified Network.Socket.ByteString as NBS
-encode = Ser.encode
-decode = Ser.decode
-#else
-import Data.ByteString.Lazy (ByteString, pack)
-import qualified Network.Socket.ByteString.Lazy as NBS
-encode = Ser.encodeLazy
-decode = Ser.decodeLazy
-#endif
-{-# INLINE encode #-}
-{-# INLINE decode #-}
-encode :: Ser.Serialize a => a -> ByteString
-decode :: Ser.Serialize a => ByteString -> Either String a
+import Data.Time (getCurrentTime, diffUTCTime, NominalDiffTime)
 
--- | This performs a ping benchmark on a TCP connection created by
--- Network.Socket. To compile this file, you might use:
---
---    ghc --make -idistributed-process/src -inetwork-transport/src -O2 benchmarks/PingTCP.hs
---
--- To use the compiled binary, first set up the server on the current machine:
---
---     ./benchmarks/PingTCP server 8080
---
--- Next, perform the benchmark on a client using the server address, where
--- each mark is 1000 pings:
---
---    ./benchmarks/PingTCP client 0.0.0.0 8080 1000
---
--- The server must be restarted between benchmarks.
 main :: IO ()
 main = do
   [pingsStr] <- getArgs
@@ -99,27 +69,25 @@ pingMessage :: ByteString
 pingMessage = pack "ping123"
 
 ping :: Socket -> Int -> IO () 
-ping sock pings = go [] pings
+ping sock pings = go pings
   where
-    go :: [Double] -> Int -> IO ()
-    go rtl 0 = do 
-      withFile "round-trip-latency-tcp.data" WriteMode (writeData rtl) 
+    go :: Int -> IO ()
+    go 0 = do 
       putStrLn $ "client did " ++ show pings ++ " pings"
-    go rtl !i = do
+    go !i = do
       before <- getCurrentTime
       send sock pingMessage 
       bs <- recv sock 8
       after <- getCurrentTime
+      -- putStrLn $ "client received " ++ unpack bs
       let latency = (1e6 :: Double) * realToFrac (diffUTCTime after before)
-      latency `seq` go (latency : rtl) (i - 1)
-    writeData :: [Double] -> Handle -> IO ()
-    writeData rtl h = forM_ (zip [0..] rtl) (writeDataLine h)
-    writeDataLine :: Handle -> (Int, Double) -> IO ()
-    writeDataLine h (i, latency) = hPutStrLn h $ (show i) ++ " " ++ (show latency)
+      hPutStrLn stderr $ show i ++ " " ++ show latency 
+      go (i - 1)
 
 pong :: Socket -> IO ()
 pong sock = do
   bs <- recv sock 8
+  -- putStrLn $ "server received " ++ unpack bs
   when (BS.length bs > 0) $ do
     send sock bs
     pong sock
