@@ -3,7 +3,10 @@
 NUMPINGS=100000
 
 .PHONY: showgraph
-run: JustPingC.data JustPingHaskell.data JustPingHaskell2.data
+run: JustPingC.data \
+     JustPingHaskell.data \
+		 JustPingHaskell2.data \
+		 JustPingNaiveHeader.data
 	gnuplot ./JustPing.gnuplot
 
 JustPingC.data: JustPingC
@@ -15,6 +18,9 @@ JustPingHaskell.data: JustPingHaskell
 JustPingHaskell2.data: JustPingHaskell2
 	time ./JustPingHaskell2 $(NUMPINGS) 2>JustPingHaskell2.data
 
+JustPingNaiveHeader.data: JustPingNaiveHeader
+	time ./JustPingNaiveHeader $(NUMPINGS) 2>JustPingNaiveHeader.data
+
 JustPingC: JustPingC.c
 	gcc -o JustPingC -O2 -std=c99 JustPingC.c
 
@@ -22,10 +28,13 @@ JustPingHaskell: JustPingHaskell.hs
 	ghc -o JustPingHaskell -O2 JustPingHaskell.hs
 
 JustPingHaskell2: JustPingHaskell.hs
-	ghc -o JustPingHaskell2 -O2 -threaded JustPingHaskell2.hs
+	ghc -o JustPingHaskell2 -O2 -threaded JustPingHaskell.hs
+
+JustPingNaiveHeader: JustPingNaiveHeader.hs
+	ghc -o JustPingNaiveHeader -O2 -threaded JustPingNaiveHeader.hs
 
 .PHONY: clean
 clean:
-	rm -f JustPingC JustPingHaskell JustPingHaskell2 *.data JustPing.ps
+	rm -f *.data *.ps *.pdf JustPingC JustPingHaskell JustPingHaskell2 JustPingNaiveHeader 
 
 # vi:set noexpandtab:
