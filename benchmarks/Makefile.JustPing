@@ -1,6 +1,6 @@
 # The "Just Ping" tests measure ping latency with as little overhead as possible
 
-NUMPINGS=10000
+NUMPINGS=100000
 
 .PHONY: run
 run: JustPingC JustPingHaskell
