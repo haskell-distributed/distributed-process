@@ -6,7 +6,8 @@ NUMPINGS=100000
 run: JustPingC.data \
      JustPingHaskell.data \
 		 JustPingHaskell2.data \
-		 JustPingNaiveHeader.data
+		 JustPingNaiveHeader.data \
+		 JustPingOneRecv.data
 	gnuplot ./JustPing.gnuplot
 
 JustPingC.data: JustPingC
@@ -21,6 +22,9 @@ JustPingHaskell2.data: JustPingHaskell2
 JustPingNaiveHeader.data: JustPingNaiveHeader
 	time ./JustPingNaiveHeader $(NUMPINGS) 2>JustPingNaiveHeader.data
 
+JustPingOneRecv.data: JustPingOneRecv
+	time ./JustPingOneRecv $(NUMPINGS) 2>JustPingOneRecv.data
+
 JustPingC: JustPingC.c
 	gcc -o JustPingC -O2 -std=c99 JustPingC.c
 
@@ -32,6 +36,9 @@ JustPingHaskell2: JustPingHaskell.hs
 
 JustPingNaiveHeader: JustPingNaiveHeader.hs
 	ghc -o JustPingNaiveHeader -O2 -threaded JustPingNaiveHeader.hs
+
+JustPingOneRecv: JustPingOneRecv.hs
+	ghc -o JustPingOneRecv -O2 -threaded JustPingOneRecv.hs
 
 .PHONY: clean
 clean:
