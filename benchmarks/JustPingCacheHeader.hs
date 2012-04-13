@@ -28,8 +28,9 @@ import Data.Time (getCurrentTime, diffUTCTime, NominalDiffTime)
 
 main :: IO ()
 main = do
-  [pingsStr] <- getArgs
+  [pingsStr]  <- getArgs
   serverReady <- newEmptyMVar
+  clientDone  <- newEmptyMVar
 
   -- Start the server
   forkIO $ do
@@ -51,19 +52,24 @@ main = do
     putStrLn "server: listening for pings"
     pong clientSock
 
-  -- Client
-  takeMVar serverReady
-  let pings = read pingsStr
-  serverAddrs <- getAddrInfo 
-    Nothing
-    (Just "127.0.0.1")
-    (Just "8080")
-  let serverAddr = head serverAddrs
-  sock <- socket (addrFamily serverAddr) Stream defaultProtocol
+  -- Start the client
+  forkIO $ do
+    takeMVar serverReady
+    let pings = read pingsStr
+    serverAddrs <- getAddrInfo 
+      Nothing
+      (Just "127.0.0.1")
+      (Just "8080")
+    let serverAddr = head serverAddrs
+    sock <- socket (addrFamily serverAddr) Stream defaultProtocol
+  
+    N.connect sock (addrAddress serverAddr)
+  
+    ping sock pings
+    putMVar clientDone ()
 
-  N.connect sock (addrAddress serverAddr)
-
-  ping sock pings
+  -- Wait for the client to finish
+  takeMVar clientDone
 
 pingMessage :: ByteString
 pingMessage = pack "ping123"
