@@ -9,7 +9,7 @@ run: JustPingC.data \
 		 JustPingWithHeader.data \
 		 JustPingOneRecv.data \
 		 JustPingCacheHeader.data
-	gnuplot ./JustPing.gnuplot
+	gnuplot ./Headers.gnuplot
 
 JustPingC.data: JustPingC
 	time ./JustPingC $(NUMPINGS) 2>JustPingC.data

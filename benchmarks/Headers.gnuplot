@@ -1,5 +1,5 @@
 set title "Roundtrip (us)"
-set yrange [0:200]
+set yrange [0:150]
 plot "JustPingHaskell.data" smooth bezier with lines title "JustPingHaskell (NOT -threaded)", \
      "JustPingHaskell2.data" smooth bezier with lines title "JustPingHaskell", \
      "JustPingWithHeader.data" smooth bezier with lines title "JustPingWithHeader", \
@@ -7,7 +7,7 @@ plot "JustPingHaskell.data" smooth bezier with lines title "JustPingHaskell (NOT
      "JustPingCacheHeader.data" smooth bezier with lines title "JustPingCacheHeader", \
      "JustPingC.data" smooth bezier with lines title "JustPingC"
 set terminal postscript color
-set output "JustPing.ps"
+set output "Headers.ps"
 plot "JustPingHaskell.data" smooth bezier with lines title "JustPingHaskell (NOT -threaded)", \
      "JustPingHaskell2.data" smooth bezier with lines title "JustPingHaskell", \
      "JustPingWithHeader.data" smooth bezier with lines title "JustPingWithHeader", \
