@@ -39,6 +39,9 @@ import Text.Printf
 
 import Safe
 import System.IO (stderr, hPutStrLn)
+import Foreign.Storable (pokeByteOff, peekByteOff)
+import Foreign.C (CInt(..))
+import Foreign.ForeignPtr (withForeignPtr)
 
 #ifndef LAZY
 import Data.ByteString.Char8 (ByteString)
@@ -59,6 +62,9 @@ decode = Ser.decodeLazy
 {-# INLINE decode #-}
 encode :: Ser.Serialize a => a -> ByteString
 decode :: Ser.Serialize a => ByteString -> Either String a
+
+foreign import ccall unsafe "htonl" htonl :: CInt -> CInt
+foreign import ccall unsafe "ntohl" ntohl :: CInt -> CInt
 
 type ChanId  = Int
 type Chans   = MVar (ChanId, IntMap (Chan [ByteString], [(ThreadId, Socket)]))
@@ -134,11 +140,12 @@ mkSourceEnd host service chanId = withSocketsDo $ do
   N.connect sock (addrAddress serverAddr)
   NBS.sendAll sock $ encode (fromIntegral chanId :: Int32)
   return SourceEnd
-    { send = {-# SCC "send" #-} \bss -> do
-        let size = fromIntegral (sum . map BS.length $ bss) :: Int32
-            sizeStr | size < 255 = BS.singleton (toEnum $ fromEnum size)
-                    | otherwise  = BS.cons (toEnum 255) (encode size)
-        sendNBS sock (sizeStr:bss)
+    { send = {-# SCC "send" #-} \bss -> 
+        let size = fromIntegral (sum . map BS.length $ bss) :: Int32 in
+        if size < 255 
+          then sendNBS sock (BS.singleton (toEnum $ fromEnum size) : bss)
+          else do size' <- encodeLength size
+                  sendNBS sock (BS.singleton (toEnum 255) : size' : bss)
     , closeSourceEnd = {-# SCC "closeSourceEnd" #-} sClose sock
     }
 
@@ -193,15 +200,15 @@ procMessages chans chanId chan sock = do
   esizeBS <- recvExact sock 1
   case esizeBS of
     Left _ -> closeSocket
-    Right sizeBS -> do
-      case decode sizeBS :: Either String Word8 of
-        Right 255 -> do
-          esizeBS' <- recvExact sock (fromIntegral $ sizeOf (0 :: Int32))
-          case esizeBS' of
-            Left _ -> closeSocket
-            Right sizeBS' -> procMessage $ decode sizeBS'
-        esize@(Right _) -> procMessage (fromIntegral <$> esize)
-        Left msg -> error msg
+    Right sizeBS -> 
+      let size = toEnum . fromEnum $ BS.index sizeBS 0 in
+      if size < 255 
+        then procMessage size 
+        else do esizeBS' <- recvExact sock (fromIntegral $ sizeOf (0 :: Int32))
+                case esizeBS' of 
+                  Left _ -> closeSocket
+                  Right sizeBS' -> do sizeDec <- decodeLength sizeBS'
+                                      procMessage sizeDec
  where
   err m = error $ printf "procMessages: %s" m
   closeSocket :: IO ()
@@ -216,9 +223,8 @@ procMessages chans chanId chan sock = do
         let chanMap' = IntMap.insert chanId (chan, socks') chanMap
         putMVar chans (chanId', chanMap')
     sClose sock
-  procMessage :: Either String Int32 -> IO ()
-  procMessage (Left  msg) = err msg
-  procMessage (Right size) = do
+  procMessage :: Int32 -> IO ()
+  procMessage size = do
     ebs <- recvExact sock size
     case ebs of
       Left _ -> closeSocket
@@ -289,3 +295,16 @@ forkWithExceptions forkit descr action = do
 	      throwTo parent (e::SomeException)
 	 )
 
+-- | Encode length (manual for now)
+encodeLength :: Int32 -> IO ByteString
+encodeLength i32 = 
+  BSI.create 4 $ \p ->
+    pokeByteOff p 0 (htonl (fromIntegral i32))
+
+-- | Decode length (manual for now)
+decodeLength :: ByteString -> IO Int32
+decodeLength bs = 
+  let (fp, _, _) = BSI.toForeignPtr bs in 
+  withForeignPtr fp $ \p -> do
+    w32 <- peekByteOff p 0 
+    return (fromIntegral (ntohl w32))

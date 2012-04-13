@@ -1,15 +1,17 @@
 # The "Just Ping" tests measure ping latency with as little overhead as possible
 
 NUMPINGS=100000
+INCLUDES=-i../network-transport/src -i../network-transport-pipes/src
 
 Indirection.ps: JustPingWithHeader.data \
                 JustPingThroughChan.data \
-                JustPingThroughMVar.data
+                JustPingThroughMVar.data \
+								JustPingTransport.data
 	gnuplot ./Indirection.gnuplot
 
 Headers.ps: JustPingC.data \
+            JustPingHaskellNT.data \
             JustPingHaskell.data \
-            JustPingHaskell2.data \
             JustPingWithHeader.data \
             JustPingOneRecv.data \
             JustPingCacheHeader.data
@@ -18,14 +20,14 @@ Headers.ps: JustPingC.data \
 JustPingC.exe: JustPingC.c
 	gcc -o JustPingC.exe -O2 -std=c99 JustPingC.c
 
-JustPingHaskell.exe: JustPingHaskell.hs
-	ghc -o JustPingHaskell.exe -O2 JustPingHaskell.hs
+JustPingHaskellNT.exe: JustPingHaskell.hs
+	ghc -o JustPingHaskellNT.exe -O2 JustPingHaskell.hs
 
 %.data : %.exe
 	time ./$< $(NUMPINGS) 2>$@
 
 %.exe :: %.hs
-	ghc -o $@ -O2 -threaded $< 
+	ghc -o $@ -O2 -threaded --make -rtsopts $< $(INCLUDES)
 
 .PHONY: clean
 clean:
