@@ -15,7 +15,7 @@ import System.Environment (getArgs, withArgs)
 import Data.Time (getCurrentTime, diffUTCTime, NominalDiffTime)
 import System.IO (withFile, IOMode(..), hPutStrLn, Handle, stderr)
 import Control.Concurrent (forkIO)
-import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar)
+import Control.Concurrent.MVar (MVar, newEmptyMVar, takeMVar, putMVar)
 import qualified Network.Socket as N
 import Debug.Trace
 import Data.ByteString (ByteString)
@@ -27,7 +27,6 @@ import Data.ByteString.Internal as BSI
 import Foreign.Storable (pokeByteOff, peekByteOff)
 import Foreign.C (CInt(..))
 import Foreign.ForeignPtr (withForeignPtr)
-import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
 
 foreign import ccall unsafe "htonl" htonl :: CInt -> CInt
 foreign import ccall unsafe "ntohl" ntohl :: CInt -> CInt
@@ -55,15 +54,15 @@ main = do
     listen sock 1
     (clientSock, clientAddr) <- accept sock
 
-    -- Set up channel that we will listen on and echo to the client
-    chan <- newChan
+    -- Set up an mvar that we will listen on and echo to the client
+    mvar <- newEmptyMVar
     forkIO $ forever $ do 
-      msg <- readChan chan
+      msg <- takeMVar mvar 
       send clientSock msg
 
     -- Read from the client and output on the channel
     putStrLn "server: listening for pings"
-    pong clientSock chan
+    pong clientSock mvar 
 
   -- Start the client
   forkIO $ do
@@ -103,13 +102,13 @@ ping sock pings = go pings
       hPutStrLn stderr $ show i ++ " " ++ show latency 
       go (i - 1)
 
-pong :: Socket -> Chan ByteString -> IO ()
-pong sock chan = do
+pong :: Socket -> MVar ByteString -> IO ()
+pong sock mvar = do
   bs <- recv sock 8
   -- putStrLn $ "server received " ++ unpack bs
   when (BS.length bs > 0) $ do
-    writeChan chan bs
-    pong sock chan
+    putMVar mvar bs
+    pong sock mvar 
 
 -- | Wrapper around NBS.recv (for profiling) 
 recv :: Socket -> Int -> IO ByteString

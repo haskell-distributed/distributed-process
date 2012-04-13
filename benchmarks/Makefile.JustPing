@@ -3,7 +3,8 @@
 NUMPINGS=100000
 
 Indirection.ps: JustPingWithHeader.data \
-                JustPingThroughChan.data
+                JustPingThroughChan.data \
+                JustPingThroughMVar.data
 	gnuplot ./Indirection.gnuplot
 
 Headers.ps: JustPingC.data \
