@@ -2,53 +2,32 @@
 
 NUMPINGS=100000
 
-.PHONY: showgraph
-run: JustPingC.data \
-     JustPingHaskell.data \
-		 JustPingHaskell2.data \
-		 JustPingWithHeader.data \
-		 JustPingOneRecv.data \
-		 JustPingCacheHeader.data
+Indirection.ps: JustPingWithHeader.data \
+                JustPingThroughChan.data
+	gnuplot ./Indirection.gnuplot
+
+Headers.ps: JustPingC.data \
+            JustPingHaskell.data \
+            JustPingHaskell2.data \
+            JustPingWithHeader.data \
+            JustPingOneRecv.data \
+            JustPingCacheHeader.data
 	gnuplot ./Headers.gnuplot
 
-JustPingC.data: JustPingC
-	time ./JustPingC $(NUMPINGS) 2>JustPingC.data
+JustPingC.exe: JustPingC.c
+	gcc -o JustPingC.exe -O2 -std=c99 JustPingC.c
 
-JustPingHaskell.data: JustPingHaskell
-	time ./JustPingHaskell $(NUMPINGS) 2>JustPingHaskell.data
+JustPingHaskell.exe: JustPingHaskell.hs
+	ghc -o JustPingHaskell.exe -O2 JustPingHaskell.hs
 
-JustPingHaskell2.data: JustPingHaskell2
-	time ./JustPingHaskell2 $(NUMPINGS) 2>JustPingHaskell2.data
+%.data : %.exe
+	time ./$< $(NUMPINGS) 2>$@
 
-JustPingWithHeader.data: JustPingWithHeader
-	time ./JustPingWithHeader $(NUMPINGS) 2>JustPingWithHeader.data
-
-JustPingOneRecv.data: JustPingOneRecv
-	time ./JustPingOneRecv $(NUMPINGS) 2>JustPingOneRecv.data
-
-JustPingCacheHeader.data: JustPingCacheHeader
-	time ./JustPingCacheHeader $(NUMPINGS) 2>JustPingCacheHeader.data
-
-JustPingC: JustPingC.c
-	gcc -o JustPingC -O2 -std=c99 JustPingC.c
-
-JustPingHaskell: JustPingHaskell.hs
-	ghc -o JustPingHaskell -O2 JustPingHaskell.hs
-
-JustPingHaskell2: JustPingHaskell.hs
-	ghc -o JustPingHaskell2 -O2 -threaded JustPingHaskell.hs
-
-JustPingWithHeader: JustPingWithHeader.hs
-	ghc -o JustPingWithHeader -O2 -threaded JustPingWithHeader.hs
-
-JustPingOneRecv: JustPingOneRecv.hs
-	ghc -o JustPingOneRecv -O2 -threaded JustPingOneRecv.hs
-
-JustPingCacheHeader: JustPingCacheHeader.hs
-	ghc -o JustPingCacheHeader -O2 -threaded JustPingCacheHeader.hs
+%.exe :: %.hs
+	ghc -o $@ -O2 -threaded $< 
 
 .PHONY: clean
 clean:
-	rm -f *.data *.ps *.pdf *.o *.hi JustPingC JustPingHaskell JustPingHaskell2 JustPingWithHeader JustPingOneRecv JustPingCacheHeader
+	rm -f *.data *.ps *.pdf *.o *.hi *.exe 
 
 # vi:set noexpandtab:
