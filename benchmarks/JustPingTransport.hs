@@ -78,10 +78,10 @@ ping sourceEndPing targetEndPong pings = go pings
       putStrLn $ "client did " ++ show pings ++ " pings"
     go !i = do
       before <- getCurrentTime
-      send sourceEndPing (replicate i pingMessage) 
+      send sourceEndPing [pingMessage]
       [bs] <- receive targetEndPong
       after <- getCurrentTime
-      putStrLn $ "client received " ++ unpack bs
+      -- putStrLn $ "client received " ++ unpack bs
       let latency = (1e6 :: Double) * realToFrac (diffUTCTime after before)
       hPutStrLn stderr $ show i ++ " " ++ show latency 
       go (i - 1)
@@ -89,7 +89,7 @@ ping sourceEndPing targetEndPong pings = go pings
 pong :: TargetEnd -> SourceEnd -> IO ()
 pong targetEndPing sourceEndPong = do
   [bs] <- receive targetEndPing 
-  putStrLn $ "server received " ++ unpack bs
+  -- putStrLn $ "server received " ++ unpack bs
   when (BS.length bs > 0) $ do
     send sourceEndPong [bs]
     pong targetEndPing sourceEndPong 
