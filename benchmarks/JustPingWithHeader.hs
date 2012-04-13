@@ -5,8 +5,6 @@ module Main where
 import Control.Monad
 
 import Data.Int
-import qualified Data.Serialize as Ser
-import Data.Word (Word8)
 import Network.Socket
   ( AddrInfoFlag (AI_PASSIVE), HostName, ServiceName, Socket
   , SocketType (Stream), SocketOption (ReuseAddr)
@@ -25,6 +23,13 @@ import Data.ByteString.Char8 (pack, unpack)
 import qualified Data.ByteString as BS
 import qualified Network.Socket.ByteString as NBS
 import Data.Time (getCurrentTime, diffUTCTime, NominalDiffTime)
+import Data.ByteString.Internal as BSI
+import Foreign.Storable (pokeByteOff, peekByteOff)
+import Foreign.C (CInt(..))
+import Foreign.ForeignPtr (withForeignPtr)
+
+foreign import ccall unsafe "htonl" htonl :: CInt -> CInt
+foreign import ccall unsafe "ntohl" ntohl :: CInt -> CInt
 
 main :: IO ()
 main = do
@@ -102,12 +107,25 @@ pong sock = do
 recv :: Socket -> Int -> IO ByteString
 recv sock _ = do
   header <- NBS.recv sock 4
-  let Right length = Ser.decode header 
+  length <- decodeLength header 
   NBS.recv sock (fromIntegral (length :: Int32))
 
 -- | Wrapper around NBS.send (for profiling)
 send :: Socket -> ByteString -> IO () 
 send sock bs = do
-  let length :: Int32
-      length = fromIntegral $ BS.length bs
-  NBS.sendMany sock [Ser.encode length, bs]
+  length <- encodeLength (fromIntegral (BS.length bs))
+  NBS.sendMany sock [length, bs]
+
+-- | Encode length (manual for now)
+encodeLength :: Int32 -> IO ByteString
+encodeLength i32 = 
+  BSI.create 4 $ \p ->
+    pokeByteOff p 0 (htonl (fromIntegral i32))
+
+-- | Decode length (manual for now)
+decodeLength :: ByteString -> IO Int32
+decodeLength bs = 
+  let (fp, _, _) = BSI.toForeignPtr bs in 
+  withForeignPtr fp $ \p -> do
+    w32 <- peekByteOff p 0 
+    return (fromIntegral (ntohl w32))

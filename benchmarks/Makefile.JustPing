@@ -6,7 +6,7 @@ NUMPINGS=100000
 run: JustPingC.data \
      JustPingHaskell.data \
 		 JustPingHaskell2.data \
-		 JustPingNaiveHeader.data \
+		 JustPingWithHeader.data \
 		 JustPingOneRecv.data \
 		 JustPingCacheHeader.data
 	gnuplot ./JustPing.gnuplot
@@ -20,8 +20,8 @@ JustPingHaskell.data: JustPingHaskell
 JustPingHaskell2.data: JustPingHaskell2
 	time ./JustPingHaskell2 $(NUMPINGS) 2>JustPingHaskell2.data
 
-JustPingNaiveHeader.data: JustPingNaiveHeader
-	time ./JustPingNaiveHeader $(NUMPINGS) 2>JustPingNaiveHeader.data
+JustPingWithHeader.data: JustPingWithHeader
+	time ./JustPingWithHeader $(NUMPINGS) 2>JustPingWithHeader.data
 
 JustPingOneRecv.data: JustPingOneRecv
 	time ./JustPingOneRecv $(NUMPINGS) 2>JustPingOneRecv.data
@@ -38,8 +38,8 @@ JustPingHaskell: JustPingHaskell.hs
 JustPingHaskell2: JustPingHaskell.hs
 	ghc -o JustPingHaskell2 -O2 -threaded JustPingHaskell.hs
 
-JustPingNaiveHeader: JustPingNaiveHeader.hs
-	ghc -o JustPingNaiveHeader -O2 -threaded JustPingNaiveHeader.hs
+JustPingWithHeader: JustPingWithHeader.hs
+	ghc -o JustPingWithHeader -O2 -threaded JustPingWithHeader.hs
 
 JustPingOneRecv: JustPingOneRecv.hs
 	ghc -o JustPingOneRecv -O2 -threaded JustPingOneRecv.hs
@@ -49,6 +49,6 @@ JustPingCacheHeader: JustPingCacheHeader.hs
 
 .PHONY: clean
 clean:
-	rm -f *.data *.ps *.pdf JustPingC JustPingHaskell JustPingHaskell2 JustPingNaiveHeader JustPingOneRecv JustPingCacheHeader
+	rm -f *.data *.ps *.pdf *.o *.hi JustPingC JustPingHaskell JustPingHaskell2 JustPingWithHeader JustPingOneRecv JustPingCacheHeader
 
 # vi:set noexpandtab:

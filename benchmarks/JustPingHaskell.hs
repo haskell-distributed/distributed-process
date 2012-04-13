@@ -5,8 +5,6 @@ module Main where
 import Control.Monad
 
 import Data.Int
-import qualified Data.Serialize as Ser
-import Data.Word (Word8)
 import Network.Socket
   ( AddrInfoFlag (AI_PASSIVE), HostName, ServiceName, Socket
   , SocketType (Stream), SocketOption (ReuseAddr)
