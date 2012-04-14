@@ -15,7 +15,7 @@ import System.Environment (getArgs, withArgs)
 import Data.Time (getCurrentTime, diffUTCTime, NominalDiffTime)
 import System.IO (withFile, IOMode(..), hPutStrLn, Handle, stderr)
 import Control.Concurrent (forkIO)
-import Control.Concurrent.MVar (MVar, newEmptyMVar, takeMVar, putMVar)
+import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar)
 import qualified Network.Socket as N
 import Debug.Trace
 import Data.ByteString (ByteString)
@@ -38,6 +38,7 @@ passive = Just (defaultHints { addrFlags = [AI_PASSIVE] })
 main = do
   [pingsStr]  <- getArgs
   serverReady <- newEmptyMVar
+  clientReady <- newEmptyMVar
   clientDone  <- newEmptyMVar
 
   -- Start the server
@@ -50,41 +51,62 @@ main = do
     listen sock 1
 
     -- Set up multiplexing channel
-    multiplexMVar <- newEmptyMVar
+    multiplexChannel <- newChan
+
+    -- Connect to the client (to reply)
+    forkIO $ do
+      takeMVar clientReady
+      clientAddr:_ <- getAddrInfo Nothing (Just "127.0.0.1") (Just "8081")
+      pongSock     <- socket (addrFamily clientAddr) Stream defaultProtocol
+      N.connect pongSock (addrAddress clientAddr)
+      forever $ readChan multiplexChannel >>= send pongSock 
 
     -- Wait for incoming connections (pings from the client)
     putMVar serverReady ()
-    (clientSock, pingAddr) <- accept sock
-    forkIO $ socketToMVar clientSock multiplexMVar
-    
-    -- Reply to the client 
-    forever $ takeMVar multiplexMVar >>= send clientSock 
+    (pingSock, pingAddr) <- accept sock
+    socketToChan pingSock multiplexChannel
 
   -- Start the client
   forkIO $ do
-    takeMVar serverReady
-    serverAddr:_ <- getAddrInfo Nothing (Just "127.0.0.1") (Just "8080")
-    clientSock   <- socket (addrFamily serverAddr) Stream defaultProtocol
-    N.connect clientSock (addrAddress serverAddr)
-    ping clientSock (read pingsStr)
-    putMVar clientDone ()
+    clientAddr:_ <- getAddrInfo passive Nothing (Just "8081")
+    sock         <- socket (addrFamily clientAddr) Stream defaultProtocol
+    setSocketOption sock ReuseAddr 1
+    bindSocket sock (addrAddress clientAddr)
+    listen sock 1
+
+    -- Set up multiplexing channel
+    multiplexChannel <- newChan
+
+    -- Connect to the server (to send pings)
+    forkIO $ do
+      takeMVar serverReady
+      serverAddr:_ <- getAddrInfo Nothing (Just "127.0.0.1") (Just "8080")
+      pingSock     <- socket (addrFamily serverAddr) Stream defaultProtocol
+      N.connect pingSock (addrAddress serverAddr)
+      ping pingSock multiplexChannel (read pingsStr)
+      putMVar clientDone ()
+
+    -- Wait for incoming connections (pongs from the server)
+    putMVar clientReady () 
+    (pongSock, pongAddr) <- accept sock
+    socketToChan pongSock multiplexChannel
 
   -- Wait for the client to finish
   takeMVar clientDone
 
-socketToMVar :: Socket -> MVar ByteString -> IO ()
-socketToMVar sock mvar = go
+socketToChan :: Socket -> Chan ByteString -> IO ()
+socketToChan sock chan = go
   where
     go = do bs <- recv sock
             when (BS.length bs > 0) $ do
-               putMVar mvar bs
+               writeChan chan bs
                go
 
 pingMessage :: ByteString
 pingMessage = pack "ping123"
 
-ping :: Socket -> Int -> IO () 
-ping sock pings = go pings
+ping :: Socket -> Chan ByteString -> Int -> IO () 
+ping sock chan pings = go pings
   where
     go :: Int -> IO ()
     go 0 = do 
@@ -92,7 +114,7 @@ ping sock pings = go pings
     go !i = do
       before <- getCurrentTime
       send sock pingMessage 
-      bs <- recv sock 
+      bs <- readChan chan  
       after <- getCurrentTime
       -- putStrLn $ "client received " ++ unpack bs
       let latency = (1e6 :: Double) * realToFrac (diffUTCTime after before)

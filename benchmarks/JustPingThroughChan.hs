@@ -6,7 +6,7 @@ import Control.Monad
 
 import Data.Int
 import Network.Socket
-  ( AddrInfoFlag (AI_PASSIVE), HostName, ServiceName, Socket
+  ( AddrInfo, AddrInfoFlag (AI_PASSIVE), HostName, ServiceName, Socket
   , SocketType (Stream), SocketOption (ReuseAddr)
   , accept, addrAddress, addrFlags, addrFamily, bindSocket, defaultProtocol
   , defaultHints
@@ -32,7 +32,9 @@ import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
 foreign import ccall unsafe "htonl" htonl :: CInt -> CInt
 foreign import ccall unsafe "ntohl" ntohl :: CInt -> CInt
 
-main :: IO ()
+passive :: Maybe AddrInfo
+passive = Just (defaultHints { addrFlags = [AI_PASSIVE] })
+
 main = do
   [pingsStr]  <- getArgs
   serverReady <- newEmptyMVar
@@ -40,49 +42,43 @@ main = do
 
   -- Start the server
   forkIO $ do
-    putStrLn "server: creating TCP connection"
-    serverAddrs <- getAddrInfo 
-      (Just (defaultHints { addrFlags = [AI_PASSIVE] } ))
-      Nothing
-      (Just "8080")
-    let serverAddr = head serverAddrs
-    sock <- socket (addrFamily serverAddr) Stream defaultProtocol
+    -- Initialize the server
+    serverAddr:_ <- getAddrInfo passive Nothing (Just "8080")
+    sock         <- socket (addrFamily serverAddr) Stream defaultProtocol
     setSocketOption sock ReuseAddr 1
     bindSocket sock (addrAddress serverAddr)
-
-    putStrLn "server: awaiting client connection"
-    putMVar serverReady ()
     listen sock 1
-    (clientSock, clientAddr) <- accept sock
 
-    -- Set up channel that we will listen on and echo to the client
-    chan <- newChan
-    forkIO $ forever $ do 
-      msg <- readChan chan
-      send clientSock msg
+    -- Set up multiplexing channel
+    multiplexChannel <- newChan
 
-    -- Read from the client and output on the channel
-    putStrLn "server: listening for pings"
-    pong clientSock chan
+    -- Wait for incoming connections (pings from the client)
+    putMVar serverReady ()
+    (clientSock, pingAddr) <- accept sock
+    forkIO $ socketToChan clientSock multiplexChannel
+    
+    -- Reply to the client 
+    forever $ readChan multiplexChannel >>= send clientSock 
 
   -- Start the client
   forkIO $ do
     takeMVar serverReady
-    let pings = read pingsStr
-    serverAddrs <- getAddrInfo 
-      Nothing
-      (Just "127.0.0.1")
-      (Just "8080")
-    let serverAddr = head serverAddrs
-    sock <- socket (addrFamily serverAddr) Stream defaultProtocol
-  
-    N.connect sock (addrAddress serverAddr)
-  
-    ping sock pings
+    serverAddr:_ <- getAddrInfo Nothing (Just "127.0.0.1") (Just "8080")
+    clientSock   <- socket (addrFamily serverAddr) Stream defaultProtocol
+    N.connect clientSock (addrAddress serverAddr)
+    ping clientSock (read pingsStr)
     putMVar clientDone ()
 
   -- Wait for the client to finish
   takeMVar clientDone
+
+socketToChan :: Socket -> Chan ByteString -> IO ()
+socketToChan sock chan = go
+  where
+    go = do bs <- recv sock
+            when (BS.length bs > 0) $ do
+               writeChan chan bs
+               go
 
 pingMessage :: ByteString
 pingMessage = pack "ping123"
@@ -96,29 +92,21 @@ ping sock pings = go pings
     go !i = do
       before <- getCurrentTime
       send sock pingMessage 
-      bs <- recv sock 8
+      bs <- recv sock 
       after <- getCurrentTime
       -- putStrLn $ "client received " ++ unpack bs
       let latency = (1e6 :: Double) * realToFrac (diffUTCTime after before)
       hPutStrLn stderr $ show i ++ " " ++ show latency 
       go (i - 1)
 
-pong :: Socket -> Chan ByteString -> IO ()
-pong sock chan = do
-  bs <- recv sock 8
-  -- putStrLn $ "server received " ++ unpack bs
-  when (BS.length bs > 0) $ do
-    writeChan chan bs
-    pong sock chan
-
--- | Wrapper around NBS.recv (for profiling) 
-recv :: Socket -> Int -> IO ByteString
-recv sock _ = do
+-- | Receive a package 
+recv :: Socket -> IO ByteString
+recv sock = do
   header <- NBS.recv sock 4
   length <- decodeLength header 
   NBS.recv sock (fromIntegral (length :: Int32))
 
--- | Wrapper around NBS.send (for profiling)
+-- | Send a package
 send :: Socket -> ByteString -> IO () 
 send sock bs = do
   length <- encodeLength (fromIntegral (BS.length bs))

@@ -6,6 +6,7 @@ INCLUDES=-i../network-transport/src -i../network-transport-pipes/src
 Indirection.ps: JustPingWithHeader.data \
                 JustPingThroughChan.data \
                 JustPingThroughMVar.data \
+                JustPingTwoSocketPairs.data \
 								JustPingTransport.data
 	gnuplot ./Indirection.gnuplot
 
