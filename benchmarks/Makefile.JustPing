@@ -3,6 +3,13 @@
 NUMPINGS=100000
 INCLUDES=-i../network-transport/src -i../network-transport-pipes/src
 
+# Enable for profiling
+# PROF_GHC=-prof -fprof-auto
+# PROF_EXE=+RTS -pa -RTS
+
+GCC=gcc -std=c99
+GHC=ghc -rtsopts
+
 Indirection.ps: JustPingWithHeader.data \
                 JustPingThroughChan.data \
                 JustPingThroughMVar.data \
@@ -20,19 +27,19 @@ Headers.ps: JustPingC.data \
 	gnuplot ./Headers.gnuplot
 
 JustPingC.exe: JustPingC.c
-	gcc -o JustPingC.exe -O2 -std=c99 JustPingC.c
+	$(GCC) -O2 -o JustPingC.exe JustPingC.c
 
 JustPingHaskellNT.exe: JustPingHaskell.hs
-	ghc -o JustPingHaskellNT.exe -O2 JustPingHaskell.hs
+	$(GHC) -O2 $(PROF_GHC) -o JustPingHaskellNT.exe JustPingHaskell.hs
 
 JustPingTwoSocketPairsND.data: JustPingTwoSocketPairs.exe
-	time ./$< $(NUMPINGS) --NoDelay 2>$@
+	time ./$< $(NUMPINGS) --NoDelay $(PROF_EXE) 2>$@
 
 %.data : %.exe
-	time ./$< $(NUMPINGS) 2>$@
+	time ./$< $(NUMPINGS) $(PROF_EXE) 2>$@
 
 %.exe :: %.hs
-	ghc -o $@ -O2 -threaded --make -rtsopts $< $(INCLUDES)
+	$(GHC) -O2 $(PROF_GHC) -threaded -o $@ --make $< $(INCLUDES)
 
 .PHONY: clean
 clean:
