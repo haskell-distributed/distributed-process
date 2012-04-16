@@ -9,7 +9,6 @@ import Network.Transport
 
 import Control.Applicative
 import Control.Concurrent (forkIO, ThreadId, killThread, myThreadId)
-import Control.Concurrent.Chan
 import Control.Concurrent.MVar
 import Control.Exception (SomeException, IOException, AsyncException(ThreadKilled), 
 			  fromException, throwTo, throw, catch, handle)
@@ -67,7 +66,7 @@ foreign import ccall unsafe "htonl" htonl :: CInt -> CInt
 foreign import ccall unsafe "ntohl" ntohl :: CInt -> CInt
 
 type ChanId  = Int
-type Chans   = MVar (ChanId, IntMap (Chan [ByteString], [(ThreadId, Socket)]))
+type Chans   = MVar (ChanId, IntMap (MVar [ByteString], [(ThreadId, Socket)]))
 
 -- | This deals with several different configuration properties:
 --   * Buffer size, specified in Hints
@@ -101,7 +100,7 @@ mkTransport (TCPConfig _hints host service) = withSocketsDo $ do
   return Transport
     { newConnectionWith = {-# SCC "newConnectionWith" #-}\_ -> do
         (chanId, chanMap) <- takeMVar chans
-        chan <- newChan
+        chan <- newEmptyMVar
         putMVar chans (chanId + 1, IntMap.insert chanId (chan, []) chanMap)
         return (mkSourceAddr host service chanId, mkTargetEnd chans chanId chan)
     , newMulticastWith = error "newMulticastWith: not defined"
@@ -149,10 +148,10 @@ mkSourceEnd host service chanId = withSocketsDo $ do
     , closeSourceEnd = {-# SCC "closeSourceEnd" #-} sClose sock
     }
 
-mkTargetEnd :: Chans -> ChanId -> Chan [ByteString] -> TargetEnd
+mkTargetEnd :: Chans -> ChanId -> MVar [ByteString] -> TargetEnd
 mkTargetEnd chans chanId chan = TargetEnd
-  { -- for now we will implement this as a Chan
-    receive = {-# SCC "receive" #-} readChan chan
+  { -- for now we will implement this as an MVar
+    receive = {-# SCC "receive" #-} takeMVar chan
   , closeTargetEnd = {-# SCC "closeTargetEnd" #-} do
       (chanId', chanMap) <- takeMVar chans
       case IntMap.lookup chanId chanMap of
@@ -195,7 +194,7 @@ procConnections chans sock = forever $ do
 -- extracted from the socket, and then written to the Chan only when
 -- complete. If either of the first header size is null this indicates the
 -- socket has closed.
-procMessages :: Chans -> ChanId -> Chan [ByteString] -> Socket -> IO ()
+procMessages :: Chans -> ChanId -> MVar [ByteString] -> Socket -> IO ()
 procMessages chans chanId chan sock = do
   esizeBS <- recvExact sock 1
   case esizeBS of
@@ -229,7 +228,7 @@ procMessages chans chanId chan sock = do
     case ebs of
       Left _ -> closeSocket
       Right bs -> do
-        writeChan chan [bs]
+        putMVar chan [bs]
         procMessages chans chanId chan sock
 
 -- | The normal result of `recvExact sock n` is `Right ByteString`
