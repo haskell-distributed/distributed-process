@@ -7,7 +7,7 @@ import Control.Monad
 import Data.Int
 import Network.Socket
   ( AddrInfo, AddrInfoFlag (AI_PASSIVE), HostName, ServiceName, Socket
-  , SocketType (Stream), SocketOption (ReuseAddr)
+  , SocketType (Stream), SocketOption (ReuseAddr, NoDelay)
   , accept, addrAddress, addrFlags, addrFamily, bindSocket, defaultProtocol
   , defaultHints
   , getAddrInfo, listen, setSocketOption, socket, sClose, withSocketsDo )
@@ -36,10 +36,10 @@ passive :: Maybe AddrInfo
 passive = Just (defaultHints { addrFlags = [AI_PASSIVE] })
 
 main = do
-  [pingsStr]  <- getArgs
-  serverReady <- newEmptyMVar
-  clientReady <- newEmptyMVar
-  clientDone  <- newEmptyMVar
+  pingsStr:args <- getArgs
+  serverReady   <- newEmptyMVar
+  clientReady   <- newEmptyMVar
+  clientDone    <- newEmptyMVar
 
   -- Start the server
   forkIO $ do
@@ -59,6 +59,7 @@ main = do
       clientAddr:_ <- getAddrInfo Nothing (Just "127.0.0.1") (Just "8081")
       pongSock     <- socket (addrFamily clientAddr) Stream defaultProtocol
       N.connect pongSock (addrAddress clientAddr)
+      when ("--NoDelay" `elem` args) $ setSocketOption pongSock NoDelay 1
       forever $ readChan multiplexChannel >>= send pongSock 
 
     -- Wait for incoming connections (pings from the client)
@@ -83,6 +84,7 @@ main = do
       serverAddr:_ <- getAddrInfo Nothing (Just "127.0.0.1") (Just "8080")
       pingSock     <- socket (addrFamily serverAddr) Stream defaultProtocol
       N.connect pingSock (addrAddress serverAddr)
+      when ("--NoDelay" `elem` args) $ setSocketOption pingSock NoDelay 1
       ping pingSock multiplexChannel (read pingsStr)
       putMVar clientDone ()
 

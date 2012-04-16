@@ -7,6 +7,7 @@ Indirection.ps: JustPingWithHeader.data \
                 JustPingThroughChan.data \
                 JustPingThroughMVar.data \
                 JustPingTwoSocketPairs.data \
+                JustPingTwoSocketPairsND.data \
 								JustPingTransport.data
 	gnuplot ./Indirection.gnuplot
 
@@ -23,6 +24,9 @@ JustPingC.exe: JustPingC.c
 
 JustPingHaskellNT.exe: JustPingHaskell.hs
 	ghc -o JustPingHaskellNT.exe -O2 JustPingHaskell.hs
+
+JustPingTwoSocketPairsND.data: JustPingTwoSocketPairs.exe
+	time ./$< $(NUMPINGS) --NoDelay 2>$@
 
 %.data : %.exe
 	time ./$< $(NUMPINGS) 2>$@
