@@ -1,0 +1,17 @@
+Name:          network-transport
+Version:       0.1.0
+Description:   Network Transport 
+Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
+Maintainer:    dcoutts@well-typed.com
+Homepage:      http://github.com/haskell-distributed
+Build-Type:    Simple
+Cabal-Version: >=1.9.2
+
+Library
+  Build-Depends:   base,
+                   bytestring,
+                   containers
+  Exposed-modules: Network.Transport,
+                   Network.Transport.Chan
+  extensions:      EmptyDataDecls
+  HS-Source-Dirs:  src

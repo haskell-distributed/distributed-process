@@ -7,7 +7,7 @@ Overview
 When a TCP transport is created a new server is started which listens on a
 given port number on the local host. In order to support multiple connections
 the transport maintains a set of channels, one per connection, represented as a
-pair of a `Chan [ByteString]` and a list of pairs `(ThreadId, Socket)` of
+pair of a `MVar [ByteString]` and a list of pairs `(ThreadId, Socket)` of
 threads that are listening on this channel. A source end then corresponds to a
 hostname (the hostname used by clients to identity the local host), port
 number, and channel ID; a receive end simply corresponds to a channel ID.
