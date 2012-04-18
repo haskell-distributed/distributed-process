@@ -1,49 +1,47 @@
--- | Implementation of the Transport which creates a single Chan for every endpoint.
+-- | In-memory implementation of the Transport API.
 module Network.Transport.Chan (createTransport) where
 
 import Network.Transport 
 import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
-import Control.Concurrent.MVar (MVar, newMVar, takeMVar, putMVar)
+import Control.Concurrent.MVar (MVar, newMVar, modifyMVar)
 import Data.Map (Map)
-import qualified Data.Map as Map (empty, insert, (!), member)
+import qualified Data.Map as Map (empty, insert, (!))
+import Data.ByteString (ByteString)
+import qualified Data.ByteString.Char8 as BSC (pack)
 
--- Global state: mapping from endpoint identities to the number of the next available connection
-type TransportState = Map Identity Int
+-- Global state: next available "address", mapping from addresses to channels and next available connection
+type TransportState = (Int, Map ByteString (Chan Event, Int))
 
--- | Create a new Transport
+-- | Create a new Transport.
+--
+-- Only a single transport should be created per Haskell process
+-- (threads can, and should, create their own endpoints though).
 createTransport :: IO Transport
 createTransport = do
-  endpoints <- newMVar Map.empty
+  endpoints <- newMVar (0, Map.empty)
   return Transport { newEndPoint = chanNewEndPoint endpoints }
 
 -- Create a new end point
-chanNewEndPoint :: MVar TransportState -> Identity -> IO (Either Error EndPoint)
-chanNewEndPoint endpoints identity = do
-  state <- takeMVar endpoints
-  if identity `Map.member` state 
-    then do
-      putMVar endpoints state
-      return . Left $ Error undefined ("Identifier " ++ show identity ++ " already used")
-    else do
-      putMVar endpoints (Map.insert identity 0 state) 
-      chan <- newChan
-      return . Right $ EndPoint { receive = readChan chan  
-                                , address = Address identity 
-                                , connect = chanConnect chan endpoints
-                                , multicastNewGroup    = undefined
-                                , multicastConnect     = undefined
-                                , multicastSubscribe   = undefined
-                                , multicastUnsubscribe = undefined
-                                }
+chanNewEndPoint :: MVar TransportState -> IO (Either Error EndPoint)
+chanNewEndPoint endpoints = do
+  chan <- newChan
+  addr <- modifyMVar endpoints $ \(next, state) -> do
+                                   let addr = BSC.pack (show next)
+                                   return ((next + 1, Map.insert addr (chan, 0) state), addr)
+  return . Right $ EndPoint { receive = readChan chan  
+                            , address = Address addr
+                            , connect = chanConnect (Address addr) endpoints
+                            , newMulticastGroup     = undefined
+                            , resolveMulticastGroup = undefined
+                            }
   
 -- Create a new connection
-chanConnect :: Chan Event -> MVar TransportState -> Address -> Reliability -> IO (Either Error Connection)
-chanConnect chan endpoints (Address identity) _ = do 
-  state <- takeMVar endpoints
-  let conn = state Map.! identity 
-  putMVar endpoints (Map.insert identity (conn + 1) state)
-  writeChan chan $ ConnectionOpened conn ReliableOrdered
-  return . Right $ Connection { connId = conn 
-                              , send   = writeChan chan . Receive conn 
-                              , close  = writeChan chan $ ConnectionClosed conn
+chanConnect :: Address -> MVar TransportState -> Address -> Reliability -> IO (Either Error Connection)
+chanConnect myAddress endpoints (Address theirAddress) _ = do 
+  (chan, conn) <- modifyMVar endpoints $ \(next, state) -> do
+                                           let (chan, conn) = state Map.! theirAddress
+                                           return ((next, Map.insert theirAddress (chan, conn + 1) state), (chan, conn))
+  writeChan chan $ ConnectionOpened conn ReliableOrdered myAddress
+  return . Right $ Connection { send         = writeChan chan . Receive conn 
+                              , close        = writeChan chan $ ConnectionClosed conn
                               }

@@ -14,4 +14,15 @@ Library
   Exposed-modules: Network.Transport,
                    Network.Transport.Chan
   extensions:      EmptyDataDecls
+  ghc-options:     -Wall -fno-warn-unused-do-bind
   HS-Source-Dirs:  src
+
+Test-Suite TestInMemory 
+  Type:           exitcode-stdio-1.0
+  Main-Is:        TestInMemory.hs
+  Build-Depends:  base,
+                  containers,
+                  bytestring
+  extensions:     EmptyDataDecls OverloadedStrings
+  ghc-options:    -Wall -fno-warn-unused-do-bind
+  HS-Source-Dirs: tests src

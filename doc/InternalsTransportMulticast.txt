@@ -1,0 +1,181 @@
+Adding Support for Multicast to the Transport API
+=================================================
+
+This document describes various design options for adding support for multicast
+to the Transport API.
+
+Creating a new multicast group 
+------------------------------
+
+We can either have this as part of the transport
+
+    data Transport = Transport {
+        ...
+      , newMulticastGroup :: IO (Either Error MulticastGroup)
+      }
+
+    data MulticastGroup = MulticastGroup {
+        ...
+      , multicastAddress     :: MulticastAddress
+      , deleteMulticastGroup :: IO ()
+      }
+
+or as part of an endpoint:
+
+    data Transport = Transport {
+        newEndPoint :: IO (Either Error EndPoint)
+      }
+
+    data EndPoint = EndPoint {
+        ...
+      , newMulticastGroup :: IO (Either Error MulticastGroup)
+      }
+
+It should probably be part of the `Transport`, as there is no real connection
+between an endpoint and the creation of the multigroup (however, see section
+"Sending messages to a multicast group").
+
+Subscribing to a multicast group
+--------------------------------
+
+This should be part of an endpoint; subscribing basically means that the
+endpoint wants to receive events when multicast messages are sent.
+
+We could reify a subscription:
+
+    data EndPoint = EndPoint {
+        ...
+      , multicastSubscribe :: MulticastAddress -> IO MulticastSubscription
+      }
+
+    data MulticastSubscription = MulticastSubscription {
+        ... 
+        , multicastSubscriptionClose :: IO ()
+      }
+
+but this suggests that one might have multiple subscriptions to the same group
+which can be distinguished, which is misleading. Probably better to have:
+
+    data EndPoint = EndPoint {
+        multicastSubscribe   :: MulticastAddress -> IO ()
+      , multicastUnsubscribe :: MulticastAddress -> IO ()
+      }
+
+Sending messages to a multicast group
+-------------------------------------
+
+An important feature of the Transport API is that we are clear about which
+operations are *lightweight* and which are not. For instance, creating new
+endpoints is not lightweight, but opening new connections to endpoints is (as
+light-weight as possible). 
+
+Clearly the creation of a new multicast group is a heavyweight operation. It is
+less evident however if we can support multiple lightweight "connections" to the
+same multicast group, and if so, whether it is useful.
+
+If we decide that multiple lightweight connections to the multigroup is useful,
+one option might be
+
+    data EndPoint = EndPoint {
+        ...
+      , connect :: Address -> Reliability -> IO (Either Error Connection)
+      , multicastConnect :: MulticastAddress -> IO (Either Error Connection) 
+    } 
+    
+    data Connection = Connection {
+        connectionId :: ConnectionId 
+      , send         :: [ByteString] -> IO ()
+      , close        :: IO ()
+      , maxMsgSize   :: Maybe Int 
+      }
+
+    data Event = 
+        Receive ConnectionId [ByteString]
+      | ConnectionClosed ConnectionId
+      | ConnectionOpened ConnectionId ConnectionType Reliability Address 
+
+The advantage of this approach is it's consistency with the rest of the
+interface. The problem is that with multicast we cannot reliably send any
+control messages, so we cannot make sure that the subscribers of the multicast
+group will receive ConnectionOpened events when an endpoint creates a new
+connection.  Since we don't support these "connectionless connections" anywhere
+else in the API this seems inconsistent with the rest of the design (this
+implies that an "unreliable" Transport over UDP still needs to have reliable
+control messages).  (On the other hand, if we were going to support reliable
+multicast protocols, then that would fit this design).
+
+If we don't want to support multiple lightweight connections to a multicast
+group then a better design would be
+
+    data EndPoint = EndPoint {
+      , connect       :: Address -> Reliability -> IO (Either Error Connection)
+      , multicastSend :: MulticastAddress -> [ByteString] -> IO ()
+    } 
+    
+    data Event = 
+        ...
+      | MulticastReceive Address [ByteString]
+    
+or alternatively
+
+    data EndPoint = EndPoint {
+        ...
+      , resolveMulticastGroup :: MulticastAddress -> IO (Either Error MulticastGroup) 
+      } 
+
+    data MulticastGroup = MulticastGroup {
+      , ...
+      , send :: [ByteString] -> IO ()
+      }
+
+If we do this however we need to make sure that newGroup is part an `EndPoint`,
+not the `Transport`, otherwise `send` will not know the source of the message.
+The version with `resolveMulticastGroup` has the additional benefit that in
+"real" implementations we will probably need to allocate some resources before
+we can send to the multicast group, and need to deallocate these resources at
+some point too. 
+
+The current solution
+--------------------
+
+The above considerations lead to the following tentative proposal:
+
+    data Transport = Transport {
+        newEndPoint :: IO (Either Error EndPoint)
+      }
+    
+    data EndPoint = EndPoint {
+        receive :: IO Event
+      , address :: Address 
+      , connect :: Address -> Reliability -> IO (Either Error Connection)
+      , newMulticastGroup     :: IO (Either Error MulticastGroup)
+      , resolveMulticastGroup :: MulticastAddress -> IO (Either Error MulticastGroup)
+      } 
+    
+    data Connection = Connection {
+        send  :: [ByteString] -> IO ()
+      , close :: IO ()
+      }
+    
+    data Event = 
+        Receive ConnectionId [ByteString]
+      | ConnectionClosed ConnectionId
+      | ConnectionOpened ConnectionId Reliability Address 
+      | MulticastReceive MulticastAddress [ByteString]
+    
+    data MulticastGroup = MulticastGroup {
+        multicastAddress     :: MulticastAddress
+      , deleteMulticastGroup :: IO ()
+      , maxMsgSize           :: Maybe Int 
+      , multicastSend        :: [ByteString] -> IO ()
+      , multicastSubscribe   :: IO ()
+      , multicastUnsubscribe :: IO ()
+      , multicastClose       :: IO ()
+      }
+
+where `multicastClose` indicates to the runtime that this endpoint no longer
+wishes to send to this multicast group, and we can therefore deallocate the
+resources we needed to send to the group (these resources can be allocated on
+`resolveMulticastGroup` or on the first `multicastSend`; the advantage of the
+latter is that is somebody resolves a group only to subscribe to it, not to
+send to it, we don't allocate any unneeded resources).
