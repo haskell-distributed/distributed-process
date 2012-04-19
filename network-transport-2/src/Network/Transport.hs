@@ -14,11 +14,11 @@ data Transport = Transport {
 
 -- | Address of an endpoint.
 newtype Address = Address ByteString
-  deriving Show
+  deriving (Show, Eq, Ord)
 
 -- | Address of a multicast group.
 newtype MulticastAddress = MulticastAddress ByteString
-  deriving Show
+  deriving (Show, Eq, Ord)
 
 -- | Error codes (none defined at the moment).
 data ErrorCode
@@ -60,10 +60,10 @@ data Connection = Connection {
 
 -- | Event on an endpoint.
 data Event = 
-    Receive ConnectionId [ByteString]
+    Received ConnectionId [ByteString]
   | ConnectionClosed ConnectionId
   | ConnectionOpened ConnectionId Reliability Address 
-  | MulticastReceive MulticastAddress [ByteString]
+  | ReceivedMulticast MulticastAddress [ByteString]
   deriving Show
 
 -- | Multicast group.

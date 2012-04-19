@@ -23,13 +23,13 @@ echoServer endpoint = go Map.empty
         ConnectionOpened cid rel addr -> do
           Right conn <- connect endpoint addr rel 
           go (Map.insert cid conn cs) 
-        Receive cid payload -> do
+        Received cid payload -> do
           send (cs Map.! cid) payload 
           go cs
         ConnectionClosed cid -> do 
           close (cs Map.! cid)
           go (Map.delete cid cs) 
-        MulticastReceive _ _ -> 
+        ReceivedMulticast _ _ -> 
           -- Ignore
           go cs
 
@@ -44,7 +44,7 @@ ping endpoint server numPings msg = do
   -- Send pings and wait for reply
   replicateM_ numPings $ do
       send conn [msg]
-      Receive _ [reply] <- receive endpoint
+      Received _ [reply] <- receive endpoint
       when (reply /= msg) . error $ "Message mismatch: " ++ show msg ++ " /= " ++ show reply 
 
   -- Close the connection
@@ -119,7 +119,7 @@ testConnections transport numPings = do
         verifyResponse n = do 
           event <- receive endpoint
           case event of
-            Receive cid [payload] -> do
+            Received cid [payload] -> do
               when (cid == serv1 && payload /= "pingA") $ error "Wrong message"
               when (cid == serv2 && payload /= "pingB") $ error "Wrong message"
               verifyResponse (n - 1) 
