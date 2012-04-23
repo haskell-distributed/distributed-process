@@ -6,6 +6,7 @@ module Network.Transport.Internal ( -- * Encoders/decoders
                                   , decodeInt16
                                     -- * Miscellaneous abstractions
                                   , maybeToErrorT
+                                  , maybeTToErrorT
                                   ) where
 
 import Data.Int (Int16, Int32)
@@ -17,8 +18,8 @@ import qualified Data.ByteString as BS (length)
 import qualified Data.ByteString.Internal as BSI (create, toForeignPtr)
 import Control.Monad (mzero)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Error (ErrorT, Error, throwError)
-import Control.Monad.Trans.Maybe (MaybeT)
+import Control.Monad.Error (ErrorT, Error, throwError, lift)
+import Control.Monad.Trans.Maybe (MaybeT, runMaybeT)
 
 foreign import ccall unsafe "htonl" htonl :: CInt -> CInt
 foreign import ccall unsafe "ntohl" ntohl :: CInt -> CInt
@@ -55,7 +56,15 @@ decodeInt16 bs = liftIO $ do
     w16 <- peekByteOff p 0 
     return (fromIntegral (ntohs w16))
 
--- | Convert maybe to an ErrorT value 
+-- | Convert 'Maybe' to an ErrorT value 
 maybeToErrorT :: (Monad m, Error a) => a -> Maybe b -> ErrorT a m b
 maybeToErrorT err Nothing  = throwError err
 maybeToErrorT _   (Just x) = return x
+
+-- | Convert 'MaybeT' to an 'ErrorT'
+maybeTToErrorT :: (Monad m, Error a) => a -> MaybeT m b -> ErrorT a m b
+maybeTToErrorT err valueT = do
+  mval <- lift $ runMaybeT valueT
+  case mval of
+    Nothing  -> throwError err
+    Just val -> return val 

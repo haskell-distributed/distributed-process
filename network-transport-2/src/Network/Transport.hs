@@ -15,7 +15,7 @@ module Network.Transport ( -- * Types
                          , FailedWith(..)
                          , NewEndPointErrorCode
                          , ConnectErrorCode(..)
-                         , NewMulticastGroupErrorCode
+                         , NewMulticastGroupErrorCode(..)
                          , ResolveMulticastGroupErrorCode(..)
                          ) where
 
@@ -47,11 +47,14 @@ data ConnectErrorCode =
     ConnectInvalidAddress -- ^ Could not parse the address
 
 -- | Failure during the creation of a new multicast group
-data NewMulticastGroupErrorCode
+data NewMulticastGroupErrorCode =
+    NewMulticastGroupUnsupported
 
 -- | Failure during the resolution of a multicast group
 data ResolveMulticastGroupErrorCode =
-    MulticastGroupNotFound
+    ResolveMulticastGroupNotFound
+  | ResolveMulticastGroupUnsupported
+
 
 data FailedWith error = FailedWith error String
 

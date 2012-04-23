@@ -117,5 +117,5 @@ chanResolveMulticastGroup :: MVar TransportState
 chanResolveMulticastGroup state endpoint addr = do
   group <- (^. (multigroups >>> mapLens addr)) <$> readMVar state 
   case group of
-    Nothing   -> return . Left $ FailedWith MulticastGroupNotFound ("Group " ++ show addr ++ " not found")
+    Nothing   -> return . Left $ FailedWith ResolveMulticastGroupNotFound ("Group " ++ show addr ++ " not found")
     Just mvar -> return . Right $ chanMulticastGroup state endpoint addr mvar 

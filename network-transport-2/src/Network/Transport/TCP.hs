@@ -1,12 +1,21 @@
 -- | TCP transport
-module Network.Transport.TCP where
+module Network.Transport.TCP ( -- * Main API
+                               createTransport
+                             , -- TCP specific functionality
+                               EndPointIx
+                             , decodeEndPointAddress
+                             ) where
 
 import Network.Transport
+import Network.Transport.Internal.TCP ( forkServer
+                                      , recvExact 
+                                      , recvWithLength
+                                      , sendWithLength
+                                      )
 import Network.Transport.Internal ( encodeInt16 
                                   , decodeInt16
-                                  , encodeInt32
-                                  , decodeInt32
                                   , maybeToErrorT
+                                  , maybeTToErrorT
                                   )
 import qualified Network.Socket as N ( HostName
                                      , ServiceName
@@ -14,10 +23,7 @@ import qualified Network.Socket as N ( HostName
                                      , SocketType(Stream)
                                      , SocketOption(ReuseAddr)
                                      , getAddrInfo
-                                     , defaultHints
                                      , socket
-                                     , bindSocket
-                                     , listen
                                      , addrFamily
                                      , addrAddress
                                      , defaultProtocol
@@ -26,22 +32,21 @@ import qualified Network.Socket as N ( HostName
                                      , sClose
                                      , accept
                                      )
-import qualified Network.Socket.ByteString as NBS (sendMany, recv)
-import Control.Concurrent (forkIO, ThreadId)
+import qualified Network.Socket.ByteString as NBS (sendMany)
+import Control.Concurrent (forkIO)
 import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
 import Control.Concurrent.MVar (MVar, newMVar, modifyMVar, readMVar)
 import Control.Category ((>>>))
 import Control.Applicative ((<*>), (*>), (<$>), pure)
-import Control.Monad (forever, mzero)
+import Control.Monad (forever)
 import Control.Monad.Error (ErrorT, liftIO, runErrorT)
 import Control.Monad.Trans.Maybe (MaybeT(MaybeT), runMaybeT)
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS (length, concat, null)
+import qualified Data.ByteString as BS (concat)
 import qualified Data.ByteString.Char8 as BSC (pack, unpack)
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap (empty, size)
 import Data.Lens.Lazy (Lens, lens, intMapLens, (^.), (^=), (^+=))
-import Data.Int (Int32)
 import Text.Regex.Applicative (RE, few, anySym, sym, many, match)
 
 data TransportState = TransportState { _endPoints        :: IntMap (Chan Event, MVar EndPointState) }
@@ -55,7 +60,7 @@ endPoints = lens _endPoints (\es st -> st { _endPoints = es })
 nextConnectionIx :: Lens EndPointState ConnectionIx
 nextConnectionIx = lens _nextConnectionIx (\cix st -> st { _nextConnectionIx = cix })
 
-endPointAt :: Int -> Lens TransportState (Maybe (Chan Event, MVar EndPointState))
+endPointAt :: EndPointIx -> Lens TransportState (Maybe (Chan Event, MVar EndPointState))
 endPointAt ix = endPoints >>> intMapLens ix
 
 -- | Create a TCP transport
@@ -73,19 +78,6 @@ createTransport host port = do
   state <- newMVar $ TransportState { _endPoints = IntMap.empty }
   forkServer host port (transportServer state)
   return Transport { newEndPoint = tcpNewEndPoint state host port } 
-
--- | Start a server at the specified address
-forkServer :: N.HostName -> N.ServiceName -> (N.Socket -> IO ()) -> IO ThreadId 
-forkServer host port server = do
-  -- Resolve the specified address. By specification, getAddrInfo will never
-  -- return an empty list (but will throw an exception instead) and will return
-  -- the "best" address first, whatever that means
-  addr:_ <- N.getAddrInfo (Just N.defaultHints) (Just host) (Just port)
-  sock   <- N.socket (N.addrFamily addr) N.Stream N.defaultProtocol
-  N.setSocketOption sock N.ReuseAddr 1
-  N.bindSocket sock (N.addrAddress addr)
-  N.listen sock 5
-  forkIO $ server sock
 
 -- | The transport server handles incoming connections for all endpoints
 --
@@ -129,7 +121,7 @@ endpointServer sock theirAddress chan state = forever $ do
       writeChan chan (ConnectionOpened newIx ReliableOrdered theirAddress) 
     
     -- Read a message and output it on the endPoint's channel
-    readMessage :: Int -> MaybeT IO ()
+    readMessage :: ConnectionIx -> MaybeT IO ()
     readMessage connIx = do
       payload <- recvWithLength sock
       liftIO $ writeChan chan (Received connIx payload) 
@@ -145,24 +137,29 @@ tcpNewEndPoint transportState host port = do
   return . Right $ EndPoint { receive = readChan chan  
                             , address = addr 
                             , connect = tcpConnect addr 
-                            , newMulticastGroup     = undefined
-                            , resolveMulticastGroup = undefined
+                            , newMulticastGroup     = return . Left $ newMulticastGroupError 
+                            , resolveMulticastGroup = \_ -> return . Left $ resolveMulticastGroupError
                             }
+  where
+    newMulticastGroupError     = FailedWith NewMulticastGroupUnsupported "TCP does not support multicast" 
+    resolveMulticastGroupError = FailedWith ResolveMulticastGroupUnsupported "TCP does not support multicast" 
+    
 
 -- | Connnect to an endpoint
 tcpConnect :: EndPointAddress -> EndPointAddress -> Reliability -> IO (Either (FailedWith ConnectErrorCode) Connection)
 tcpConnect myAddress theirAddress _ = runErrorT $ do
-    sock   <- socketForEndPoint myAddress theirAddress 
-    connIx <- liftIO $ requestNewConnection sock
-    return $ Connection { send  = sendWithLength sock (Just connIx)
-                        , close = N.sClose sock 
-                        }
+  sock   <- socketForEndPoint myAddress theirAddress 
+  -- TODO: test this failure
+  connIx <- maybeTToErrorT (FailedWith undefined undefined) $ requestNewConnection sock
+  return $ Connection { send  = sendWithLength sock (Just connIx)
+                      , close = N.sClose sock 
+                      }
 
 -- | Request a new connection 
-requestNewConnection :: N.Socket -> IO ByteString 
+requestNewConnection :: N.Socket -> MaybeT IO ByteString 
 requestNewConnection sock = do
-  pure <$> encodeInt16 0 >>= NBS.sendMany sock
-  NBS.recv sock 2
+  liftIO $ pure <$> encodeInt16 0 >>= NBS.sendMany sock
+  BS.concat <$> recvExact sock 2
 
 -- | Find a socket to the specified endpoint
 --
@@ -172,7 +169,7 @@ requestNewConnection sock = do
 socketForEndPoint :: EndPointAddress -- ^ Our address 
                   -> EndPointAddress -- ^ Their address
                   -> ErrorT (FailedWith ConnectErrorCode) IO N.Socket
-socketForEndPoint (EndPointAddress myAddress) (EndPointAddress theirAddress) = do
+socketForEndPoint (EndPointAddress myAddress) theirAddress = do
     (host, port, endPointIx) <- maybeToErrorT invalidAddress (decodeEndPointAddress theirAddress)
     liftIO $ do
       -- Connect to the destination transport 
@@ -188,46 +185,11 @@ socketForEndPoint (EndPointAddress myAddress) (EndPointAddress theirAddress) = d
   where
     invalidAddress = FailedWith ConnectInvalidAddress "Invalid address"
 
--- | Send a bunch of bytestrings prepended with their length
-sendWithLength :: N.Socket           -- ^ Socket to send on
-               -> Maybe ByteString   -- ^ Optional header to send before the length
-               -> [ByteString]       -- ^ Payload
-               -> IO ()
-sendWithLength sock header payload = do
-  lengthBs <- encodeInt32 (fromIntegral . sum . map BS.length $ payload)
-  let msg = maybe id (:) header $ lengthBs : payload
-  NBS.sendMany sock msg 
-
--- | Read a length and then a payload of that length
--- TODO: error handling
-recvWithLength :: N.Socket -> MaybeT IO [ByteString]
-recvWithLength sock = do
-  msgLengthBs <- recvExact sock 4
-  decodeInt32 (BS.concat msgLengthBs) >>= recvExact sock
-
 -- | Decode end point address
 -- TODO: This uses regular expression parsing, which is nice, but unnecessary
-decodeEndPointAddress :: ByteString -> Maybe (N.HostName, N.ServiceName, Int)
-decodeEndPointAddress bs = match endPointAddressRE (BSC.unpack bs) 
+decodeEndPointAddress :: EndPointAddress -> Maybe (N.HostName, N.ServiceName, EndPointIx)
+decodeEndPointAddress (EndPointAddress bs) = match endPointAddressRE (BSC.unpack bs) 
   where
-    endPointAddressRE :: RE Char (N.HostName, N.ServiceName, Int)
+    endPointAddressRE :: RE Char (N.HostName, N.ServiceName, EndPointIx)
     endPointAddressRE = (,,) <$> few anySym <*> (sym ':' *> few anySym) <*> (sym ':' *> (read <$> many anySym))
 
--- | Read an exact number of bytes from a socket
---
--- Returns 'Nothing' if the socket closes prematurely.
-recvExact :: N.Socket                -- ^ Socket to read from 
-          -> Int32                   -- ^ Number of bytes to read
-          -> MaybeT IO [ByteString]
-recvExact sock len = do
-    (socketClosed, input) <- liftIO $ go [] len
-    if socketClosed then mzero else return input
-  where
-    -- Returns input read and whether the socket closed prematurely
-    go :: [ByteString] -> Int32 -> IO (Bool, [ByteString])
-    go acc 0 = return (False, reverse acc)
-    go acc l = do
-      bs <- NBS.recv sock (fromIntegral l `min` 4096)
-      if BS.null bs 
-        then return (True, reverse acc)
-        else go (bs : acc) (l - (fromIntegral $ BS.length bs))
