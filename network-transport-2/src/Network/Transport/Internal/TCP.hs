@@ -1,10 +1,13 @@
 -- | Utility functions for TCP sockets 
 module Network.Transport.Internal.TCP ( forkServer
+                                      , connectTo
                                       , sendWithLength
                                       , recvWithLength
+                                      , sendMany
                                       , recvExact 
                                       ) where
 
+import Prelude hiding (catch)
 import Network.Transport.Internal ( encodeInt32
                                   , decodeInt32
                                   )
@@ -22,17 +25,22 @@ import qualified Network.Socket as N ( HostName
                                      , addrAddress
                                      , defaultProtocol
                                      , setSocketOption
+                                     , connect
                                      )
 import qualified Network.Socket.ByteString as NBS (sendMany, recv)
 import Control.Concurrent (forkIO, ThreadId)
 import Control.Monad (mzero)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Trans.Maybe (MaybeT)
+import Control.Monad.Trans.Maybe (MaybeT(MaybeT))
+import Control.Exception (catch, IOException)
+import Control.Applicative ((<$>), pure)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (length, concat, null)
 import Data.Int (Int32)
 
 -- | Start a server at the specified address
+--
+-- TODO: deal with errors
 forkServer :: N.HostName -> N.ServiceName -> (N.Socket -> IO ()) -> IO ThreadId 
 forkServer host port server = do
   -- Resolve the specified address. By specification, getAddrInfo will never
@@ -45,21 +53,41 @@ forkServer host port server = do
   N.listen sock 5
   forkIO $ server sock
 
+-- | Connect to another host 
+-- 
+-- TODO: deal with errors
+connectTo :: N.HostName -> N.ServiceName -> MaybeT IO N.Socket
+connectTo host port = liftIO $ do
+  addr:_ <- N.getAddrInfo Nothing (Just host) (Just port) 
+  sock   <- N.socket (N.addrFamily addr) N.Stream N.defaultProtocol
+  N.setSocketOption sock N.ReuseAddr 1
+  N.connect sock (N.addrAddress addr) 
+  return sock
+
 -- | Send a bunch of bytestrings prepended with their length
 sendWithLength :: N.Socket           -- ^ Socket to send on
                -> Maybe ByteString   -- ^ Optional header to send before the length
                -> [ByteString]       -- ^ Payload
-               -> IO ()
+               -> MaybeT IO ()
 sendWithLength sock header payload = do
-  lengthBs <- encodeInt32 (fromIntegral . sum . map BS.length $ payload)
+  lengthBs <- liftIO $ encodeInt32 (fromIntegral . sum . map BS.length $ payload)
   let msg = maybe id (:) header $ lengthBs : payload
-  NBS.sendMany sock msg 
+  sendMany sock msg 
 
 -- | Read a length and then a payload of that length
 recvWithLength :: N.Socket -> MaybeT IO [ByteString]
 recvWithLength sock = do
   msgLengthBs <- recvExact sock 4
   decodeInt32 (BS.concat msgLengthBs) >>= recvExact sock
+
+-- | Wrapper around 'Network.Socket.ByteString.sendMany'
+-- 
+-- Returns Nothing when an I/O exception is raised during the send
+sendMany :: N.Socket -> [ByteString] -> MaybeT IO ()
+sendMany sock msg = MaybeT $ catch (pure <$> NBS.sendMany sock msg) (handleIOException) 
+  where
+    handleIOException :: IOException -> IO (Maybe ())
+    handleIOException _ = return mzero 
 
 -- | Read an exact number of bytes from a socket
 --

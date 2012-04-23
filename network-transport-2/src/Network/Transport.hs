@@ -17,6 +17,7 @@ module Network.Transport ( -- * Types
                          , ConnectErrorCode(..)
                          , NewMulticastGroupErrorCode(..)
                          , ResolveMulticastGroupErrorCode(..)
+                         , SendErrorCode(..)
                          ) where
 
 import Data.ByteString (ByteString)
@@ -55,6 +56,9 @@ data ResolveMulticastGroupErrorCode =
     ResolveMulticastGroupNotFound
   | ResolveMulticastGroupUnsupported
 
+-- | Failure during sending a message
+data SendErrorCode =
+    SendFailed
 
 data FailedWith error = FailedWith error String
 
@@ -88,7 +92,7 @@ type ConnectionId = Int
 -- | Lightweight connection to an endpoint.
 data Connection = Connection {
     -- | Send a message on this connection.
-    send  :: [ByteString] -> IO ()
+    send  :: [ByteString] -> IO (Either (FailedWith SendErrorCode) ())
     -- | Close the connection.
   , close :: IO ()
   }

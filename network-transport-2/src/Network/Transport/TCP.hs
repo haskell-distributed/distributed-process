@@ -1,4 +1,9 @@
 -- | TCP transport
+--
+-- TODOs:
+-- * Various errors are still left as "undefined"
+-- * Many possible errors are not yet dealt with
+-- * Connections are not yet lightweight
 module Network.Transport.TCP ( -- * Main API
                                createTransport
                              , -- TCP specific functionality
@@ -8,7 +13,9 @@ module Network.Transport.TCP ( -- * Main API
 
 import Network.Transport
 import Network.Transport.Internal.TCP ( forkServer
+                                      , connectTo
                                       , recvExact 
+                                      , sendMany
                                       , recvWithLength
                                       , sendWithLength
                                       )
@@ -20,19 +27,9 @@ import Network.Transport.Internal ( encodeInt16
 import qualified Network.Socket as N ( HostName
                                      , ServiceName
                                      , Socket
-                                     , SocketType(Stream)
-                                     , SocketOption(ReuseAddr)
-                                     , getAddrInfo
-                                     , socket
-                                     , addrFamily
-                                     , addrAddress
-                                     , defaultProtocol
-                                     , setSocketOption
-                                     , connect
                                      , sClose
                                      , accept
                                      )
-import qualified Network.Socket.ByteString as NBS (sendMany)
 import Control.Concurrent (forkIO)
 import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
 import Control.Concurrent.MVar (MVar, newMVar, modifyMVar, readMVar)
@@ -109,16 +106,18 @@ endpointServer sock theirAddress chan state = forever $ do
     connBS <- recvExact sock 2
     connIx <- fromIntegral <$> decodeInt16 (BS.concat connBS)
     if connIx == 0 
-      then liftIO $ createNewConnection 
+      then createNewConnection 
       else readMessage connIx 
   where
     -- Create a new connection
-    createNewConnection :: IO () 
+    createNewConnection :: MaybeT IO () 
     createNewConnection = do
-      newIx <- modifyMVar state $ \st -> return (nextConnectionIx ^+= 1 $ st, st ^. nextConnectionIx)  
-      newBs <- encodeInt16 (fromIntegral newIx)
-      NBS.sendMany sock [newBs]
-      writeChan chan (ConnectionOpened newIx ReliableOrdered theirAddress) 
+      (newIx, newBs) <- liftIO $ do
+        newIx <- modifyMVar state $ \st -> return (nextConnectionIx ^+= 1 $ st, st ^. nextConnectionIx)  
+        newBs <- encodeInt16 (fromIntegral newIx)
+        return (newIx, newBs)
+      sendMany sock [newBs]
+      liftIO $ writeChan chan (ConnectionOpened newIx ReliableOrdered theirAddress) 
     
     -- Read a message and output it on the endPoint's channel
     readMessage :: ConnectionIx -> MaybeT IO ()
@@ -149,16 +148,16 @@ tcpNewEndPoint transportState host port = do
 tcpConnect :: EndPointAddress -> EndPointAddress -> Reliability -> IO (Either (FailedWith ConnectErrorCode) Connection)
 tcpConnect myAddress theirAddress _ = runErrorT $ do
   sock   <- socketForEndPoint myAddress theirAddress 
-  -- TODO: test this failure
-  connIx <- maybeTToErrorT (FailedWith undefined undefined) $ requestNewConnection sock
-  return $ Connection { send  = sendWithLength sock (Just connIx)
+  connIx <- maybeTToErrorT undefined $ requestNewConnection sock
+  return $ Connection { send  = \msg -> runErrorT $ maybeTToErrorT (FailedWith SendFailed "Send failed") $ 
+                                          sendWithLength sock (Just connIx) msg
                       , close = N.sClose sock 
                       }
 
 -- | Request a new connection 
 requestNewConnection :: N.Socket -> MaybeT IO ByteString 
 requestNewConnection sock = do
-  liftIO $ pure <$> encodeInt16 0 >>= NBS.sendMany sock
+  (liftIO $ pure <$> encodeInt16 0) >>= sendMany sock
   BS.concat <$> recvExact sock 2
 
 -- | Find a socket to the specified endpoint
@@ -171,17 +170,10 @@ socketForEndPoint :: EndPointAddress -- ^ Our address
                   -> ErrorT (FailedWith ConnectErrorCode) IO N.Socket
 socketForEndPoint (EndPointAddress myAddress) theirAddress = do
     (host, port, endPointIx) <- maybeToErrorT invalidAddress (decodeEndPointAddress theirAddress)
-    liftIO $ do
-      -- Connect to the destination transport 
-      addr:_ <- N.getAddrInfo Nothing (Just host) (Just port) 
-      sock   <- N.socket (N.addrFamily addr) N.Stream N.defaultProtocol
-      N.setSocketOption sock N.ReuseAddr 1
-      N.connect sock (N.addrAddress addr) 
-      -- Tell it what endpoint we're interested in and our own address
-      endPointBS <- encodeInt16 (fromIntegral endPointIx)
-      sendWithLength sock (Just endPointBS) [myAddress]
-      -- Connection is now established
-      return sock 
+    sock <- maybeTToErrorT undefined (connectTo host port)
+    endPointBS <- liftIO $ encodeInt16 (fromIntegral endPointIx)
+    maybeTToErrorT undefined $ sendWithLength sock (Just endPointBS) [myAddress]
+    return sock 
   where
     invalidAddress = FailedWith ConnectInvalidAddress "Invalid address"
 
@@ -192,4 +184,3 @@ decodeEndPointAddress (EndPointAddress bs) = match endPointAddressRE (BSC.unpack
   where
     endPointAddressRE :: RE Char (N.HostName, N.ServiceName, EndPointIx)
     endPointAddressRE = (,,) <$> few anySym <*> (sym ':' *> few anySym) <*> (sym ':' *> (read <$> many anySym))
-

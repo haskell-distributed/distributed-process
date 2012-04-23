@@ -1,6 +1,7 @@
 module TestTransport where
 
-import Control.Concurrent (forkIO, myThreadId)
+import Control.Concurrent (forkIO)
+-- import Control.Concurrent (myThreadId)
 import Control.Monad (liftM2, replicateM, replicateM_, when)
 import Control.Applicative ((<$>))
 import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar)
@@ -14,7 +15,7 @@ type Test = IO Bool
 
 -- Logging (for debugging)
 tlog :: String -> IO ()
-tlog msg = return ()
+tlog _ = return ()
 {-
 tlog msg = do
   tid <- myThreadId

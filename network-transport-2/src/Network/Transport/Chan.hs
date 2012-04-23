@@ -73,7 +73,8 @@ chanConnect myAddress state theirAddress _ = do
     let conn = st ^. connectionAt theirAddress
     return (connectionAt theirAddress ^+= 1 $ st, (chan, conn))
   writeChan chan $ ConnectionOpened conn ReliableOrdered myAddress
-  return . Right $ Connection { send  = writeChan chan . Received conn 
+  return . Right $ Connection { send  = \msg -> do writeChan chan (Received conn msg)
+                                                   return (Right ())
                               , close = writeChan chan $ ConnectionClosed conn
                               } 
 

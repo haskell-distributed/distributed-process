@@ -1,14 +1,15 @@
 module Main where
 
 import Network.Transport
-import Network.Transport.Internal (encodeInt16)
-import Network.Transport.Internal.TCP (sendWithLength)
+import Network.Transport.Internal (encodeInt16, decodeInt16)
+import Network.Transport.Internal.TCP (sendWithLength, recvExact, sendMany)
 import TestTransport (testTransport)
 import Network.Transport.TCP (createTransport, decodeEndPointAddress)
 import System.Exit (exitFailure, exitSuccess)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar, readMVar)
 import Control.Concurrent (forkIO)
-import Control.Applicative ((<$>), pure)
+-- import Control.Monad.IO.Class (liftIO)
+import Control.Monad.Trans.Maybe (runMaybeT)
 import Data.Maybe (fromJust)
 import qualified Network.Socket as N ( getAddrInfo
                                      , socket
@@ -21,7 +22,6 @@ import qualified Network.Socket as N ( getAddrInfo
                                      , setSocketOption
                                      , sClose
                                      )
-import qualified Network.Socket.ByteString as NBS (sendMany)                                     
 
 testEarlyDisconnect :: IO ()
 testEarlyDisconnect = do
@@ -34,11 +34,17 @@ testEarlyDisconnect = do
     Right endpoint <- newEndPoint transport
     putMVar serverAddr (fromJust . decodeEndPointAddress . address $ endpoint)
 
+    putStrLn "Server waiting for client to connect"
+
     -- Wait for an incoming connection
     ConnectionOpened _ _ _ <- receive endpoint
 
+    putStrLn "Server waiting for client to disconnect"
+
     -- Wait for the client to disconnect
     ConnectionClosed _ <- receive endpoint
+
+    putStrLn "Server exiting"
 
     putMVar serverDone ()
 
@@ -57,16 +63,21 @@ testEarlyDisconnect = do
     N.setSocketOption sock N.ReuseAddr 1
     N.connect sock (N.addrAddress addr)
 
-    -- Send number of the destination endpoint and our own address 
     (_, _, endPointIx) <- readMVar serverAddr
     endPointBS <- encodeInt16 (fromIntegral endPointIx)
-    sendWithLength sock (Just endPointBS) [myAddress]
+    runMaybeT $ sendWithLength sock (Just endPointBS) [myAddress]
 
     -- Request a new connection
-    pure <$> encodeInt16 0 >>= NBS.sendMany sock
+    zero <- encodeInt16 0 
+    runMaybeT $ sendMany sock [zero]
 
-    -- At this point the server will try to reply with the connection ID,
-    -- but we close the connection instead
+    -- Request a new connection
+    connIx <- runMaybeT $ do
+      [connBs] <- recvExact sock 2
+      decodeInt16 connBs
+    putStrLn $ "Client got connection ID " ++ show connIx
+
+    -- Close the socket 
     N.sClose sock
 
   -- Wait for the server to finish
