@@ -13,8 +13,12 @@ import Foreign.Storable (pokeByteOff, peekByteOff)
 import Foreign.C (CInt(..), CShort(..))
 import Foreign.ForeignPtr (withForeignPtr)
 import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS (length)
 import qualified Data.ByteString.Internal as BSI (create, toForeignPtr)
+import Control.Monad (mzero)
+import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Error (ErrorT, Error, throwError)
+import Control.Monad.Trans.Maybe (MaybeT)
 
 foreign import ccall unsafe "htonl" htonl :: CInt -> CInt
 foreign import ccall unsafe "ntohl" ntohl :: CInt -> CInt
@@ -28,9 +32,10 @@ encodeInt32 i32 =
     pokeByteOff p 0 (htonl (fromIntegral i32))
 
 -- | Deserialize 32-bit from network byte order 
-decodeInt32 :: ByteString -> IO Int32
-decodeInt32 bs = 
-  let (fp, _, _) = BSI.toForeignPtr bs in 
+decodeInt32 :: ByteString -> MaybeT IO Int32
+decodeInt32 bs | BS.length bs /= 4 = mzero
+decodeInt32 bs = liftIO $ do 
+  let (fp, _, _) = BSI.toForeignPtr bs 
   withForeignPtr fp $ \p -> do
     w32 <- peekByteOff p 0 
     return (fromIntegral (ntohl w32))
@@ -42,9 +47,10 @@ encodeInt16 i16 =
     pokeByteOff p 0 (htons (fromIntegral i16))
 
 -- | Deserialize 16-bit from network byte order 
-decodeInt16 :: ByteString -> IO Int16
-decodeInt16 bs = 
-  let (fp, _, _) = BSI.toForeignPtr bs in 
+decodeInt16 :: ByteString -> MaybeT IO Int16
+decodeInt16 bs | BS.length bs /= 2 = mzero
+decodeInt16 bs = liftIO $ do
+  let (fp, _, _) = BSI.toForeignPtr bs 
   withForeignPtr fp $ \p -> do
     w16 <- peekByteOff p 0 
     return (fromIntegral (ntohs w16))

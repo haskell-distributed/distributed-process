@@ -26,20 +26,22 @@ import qualified Network.Socket as N ( HostName
                                      , sClose
                                      , accept
                                      )
-import qualified Network.Socket.ByteString as NSB (sendMany, recv)
+import qualified Network.Socket.ByteString as NBS (sendMany, recv)
 import Control.Concurrent (forkIO, ThreadId)
 import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
 import Control.Concurrent.MVar (MVar, newMVar, modifyMVar, readMVar)
 import Control.Category ((>>>))
 import Control.Applicative ((<*>), (*>), (<$>), pure)
-import Control.Monad (forever)
+import Control.Monad (forever, mzero)
 import Control.Monad.Error (ErrorT, liftIO, runErrorT)
+import Control.Monad.Trans.Maybe (MaybeT(MaybeT), runMaybeT)
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS (length, concat)
+import qualified Data.ByteString as BS (length, concat, null)
 import qualified Data.ByteString.Char8 as BSC (pack, unpack)
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap (empty, size)
 import Data.Lens.Lazy (Lens, lens, intMapLens, (^.), (^=), (^+=))
+import Data.Int (Int32)
 import Text.Regex.Applicative (RE, few, anySym, sym, many, match)
 
 data TransportState = TransportState { _endPoints        :: IntMap (Chan Event, MVar EndPointState) }
@@ -91,28 +93,31 @@ forkServer host port server = do
 transportServer :: MVar TransportState -> N.Socket -> IO ()
 transportServer state sock = forever $ do
   (clientSock, _) <- N.accept sock
-  forkIO $ do 
+  forkIO $ handleClient state clientSock >> N.sClose clientSock
+    
+-- | Handle a new incoming connection
+--
+-- Returns when the client closes the socket and on invalid input.
+handleClient :: MVar TransportState -> N.Socket -> IO () 
+handleClient state sock = do 
+  runMaybeT $ do 
     -- Our endpoint the other side is interested in 
-    endPointBS <- NSB.recv clientSock 2
-    endPointIx <- decodeInt16 endPointBS 
+    endPointBS <- recvExact sock 2
+    endPointIx <- decodeInt16 (BS.concat $ endPointBS)
     -- Full endpoint address of the other side 
-    theirAddress <- BS.concat <$> recvWithLength clientSock
+    theirAddress <- BS.concat <$> recvWithLength sock 
     -- Start handling incoming messages 
-    endPointMb <- (^. endPointAt (fromIntegral endPointIx)) <$> readMVar state  
-    case endPointMb of
-      Just (endPointCh, endPointSt) -> do 
-        endpointServer clientSock (EndPointAddress theirAddress) endPointCh endPointSt
-      Nothing -> -- TODO: should we do more than just close the socket?
-        N.sClose clientSock 
+    (endPointCh, endPointSt) <- MaybeT $ (^. endPointAt (fromIntegral endPointIx)) <$> readMVar state   
+    endpointServer sock (EndPointAddress theirAddress) endPointCh endPointSt
+  return ()
 
--- | Handle requests for one endpoint
-endpointServer :: N.Socket -> EndPointAddress -> Chan Event -> MVar EndPointState -> IO ()
-endpointServer sock theirAddress chan state = forever $ do 
-    -- Get connection number
-    connBS <- NSB.recv sock 2
-    connIx <- fromIntegral <$> decodeInt16 connBS
+-- | Handle requests for one endpoint. Returns only if an error occurs
+endpointServer :: N.Socket -> EndPointAddress -> Chan Event -> MVar EndPointState -> MaybeT IO ()
+endpointServer sock theirAddress chan state = forever $ do
+    connBS <- recvExact sock 2
+    connIx <- fromIntegral <$> decodeInt16 (BS.concat connBS)
     if connIx == 0 
-      then createNewConnection 
+      then liftIO $ createNewConnection 
       else readMessage connIx 
   where
     -- Create a new connection
@@ -120,14 +125,14 @@ endpointServer sock theirAddress chan state = forever $ do
     createNewConnection = do
       newIx <- modifyMVar state $ \st -> return (nextConnectionIx ^+= 1 $ st, st ^. nextConnectionIx)  
       newBs <- encodeInt16 (fromIntegral newIx)
-      NSB.sendMany sock [newBs]
+      NBS.sendMany sock [newBs]
       writeChan chan (ConnectionOpened newIx ReliableOrdered theirAddress) 
     
     -- Read a message and output it on the endPoint's channel
-    readMessage :: Int -> IO ()
+    readMessage :: Int -> MaybeT IO ()
     readMessage connIx = do
       payload <- recvWithLength sock
-      writeChan chan (Received connIx payload) 
+      liftIO $ writeChan chan (Received connIx payload) 
 
 -- | Create a new endpoint
 tcpNewEndPoint :: MVar TransportState -> N.HostName -> N.ServiceName -> IO (Either (FailedWith NewEndPointErrorCode) EndPoint)
@@ -156,8 +161,8 @@ tcpConnect myAddress theirAddress _ = runErrorT $ do
 -- | Request a new connection 
 requestNewConnection :: N.Socket -> IO ByteString 
 requestNewConnection sock = do
-  pure <$> encodeInt16 0 >>= NSB.sendMany sock
-  NSB.recv sock 2
+  pure <$> encodeInt16 0 >>= NBS.sendMany sock
+  NBS.recv sock 2
 
 -- | Find a socket to the specified endpoint
 --
@@ -191,15 +196,14 @@ sendWithLength :: N.Socket           -- ^ Socket to send on
 sendWithLength sock header payload = do
   lengthBs <- encodeInt32 (fromIntegral . sum . map BS.length $ payload)
   let msg = maybe id (:) header $ lengthBs : payload
-  NSB.sendMany sock msg 
+  NBS.sendMany sock msg 
 
 -- | Read a length and then a payload of that length
 -- TODO: error handling
-recvWithLength :: N.Socket -> IO [ByteString]
+recvWithLength :: N.Socket -> MaybeT IO [ByteString]
 recvWithLength sock = do
-  msgLengthBs <- NSB.recv sock 4
-  msgLength   <- fromIntegral <$> decodeInt32 msgLengthBs
-  pure <$> NSB.recv sock msgLength
+  msgLengthBs <- recvExact sock 4
+  decodeInt32 (BS.concat msgLengthBs) >>= recvExact sock
 
 -- | Decode end point address
 -- TODO: This uses regular expression parsing, which is nice, but unnecessary
@@ -208,3 +212,22 @@ decodeEndPointAddress bs = match endPointAddressRE (BSC.unpack bs)
   where
     endPointAddressRE :: RE Char (N.HostName, N.ServiceName, Int)
     endPointAddressRE = (,,) <$> few anySym <*> (sym ':' *> few anySym) <*> (sym ':' *> (read <$> many anySym))
+
+-- | Read an exact number of bytes from a socket
+--
+-- Returns 'Nothing' if the socket closes prematurely.
+recvExact :: N.Socket                -- ^ Socket to read from 
+          -> Int32                   -- ^ Number of bytes to read
+          -> MaybeT IO [ByteString]
+recvExact sock len = do
+    (socketClosed, input) <- liftIO $ go [] len
+    if socketClosed then mzero else return input
+  where
+    -- Returns input read and whether the socket closed prematurely
+    go :: [ByteString] -> Int32 -> IO (Bool, [ByteString])
+    go acc 0 = return (False, reverse acc)
+    go acc l = do
+      bs <- NBS.recv sock (fromIntegral l `min` 4096)
+      if BS.null bs 
+        then return (True, reverse acc)
+        else go (bs : acc) (l - (fromIntegral $ BS.length bs))

@@ -14,7 +14,8 @@ Library
                    data-lens,
                    network,
                    regex-applicative,
-                   mtl
+                   mtl,
+                   transformers
   Exposed-modules: Network.Transport,
                    Network.Transport.Chan
   extensions:      EmptyDataDecls, ForeignFunctionInterface
@@ -30,7 +31,8 @@ Test-Suite TestTCP
                   data-lens,
                   network,
                   regex-applicative,
-                  mtl
+                  mtl,
+                  transformers
   extensions:     EmptyDataDecls, OverloadedStrings, ForeignFunctionInterface
   ghc-options:    -Wall -fno-warn-unused-do-bind
   HS-Source-Dirs: tests src
@@ -42,8 +44,6 @@ Test-Suite TestMulticastInMemory
                   containers,
                   bytestring,
                   data-lens,
-                  network,
-                  regex-applicative,
                   mtl
   extensions:     EmptyDataDecls, OverloadedStrings
   ghc-options:    -Wall -fno-warn-unused-do-bind

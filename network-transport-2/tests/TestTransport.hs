@@ -14,9 +14,12 @@ type Test = IO Bool
 
 -- Logging (for debugging)
 tlog :: String -> IO ()
+tlog msg = return ()
+{-
 tlog msg = do
   tid <- myThreadId
   putStrLn $ show tid ++ ": "  ++ msg
+-}
 
 -- Server that echoes messages straight back to the origin endpoint.
 echoServer :: EndPoint -> IO ()
@@ -152,7 +155,7 @@ testConnections transport numPings = do
 testTransport :: Transport -> IO Bool
 testTransport transport = do 
   tlog "Starting transport tests"
-  foldl (liftM2 (&&)) (return True) [ testPingPong    transport 1
-                                    , testEndPoints   transport 1
-                                    , testConnections transport 1
+  foldl (liftM2 (&&)) (return True) [ testPingPong    transport 10000
+                                    , testEndPoints   transport 10000
+                                    , testConnections transport 10000
                                     ]
