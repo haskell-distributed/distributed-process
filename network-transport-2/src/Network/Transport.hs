@@ -1,43 +1,75 @@
 -- | Network Transport 
-module Network.Transport where
+module Network.Transport ( -- * Types
+                           Transport(..)
+                         , EndPoint(..)
+                         , Connection(..)
+                         , Event(..)
+                         , ConnectionId
+                         , Reliability(..)
+                         , MulticastGroup(..)
+                         , EndPointAddress(..)
+                         , MulticastAddress(..)
+                           -- * Utility functions
+                         , spawn
+                           -- * Error codes
+                         , FailedWith(..)
+                         , NewEndPointErrorCode
+                         , ConnectErrorCode(..)
+                         , NewMulticastGroupErrorCode
+                         , ResolveMulticastGroupErrorCode(..)
+                         ) where
 
 import Data.ByteString (ByteString)
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar)
+import Control.Monad.Error (Error(..))
 
 -- | To create a network abstraction layer, use one of the
 -- @Network.Transport.*@ packages.
 data Transport = Transport {
     -- | Create a new end point (heavyweight operation)
-    newEndPoint :: IO (Either Error EndPoint)
+    newEndPoint :: IO (Either (FailedWith NewEndPointErrorCode) EndPoint)
   }
 
--- | Address of an endpoint.
-newtype Address = Address ByteString
+-- | EndPointAddress of an endpoint.
+newtype EndPointAddress = EndPointAddress ByteString
   deriving (Show, Eq, Ord)
 
--- | Address of a multicast group.
+-- | EndPointAddress of a multicast group.
 newtype MulticastAddress = MulticastAddress ByteString
   deriving (Show, Eq, Ord)
 
--- | Error codes (none defined at the moment).
-data ErrorCode
+-- | Errors during the creation of an endpoint (currently, there are none)
+data NewEndPointErrorCode 
 
--- | Error consisting of an error code and a human readable error string.
-data Error = Error ErrorCode String 
+-- | Connection failure 
+data ConnectErrorCode = 
+    ConnectInvalidAddress -- ^ Could not parse the address
+
+-- | Failure during the creation of a new multicast group
+data NewMulticastGroupErrorCode
+
+-- | Failure during the resolution of a multicast group
+data ResolveMulticastGroupErrorCode =
+    MulticastGroupNotFound
+
+data FailedWith error = FailedWith error String
+
+instance Error (FailedWith error) where
+  strMsg = FailedWith undefined
 
 -- | Network endpoint.
 data EndPoint = EndPoint {
     -- | Endpoints have a single shared receive queue.
     receive :: IO Event
-    -- | Address of the endpoint.
-  , address :: Address 
+    -- | EndPointAddress of the endpoint.
+  , address :: EndPointAddress 
     -- | Create a new lightweight connection. 
-  , connect :: Address -> Reliability -> IO (Either Error Connection)
+  , connect :: EndPointAddress -> Reliability -> IO (Either (FailedWith ConnectErrorCode) Connection)
     -- | Create a new multicast group.
-  , newMulticastGroup :: IO (Either Error MulticastGroup)
+  , newMulticastGroup :: IO (Either (FailedWith NewMulticastGroupErrorCode) MulticastGroup)
     -- | Resolve an address to a multicast group.
-  , resolveMulticastGroup :: MulticastAddress -> IO (Either Error MulticastGroup)
+  , resolveMulticastGroup :: MulticastAddress -> IO (Either (FailedWith ResolveMulticastGroupErrorCode) MulticastGroup)
   } 
 
 -- | Reliability guarantees of a connection.
@@ -62,13 +94,13 @@ data Connection = Connection {
 data Event = 
     Received ConnectionId [ByteString]
   | ConnectionClosed ConnectionId
-  | ConnectionOpened ConnectionId Reliability Address 
+  | ConnectionOpened ConnectionId Reliability EndPointAddress 
   | ReceivedMulticast MulticastAddress [ByteString]
   deriving Show
 
 -- | Multicast group.
 data MulticastGroup = MulticastGroup {
-    -- | Address of the multicast group. 
+    -- | EndPointAddress of the multicast group. 
     multicastAddress     :: MulticastAddress
     -- | Delete the multicast group completely.
   , deleteMulticastGroup :: IO ()
@@ -87,7 +119,7 @@ data MulticastGroup = MulticastGroup {
 -- | Fork a new thread, create a new end point on that thread, and run the specified IO operation on that thread.
 -- 
 -- Returns the address of the new end point.
-spawn :: Transport -> (EndPoint -> IO ()) -> IO Address 
+spawn :: Transport -> (EndPoint -> IO ()) -> IO EndPointAddress 
 spawn transport proc = do
   addr <- newEmptyMVar
   forkIO $ do

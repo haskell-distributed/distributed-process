@@ -1,6 +1,6 @@
 module TestTransport where
 
-import Control.Concurrent (forkIO)
+import Control.Concurrent (forkIO, myThreadId)
 import Control.Monad (liftM2, replicateM, replicateM_, when)
 import Control.Applicative ((<$>))
 import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar)
@@ -12,13 +12,22 @@ import qualified Data.Map as Map (empty, insert, (!), delete)
 
 type Test = IO Bool
 
+-- Logging (for debugging)
+tlog :: String -> IO ()
+tlog msg = do
+  tid <- myThreadId
+  putStrLn $ show tid ++ ": "  ++ msg
+
 -- Server that echoes messages straight back to the origin endpoint.
 echoServer :: EndPoint -> IO ()
-echoServer endpoint = go Map.empty
+echoServer endpoint = do
+    tlog "Echo server"
+    go Map.empty
   where
     go :: Map ConnectionId Connection -> IO () 
     go cs = do
       event <- receive endpoint
+      tlog (show event)
       case event of
         ConnectionOpened cid rel addr -> do
           Right conn <- connect endpoint addr rel 
@@ -33,31 +42,41 @@ echoServer endpoint = go Map.empty
           -- Ignore
           go cs
 
-ping :: EndPoint -> Address -> Int -> ByteString -> IO ()
+ping :: EndPoint -> EndPointAddress -> Int -> ByteString -> IO ()
 ping endpoint server numPings msg = do
   -- Open connection to the server
+  tlog "Open connection"
   Right conn <- connect endpoint server ReliableOrdered
 
   -- Wait for the server to open reply connection
+  tlog "Wait for ConnectionOpened message"
   ConnectionOpened _ _ _ <- receive endpoint
 
   -- Send pings and wait for reply
+  tlog "Send ping and wait for reply"
   replicateM_ numPings $ do
       send conn [msg]
-      Received _ [reply] <- receive endpoint
-      when (reply /= msg) . error $ "Message mismatch: " ++ show msg ++ " /= " ++ show reply 
+      event <- receive endpoint
+      case event of
+        Received _ [reply] | reply == msg -> 
+          return ()
+        _ -> do
+          error $ "Unexpected event " ++ show event 
 
   -- Close the connection
+  tlog "Close the connection"
   close conn
     
 -- Basic ping test
 testPingPong :: Transport -> Int -> Test
 testPingPong transport numPings = do
+  tlog "Starting ping pong test"
   server <- spawn transport echoServer
   result <- newEmptyMVar
 
   -- Client 
   forkIO $ do
+    tlog "Ping client"
     Right endpoint <- newEndPoint transport
     ping endpoint server numPings "ping"
     putStrLn $ "client did " ++ show numPings ++ " pings"
@@ -131,8 +150,9 @@ testConnections transport numPings = do
 
 -- Transport tests
 testTransport :: Transport -> IO Bool
-testTransport transport = 
-  foldl (liftM2 (&&)) (return True) [ testPingPong    transport 10000
-                                    , testEndPoints   transport 10000
-                                    , testConnections transport 10000
+testTransport transport = do 
+  tlog "Starting transport tests"
+  foldl (liftM2 (&&)) (return True) [ testPingPong    transport 1
+                                    , testEndPoints   transport 1
+                                    , testConnections transport 1
                                     ]

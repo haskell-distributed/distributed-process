@@ -11,12 +11,29 @@ Library
   Build-Depends:   base,
                    bytestring,
                    containers,
-                   data-lens
+                   data-lens,
+                   network,
+                   regex-applicative,
+                   mtl
   Exposed-modules: Network.Transport,
                    Network.Transport.Chan
-  extensions:      EmptyDataDecls
+  extensions:      EmptyDataDecls, ForeignFunctionInterface
   ghc-options:     -Wall -fno-warn-unused-do-bind
   HS-Source-Dirs:  src
+
+Test-Suite TestTCP 
+  Type:           exitcode-stdio-1.0
+  Main-Is:        TestTCP.hs
+  Build-Depends:  base,
+                  containers,
+                  bytestring,
+                  data-lens,
+                  network,
+                  regex-applicative,
+                  mtl
+  extensions:     EmptyDataDecls, OverloadedStrings, ForeignFunctionInterface
+  ghc-options:    -Wall -fno-warn-unused-do-bind
+  HS-Source-Dirs: tests src
 
 Test-Suite TestMulticastInMemory 
   Type:           exitcode-stdio-1.0
@@ -24,8 +41,11 @@ Test-Suite TestMulticastInMemory
   Build-Depends:  base,
                   containers,
                   bytestring,
-                  data-lens
-  extensions:     EmptyDataDecls OverloadedStrings
+                  data-lens,
+                  network,
+                  regex-applicative,
+                  mtl
+  extensions:     EmptyDataDecls, OverloadedStrings
   ghc-options:    -Wall -fno-warn-unused-do-bind
   HS-Source-Dirs: tests src
 
@@ -35,8 +55,8 @@ Test-Suite TestInMemory
   Build-Depends:  base,
                   containers,
                   bytestring,
-                  data-lens
-  extensions:     EmptyDataDecls OverloadedStrings
+                  data-lens,
+                  mtl
+  extensions:     EmptyDataDecls, OverloadedStrings
   ghc-options:    -Wall -fno-warn-unused-do-bind
   HS-Source-Dirs: tests src
-
