@@ -24,6 +24,7 @@ import Data.ByteString (ByteString)
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar)
 import Control.Monad.Error (Error(..))
+import Data.Int (Int32)
 
 -- | To create a network abstraction layer, use one of the
 -- @Network.Transport.*@ packages.
@@ -87,7 +88,7 @@ data Reliability =
   deriving Show
 
 -- | Connection IDs enable receivers to distinguish one connection from another.
-type ConnectionId = Int
+type ConnectionId = Int32
 
 -- | Lightweight connection to an endpoint.
 data Connection = Connection {

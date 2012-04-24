@@ -13,16 +13,16 @@ import qualified Data.ByteString.Char8 as BSC (pack)
 import Data.Lens.Lazy (Lens, lens, (^.), (^%=), (^=), (^+=), mapLens)
 
 -- Global state: next available "address", mapping from addresses to channels and next available connection
-data TransportState = State { _channels    :: Map EndPointAddress (Chan Event) 
-                            , _connections :: Map EndPointAddress Int
-                            , _multigroups :: Map MulticastAddress (MVar [Chan Event])
+data TransportState = State { _channels         :: Map EndPointAddress (Chan Event) 
+                            , _nextConnectionId :: Map EndPointAddress ConnectionId 
+                            , _multigroups      :: Map MulticastAddress (MVar [Chan Event])
                             }
 
 channels :: Lens TransportState (Map EndPointAddress (Chan Event))
 channels = lens _channels (\ch st -> st { _channels = ch })
 
-connections :: Lens TransportState (Map EndPointAddress Int)
-connections = lens _connections (\conn st -> st { _connections = conn })
+nextConnectionId :: Lens TransportState (Map EndPointAddress ConnectionId)
+nextConnectionId = lens  _nextConnectionId (\cid st -> st { _nextConnectionId = cid })
 
 multigroups :: Lens TransportState (Map MulticastAddress (MVar [Chan Event]))
 multigroups = lens _multigroups (\gs st -> st { _multigroups = gs }) 
@@ -33,8 +33,8 @@ at k = lens (Map.! k) (Map.insert k)
 channelAt :: EndPointAddress -> Lens TransportState (Chan Event) 
 channelAt addr = channels >>> at addr
 
-connectionAt :: EndPointAddress -> Lens TransportState Int
-connectionAt addr = connections >>> at addr
+nextConnectionIdAt :: EndPointAddress -> Lens TransportState ConnectionId
+nextConnectionIdAt addr = nextConnectionId >>> at addr
 
 multigroupAt :: MulticastAddress -> Lens TransportState (MVar [Chan Event])
 multigroupAt addr = multigroups >>> at addr
@@ -45,9 +45,9 @@ multigroupAt addr = multigroups >>> at addr
 -- (threads can, and should, create their own endpoints though).
 createTransport :: IO Transport
 createTransport = do
-  state <- newMVar State { _channels    = Map.empty 
-                         , _connections = Map.empty
-                         , _multigroups = Map.empty
+  state <- newMVar State { _channels         = Map.empty 
+                         , _nextConnectionId = Map.empty
+                         , _multigroups      = Map.empty
                          }
   return Transport { newEndPoint = chanNewEndPoint state }
 
@@ -57,7 +57,7 @@ chanNewEndPoint state = do
   chan <- newChan
   addr <- modifyMVar state $ \st -> do
     let addr = EndPointAddress . BSC.pack . show . Map.size $ st ^. channels
-    return ((channelAt addr ^= chan) . (connectionAt addr ^= 0) $ st, addr)
+    return ((channelAt addr ^= chan) . (nextConnectionIdAt addr ^= 1) $ st, addr)
   return . Right $ EndPoint { receive = readChan chan  
                             , address = addr
                             , connect = chanConnect addr state 
@@ -70,8 +70,8 @@ chanConnect :: EndPointAddress -> MVar TransportState -> EndPointAddress -> Reli
 chanConnect myAddress state theirAddress _ = do 
   (chan, conn) <- modifyMVar state $ \st -> do
     let chan = st ^. channelAt theirAddress
-    let conn = st ^. connectionAt theirAddress
-    return (connectionAt theirAddress ^+= 1 $ st, (chan, conn))
+    let conn = st ^. nextConnectionIdAt theirAddress
+    return (nextConnectionIdAt theirAddress ^+= 1 $ st, (chan, conn))
   writeChan chan $ ConnectionOpened conn ReliableOrdered myAddress
   return . Right $ Connection { send  = \msg -> do writeChan chan (Received conn msg)
                                                    return (Right ())

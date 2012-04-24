@@ -5,11 +5,17 @@ module Network.Transport.Internal.TCP ( forkServer
                                       , recvWithLength
                                       , sendMany
                                       , recvExact 
+                                      , recvInt16
+                                      , recvInt32
+                                      , sendInt16
+                                      , sendInt32
                                       ) where
 
 import Prelude hiding (catch)
 import Network.Transport.Internal ( encodeInt32
                                   , decodeInt32
+                                  , encodeInt16
+                                  , decodeInt16
                                   )
 import qualified Network.Socket as N ( HostName
                                      , ServiceName
@@ -32,9 +38,10 @@ import Control.Concurrent (forkIO, ThreadId)
 import Control.Monad (mzero, MonadPlus, unless)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Exception (catch, IOException)
+import Control.Applicative (pure)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (length, concat, null)
-import Data.Int (Int32)
+import Data.Int (Int16, Int32)
 
 -- | Start a server at the specified address
 --
@@ -110,3 +117,19 @@ recvExact sock len = do
       if BS.null bs 
         then return (True, reverse acc)
         else go (bs : acc) (l - fromIntegral (BS.length bs))
+
+-- | Receive a 16-bit integer
+recvInt16 :: (MonadIO m, MonadPlus m) => N.Socket -> m Int16
+recvInt16 sock = recvExact sock 2 >>= decodeInt16 . BS.concat
+
+-- | Receive a 32-bit integer
+recvInt32 :: (MonadIO m, MonadPlus m) => N.Socket -> m Int32
+recvInt32 sock = recvExact sock 4 >>= decodeInt32 . BS.concat 
+
+-- | Send a 16-bit integer
+sendInt16 :: (MonadIO m, MonadPlus m) => N.Socket -> Int16 -> m ()
+sendInt16 sock n = encodeInt16 n >>= sendMany sock . pure 
+
+-- | Send a 32-bit integer
+sendInt32 :: (MonadIO m, MonadPlus m) => N.Socket -> Int32 -> m ()
+sendInt32 sock n = encodeInt32 n >>= sendMany sock . pure 
