@@ -29,11 +29,9 @@ import qualified Network.Socket as N ( HostName
                                      )
 import qualified Network.Socket.ByteString as NBS (sendMany, recv)
 import Control.Concurrent (forkIO, ThreadId)
-import Control.Monad (mzero)
-import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Trans.Maybe (MaybeT(MaybeT))
+import Control.Monad (mzero, MonadPlus, unless)
+import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Exception (catch, IOException)
-import Control.Applicative ((<$>), pure)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (length, concat, null)
 import Data.Int (Int32)
@@ -56,7 +54,7 @@ forkServer host port server = do
 -- | Connect to another host 
 -- 
 -- TODO: deal with errors
-connectTo :: N.HostName -> N.ServiceName -> MaybeT IO N.Socket
+connectTo :: (MonadIO m) => N.HostName -> N.ServiceName -> m N.Socket
 connectTo host port = liftIO $ do
   addr:_ <- N.getAddrInfo Nothing (Just host) (Just port) 
   sock   <- N.socket (N.addrFamily addr) N.Stream N.defaultProtocol
@@ -65,17 +63,18 @@ connectTo host port = liftIO $ do
   return sock
 
 -- | Send a bunch of bytestrings prepended with their length
-sendWithLength :: N.Socket           -- ^ Socket to send on
+sendWithLength :: (MonadIO m, MonadPlus m) 
+               => N.Socket           -- ^ Socket to send on
                -> Maybe ByteString   -- ^ Optional header to send before the length
                -> [ByteString]       -- ^ Payload
-               -> MaybeT IO ()
+               -> m ()
 sendWithLength sock header payload = do
   lengthBs <- liftIO $ encodeInt32 (fromIntegral . sum . map BS.length $ payload)
   let msg = maybe id (:) header $ lengthBs : payload
   sendMany sock msg 
 
 -- | Read a length and then a payload of that length
-recvWithLength :: N.Socket -> MaybeT IO [ByteString]
+recvWithLength :: (MonadIO m, MonadPlus m) => N.Socket -> m [ByteString]
 recvWithLength sock = do
   msgLengthBs <- recvExact sock 4
   decodeInt32 (BS.concat msgLengthBs) >>= recvExact sock
@@ -83,18 +82,21 @@ recvWithLength sock = do
 -- | Wrapper around 'Network.Socket.ByteString.sendMany'
 -- 
 -- Returns Nothing when an I/O exception is raised during the send
-sendMany :: N.Socket -> [ByteString] -> MaybeT IO ()
-sendMany sock msg = MaybeT $ catch (pure <$> NBS.sendMany sock msg) (handleIOException) 
+sendMany :: (MonadIO m, MonadPlus m) => N.Socket -> [ByteString] -> m ()
+sendMany sock msg = do 
+    success <- liftIO $ catch (NBS.sendMany sock msg >> return True) handleIOException 
+    unless success mzero
   where
-    handleIOException :: IOException -> IO (Maybe ())
-    handleIOException _ = return mzero 
+    handleIOException :: IOException -> IO Bool
+    handleIOException _ = return False
 
 -- | Read an exact number of bytes from a socket
 --
 -- Returns 'Nothing' if the socket closes prematurely or the length is non-positive
-recvExact :: N.Socket                -- ^ Socket to read from 
+recvExact :: (MonadIO m, MonadPlus m) 
+          => N.Socket                -- ^ Socket to read from 
           -> Int32                   -- ^ Number of bytes to read
-          -> MaybeT IO [ByteString]
+          -> m [ByteString]
 recvExact _ len | len <= 0 = mzero
 recvExact sock len = do
     (socketClosed, input) <- liftIO $ go [] len
@@ -107,4 +109,4 @@ recvExact sock len = do
       bs <- NBS.recv sock (fromIntegral l `min` 4096)
       if BS.null bs 
         then return (True, reverse acc)
-        else go (bs : acc) (l - (fromIntegral $ BS.length bs))
+        else go (bs : acc) (l - fromIntegral (BS.length bs))

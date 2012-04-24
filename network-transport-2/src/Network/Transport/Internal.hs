@@ -16,8 +16,8 @@ import Foreign.ForeignPtr (withForeignPtr)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (length)
 import qualified Data.ByteString.Internal as BSI (create, toForeignPtr)
-import Control.Monad (mzero)
-import Control.Monad.IO.Class (liftIO)
+import Control.Monad (mzero, MonadPlus)
+import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Error (ErrorT, Error, throwError, lift)
 import Control.Monad.Trans.Maybe (MaybeT, runMaybeT)
 
@@ -27,13 +27,13 @@ foreign import ccall unsafe "htons" htons :: CShort -> CShort
 foreign import ccall unsafe "ntohs" ntohs :: CShort -> CShort
 
 -- | Serialize 32-bit to network byte order 
-encodeInt32 :: Int32 -> IO ByteString
-encodeInt32 i32 = 
+encodeInt32 :: (MonadIO m) => Int32 -> m ByteString
+encodeInt32 i32 = liftIO $ 
   BSI.create 4 $ \p ->
     pokeByteOff p 0 (htonl (fromIntegral i32))
 
 -- | Deserialize 32-bit from network byte order 
-decodeInt32 :: ByteString -> MaybeT IO Int32
+decodeInt32 :: (MonadIO m, MonadPlus m) => ByteString -> m Int32 
 decodeInt32 bs | BS.length bs /= 4 = mzero
 decodeInt32 bs = liftIO $ do 
   let (fp, _, _) = BSI.toForeignPtr bs 
@@ -42,13 +42,13 @@ decodeInt32 bs = liftIO $ do
     return (fromIntegral (ntohl w32))
 
 -- | Serialize 16-bit to network byte order 
-encodeInt16 :: Int16 -> IO ByteString
-encodeInt16 i16 = 
+encodeInt16 :: (MonadIO m) => Int16 -> m ByteString
+encodeInt16 i16 = liftIO $ 
   BSI.create 2 $ \p ->
     pokeByteOff p 0 (htons (fromIntegral i16))
 
 -- | Deserialize 16-bit from network byte order 
-decodeInt16 :: ByteString -> MaybeT IO Int16
+decodeInt16 :: (MonadIO m, MonadPlus m) => ByteString -> m Int16
 decodeInt16 bs | BS.length bs /= 2 = mzero
 decodeInt16 bs = liftIO $ do
   let (fp, _, _) = BSI.toForeignPtr bs 

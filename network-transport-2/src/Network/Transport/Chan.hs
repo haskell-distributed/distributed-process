@@ -45,10 +45,10 @@ multigroupAt addr = multigroups >>> at addr
 -- (threads can, and should, create their own endpoints though).
 createTransport :: IO Transport
 createTransport = do
-  state <- newMVar $ State { _channels    = Map.empty 
-                           , _connections = Map.empty
-                           , _multigroups = Map.empty
-                           }
+  state <- newMVar State { _channels    = Map.empty 
+                         , _connections = Map.empty
+                         , _multigroups = Map.empty
+                         }
   return Transport { newEndPoint = chanNewEndPoint state }
 
 -- Create a new end point
@@ -106,7 +106,7 @@ chanMulticastGroup state endpoint addr group =
                                             cs <- readMVar group 
                                             forM_ cs $ \ch -> writeChan ch (ReceivedMulticast addr payload)             
                  , multicastSubscribe   = modifyMVar_ group $ return . (endpoint :)
-                 , multicastUnsubscribe = modifyMVar_ group $ return . (filter (/= endpoint)) 
+                 , multicastUnsubscribe = modifyMVar_ group $ return . filter (/= endpoint) 
                  , multicastClose       = return () 
                  }
 

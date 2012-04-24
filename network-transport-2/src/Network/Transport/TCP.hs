@@ -35,9 +35,11 @@ import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
 import Control.Concurrent.MVar (MVar, newMVar, modifyMVar, readMVar)
 import Control.Category ((>>>))
 import Control.Applicative ((<*>), (*>), (<$>), pure)
-import Control.Monad (forever)
+import Control.Monad (forever, forM_)
 import Control.Monad.Error (ErrorT, liftIO, runErrorT)
 import Control.Monad.Trans.Maybe (MaybeT(MaybeT), runMaybeT)
+import Control.Monad.Trans.Writer (WriterT, execWriterT)
+import Control.Monad.Writer.Class (tell)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (concat)
 import qualified Data.ByteString.Char8 as BSC (pack, unpack)
@@ -72,7 +74,7 @@ endPointAt ix = endPoints >>> intMapLens ix
 -- * Deal with all exceptions that may occur
 createTransport :: N.HostName -> N.ServiceName -> IO Transport
 createTransport host port = do 
-  state <- newMVar $ TransportState { _endPoints = IntMap.empty }
+  state <- newMVar TransportState { _endPoints = IntMap.empty }
   forkServer host port (transportServer state)
   return Transport { newEndPoint = tcpNewEndPoint state host port } 
 
@@ -89,38 +91,49 @@ transportServer state sock = forever $ do
 -- Returns when the client closes the socket and on invalid input.
 handleClient :: MVar TransportState -> N.Socket -> IO () 
 handleClient state sock = do 
-  runMaybeT $ do 
+  mendpoint <- runMaybeT $ do 
     -- Our endpoint the other side is interested in 
     endPointBS <- recvExact sock 2
-    endPointIx <- decodeInt16 (BS.concat $ endPointBS)
+    endPointIx <- decodeInt16 (BS.concat endPointBS)
     -- Full endpoint address of the other side 
     theirAddress <- BS.concat <$> recvWithLength sock 
-    -- Start handling incoming messages 
+    -- Find our endpoint
     (endPointCh, endPointSt) <- MaybeT $ (^. endPointAt (fromIntegral endPointIx)) <$> readMVar state   
-    endpointServer sock (EndPointAddress theirAddress) endPointCh endPointSt
-  return ()
+    return (endPointCh, endPointSt, theirAddress)
+  case mendpoint of
+    Just (endPointCh, endPointSt, theirAddress) -> do
+      openConnections <- endpointServer sock (EndPointAddress theirAddress) endPointCh endPointSt
+      forM_ openConnections $ \cix -> writeChan endPointCh (ConnectionClosed cix)
+    Nothing ->
+      -- Invalid request
+      return () 
 
--- | Handle requests for one endpoint. Returns only if an error occurs
-endpointServer :: N.Socket -> EndPointAddress -> Chan Event -> MVar EndPointState -> MaybeT IO ()
-endpointServer sock theirAddress chan state = forever $ do
+-- | Handle requests for one endpoint. Returns only if an error occurs,
+-- in which case it returns the connections that are still open (normally,
+-- this should be an empty list).
+endpointServer :: N.Socket -> EndPointAddress -> Chan Event -> MVar EndPointState -> IO [ConnectionIx] 
+endpointServer sock theirAddress chan state = execWriterT . runMaybeT . forever $ do
     connBS <- recvExact sock 2
     connIx <- fromIntegral <$> decodeInt16 (BS.concat connBS)
     if connIx == 0 
       then createNewConnection 
       else readMessage connIx 
   where
+    -- A brief note on the types:
+    -- These functions may fail (connection error): hence MaybeT
+    -- We also need to keep track of which connections are still open: hence WriterT
+
     -- Create a new connection
-    createNewConnection :: MaybeT IO () 
+    createNewConnection :: MaybeT (WriterT [ConnectionIx] IO) () 
     createNewConnection = do
-      (newIx, newBs) <- liftIO $ do
-        newIx <- modifyMVar state $ \st -> return (nextConnectionIx ^+= 1 $ st, st ^. nextConnectionIx)  
-        newBs <- encodeInt16 (fromIntegral newIx)
-        return (newIx, newBs)
+      newIx <- liftIO $ modifyMVar state $ \st -> return (nextConnectionIx ^+= 1 $ st, st ^. nextConnectionIx)  
+      newBs <- encodeInt16 (fromIntegral newIx)
       sendMany sock [newBs]
       liftIO $ writeChan chan (ConnectionOpened newIx ReliableOrdered theirAddress) 
+      tell [newIx]
     
     -- Read a message and output it on the endPoint's channel
-    readMessage :: ConnectionIx -> MaybeT IO ()
+    readMessage :: ConnectionIx -> MaybeT (WriterT [ConnectionIx] IO) ()
     readMessage connIx = do
       payload <- recvWithLength sock
       liftIO $ writeChan chan (Received connIx payload) 
@@ -129,7 +142,7 @@ endpointServer sock theirAddress chan state = forever $ do
 tcpNewEndPoint :: MVar TransportState -> N.HostName -> N.ServiceName -> IO (Either (FailedWith NewEndPointErrorCode) EndPoint)
 tcpNewEndPoint transportState host port = do 
   chan          <- newChan
-  endPointState <- newMVar $ EndPointState { _nextConnectionIx = 1 } -- Connection id 0 is reserved for requesting new connections
+  endPointState <- newMVar EndPointState { _nextConnectionIx = 1 } -- Connection id 0 is reserved for requesting new connections
   endPointIx    <- modifyMVar transportState $ \st -> do let ix = IntMap.size (st ^. endPoints) 
                                                          return ((endPointAt ix ^= Just (chan, endPointState)) $ st, ix)
   let addr = EndPointAddress . BSC.pack $ host ++ ":" ++ port ++ ":" ++ show endPointIx
@@ -149,15 +162,16 @@ tcpConnect :: EndPointAddress -> EndPointAddress -> Reliability -> IO (Either (F
 tcpConnect myAddress theirAddress _ = runErrorT $ do
   sock   <- socketForEndPoint myAddress theirAddress 
   connIx <- maybeTToErrorT undefined $ requestNewConnection sock
-  return $ Connection { send  = \msg -> runErrorT $ maybeTToErrorT (FailedWith SendFailed "Send failed") $ 
-                                          sendWithLength sock (Just connIx) msg
-                      , close = N.sClose sock 
-                      }
+  return Connection { send  = runErrorT . 
+                              maybeTToErrorT (FailedWith SendFailed "Send failed") . 
+                              sendWithLength sock (Just connIx) 
+                    , close = N.sClose sock 
+                    }
 
 -- | Request a new connection 
 requestNewConnection :: N.Socket -> MaybeT IO ByteString 
 requestNewConnection sock = do
-  (liftIO $ pure <$> encodeInt16 0) >>= sendMany sock
+  liftIO (pure <$> encodeInt16 0) >>= sendMany sock
   BS.concat <$> recvExact sock 2
 
 -- | Find a socket to the specified endpoint

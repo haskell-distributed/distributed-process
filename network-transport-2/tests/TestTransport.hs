@@ -64,7 +64,7 @@ ping endpoint server numPings msg = do
       case event of
         Received _ [reply] | reply == msg -> 
           return ()
-        _ -> do
+        _ -> 
           error $ "Unexpected event " ++ show event 
 
   -- Close the connection

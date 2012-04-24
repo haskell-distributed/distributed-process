@@ -27,7 +27,7 @@ testEarlyDisconnect :: IO ()
 testEarlyDisconnect = do
   serverAddr <- newEmptyMVar
   serverDone <- newEmptyMVar
-  transport  <- createTransport "127.0.0.1" "8080" 
+  transport  <- createTransport "127.0.0.1" "8081" 
   
   -- Server
   forkIO $ do 
@@ -58,7 +58,7 @@ testEarlyDisconnect = do
     let EndPointAddress myAddress = address endpoint
 
     -- Connect to the server
-    addr:_ <- N.getAddrInfo Nothing (Just "127.0.0.1") (Just "8080")
+    addr:_ <- N.getAddrInfo Nothing (Just "127.0.0.1") (Just "8081")
     sock   <- N.socket (N.addrFamily addr) N.Stream N.defaultProtocol
     N.setSocketOption sock N.ReuseAddr 1
     N.connect sock (N.addrAddress addr)
@@ -77,7 +77,8 @@ testEarlyDisconnect = do
       decodeInt16 connBs
     putStrLn $ "Client got connection ID " ++ show connIx
 
-    -- Close the socket 
+    -- Close the socket without closing the connection explicitly
+    -- The server should still receive a ConnectionClosed message
     N.sClose sock
 
   -- Wait for the server to finish
@@ -85,6 +86,6 @@ testEarlyDisconnect = do
 
 main :: IO ()
 main = do
+  testEarlyDisconnect
   success <- createTransport "127.0.0.1" "8080" >>= testTransport 
   if success then exitSuccess else exitFailure
-  -- testEarlyDisconnect
