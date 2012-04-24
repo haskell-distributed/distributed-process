@@ -3,7 +3,8 @@
 -- TODOs:
 -- * Various errors are still left as "undefined"
 -- * Many possible errors are not yet dealt with
--- * Connections are not yet lightweight
+-- * Multiple connections to the same endpoint (which reuse the same channel)
+--   may be scrambed together
 module Network.Transport.TCP ( -- * Main API
                                createTransport
                              , -- TCP specific functionality
@@ -14,7 +15,6 @@ module Network.Transport.TCP ( -- * Main API
 import Network.Transport
 import Network.Transport.Internal.TCP ( forkServer
                                       , connectTo
-                                      , recvExact 
                                       , recvWithLength
                                       , sendWithLength
                                       , recvInt16
@@ -22,6 +22,7 @@ import Network.Transport.Internal.TCP ( forkServer
                                       , sendInt32
                                       )
 import Network.Transport.Internal ( encodeInt16 
+                                  , encodeInt32
                                   , failWith
                                   , failWithT
                                   )
@@ -33,15 +34,15 @@ import qualified Network.Socket as N ( HostName
                                      )
 import Control.Concurrent (forkIO)
 import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
-import Control.Concurrent.MVar (MVar, newMVar, modifyMVar, modifyMVar_, readMVar)
+import Control.Concurrent.MVar (MVar, newMVar, modifyMVar, modifyMVar_, readMVar, takeMVar, putMVar)
 import Control.Category ((>>>))
 import Control.Applicative ((<*>), (*>), (<$>))
-import Control.Monad (forever, forM_)
+import Control.Monad (forever, forM_, void)
 import Control.Monad.Error (ErrorT, liftIO, runErrorT)
 import Control.Monad.Trans.Maybe (MaybeT(MaybeT), runMaybeT)
 import Control.Monad.Trans.Writer (WriterT, execWriterT)
 import Control.Monad.Writer.Class (tell)
-import Data.ByteString (ByteString)
+import Control.Monad.IO.Class (MonadIO)
 import qualified Data.ByteString as BS (concat)
 import qualified Data.ByteString.Char8 as BSC (pack, unpack)
 import Data.Int (Int16)
@@ -52,26 +53,28 @@ import qualified Data.Map as Map (empty)
 import Data.Lens.Lazy (Lens, lens, intMapLens, mapLens, (^.), (^=), (^+=))
 import Text.Regex.Applicative (RE, few, anySym, sym, many, match)
 
-data TransportState = TransportState { _endPoints :: IntMap (Chan Event, MVar EndPointState) 
-                                     , _sockets   :: Map EndPointAddress N.Socket 
+data TCPTransport   = TCPTransport   { _transportHost       :: N.HostName
+                                     , _transportPort       :: N.ServiceName
+                                     , _transportState      :: MVar TransportState
                                      }
-data EndPointState  = EndPointState  { _nextConnectionId :: ConnectionId }
+data TransportState = TransportState { _localEndPoints      :: IntMap LocalEndPoint 
+                                     , _remoteEndPoints     :: Map EndPointAddress RemoteEndPoint 
+                                     }
+data LocalEndPoint  = LocalEndPoint  { _localAddress        :: EndPointAddress
+                                     , _localChannel        :: Chan Event
+                                     , _localState          :: MVar EndPointState 
+                                     }
+data RemoteEndPoint = RemoteEndPoint { _remoteAddress       :: EndPointAddress
+                                     , _remoteSocket        :: N.Socket
+                                     , _remoteConnectionIds :: Chan ConnectionId
+                                     , _remoteLock          :: MVar ()
+                                     }
+data EndPointState  = EndPointState  { _nextConnectionId    :: ConnectionId 
+                                     }
 type EndPointId     = Int16
 
-endPoints :: Lens TransportState (IntMap (Chan Event, MVar EndPointState))
-endPoints = lens _endPoints (\es st -> st { _endPoints = es })
-
-sockets :: Lens TransportState (Map EndPointAddress N.Socket)
-sockets = lens _sockets (\ss st -> st { _sockets = ss })
-
-endPointAt :: EndPointId -> Lens TransportState (Maybe (Chan Event, MVar EndPointState))
-endPointAt ix = endPoints >>> intMapLens (fromIntegral ix)
-
-socketAt :: EndPointAddress -> Lens TransportState (Maybe N.Socket)
-socketAt addr = sockets >>> mapLens addr
-
-nextConnectionId :: Lens EndPointState ConnectionId
-nextConnectionId = lens _nextConnectionId (\cix st -> st { _nextConnectionId = cix })
+#define REQUEST_CONNECTION_ID 0
+#define RESPOND_CONNECTION_ID 1
 
 -- | Create a TCP transport
 --
@@ -85,47 +88,69 @@ nextConnectionId = lens _nextConnectionId (\cix st -> st { _nextConnectionId = c
 -- * Deal with all exceptions that may occur
 createTransport :: N.HostName -> N.ServiceName -> IO Transport
 createTransport host port = do 
-  state <- newMVar TransportState { _endPoints = IntMap.empty 
-                                  , _sockets   = Map.empty
+  state <- newMVar TransportState { _localEndPoints  = IntMap.empty 
+                                  , _remoteEndPoints = Map.empty
                                   }
-  forkServer host port (transportServer state)
-  return Transport { newEndPoint = tcpNewEndPoint state host port } 
+  let transport = TCPTransport { _transportState = state
+                               , _transportHost  = host
+                               , _transportPort  = port
+                               }
+  forkServer host port (transportServer transport)
+  return Transport { newEndPoint = tcpNewEndPoint transport } 
 
 -- | The transport server handles incoming connections for all endpoints
 --
 -- TODO: lots of error checking
-transportServer :: MVar TransportState -> N.Socket -> IO ()
-transportServer state sock = forever $ do
+transportServer :: TCPTransport -> N.Socket -> IO ()
+transportServer transport sock = forever $ do
   (clientSock, _) <- N.accept sock
-  forkIO $ handleClient state clientSock >> N.sClose clientSock
-    
--- | Handle a new incoming connection
---
--- Returns when the client closes the socket and on invalid input.
-handleClient :: MVar TransportState -> N.Socket -> IO () 
-handleClient state sock = do 
-  mendpoint <- runMaybeT $ do 
-    ourEndPointId <- recvInt16 sock
-    theirAddress  <- BS.concat <$> recvWithLength sock 
-    ourEndPoint   <- MaybeT $ (^. endPointAt ourEndPointId) <$> readMVar state   
-    return (ourEndPoint, EndPointAddress theirAddress)
-  case mendpoint of
-    Just ((endPointCh, endPointSt), theirAddress) -> do
-      unclosedConnections <- endpointServer sock theirAddress endPointCh endPointSt
-      forM_ unclosedConnections $ \cix -> writeChan endPointCh (ConnectionClosed cix)
-    Nothing ->
-      -- Invalid request
-      return () 
+  handleConnectionRequest transport clientSock
 
--- | Handle requests for one endpoint. Returns only if an error occurs,
--- in which case it returns the connections that are still open (normally,
+handleConnectionRequest :: TCPTransport -> N.Socket -> IO ()
+handleConnectionRequest transport sock = do
+  request <- runMaybeT $ do 
+    ourEndPointId <- recvInt16 sock
+    theirAddress  <- EndPointAddress . BS.concat <$> recvWithLength sock 
+    ourEndPoint   <- MaybeT $ (^. localEndPointAt ourEndPointId) <$> readMVar (transport ^. transportState) 
+    return (ourEndPoint, theirAddress)
+  case request of
+    Just (ourEndPoint, theirAddress) -> 
+      void $ forkRemoteEndPoint transport ourEndPoint theirAddress sock
+    Nothing -> 
+      return ()  
+
+forkRemoteEndPoint :: TCPTransport          
+                   -> LocalEndPoint
+                   -> EndPointAddress
+                   -> N.Socket
+                   -> IO RemoteEndPoint 
+forkRemoteEndPoint transport ourEndPoint theirAddress theirSock = do
+  theirConnectionIds <- newChan
+  theirLock          <- newMVar ()
+  let theirEndPoint = RemoteEndPoint { _remoteAddress       = theirAddress
+                                     , _remoteSocket        = theirSock
+                                     , _remoteConnectionIds = theirConnectionIds 
+                                     , _remoteLock          = theirLock
+                                     }
+  modifyMVar_ (transport ^. transportState) $ return . (remoteEndPointAt theirAddress ^= Just theirEndPoint)
+  forkIO $ do
+    unclosedConnections <- handleIncomingMessages ourEndPoint theirEndPoint  
+    forM_ unclosedConnections $ \cix -> writeChan (ourEndPoint ^. localChannel) (ConnectionClosed cix)
+    -- TODO: should we close the socket here? (forkRemoteEndPoint gets called from multiple places)
+  return theirEndPoint
+
+-- | Handle requests from a remote endpoint.
+-- 
+-- Returns only if the remote party closes the socket or if an error occurs.
+-- The return value is the list of  connections that are still open (normally,
 -- this should be an empty list).
-endpointServer :: N.Socket -> EndPointAddress -> Chan Event -> MVar EndPointState -> IO [ConnectionId] 
-endpointServer sock theirAddress chan state = execWriterT . runMaybeT . forever $ do
+handleIncomingMessages :: LocalEndPoint -> RemoteEndPoint -> IO [ConnectionId] 
+handleIncomingMessages ourEndPoint theirEndPoint = execWriterT . runMaybeT . forever $ do
     connId <- recvInt32 sock
     case connId of
-      0 -> createNewConnection
-      _ -> readMessage connId
+      REQUEST_CONNECTION_ID -> createNewConnection
+      RESPOND_CONNECTION_ID -> readNewConnectionId  
+      _                     -> readMessage connId
   where
     -- A brief note on the types:
     -- These functions may fail (connection error): hence MaybeT
@@ -134,28 +159,51 @@ endpointServer sock theirAddress chan state = execWriterT . runMaybeT . forever 
     -- Create a new connection
     createNewConnection :: MaybeT (WriterT [ConnectionId] IO) () 
     createNewConnection = do
-      newId <- liftIO $ modifyMVar state $ \st -> return (nextConnectionId ^+= 1 $ st, st ^. nextConnectionId)  
-      sendInt32 sock newId
-      liftIO $ writeChan chan (ConnectionOpened newId ReliableOrdered theirAddress) 
+      newId <- liftIO $ getNextConnectionId ourEndPoint 
+      withRemoteLock theirEndPoint $ do 
+        sendInt32 sock RESPOND_CONNECTION_ID
+        sendInt32 sock newId
+      liftIO $ writeChan ourChannel (ConnectionOpened newId ReliableOrdered (theirEndPoint ^. remoteAddress)) 
       -- We add the new connection ID to the list of open connections only once the
       -- endpoint has been notified of the new connection (sendInt32 may fail)
       tell [newId]
     
     -- Read a message and output it on the endPoint's channel
     readMessage :: ConnectionId -> MaybeT (WriterT [ConnectionId] IO) ()
-    readMessage connId = recvWithLength sock >>= liftIO . writeChan chan . Received connId
+    readMessage connId = recvWithLength sock >>= liftIO . writeChan ourChannel . Received connId
+
+    -- Read a new connection ID 
+    readNewConnectionId :: MaybeT (WriterT [ConnectionId] IO) ()
+    readNewConnectionId = recvInt32 sock >>= liftIO . writeChan (theirEndPoint ^. remoteConnectionIds) 
+
+    -- Breakdown of the arguments
+    ourChannel =   ourEndPoint ^. localChannel
+    sock       = theirEndPoint ^. remoteSocket
+
+-- | Get the next connection ID
+getNextConnectionId :: LocalEndPoint -> IO ConnectionId
+getNextConnectionId endpoint = 
+  modifyMVar (endpoint ^. localState) $ \st -> 
+    return (nextConnectionId ^+= 1 $ st, st ^. nextConnectionId)
 
 -- | Create a new endpoint
-tcpNewEndPoint :: MVar TransportState -> N.HostName -> N.ServiceName -> IO (Either (FailedWith NewEndPointErrorCode) EndPoint)
-tcpNewEndPoint transportState host port = do 
-  chan          <- newChan
-  endPointState <- newMVar EndPointState { _nextConnectionId = firstNonReservedConnectionId }
-  endPointId    <- modifyMVar transportState $ \st -> do let ix = fromIntegral $ IntMap.size (st ^. endPoints) 
-                                                         return ((endPointAt ix ^= Just (chan, endPointState)) $ st, ix)
-  let addr = EndPointAddress . BSC.pack $ host ++ ":" ++ port ++ ":" ++ show endPointId
-  return . Right $ EndPoint { receive = readChan chan  
-                            , address = addr 
-                            , connect = tcpConnect transportState addr 
+tcpNewEndPoint :: TCPTransport -> IO (Either (FailedWith NewEndPointErrorCode) EndPoint)
+tcpNewEndPoint transport = do 
+  endPoint <- modifyMVar (transport ^. transportState) $ \st -> do 
+    chan  <- newChan
+    state <- newMVar EndPointState { _nextConnectionId = firstNonReservedConnectionId }
+    let ix   = fromIntegral $ IntMap.size (st ^. localEndPoints) 
+    let host = transport ^. transportHost
+    let port = transport ^. transportPort
+    let addr = EndPointAddress . BSC.pack $ host ++ ":" ++ port ++ ":" ++ show ix 
+    let localEndPoint = LocalEndPoint { _localAddress = addr
+                                      , _localChannel = chan
+                                      , _localState   = state
+                                      }
+    return ((localEndPointAt ix ^= Just localEndPoint) $ st, localEndPoint)
+  return . Right $ EndPoint { receive = readChan (endPoint ^. localChannel) 
+                            , address = endPoint ^. localAddress 
+                            , connect = tcpConnect transport endPoint 
                             , newMulticastGroup     = return . Left $ newMulticastGroupError 
                             , resolveMulticastGroup = \_ -> return . Left $ resolveMulticastGroupError
                             }
@@ -168,49 +216,62 @@ firstNonReservedConnectionId :: ConnectionId
 firstNonReservedConnectionId = 1024
 
 -- | Connnect to an endpoint
-tcpConnect :: MVar TransportState -- ^ Transport state 
-           -> EndPointAddress     -- ^ Our address
-           -> EndPointAddress     -- ^ Their address
-           -> Reliability         -- ^ Connection reliability (ignored)
+tcpConnect :: TCPTransport     -- ^ Transport 
+           -> LocalEndPoint    -- ^ Local end point
+           -> EndPointAddress  -- ^ Remote address
+           -> Reliability      -- ^ Reliability (ignored)
            -> IO (Either (FailedWith ConnectErrorCode) Connection)
-tcpConnect state ourAddress theirAddress _ = runErrorT $ do
-  sock   <- socketForEndPoint state ourAddress theirAddress 
-  connId <- failWithT undefined $ requestNewConnection sock
+tcpConnect transport ourEndPoint theirAddress _ = runErrorT $ do
+  theirEndPoint <- remoteEndPoint transport ourEndPoint theirAddress 
+  connId <- failWithT undefined $ requestNewConnection theirEndPoint 
+  connBs <- encodeInt32 connId
+  let sock = theirEndPoint ^. remoteSocket
   return Connection { send  = runErrorT . 
                               failWithT (FailedWith SendFailed "Send failed") . 
-                              sendWithLength sock (Just connId) 
+                              withRemoteLock theirEndPoint .
+                              sendWithLength sock (Just connBs) 
                     , close = N.sClose sock 
                     }
 
 -- | Request a new connection 
--- Returns the new connection ID in serialized form
-requestNewConnection :: N.Socket -> MaybeT IO ByteString 
-requestNewConnection sock = sendInt32 sock 0 >> BS.concat <$> recvExact sock 4
+requestNewConnection :: RemoteEndPoint -> MaybeT IO ConnectionId 
+requestNewConnection endPoint = do
+  withRemoteLock endPoint $ sendInt32 (endPoint ^. remoteSocket) 0 
+  liftIO $ readChan (endPoint ^. remoteConnectionIds)
 
--- | Find a socket to the specified endpoint
+-- | Find a remote endpoint 
 --
--- TODOs:
--- * Reuse connections
--- * Hints?
-socketForEndPoint :: MVar TransportState -- ^ Transport state (for reusing sockets)
-                  -> EndPointAddress     -- ^ Our address 
-                  -> EndPointAddress     -- ^ Their address
-                  -> ErrorT (FailedWith ConnectErrorCode) IO N.Socket
-socketForEndPoint state (EndPointAddress ourAddress) theirAddress = do
-  msock <- liftIO $ (^. socketAt theirAddress) <$> readMVar state
-  case msock of
-    Just sock -> 
-      return sock
+-- TODO: hints?
+remoteEndPoint :: TCPTransport 
+               -> LocalEndPoint 
+               -> EndPointAddress
+               -> ErrorT (FailedWith ConnectErrorCode) IO RemoteEndPoint
+remoteEndPoint transport ourEndPoint theirAddress = do
+  mendpoint <- liftIO $ (^. remoteEndPointAt theirAddress) <$> readMVar (transport ^. transportState) 
+  case mendpoint of
+    Just endpoint -> 
+      return endpoint 
     Nothing -> do
-      liftIO $ putStrLn $ "Creating socket from " ++ show ourAddress ++ " to " ++ show theirAddress
+      -- liftIO $ putStrLn $ "Creating socket from " ++ show ourAddress ++ " to " ++ show theirAddress
       (host, port, endPointId) <- failWith invalidAddress (decodeEndPointAddress theirAddress)
       sock <- failWithT undefined (connectTo host port)
       endPointBS <- encodeInt16 endPointId 
       failWithT undefined $ sendWithLength sock (Just endPointBS) [ourAddress]
-      liftIO $ modifyMVar_ state $ return . (socketAt theirAddress ^= Just sock)
-      return sock 
+      liftIO $ forkRemoteEndPoint transport ourEndPoint theirAddress sock 
   where
     invalidAddress = FailedWith ConnectInvalidAddress "Invalid address"
+    EndPointAddress ourAddress = ourEndPoint ^. localAddress
+
+-- | We must avoid scrambling concurrent sends to the same endpoint
+--
+-- TODO: deal with exceptions
+withRemoteLock :: MonadIO m => RemoteEndPoint -> m a -> m a
+withRemoteLock theirEndPoint p = do
+  let lock = theirEndPoint ^. remoteLock
+  liftIO $ takeMVar lock 
+  x <- p
+  liftIO $ putMVar lock () 
+  return x
 
 -- | Decode end point address
 -- TODO: This uses regular expression parsing, which is nice, but unnecessary
@@ -219,3 +280,52 @@ decodeEndPointAddress (EndPointAddress bs) = match endPointAddressRE (BSC.unpack
   where
     endPointAddressRE :: RE Char (N.HostName, N.ServiceName, EndPointId)
     endPointAddressRE = (,,) <$> few anySym <*> (sym ':' *> few anySym) <*> (sym ':' *> (read <$> many anySym))
+
+--------------------------------------------------------------------------------
+-- Lens definitions
+--------------------------------------------------------------------------------
+
+transportState :: Lens TCPTransport (MVar TransportState)
+transportState = lens _transportState (\st trans -> trans { _transportState = st })
+
+transportHost :: Lens TCPTransport N.HostName
+transportHost = lens _transportHost (\host trans -> trans { _transportHost = host })
+
+transportPort :: Lens TCPTransport N.ServiceName
+transportPort = lens _transportPort (\port trans -> trans { _transportPort = port })
+
+localEndPoints :: Lens TransportState (IntMap LocalEndPoint)
+localEndPoints = lens _localEndPoints (\es st -> st { _localEndPoints = es })
+
+remoteEndPoints :: Lens TransportState (Map EndPointAddress RemoteEndPoint)
+remoteEndPoints = lens _remoteEndPoints (\es st -> st { _remoteEndPoints = es })
+
+localAddress :: Lens LocalEndPoint EndPointAddress
+localAddress = lens _localAddress (\addr ep -> ep { _localAddress = addr })
+
+localChannel :: Lens LocalEndPoint (Chan Event)
+localChannel = lens _localChannel (\ch ep -> ep { _localChannel = ch })
+
+localState :: Lens LocalEndPoint (MVar EndPointState)
+localState = lens _localState (\st ep -> ep { _localState = st })
+
+remoteAddress :: Lens RemoteEndPoint EndPointAddress
+remoteAddress = lens _remoteAddress (\addr ep -> ep { _remoteAddress = addr })
+
+remoteSocket :: Lens RemoteEndPoint N.Socket
+remoteSocket = lens _remoteSocket (\sock ep -> ep { _remoteSocket = sock })
+
+remoteConnectionIds :: Lens RemoteEndPoint (Chan ConnectionId)
+remoteConnectionIds = lens _remoteConnectionIds (\ch ep -> ep { _remoteConnectionIds = ch })
+
+remoteLock :: Lens RemoteEndPoint (MVar ())
+remoteLock = lens _remoteLock (\lock ep -> ep { _remoteLock = lock })
+
+nextConnectionId :: Lens EndPointState ConnectionId
+nextConnectionId = lens _nextConnectionId (\cix st -> st { _nextConnectionId = cix })
+
+localEndPointAt :: EndPointId -> Lens TransportState (Maybe LocalEndPoint)
+localEndPointAt ix = localEndPoints >>> intMapLens (fromIntegral ix)
+
+remoteEndPointAt :: EndPointAddress -> Lens TransportState (Maybe RemoteEndPoint)
+remoteEndPointAt addr = remoteEndPoints >>> mapLens addr

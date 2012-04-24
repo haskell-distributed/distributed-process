@@ -40,7 +40,7 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Exception (catch, IOException)
 import Control.Applicative (pure)
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS (length, concat, null)
+import qualified Data.ByteString as BS (length, concat, null, empty)
 import Data.Int (Int16, Int32)
 
 -- | Start a server at the specified address
@@ -113,10 +113,14 @@ recvExact sock len = do
     go :: [ByteString] -> Int32 -> IO (Bool, [ByteString])
     go acc 0 = return (False, reverse acc)
     go acc l = do
-      bs <- NBS.recv sock (fromIntegral l `min` 4096)
+      bs <- catch (NBS.recv sock (fromIntegral l `min` 4096)) handleIOException
       if BS.null bs 
         then return (True, reverse acc)
         else go (bs : acc) (l - fromIntegral (BS.length bs))
+    
+    -- We treat an I/O exception the same way as a socket closure
+    handleIOException :: IOException -> IO ByteString
+    handleIOException _ = return BS.empty 
 
 -- | Receive a 16-bit integer
 recvInt16 :: (MonadIO m, MonadPlus m) => N.Socket -> m Int16
