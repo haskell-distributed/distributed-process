@@ -5,8 +5,8 @@ module Network.Transport.Internal ( -- * Encoders/decoders
                                   , encodeInt16
                                   , decodeInt16
                                     -- * Miscellaneous abstractions
-                                  , maybeToErrorT
-                                  , maybeTToErrorT
+                                  , failWith
+                                  , failWithT
                                   ) where
 
 import Data.Int (Int16, Int32)
@@ -57,13 +57,13 @@ decodeInt16 bs = liftIO $ do
     return (fromIntegral (ntohs w16))
 
 -- | Convert 'Maybe' to an ErrorT value 
-maybeToErrorT :: (Monad m, Error a) => a -> Maybe b -> ErrorT a m b
-maybeToErrorT err Nothing  = throwError err
-maybeToErrorT _   (Just x) = return x
+failWith :: (Monad m, Error a) => a -> Maybe b -> ErrorT a m b
+failWith err Nothing  = throwError err
+failWith _   (Just x) = return x
 
 -- | Convert 'MaybeT' to an 'ErrorT'
-maybeTToErrorT :: (Monad m, Error a) => a -> MaybeT m b -> ErrorT a m b
-maybeTToErrorT err valueT = do
+failWithT :: (Monad m, Error a) => a -> MaybeT m b -> ErrorT a m b
+failWithT err valueT = do
   mval <- lift $ runMaybeT valueT
   case mval of
     Nothing  -> throwError err

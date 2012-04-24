@@ -22,8 +22,8 @@ import Network.Transport.Internal.TCP ( forkServer
                                       , sendInt32
                                       )
 import Network.Transport.Internal ( encodeInt16 
-                                  , maybeToErrorT
-                                  , maybeTToErrorT
+                                  , failWith
+                                  , failWithT
                                   )
 import qualified Network.Socket as N ( HostName
                                      , ServiceName
@@ -95,7 +95,7 @@ handleClient state sock = do
   mendpoint <- runMaybeT $ do 
     ourEndPointId <- recvInt16 sock
     theirAddress  <- BS.concat <$> recvWithLength sock 
-    ourEndPoint   <- MaybeT $ (^. endPointAt (fromIntegral ourEndPointId)) <$> readMVar state   
+    ourEndPoint   <- MaybeT $ (^. endPointAt ourEndPointId) <$> readMVar state   
     return (ourEndPoint, EndPointAddress theirAddress)
   case mendpoint of
     Just ((endPointCh, endPointSt), theirAddress) -> do
@@ -159,9 +159,9 @@ firstNonReservedConnectionId = 1024
 tcpConnect :: EndPointAddress -> EndPointAddress -> Reliability -> IO (Either (FailedWith ConnectErrorCode) Connection)
 tcpConnect myAddress theirAddress _ = runErrorT $ do
   sock   <- socketForEndPoint myAddress theirAddress 
-  connId <- maybeTToErrorT undefined $ requestNewConnection sock
+  connId <- failWithT undefined $ requestNewConnection sock
   return Connection { send  = runErrorT . 
-                              maybeTToErrorT (FailedWith SendFailed "Send failed") . 
+                              failWithT (FailedWith SendFailed "Send failed") . 
                               sendWithLength sock (Just connId) 
                     , close = N.sClose sock 
                     }
@@ -180,10 +180,10 @@ socketForEndPoint :: EndPointAddress -- ^ Our address
                   -> EndPointAddress -- ^ Their address
                   -> ErrorT (FailedWith ConnectErrorCode) IO N.Socket
 socketForEndPoint (EndPointAddress myAddress) theirAddress = do
-    (host, port, endPointId) <- maybeToErrorT invalidAddress (decodeEndPointAddress theirAddress)
-    sock <- maybeTToErrorT undefined (connectTo host port)
-    endPointBS <- encodeInt16 (fromIntegral endPointId)
-    maybeTToErrorT undefined $ sendWithLength sock (Just endPointBS) [myAddress]
+    (host, port, endPointId) <- failWith invalidAddress (decodeEndPointAddress theirAddress)
+    sock <- failWithT undefined (connectTo host port)
+    endPointBS <- encodeInt16 endPointId 
+    failWithT undefined $ sendWithLength sock (Just endPointBS) [myAddress]
     return sock 
   where
     invalidAddress = FailedWith ConnectInvalidAddress "Invalid address"
