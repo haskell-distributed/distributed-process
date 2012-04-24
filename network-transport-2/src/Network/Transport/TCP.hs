@@ -33,7 +33,7 @@ import qualified Network.Socket as N ( HostName
                                      )
 import Control.Concurrent (forkIO)
 import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
-import Control.Concurrent.MVar (MVar, newMVar, modifyMVar, readMVar)
+import Control.Concurrent.MVar (MVar, newMVar, modifyMVar, modifyMVar_, readMVar)
 import Control.Category ((>>>))
 import Control.Applicative ((<*>), (*>), (<$>))
 import Control.Monad (forever, forM_)
@@ -47,21 +47,31 @@ import qualified Data.ByteString.Char8 as BSC (pack, unpack)
 import Data.Int (Int16)
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap (empty, size)
-import Data.Lens.Lazy (Lens, lens, intMapLens, (^.), (^=), (^+=))
+import Data.Map (Map)
+import qualified Data.Map as Map (empty)
+import Data.Lens.Lazy (Lens, lens, intMapLens, mapLens, (^.), (^=), (^+=))
 import Text.Regex.Applicative (RE, few, anySym, sym, many, match)
 
-data TransportState = TransportState { _endPoints        :: IntMap (Chan Event, MVar EndPointState) }
+data TransportState = TransportState { _endPoints :: IntMap (Chan Event, MVar EndPointState) 
+                                     , _sockets   :: Map EndPointAddress N.Socket 
+                                     }
 data EndPointState  = EndPointState  { _nextConnectionId :: ConnectionId }
 type EndPointId     = Int16
 
 endPoints :: Lens TransportState (IntMap (Chan Event, MVar EndPointState))
 endPoints = lens _endPoints (\es st -> st { _endPoints = es })
 
-nextConnectionId :: Lens EndPointState ConnectionId
-nextConnectionId = lens _nextConnectionId (\cix st -> st { _nextConnectionId = cix })
+sockets :: Lens TransportState (Map EndPointAddress N.Socket)
+sockets = lens _sockets (\ss st -> st { _sockets = ss })
 
 endPointAt :: EndPointId -> Lens TransportState (Maybe (Chan Event, MVar EndPointState))
 endPointAt ix = endPoints >>> intMapLens (fromIntegral ix)
+
+socketAt :: EndPointAddress -> Lens TransportState (Maybe N.Socket)
+socketAt addr = sockets >>> mapLens addr
+
+nextConnectionId :: Lens EndPointState ConnectionId
+nextConnectionId = lens _nextConnectionId (\cix st -> st { _nextConnectionId = cix })
 
 -- | Create a TCP transport
 --
@@ -75,7 +85,9 @@ endPointAt ix = endPoints >>> intMapLens (fromIntegral ix)
 -- * Deal with all exceptions that may occur
 createTransport :: N.HostName -> N.ServiceName -> IO Transport
 createTransport host port = do 
-  state <- newMVar TransportState { _endPoints = IntMap.empty }
+  state <- newMVar TransportState { _endPoints = IntMap.empty 
+                                  , _sockets   = Map.empty
+                                  }
   forkServer host port (transportServer state)
   return Transport { newEndPoint = tcpNewEndPoint state host port } 
 
@@ -143,7 +155,7 @@ tcpNewEndPoint transportState host port = do
   let addr = EndPointAddress . BSC.pack $ host ++ ":" ++ port ++ ":" ++ show endPointId
   return . Right $ EndPoint { receive = readChan chan  
                             , address = addr 
-                            , connect = tcpConnect addr 
+                            , connect = tcpConnect transportState addr 
                             , newMulticastGroup     = return . Left $ newMulticastGroupError 
                             , resolveMulticastGroup = \_ -> return . Left $ resolveMulticastGroupError
                             }
@@ -156,9 +168,13 @@ firstNonReservedConnectionId :: ConnectionId
 firstNonReservedConnectionId = 1024
 
 -- | Connnect to an endpoint
-tcpConnect :: EndPointAddress -> EndPointAddress -> Reliability -> IO (Either (FailedWith ConnectErrorCode) Connection)
-tcpConnect myAddress theirAddress _ = runErrorT $ do
-  sock   <- socketForEndPoint myAddress theirAddress 
+tcpConnect :: MVar TransportState -- ^ Transport state 
+           -> EndPointAddress     -- ^ Our address
+           -> EndPointAddress     -- ^ Their address
+           -> Reliability         -- ^ Connection reliability (ignored)
+           -> IO (Either (FailedWith ConnectErrorCode) Connection)
+tcpConnect state ourAddress theirAddress _ = runErrorT $ do
+  sock   <- socketForEndPoint state ourAddress theirAddress 
   connId <- failWithT undefined $ requestNewConnection sock
   return Connection { send  = runErrorT . 
                               failWithT (FailedWith SendFailed "Send failed") . 
@@ -176,15 +192,23 @@ requestNewConnection sock = sendInt32 sock 0 >> BS.concat <$> recvExact sock 4
 -- TODOs:
 -- * Reuse connections
 -- * Hints?
-socketForEndPoint :: EndPointAddress -- ^ Our address 
-                  -> EndPointAddress -- ^ Their address
+socketForEndPoint :: MVar TransportState -- ^ Transport state (for reusing sockets)
+                  -> EndPointAddress     -- ^ Our address 
+                  -> EndPointAddress     -- ^ Their address
                   -> ErrorT (FailedWith ConnectErrorCode) IO N.Socket
-socketForEndPoint (EndPointAddress myAddress) theirAddress = do
-    (host, port, endPointId) <- failWith invalidAddress (decodeEndPointAddress theirAddress)
-    sock <- failWithT undefined (connectTo host port)
-    endPointBS <- encodeInt16 endPointId 
-    failWithT undefined $ sendWithLength sock (Just endPointBS) [myAddress]
-    return sock 
+socketForEndPoint state (EndPointAddress ourAddress) theirAddress = do
+  msock <- liftIO $ (^. socketAt theirAddress) <$> readMVar state
+  case msock of
+    Just sock -> 
+      return sock
+    Nothing -> do
+      liftIO $ putStrLn $ "Creating socket from " ++ show ourAddress ++ " to " ++ show theirAddress
+      (host, port, endPointId) <- failWith invalidAddress (decodeEndPointAddress theirAddress)
+      sock <- failWithT undefined (connectTo host port)
+      endPointBS <- encodeInt16 endPointId 
+      failWithT undefined $ sendWithLength sock (Just endPointBS) [ourAddress]
+      liftIO $ modifyMVar_ state $ return . (socketAt theirAddress ^= Just sock)
+      return sock 
   where
     invalidAddress = FailedWith ConnectInvalidAddress "Invalid address"
 
