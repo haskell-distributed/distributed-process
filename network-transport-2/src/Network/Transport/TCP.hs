@@ -3,8 +3,6 @@
 -- TODOs:
 -- * Various errors are still left as "undefined"
 -- * Many possible errors are not yet dealt with
--- * Multiple connections to the same endpoint (which reuse the same channel)
---   may be scrambed together
 module Network.Transport.TCP ( -- * Main API
                                createTransport
                              , -- TCP specific functionality
