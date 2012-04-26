@@ -1,14 +1,15 @@
 module Main where
 
 import Network.Transport
-import Network.Transport.Internal (encodeInt32, decodeInt32, prependLength)
-import Network.Transport.Internal.TCP (recvExact, sendMany)
-import Network.Transport.TCP (createTransport, decodeEndPointAddress, EndPointId)
+import Network.Transport.Internal (encodeInt32, prependLength)
+import Network.Transport.Internal.TCP (recvInt32, sendMany)
+import Network.Transport.TCP (createTransport, decodeEndPointAddress, EndPointId, ControlHeader(..))
 import TestTransport (testTransport)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar, readMVar)
 import Control.Concurrent (forkIO)
 import Control.Monad.Trans.Maybe (runMaybeT)
 import Data.Maybe (fromJust)
+import Data.Int (Int32)
 import qualified Network.Socket as N ( getAddrInfo
                                      , socket
                                      , connect
@@ -25,8 +26,6 @@ import qualified Network.Socket as N ( getAddrInfo
 
 testEarlyDisconnect :: IO ()
 testEarlyDisconnect = do
-  return ()
-{-
     serverAddr <- newEmptyMVar
     serverDone <- newEmptyMVar
     Right transport  <- createTransport "127.0.0.1" "8081" 
@@ -57,17 +56,17 @@ testEarlyDisconnect = do
   
       (_, _, endPointIx) <- readMVar serverAddr
       runMaybeT $ sendMany sock (encodeInt32 endPointIx : prependLength [myAddress])
+
+      -- Wait for acknowledgement
+      Just ValidEndPoint <- runMaybeT $ recvInt32 sock
   
-      -- Request a new connection
-      runMaybeT $ do
-        sendInt32 sock 0
-        [connBs] <- recvExact sock 2
-        decodeInt16 connBs
+      -- Request a new connection, but don't wait for the response
+      let reqId = 0 :: Int32
+      runMaybeT $ sendMany sock [encodeInt32 RequestConnectionId, encodeInt32 reqId]
   
       -- Close the socket without closing the connection explicitly
       -- The server should still receive a ConnectionClosed message
       N.sClose sock
--}
 
 testInvalidAddress :: IO ()
 testInvalidAddress = do
@@ -95,11 +94,9 @@ testInvalidConnect = do
   putStrLn $ "Got expected error: " ++ show err3
  
   -- Valid TCP address but invalid endpoint number
-  {-
-  Left (FailedWith ConnectFailed err4) <- 
+  Left (FailedWith ConnectInvalidAddress err4) <- 
     connect endpoint (EndPointAddress "127.0.0.1:8083:1") ReliableOrdered
   putStrLn $ "Got expected error: " ++ show err4
-  -}
 
 main :: IO ()
 main = do

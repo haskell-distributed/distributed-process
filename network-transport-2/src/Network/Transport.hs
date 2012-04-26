@@ -47,7 +47,7 @@ data NewEndPointErrorCode
 -- | Connection failure 
 data ConnectErrorCode = 
     ConnectInvalidAddress        -- ^ Could not parse or resolve the address 
-  | ConnectInsufficientResources -- ^ Insufficient resources (for instance, no more socketss available)
+  | ConnectInsufficientResources -- ^ Insufficient resources (for instance, no more sockets available)
   | ConnectFailed                -- ^ Failed for other reasons 
   deriving Show
 

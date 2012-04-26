@@ -1,13 +1,13 @@
 -- | Utility functions for TCP sockets 
 module Network.Transport.Internal.TCP ( forkServer
                                       , recvWithLength
-                                      , sendMany
                                       , recvExact 
                                       , recvInt32
+                                      , sendMany
                                       ) where
 
 import Prelude hiding (catch)
-import Network.Transport.Internal (decodeInt32, failWithIO)
+import Network.Transport.Internal (decodeInt32)
 import qualified Network.Socket as N ( HostName
                                      , ServiceName
                                      , Socket
@@ -23,9 +23,9 @@ import qualified Network.Socket as N ( HostName
                                      , defaultProtocol
                                      , setSocketOption
                                      )
-import qualified Network.Socket.ByteString as NBS (sendMany, recv)
+import qualified Network.Socket.ByteString as NBS (recv, sendMany)
 import Control.Concurrent (forkIO, ThreadId)
-import Control.Monad (mzero, MonadPlus)
+import Control.Monad (mzero, MonadPlus, liftM)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Error (MonadError)
 import Control.Exception (catch, IOException)
@@ -36,7 +36,7 @@ import Data.Int (Int32)
 -- | Start a server at the specified address
 forkServer :: (MonadIO m, MonadError IOException m) 
            => N.HostName -> N.ServiceName -> (N.Socket -> IO ()) -> m ThreadId
-forkServer host port server = failWithIO id $ do
+forkServer host port server = liftIO $ do 
   -- Resolve the specified address. By specification, getAddrInfo will never
   -- return an empty list (but will throw an exception instead) and will return
   -- the "best" address first, whatever that means
@@ -47,6 +47,10 @@ forkServer host port server = failWithIO id $ do
   N.listen sock 5
   forkIO $ server sock
 
+-- | Lifted version of 'Network.Socket.ByteString.sendMany'
+sendMany :: (MonadIO m) => N.Socket -> [ByteString] -> m ()
+sendMany sock msg = liftIO $ NBS.sendMany sock msg
+
 -- | Read a length and then a payload of that length
 recvWithLength :: (MonadIO m, MonadPlus m) => N.Socket -> m [ByteString]
 recvWithLength sock = recvInt32 sock >>= recvExact sock
@@ -54,20 +58,14 @@ recvWithLength sock = recvInt32 sock >>= recvExact sock
 -- | Receive a 32-bit integer
 recvInt32 :: (Enum a, MonadIO m, MonadPlus m) => N.Socket -> m a 
 recvInt32 sock = do
-  mi <- recvExact sock 4 >>= return . decodeInt32 . BS.concat 
+  mi <- liftM (decodeInt32 . BS.concat) $ recvExact sock 4 
   case mi of
     Nothing -> mzero
     Just i  -> return i
 
--- | Wrapper around 'Network.Socket.ByteString.sendMany'
--- 
--- Fails when an I/O exception is raised during the send
-sendMany :: (MonadIO m, MonadError IOException m) => N.Socket -> [ByteString] -> m ()
-sendMany sock msg = failWithIO id $ NBS.sendMany sock msg
-
 -- | Read an exact number of bytes from a socket
 --
--- Returns 'Nothing' if the socket closes prematurely or the length is non-positive
+-- Fails if the socket closes prematurely or the length is non-positive
 recvExact :: (MonadIO m, MonadPlus m) 
           => N.Socket                -- ^ Socket to read from 
           -> Int32                   -- ^ Number of bytes to read
