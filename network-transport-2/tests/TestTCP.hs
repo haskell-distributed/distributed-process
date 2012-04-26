@@ -1,10 +1,10 @@
 module Main where
 
+import TestTransport 
 import Network.Transport
 import Network.Transport.Internal (encodeInt32, prependLength)
 import Network.Transport.Internal.TCP (recvInt32, sendMany)
 import Network.Transport.TCP (createTransport, decodeEndPointAddress, EndPointId, ControlHeader(..))
-import TestTransport (testTransport)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar, readMVar)
 import Control.Concurrent (forkIO)
 import Control.Monad.Trans.Maybe (runMaybeT)
@@ -70,8 +70,8 @@ testEarlyDisconnect = do
 
 testInvalidAddress :: IO ()
 testInvalidAddress = do
-  Left err <- createTransport "invalidHostName" "8082"
-  putStrLn $ "Got expected error: " ++ show err
+  Left _ <- createTransport "invalidHostName" "8082"
+  return ()
 
 testInvalidConnect :: IO ()
 testInvalidConnect = do
@@ -79,29 +79,27 @@ testInvalidConnect = do
   Right endpoint <- newEndPoint transport
 
   -- Syntax error in the endpoint address
-  Left (FailedWith ConnectInvalidAddress err1) <- 
+  Left (FailedWith ConnectInvalidAddress _) <- 
     connect endpoint (EndPointAddress "InvalidAddress") ReliableOrdered
-  putStrLn $ "Got expected error: " ++ show err1
  
   -- Syntax connect, but invalid hostname (TCP address lookup failure)
-  Left (FailedWith ConnectInvalidAddress err2) <- 
+  Left (FailedWith ConnectInvalidAddress _) <- 
     connect endpoint (EndPointAddress "invalidHost:port:0") ReliableOrdered
-  putStrLn $ "Got expected error: " ++ show err2
  
   -- TCP address correct, but nobody home at that address
-  Left (FailedWith ConnectFailed err3) <- 
+  Left (FailedWith ConnectFailed _) <- 
     connect endpoint (EndPointAddress "127.0.0.1:9000:0") ReliableOrdered
-  putStrLn $ "Got expected error: " ++ show err3
  
   -- Valid TCP address but invalid endpoint number
-  Left (FailedWith ConnectInvalidAddress err4) <- 
+  Left (FailedWith ConnectInvalidAddress _) <- 
     connect endpoint (EndPointAddress "127.0.0.1:8083:1") ReliableOrdered
-  putStrLn $ "Got expected error: " ++ show err4
+
+  return ()
 
 main :: IO ()
 main = do
-  testEarlyDisconnect
-  testInvalidAddress
-  testInvalidConnect
+  runTestIO "EarlyDisconnect" testEarlyDisconnect
+  runTestIO "InvalidAddress" testInvalidAddress
+  runTestIO "InvalidConnect" testInvalidConnect
   Right transport <- createTransport "127.0.0.1" "8080" 
   testTransport transport 

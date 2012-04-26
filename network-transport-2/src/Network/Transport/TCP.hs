@@ -1,8 +1,4 @@
 -- | TCP transport
---
--- TODOs:
--- * Various errors are still left as "undefined"
--- * Many possible errors are not yet dealt with
 
 module Network.Transport.TCP ( -- * Main API
                                createTransport

@@ -9,6 +9,10 @@ import Data.ByteString (ByteString)
 import Data.ByteString.Char8 ()
 import Data.Map (Map)
 import qualified Data.Map as Map (empty, insert, (!), delete)
+import Control.Monad.Reader (ReaderT, runReaderT, ask)
+import Control.Monad.IO.Class (liftIO)
+import System.IO (hFlush, stdout)
+import System.Timeout (timeout)
 
 -- Logging (for debugging)
 tlog :: String -> IO ()
@@ -80,7 +84,6 @@ testPingPong transport numPings = do
     tlog "Ping client"
     Right endpoint <- newEndPoint transport
     ping endpoint server numPings "ping"
-    putStrLn $ "client did " ++ show numPings ++ " pings"
     putMVar result () 
   
   takeMVar result
@@ -95,14 +98,12 @@ testEndPoints transport numPings = do
   forkIO $ do
     Right endpoint <- newEndPoint transport
     ping endpoint server numPings "pingA"
-    putStrLn $ "client A did " ++ show numPings ++ " pings"
     putMVar resultA () 
 
   -- Client B
   forkIO $ do
     Right endpoint <- newEndPoint transport
     ping endpoint server numPings "pingB"
-    putStrLn $ "client B did " ++ show numPings ++ " pings"
     putMVar resultB () 
 
   mapM_ takeMVar [resultA, resultB] 
@@ -125,14 +126,10 @@ testConnections transport numPings = do
     ConnectionOpened serv2 _ _ <- receive endpoint
 
     -- One thread to send "pingA" on the first connection
-    forkIO $ do
-      replicateM_ numPings $ send conn1 ["pingA"]
-      putStrLn $ "client A did " ++ show numPings ++ " pings"
+    forkIO $ replicateM_ numPings $ send conn1 ["pingA"]
 
     -- One thread to send "pingB" on the second connection
-    forkIO $ do
-      replicateM_ numPings $ send conn2 ["pingB"]
-      putStrLn $ "client B did " ++ show numPings ++ " pings"
+    forkIO $ replicateM_ numPings $ send conn2 ["pingB"]
 
     -- Verify server responses 
     let verifyResponse 0 = putMVar result () 
@@ -149,9 +146,64 @@ testConnections transport numPings = do
 
   takeMVar result
 
+-- Test that closing one connection does not close the other
+testCloseOneConnection :: Transport -> Int -> IO ()
+testCloseOneConnection transport numPings = do
+  server <- spawn transport echoServer
+  result <- newEmptyMVar
+  
+  -- Client
+  forkIO $ do
+    Right endpoint <- newEndPoint transport
+
+    -- Open two connections to the server
+    Right conn1 <- connect endpoint server ReliableOrdered
+    ConnectionOpened serv1 _ _ <- receive endpoint
+   
+    Right conn2 <- connect endpoint server ReliableOrdered
+    ConnectionOpened serv2 _ _ <- receive endpoint
+
+    -- One thread to send "pingA" on the first connection
+    forkIO $ replicateM_ numPings $ send conn1 ["pingA"] >> close conn1
+      
+    -- One thread to send "pingB" on the second connection
+    forkIO $ replicateM_ (numPings * 2) $ send conn2 ["pingB"]
+
+    -- Verify server responses 
+    let verifyResponse 0 = putMVar result () 
+        verifyResponse n = do 
+          event <- receive endpoint
+          case event of
+            Received cid [payload] -> do
+              when (cid == serv1 && payload /= "pingA") $ error "Wrong message"
+              when (cid == serv2 && payload /= "pingB") $ error "Wrong message"
+              verifyResponse (n - 1) 
+            _ -> 
+              verifyResponse n 
+    verifyResponse (3 * numPings)
+
+  takeMVar result
+
+runTestIO :: String -> IO () -> IO ()
+runTestIO description test = do
+  putStr $ "Running " ++ show description ++ ": "
+  hFlush stdout
+  test 
+  putStrLn "ok"
+  
+runTest :: String -> (Transport -> Int -> IO ()) -> ReaderT Transport IO ()
+runTest description test = do
+  transport <- ask 
+  done <- liftIO $ timeout 1000000 $ runTestIO description (test transport 1000) 
+  case done of 
+    Just () -> return ()
+    Nothing -> error "timeout"
+
+
 -- Transport tests
 testTransport :: Transport -> IO ()
-testTransport transport = do 
-  testPingPong    transport 10000
-  testEndPoints   transport 10000
-  testConnections transport 10000
+testTransport = runReaderT $ do
+  runTest "PingPong" testPingPong
+  runTest "EndPoints" testEndPoints
+  runTest "Connections" testConnections 
+  runTest "CloseOneConnection" testCloseOneConnection

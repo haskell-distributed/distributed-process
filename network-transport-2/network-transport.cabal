@@ -44,7 +44,8 @@ Test-Suite TestMulticastInMemory
                   containers,
                   bytestring,
                   data-lens,
-                  mtl
+                  mtl,
+                  transformers
   extensions:     EmptyDataDecls, OverloadedStrings
   ghc-options:    -Wall -fno-warn-unused-do-bind
   HS-Source-Dirs: tests src
@@ -56,7 +57,8 @@ Test-Suite TestInMemory
                   containers,
                   bytestring,
                   data-lens,
-                  mtl
+                  mtl,
+                  transformers
   extensions:     EmptyDataDecls, OverloadedStrings
   ghc-options:    -Wall -fno-warn-unused-do-bind
   HS-Source-Dirs: tests src
