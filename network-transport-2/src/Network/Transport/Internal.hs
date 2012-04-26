@@ -4,22 +4,23 @@ module Network.Transport.Internal ( -- * Encoders/decoders
                                   , decodeInt32
                                   , encodeInt16
                                   , decodeInt16
+                                  , prependLength
                                     -- * Miscellaneous abstractions
                                   , failWith
-                                  , failWithT
+                                  , failWithIO
                                   ) where
 
-import Data.Int (Int16, Int32)
+import Prelude hiding (catch)
 import Foreign.Storable (pokeByteOff, peekByteOff)
 import Foreign.C (CInt(..), CShort(..))
 import Foreign.ForeignPtr (withForeignPtr)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (length)
-import qualified Data.ByteString.Internal as BSI (create, toForeignPtr)
-import Control.Monad (mzero, MonadPlus)
+import qualified Data.ByteString.Internal as BSI (unsafeCreate, toForeignPtr, inlinePerformIO)
+import Control.Applicative ((<$>))
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import Control.Monad.Error (ErrorT, Error, throwError, lift)
-import Control.Monad.Trans.Maybe (MaybeT, runMaybeT)
+import Control.Monad.Error (MonadError, throwError)
+import Control.Exception (IOException, catch)
 
 foreign import ccall unsafe "htonl" htonl :: CInt -> CInt
 foreign import ccall unsafe "ntohl" ntohl :: CInt -> CInt
@@ -27,44 +28,52 @@ foreign import ccall unsafe "htons" htons :: CShort -> CShort
 foreign import ccall unsafe "ntohs" ntohs :: CShort -> CShort
 
 -- | Serialize 32-bit to network byte order 
-encodeInt32 :: (MonadIO m) => Int32 -> m ByteString
-encodeInt32 i32 = liftIO $ 
-  BSI.create 4 $ \p ->
-    pokeByteOff p 0 (htonl (fromIntegral i32))
+encodeInt32 :: Enum a => a -> ByteString
+encodeInt32 i32 = 
+  BSI.unsafeCreate 4 $ \p ->
+    pokeByteOff p 0 (htonl . fromIntegral . fromEnum $ i32)
 
 -- | Deserialize 32-bit from network byte order 
-decodeInt32 :: (MonadIO m, MonadPlus m) => ByteString -> m Int32 
-decodeInt32 bs | BS.length bs /= 4 = mzero
-decodeInt32 bs = liftIO $ do 
+decodeInt32 :: Enum a => ByteString -> Maybe a 
+decodeInt32 bs | BS.length bs /= 4 = Nothing 
+decodeInt32 bs = Just . BSI.inlinePerformIO $ do 
   let (fp, _, _) = BSI.toForeignPtr bs 
   withForeignPtr fp $ \p -> do
     w32 <- peekByteOff p 0 
-    return (fromIntegral (ntohl w32))
+    return (toEnum . fromIntegral . ntohl $ w32)
 
 -- | Serialize 16-bit to network byte order 
-encodeInt16 :: (MonadIO m) => Int16 -> m ByteString
-encodeInt16 i16 = liftIO $ 
-  BSI.create 2 $ \p ->
-    pokeByteOff p 0 (htons (fromIntegral i16))
+encodeInt16 :: Enum a => a -> ByteString 
+encodeInt16 i16 = 
+  BSI.unsafeCreate 2 $ \p ->
+    pokeByteOff p 0 (htons .fromIntegral . fromEnum $ i16)
 
 -- | Deserialize 16-bit from network byte order 
-decodeInt16 :: (MonadIO m, MonadPlus m) => ByteString -> m Int16
-decodeInt16 bs | BS.length bs /= 2 = mzero
-decodeInt16 bs = liftIO $ do
+decodeInt16 :: Enum a => ByteString -> Maybe a
+decodeInt16 bs | BS.length bs /= 2 = Nothing 
+decodeInt16 bs = Just . BSI.inlinePerformIO $ do
   let (fp, _, _) = BSI.toForeignPtr bs 
   withForeignPtr fp $ \p -> do
     w16 <- peekByteOff p 0 
-    return (fromIntegral (ntohs w16))
+    return (toEnum . fromIntegral . ntohs $ w16)
 
--- | Convert 'Maybe' to an ErrorT value 
-failWith :: (Monad m, Error a) => a -> Maybe b -> ErrorT a m b
+-- | Prepend a list of bytestrings with their total length
+prependLength :: [ByteString] -> [ByteString]
+prependLength bss = encodeInt32 (sum . map BS.length $ bss) : bss
+
+-- | Convert a "failing operation" into one that fails with a specific error 
+failWith :: (MonadError e m) => e -> Maybe a -> m a
 failWith err Nothing  = throwError err
 failWith _   (Just x) = return x
 
--- | Convert 'MaybeT' to an 'ErrorT'
-failWithT :: (Monad m, Error a) => a -> MaybeT m b -> ErrorT a m b
-failWithT err valueT = do
-  mval <- lift $ runMaybeT valueT
-  case mval of
-    Nothing  -> throwError err
-    Just val -> return val 
+-- | Try the specific I/O operation, and fail with the given error 
+-- when an exception occurs
+failWithIO :: (MonadIO m, MonadError e m) => (IOException -> e) -> IO a -> m a
+failWithIO f io = do
+    ma <- liftIO $ catch (Right <$> io) handleIOException
+    case ma of
+      Left err -> throwError (f err)
+      Right a  -> return a
+  where
+    handleIOException :: IOException -> IO (Either IOException a)
+    handleIOException = return . Left 

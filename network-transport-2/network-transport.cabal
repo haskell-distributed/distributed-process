@@ -18,7 +18,7 @@ Library
                    transformers
   Exposed-modules: Network.Transport,
                    Network.Transport.Chan
-  extensions:      EmptyDataDecls, ForeignFunctionInterface, CPP
+  extensions:      EmptyDataDecls, ForeignFunctionInterface, FlexibleContexts
   ghc-options:     -Wall -fno-warn-unused-do-bind
   HS-Source-Dirs:  src
 
@@ -33,7 +33,7 @@ Test-Suite TestTCP
                   regex-applicative,
                   mtl,
                   transformers
-  extensions:     EmptyDataDecls, OverloadedStrings, ForeignFunctionInterface, CPP
+  extensions:     EmptyDataDecls, OverloadedStrings, ForeignFunctionInterface, FlexibleContexts
   ghc-options:    -Wall -fno-warn-unused-do-bind
   HS-Source-Dirs: tests src
 

@@ -2,16 +2,13 @@ module TestTransport where
 
 import Control.Concurrent (forkIO)
 -- import Control.Concurrent (myThreadId)
-import Control.Monad (liftM2, replicateM, replicateM_, when)
-import Control.Applicative ((<$>))
+import Control.Monad (replicateM, replicateM_, when)
 import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar)
 import Network.Transport
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 ()
 import Data.Map (Map)
 import qualified Data.Map as Map (empty, insert, (!), delete)
-
-type Test = IO Bool
 
 -- Logging (for debugging)
 tlog :: String -> IO ()
@@ -72,7 +69,7 @@ ping endpoint server numPings msg = do
   close conn
     
 -- Basic ping test
-testPingPong :: Transport -> Int -> Test
+testPingPong :: Transport -> Int -> IO () 
 testPingPong transport numPings = do
   tlog "Starting ping pong test"
   server <- spawn transport echoServer
@@ -84,12 +81,12 @@ testPingPong transport numPings = do
     Right endpoint <- newEndPoint transport
     ping endpoint server numPings "ping"
     putStrLn $ "client did " ++ show numPings ++ " pings"
-    putMVar result True
+    putMVar result () 
   
   takeMVar result
 
 -- Test that endpoints don't get confused
-testEndPoints :: Transport -> Int -> Test
+testEndPoints :: Transport -> Int -> IO () 
 testEndPoints transport numPings = do
   server <- spawn transport echoServer
   [resultA, resultB] <- replicateM 2 newEmptyMVar 
@@ -99,19 +96,19 @@ testEndPoints transport numPings = do
     Right endpoint <- newEndPoint transport
     ping endpoint server numPings "pingA"
     putStrLn $ "client A did " ++ show numPings ++ " pings"
-    putMVar resultA True
+    putMVar resultA () 
 
   -- Client B
   forkIO $ do
     Right endpoint <- newEndPoint transport
     ping endpoint server numPings "pingB"
     putStrLn $ "client B did " ++ show numPings ++ " pings"
-    putMVar resultB True
+    putMVar resultB () 
 
-  and <$> mapM takeMVar [resultA, resultB] 
+  mapM_ takeMVar [resultA, resultB] 
 
 -- Test that connections don't get confused
-testConnections :: Transport -> Int -> Test
+testConnections :: Transport -> Int -> IO () 
 testConnections transport numPings = do
   server <- spawn transport echoServer
   result <- newEmptyMVar
@@ -138,7 +135,7 @@ testConnections transport numPings = do
       putStrLn $ "client B did " ++ show numPings ++ " pings"
 
     -- Verify server responses 
-    let verifyResponse 0 = putMVar result True
+    let verifyResponse 0 = putMVar result () 
         verifyResponse n = do 
           event <- receive endpoint
           case event of
@@ -153,10 +150,8 @@ testConnections transport numPings = do
   takeMVar result
 
 -- Transport tests
-testTransport :: Transport -> IO Bool
+testTransport :: Transport -> IO ()
 testTransport transport = do 
-  tlog "Starting transport tests"
-  foldl (liftM2 (&&)) (return True) [ testPingPong    transport 10000
-                                    , testEndPoints   transport 10000
-                                    , testConnections transport 10000
-                                    ]
+  testPingPong    transport 10000
+  testEndPoints   transport 10000
+  testConnections transport 10000

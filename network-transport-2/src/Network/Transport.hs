@@ -46,22 +46,29 @@ data NewEndPointErrorCode
 
 -- | Connection failure 
 data ConnectErrorCode = 
-    ConnectInvalidAddress -- ^ Could not parse the address
+    ConnectInvalidAddress        -- ^ Could not parse or resolve the address 
+  | ConnectInsufficientResources -- ^ Insufficient resources (for instance, no more socketss available)
+  | ConnectFailed                -- ^ Failed for other reasons 
+  deriving Show
 
 -- | Failure during the creation of a new multicast group
 data NewMulticastGroupErrorCode =
     NewMulticastGroupUnsupported
+  deriving Show
 
 -- | Failure during the resolution of a multicast group
 data ResolveMulticastGroupErrorCode =
     ResolveMulticastGroupNotFound
   | ResolveMulticastGroupUnsupported
+  deriving Show
 
 -- | Failure during sending a message
 data SendErrorCode =
     SendFailed
+  deriving Show
 
 data FailedWith error = FailedWith error String
+  deriving Show
 
 instance Error (FailedWith error) where
   strMsg = FailedWith undefined
