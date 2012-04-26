@@ -8,7 +8,7 @@ import Network.Transport
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 ()
 import Data.Map (Map)
-import qualified Data.Map as Map (empty, insert, (!), delete)
+import qualified Data.Map as Map (empty, insert, delete, findWithDefault)
 import Control.Monad.Reader (ReaderT, runReaderT, ask)
 import Control.Monad.IO.Class (liftIO)
 import System.IO (hFlush, stdout)
@@ -38,10 +38,10 @@ echoServer endpoint = do
           Right conn <- connect endpoint addr rel 
           go (Map.insert cid conn cs) 
         Received cid payload -> do
-          send (cs Map.! cid) payload 
+          send (Map.findWithDefault (error $ "Received: Invalid cid " ++ show cid) cid cs) payload 
           go cs
         ConnectionClosed cid -> do 
-          close (cs Map.! cid)
+          close (Map.findWithDefault (error $ "ConnectionClosed: Invalid cid " ++ show cid) cid cs)
           go (Map.delete cid cs) 
         ReceivedMulticast _ _ -> 
           -- Ignore
@@ -164,7 +164,9 @@ testCloseOneConnection transport numPings = do
     ConnectionOpened serv2 _ _ <- receive endpoint
 
     -- One thread to send "pingA" on the first connection
-    forkIO $ replicateM_ numPings $ send conn1 ["pingA"] >> close conn1
+    forkIO $ do
+      replicateM_ numPings $ send conn1 ["pingA"]
+      close conn1
       
     -- One thread to send "pingB" on the second connection
     forkIO $ replicateM_ (numPings * 2) $ send conn2 ["pingB"]
@@ -191,18 +193,17 @@ runTestIO description test = do
   test 
   putStrLn "ok"
   
-runTest :: String -> (Transport -> Int -> IO ()) -> ReaderT Transport IO ()
+runTest :: String -> (Transport -> Int -> IO ()) -> ReaderT (Transport, Int) IO ()
 runTest description test = do
-  transport <- ask 
-  done <- liftIO $ timeout 1000000 $ runTestIO description (test transport 1000) 
+  (transport, numPings) <- ask 
+  done <- liftIO $ timeout 1000000 $ runTestIO description (test transport numPings) 
   case done of 
     Just () -> return ()
     Nothing -> error "timeout"
 
-
 -- Transport tests
 testTransport :: Transport -> IO ()
-testTransport = runReaderT $ do
+testTransport transport = flip runReaderT (transport, 1000) $ do
   runTest "PingPong" testPingPong
   runTest "EndPoints" testEndPoints
   runTest "Connections" testConnections 

@@ -8,7 +8,7 @@ import Control.Category ((>>>))
 import Control.Concurrent.MVar (MVar, newMVar, modifyMVar, modifyMVar_, readMVar)
 import Control.Monad (forM_)
 import Data.Map (Map)
-import qualified Data.Map as Map (empty, insert, (!), size, delete)
+import qualified Data.Map as Map (empty, insert, size, delete, findWithDefault)
 import qualified Data.ByteString.Char8 as BSC (pack)
 import Data.Lens.Lazy (Lens, lens, (^.), (^%=), (^=), (^+=), mapLens)
 
@@ -27,17 +27,17 @@ nextConnectionId = lens  _nextConnectionId (\cid st -> st { _nextConnectionId = 
 multigroups :: Lens TransportState (Map MulticastAddress (MVar [Chan Event]))
 multigroups = lens _multigroups (\gs st -> st { _multigroups = gs }) 
 
-at :: Ord k => k -> Lens (Map k v) v
-at k = lens (Map.! k) (Map.insert k)   
+at :: Ord k => k -> String -> Lens (Map k v) v
+at k err = lens (Map.findWithDefault (error err) k) (Map.insert k)   
 
 channelAt :: EndPointAddress -> Lens TransportState (Chan Event) 
-channelAt addr = channels >>> at addr
+channelAt addr = channels >>> at addr "Invalid channel"
 
 nextConnectionIdAt :: EndPointAddress -> Lens TransportState ConnectionId
-nextConnectionIdAt addr = nextConnectionId >>> at addr
+nextConnectionIdAt addr = nextConnectionId >>> at addr "Invalid connection ID"
 
 multigroupAt :: MulticastAddress -> Lens TransportState (MVar [Chan Event])
-multigroupAt addr = multigroups >>> at addr
+multigroupAt addr = multigroups >>> at addr "Invalid multigroup"
 
 -- | Create a new Transport.
 --
