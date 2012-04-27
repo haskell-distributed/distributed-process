@@ -17,7 +17,8 @@ Library
                    mtl,
                    transformers
   Exposed-modules: Network.Transport,
-                   Network.Transport.Chan
+                   Network.Transport.Chan,
+                   Network.Transport.TCP
   extensions:      EmptyDataDecls, ForeignFunctionInterface, FlexibleContexts
   ghc-options:     -Wall -fno-warn-unused-do-bind
   HS-Source-Dirs:  src
