@@ -3,7 +3,6 @@ module Network.Transport.Internal.TCP ( forkServer
                                       , recvWithLength
                                       , recvExact 
                                       , recvInt32
-                                      , sendMany
                                       ) where
 
 import Prelude hiding (catch)
@@ -23,20 +22,16 @@ import qualified Network.Socket as N ( HostName
                                      , defaultProtocol
                                      , setSocketOption
                                      )
-import qualified Network.Socket.ByteString as NBS (recv, sendMany)
+import qualified Network.Socket.ByteString as NBS (recv)
 import Control.Concurrent (forkIO, ThreadId)
 import Control.Monad (mzero, MonadPlus, liftM)
-import Control.Monad.IO.Class (MonadIO, liftIO)
-import Control.Monad.Error (MonadError)
-import Control.Exception (catch, IOException)
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS (length, concat, null, empty)
+import qualified Data.ByteString as BS (length, concat, null)
 import Data.Int (Int32)
 
 -- | Start a server at the specified address
-forkServer :: (MonadIO m, MonadError IOException m) 
-           => N.HostName -> N.ServiceName -> (N.Socket -> IO ()) -> m ThreadId
-forkServer host port server = liftIO $ do 
+forkServer :: N.HostName -> N.ServiceName -> (N.Socket -> IO ()) -> IO ThreadId
+forkServer host port server = do 
   -- Resolve the specified address. By specification, getAddrInfo will never
   -- return an empty list (but will throw an exception instead) and will return
   -- the "best" address first, whatever that means
@@ -47,16 +42,12 @@ forkServer host port server = liftIO $ do
   N.listen sock 5
   forkIO $ server sock
 
--- | Lifted version of 'Network.Socket.ByteString.sendMany'
-sendMany :: (MonadIO m) => N.Socket -> [ByteString] -> m ()
-sendMany sock msg = liftIO $ NBS.sendMany sock msg
-
 -- | Read a length and then a payload of that length
-recvWithLength :: (MonadIO m, MonadPlus m) => N.Socket -> m [ByteString]
+recvWithLength :: N.Socket -> IO [ByteString]
 recvWithLength sock = recvInt32 sock >>= recvExact sock
 
 -- | Receive a 32-bit integer
-recvInt32 :: (Enum a, MonadIO m, MonadPlus m) => N.Socket -> m a 
+recvInt32 :: Enum a => N.Socket -> IO a 
 recvInt32 sock = do
   mi <- liftM (decodeInt32 . BS.concat) $ recvExact sock 4 
   case mi of
@@ -64,26 +55,19 @@ recvInt32 sock = do
     Just i  -> return i
 
 -- | Read an exact number of bytes from a socket
---
--- Fails if the socket closes prematurely or the length is non-positive
-recvExact :: (MonadIO m, MonadPlus m) 
-          => N.Socket                -- ^ Socket to read from 
+-- 
+-- Throws an I/O exception if the socket closes before the specified
+-- number of bytes could be read
+recvExact :: N.Socket                -- ^ Socket to read from 
           -> Int32                   -- ^ Number of bytes to read
-          -> m [ByteString]
+          -> IO [ByteString]
 recvExact _ len | len <= 0 = mzero
-recvExact sock len = do
-    (socketClosed, input) <- liftIO $ go [] len
-    if socketClosed then mzero else return input
+recvExact sock len = go [] len
   where
-    -- Returns input read and whether the socket closed prematurely
-    go :: [ByteString] -> Int32 -> IO (Bool, [ByteString])
-    go acc 0 = return (False, reverse acc)
+    go :: [ByteString] -> Int32 -> IO [ByteString] 
+    go acc 0 = return (reverse acc) 
     go acc l = do
-      bs <- catch (NBS.recv sock (fromIntegral l `min` 4096)) handleIOException
+      bs <- NBS.recv sock (fromIntegral l `min` 4096)
       if BS.null bs 
-        then return (True, reverse acc)
+        then fail "Socket closed"
         else go (bs : acc) (l - fromIntegral (BS.length bs))
-    
-    -- We treat an I/O exception the same way as a socket closure
-    handleIOException :: IOException -> IO ByteString
-    handleIOException _ = return BS.empty 

@@ -8,7 +8,9 @@ module Network.Transport.Internal ( -- * Encoders/decoders
                                     -- * Miscellaneous abstractions
                                   , failWith
                                   , failWithIO
-                                  , failWithMaybeIO
+                                  , tryIO
+                                    -- * Debugging
+                                  , tlog
                                   ) where
 
 import Prelude hiding (catch)
@@ -21,8 +23,8 @@ import qualified Data.ByteString.Internal as BSI (unsafeCreate, toForeignPtr, in
 import Control.Applicative ((<$>))
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Error (MonadError, throwError)
-import Control.Monad.Trans.Maybe (MaybeT, runMaybeT)
-import Control.Exception (IOException, catch)
+import Control.Exception (IOException, catch, try)
+--import Control.Concurrent (myThreadId)
 
 foreign import ccall unsafe "htonl" htonl :: CInt -> CInt
 foreign import ccall unsafe "ntohl" ntohl :: CInt -> CInt
@@ -80,10 +82,15 @@ failWithIO f io = do
     handleIOException :: IOException -> IO (Either IOException a)
     handleIOException = return . Left 
 
--- | Like 'failWithIO' but throw an error on a return of 'Nothing' too
-failWithMaybeIO :: (MonadIO m, MonadError e m) => (Maybe IOException -> e) -> MaybeT IO a -> m a
-failWithMaybeIO f io = do
-  ma <- failWithIO (f . Just) $ runMaybeT io
-  case ma of
-    Nothing -> throwError (f Nothing)
-    Just a  -> return a
+-- | Like 'try', but specialized to IOExceptions
+tryIO :: IO a -> IO (Either IOException a)
+tryIO = try
+
+-- Logging (for debugging)
+tlog :: String -> IO ()
+tlog _ = return ()
+{-
+tlog msg = do
+  tid <- myThreadId
+  putStrLn $ show tid ++ ": "  ++ msg
+-}

@@ -19,7 +19,7 @@ Library
   Exposed-modules: Network.Transport,
                    Network.Transport.Chan,
                    Network.Transport.TCP
-  extensions:      EmptyDataDecls, ForeignFunctionInterface, FlexibleContexts
+  extensions:      EmptyDataDecls, OverloadedStrings, ForeignFunctionInterface, FlexibleContexts, BangPatterns
   ghc-options:     -Wall -fno-warn-unused-do-bind
   HS-Source-Dirs:  src
 
@@ -34,7 +34,7 @@ Test-Suite TestTCP
                   regex-applicative,
                   mtl,
                   transformers
-  extensions:     EmptyDataDecls, OverloadedStrings, ForeignFunctionInterface, FlexibleContexts
+  extensions:     EmptyDataDecls, OverloadedStrings, ForeignFunctionInterface, FlexibleContexts, BangPatterns
   ghc-options:    -Wall -fno-warn-unused-do-bind
   HS-Source-Dirs: tests src
 
@@ -47,7 +47,7 @@ Test-Suite TestMulticastInMemory
                   data-lens,
                   mtl,
                   transformers
-  extensions:     EmptyDataDecls, OverloadedStrings
+  extensions:     EmptyDataDecls, OverloadedStrings, ForeignFunctionInterface, FlexibleContexts, BangPatterns
   ghc-options:    -Wall -fno-warn-unused-do-bind
   HS-Source-Dirs: tests src
 
@@ -60,6 +60,6 @@ Test-Suite TestInMemory
                   data-lens,
                   mtl,
                   transformers
-  extensions:     EmptyDataDecls, OverloadedStrings
+  extensions:     EmptyDataDecls, OverloadedStrings, ForeignFunctionInterface, FlexibleContexts, BangPatterns
   ghc-options:    -Wall -fno-warn-unused-do-bind
   HS-Source-Dirs: tests src

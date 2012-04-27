@@ -1,27 +1,21 @@
 module TestTransport where
 
+import Prelude hiding (catch)
 import Control.Concurrent (forkIO)
--- import Control.Concurrent (myThreadId)
-import Control.Monad (replicateM, replicateM_, when)
-import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar)
-import Network.Transport
-import Data.ByteString (ByteString)
-import Data.ByteString.Char8 ()
-import Data.Map (Map)
-import qualified Data.Map as Map (empty, insert, delete, findWithDefault)
+import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar, readMVar)
+import Control.Monad (replicateM, replicateM_, when, guard, forM_)
 import Control.Monad.Reader (ReaderT, runReaderT, ask)
 import Control.Monad.IO.Class (liftIO)
+import Control.Exception (evaluate, throw, catch, PatternMatchFail)
+import Control.Applicative ((<$>))
+import Network.Transport
+import Network.Transport.Internal (tlog)
+import Data.ByteString (ByteString)
+import Data.ByteString.Char8 (pack)
+import Data.Map (Map)
+import qualified Data.Map as Map (empty, insert, delete, findWithDefault, adjust, null, toList, map)
 import System.IO (hFlush, stdout)
 import System.Timeout (timeout)
-
--- Logging (for debugging)
-tlog :: String -> IO ()
-tlog _ = return ()
-{-
-tlog msg = do
-  tid <- myThreadId
-  putStrLn $ show tid ++ ": "  ++ msg
--}
 
 -- Server that echoes messages straight back to the origin endpoint.
 echoServer :: EndPoint -> IO ()
@@ -198,60 +192,164 @@ testCloseOneDirection transport numPings = do
 
   -- A
   forkIO $ do
+    tlog "A" 
     Right endpoint <- newEndPoint transport
+    tlog (show (address endpoint))
     putMVar addrA (address endpoint)
 
     -- Connect to B
-    Right conn <- takeMVar addrB >>= \addr -> connect endpoint addr ReliableOrdered 
+    tlog "Connect to B"
+    Right conn <- readMVar addrB >>= \addr -> connect endpoint addr ReliableOrdered 
 
     -- Wait for B to connect to us
-    ConnectionOpened _ _ _ <- receive endpoint
+    tlog "Wait for B" 
+    ConnectionOpened cid _ _ <- receive endpoint
 
     -- Send pings to B
+    tlog "Send pings to B"
     replicateM_ numPings $ send conn ["ping"] 
 
     -- Close our connection to B
+    tlog "Close connection"
     close conn
-
+   
     -- Wait for B's pongs
+    tlog "Wait for pongs from B" 
     replicateM_ numPings $ do Received _ _ <- receive endpoint ; return ()
 
     -- Wait for B to close it's connection to us
-    -- TODO: this message is not yet sent
-    -- ConnectionClosed _ <- receive endpoint
+    tlog "Wait for B to close connection"
+    ConnectionClosed cid' <- receive endpoint
+    guard (cid == cid') 
 
     -- Done
+    tlog "Done"
     putMVar doneA ()
+
+  -- B
+  forkIO $ do
+    tlog "B"
+    Right endpoint <- newEndPoint transport
+    tlog (show (address endpoint))
+    putMVar addrB (address endpoint)
+
+    -- Wait for A to connect
+    tlog "Wait for A to connect"
+    ConnectionOpened cid _ _ <- receive endpoint
+
+    -- Connect to A
+    tlog "Connect to A"
+    Right conn <- readMVar addrA >>= \addr -> connect endpoint addr ReliableOrdered 
+
+    -- Wait for A's pings
+    tlog "Wait for pings from A"
+    replicateM_ numPings $ do Received _ _ <- receive endpoint ; return ()
+
+    -- Wait for A to close it's connection to us
+    tlog "Wait for A to close connection"
+    ConnectionClosed cid' <- receive endpoint
+    guard (cid == cid') 
+
+    -- Send pongs to A
+    tlog "Send pongs to A"
+    replicateM_ numPings $ send conn ["pong"]
+   
+    -- Close our connection to A
+    tlog "Close connection to A"
+    close conn
+
+    -- Done
+    tlog "Done"
+    putMVar doneB ()
+
+  mapM_ takeMVar [doneA, doneB]
+
+expect :: EndPoint -> (Event -> Bool) -> IO ()
+expect endpoint predicate = do
+  event <- receive endpoint
+  tlog $ "Got event " ++ show event
+  mbool <- catch (Right <$> evaluate (predicate event)) (return . Left)
+  case mbool of
+    Left err    -> do tlog $ "Unexpected event " ++ show event 
+                      throw (err :: PatternMatchFail) 
+    Right False -> do tlog $ "Unexpected event " ++ show event 
+                      fail "Unexpected event"
+    _           -> return ()
+
+collect :: EndPoint -> Int -> IO ([(ConnectionId, [[ByteString]])]) 
+collect endPoint numEvents = go numEvents (Map.empty) (Map.empty)
+  where
+    go 0 !open !closed = if Map.null open 
+                         then return . Map.toList . Map.map reverse $ closed
+                         else fail "Open connections"
+    go !n !open !closed = do
+      event <- receive endPoint 
+      case event of
+        ConnectionOpened cid _ _ ->
+          go (n - 1) (Map.insert cid [] open) closed
+        ConnectionClosed cid ->
+          let list = Map.findWithDefault (error "Invalid ConnectionClosed") cid open in
+          go (n - 1) (Map.delete cid open) (Map.insert cid list closed)
+        Received cid msg ->
+          go (n - 1) (Map.adjust (msg :) cid open) closed
+        ReceivedMulticast _ _ ->
+          fail "Unexpected multicast"
+
+-- Open connection, close it, then reopen it
+-- (In the TCP transport this means the socket will be closed, then reopened)
+--
+-- Note that B cannot expect to receive all of A's messages on the first connection
+-- before receiving the messages on the second connection. What might (and sometimes
+-- does) happen is that finishes sending all of its messages on the first connection
+-- (in the TCP transport, the first socket pair) while B is behind on reading _from_
+-- this connection (socket pair) -- the messages are "in transit" on the network 
+-- (these tests are done on localhost, so there are in some OS buffer). Then when
+-- A opens the second connection (socket pair) B will spawn a new thread for this
+-- connection, and hence might start interleaving messages from the first and second
+-- connection. 
+-- 
+-- This is correct behaviour, however: the transport API guarantees reliability and
+-- ordering _per connection_, but not _across_ connections.
+testCloseReopen :: Transport -> Int -> IO ()
+testCloseReopen transport numPings = do
+  addrB <- newEmptyMVar
+  doneB <- newEmptyMVar
+
+  let numRepeats = 2 :: Int 
+
+  -- A
+  forkIO $ do
+    Right endpoint <- newEndPoint transport
+
+    forM_ [1 .. numRepeats] $ \i -> do
+      tlog "A connecting"
+      -- Connect to B
+      Right conn <- readMVar addrB >>= \addr -> connect endpoint addr ReliableOrdered
+  
+      tlog "A pinging"
+      -- Say hi
+      forM_ [1 .. numPings] $ \j -> send conn [pack $ "ping" ++ show i ++ "/" ++ show j]
+
+      tlog "A closing"
+      -- Disconnect again
+      close conn
+
+    tlog "A finishing"
 
   -- B
   forkIO $ do
     Right endpoint <- newEndPoint transport
     putMVar addrB (address endpoint)
 
-    -- Wait for A to connect
-    ConnectionOpened _ _ _ <- receive endpoint
+    events <- collect endpoint (numRepeats * (numPings + 2))
 
-    -- Connect to A
-    Right conn <- takeMVar addrA >>= \addr -> connect endpoint addr ReliableOrdered 
+    forM_ (zip [1 .. numRepeats] events) $ \(i, (_, events)) -> do
+      forM_ (zip [1 .. numPings] events) $ \(j, event) -> do
+        guard (event == [pack $ "ping" ++ show i ++ "/" ++ show j])
 
-    -- Wait for A's pings
-    replicateM_ numPings $ do Received _ _ <- receive endpoint ; return ()
-
-    -- Wait for A to close it's connection to us
-    -- TODO: this message is not yet sent
-    -- ConnectionClosed _ <- receive endpoint
-
-    -- Send pongs to A
-    replicateM_ numPings $ send conn ["pong"]
-   
-    -- Close our connection to A
-    close conn
-
-    -- Done
     putMVar doneB ()
 
-  mapM_ takeMVar [doneA, doneB]
-
+  takeMVar doneB
 
 runTestIO :: String -> IO () -> IO ()
 runTestIO description test = do
@@ -263,16 +361,17 @@ runTestIO description test = do
 runTest :: String -> (Transport -> Int -> IO ()) -> ReaderT (Transport, Int) IO ()
 runTest description test = do
   (transport, numPings) <- ask 
-  done <- liftIO $ timeout 5000000 $ runTestIO description (test transport numPings) 
+  done <- liftIO $ timeout 10000000 $ runTestIO description (test transport numPings) 
   case done of 
     Just () -> return ()
     Nothing -> error "timeout"
 
 -- Transport tests
 testTransport :: Transport -> IO ()
-testTransport transport = flip runReaderT (transport, 50000) $ do
+testTransport transport = flip runReaderT (transport, 10000) $ do
   runTest "PingPong" testPingPong
   runTest "EndPoints" testEndPoints
   runTest "Connections" testConnections 
   runTest "CloseOneConnection" testCloseOneConnection
---  runTest "CloseOneDirection" testCloseOneDirection
+  runTest "CloseOneDirection" testCloseOneDirection
+  runTest "CloseReopen" testCloseReopen

@@ -3,11 +3,10 @@ module Main where
 import TestTransport 
 import Network.Transport
 import Network.Transport.Internal (encodeInt32, prependLength)
-import Network.Transport.Internal.TCP (recvInt32, sendMany)
+import Network.Transport.Internal.TCP (recvInt32)
 import Network.Transport.TCP (createTransport, decodeEndPointAddress, EndPointId, ControlHeader(..))
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar, readMVar)
 import Control.Concurrent (forkIO)
-import Control.Monad.Trans.Maybe (runMaybeT)
 import Data.Maybe (fromJust)
 import Data.Int (Int32)
 import qualified Network.Socket as N ( getAddrInfo
@@ -23,6 +22,7 @@ import qualified Network.Socket as N ( getAddrInfo
                                      , HostName
                                      , ServiceName
                                      )
+import Network.Socket.ByteString (sendMany)                                     
 
 testEarlyDisconnect :: IO ()
 testEarlyDisconnect = do
@@ -55,14 +55,14 @@ testEarlyDisconnect = do
       N.connect sock (N.addrAddress addr)
   
       (_, _, endPointIx) <- readMVar serverAddr
-      runMaybeT $ sendMany sock (encodeInt32 endPointIx : prependLength [myAddress])
+      sendMany sock (encodeInt32 endPointIx : prependLength [myAddress])
 
       -- Wait for acknowledgement
-      Just ValidEndPoint <- runMaybeT $ recvInt32 sock
+      ValidEndPoint <- recvInt32 sock
   
       -- Request a new connection, but don't wait for the response
       let reqId = 0 :: Int32
-      runMaybeT $ sendMany sock [encodeInt32 RequestConnectionId, encodeInt32 reqId]
+      sendMany sock [encodeInt32 RequestConnectionId, encodeInt32 reqId]
   
       -- Close the socket without closing the connection explicitly
       -- The server should still receive a ConnectionClosed message
