@@ -49,7 +49,7 @@ import Control.Concurrent.MVar ( MVar
                                )
 import Control.Category ((>>>))
 import Control.Applicative ((<*>), (*>), (<$>))
-import Control.Monad (forever, forM_, void)
+import Control.Monad (forever, forM_, void, when)
 import Control.Monad.Error (MonadError, ErrorT, liftIO, runErrorT, throwError)
 import Control.Monad.Trans.Maybe (MaybeT(MaybeT), runMaybeT)
 import Control.Monad.Trans.Writer (WriterT, execWriterT)
@@ -81,6 +81,7 @@ data LocalEndPoint  = LocalEndPoint  { _localAddress        :: EndPointAddress
 data RemoteEndPoint = RemoteEndPoint { _remoteAddress       :: EndPointAddress
                                      , _remoteSocket        :: N.Socket
                                      , _remoteLock          :: MVar ()
+                                     , _remoteRefCount      :: MVar Int
                                      }
 data EndPointState  = EndPointState  { _nextConnectionId    :: ConnectionId 
                                      , _pendingCtrlRequests :: IntMap (MVar [ByteString])
@@ -146,10 +147,13 @@ forkRemoteEndPoint :: TCPTransport
                    -> N.Socket
                    -> IO RemoteEndPoint 
 forkRemoteEndPoint transport ourEndPoint theirAddress sock = do
-  lock <- newMVar ()
-  let theirEndPoint = RemoteEndPoint { _remoteAddress = theirAddress
-                                     , _remoteSocket  = sock 
-                                     , _remoteLock    = lock 
+  -- putStrLn "Creating new refcount.."
+  lock     <- newMVar ()
+  refCount <- newMVar 0
+  let theirEndPoint = RemoteEndPoint { _remoteAddress  = theirAddress
+                                     , _remoteSocket   = sock 
+                                     , _remoteLock     = lock 
+                                     , _remoteRefCount = refCount 
                                      }
   modifyMVar_ (transport ^. transportState) $ return . (remoteEndPointAt theirAddress ^= Just theirEndPoint)
   forkIO $ do
@@ -262,16 +266,37 @@ tcpConnect :: TCPTransport     -- ^ Transport
 tcpConnect transport ourEndPoint theirAddress _ = runErrorT $ do
   theirEndPoint <- remoteEndPoint transport ourEndPoint theirAddress 
   connId <- requestNewConnection ourEndPoint theirEndPoint 
+  increaseRemoteRefCount theirEndPoint 
   let sock = theirEndPoint ^. remoteSocket
+  -- TODO: should we modify send so that it returns an error when the user closes the connection?
   return Connection { send  = runErrorT . 
                               failWithIO (FailedWith SendFailed . show) . 
                               withRemoteLock theirEndPoint .
                               sendMany sock .
                               (\payload -> encodeInt32 connId : prependLength payload)
-                    , close = -- TODO: we should not close the TCP connection until all
-                              -- lightweight connections have been closed
-                              N.sClose sock 
+                    , close = decreaseRemoteRefCount theirEndPoint 
                     }
+
+-- | Increase the refcount on a remote endpoint
+increaseRemoteRefCount :: MonadIO m => RemoteEndPoint -> m ()
+increaseRemoteRefCount endPoint = liftIO $ do 
+  return ()
+{-
+  rc <- modifyMVar (endPoint ^. remoteRefCount) $ \rc -> return (rc + 1, rc)
+  putStrLn $ "Increased refcount from " ++ show rc
+-}
+
+-- | Decrease the refcount on a remote endpoint and close the socket
+-- when it reaches zero.
+decreaseRemoteRefCount :: MonadIO m => RemoteEndPoint -> m ()
+decreaseRemoteRefCount endPoint = liftIO $ do
+  return ()
+{-
+  rc <- modifyMVar (endPoint ^. remoteRefCount) $ \rc -> return (rc - 1, rc)
+  putStrLn $ "Reduced refcount from " ++ show rc
+  when (rc == 0) $ 
+    N.sClose (endPoint ^. remoteSocket)
+-}
 
 -- | Request a new connection 
 requestNewConnection :: (MonadIO m, MonadError (FailedWith ConnectErrorCode) m) 
@@ -387,6 +412,9 @@ remoteSocket = lens _remoteSocket (\sock ep -> ep { _remoteSocket = sock })
 
 remoteLock :: Lens RemoteEndPoint (MVar ())
 remoteLock = lens _remoteLock (\lock ep -> ep { _remoteLock = lock })
+
+remoteRefCount :: Lens RemoteEndPoint (MVar Int)
+remoteRefCount = lens _remoteRefCount (\rc ep -> ep { _remoteRefCount = rc })
 
 nextConnectionId :: Lens EndPointState ConnectionId
 nextConnectionId = lens _nextConnectionId (\cix st -> st { _nextConnectionId = cix })

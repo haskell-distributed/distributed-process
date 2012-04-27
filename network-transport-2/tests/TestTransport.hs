@@ -186,6 +186,73 @@ testCloseOneConnection transport numPings = do
 
   takeMVar result
 
+-- Test that if A connects to B and B connects to A, B can still send to A after
+-- A closes its connection to B (for instance, in the TCP transport, the socket pair
+-- connecting A and B should not yet be closed).
+testCloseOneDirection :: Transport -> Int -> IO ()
+testCloseOneDirection transport numPings = do
+  addrA <- newEmptyMVar
+  addrB <- newEmptyMVar
+  doneA <- newEmptyMVar
+  doneB <- newEmptyMVar
+
+  -- A
+  forkIO $ do
+    Right endpoint <- newEndPoint transport
+    putMVar addrA (address endpoint)
+
+    -- Connect to B
+    Right conn <- takeMVar addrB >>= \addr -> connect endpoint addr ReliableOrdered 
+
+    -- Wait for B to connect to us
+    ConnectionOpened _ _ _ <- receive endpoint
+
+    -- Send pings to B
+    replicateM_ numPings $ send conn ["ping"] 
+
+    -- Close our connection to B
+    close conn
+
+    -- Wait for B's pongs
+    replicateM_ numPings $ do Received _ _ <- receive endpoint ; return ()
+
+    -- Wait for B to close it's connection to us
+    -- TODO: this message is not yet sent
+    -- ConnectionClosed _ <- receive endpoint
+
+    -- Done
+    putMVar doneA ()
+
+  -- B
+  forkIO $ do
+    Right endpoint <- newEndPoint transport
+    putMVar addrB (address endpoint)
+
+    -- Wait for A to connect
+    ConnectionOpened _ _ _ <- receive endpoint
+
+    -- Connect to A
+    Right conn <- takeMVar addrA >>= \addr -> connect endpoint addr ReliableOrdered 
+
+    -- Wait for A's pings
+    replicateM_ numPings $ do Received _ _ <- receive endpoint ; return ()
+
+    -- Wait for A to close it's connection to us
+    -- TODO: this message is not yet sent
+    -- ConnectionClosed _ <- receive endpoint
+
+    -- Send pongs to A
+    replicateM_ numPings $ send conn ["pong"]
+   
+    -- Close our connection to A
+    close conn
+
+    -- Done
+    putMVar doneB ()
+
+  mapM_ takeMVar [doneA, doneB]
+
+
 runTestIO :: String -> IO () -> IO ()
 runTestIO description test = do
   putStr $ "Running " ++ show description ++ ": "
@@ -196,15 +263,16 @@ runTestIO description test = do
 runTest :: String -> (Transport -> Int -> IO ()) -> ReaderT (Transport, Int) IO ()
 runTest description test = do
   (transport, numPings) <- ask 
-  done <- liftIO $ timeout 1000000 $ runTestIO description (test transport numPings) 
+  done <- liftIO $ timeout 5000000 $ runTestIO description (test transport numPings) 
   case done of 
     Just () -> return ()
     Nothing -> error "timeout"
 
 -- Transport tests
 testTransport :: Transport -> IO ()
-testTransport transport = flip runReaderT (transport, 1000) $ do
+testTransport transport = flip runReaderT (transport, 50000) $ do
   runTest "PingPong" testPingPong
   runTest "EndPoints" testEndPoints
   runTest "Connections" testConnections 
   runTest "CloseOneConnection" testCloseOneConnection
+--  runTest "CloseOneDirection" testCloseOneDirection
