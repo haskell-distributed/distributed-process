@@ -2,13 +2,15 @@ module Main where
 
 import TestTransport 
 import Network.Transport
+import Network.Transport.TCP (createTransport)
+{-
+import Data.Int (Int32)
+import Data.Maybe (fromJust)
+import Control.Concurrent (forkIO)
+import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar, readMVar)
+import Network.Transport.TCP (decodeEndPointAddress, EndPointId, ControlHeader(..))
 import Network.Transport.Internal (encodeInt32, prependLength)
 import Network.Transport.Internal.TCP (recvInt32)
-import Network.Transport.TCP (createTransport, decodeEndPointAddress, EndPointId, ControlHeader(..))
-import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar, readMVar)
-import Control.Concurrent (forkIO)
-import Data.Maybe (fromJust)
-import Data.Int (Int32)
 import qualified Network.Socket as N ( getAddrInfo
                                      , socket
                                      , connect
@@ -23,8 +25,11 @@ import qualified Network.Socket as N ( getAddrInfo
                                      , ServiceName
                                      )
 import Network.Socket.ByteString (sendMany)                                     
+-}
 
 testEarlyDisconnect :: IO ()
+testEarlyDisconnect = return ()
+{-
 testEarlyDisconnect = do
     serverAddr <- newEmptyMVar
     serverDone <- newEmptyMVar
@@ -67,6 +72,7 @@ testEarlyDisconnect = do
       -- Close the socket without closing the connection explicitly
       -- The server should still receive a ConnectionClosed message
       N.sClose sock
+-}
 
 testInvalidAddress :: IO ()
 testInvalidAddress = do
@@ -98,7 +104,7 @@ testInvalidConnect = do
 
 main :: IO ()
 main = do
-  runTestIO "EarlyDisconnect" testEarlyDisconnect
+  -- runTestIO "EarlyDisconnect" testEarlyDisconnect
   runTestIO "InvalidAddress" testInvalidAddress
   runTestIO "InvalidConnect" testInvalidConnect
   Right transport <- createTransport "127.0.0.1" "8080" 

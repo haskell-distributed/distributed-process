@@ -6,7 +6,7 @@ import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar, readMVar)
 import Control.Monad (replicateM, replicateM_, when, guard, forM_)
 import Control.Monad.Reader (ReaderT, runReaderT, ask)
 import Control.Monad.IO.Class (liftIO)
-import Control.Exception (evaluate, throw, catch, PatternMatchFail)
+import Control.Exception (evaluate, throw, catch, SomeException)
 import Control.Applicative ((<$>))
 import Network.Transport
 import Network.Transport.Internal (tlog)
@@ -26,7 +26,7 @@ echoServer endpoint = do
     go :: Map ConnectionId Connection -> IO () 
     go cs = do
       event <- receive endpoint
-      tlog (show event)
+      tlog $ "Got event " ++ show event
       case event of
         ConnectionOpened cid rel addr -> do
           Right conn <- connect endpoint addr rel 
@@ -41,30 +41,44 @@ echoServer endpoint = do
           -- Ignore
           go cs
 
+expect :: EndPoint -> (Event -> Bool) -> IO ()
+expect endpoint predicate = do
+  event <- receive endpoint
+  tlog $ "Got event " ++ show event
+  mbool <- catch (Right <$> evaluate (predicate event)) (return . Left)
+  case mbool of
+    Left err    -> do tlog $ "Unexpected event " ++ show event 
+                      throw (err :: SomeException) 
+    Right False -> do tlog $ "Unexpected event " ++ show event 
+                      fail "Unexpected event"
+    _           -> return ()
+
 ping :: EndPoint -> EndPointAddress -> Int -> ByteString -> IO ()
 ping endpoint server numPings msg = do
   -- Open connection to the server
-  tlog "Open connection"
+  tlog "Connect to echo server"
   Right conn <- connect endpoint server ReliableOrdered
 
   -- Wait for the server to open reply connection
   tlog "Wait for ConnectionOpened message"
-  ConnectionOpened _ _ _ <- receive endpoint
+  expect endpoint (\(ConnectionOpened _ _ _) -> True)
 
   -- Send pings and wait for reply
   tlog "Send ping and wait for reply"
   replicateM_ numPings $ do
       send conn [msg]
-      event <- receive endpoint
-      case event of
-        Received _ [reply] | reply == msg -> 
-          return ()
-        _ -> 
-          error $ "Unexpected event " ++ show event 
+      expect endpoint (\(Received _ [reply]) -> reply == msg)
 
   -- Close the connection
   tlog "Close the connection"
   close conn
+
+  -- Wait for the server to close its connection to us
+  tlog "Wait for ConnectionClosed message"
+  expect endpoint (\(ConnectionClosed _) -> True)
+
+  -- Done
+  tlog "Ping client done"
     
 -- Basic ping test
 testPingPong :: Transport -> Int -> IO () 
@@ -86,21 +100,17 @@ testPingPong transport numPings = do
 testEndPoints :: Transport -> Int -> IO () 
 testEndPoints transport numPings = do
   server <- spawn transport echoServer
-  [resultA, resultB] <- replicateM 2 newEmptyMVar 
+  dones <- replicateM 2 newEmptyMVar
 
-  -- Client A
-  forkIO $ do
+  forM_ (zip dones ['A'..]) $ \(done, name) -> forkIO $ do 
+    let name' :: ByteString
+        name' = pack [name]
     Right endpoint <- newEndPoint transport
-    ping endpoint server numPings "pingA"
-    putMVar resultA () 
+    tlog $ "Ping client " ++ show name' ++ ": " ++ show (address endpoint)
+    ping endpoint server numPings name' 
+    putMVar done () 
 
-  -- Client B
-  forkIO $ do
-    Right endpoint <- newEndPoint transport
-    ping endpoint server numPings "pingB"
-    putMVar resultB () 
-
-  mapM_ takeMVar [resultA, resultB] 
+  forM_ dones takeMVar
 
 -- Test that connections don't get confused
 testConnections :: Transport -> Int -> IO () 
@@ -264,18 +274,6 @@ testCloseOneDirection transport numPings = do
 
   mapM_ takeMVar [doneA, doneB]
 
-expect :: EndPoint -> (Event -> Bool) -> IO ()
-expect endpoint predicate = do
-  event <- receive endpoint
-  tlog $ "Got event " ++ show event
-  mbool <- catch (Right <$> evaluate (predicate event)) (return . Left)
-  case mbool of
-    Left err    -> do tlog $ "Unexpected event " ++ show event 
-                      throw (err :: PatternMatchFail) 
-    Right False -> do tlog $ "Unexpected event " ++ show event 
-                      fail "Unexpected event"
-    _           -> return ()
-
 collect :: EndPoint -> Int -> IO ([(ConnectionId, [[ByteString]])]) 
 collect endPoint numEvents = go numEvents (Map.empty) (Map.empty)
   where
@@ -341,9 +339,9 @@ testCloseReopen transport numPings = do
     Right endpoint <- newEndPoint transport
     putMVar addrB (address endpoint)
 
-    events <- collect endpoint (numRepeats * (numPings + 2))
+    eventss <- collect endpoint (numRepeats * (numPings + 2))
 
-    forM_ (zip [1 .. numRepeats] events) $ \(i, (_, events)) -> do
+    forM_ (zip [1 .. numRepeats] eventss) $ \(i, (_, events)) -> do
       forM_ (zip [1 .. numPings] events) $ \(j, event) -> do
         guard (event == [pack $ "ping" ++ show i ++ "/" ++ show j])
 

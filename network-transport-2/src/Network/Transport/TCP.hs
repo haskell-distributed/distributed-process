@@ -1,12 +1,25 @@
--- | TCP transport
-
-module Network.Transport.TCP ( -- * Main API
+-- | TCP implementation of the transport layer. 
+-- 
+-- The TCP implementation guarantees that only a single TCP connection (socket)
+-- will be used between endpoints, provided that the addresses specified are
+-- canonical. If /A/ connects to /B/ and reports its address as
+-- @192.168.0.1:8080@ and /B/ subsequently connects tries to connect to /A/ as
+-- @client1.local:http-alt@ then the transport layer will not realize that the
+-- TCP connection can be reused. 
+module Network.Transport.TCP {- ( -- * Main API
                                createTransport
-                             , -- TCP specific functionality
+                             , -- * TCP specific functionality
                                EndPointId
                              , decodeEndPointAddress
                              , ControlHeader(..)
-                             ) where
+                               -- * Design notes
+                               -- ** Overview
+                               -- $overview
+                               -- ** Connecting
+                               -- $connecting
+                               -- ** Disconnecting
+                               -- $disconnecting
+                             ) -} where
 
 import Network.Transport
 import Network.Transport.Internal.TCP ( forkServer
@@ -19,13 +32,11 @@ import Network.Transport.Internal ( encodeInt32
                                   , failWith
                                   , failWithIO
                                   , tryIO
-                                  , tlog
                                   )
 import qualified Network.Socket as N ( HostName
                                      , ServiceName
                                      , Socket
                                      , sClose
-                                     , accept
                                      , getAddrInfo
                                      , socket
                                      , addrFamily
@@ -36,7 +47,7 @@ import qualified Network.Socket as N ( HostName
                                      , SocketOption(ReuseAddr) 
                                      , connect
                                      )
-import Network.Socket.ByteString (sendMany)                                     
+import Network.Socket.ByteString (sendMany)
 import Control.Concurrent (forkIO)
 import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
 import Control.Concurrent.MVar ( MVar
@@ -50,9 +61,9 @@ import Control.Concurrent.MVar ( MVar
                                )
 import Control.Category ((>>>))
 import Control.Applicative ((<*>), (*>), (<$>))
-import Control.Monad (forever, forM_, void)
-import Control.Monad.Error (MonadError, ErrorT, liftIO, runErrorT, throwError)
-import Control.Monad.IO.Class (MonadIO)
+import Control.Monad (forM_, void, unless)
+import Control.Monad.Error (MonadError, ErrorT(ErrorT), runErrorT, throwError)
+import Control.Monad.IO.Class (liftIO)
 import Control.Exception (IOException, bracket_)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (concat)
@@ -65,343 +76,295 @@ import qualified Data.IntSet as IntSet (empty, insert, delete, elems)
 import Data.Map (Map)
 import qualified Data.Map as Map (empty)
 import Data.IORef (newIORef, modifyIORef, readIORef) 
-import Data.Lens.Lazy (Lens, lens, intMapLens, mapLens, (^.), (^=), (^+=), (^%=), (^%%=))
+import Data.Lens.Lazy (Lens, lens, intMapLens, mapLens, (^.), (^=), (^+=))
 import Text.Regex.Applicative (RE, few, anySym, sym, many, match)
+
+-- $overview
+--
+-- The TCP transport maps multiple logical connections between A and B
+-- (in either direction) to a single TCP connection:
+--
+-- > +-------+                          +-------+
+-- > | A     |==========================| B     |
+-- > |       |>~~~~~~~~~~~~~~~~~~~~~~~~~|~~~\   |
+-- > |   Q   |>~~~~~~~~~~~~~~~~~~~~~~~~~|~~~Q   |
+-- > |   \~~~|~~~~~~~~~~~~~~~~~~~~~~~~~<|       |
+-- > |       |==========================|       |
+-- > +-------+                          +-------+
+
+-- $connecting
+-- 
+-- Let /A/, /B/ be two endpoints without any connections. When /A/ wants to
+-- connect to /B/, it locally records that it is trying to connect to /B/ and
+-- sends a request to /B/. As part of the request /A/ sends its own endpoint
+-- address to /B/. 
+--
+-- When /B/ receives the connection request it first checks if it had not
+-- already initiated a connection request to /A/. If it had not, then it will
+-- acknowledge the connection request and record that it has a TCP connection to
+-- /A/.
+--
+-- The tricky case arises when /A/ sends a connection request to /B/ and /B/
+-- finds that it had already sent a connection request to /A/. In this case /B/
+-- will accept the connection request from /A/ if /A/s endpoint address is
+-- smaller (lexicographically) than /B/s, and reject it otherwise.  
+--
+-- Upon a rejection the /A/ thread that initiated the request just needs to wait
+-- until the /A/ thread that is dealing with /B/s connection request completes.
+
+-- $disconnecting 
+-- 
+-- The TCP connection is created as soon as the first logical connection
+-- from A to B (or B to A) is established. At this point a thread (@#@)
+-- is spawned that listens for incoming connections from B:
+--
+-- > +-------+                          +-------+
+-- > | A     |==========================| B     |
+-- > |       |>~~~~~~~~~~~~~~~~~~~~~~~~~|~~~\   |
+-- > |       |                          |   Q   |
+-- > |      #|                          |       |
+-- > |       |==========================|       |
+-- > +-------+                          +-------+
+--
+-- The question is when the TCP connection can be closed again.
+-- Conceptually, we want to do reference counting: when there are no
+-- logical connections left between A and B we want to close the socket
+-- (possibly after some timeout). 
+--
+-- However, A and B need to agree that the refcount has reached zero.
+-- It might happen that B sends a connection request over the existing
+-- socket at the same time that A closes its logical connection to B and
+-- closes the socket. This will cause a failure in B (which will have to
+-- retry) which is not caused by a network failure, which is
+-- unfortunate. (Note that the connection request from B might succeed
+-- even if A closes the socket.) 
+--
+-- Instead, A will first ask B if it's okay to close the connection. If
+-- B has already initiated a logical connection to A then it can simply
+-- ignore this message, because any message other than 'OkayToClose'
+-- will imply to A that the connection should not yet be closed. On the
+-- other hand, B must guarantee that once it does send an 'OkayToClose'
+-- message it will not reuse the socket anymore.
+
+--------------------------------------------------------------------------------
+-- Internal datatypes                                                         --
+--------------------------------------------------------------------------------
 
 data TCPTransport   = TCPTransport   { _transportHost       :: N.HostName
                                      , _transportPort       :: N.ServiceName
-                                     , _transportState      :: MVar TransportState
+                                     , _transportState      :: MVar TransportState 
                                      }
-data TransportState = TransportState { _localEndPoints      :: IntMap LocalEndPoint 
-                                     , _remoteEndPoints     :: Map EndPointAddress (RemoteEndPoint, RefCount)
-                                     }
+data TransportState = TransportState { _localEndPoints      :: IntMap LocalEndPoint }
 data LocalEndPoint  = LocalEndPoint  { _localAddress        :: EndPointAddress
                                      , _localChannel        :: Chan Event
-                                     , _localState          :: MVar EndPointState 
+                                     , _localState          :: MVar LocalState 
+                                     }
+data LocalState     = LocalState     { _nextConnectionId    :: ConnectionId 
+                                     , _pendingCtrlRequests :: IntMap (MVar [ByteString])
+                                     , _nextCtrlRequestId   :: ControlRequestId 
+                                     , _localConnections    :: Map EndPointAddress (Maybe Closing, MVar RemoteState)
                                      }
 data RemoteEndPoint = RemoteEndPoint { _remoteAddress       :: EndPointAddress
                                      , _remoteSocket        :: N.Socket
                                      , sendTo               :: [ByteString] -> IO ()
                                      }
-data EndPointState  = EndPointState  { _nextConnectionId    :: ConnectionId 
-                                     , _pendingCtrlRequests :: IntMap (MVar [ByteString])
-                                     , _nextCtrlRequestId   :: ControlRequestId 
-                                     }
+data RemoteState    = InvalidEndPoint (FailedWith ConnectErrorCode)
+                    | ValidEndPoint !RefCount RemoteEndPoint
+                    | DeletedEndPoint
+
 type EndPointId       = Int32
 type ControlRequestId = Int32
-data RefCount         = RefCount !Int
+type RefCount         = Int32
+type Closing          = MVar [ByteString]
+type Conn             = (LocalEndPoint, RemoteEndPoint)
+
+-- | Control headers 
+data ControlHeader = 
+    RequestConnectionId -- ^ Request a new connection ID from the remote endpoint
+  | CloseConnection     -- ^ Tell the remote endpoint we will no longer be using a connection
+  | ControlResponse     -- ^ Respond to a control request _from_ the remote endpoint
+  | CloseSocket         -- ^ Request to close the connection (see module description)
+  deriving Enum
+
+-- Response sent by /B/ to /A/ when /A/ tries to connect
+data ConnectionRequestResponse =
+    ConnectionRequestAccepted        -- ^ /B/ accepts the connection
+  | ConnectionRequestInvalidEndPoint -- ^ /A/ requested an invalid endpoint
+  | ConnectionRequestCrossed         -- ^ /A/s request crossed with a request from /B/ (see protocols)
+  deriving Enum
+
+--------------------------------------------------------------------------------
+-- Top-level functionality                                                    --
+--------------------------------------------------------------------------------
 
 -- | Create a TCP transport
---
--- Hostname and service name should be "canonical" for the transport layer to
--- use TCP channels bidirectionally (otherwise when A connects to B and B
--- connects to A two socket pairs will be created that will both be used
--- unidirectionally, at degraded performance). 
 --
 -- TODOs: deal with hints
 createTransport :: N.HostName -> N.ServiceName -> IO (Either IOException Transport)
 createTransport host port = do 
-  state <- newMVar TransportState { _localEndPoints  = IntMap.empty 
-                                  , _remoteEndPoints = Map.empty
-                                  }
+  state <- newMVar TransportState { _localEndPoints = IntMap.empty }
   let transport = TCPTransport    { _transportState = state
                                   , _transportHost  = host
                                   , _transportPort  = port
                                   }
   tryIO $ do 
-    forkServer host port (transportServer transport)
-    return Transport { newEndPoint = tcpNewEndPoint transport } 
+    forkServer host port $ handleConnectionRequest transport
+    return Transport { newEndPoint = apiNewEndPoint transport } 
 
--- | The transport server handles incoming connections for all endpoints
+--------------------------------------------------------------------------------
+-- API functions                                                              --
+--------------------------------------------------------------------------------
+
+-- | Create a new endpoint 
+apiNewEndPoint :: TCPTransport -> IO (Either (FailedWith NewEndPointErrorCode) EndPoint)
+apiNewEndPoint transport = do 
+  ourEndPoint <- createLocalEndPoint transport
+  return . Right $ EndPoint { receive = readChan (ourEndPoint ^. localChannel) 
+                            , address = ourEndPoint ^. localAddress 
+                            , connect = apiConnect ourEndPoint 
+                            , newMulticastGroup     = return . Left $ newMulticastGroupError 
+                            , resolveMulticastGroup = return . Left . const resolveMulticastGroupError
+                            }
+  where
+    newMulticastGroupError     = FailedWith NewMulticastGroupUnsupported "TCP does not support multicast" 
+    resolveMulticastGroupError = FailedWith ResolveMulticastGroupUnsupported "TCP does not support multicast" 
+
+-- | Connnect to an endpoint
+apiConnect :: LocalEndPoint    -- ^ Local end point
+           -> EndPointAddress  -- ^ Remote address
+           -> Reliability      -- ^ Reliability (ignored)
+           -> IO (Either (FailedWith ConnectErrorCode) Connection)
+apiConnect ourEndPoint theirAddress _ = runErrorT $ do
+  theirEndPoint <- findRemoteEndPoint ourEndPoint theirAddress 
+  connId        <- requestNewConnection (ourEndPoint, theirEndPoint)
+  return $ Connection { send  = apiSend theirEndPoint connId
+                      , close = apiClose (ourEndPoint, theirEndPoint) connId
+                      }
+
+-- | Close a connection
 --
--- TODO: lots of error checking
-transportServer :: TCPTransport -> N.Socket -> IO ()
-transportServer transport sock = forever $ do
-  (clientSock, _) <- N.accept sock
-  handleConnectionRequest transport clientSock
+-- TODO: We ignore errors during a close. Is that right? 
+apiClose :: Conn -> ConnectionId -> IO ()
+apiClose (ourEndPoint, theirEndPoint) connId = void . tryIO $ do 
+  sendTo theirEndPoint [encodeInt32 CloseConnection, encodeInt32 connId] 
+  decreaseRemoteRefCount (ourEndPoint, theirEndPoint)
 
--- | Set up a new TCP connection (at the request of a remote endpoint)
-handleConnectionRequest :: TCPTransport -> N.Socket -> IO ()
-handleConnectionRequest transport sock = do
-  request <- tryIO $ do 
-    ourEndPointId <- recvInt32 sock
-    theirAddress  <- EndPointAddress . BS.concat <$> recvWithLength sock 
-    ourEndPoint   <- lookupEndPoint transport ourEndPointId 
-    return (ourEndPoint, theirAddress)
-  case request of
-    Right (ourEndPoint, theirAddress) -> do 
-      -- Send acknowledgement
-      sendMany sock [encodeInt32 ValidEndPoint]
-      -- We ignore the return value of 'forkRemoteEndPoint' here because _they_ are 
-      -- connecting to _us_. 'forkRemoteEndPoint' will have stored the remote endpoint
-      -- in the transport state, however, in case _we_ later connect to _them_.
-      void $ forkRemoteEndPoint transport ourEndPoint theirAddress sock
-    Left _  -> 
-      -- Invalid request
-      N.sClose sock
-
--- | Look up a local endpoint
+-- | Send data across a connection
 --
--- Throws an I/O exception if the endpoint cannot be found (this makes it easy to integrate 
--- this with I/O exceptions that arise from socket reads)
-lookupEndPoint :: TCPTransport -> EndPointId -> IO LocalEndPoint
-lookupEndPoint transport endPointId = do
-  mep <- (^. localEndPointAt endPointId) <$> readMVar (transport ^. transportState) 
-  case mep of
-    Nothing -> fail "Endpoint not found"
-    Just ep -> return ep
+-- TODO: we should have some per-connection state so that the user cannot send
+-- to the connection after they closed it, or close it more than once 
+apiSend :: RemoteEndPoint -> ConnectionId -> [ByteString] -> IO (Either (FailedWith SendErrorCode) ())
+apiSend theirEndPoint connId payload = runErrorT $ 
+  failWithIO (FailedWith SendFailed . show) $ 
+    sendTo theirEndPoint (encodeInt32 connId : prependLength payload)
 
--- | Set up a new remote endpoint (either because we connected to a 
--- new remote endpoint, or because a remote endpoint connected to us)
-forkRemoteEndPoint :: TCPTransport          
-                   -> LocalEndPoint
-                   -> EndPointAddress
-                   -> N.Socket
-                   -> IO RemoteEndPoint 
-forkRemoteEndPoint transport ourEndPoint theirAddress sock = do
-  lock <- newMVar ()
-  let theirEndPoint = RemoteEndPoint { _remoteAddress  = theirAddress
-                                     , _remoteSocket   = sock 
-                                     , sendTo          = bracket_ (takeMVar lock) (putMVar lock ()) 
-                                                       . sendMany sock 
-                                     }
-  modifyMVar_ (transport ^. transportState) $ 
-    return . (remoteEndPointAt theirAddress ^= Just (theirEndPoint, RefCount 0))
-  forkIO $ do
-    unclosedConnections <- handleIncomingMessages transport ourEndPoint theirEndPoint  
-    forM_ (map fromIntegral $ IntSet.elems unclosedConnections) $ 
-      writeChan (ourEndPoint ^. localChannel) . ConnectionClosed 
-    -- TODO: should we close the socket here? (forkRemoteEndPoint gets called from multiple places)
-    -- TODO: and should we remove it from the transaction state?
-  return theirEndPoint
+--------------------------------------------------------------------------------
+-- Lower level functionality                                                  --
+--------------------------------------------------------------------------------
 
--- | Control headers 
-data ControlHeader = 
-    ValidEndPoint       -- ^ Acknowledgement sent when setting up a new TCP connection 
-  | RequestConnectionId -- ^ Request a new connection ID from the remote endpoint
-  | CloseConnection     -- ^ Tell the remote endpoint we will no longer be using a connection
-  | ControlResponse     -- ^ Respond to a control request _from_ the remote endpoint
-  deriving Enum
-
--- | Handle requests from a remote endpoint.
--- 
--- Returns only if the remote party closes the socket or if an error occurs.
--- The return value is the list of  connections that are still open (normally,
--- this should be an empty list).
-handleIncomingMessages :: TCPTransport -> LocalEndPoint -> RemoteEndPoint -> IO IntSet 
-handleIncomingMessages transport ourEndPoint theirEndPoint = do
-  tlog $ "Handling incoming messages from " ++ show (theirEndPoint ^. remoteAddress)
-  -- We use an IORef rather than the state monad because when an exception occurs we
-  -- want to know the current list of open connections
-  openConnections <- newIORef IntSet.empty
-
-  let -- The main loop terminates only when an exception occurs
-      mainLoop :: IO ()
-      mainLoop = forever $ do
-        connId <- recvInt32 sock
-        if connId >= firstNonReservedConnectionId 
-          then readMessage connId 
-          else do 
-            reqId <- recvInt32 sock
-            case toEnum (fromIntegral connId) of
-              ValidEndPoint       -> fail "Unexpected control header"
-              RequestConnectionId -> createNewConnection reqId
-              ControlResponse     -> readControlResponse reqId
-              CloseConnection     -> closeConnection reqId
-
-      -- Create a new connection
-      createNewConnection :: ControlRequestId -> IO () 
-      createNewConnection reqId = do 
-        increaseRemoteRefCount transport theirEndPoint
-        newId <- getNextConnectionId ourEndPoint 
-        sendTo theirEndPoint ( encodeInt32 ControlResponse 
-                                     : encodeInt32 reqId 
-                                     : prependLength [encodeInt32 newId] 
-                                     )
-        writeChan ourChannel (ConnectionOpened newId ReliableOrdered (theirEndPoint ^. remoteAddress)) 
-        -- We add the new connection ID to the list of open connections only once the
-        -- endpoint has been notified of the new connection (sendMany may fail)
-        modifyIORef openConnections (IntSet.insert (fromIntegral newId))
-
-      -- Read a control response 
-      readControlResponse :: ControlRequestId -> IO () 
-      readControlResponse reqId = do
-        response <- recvWithLength sock
-        mmvar    <- (^. pendingCtrlRequestsAt reqId) <$> readMVar ourState  
-        case mmvar of
-          Nothing   -> return () -- Invalid request ID. TODO: We just ignore it?
-          Just mvar -> putMVar mvar response
-
-      -- Close a connection (in this case the reqId is abused for the connection ID)
-      closeConnection :: ConnectionId -> IO () 
-      closeConnection cid = do
-        writeChan ourChannel (ConnectionClosed cid)
-        decreaseRemoteRefCount transport theirEndPoint
-        modifyIORef openConnections (IntSet.delete (fromIntegral cid))
-
-      -- Read a message and output it on the endPoint's channel
-      readMessage :: ConnectionId -> IO () 
-      readMessage connId = recvWithLength sock >>= writeChan ourChannel . Received connId
-
-      -- Breakdown of the arguments
-      ourChannel =   ourEndPoint ^. localChannel
-      ourState   =   ourEndPoint ^. localState 
-      sock       = theirEndPoint ^. remoteSocket
-
-  -- We keep handling messages until an exception occurs
-  tryIO mainLoop 
-  readIORef openConnections
-
--- | Get the next connection ID
-getNextConnectionId :: LocalEndPoint -> IO ConnectionId
-getNextConnectionId endpoint = 
-  modifyMVar (endpoint ^. localState) $ \st -> 
-    return (nextConnectionId ^+= 1 $ st, st ^. nextConnectionId)
-
--- | Create a new endpoint
-tcpNewEndPoint :: TCPTransport -> IO (Either (FailedWith NewEndPointErrorCode) EndPoint)
-tcpNewEndPoint transport = do 
-  endPoint <- modifyMVar (transport ^. transportState) $ \st -> do 
-    chan  <- newChan
-    state <- newMVar EndPointState { _nextConnectionId    = firstNonReservedConnectionId 
-                                   , _pendingCtrlRequests = IntMap.empty
-                                   , _nextCtrlRequestId   = 0
-                                   }
+createLocalEndPoint :: TCPTransport -> IO LocalEndPoint
+createLocalEndPoint transport = do 
+  chan  <- newChan
+  state <- newMVar LocalState { _nextConnectionId    = firstNonReservedConnectionId 
+                              , _pendingCtrlRequests = IntMap.empty
+                              , _nextCtrlRequestId   = 0
+                              , _localConnections    = Map.empty
+                              }
+  let host = transport ^. transportHost
+  let port = transport ^. transportPort
+  modifyMVar (transport ^. transportState) $ \st -> do 
     let ix   = fromIntegral $ IntMap.size (st ^. localEndPoints) 
-    let host = transport ^. transportHost
-    let port = transport ^. transportPort
     let addr = EndPointAddress . BSC.pack $ host ++ ":" ++ port ++ ":" ++ show ix 
     let localEndPoint = LocalEndPoint { _localAddress = addr
                                       , _localChannel = chan
                                       , _localState   = state
                                       }
     return ((localEndPointAt ix ^= Just localEndPoint) $ st, localEndPoint)
-  return . Right $ EndPoint { receive = readChan (endPoint ^. localChannel) 
-                            , address = endPoint ^. localAddress 
-                            , connect = tcpConnect transport endPoint 
-                            , newMulticastGroup     = return . Left $ newMulticastGroupError 
-                            , resolveMulticastGroup = \_ -> return . Left $ resolveMulticastGroupError
-                            }
+
+findRemoteEndPoint :: LocalEndPoint 
+                   -> EndPointAddress 
+                   -> ErrorT (FailedWith ConnectErrorCode) IO RemoteEndPoint
+findRemoteEndPoint ourEndPoint theirAddress = ErrorT $ go
   where
-    newMulticastGroupError     = FailedWith NewMulticastGroupUnsupported "TCP does not support multicast" 
-    resolveMulticastGroupError = FailedWith ResolveMulticastGroupUnsupported "TCP does not support multicast" 
+    go = do
+      endPoint <- modifyMVar state $ \st -> 
+        case st ^. connectionTo theirAddress of 
+          Just (_, mvar) -> 
+            return (st, mvar)
+          Nothing -> do 
+            theirMVar <- newEmptyMVar
+            forkIO $ connectToRemoteEndPoint ourEndPoint theirMVar theirAddress
+            return (connectionTo theirAddress ^= Just (Nothing, theirMVar) $ st, theirMVar)
+      theirState <- readMVar endPoint
+      case theirState of
+        InvalidEndPoint err ->
+          -- We remove the endpoint from the state again because the next call
+          -- to 'connect' might give a different result
+          modifyMVar state $ \st ->
+            return (connectionTo theirAddress ^= Nothing $ st, Left err)
+        ValidEndPoint _ ep ->
+          return $ Right ep
+        DeletedEndPoint ->
+          go 
 
--- | We reserve a bunch of connection IDs for control messages
-firstNonReservedConnectionId :: ConnectionId
-firstNonReservedConnectionId = 1024
-
--- | Connnect to an endpoint
-tcpConnect :: TCPTransport     -- ^ Transport 
-           -> LocalEndPoint    -- ^ Local end point
-           -> EndPointAddress  -- ^ Remote address
-           -> Reliability      -- ^ Reliability (ignored)
-           -> IO (Either (FailedWith ConnectErrorCode) Connection)
-tcpConnect transport ourEndPoint theirAddress _ = runErrorT $ do
-  theirEndPoint <- remoteEndPoint transport ourEndPoint theirAddress 
-  increaseRemoteRefCount transport theirEndPoint 
-  connId <- requestNewConnection ourEndPoint theirEndPoint 
-  return Connection { send  = tcpSend connId theirEndPoint 
-                    , close = tcpClose transport connId theirEndPoint 
-                    }
-
--- | Send data across a connection
---
--- TODO: should we modify send so that it returns an error when the user closes the connection?
-tcpSend :: ConnectionId -> RemoteEndPoint -> [ByteString] -> IO (Either (FailedWith SendErrorCode) ())
-tcpSend connId theirEndPoint payload = runErrorT $ 
-  failWithIO (FailedWith SendFailed . show) $ 
-    sendTo theirEndPoint (encodeInt32 connId : prependLength payload)
-
--- | Close a connection
---
--- We ignore errors during a close
-tcpClose :: TCPTransport -> ConnectionId -> RemoteEndPoint -> IO ()
-tcpClose transport connId theirEndPoint = void . runErrorT . failWithIO id $ do 
-  sendTo theirEndPoint [encodeInt32 CloseConnection, encodeInt32 connId] 
-  decreaseRemoteRefCount transport theirEndPoint 
-
--- | Increase the refcount on a remote endpoint
-increaseRemoteRefCount :: MonadIO m => TCPTransport -> RemoteEndPoint -> m ()
-increaseRemoteRefCount transport endPoint = do
-    liftIO $ modifyMVar_ (transport ^. transportState) $ 
-      return . (remoteEndPointAt (endPoint ^. remoteAddress) ^%= go)
+    state :: MVar LocalState 
+    state = ourEndPoint ^. localState 
+  
+connectToRemoteEndPoint :: LocalEndPoint -> MVar RemoteState -> EndPointAddress -> IO ()
+connectToRemoteEndPoint ourEndPoint theirMVar theirAddress = do
+    result <- runErrorT go 
+    case result of
+      Right (ConnectionRequestAccepted, sock) -> do 
+        theirEndPoint <- createRemoteEndPoint ourEndPoint theirAddress sock
+        putMVar theirMVar (ValidEndPoint 0 theirEndPoint)
+      Right (ConnectionRequestInvalidEndPoint, sock) -> do
+        putMVar theirMVar (InvalidEndPoint (invalidAddress "Invalid endpoint"))
+        N.sClose sock
+      Right (ConnectionRequestCrossed, sock) ->
+        N.sClose sock
+      Left err -> 
+        -- TODO: this isn't quite right; socket *might* have been opened here, 
+        -- in which case we should close it
+        putMVar theirMVar (InvalidEndPoint err)
   where
-    go :: Maybe (RemoteEndPoint, RefCount) -> Maybe (RemoteEndPoint, RefCount)
-    go (Just (ep, RefCount rc)) = (Just (ep, RefCount $ rc + 1))
-    go Nothing                  = Nothing
-
--- | Decrease the refcount on a remote endpoint and close the socket when it reaches zero.
-decreaseRemoteRefCount :: MonadIO m => TCPTransport -> RemoteEndPoint -> m ()
-decreaseRemoteRefCount transport endPoint = do
-    liftIO $ modifyMVar_ (transport ^. transportState) $ 
-      (remoteEndPointAt (endPoint ^. remoteAddress) ^%%= go)
-  where
-    go :: Maybe (RemoteEndPoint, RefCount) -> IO (Maybe (RemoteEndPoint, RefCount))
-    go (Just (_, RefCount 1))   = do tlog $ "Closing socket to " ++ show (endPoint ^. remoteAddress)
-                                     N.sClose (endPoint ^. remoteSocket)
-                                     return Nothing 
-    go (Just (ep, RefCount rc)) = return (Just (ep, RefCount $ rc - 1))
-    go Nothing                  = return Nothing
-
--- | Request a new connection 
-requestNewConnection :: (MonadIO m, MonadError (FailedWith ConnectErrorCode) m) 
-                     => LocalEndPoint 
-                     -> RemoteEndPoint 
-                     -> m ConnectionId
-requestNewConnection ourEndPoint theirEndPoint = do
-    mcid <- failWithIO (failed . show) $ do
-      reply <- newEmptyMVar
-      reqId <- modifyMVar state $ \st -> do
-        let reqId = st ^. nextCtrlRequestId
-        return ((nextCtrlRequestId ^+= 1) . (pendingCtrlRequestsAt reqId ^= Just reply) $ st, reqId)
-      sendTo theirEndPoint [encodeInt32 RequestConnectionId, encodeInt32 reqId]
-      response <- decodeInt32 . BS.concat <$> takeMVar reply
-      modifyMVar_ state $ return . (pendingCtrlRequestsAt reqId ^= Nothing)
-      return response 
-    case mcid of 
-      Nothing  -> throwError (failed "Invalid integer") 
-      Just cid -> return cid
-  where
-    failed = FailedWith ConnectFailed
-    state  = ourEndPoint ^. localState 
-
--- | Find a remote endpoint 
---
--- TODO: hints?
-remoteEndPoint :: TCPTransport 
-               -> LocalEndPoint 
-               -> EndPointAddress
-               -> ErrorT (FailedWith ConnectErrorCode) IO RemoteEndPoint 
-remoteEndPoint transport ourEndPoint theirAddress = do
-  mendpoint <- liftIO $ (^. remoteEndPointAt theirAddress) <$> readMVar (transport ^. transportState) 
-  case mendpoint of
-    Just (endpoint, _) -> 
-      return endpoint 
-    Nothing -> do
-      -- Create a new connection
-      liftIO . tlog $ "Creating socket from " ++ show ourAddress ++ " to " ++ show theirAddress
-      (host, port, endPointId) <- failWith (invalidAddress "Could not parse") $
-                                  decodeEndPointAddress theirAddress
+    go :: ErrorT (FailedWith ConnectErrorCode) IO (ConnectionRequestResponse, N.Socket)
+    go = do
+      (host, port, theirEndPointId) <- failWith (invalidAddress "Could not parse") $
+        decodeEndPointAddress theirAddress
       addr:_ <- failWithIO (invalidAddress . show) $ 
-                N.getAddrInfo Nothing (Just host) (Just port) 
-      sock   <- failWithIO (insufficientResources . show) $
-                N.socket (N.addrFamily addr) N.Stream N.defaultProtocol
-      liftIO $ N.setSocketOption sock N.ReuseAddr 1
-      failWithIO (failed . show) $ N.connect sock (N.addrAddress addr) 
-      -- Send the endpoint ID we're interested in and our own address
-      failWithIO (failed . show) $ sendMany sock (encodeInt32 endPointId : prependLength [ourAddress]) 
-      -- For the remote endpoint to acknowledge
-      -- We fail with 'invalidAddress' here because the remote endpoint will close
-      -- the connection if we send an invalid endpoint identifier
-      ack <- failWithIO (invalidAddress . show) $ recvInt32 sock
-      case ack of
-        ValidEndPoint -> liftIO $ forkRemoteEndPoint transport ourEndPoint theirAddress sock 
-        _             -> throwError (invalidAddress "Unexpected response") 
-  where
+        N.getAddrInfo Nothing (Just host) (Just port) 
+      sock <- failWithIO (insufficientResources . show) $
+        N.socket (N.addrFamily addr) N.Stream N.defaultProtocol
+      failWithIO (failed . show) $ do 
+        N.setSocketOption sock N.ReuseAddr 1
+        N.connect sock (N.addrAddress addr) 
+        sendMany sock (encodeInt32 theirEndPointId : prependLength [ourAddress]) 
+        -- TODO: what happens when the server sends an int outside the range of ConnectionRequestResponse?
+        response <- recvInt32 sock
+        return (response, sock)
+
+    invalidAddress, insufficientResources, failed :: String -> FailedWith ConnectErrorCode
     invalidAddress        = FailedWith ConnectInvalidAddress 
     insufficientResources = FailedWith ConnectInsufficientResources 
     failed                = FailedWith ConnectFailed
+      
+    ourAddress :: ByteString
     EndPointAddress ourAddress = ourEndPoint ^. localAddress
+
+-- | Request a new connection 
+requestNewConnection :: Conn -> ErrorT (FailedWith ConnectErrorCode) IO ConnectionId
+requestNewConnection (ourEndPoint, theirEndPoint) = do
+    mcid <- failWithIO (failed . show) $ do 
+      reply <- sendRemoteRequest (ourEndPoint, theirEndPoint) RequestConnectionId 
+      decodeInt32 . BS.concat <$> takeMVar reply
+    case mcid of 
+      Nothing  -> 
+        throwError (failed "Invalid integer") 
+      Just cid -> do
+        liftIO $ increaseRemoteRefCount (ourEndPoint, theirEndPoint)
+        return cid
+  where
+    failed = FailedWith ConnectFailed
 
 -- | Decode end point address
 -- TODO: This uses regular expression parsing, which is nice, but unnecessary
@@ -411,8 +374,222 @@ decodeEndPointAddress (EndPointAddress bs) = match endPointAddressRE (BSC.unpack
     endPointAddressRE :: RE Char (N.HostName, N.ServiceName, EndPointId)
     endPointAddressRE = (,,) <$> few anySym <*> (sym ':' *> few anySym) <*> (sym ':' *> (read <$> many anySym))
 
+sendRemoteRequest :: Conn -> ControlHeader -> IO (MVar [ByteString])
+sendRemoteRequest (ourEndPoint, theirEndPoint) header = do
+  reply <- newEmptyMVar
+  reqId <- modifyMVar (ourEndPoint ^. localState) $ \st -> do
+    let reqId = st ^. nextCtrlRequestId
+    return ((nextCtrlRequestId ^+= 1) . (pendingCtrlRequestsAt reqId ^= Just reply) $ st, reqId)
+  sendTo theirEndPoint [encodeInt32 header, encodeInt32 reqId]
+  return reply 
+
 --------------------------------------------------------------------------------
--- Lens definitions
+-- Reference counting                                                         -- 
+--------------------------------------------------------------------------------
+
+increaseRemoteRefCount :: Conn -> IO ()
+increaseRemoteRefCount (ourEndPoint, theirEndPoint) = do
+  let theirAddr = theirEndPoint ^. remoteAddress
+      state     = ourEndPoint ^. localState
+  -- First check if this remote endpoint is awaiting closure
+  (mClosing, theirMVar) <- modifyMVar state $ \st -> do 
+    let Just (closure, theirMVar) = st ^. connectionTo theirAddr
+    return (connectionTo theirAddr ^= Just (Nothing, theirMVar) $ st, (closure, theirMVar)) 
+  case mClosing of
+    Just mvar -> putMVar mvar []
+    _         -> return ()
+  -- Increase the refcount
+  modifyMVar_ theirMVar $ \(ValidEndPoint rc ep) ->
+    return (ValidEndPoint (rc + 1) ep)
+  
+decreaseRemoteRefCount :: Conn -> IO ()
+decreaseRemoteRefCount (ourEndPoint, theirEndPoint) = do
+  let theirAddr = theirEndPoint ^. remoteAddress
+  state <- readMVar (ourEndPoint ^. localState)
+  let Just (Nothing, theirMVar) = state ^. connectionTo theirAddr 
+  -- We don't use modifyMVar here because we want to leave the MVar
+  -- empty when refcount reaches 0
+  -- TODO: deal with exceptions
+  ValidEndPoint rc ep <- takeMVar theirMVar
+  if rc > 1
+    then do 
+      putMVar theirMVar (ValidEndPoint (rc - 1) ep)
+    else do
+      reply <- sendRemoteRequest (ourEndPoint, theirEndPoint) CloseSocket
+      modifyMVar_ (ourEndPoint ^. localState) $ \st -> do
+        let Just (_, mvar) = st ^. connectionTo theirAddr
+        return (connectionTo theirAddr ^= Just (Just reply, mvar) $ st) 
+      void . forkIO $ do 
+        -- Wait for the reply from the remote endpoint
+        canCloseSocket <- takeMVar reply
+        putStrLn $ "canCloseSocket = " ++ show canCloseSocket
+
+--------------------------------------------------------------------------------
+-- Incoming requests                                                          --
+--------------------------------------------------------------------------------
+
+handleConnectionRequest :: TCPTransport -> N.Socket -> IO ()
+handleConnectionRequest transport sock = do
+  request <- tryIO $ do 
+    ourEndPointId <- recvInt32 sock
+    theirAddress  <- EndPointAddress . BS.concat <$> recvWithLength sock 
+    ourEndPoint   <- (^. localEndPointAt ourEndPointId) <$> readMVar state 
+    return (theirAddress, ourEndPoint)
+  case request of
+    Right (_, Nothing) -> do
+      sendMany sock [encodeInt32 ConnectionRequestInvalidEndPoint]
+      N.sClose sock
+    Right (theirAddress, Just ourEndPoint) -> do
+      (crossed, mvar) <- modifyMVar (ourEndPoint ^. localState) $ \st ->
+        case st ^. connectionTo theirAddress of
+          Nothing -> do
+            mvar <- newEmptyMVar
+            return (connectionTo theirAddress ^= Just (Nothing, mvar) $ st, (False, mvar))
+          Just (_, mvar) -> 
+            return (st, (ourEndPoint ^. localAddress <= theirAddress, mvar))
+      if crossed 
+        then do
+          sendMany sock [encodeInt32 ConnectionRequestCrossed]
+          N.sClose sock
+        else do
+          theirEndPoint <- createRemoteEndPoint ourEndPoint theirAddress sock 
+          putMVar mvar (ValidEndPoint 0 theirEndPoint)
+          sendMany sock [encodeInt32 ConnectionRequestAccepted]
+    Left _ ->
+      -- Invalid request
+      N.sClose sock
+
+  where
+    state :: MVar TransportState
+    state = transport ^. transportState
+
+createRemoteEndPoint :: LocalEndPoint -> EndPointAddress -> N.Socket -> IO RemoteEndPoint 
+createRemoteEndPoint ourEndPoint theirAddress sock = do
+  lock <- newMVar ()
+  let theirEndPoint = RemoteEndPoint { _remoteAddress = theirAddress
+                                     , _remoteSocket  = sock
+                                     , sendTo         = bracket_ (takeMVar lock) (putMVar lock ())
+                                                      . sendMany sock
+                                     }
+  forkIO $ do
+    unclosedConnections <- handleIncomingMessages (ourEndPoint, theirEndPoint)
+    forM_ (map fromIntegral $ IntSet.elems unclosedConnections) $ 
+      writeChan (ourEndPoint ^. localChannel) . ConnectionClosed 
+  return theirEndPoint
+
+-- | Handle requests from a remote endpoint.
+-- 
+-- Returns only if the remote party closes the socket or if an error occurs.
+-- The return value is the list of  connections that are still open (normally,
+-- this should be an empty list).
+handleIncomingMessages :: Conn -> IO IntSet 
+handleIncomingMessages (ourEndPoint, theirEndPoint) = do
+  -- We use an IORef rather than the state monad because when an exception occurs we
+  -- want to know the current list of open connections
+  openConnections <- newIORef IntSet.empty
+
+  let go :: IO ()
+      go = do 
+        connId <- recvInt32 sock
+        if connId >= firstNonReservedConnectionId 
+          then readMessage connId 
+          else do 
+            reqId <- recvInt32 sock
+            case toEnum (fromIntegral connId) of
+              RequestConnectionId -> createNewConnection reqId
+              ControlResponse     -> readControlResponse reqId
+              CloseConnection     -> closeConnection reqId
+              CloseSocket         -> closeSocket reqId 
+
+      -- Create a new connection
+      createNewConnection :: ControlRequestId -> IO () 
+      createNewConnection reqId = do 
+        increaseRemoteRefCount (ourEndPoint, theirEndPoint)
+        newId <- getNextConnectionId ourEndPoint 
+        sendTo theirEndPoint ( encodeInt32 ControlResponse 
+                             : encodeInt32 reqId 
+                             : prependLength [encodeInt32 newId] 
+                             )
+        writeChan ourChannel (ConnectionOpened newId ReliableOrdered theirAddr) 
+        -- We add the new connection ID to the list of open connections only once the
+        -- endpoint has been notified of the new connection (sendMany may fail)
+        modifyIORef openConnections (IntSet.insert (fromIntegral newId))
+        go
+
+      -- Read a control response 
+      readControlResponse :: ControlRequestId -> IO () 
+      readControlResponse reqId = do
+        response <- recvWithLength sock
+        mmvar    <- (^. pendingCtrlRequestsAt reqId) <$> readMVar ourState  
+        case mmvar of
+          Nothing   -> 
+            return () -- Invalid request ID. TODO: We just ignore it?
+          Just mvar -> do 
+            modifyMVar_ ourState $ return . (pendingCtrlRequestsAt reqId ^= Nothing)
+            putMVar mvar response
+        go
+
+      -- Close a connection (in this case the reqId is abused for the connection ID)
+      closeConnection :: ConnectionId -> IO () 
+      closeConnection cid = do
+        writeChan ourChannel (ConnectionClosed cid)
+        decreaseRemoteRefCount (ourEndPoint, theirEndPoint)
+        modifyIORef openConnections (IntSet.delete (fromIntegral cid))
+        go
+
+      -- Close the socket (if we don't have any outgoing connections)
+      closeSocket :: ControlRequestId -> IO ()
+      closeSocket cid = do
+        let ok = encodeInt32 ControlResponse : encodeInt32 cid : prependLength [encodeInt32 (1 :: Int32)] 
+        didClose <- modifyMVar (ourEndPoint ^. localState) $ \st -> do
+          case st ^. connectionTo theirAddr of
+            Just (Just _, _) -> do
+              sendTo theirEndPoint ok  
+              N.sClose sock
+              return (st, True)
+            Just (Nothing, theirMVar) -> do
+              ValidEndPoint rc _ <- readMVar theirMVar
+              if rc == 0
+                then do 
+                  sendTo theirEndPoint ok 
+                  N.sClose sock
+                  return (st, True)
+                else do 
+                  return (st, False)
+            Nothing -> do
+              error "Internal error"
+        unless didClose go
+
+      -- Read a message and output it on the endPoint's channel
+      readMessage :: ConnectionId -> IO () 
+      readMessage connId = recvWithLength sock >>= writeChan ourChannel . Received connId >> go
+
+      -- Breakdown of the arguments
+      ourChannel =   ourEndPoint ^. localChannel
+      ourState   =   ourEndPoint ^. localState 
+      sock       = theirEndPoint ^. remoteSocket
+      theirAddr  = theirEndPoint ^. remoteAddress
+
+  -- We keep handling messages until an exception occurs
+  tryIO go 
+  readIORef openConnections
+
+-- | Get the next connection ID
+getNextConnectionId :: LocalEndPoint -> IO ConnectionId
+getNextConnectionId endpoint = 
+  modifyMVar (endpoint ^. localState) $ \st -> 
+    return (nextConnectionId ^+= 1 $ st, st ^. nextConnectionId)
+    
+--------------------------------------------------------------------------------
+-- Constants                                                                  --
+--------------------------------------------------------------------------------
+
+-- | We reserve a bunch of connection IDs for control messages
+firstNonReservedConnectionId :: ConnectionId
+firstNonReservedConnectionId = 1024
+
+--------------------------------------------------------------------------------
+-- Lens definitions                                                           --
 --------------------------------------------------------------------------------
 
 transportState :: Lens TCPTransport (MVar TransportState)
@@ -427,17 +604,26 @@ transportPort = lens _transportPort (\port trans -> trans { _transportPort = por
 localEndPoints :: Lens TransportState (IntMap LocalEndPoint)
 localEndPoints = lens _localEndPoints (\es st -> st { _localEndPoints = es })
 
-remoteEndPoints :: Lens TransportState (Map EndPointAddress (RemoteEndPoint, RefCount))
-remoteEndPoints = lens _remoteEndPoints (\es st -> st { _remoteEndPoints = es })
-
 localAddress :: Lens LocalEndPoint EndPointAddress
 localAddress = lens _localAddress (\addr ep -> ep { _localAddress = addr })
 
 localChannel :: Lens LocalEndPoint (Chan Event)
 localChannel = lens _localChannel (\ch ep -> ep { _localChannel = ch })
 
-localState :: Lens LocalEndPoint (MVar EndPointState)
+localState :: Lens LocalEndPoint (MVar LocalState)
 localState = lens _localState (\st ep -> ep { _localState = st })
+
+pendingCtrlRequests :: Lens LocalState (IntMap (MVar [ByteString]))
+pendingCtrlRequests = lens _pendingCtrlRequests (\rep st -> st { _pendingCtrlRequests = rep })
+
+nextCtrlRequestId :: Lens LocalState ControlRequestId 
+nextCtrlRequestId = lens _nextCtrlRequestId (\cid st -> st { _nextCtrlRequestId = cid })
+
+nextConnectionId :: Lens LocalState ConnectionId
+nextConnectionId = lens _nextConnectionId (\cix st -> st { _nextConnectionId = cix })
+
+localConnections :: Lens LocalState (Map EndPointAddress (Maybe Closing, MVar RemoteState))
+localConnections = lens _localConnections (\cs st -> st { _localConnections = cs })
 
 remoteAddress :: Lens RemoteEndPoint EndPointAddress
 remoteAddress = lens _remoteAddress (\addr ep -> ep { _remoteAddress = addr })
@@ -445,22 +631,11 @@ remoteAddress = lens _remoteAddress (\addr ep -> ep { _remoteAddress = addr })
 remoteSocket :: Lens RemoteEndPoint N.Socket
 remoteSocket = lens _remoteSocket (\sock ep -> ep { _remoteSocket = sock })
 
-nextConnectionId :: Lens EndPointState ConnectionId
-nextConnectionId = lens _nextConnectionId (\cix st -> st { _nextConnectionId = cix })
-
-pendingCtrlRequests :: Lens EndPointState (IntMap (MVar [ByteString]))
-pendingCtrlRequests = lens _pendingCtrlRequests (\rep st -> st { _pendingCtrlRequests = rep })
-
-nextCtrlRequestId :: Lens EndPointState ControlRequestId 
-nextCtrlRequestId = lens _nextCtrlRequestId (\cid st -> st { _nextCtrlRequestId = cid })
-
 localEndPointAt :: EndPointId -> Lens TransportState (Maybe LocalEndPoint)
 localEndPointAt ix = localEndPoints >>> intMapLens (fromIntegral ix)
 
-remoteEndPointAt :: EndPointAddress -> Lens TransportState (Maybe (RemoteEndPoint, RefCount))
-remoteEndPointAt addr = remoteEndPoints >>> mapLens addr
-
-pendingCtrlRequestsAt :: ControlRequestId -> Lens EndPointState (Maybe (MVar [ByteString]))
+pendingCtrlRequestsAt :: ControlRequestId -> Lens LocalState (Maybe (MVar [ByteString]))
 pendingCtrlRequestsAt ix = pendingCtrlRequests >>> intMapLens (fromIntegral ix)
 
-
+connectionTo :: EndPointAddress -> Lens LocalState (Maybe (Maybe Closing, MVar RemoteState))
+connectionTo addr = localConnections >>> mapLens addr 

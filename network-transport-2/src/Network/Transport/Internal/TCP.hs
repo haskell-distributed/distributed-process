@@ -21,10 +21,11 @@ import qualified Network.Socket as N ( HostName
                                      , addrAddress
                                      , defaultProtocol
                                      , setSocketOption
+                                     , accept
                                      )
 import qualified Network.Socket.ByteString as NBS (recv)
 import Control.Concurrent (forkIO, ThreadId)
-import Control.Monad (mzero, MonadPlus, liftM)
+import Control.Monad (mzero, MonadPlus, liftM, forever)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (length, concat, null)
 import Data.Int (Int32)
@@ -40,7 +41,9 @@ forkServer host port server = do
   N.setSocketOption sock N.ReuseAddr 1
   N.bindSocket sock (N.addrAddress addr)
   N.listen sock 5
-  forkIO $ server sock
+  forkIO . forever $ do
+    (clientSock, _) <- N.accept sock
+    server clientSock
 
 -- | Read a length and then a payload of that length
 recvWithLength :: N.Socket -> IO [ByteString]

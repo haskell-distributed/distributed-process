@@ -9,8 +9,10 @@ module Network.Transport.Internal ( -- * Encoders/decoders
                                   , failWith
                                   , failWithIO
                                   , tryIO
+                                  , whileM
                                     -- * Debugging
                                   , tlog
+                                  , loopInvariant
                                   ) where
 
 import Prelude hiding (catch)
@@ -21,6 +23,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (length)
 import qualified Data.ByteString.Internal as BSI (unsafeCreate, toForeignPtr, inlinePerformIO)
 import Control.Applicative ((<$>))
+import Control.Monad (MonadPlus, guard)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Error (MonadError, throwError)
 import Control.Exception (IOException, catch, try)
@@ -86,7 +89,7 @@ failWithIO f io = do
 tryIO :: IO a -> IO (Either IOException a)
 tryIO = try
 
--- Logging (for debugging)
+-- | Logging (for debugging)
 tlog :: String -> IO ()
 tlog _ = return ()
 {-
@@ -94,3 +97,15 @@ tlog msg = do
   tid <- myThreadId
   putStrLn $ show tid ++ ": "  ++ msg
 -}
+
+-- | Loop invariant (like 'guard')
+loopInvariant :: MonadPlus m => m Bool -> m ()
+loopInvariant = (>>= guard)
+
+-- | While-loop
+whileM :: Monad m => m Bool -> m a -> m ()
+whileM cond body = go
+  where
+    go = do
+      b <- cond
+      if b then body >> go else return ()
