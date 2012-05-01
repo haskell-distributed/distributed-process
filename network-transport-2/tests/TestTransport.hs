@@ -349,6 +349,30 @@ testCloseReopen transport numPings = do
 
   takeMVar doneB
 
+-- Test lots of parallel connection attempts
+testParallelConnects :: Transport -> Int -> IO ()
+testParallelConnects transport numPings = do
+  server <- spawn transport echoServer
+  done   <- newEmptyMVar 
+
+  Right endpoint <- newEndPoint transport
+
+  -- Spawn lots of clients
+  forM_ [1 .. numPings] $ \i -> forkIO $ do 
+    Right conn <- connect endpoint server ReliableOrdered
+    send conn [pack $ "ping" ++ show i]
+    send conn [pack $ "ping" ++ show i]
+    close conn
+
+  forkIO $ do
+    eventss <- collect endpoint (numPings * 4)
+    -- Check that no pings got sent to the wrong connection
+    forM_ eventss $ \(_, [[ping1], [ping2]]) -> 
+      guard (ping1 == ping2)
+    putMVar done ()
+
+  takeMVar done
+
 runTestIO :: String -> IO () -> IO ()
 runTestIO description test = do
   putStr $ "Running " ++ show description ++ ": "
@@ -373,3 +397,4 @@ testTransport transport = flip runReaderT (transport, 10000) $ do
   runTest "CloseOneConnection" testCloseOneConnection
   runTest "CloseOneDirection" testCloseOneDirection
   runTest "CloseReopen" testCloseReopen
+  runTest "ParallelConnects" testParallelConnects
