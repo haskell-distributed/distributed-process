@@ -1,7 +1,7 @@
 module TestTransport where
 
 import Prelude hiding (catch)
-import Control.Concurrent (forkIO)
+import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar, readMVar)
 import Control.Monad (replicateM, replicateM_, when, guard, forM_)
 import Control.Monad.Reader (ReaderT, runReaderT, ask)
@@ -21,7 +21,6 @@ import System.Timeout (timeout)
 -- Server that echoes messages straight back to the origin endpoint.
 echoServer :: EndPoint -> IO ()
 echoServer endpoint = do
-    tlog "Echo server"
     go Map.empty
   where
     go :: Map ConnectionId Connection -> IO () 
@@ -372,6 +371,64 @@ testParallelConnects transport numPings = do
 
   takeMVar done
 
+-- Test that sending on a closed connection gives an error
+testSendAfterClose :: Transport -> Int -> IO ()
+testSendAfterClose transport _ = do
+  server <- spawn transport echoServer
+  clientDone <- newEmptyMVar
+
+  forkIO $ do
+    Right endpoint <- newEndPoint transport
+
+    -- We request two lightweight connections
+    Right conn1 <- connect endpoint server ReliableOrdered
+    Right conn2 <- connect endpoint server ReliableOrdered
+
+    -- Close the second, but leave the first open; then output on the second
+    -- connection (i.e., on a closed connection while there is still another
+    -- connection open)
+    close conn2
+    send conn2 ["ping2"]
+
+    -- Now close the first connection, and output on it (i.e., output while
+    -- there are no lightweight connection at all anymore)
+    close conn1
+    send conn1 ["ping1"]
+
+    threadDelay 100000
+    putMVar clientDone ()
+
+  takeMVar clientDone
+
+-- Test that closing the same connection twice has no effect
+testCloseTwice :: Transport -> Int -> IO ()
+testCloseTwice transport _ = do 
+  server <- spawn transport echoServer
+  clientDone <- newEmptyMVar
+
+  forkIO $ do
+    Right endpoint <- newEndPoint transport
+
+    -- We request two lightweight connections
+    Right conn1 <- connect endpoint server ReliableOrdered
+    Right conn2 <- connect endpoint server ReliableOrdered
+
+    -- Close the second one twice
+    close conn2
+    close conn2
+
+    -- Then send a message on the first and close that too
+    send conn1 ["ping"]
+    close conn1
+
+    -- Verify expected response from the echo server
+    -- TODO
+
+    threadDelay 1000000
+    putMVar clientDone ()
+
+  takeMVar clientDone
+
 runTestIO :: String -> IO () -> IO ()
 runTestIO description test = do
   putStr $ "Running " ++ show description ++ ": "
@@ -397,3 +454,5 @@ testTransport transport = flip runReaderT (transport, 10000) $ do
   runTest "CloseOneDirection" testCloseOneDirection
   runTest "CloseReopen" testCloseReopen
   runTest "ParallelConnects" testParallelConnects
+  runTest "SendAfterClose" testSendAfterClose
+  runTest "CloseTwice" testCloseTwice

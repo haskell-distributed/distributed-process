@@ -58,7 +58,7 @@ import Control.Concurrent.MVar ( MVar
 import Control.Category ((>>>))
 import Control.Applicative ((<*>), (*>), (<$>))
 import Control.Monad (forM_, void, unless)
-import Control.Monad.Error (MonadError, ErrorT(ErrorT), runErrorT, throwError)
+import Control.Monad.Error (ErrorT(ErrorT), runErrorT)
 import Control.Monad.IO.Class (liftIO)
 import Control.Exception (IOException, bracket_)
 import Data.ByteString (ByteString)
@@ -256,15 +256,16 @@ apiConnect :: LocalEndPoint    -- ^ Local end point
 apiConnect ourEndPoint theirAddress _ = runErrorT $ do
   theirEndPoint <- findRemoteEndPoint ourEndPoint theirAddress 
   connId        <- requestNewConnection (ourEndPoint, theirEndPoint)
-  return $ Connection { send  = apiSend theirEndPoint connId
-                      , close = apiClose (ourEndPoint, theirEndPoint) connId
+  connAlive     <- liftIO $ newMVar True 
+  return $ Connection { send  = apiSend theirEndPoint connId connAlive
+                      , close = apiClose (ourEndPoint, theirEndPoint) connId connAlive
                       }
 
 -- | Close a connection
 --
 -- TODO: We ignore errors during a close. Is that right? 
-apiClose :: Conn -> ConnectionId -> IO ()
-apiClose (ourEndPoint, theirEndPoint) connId = void . tryIO $ do 
+apiClose :: Conn -> ConnectionId -> MVar Bool -> IO ()
+apiClose (ourEndPoint, theirEndPoint) connId connAlive = void . tryIO $ do 
   sendTo theirEndPoint [encodeInt32 CloseConnection, encodeInt32 connId] 
   decreaseRemoteRefCount (ourEndPoint, theirEndPoint)
 
@@ -272,8 +273,8 @@ apiClose (ourEndPoint, theirEndPoint) connId = void . tryIO $ do
 --
 -- TODO: we should have some per-connection state so that the user cannot send
 -- to the connection after they closed it, or close it more than once 
-apiSend :: RemoteEndPoint -> ConnectionId -> [ByteString] -> IO (Either (FailedWith SendErrorCode) ())
-apiSend theirEndPoint connId payload = runErrorT $ 
+apiSend :: RemoteEndPoint -> ConnectionId -> MVar Bool -> [ByteString] -> IO (Either (FailedWith SendErrorCode) ())
+apiSend theirEndPoint connId connAlive payload = runErrorT $ 
   failWithIO (FailedWith SendFailed . show) $ 
     sendTo theirEndPoint (encodeInt32 connId : prependLength payload)
 
@@ -372,16 +373,19 @@ connectToRemoteEndPoint ourEndPoint theirMVar theirAddress = do
 
 -- | Request a new connection 
 requestNewConnection :: Conn -> ErrorT (FailedWith ConnectErrorCode) IO ConnectionId
-requestNewConnection (ourEndPoint, theirEndPoint) = do
-    mcid <- failWithIO (failed . show) $ do 
+requestNewConnection (ourEndPoint, theirEndPoint) = ErrorT $ do 
+    -- We increment the refcount before sending the request, because if a
+    -- CloseSocket request comes this way first we want to ignore it
+    increaseRemoteRefCount (ourEndPoint, theirEndPoint)
+    mcid <- tryIO $ do 
       reply <- sendRemoteRequest (ourEndPoint, theirEndPoint) RequestConnectionId 
       decodeInt32 . BS.concat <$> takeMVar reply
-    case mcid of 
-      Nothing  -> 
-        throwError (failed "Invalid integer") 
-      Just cid -> do
-        liftIO $ increaseRemoteRefCount (ourEndPoint, theirEndPoint)
-        return cid
+    case mcid of
+      Left err         -> do decreaseRemoteRefCount (ourEndPoint, theirEndPoint) 
+                             return . Left  $ failed (show err)
+      Right Nothing    -> do decreaseRemoteRefCount (ourEndPoint, theirEndPoint) 
+                             return . Left  $ failed "Invalid integer"
+      Right (Just cid) -> do return . Right $ cid
   where
     failed = FailedWith ConnectFailed
 
