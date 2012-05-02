@@ -273,9 +273,6 @@ apiClose (ourEndPoint, theirEndPoint) connId connAlive = void . tryIO $ do
     return False
 
 -- | Send data across a connection
---
--- TODO: we should have some per-connection state so that the user cannot send
--- to the connection after they closed it, or close it more than once 
 apiSend :: RemoteEndPoint -> ConnectionId -> MVar Bool -> [ByteString] -> IO (Either (FailedWith SendErrorCode) ())
 apiSend theirEndPoint connId connAlive payload = 
   modifyMVar connAlive $ \alive -> do
