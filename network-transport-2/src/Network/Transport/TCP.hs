@@ -6,12 +6,13 @@
 -- @192.168.0.1:8080@ and /B/ subsequently connects tries to connect to /A/ as
 -- @client1.local:http-alt@ then the transport layer will not realize that the
 -- TCP connection can be reused. 
-module Network.Transport.TCP {- ( -- * Main API
+module Network.Transport.TCP ( -- * Main API
                                createTransport
                              , -- * TCP specific functionality
                                EndPointId
                              , decodeEndPointAddress
                              , ControlHeader(..)
+                             , ConnectionRequestResponse(..)
                                -- * Design notes
                                -- ** Overview
                                -- $overview
@@ -19,7 +20,7 @@ module Network.Transport.TCP {- ( -- * Main API
                                -- $connecting
                                -- ** Disconnecting
                                -- $disconnecting
-                             ) -} where
+                             ) where
 
 import Network.Transport
 import Network.Transport.Internal.TCP ( forkServer
