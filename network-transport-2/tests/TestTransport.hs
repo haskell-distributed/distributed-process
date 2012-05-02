@@ -1,7 +1,7 @@
 module TestTransport where
 
 import Prelude hiding (catch)
-import Control.Concurrent (forkIO, threadDelay)
+import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar, readMVar)
 import Control.Monad (replicateM, replicateM_, when, guard, forM_)
 import Control.Monad.Reader (ReaderT, runReaderT, ask)
@@ -40,16 +40,20 @@ echoServer endpoint = do
           -- Ignore
           go cs
 
-expect :: EndPoint -> (Event -> Bool) -> IO ()
+expect :: EndPoint -> (Event -> (Bool, a)) -> IO a 
 expect endpoint predicate = do
   event <- receive endpoint
   mbool <- catch (Right <$> evaluate (predicate event)) (return . Left)
   case mbool of
-    Left err    -> do tlog $ "Unexpected event " ++ show event 
-                      throw (err :: SomeException) 
-    Right False -> do tlog $ "Unexpected event " ++ show event 
-                      fail "Unexpected event"
-    _           -> return ()
+    Left err         -> do tlog $ "Unexpected event " ++ show event 
+                           throw (err :: SomeException) 
+    Right (False, _) -> do tlog $ "Unexpected event " ++ show event 
+                           fail "Unexpected event"
+    Right (True, a)  -> return a
+
+expect' :: EndPoint -> (Event -> Bool) -> IO ()
+expect' endpoint predicate = 
+  expect endpoint (\event -> (predicate event, ()))
 
 ping :: EndPoint -> EndPointAddress -> Int -> ByteString -> IO ()
 ping endpoint server numPings msg = do
@@ -59,13 +63,13 @@ ping endpoint server numPings msg = do
 
   -- Wait for the server to open reply connection
   tlog "Wait for ConnectionOpened message"
-  expect endpoint (\(ConnectionOpened _ _ _) -> True)
+  cid <- expect endpoint (\(ConnectionOpened cid _ _) -> (True, cid))
 
   -- Send pings and wait for reply
   tlog "Send ping and wait for reply"
   replicateM_ numPings $ do
       send conn [msg]
-      expect endpoint (\(Received _ [reply]) -> reply == msg)
+      expect' endpoint (\(Received cid' [reply]) -> cid == cid' && reply == msg)
 
   -- Close the connection
   tlog "Close the connection"
@@ -73,7 +77,7 @@ ping endpoint server numPings msg = do
 
   -- Wait for the server to close its connection to us
   tlog "Wait for ConnectionClosed message"
-  expect endpoint (\(ConnectionClosed _) -> True)
+  expect' endpoint (\(ConnectionClosed cid') -> cid == cid')
 
   -- Done
   tlog "Ping client done"
@@ -388,17 +392,18 @@ testSendAfterClose transport _ = do
     -- connection (i.e., on a closed connection while there is still another
     -- connection open)
     close conn2
-    send conn2 ["ping2"]
+    Left (FailedWith SendConnectionClosed _) <- send conn2 ["ping2"]
 
     -- Now close the first connection, and output on it (i.e., output while
     -- there are no lightweight connection at all anymore)
     close conn1
-    send conn1 ["ping1"]
+    Left (FailedWith SendConnectionClosed _) <- send conn2 ["ping2"]
 
-    threadDelay 100000
     putMVar clientDone ()
 
   takeMVar clientDone
+
+
 
 -- Test that closing the same connection twice has no effect
 testCloseTwice :: Transport -> Int -> IO ()
@@ -422,9 +427,12 @@ testCloseTwice transport _ = do
     close conn1
 
     -- Verify expected response from the echo server
-    -- TODO
+    cid1 <- expect endpoint (\(ConnectionOpened cid _ _) -> (True, cid)) 
+    cid2 <- expect endpoint (\(ConnectionOpened cid _ _) -> (True, cid))
+    expect' endpoint (\(ConnectionClosed cid) -> cid == cid2)
+    expect' endpoint (\(Received cid msg) -> cid == cid1 && msg == ["ping"])
+    expect' endpoint (\(ConnectionClosed cid) -> cid == cid1)
 
-    threadDelay 1000000
     putMVar clientDone ()
 
   takeMVar clientDone

@@ -57,7 +57,7 @@ import Control.Concurrent.MVar ( MVar
                                )
 import Control.Category ((>>>))
 import Control.Applicative ((<*>), (*>), (<$>))
-import Control.Monad (forM_, void, unless)
+import Control.Monad (forM_, void, unless, when)
 import Control.Monad.Error (ErrorT(ErrorT), runErrorT)
 import Control.Monad.IO.Class (liftIO)
 import Control.Exception (IOException, bracket_)
@@ -266,17 +266,27 @@ apiConnect ourEndPoint theirAddress _ = runErrorT $ do
 -- TODO: We ignore errors during a close. Is that right? 
 apiClose :: Conn -> ConnectionId -> MVar Bool -> IO ()
 apiClose (ourEndPoint, theirEndPoint) connId connAlive = void . tryIO $ do 
-  sendTo theirEndPoint [encodeInt32 CloseConnection, encodeInt32 connId] 
-  decreaseRemoteRefCount (ourEndPoint, theirEndPoint)
+  modifyMVar_ connAlive $ \alive -> do
+    when alive $ do 
+      sendTo theirEndPoint [encodeInt32 CloseConnection, encodeInt32 connId] 
+      decreaseRemoteRefCount (ourEndPoint, theirEndPoint)
+    return False
 
 -- | Send data across a connection
 --
 -- TODO: we should have some per-connection state so that the user cannot send
 -- to the connection after they closed it, or close it more than once 
 apiSend :: RemoteEndPoint -> ConnectionId -> MVar Bool -> [ByteString] -> IO (Either (FailedWith SendErrorCode) ())
-apiSend theirEndPoint connId connAlive payload = runErrorT $ 
-  failWithIO (FailedWith SendFailed . show) $ 
-    sendTo theirEndPoint (encodeInt32 connId : prependLength payload)
+apiSend theirEndPoint connId connAlive payload = 
+  modifyMVar connAlive $ \alive -> do
+    if alive
+      then do 
+        result <- tryIO $ sendTo theirEndPoint (encodeInt32 connId : prependLength payload)
+        case result of
+          Left err -> return (alive, Left $ FailedWith SendFailed (show err))
+          Right _  -> return (alive, Right $ ())
+      else do
+        return (alive, Left $ FailedWith SendConnectionClosed "Connection closed")
 
 --------------------------------------------------------------------------------
 -- Lower level functionality                                                  --
