@@ -10,6 +10,7 @@ import Control.Exception (evaluate, throw, catch, SomeException)
 import Control.Applicative ((<$>))
 import Network.Transport
 import Network.Transport.Internal (tlog)
+import Network.Transport.Util (spawn)
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 (pack)
 import Data.Map (Map)

@@ -14,12 +14,7 @@ module Network.Transport.TCP ( -- * Main API
                              , ControlHeader(..)
                              , ConnectionRequestResponse(..)
                                -- * Design notes
-                               -- ** Overview
-                               -- $overview
-                               -- ** Connecting
-                               -- $connecting
-                               -- ** Disconnecting
-                               -- $disconnecting
+                               -- $design
                              ) where
 
 import Network.Transport
@@ -80,10 +75,12 @@ import Data.IORef (newIORef, modifyIORef, readIORef)
 import Data.Lens.Lazy (Lens, lens, intMapLens, mapLens, (^.), (^=), (^+=))
 import Text.Regex.Applicative (RE, few, anySym, sym, many, match)
 
--- $overview
+-- $design 
 --
--- The TCP transport maps multiple logical connections between A and B
--- (in either direction) to a single TCP connection:
+-- [Goals]
+--
+-- The TCP transport maps multiple logical connections between /A/ and /B/ (in
+-- either direction) to a single TCP connection:
 --
 -- > +-------+                          +-------+
 -- > | A     |==========================| B     |
@@ -92,32 +89,41 @@ import Text.Regex.Applicative (RE, few, anySym, sym, many, match)
 -- > |   \~~~|~~~~~~~~~~~~~~~~~~~~~~~~~<|       |
 -- > |       |==========================|       |
 -- > +-------+                          +-------+
-
--- $connecting
 -- 
+-- Ignoring the complications detailed below, the TCP connection is created is
+-- created the first lightweight connection is created (in either direction),
+-- and torn down when the last lightweight connection (in either direction) is
+-- closed.
+--
+-- [Connecting]
+--
 -- Let /A/, /B/ be two endpoints without any connections. When /A/ wants to
 -- connect to /B/, it locally records that it is trying to connect to /B/ and
 -- sends a request to /B/. As part of the request /A/ sends its own endpoint
--- address to /B/. 
+-- address to /B/ (so that /B/ can reuse the connection in the other direction).
 --
 -- When /B/ receives the connection request it first checks if it had not
 -- already initiated a connection request to /A/. If it had not, then it will
--- acknowledge the connection request and record that it has a TCP connection to
--- /A/.
+-- acknowledge the connection request by sending 'ConnectionRequestAccepted' to
+-- /A/ and record that it has a TCP connection to /A/.
 --
 -- The tricky case arises when /A/ sends a connection request to /B/ and /B/
 -- finds that it had already sent a connection request to /A/. In this case /B/
 -- will accept the connection request from /A/ if /A/s endpoint address is
--- smaller (lexicographically) than /B/s, and reject it otherwise.  
+-- smaller (lexicographically) than /B/s, and reject it otherwise. If it rejects
+-- it, it sends a 'ConnectionRequestCrossed' message to /A/. (The
+-- lexicographical ordering is an arbitrary but convenient way to break the
+-- tie.)
 --
--- Upon a rejection the /A/ thread that initiated the request just needs to wait
--- until the /A/ thread that is dealing with /B/s connection request completes.
-
--- $disconnecting 
+-- When it receives a 'ConnectionRequestCrossed' message the /A/ thread that
+-- initiated the request just needs to wait until the /A/ thread that is dealing
+-- with /B/'s connection request completes.
+--
+-- [Disconnecting]
 -- 
--- The TCP connection is created as soon as the first logical connection
--- from A to B (or B to A) is established. At this point a thread (@#@)
--- is spawned that listens for incoming connections from B:
+-- The TCP connection is created as soon as the first logical connection from
+-- /A/ to /B/ (or /B/ to /A/) is established. At this point a thread (@#@) is
+-- spawned that listens for incoming connections from /B/:
 --
 -- > +-------+                          +-------+
 -- > | A     |==========================| B     |
@@ -127,25 +133,37 @@ import Text.Regex.Applicative (RE, few, anySym, sym, many, match)
 -- > |       |==========================|       |
 -- > +-------+                          +-------+
 --
--- The question is when the TCP connection can be closed again.
--- Conceptually, we want to do reference counting: when there are no
--- logical connections left between A and B we want to close the socket
--- (possibly after some timeout). 
+-- The question is when the TCP connection can be closed again.  Conceptually,
+-- we want to do reference counting: when there are no logical connections left
+-- between /A/ and /B/ we want to close the socket (possibly after some
+-- timeout). 
 --
--- However, A and B need to agree that the refcount has reached zero.
--- It might happen that B sends a connection request over the existing
--- socket at the same time that A closes its logical connection to B and
--- closes the socket. This will cause a failure in B (which will have to
--- retry) which is not caused by a network failure, which is
--- unfortunate. (Note that the connection request from B might succeed
--- even if A closes the socket.) 
+-- However, /A/ and /B/ need to agree that the refcount has reached zero.  It
+-- might happen that /B/ sends a connection request over the existing socket at
+-- the same time that /A/ closes its logical connection to /B/ and closes the
+-- socket. This will cause a failure in /B/ (which will have to retry) which is
+-- not caused by a network failure, which is unfortunate. (Note that the
+-- connection request from /B/ might succeed even if /A/ closes the socket.) 
 --
--- Instead, A will first ask B if it's okay to close the connection. If
--- B has already initiated a logical connection to A then it can simply
--- ignore this message, because any message other than 'OkayToClose'
--- will imply to A that the connection should not yet be closed. On the
--- other hand, B must guarantee that once it does send an 'OkayToClose'
--- message it will not reuse the socket anymore.
+-- Instead, when /A/ is ready to close the socket it sends a 'CloseSocket'
+-- request to /B/ and records that its connection to /B/ is closing. If /A/
+-- receives a new connection request from /B/ after having sent the
+-- 'CloseSocket' request it simply forgets that it sent a 'CloseSocket' request
+-- and increments the reference count of the connection again.
+-- 
+-- When /B/ receives a 'CloseSocket' message and it too is ready to close the
+-- connection, it will respond with a reciprocal 'CloseSocket' request to /A/
+-- and then actually close the socket. /A/ meanwhile will not send any more
+-- requests to /B/ after having sent a 'CloseSocket' request, and will actually
+-- close its end of the socket only when receiving the 'CloseSocket' message
+-- from /B/. (Since /A/ recorded that its connection to /B/ is in closing state
+-- after sending a 'CloseSocket' request to /B/, it knows not to reciprocate /B/
+-- reciprocal 'CloseSocket' message.)
+-- 
+-- If there is a concurrent thread in /A/ waiting to connect to /B/ after /A/
+-- has sent a 'CloseSocket' request then this thread will block until /A/ knows
+-- whether to reuse the old socket (if /B/ sends a new connection request
+-- instead of acknowledging the 'CloseSocket') or to set up a new socket. 
 
 --------------------------------------------------------------------------------
 -- Internal datatypes                                                         --
@@ -541,7 +559,8 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
         didClose <- modifyMVar (ourEndPoint ^. localState) $ \st -> do
           case st ^. connectionTo theirAddr of
             Just (Just _, mvar) -> do
-              sendTo theirEndPoint [encodeInt32 CloseSocket] 
+              -- The connection is already in "closing" state, which means we
+              -- don't need to send another CloseSocket request (we already did)
               N.sClose sock
               putMVar mvar EndPointClosed  
               return (connectionTo theirAddr ^= Nothing $ st, True)

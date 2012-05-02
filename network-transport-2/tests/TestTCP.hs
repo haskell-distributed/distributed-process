@@ -147,7 +147,7 @@ testIgnoreCloseSocket = do
       tlog "Ignoring it, requesting another connection"
       let reqId' = 1 :: Int32
       sendMany sock [encodeInt32 RequestConnectionId, encodeInt32 reqId']
-      response' <- replicateM 4 $ recvInt32 sock :: IO [Int32] 
+      replicateM 4 $ recvInt32 sock :: IO [Int32] 
 
       -- Close it again
       tlog "Closing connection"
