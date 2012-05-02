@@ -6,9 +6,10 @@ import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
 import Control.Applicative ((<$>))
 import Control.Category ((>>>))
 import Control.Concurrent.MVar (MVar, newMVar, modifyMVar, modifyMVar_, readMVar)
-import Control.Monad (forM_)
+import Control.Monad (forM_, when)
 import Data.Map (Map)
 import qualified Data.Map as Map (empty, insert, size, delete, findWithDefault)
+import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BSC (pack)
 import Data.Lens.Lazy (Lens, lens, (^.), (^%=), (^=), (^+=), mapLens)
 
@@ -49,45 +50,61 @@ createTransport = do
                          , _nextConnectionId = Map.empty
                          , _multigroups      = Map.empty
                          }
-  return Transport { newEndPoint = chanNewEndPoint state }
+  return Transport { newEndPoint = apiNewEndPoint state }
 
--- Create a new end point
-chanNewEndPoint :: MVar TransportState -> IO (Either (FailedWith NewEndPointErrorCode) EndPoint)
-chanNewEndPoint state = do
+-- | Create a new end point
+apiNewEndPoint :: MVar TransportState -> IO (Either (FailedWith NewEndPointErrorCode) EndPoint)
+apiNewEndPoint state = do
   chan <- newChan
   addr <- modifyMVar state $ \st -> do
     let addr = EndPointAddress . BSC.pack . show . Map.size $ st ^. channels
     return ((channelAt addr ^= chan) . (nextConnectionIdAt addr ^= 1) $ st, addr)
   return . Right $ EndPoint { receive = readChan chan  
                             , address = addr
-                            , connect = chanConnect addr state 
-                            , newMulticastGroup     = chanNewMulticastGroup state chan
-                            , resolveMulticastGroup = chanResolveMulticastGroup state chan 
+                            , connect = apiConnect addr state 
+                            , newMulticastGroup     = apiNewMulticastGroup state chan
+                            , resolveMulticastGroup = apiResolveMulticastGroup state chan 
                             }
   
--- Create a new connection
-chanConnect :: EndPointAddress -> MVar TransportState -> EndPointAddress -> Reliability -> IO (Either (FailedWith ConnectErrorCode) Connection)
-chanConnect myAddress state theirAddress _ = do 
+-- | Create a new connection
+apiConnect :: EndPointAddress -> MVar TransportState -> EndPointAddress -> Reliability -> IO (Either (FailedWith ConnectErrorCode) Connection)
+apiConnect myAddress state theirAddress _ = do 
   (chan, conn) <- modifyMVar state $ \st -> do
     let chan = st ^. channelAt theirAddress
     let conn = st ^. nextConnectionIdAt theirAddress
     return (nextConnectionIdAt theirAddress ^+= 1 $ st, (chan, conn))
   writeChan chan $ ConnectionOpened conn ReliableOrdered myAddress
-  return . Right $ Connection { send  = \msg -> do writeChan chan (Received conn msg)
-                                                   return (Right ())
-                              , close = writeChan chan $ ConnectionClosed conn
+  connAlive <- newMVar True
+  return . Right $ Connection { send  = apiSend chan conn connAlive 
+                              , close = apiClose chan conn connAlive 
                               } 
 
--- Create a new multicast group
-chanNewMulticastGroup :: MVar TransportState -> Chan Event -> IO (Either (FailedWith NewMulticastGroupErrorCode) MulticastGroup)
-chanNewMulticastGroup state endpoint = do
+-- | Send a message over a connection
+apiSend :: Chan Event -> ConnectionId -> MVar Bool -> [ByteString] -> IO (Either (FailedWith SendErrorCode) ())
+apiSend chan conn connAlive msg = 
+  modifyMVar connAlive $ \alive -> do
+    if alive 
+      then do writeChan chan (Received conn msg)
+              return (alive, Right ())
+      else do return (alive, Left (FailedWith SendConnectionClosed "Connection closed"))
+
+-- | Close a connection
+apiClose :: Chan Event -> ConnectionId -> MVar Bool -> IO ()
+apiClose chan conn connAlive = 
+  modifyMVar_ connAlive $ \alive -> do
+    when alive . writeChan chan $ ConnectionClosed conn
+    return False
+
+-- | Create a new multicast group
+apiNewMulticastGroup :: MVar TransportState -> Chan Event -> IO (Either (FailedWith NewMulticastGroupErrorCode) MulticastGroup)
+apiNewMulticastGroup state endpoint = do
   group <- newMVar []
   addr  <- modifyMVar state $ \st -> do
     let addr = MulticastAddress . BSC.pack . show . Map.size $ st ^. multigroups
     return (multigroupAt addr ^= group $ st, addr)
-  return . Right $ chanMulticastGroup state endpoint addr group
+  return . Right $ createMulticastGroup state endpoint addr group
 
--- Construct a multicast group
+-- | Construct a multicast group
 --
 -- When the group is deleted some endpoints may still receive messages, but
 -- subsequent calls to resolveMulticastGroup will fail. This mimicks the fact
@@ -97,8 +114,8 @@ chanNewMulticastGroup state endpoint = do
 -- TODO: subscribing twice means you will receive messages twice, but as soon
 -- as you unsubscribe you will stop receiving all messages. Not sure if this
 -- is the right behaviour.
-chanMulticastGroup :: MVar TransportState -> Chan Event -> MulticastAddress -> MVar [Chan Event] -> MulticastGroup
-chanMulticastGroup state endpoint addr group =
+createMulticastGroup :: MVar TransportState -> Chan Event -> MulticastAddress -> MVar [Chan Event] -> MulticastGroup
+createMulticastGroup state endpoint addr group =
   MulticastGroup { multicastAddress     = addr 
                  , deleteMulticastGroup = modifyMVar_ state $ return . (multigroups ^%= Map.delete addr)
                  , maxMsgSize           = Nothing
@@ -110,13 +127,13 @@ chanMulticastGroup state endpoint addr group =
                  , multicastClose       = return () 
                  }
 
--- Resolve a multicast group
-chanResolveMulticastGroup :: MVar TransportState 
+-- | Resolve a multicast group
+apiResolveMulticastGroup :: MVar TransportState 
                           -> Chan Event 
                           -> MulticastAddress 
                           -> IO (Either (FailedWith ResolveMulticastGroupErrorCode) MulticastGroup)
-chanResolveMulticastGroup state endpoint addr = do
+apiResolveMulticastGroup state endpoint addr = do
   group <- (^. (multigroups >>> mapLens addr)) <$> readMVar state 
   case group of
     Nothing   -> return . Left $ FailedWith ResolveMulticastGroupNotFound ("Group " ++ show addr ++ " not found")
-    Just mvar -> return . Right $ chanMulticastGroup state endpoint addr mvar 
+    Just mvar -> return . Right $ createMulticastGroup state endpoint addr mvar 
