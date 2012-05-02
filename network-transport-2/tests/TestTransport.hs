@@ -26,7 +26,6 @@ echoServer endpoint = do
     go :: Map ConnectionId Connection -> IO () 
     go cs = do
       event <- receive endpoint
-      tlog $ "Got event " ++ show event
       case event of
         ConnectionOpened cid rel addr -> do
           Right conn <- connect endpoint addr rel 
@@ -44,7 +43,6 @@ echoServer endpoint = do
 expect :: EndPoint -> (Event -> Bool) -> IO ()
 expect endpoint predicate = do
   event <- receive endpoint
-  tlog $ "Got event " ++ show event
   mbool <- catch (Right <$> evaluate (predicate event)) (return . Left)
   case mbool of
     Left err    -> do tlog $ "Unexpected event " ++ show event 
