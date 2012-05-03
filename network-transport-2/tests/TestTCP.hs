@@ -230,8 +230,7 @@ testBlockAfterCloseSocket = do
       -- At this point the server will have sent a CloseSocket request to the
       -- client, and must block until the client responds
       tlog "Server waiting to connect to the client.."
-      Right conn <- readMVar clientAddr >>= \addr -> connect endpoint addr ReliableOrdered
-       
+      Right _ <- readMVar clientAddr >>= \addr -> connect endpoint addr ReliableOrdered
       
       tlog "Server waiting.."
 

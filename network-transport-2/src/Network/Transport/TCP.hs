@@ -254,6 +254,37 @@ apiConnect :: LocalEndPoint    -- ^ Local end point
            -> EndPointAddress  -- ^ Remote address
            -> Reliability      -- ^ Reliability (ignored)
            -> IO (Either (FailedWith ConnectErrorCode) Connection)
+-- Special case for self-connection
+apiConnect ourEndPoint theirAddress _ | ourEndPoint ^. localAddress == theirAddress = do
+  connAlive <- newMVar True 
+  connId    <- modifyMVar (ourEndPoint ^. localState) $ \st -> do
+    let connId = st ^. nextConnectionId 
+    return (nextConnectionId ^= connId + 1 $ st, connId) 
+
+  let ourChan :: Chan Event
+      ourChan = ourEndPoint ^. localChannel
+
+      selfSend :: [ByteString] -> IO (Either (FailedWith SendErrorCode) ())
+      selfSend msg = do
+        modifyMVar connAlive $ \alive ->
+          if alive
+            then do 
+              writeChan ourChan (Received connId msg)
+              return (alive, Right ())
+            else 
+              return (alive, Left (FailedWith SendConnectionClosed "Connection closed"))
+
+      selfClose :: IO ()
+      selfClose = do
+        modifyMVar_ connAlive $ \alive -> do
+          when alive $ writeChan ourChan (ConnectionClosed connId) 
+          return False
+
+  writeChan ourChan (ConnectionOpened connId ReliableOrdered theirAddress)
+  return . Right $ Connection { send  = selfSend 
+                              , close = selfClose 
+                              }
+-- Regular case
 apiConnect ourEndPoint theirAddress _ = runErrorT $ do
   theirEndPoint <- findRemoteEndPoint ourEndPoint theirAddress 
   connId        <- requestNewConnection (ourEndPoint, theirEndPoint)
@@ -325,14 +356,14 @@ findRemoteEndPoint ourEndPoint theirAddress = ErrorT $ go
             return (connectionTo theirAddress ^= Just (Nothing, theirMVar) $ st, theirMVar)
       theirState <- readMVar endPoint
       case theirState of
-        EndPointInvalid err ->
+        EndPointInvalid err -> do
           -- We remove the endpoint from the state again because the next call
           -- to 'connect' might give a different result
           modifyMVar state $ \st ->
             return (connectionTo theirAddress ^= Nothing $ st, Left err)
-        EndPointValid _ ep ->
+        EndPointValid _ ep -> do
           return $ Right ep
-        EndPointClosed ->
+        EndPointClosed -> do
           go 
 
     state :: MVar LocalState 
@@ -348,9 +379,9 @@ connectToRemoteEndPoint ourEndPoint theirMVar theirAddress = do
       Right (ConnectionRequestEndPointInvalid, sock) -> do
         putMVar theirMVar (EndPointInvalid (invalidAddress "Invalid endpoint"))
         N.sClose sock
-      Right (ConnectionRequestCrossed, sock) ->
+      Right (ConnectionRequestCrossed, sock) -> do
         N.sClose sock
-      Left err -> 
+      Left err -> do 
         -- TODO: this isn't quite right; socket *might* have been opened here, 
         -- in which case we should close it
         putMVar theirMVar (EndPointInvalid err)
@@ -421,12 +452,12 @@ sendRemoteRequest (ourEndPoint, theirEndPoint) header = do
 increaseRemoteRefCount :: Conn -> IO ()
 increaseRemoteRefCount (ourEndPoint, theirEndPoint) = do
   let theirAddr = theirEndPoint ^. remoteAddress
-      state     = ourEndPoint ^. localState
+      ourState  = ourEndPoint ^. localState
   -- If this endpoint was closing, cancel that 
-  theirMVar <- modifyMVar state $ \st -> do
+  theirMVar <- modifyMVar ourState $ \st -> do
     let Just (isClosing, theirMVar) = st ^. connectionTo theirAddr
     case isClosing of
-      Nothing -> 
+      Nothing -> do 
         return (st, theirMVar)
       Just ep -> do
         putMVar theirMVar (EndPointValid 0 ep)
@@ -475,7 +506,7 @@ handleConnectionRequest transport sock = do
             mvar <- newEmptyMVar
             return (connectionTo theirAddress ^= Just (Nothing, mvar) $ st, (False, mvar))
           Just (_, mvar) -> 
-            return (st, (ourEndPoint ^. localAddress <= theirAddress, mvar))
+            return (st, (ourEndPoint ^. localAddress < theirAddress, mvar))
       if crossed 
         then do
           sendMany sock [encodeInt32 ConnectionRequestCrossed]

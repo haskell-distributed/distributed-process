@@ -23,7 +23,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (length)
 import qualified Data.ByteString.Internal as BSI (unsafeCreate, toForeignPtr, inlinePerformIO)
 import Control.Applicative ((<$>))
-import Control.Monad (MonadPlus, guard)
+import Control.Monad (MonadPlus, guard, when)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Error (MonadError, throwError)
 import Control.Exception (IOException, catch, try)
@@ -90,10 +90,10 @@ tryIO :: IO a -> IO (Either IOException a)
 tryIO = try
 
 -- | Logging (for debugging)
-tlog :: String -> IO ()
+tlog :: MonadIO m => String -> m ()
 tlog _ = return ()
 {-
-tlog msg = do
+tlog msg = liftIO $ do
   tid <- myThreadId
   putStrLn $ show tid ++ ": "  ++ msg
 -}
@@ -108,4 +108,4 @@ whileM cond body = go
   where
     go = do
       b <- cond
-      if b then body >> go else return ()
+      when b $ body >> go

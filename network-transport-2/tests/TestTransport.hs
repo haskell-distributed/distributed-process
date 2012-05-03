@@ -274,8 +274,8 @@ testCloseOneDirection transport numPings = do
 
   mapM_ takeMVar [doneA, doneB]
 
-collect :: EndPoint -> Int -> IO ([(ConnectionId, [[ByteString]])]) 
-collect endPoint numEvents = go numEvents (Map.empty) (Map.empty)
+collect :: EndPoint -> Int -> IO [(ConnectionId, [[ByteString]])]
+collect endPoint numEvents = go numEvents Map.empty Map.empty
   where
     go 0 !open !closed = if Map.null open 
                          then return . Map.toList . Map.map reverse $ closed
@@ -433,6 +433,44 @@ testCloseTwice transport _ = do
 
   takeMVar clientDone
 
+testConnectToSelf :: Transport -> Int -> IO ()
+testConnectToSelf transport numPings = do
+  done <- newEmptyMVar
+  Right endpoint <- newEndPoint transport
+
+  tlog "Creating self-connection"
+  Right conn <- connect endpoint (address endpoint) ReliableOrdered
+
+  tlog "Talk to myself"
+
+  -- One thread to write to the endpoint
+  forkTry $ do
+    tlog $ "writing" 
+
+    tlog $ "Sending ping"
+    replicateM_ numPings $ send conn ["ping"]
+
+    tlog $ "Closing connection"
+    close conn
+
+  -- And one thread to read
+  forkTry $ do
+    tlog $ "reading"
+
+    tlog "Waiting for ConnectionOpened"
+    cid <- expect endpoint (\(ConnectionOpened cid _ addr) -> (addr == address endpoint, cid))
+
+    tlog "Waiting for Received"
+    replicateM_ numPings $ expect' endpoint (\(Received cid' msg) -> cid == cid' && msg == ["ping"])
+
+    tlog "Waiting for ConnectionClosed"
+    expect' endpoint (\(ConnectionClosed cid') -> cid == cid')
+
+    tlog "Done"
+    putMVar done ()
+
+  takeMVar done
+
 runTransportTest :: String -> (Transport -> Int -> IO ()) -> ReaderT (Transport, Int) IO ()
 runTransportTest description test = do
   (transport, numPings) <- ask 
@@ -450,3 +488,4 @@ testTransport transport = flip runReaderT (transport, 10000) $ do
   runTransportTest "ParallelConnects" testParallelConnects
   runTransportTest "SendAfterClose" testSendAfterClose
   runTransportTest "CloseTwice" testCloseTwice
+  runTransportTest "ConnectToSelf" testConnectToSelf
