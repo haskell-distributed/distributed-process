@@ -13,6 +13,7 @@ module Network.Transport.TCP ( -- * Main API
                              , decodeEndPointAddress
                              , ControlHeader(..)
                              , ConnectionRequestResponse(..)
+                             , firstNonReservedConnectionId
                                -- * Design notes
                                -- $design
                              ) where

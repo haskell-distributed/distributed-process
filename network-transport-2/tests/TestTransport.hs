@@ -1,7 +1,7 @@
 module TestTransport where
 
 import Prelude hiding (catch)
-import Control.Concurrent (forkIO)
+import TestAuxiliary (forkTry, runTest)
 import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar, readMVar)
 import Control.Monad (replicateM, replicateM_, when, guard, forM_)
 import Control.Monad.Reader (ReaderT, runReaderT, ask)
@@ -15,8 +15,6 @@ import Data.ByteString (ByteString)
 import Data.ByteString.Char8 (pack)
 import Data.Map (Map)
 import qualified Data.Map as Map (empty, insert, delete, findWithDefault, adjust, null, toList, map)
-import System.IO (hFlush, stdout)
-import System.Timeout (timeout)
 
 -- Server that echoes messages straight back to the origin endpoint.
 echoServer :: EndPoint -> IO ()
@@ -90,7 +88,7 @@ testPingPong transport numPings = do
   result <- newEmptyMVar
 
   -- Client 
-  forkIO $ do
+  forkTry $ do
     tlog "Ping client"
     Right endpoint <- newEndPoint transport
     ping endpoint server numPings "ping"
@@ -104,7 +102,7 @@ testEndPoints transport numPings = do
   server <- spawn transport echoServer
   dones <- replicateM 2 newEmptyMVar
 
-  forM_ (zip dones ['A'..]) $ \(done, name) -> forkIO $ do 
+  forM_ (zip dones ['A'..]) $ \(done, name) -> forkTry $ do 
     let name' :: ByteString
         name' = pack [name]
     Right endpoint <- newEndPoint transport
@@ -121,7 +119,7 @@ testConnections transport numPings = do
   result <- newEmptyMVar
   
   -- Client
-  forkIO $ do
+  forkTry $ do
     Right endpoint <- newEndPoint transport
 
     -- Open two connections to the server
@@ -132,10 +130,10 @@ testConnections transport numPings = do
     ConnectionOpened serv2 _ _ <- receive endpoint
 
     -- One thread to send "pingA" on the first connection
-    forkIO $ replicateM_ numPings $ send conn1 ["pingA"]
+    forkTry $ replicateM_ numPings $ send conn1 ["pingA"]
 
     -- One thread to send "pingB" on the second connection
-    forkIO $ replicateM_ numPings $ send conn2 ["pingB"]
+    forkTry $ replicateM_ numPings $ send conn2 ["pingB"]
 
     -- Verify server responses 
     let verifyResponse 0 = putMVar result () 
@@ -159,7 +157,7 @@ testCloseOneConnection transport numPings = do
   result <- newEmptyMVar
   
   -- Client
-  forkIO $ do
+  forkTry $ do
     Right endpoint <- newEndPoint transport
 
     -- Open two connections to the server
@@ -170,12 +168,12 @@ testCloseOneConnection transport numPings = do
     ConnectionOpened serv2 _ _ <- receive endpoint
 
     -- One thread to send "pingA" on the first connection
-    forkIO $ do
+    forkTry $ do
       replicateM_ numPings $ send conn1 ["pingA"]
       close conn1
       
     -- One thread to send "pingB" on the second connection
-    forkIO $ replicateM_ (numPings * 2) $ send conn2 ["pingB"]
+    forkTry $ replicateM_ (numPings * 2) $ send conn2 ["pingB"]
 
     -- Verify server responses 
     let verifyResponse 0 = putMVar result () 
@@ -203,7 +201,7 @@ testCloseOneDirection transport numPings = do
   doneB <- newEmptyMVar
 
   -- A
-  forkIO $ do
+  forkTry $ do
     tlog "A" 
     Right endpoint <- newEndPoint transport
     tlog (show (address endpoint))
@@ -239,7 +237,7 @@ testCloseOneDirection transport numPings = do
     putMVar doneA ()
 
   -- B
-  forkIO $ do
+  forkTry $ do
     tlog "B"
     Right endpoint <- newEndPoint transport
     tlog (show (address endpoint))
@@ -318,7 +316,7 @@ testCloseReopen transport numPings = do
   let numRepeats = 2 :: Int 
 
   -- A
-  forkIO $ do
+  forkTry $ do
     Right endpoint <- newEndPoint transport
 
     forM_ [1 .. numRepeats] $ \i -> do
@@ -337,7 +335,7 @@ testCloseReopen transport numPings = do
     tlog "A finishing"
 
   -- B
-  forkIO $ do
+  forkTry $ do
     Right endpoint <- newEndPoint transport
     putMVar addrB (address endpoint)
 
@@ -360,13 +358,13 @@ testParallelConnects transport numPings = do
   Right endpoint <- newEndPoint transport
 
   -- Spawn lots of clients
-  forM_ [1 .. numPings] $ \i -> forkIO $ do 
+  forM_ [1 .. numPings] $ \i -> forkTry $ do 
     Right conn <- connect endpoint server ReliableOrdered
     send conn [pack $ "ping" ++ show i]
     send conn [pack $ "ping" ++ show i]
     close conn
 
-  forkIO $ do
+  forkTry $ do
     eventss <- collect endpoint (numPings * 4)
     -- Check that no pings got sent to the wrong connection
     forM_ eventss $ \(_, [[ping1], [ping2]]) -> 
@@ -381,7 +379,7 @@ testSendAfterClose transport _ = do
   server <- spawn transport echoServer
   clientDone <- newEmptyMVar
 
-  forkIO $ do
+  forkTry $ do
     Right endpoint <- newEndPoint transport
 
     -- We request two lightweight connections
@@ -403,15 +401,13 @@ testSendAfterClose transport _ = do
 
   takeMVar clientDone
 
-
-
 -- Test that closing the same connection twice has no effect
 testCloseTwice :: Transport -> Int -> IO ()
 testCloseTwice transport _ = do 
   server <- spawn transport echoServer
   clientDone <- newEmptyMVar
 
-  forkIO $ do
+  forkTry $ do
     Right endpoint <- newEndPoint transport
 
     -- We request two lightweight connections
@@ -437,30 +433,20 @@ testCloseTwice transport _ = do
 
   takeMVar clientDone
 
-runTestIO :: String -> IO () -> IO ()
-runTestIO description test = do
-  putStr $ "Running " ++ show description ++ ": "
-  hFlush stdout
-  test 
-  putStrLn "ok"
-  
-runTest :: String -> (Transport -> Int -> IO ()) -> ReaderT (Transport, Int) IO ()
-runTest description test = do
+runTransportTest :: String -> (Transport -> Int -> IO ()) -> ReaderT (Transport, Int) IO ()
+runTransportTest description test = do
   (transport, numPings) <- ask 
-  done <- liftIO $ timeout 10000000 $ runTestIO description (test transport numPings) 
-  case done of 
-    Just () -> return ()
-    Nothing -> error "timeout"
+  liftIO $ runTest description (test transport numPings)
 
 -- Transport tests
 testTransport :: Transport -> IO ()
 testTransport transport = flip runReaderT (transport, 10000) $ do
-  runTest "PingPong" testPingPong
-  runTest "EndPoints" testEndPoints
-  runTest "Connections" testConnections 
-  runTest "CloseOneConnection" testCloseOneConnection
-  runTest "CloseOneDirection" testCloseOneDirection
-  runTest "CloseReopen" testCloseReopen
-  runTest "ParallelConnects" testParallelConnects
-  runTest "SendAfterClose" testSendAfterClose
-  runTest "CloseTwice" testCloseTwice
+  runTransportTest "PingPong" testPingPong
+  runTransportTest "EndPoints" testEndPoints
+  runTransportTest "Connections" testConnections 
+  runTransportTest "CloseOneConnection" testCloseOneConnection
+  runTransportTest "CloseOneDirection" testCloseOneDirection
+  runTransportTest "CloseReopen" testCloseReopen
+  runTransportTest "ParallelConnects" testParallelConnects
+  runTransportTest "SendAfterClose" testSendAfterClose
+  runTransportTest "CloseTwice" testCloseTwice
