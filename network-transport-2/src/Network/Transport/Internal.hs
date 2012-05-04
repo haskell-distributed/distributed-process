@@ -10,6 +10,7 @@ module Network.Transport.Internal ( -- * Encoders/decoders
                                   , failWithIO
                                   , tryIO
                                   , whileM
+                                  , tryToEnum
                                     -- * Debugging
                                   , tlog
                                   , loopInvariant
@@ -41,28 +42,28 @@ encodeInt32 i32 =
     pokeByteOff p 0 (htonl . fromIntegral . fromEnum $ i32)
 
 -- | Deserialize 32-bit from network byte order 
-decodeInt32 :: Enum a => ByteString -> Maybe a 
+decodeInt32 :: Num a => ByteString -> Maybe a 
 decodeInt32 bs | BS.length bs /= 4 = Nothing 
 decodeInt32 bs = Just . BSI.inlinePerformIO $ do 
   let (fp, _, _) = BSI.toForeignPtr bs 
   withForeignPtr fp $ \p -> do
     w32 <- peekByteOff p 0 
-    return (toEnum . fromIntegral . ntohl $ w32)
+    return (fromIntegral . ntohl $ w32)
 
 -- | Serialize 16-bit to network byte order 
 encodeInt16 :: Enum a => a -> ByteString 
 encodeInt16 i16 = 
   BSI.unsafeCreate 2 $ \p ->
-    pokeByteOff p 0 (htons .fromIntegral . fromEnum $ i16)
+    pokeByteOff p 0 (htons . fromIntegral . fromEnum $ i16)
 
 -- | Deserialize 16-bit from network byte order 
-decodeInt16 :: Enum a => ByteString -> Maybe a
+decodeInt16 :: Num a => ByteString -> Maybe a
 decodeInt16 bs | BS.length bs /= 2 = Nothing 
 decodeInt16 bs = Just . BSI.inlinePerformIO $ do
   let (fp, _, _) = BSI.toForeignPtr bs 
   withForeignPtr fp $ \p -> do
     w16 <- peekByteOff p 0 
-    return (toEnum . fromIntegral . ntohs $ w16)
+    return (fromIntegral . ntohs $ w16)
 
 -- | Prepend a list of bytestrings with their total length
 prependLength :: [ByteString] -> [ByteString]
@@ -97,6 +98,10 @@ tlog msg = liftIO $ do
   tid <- myThreadId
   putStrLn $ show tid ++ ": "  ++ msg
 -}
+
+-- | Safe version of 'toEnum'
+tryToEnum :: forall a. (Enum a, Bounded a) => Int -> Maybe a 
+tryToEnum n = if fromEnum (minBound :: a) <= n && n <= fromEnum (maxBound :: a) then Just (toEnum n) else Nothing 
 
 -- | Loop invariant (like 'guard')
 loopInvariant :: MonadPlus m => m Bool -> m ()

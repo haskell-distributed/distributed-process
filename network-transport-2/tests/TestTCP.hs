@@ -10,6 +10,7 @@ import Data.Maybe (fromJust)
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar, readMVar, isEmptyMVar)
 import Control.Monad (replicateM, guard)
+import Control.Applicative ((<$>))
 import Network.Transport.TCP ( decodeEndPointAddress
                              , EndPointId
                              , ControlHeader(..)
@@ -68,7 +69,7 @@ testEarlyDisconnect = do
       sendMany sock (encodeInt32 endPointIx : prependLength [myAddress])
 
       -- Wait for acknowledgement
-      ConnectionRequestAccepted <- recvInt32 sock
+      ConnectionRequestAccepted <- toEnum <$> recvInt32 sock
   
       -- Request a new connection, but don't wait for the response
       let reqId = 0 :: Int32
@@ -163,7 +164,7 @@ testIgnoreCloseSocket = do
       sendMany sock (encodeInt32 endPointIx : prependLength [myAddress])
 
       -- Wait for acknowledgement
-      ConnectionRequestAccepted <- recvInt32 sock
+      ConnectionRequestAccepted <- toEnum <$> recvInt32 sock
 
       -- Request a new connection
       tlog "Requesting connection"
@@ -177,7 +178,7 @@ testIgnoreCloseSocket = do
 
       -- Server will now send a CloseSocket request as its refcount reached 0
       tlog "Waiting for CloseSocket request"
-      CloseSocket <- recvInt32 sock
+      CloseSocket <- toEnum <$> recvInt32 sock
 
       -- But we ignore it and request another connection
       tlog "Ignoring it, requesting another connection"
@@ -191,7 +192,7 @@ testIgnoreCloseSocket = do
 
       -- We now get a CloseSocket again, and this time we heed it
       tlog "Waiting for second CloseSocket request"
-      CloseSocket <- recvInt32 sock
+      CloseSocket <- toEnum <$> recvInt32 sock
     
       tlog "Closing socket"
       sendMany sock [encodeInt32 CloseSocket]
@@ -252,7 +253,7 @@ testBlockAfterCloseSocket = do
       sendMany sock (encodeInt32 endPointIx : prependLength [myAddress])
 
       -- Wait for acknowledgement
-      ConnectionRequestAccepted <- recvInt32 sock
+      ConnectionRequestAccepted <- toEnum <$> recvInt32 sock
 
       -- Request a new connection
       tlog "Requesting connection"
@@ -266,7 +267,7 @@ testBlockAfterCloseSocket = do
 
       -- Server will now send a CloseSocket request as its refcount reached 0
       tlog "Waiting for CloseSocket request"
-      CloseSocket <- recvInt32 sock
+      CloseSocket <- toEnum <$> recvInt32 sock
 
       unblocked <- newEmptyMVar
 

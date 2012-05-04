@@ -29,6 +29,7 @@ import Network.Transport.Internal ( encodeInt32
                                   , failWith
                                   , failWithIO
                                   , tryIO
+                                  , tryToEnum
                                   )
 import qualified Network.Socket as N ( HostName
                                      , ServiceName
@@ -61,7 +62,7 @@ import Data.IORef (IORef, newIORef, writeIORef, readIORef, modifyIORef)
 import Control.Category ((>>>))
 import Control.Applicative ((<*>), (*>), (<$>))
 import Control.Monad (forM_, void, when)
-import Control.Monad.Error (ErrorT(ErrorT), runErrorT)
+import Control.Monad.Error (ErrorT(ErrorT), runErrorT, throwError)
 import Control.Monad.IO.Class (liftIO)
 import Control.Exception (IOException)
 import Data.ByteString (ByteString)
@@ -250,14 +251,14 @@ data ControlHeader =
   | CloseConnection     -- ^ Tell the remote endpoint we will no longer be using a connection
   | ControlResponse     -- ^ Respond to a control request _from_ the remote endpoint
   | CloseSocket         -- ^ Request to close the connection (see module description)
-  deriving Enum
+  deriving (Enum, Bounded)
 
 -- Response sent by /B/ to /A/ when /A/ tries to connect
 data ConnectionRequestResponse =
     ConnectionRequestAccepted        -- ^ /B/ accepts the connection
   | ConnectionRequestEndPointInvalid -- ^ /A/ requested an invalid endpoint
   | ConnectionRequestCrossed         -- ^ /A/s request crossed with a request from /B/ (see protocols)
-  deriving Enum
+  deriving (Enum, Bounded)
 
 --------------------------------------------------------------------------------
 -- Top-level functionality                                                    --
@@ -527,13 +528,14 @@ connectToRemoteEndPoint (ourEndPoint, theirEndPoint) = do
         N.getAddrInfo Nothing (Just host) (Just port) 
       sock <- failWithIO (insufficientResources . show) $
         N.socket (N.addrFamily addr) N.Stream N.defaultProtocol
-      failWithIO (failed . show) $ do 
+      response <- failWithIO (failed . show) $ do 
         N.setSocketOption sock N.ReuseAddr 1
         N.connect sock (N.addrAddress addr) 
         sendMany sock (encodeInt32 theirEndPointId : prependLength [ourAddress]) 
-        -- TODO: what happens when the server sends an int outside the range of ConnectionRequestResponse?
-        response <- recvInt32 sock
-        return (response, sock)
+        recvInt32 sock
+      case tryToEnum response of
+        Nothing -> throwError (failed "Unexpected response")
+        Just r  -> return (r, sock)
 
     invalidAddress, insufficientResources, failed :: String -> FailedWith ConnectErrorCode
     invalidAddress        = FailedWith ConnectInvalidAddress 
@@ -667,19 +669,22 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
           readMessage sock connId
           go sock openConnections
         else do 
-          case toEnum (fromIntegral connId) of
-            RequestConnectionId -> do
+          case tryToEnum (fromIntegral connId) of
+            Just RequestConnectionId -> do
               recvInt32 sock >>= createNewConnection openConnections
               go sock openConnections
-            ControlResponse -> do 
+            Just ControlResponse -> do 
               recvInt32 sock >>= readControlResponse sock 
               go sock openConnections
-            CloseConnection -> do
+            Just CloseConnection -> do
               recvInt32 sock >>= closeConnection openConnections 
               go sock openConnections
-            CloseSocket -> do 
+            Just CloseSocket -> do 
               closeSocket sock 
               go sock openConnections
+            Nothing ->
+              -- Invalid control request, exit
+              putStrLn "Warning: invalid control request"
         
     -- Create a new connection
     createNewConnection :: IORef IntSet -> ControlRequestId -> IO () 

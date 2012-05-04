@@ -50,7 +50,7 @@ recvWithLength :: N.Socket -> IO [ByteString]
 recvWithLength sock = recvInt32 sock >>= recvExact sock
 
 -- | Receive a 32-bit integer
-recvInt32 :: Enum a => N.Socket -> IO a 
+recvInt32 :: Num a => N.Socket -> IO a 
 recvInt32 sock = do
   mi <- liftM (decodeInt32 . BS.concat) $ recvExact sock 4 
   case mi of
