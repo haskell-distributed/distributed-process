@@ -64,6 +64,8 @@ data Event =
   deriving Show
 
 -- | Connection IDs enable receivers to distinguish one connection from another.
+-- 
+-- TODO: Do we want an Int32 at the API level? (Change to Int perhaps?)
 type ConnectionId = Int32
 
 -- | Reliability guarantees of a connection.
