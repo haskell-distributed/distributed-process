@@ -20,7 +20,6 @@ module Network.Transport ( -- * Types
 
 import Data.ByteString (ByteString)
 import Control.Monad.Error (Error(..))
-import Data.Int (Int32)
 
 --------------------------------------------------------------------------------
 -- Main API                                                                   --
@@ -64,9 +63,7 @@ data Event =
   deriving Show
 
 -- | Connection IDs enable receivers to distinguish one connection from another.
--- 
--- TODO: Do we want an Int32 at the API level? (Change to Int perhaps?)
-type ConnectionId = Int32
+type ConnectionId = Int
 
 -- | Reliability guarantees of a connection.
 data Reliability = 
