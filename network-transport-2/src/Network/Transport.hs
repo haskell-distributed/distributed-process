@@ -11,7 +11,7 @@ module Network.Transport ( -- * Types
                          , MulticastAddress(..)
                            -- * Error codes
                          , FailedWith(..)
-                         , NewEndPointErrorCode
+                         , NewEndPointErrorCode(..)
                          , ConnectErrorCode(..)
                          , NewMulticastGroupErrorCode(..)
                          , ResolveMulticastGroupErrorCode(..)
@@ -30,6 +30,8 @@ import Control.Monad.Error (Error(..))
 data Transport = Transport {
     -- | Create a new end point (heavyweight operation)
     newEndPoint :: IO (Either (FailedWith NewEndPointErrorCode) EndPoint)
+    -- | Shutdown the transport completely 
+  , closeTransport :: IO () 
   }
 
 -- | Network endpoint.
@@ -44,6 +46,8 @@ data EndPoint = EndPoint {
   , newMulticastGroup :: IO (Either (FailedWith NewMulticastGroupErrorCode) MulticastGroup)
     -- | Resolve an address to a multicast group.
   , resolveMulticastGroup :: MulticastAddress -> IO (Either (FailedWith ResolveMulticastGroupErrorCode) MulticastGroup)
+    -- | Close the endpoint
+  , closeEndPoint :: IO ()
   } 
 
 -- | Lightweight connection to an endpoint.
@@ -56,10 +60,16 @@ data Connection = Connection {
 
 -- | Event on an endpoint.
 data Event = 
+    -- | Received a message
     Received ConnectionId [ByteString]
+    -- | Connection closed
   | ConnectionClosed ConnectionId
+    -- | Connection opened
   | ConnectionOpened ConnectionId Reliability EndPointAddress 
+    -- | Received multicast
   | ReceivedMulticast MulticastAddress [ByteString]
+    -- | Error that caused a bunch of connections to close (possibly none)
+  | ErrorEvent ErrorEventErrorCode [ConnectionId]
   deriving Show
 
 -- | Connection IDs enable receivers to distinguish one connection from another.
@@ -109,7 +119,8 @@ instance Error (FailedWith error) where
   strMsg = FailedWith undefined
 
 -- | Errors during the creation of an endpoint (currently, there are none)
-data NewEndPointErrorCode 
+data NewEndPointErrorCode =
+    NewEndPointTransportFailure  -- ^ Transport-wide failure 
 
 -- | Connection failure 
 data ConnectErrorCode = 
@@ -131,6 +142,12 @@ data ResolveMulticastGroupErrorCode =
 
 -- | Failure during sending a message
 data SendErrorCode =
-    SendFailed
-  | SendConnectionClosed
+    SendConnectionClosed -- ^ Connection was closed manually or because of an error
+  | SendFailed           -- ^ Send failed for some other reason
+  deriving Show
+
+-- | Error codes used when reporting errors to endpoints (through receive)
+data ErrorEventErrorCode = 
+    ErrorEventEndPointClosed  -- ^ Endpoint was closed (manually or because of an error)   
+  | TransportFatalError       -- ^ Transport-wide fatal error
   deriving Show

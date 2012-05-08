@@ -26,25 +26,45 @@ import qualified Network.Socket as N ( HostName
 import qualified Network.Socket.ByteString as NBS (recv)
 import Control.Concurrent (forkIO, ThreadId)
 import Control.Monad (mzero, MonadPlus, liftM, forever)
+import Control.Exception (SomeException, try, handle)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (length, concat, null)
 import Data.Int (Int32)
 
--- | Start a server at the specified address
-forkServer :: N.HostName -> N.ServiceName -> (N.Socket -> IO ()) -> IO ThreadId
-forkServer host port server = do 
-  -- Resolve the specified address. By specification, getAddrInfo will never
-  -- return an empty list (but will throw an exception instead) and will return
-  -- the "best" address first, whatever that means
-  addr:_ <- N.getAddrInfo (Just N.defaultHints) (Just host) (Just port)
-  sock   <- N.socket (N.addrFamily addr) N.Stream N.defaultProtocol
-  N.setSocketOption sock N.ReuseAddr 1
-  N.bindSocket sock (N.addrAddress addr)
-  N.listen sock 5
-  forkIO . forever $ do
-    (clientSock, _) <- N.accept sock
-    server clientSock
-
+-- | Start a server at the specified address.
+-- 
+-- This sets up a server socket for the specified host and port. Exceptions
+-- thrown during setup are not caught.
+--
+-- Once the socket is created we spawn a new thread which repeatedly accepts
+-- incoming connections and executes the given request handler. If any
+-- exception occurs the thread terminates and calls the terminationHandler.
+-- This exception may occur because of a call to 'N.accept', because the thread
+-- was explicitly killed, or because of a synchronous exception thrown by the
+-- request handler. Typically, you should avoid the last case by catching any
+-- relevant exceptions in the request handler.
+--
+-- The request handler should spawn threads to handle each individual request
+-- or the server will block.
+forkServer :: N.HostName               -- ^ Host
+           -> N.ServiceName            -- ^ Port 
+           -> Int                      -- ^ Backlog (maximum number of queued connections)
+           -> (N.Socket -> IO ())      -- ^ Request handler 
+           -> (SomeException -> IO ()) -- ^ Termination handler
+           -> IO ThreadId
+forkServer host port backlog requestHandler terminationHandler = do 
+    -- Resolve the specified address. By specification, getAddrInfo will never
+    -- return an empty list (but will throw an exception instead) and will return
+    -- the "best" address first, whatever that means
+    addr:_ <- N.getAddrInfo (Just N.defaultHints) (Just host) (Just port)
+    sock   <- N.socket (N.addrFamily addr) N.Stream N.defaultProtocol
+    N.setSocketOption sock N.ReuseAddr 1
+    N.bindSocket sock (N.addrAddress addr)
+    N.listen sock backlog 
+    forkIO . handle terminationHandler . forever $ do 
+      (clientSock, _) <- N.accept sock
+      requestHandler clientSock
+      
 -- | Read a length and then a payload of that length
 recvWithLength :: N.Socket -> IO [ByteString]
 recvWithLength sock = recvInt32 sock >>= recvExact sock

@@ -46,7 +46,7 @@ import qualified Network.Socket as N ( HostName
                                      , connect
                                      )
 import Network.Socket.ByteString (sendMany)
-import Control.Concurrent (forkIO, ThreadId)
+import Control.Concurrent (forkIO, ThreadId, killThread)
 import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
 import Control.Concurrent.MVar ( MVar
                                , newMVar
@@ -58,13 +58,13 @@ import Control.Concurrent.MVar ( MVar
                                , newEmptyMVar
                                , withMVar
                                )
-import Data.IORef (IORef, newIORef, writeIORef, readIORef, modifyIORef)
 import Control.Category ((>>>))
 import Control.Applicative ((<*>), (*>), (<$>))
 import Control.Monad (forM_, void, when)
 import Control.Monad.Error (ErrorT(ErrorT), runErrorT, throwError)
 import Control.Monad.IO.Class (liftIO)
-import Control.Exception (IOException)
+import Control.Exception (IOException, SomeException)
+import Data.IORef (IORef, newIORef, writeIORef, readIORef, modifyIORef)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (concat)
 import qualified Data.ByteString.Char8 as BSC (pack, unpack)
@@ -183,15 +183,18 @@ data LocalEndPoint  = LocalEndPoint  { localAddress   :: EndPointAddress
                                      }
 data RemoteEndPoint = RemoteEndPoint { remoteAddress  :: EndPointAddress
                                      , remoteState    :: MVar RemoteState
+                                     , remoteThread   :: ThreadId 
                                      }
 
 -- We use underscores for fields that we might update (using lenses).
 
-data TransportState   = TransportState { _localEndPoints      :: IntMap LocalEndPoint }
-data LocalState       = LocalState     { _nextConnectionId    :: ConnectionId 
-                                       , _pendingCtrlRequests :: IntMap (MVar [ByteString])
-                                       , _nextCtrlRequestId   :: ControlRequestId 
-                                       , _localConnections    :: Map EndPointAddress RemoteEndPoint 
+data TransportState   = TransportState { _localEndPoints       :: IntMap LocalEndPoint 
+                                       , _acceptNewConnections :: Bool
+                                       }
+data LocalState       = LocalState     { _nextConnectionId     :: ConnectionId 
+                                       , _pendingCtrlRequests  :: IntMap (MVar [ByteString])
+                                       , _nextCtrlRequestId    :: ControlRequestId 
+                                       , _localConnections     :: Map EndPointAddress RemoteEndPoint 
                                        }
 
 -- A remote endpoint has incoming and outgoing connections, and when the total
@@ -220,15 +223,15 @@ data LocalState       = LocalState     { _nextConnectionId    :: ConnectionId
 --    the writes for control messages).
 --
 -- Of course, "serialize" does not mean that we want for the remote endpoint to
--- reply. "Send" takes the mvar, sends to the endpoint, and then puts the mvar
--- back, without waiting for the endpoint to receive the message. Similarly,
--- when requesting a new connection, we take the mvar, tentatively increment the
--- reference count, send the control request, and then put the mvar back. When
--- the remote host responds to the new connection request we might have to do
--- another state change (reduce the refcount) if the connection request was
--- refused but we don't want to increment the ref count only after the remote
--- host acknowledges the request because then a concurrent 'close' might
--- actually attempt to close the socket.
+-- reply. "Send" takes the mvar, sends to the endpoint (asynchronously), and
+-- then puts the mvar back, without waiting for the endpoint to receive the
+-- message. Similarly, when requesting a new connection, we take the mvar,
+-- tentatively increment the reference count, send the control request, and
+-- then put the mvar back. When the remote host responds to the new connection
+-- request we might have to do another state change (reduce the refcount) if
+-- the connection request was refused but we don't want to increment the ref
+-- count only after the remote host acknowledges the request because then a
+-- concurrent 'close' might actually attempt to close the socket.
 -- 
 -- Since we don't do concurrent reads from the same socket we don't need to
 -- take the lock when reading from the socket.
@@ -270,14 +273,32 @@ data ConnectionRequestResponse =
 -- TODOs: deal with hints
 createTransport :: N.HostName -> N.ServiceName -> IO (Either IOException Transport)
 createTransport host port = do 
-  state <- newMVar TransportState { _localEndPoints = IntMap.empty }
-  let transport = TCPTransport    {  transportState = state
-                                  ,  transportHost  = host
-                                  ,  transportPort  = port
-                                  }
-  tryIO $ do 
-    forkServer host port $ void . handleConnectionRequest transport
-    return Transport { newEndPoint = apiNewEndPoint transport } 
+    state <- newMVar TransportState { _localEndPoints       = IntMap.empty 
+                                    , _acceptNewConnections = True
+                                    }
+    let transport = TCPTransport    {  transportState = state
+                                    ,  transportHost  = host
+                                    ,  transportPort  = port
+                                    }
+    tryIO $ do 
+      -- TODO: "5" is listed as "system dependent maximum backlog"?
+      transportThread <- forkServer host port 5 (handleConnectionRequest transport) 
+                                                (terminationHandler transport)
+      return Transport { newEndPoint    = apiNewEndPoint transport 
+                       , closeTransport = apiCloseTransport transportThread 
+                       } 
+  where
+    terminationHandler :: TCPTransport -> SomeException -> IO ()
+    terminationHandler transport _ = 
+      modifyMVar_ (transportState transport) $ return . (acceptNewConnections ^= False) 
+
+-- | Shut down the transport
+apiCloseTransport :: ThreadId -> IO ()
+apiCloseTransport transportThread = do
+  -- Kill the thread that is listening for new incoming connections
+  killThread transportThread 
+  -- Not yet implemented 
+  undefined
 
 --------------------------------------------------------------------------------
 -- API functions                                                              --
@@ -593,20 +614,18 @@ decreaseRemoteRefCount theirEndPoint = do
 
 -- | Handle a connection request (that is, a remote endpoint that is trying to
 -- establish a TCP connection with us)
--- 
--- Returns the thread ID of the thread that is handling incoming messages.
-handleConnectionRequest :: TCPTransport -> N.Socket -> IO (Maybe ThreadId) 
+handleConnectionRequest :: TCPTransport -> N.Socket -> IO () 
 handleConnectionRequest transport sock = do
+  let tState = transportState transport
   request <- tryIO $ do 
     ourEndPointId <- recvInt32 sock
     theirAddress  <- EndPointAddress . BS.concat <$> recvWithLength sock 
-    ourEndPoint   <- (^. localEndPointAt ourEndPointId) <$> readMVar (transportState transport) 
+    ourEndPoint   <- (^. localEndPointAt ourEndPointId) <$> readMVar tState 
     return (theirAddress, ourEndPoint)
   case request of
     Right (_, Nothing) -> do
       sendMany sock [encodeInt32 ConnectionRequestEndPointInvalid]
       N.sClose sock
-      return Nothing
     Right (theirAddress, Just ourEndPoint) -> do
       (crossed, theirEndPoint) <- modifyMVar (localState ourEndPoint) $ \st ->
         case st ^. connectionTo theirAddress of
@@ -622,7 +641,6 @@ handleConnectionRequest transport sock = do
         then do
           sendMany sock [encodeInt32 ConnectionRequestCrossed]
           N.sClose sock
-          return Nothing
         else do
           let remoteConn = RemoteConnection {  remoteSocket   = sock
                                             , _remoteRefCount = 0
@@ -630,12 +648,12 @@ handleConnectionRequest transport sock = do
                                             }
           putMVar (remoteState theirEndPoint) (RemoteEndPointValid remoteConn)
           sendMany sock [encodeInt32 ConnectionRequestAccepted]
+          -- TODO: we should store the tid as part of the endpoint state
           tid <- forkIO $ handleIncomingMessages (ourEndPoint, theirEndPoint)
-          return (Just tid)
+          return ()
     Left _ -> do
       -- Invalid request
       N.sClose sock
-      return Nothing
 
 -- | Handle requests from a remote endpoint.
 -- 
@@ -793,6 +811,9 @@ firstNonReservedConnectionId = 1024
 
 localEndPoints :: Lens TransportState (IntMap LocalEndPoint)
 localEndPoints = lens _localEndPoints (\es st -> st { _localEndPoints = es })
+
+acceptNewConnections :: Lens TransportState Bool
+acceptNewConnections = lens _acceptNewConnections (\acc st -> st { _acceptNewConnections = acc })
 
 pendingCtrlRequests :: Lens LocalState (IntMap (MVar [ByteString]))
 pendingCtrlRequests = lens _pendingCtrlRequests (\rep st -> st { _pendingCtrlRequests = rep })
