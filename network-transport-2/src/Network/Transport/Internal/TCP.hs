@@ -26,7 +26,7 @@ import qualified Network.Socket as N ( HostName
 import qualified Network.Socket.ByteString as NBS (recv)
 import Control.Concurrent (forkIO, ThreadId)
 import Control.Monad (mzero, MonadPlus, liftM, forever)
-import Control.Exception (SomeException, try, handle)
+import Control.Exception (SomeException, handle)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (length, concat, null)
 import Data.Int (Int32)

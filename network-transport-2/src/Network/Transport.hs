@@ -16,6 +16,7 @@ module Network.Transport ( -- * Types
                          , NewMulticastGroupErrorCode(..)
                          , ResolveMulticastGroupErrorCode(..)
                          , SendErrorCode(..)
+                         , EventErrorCode(..)
                          ) where
 
 import Data.ByteString (ByteString)
@@ -69,7 +70,7 @@ data Event =
     -- | Received multicast
   | ReceivedMulticast MulticastAddress [ByteString]
     -- | Error that caused a bunch of connections to close (possibly none)
-  | ErrorEvent ErrorEventErrorCode [ConnectionId]
+  | ErrorEvent EventErrorCode [ConnectionId]
   deriving Show
 
 -- | Connection IDs enable receivers to distinguish one connection from another.
@@ -142,12 +143,12 @@ data ResolveMulticastGroupErrorCode =
 
 -- | Failure during sending a message
 data SendErrorCode =
-    SendConnectionClosed -- ^ Connection was closed manually or because of an error
-  | SendFailed           -- ^ Send failed for some other reason
+    SendConnectionClosed  -- ^ Connection was closed manually or because of an error
+  | SendFailed            -- ^ Send failed for some other reason
   deriving Show
 
 -- | Error codes used when reporting errors to endpoints (through receive)
-data ErrorEventErrorCode = 
-    ErrorEventEndPointClosed  -- ^ Endpoint was closed (manually or because of an error)   
-  | TransportFatalError       -- ^ Transport-wide fatal error
+data EventErrorCode = 
+    EventErrorEndPointClosed    -- ^ Endpoint was closed (manually or because of an error)   
+  | EventErrorTransportFailure  -- ^ Transport-wide fatal error
   deriving Show

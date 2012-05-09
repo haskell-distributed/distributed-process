@@ -1,11 +1,9 @@
 module TestTransport where
 
 import Prelude hiding (catch)
-import TestAuxiliary (forkTry, runTest)
+import TestAuxiliary (forkTry, runTests)
 import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar, readMVar)
 import Control.Monad (replicateM, replicateM_, when, guard, forM_)
-import Control.Monad.Reader (ReaderT, runReaderT, ask)
-import Control.Monad.IO.Class (liftIO)
 import Control.Exception (evaluate, throw, catch, SomeException)
 import Control.Applicative ((<$>))
 import Network.Transport
@@ -16,7 +14,7 @@ import Data.ByteString.Char8 (pack)
 import Data.Map (Map)
 import qualified Data.Map as Map (empty, insert, delete, findWithDefault, adjust, null, toList, map)
 
--- Server that echoes messages straight back to the origin endpoint.
+-- | Server that echoes messages straight back to the origin endpoint.
 echoServer :: EndPoint -> IO ()
 echoServer endpoint = do
     go Map.empty
@@ -26,18 +24,23 @@ echoServer endpoint = do
       event <- receive endpoint
       case event of
         ConnectionOpened cid rel addr -> do
+          tlog $ "Opened new conncetion " ++ show cid
           Right conn <- connect endpoint addr rel 
           go (Map.insert cid conn cs) 
         Received cid payload -> do
           send (Map.findWithDefault (error $ "Received: Invalid cid " ++ show cid) cid cs) payload 
           go cs
         ConnectionClosed cid -> do 
+          tlog $ "Close connection " ++ show cid
           close (Map.findWithDefault (error $ "ConnectionClosed: Invalid cid " ++ show cid) cid cs)
           go (Map.delete cid cs) 
         ReceivedMulticast _ _ -> 
           -- Ignore
           go cs
+        ErrorEvent _ _ ->
+          fail (show event)
 
+-- | Wait for an event, throw an exception if the given predicate returns false
 expect :: EndPoint -> (Event -> (Bool, a)) -> IO a 
 expect endpoint predicate = do
   event <- receive endpoint
@@ -49,10 +52,12 @@ expect endpoint predicate = do
                            fail "Unexpected event"
     Right (True, a)  -> return a
 
+-- | Like 'expect' but without a return value
 expect' :: EndPoint -> (Event -> Bool) -> IO ()
 expect' endpoint predicate = 
   expect endpoint (\event -> (predicate event, ()))
 
+-- | Ping client used in a few tests
 ping :: EndPoint -> EndPointAddress -> Int -> ByteString -> IO ()
 ping endpoint server numPings msg = do
   -- Open connection to the server
@@ -80,7 +85,7 @@ ping endpoint server numPings msg = do
   -- Done
   tlog "Ping client done"
     
--- Basic ping test
+-- | Basic ping test
 testPingPong :: Transport -> Int -> IO () 
 testPingPong transport numPings = do
   tlog "Starting ping pong test"
@@ -96,7 +101,7 @@ testPingPong transport numPings = do
   
   takeMVar result
 
--- Test that endpoints don't get confused
+-- | Test that endpoints don't get confused
 testEndPoints :: Transport -> Int -> IO () 
 testEndPoints transport numPings = do
   server <- spawn transport echoServer
@@ -150,7 +155,7 @@ testConnections transport numPings = do
 
   takeMVar result
 
--- Test that closing one connection does not close the other
+-- | Test that closing one connection does not close the other
 testCloseOneConnection :: Transport -> Int -> IO ()
 testCloseOneConnection transport numPings = do
   server <- spawn transport echoServer
@@ -190,7 +195,7 @@ testCloseOneConnection transport numPings = do
 
   takeMVar result
 
--- Test that if A connects to B and B connects to A, B can still send to A after
+-- | Test that if A connects to B and B connects to A, B can still send to A after
 -- A closes its connection to B (for instance, in the TCP transport, the socket pair
 -- connecting A and B should not yet be closed).
 testCloseOneDirection :: Transport -> Int -> IO ()
@@ -274,6 +279,7 @@ testCloseOneDirection transport numPings = do
 
   mapM_ takeMVar [doneA, doneB]
 
+-- | Collect a given number of events and order them by connection ID
 collect :: EndPoint -> Int -> IO [(ConnectionId, [[ByteString]])]
 collect endPoint numEvents = go numEvents Map.empty Map.empty
   where
@@ -292,8 +298,10 @@ collect endPoint numEvents = go numEvents Map.empty Map.empty
           go (n - 1) (Map.adjust (msg :) cid open) closed
         ReceivedMulticast _ _ ->
           fail "Unexpected multicast"
+        ErrorEvent _ _ ->
+          fail "Unexpected error"
 
--- Open connection, close it, then reopen it
+-- | Open connection, close it, then reopen it
 -- (In the TCP transport this means the socket will be closed, then reopened)
 --
 -- Note that B cannot expect to receive all of A's messages on the first connection
@@ -349,7 +357,7 @@ testCloseReopen transport numPings = do
 
   takeMVar doneB
 
--- Test lots of parallel connection attempts
+-- | Test lots of parallel connection attempts
 testParallelConnects :: Transport -> Int -> IO ()
 testParallelConnects transport numPings = do
   server <- spawn transport echoServer
@@ -373,7 +381,7 @@ testParallelConnects transport numPings = do
 
   takeMVar done
 
--- Test that sending on a closed connection gives an error
+-- | Test that sending on a closed connection gives an error
 testSendAfterClose :: Transport -> Int -> IO ()
 testSendAfterClose transport _ = do
   server <- spawn transport echoServer
@@ -401,7 +409,7 @@ testSendAfterClose transport _ = do
 
   takeMVar clientDone
 
--- Test that closing the same connection twice has no effect
+-- | Test that closing the same connection twice has no effect
 testCloseTwice :: Transport -> Int -> IO ()
 testCloseTwice transport _ = do 
   server <- spawn transport echoServer
@@ -433,6 +441,7 @@ testCloseTwice transport _ = do
 
   takeMVar clientDone
 
+-- | Test that we can connect an endpoint to itself
 testConnectToSelf :: Transport -> Int -> IO ()
 testConnectToSelf transport numPings = do
   done <- newEmptyMVar
@@ -471,21 +480,20 @@ testConnectToSelf transport numPings = do
 
   takeMVar done
 
-runTransportTest :: String -> (Transport -> Int -> IO ()) -> ReaderT (Transport, Int) IO ()
-runTransportTest description test = do
-  (transport, numPings) <- ask 
-  liftIO $ runTest description (test transport numPings)
 
 -- Transport tests
 testTransport :: Transport -> IO ()
-testTransport transport = flip runReaderT (transport, 10000) $ do
-  runTransportTest "PingPong" testPingPong
-  runTransportTest "EndPoints" testEndPoints
-  runTransportTest "Connections" testConnections 
-  runTransportTest "CloseOneConnection" testCloseOneConnection
-  runTransportTest "CloseOneDirection" testCloseOneDirection
-  runTransportTest "CloseReopen" testCloseReopen
-  runTransportTest "ParallelConnects" testParallelConnects
-  runTransportTest "SendAfterClose" testSendAfterClose
-  runTransportTest "CloseTwice" testCloseTwice
-  runTransportTest "ConnectToSelf" testConnectToSelf
+testTransport transport = runTests 
+  [ ("PingPong",           testPingPong transport numPings)
+  , ("EndPoints",          testEndPoints transport numPings)
+  , ("Connections",        testConnections transport numPings)
+  , ("CloseOneConnection", testCloseOneConnection transport numPings)
+  , ("CloseOneDirection",  testCloseOneDirection transport numPings)
+  , ("CloseReopen",        testCloseReopen transport numPings)
+  , ("ParallelConnects",   testParallelConnects transport numPings)
+  , ("SendAfterClose",     testSendAfterClose transport numPings)
+  , ("CloseTwice",         testCloseTwice transport numPings)
+  , ("ConnectToSelf",      testConnectToSelf transport numPings)
+  ]
+  where
+    numPings = 10000

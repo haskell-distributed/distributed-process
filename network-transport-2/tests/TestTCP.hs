@@ -1,8 +1,8 @@
 module Main where
 
 import Prelude hiding (catch)
-import TestTransport 
-import TestAuxiliary (forkTry, runTest)
+import TestTransport (testTransport) 
+import TestAuxiliary (forkTry, runTests)
 import Network.Transport
 import Network.Transport.TCP (createTransport)
 import Data.Int (Int32)
@@ -184,11 +184,11 @@ testIgnoreCloseSocket = do
       tlog "Ignoring it, requesting another connection"
       let reqId' = 1 :: Int32
       sendMany sock [encodeInt32 RequestConnectionId, encodeInt32 reqId']
-      replicateM 4 $ recvInt32 sock :: IO [Int32] 
+      response' <- replicateM 4 $ recvInt32 sock :: IO [Int32] 
 
       -- Close it again
       tlog "Closing connection"
-      sendMany sock [encodeInt32 CloseConnection, encodeInt32 (response !! 3)] 
+      sendMany sock [encodeInt32 CloseConnection, encodeInt32 (response' !! 3)] 
 
       -- We now get a CloseSocket again, and this time we heed it
       tlog "Waiting for second CloseSocket request"
@@ -289,10 +289,11 @@ testBlockAfterCloseSocket = do
 
 main :: IO ()
 main = do
-  runTest "EarlyDisconnect" testEarlyDisconnect
-  runTest "InvalidAddress" testInvalidAddress
-  runTest "InvalidConnect" testInvalidConnect
-  runTest "IgnoreCloseSocket" testIgnoreCloseSocket
-  runTest "BlockAfterCloseSocket" testBlockAfterCloseSocket
+  runTests [ ("EarlyDisconnect",       testEarlyDisconnect)
+           , ("InvalidAddress",        testInvalidAddress)
+           , ("InvalidConnect",        testInvalidConnect)
+           , ("IgnoreCloseSocket",     testIgnoreCloseSocket)
+           , ("BlockAfterCloseSocket", testBlockAfterCloseSocket)
+           ]
   Right transport <- createTransport "127.0.0.1" "8080" 
   testTransport transport 
