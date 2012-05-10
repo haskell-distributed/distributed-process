@@ -1,4 +1,9 @@
-module TestAuxiliary (runTest, runTests, forkTry) where
+module TestAuxiliary ( -- Running tests
+                       runTest
+                     , runTests
+                       -- Writing tests
+                     , forkTry
+                     ) where
 
 import Prelude hiding (catch)
 import Control.Concurrent (myThreadId, forkIO, ThreadId, throwTo)

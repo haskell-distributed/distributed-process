@@ -37,7 +37,7 @@ echoServer endpoint = do
         ReceivedMulticast _ _ -> 
           -- Ignore
           go cs
-        ErrorEvent _ _ ->
+        ErrorEvent _ ->
           fail (show event)
 
 -- | Wait for an event, throw an exception if the given predicate returns false
@@ -298,7 +298,7 @@ collect endPoint numEvents = go numEvents Map.empty Map.empty
           go (n - 1) (Map.adjust (msg :) cid open) closed
         ReceivedMulticast _ _ ->
           fail "Unexpected multicast"
-        ErrorEvent _ _ ->
+        ErrorEvent _ ->
           fail "Unexpected error"
 
 -- | Open connection, close it, then reopen it

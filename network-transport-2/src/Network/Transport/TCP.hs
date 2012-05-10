@@ -10,6 +10,7 @@ module Network.Transport.TCP ( -- * Main API
                                createTransport
                              , -- * TCP specific functionality
                                EndPointId
+                             , encodeEndPointAddress
                              , decodeEndPointAddress
                              , ControlHeader(..)
                              , ConnectionRequestResponse(..)
@@ -237,6 +238,12 @@ data LocalState       = LocalState     { _nextConnectionId     :: ConnectionId
 -- 
 -- Since we don't do concurrent reads from the same socket we don't need to
 -- take the lock when reading from the socket.
+--
+-- Moreover, we insist on the invariant (INV-CLOSE) that whenever we put an
+-- endpoint in closed state we remove that endpoint from localConnections
+-- first, so that if a concurrent thread reads the mvar, finds EndPointClosed,
+-- and then looks up the endpoint in localConnections it is guaranteed to
+-- either find a different remote endpoint, or else none at all.
 
 data RemoteState      = RemoteEndPointInvalid (FailedWith ConnectErrorCode)
                       | RemoteEndPointValid RemoteConnection
@@ -258,14 +265,14 @@ data ControlHeader =
   | CloseConnection     -- ^ Tell the remote endpoint we will no longer be using a connection
   | ControlResponse     -- ^ Respond to a control request _from_ the remote endpoint
   | CloseSocket         -- ^ Request to close the connection (see module description)
-  deriving (Enum, Bounded)
+  deriving (Enum, Bounded, Show)
 
 -- Response sent by /B/ to /A/ when /A/ tries to connect
 data ConnectionRequestResponse =
     ConnectionRequestAccepted        -- ^ /B/ accepts the connection
   | ConnectionRequestEndPointInvalid -- ^ /A/ requested an invalid endpoint
   | ConnectionRequestCrossed         -- ^ /A/s request crossed with a request from /B/ (see protocols)
-  deriving (Enum, Bounded)
+  deriving (Enum, Bounded, Show)
 
 --------------------------------------------------------------------------------
 -- Top-level functionality                                                    --
@@ -393,7 +400,7 @@ apiCloseEndPoint transport ourEndPoint = do
   -- calls will block. We could change this so that all subsequent calls to
   -- receive return an error, but this would mean checking for some state on
   -- every call to receive, which is an unnecessary overhead.  
-  writeChan (localChannel ourEndPoint) (ErrorEvent EventErrorEndPointClosed incoming)
+  writeChan (localChannel ourEndPoint) (ErrorEvent $ ErrorEventEndPointClosed incoming)
   where
     remoteSocketOf :: RemoteEndPoint -> MaybeT IO N.Socket
     remoteSocketOf theirEndPoint = do
@@ -452,7 +459,7 @@ createLocalEndPoint transport = do
                               }
   modifyMVar (transportState transport) $ \st -> do 
     let ix   = fromIntegral $ Map.size (st ^. localEndPoints) 
-    let addr = encodeEndPointAddress transport ix 
+    let addr = encodeEndPointAddress (transportHost transport) (transportPort transport) ix 
     let localEndPoint = LocalEndPoint { localAddress  = addr
                                       , localChannel  = chan
                                       , localState    = state
@@ -472,7 +479,7 @@ requestConnectionTo ourEndPoint theirAddress = ErrorT go
     go = do
       let ourState = localState ourEndPoint 
       (theirEndPoint, isNew) <- modifyMVar ourState $ \st ->
-        case st ^. connectionTo theirAddress of
+        case st ^. localConnectionTo theirAddress of
           Just theirEndPoint ->
             return (st, (theirEndPoint, False))
           Nothing -> do
@@ -480,7 +487,7 @@ requestConnectionTo ourEndPoint theirAddress = ErrorT go
             let theirEndPoint = RemoteEndPoint { remoteAddress = theirAddress
                                                , remoteState   = theirState
                                                }
-            return (connectionTo theirAddress ^= Just theirEndPoint $ st, (theirEndPoint, True))
+            return (localConnectionTo theirAddress ^= Just theirEndPoint $ st, (theirEndPoint, True))
 
       -- If this is a new endpoint, fork a thread to listen for incoming
       -- connections. We don't want to do this while we hold the lock, because
@@ -574,14 +581,14 @@ connectToRemoteEndPoint (ourEndPoint, theirEndPoint) = do
         -- waiting on the result of this call to connect will get the
         -- RemoteEndPointInvalid; subsequent threads will initiate a new
         -- connection requests. 
-        modifyMVar_ ourState $ return . (connectionTo theirAddress ^= Nothing)
+        modifyMVar_ ourState $ return . (localConnectionTo theirAddress ^= Nothing)
         putMVar theirState (RemoteEndPointInvalid (invalidAddress "Invalid endpoint"))
         N.sClose sock
       Right (ConnectionRequestCrossed, sock) -> do
         N.sClose sock
       Left err -> do 
         -- See comment above 
-        modifyMVar_ ourState $ return . (connectionTo theirAddress ^= Nothing)
+        modifyMVar_ ourState $ return . (localConnectionTo theirAddress ^= Nothing)
         putMVar theirState (RemoteEndPointInvalid err)
         -- TODO: this isn't quite right; socket *might* have been opened here, 
         -- in which case we should close it
@@ -613,9 +620,9 @@ connectToRemoteEndPoint (ourEndPoint, theirEndPoint) = do
     EndPointAddress ourAddress = localAddress ourEndPoint
 
 -- | Encode end point address
-encodeEndPointAddress :: TCPTransport -> EndPointId -> EndPointAddress
-encodeEndPointAddress transport ix = EndPointAddress . BSC.pack $
-  transportHost transport ++ ":" ++ transportPort transport ++ ":" ++ show ix 
+encodeEndPointAddress :: N.HostName -> N.ServiceName -> EndPointId -> EndPointAddress
+encodeEndPointAddress host port ix = EndPointAddress . BSC.pack $
+  host ++ ":" ++ port ++ ":" ++ show ix 
 
 -- | Decode end point address
 -- TODO: This uses regular expression parsing, which is nice, but unnecessary
@@ -677,7 +684,7 @@ handleConnectionRequest transport sock = do
   request <- tryIO $ do 
     ourEndPointId <- recvInt32 sock
     theirAddress  <- EndPointAddress . BS.concat <$> recvWithLength sock 
-    let ourAddress = encodeEndPointAddress transport ourEndPointId
+    let ourAddress = encodeEndPointAddress (transportHost transport) (transportPort transport) ourEndPointId
     ourEndPoint   <- (^. localEndPointAt ourAddress) <$> readMVar (transportState transport) 
     return (theirAddress, ourEndPoint)
   case request of
@@ -686,13 +693,13 @@ handleConnectionRequest transport sock = do
       N.sClose sock
     Right (theirAddress, Just ourEndPoint) -> forkEndPointThread ourEndPoint $ do
       (crossed, theirEndPoint) <- modifyMVar (localState ourEndPoint) $ \st ->
-        case st ^. connectionTo theirAddress of
+        case st ^. localConnectionTo theirAddress of
           Nothing -> do
             theirState <- newEmptyMVar
             let theirEndPoint = RemoteEndPoint { remoteAddress = theirAddress
                                                , remoteState   = theirState
                                                }
-            return (connectionTo theirAddress ^= Just theirEndPoint $ st, (False, theirEndPoint))
+            return (localConnectionTo theirAddress ^= Just theirEndPoint $ st, (False, theirEndPoint))
           Just theirEndPoint -> 
             return (st, (localAddress ourEndPoint < theirAddress, theirEndPoint))
       if crossed 
@@ -733,28 +740,10 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
         _ ->
           error "handleIncomingMessages RELY violation"
   
-    tryIO $ go sock
-  
-    -- Normally, there would be no unclosed connections, but if the client
-    -- exits prematurely there might be
-    mUnclosedConnections <- modifyMVar theirState $ \st ->
-      case st of
-        RemoteEndPointInvalid _ ->
-          error "handleIncomingMessages RELY violation"
-        RemoteEndPointValid remoteConn ->
-          return (RemoteEndPointClosed, Just $ remoteConn ^. remoteIncoming)
-        RemoteEndPointClosing _ _ ->
-          return (RemoteEndPointClosed, Nothing)
-        RemoteEndPointClosed ->
-          return (st, Nothing)
-
-    -- TODO: we need to remote this endpoint from localConnections at this point
-
-    case mUnclosedConnections of
-      Nothing -> return ()
-      Just unclosedConnections ->
-        writeChan ourChannel (ErrorEvent EventErrorEndPointClosed (IntSet.elems unclosedConnections))
-
+    mCleanExit <- tryIO $ go sock
+    case mCleanExit of
+      Right () -> return ()
+      Left err -> prematureExit sock err
   where
     -- Dispatch 
     go :: N.Socket -> IO ()
@@ -835,24 +824,45 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
     -- Close the socket (if we don't have any outgoing connections)
     closeSocket :: N.Socket -> IO Bool 
     closeSocket sock = do
-      didClose <- modifyMVar theirState $ \st ->
+      -- We need to check if we can close the socket (that is, if we don't have
+      -- any outgoing connections), and once we are sure that we can put the
+      -- endpoint in Closed state. However, by INV-CLOSE we can only put the
+      -- endpoint in Closed state once we remove the endpoint from our local
+      -- connections. But we can do that only once we are sure that we can
+      -- close the endpoint. Catch-22. We can resolve the catch-22 by locking
+      -- *both* our local state and the endpoint state, but at the cost of
+      -- introducing a double lock and all the associated perils, or by putting
+      -- the remote endpoint in Closing state first. We opt for the latter. 
+      canClose <- modifyMVar theirState $ \st ->
         case st of
-          RemoteEndPointValid remoteConn | remoteConn ^. remoteOutgoing == 0 -> do
-            sendOn remoteConn [encodeInt32 CloseSocket]
-            N.sClose sock
-            return (RemoteEndPointClosed, True)
-          RemoteEndPointClosing resolved _ -> do
-            -- If the socket is already in closing state, then we have already
-            -- sent a CloseSocket request; hence, we don't need to do it again
-            -- at this point
-            putMVar resolved ()
-            N.sClose sock
-            return (RemoteEndPointClosed, True)
+          RemoteEndPointValid remoteConn -> do
+            -- TODO: We check only for outgoing connections here. That is
+            -- correct, but we need to makke sure that we send the right event
+            -- to our endpoint for any incoming connections that are still live
+            -- at this point. 
+            if remoteConn ^. remoteOutgoing == 0 
+              then do 
+                -- TODO: code duplication with closeIfUnused
+                resolved <- newEmptyMVar 
+                sendOn remoteConn [encodeInt32 CloseSocket]
+                return (RemoteEndPointClosing resolved remoteConn, Just resolved)
+              else 
+                return (st, Nothing)
+          RemoteEndPointClosing resolved _ ->
+            return (st, Just resolved)
           _ ->
-            return (st, False)
-      when didClose $ modifyMVar_ ourState $ return . (connectionTo theirAddr ^= Nothing) 
-      return didClose
-
+            error "handleIncomingConnections RELY violation"
+        
+      case canClose of
+        Nothing ->
+          return False
+        Just resolved -> do
+          modifyMVar_ ourState   $ return . (localConnectionTo theirAddr ^= Nothing)
+          modifyMVar_ theirState $ return . const RemoteEndPointClosed 
+          N.sClose sock 
+          putMVar resolved ()
+          return True
+            
     -- Read a message and output it on the endPoint's channel
     readMessage :: N.Socket -> ConnectionId -> IO () 
     readMessage sock connId = recvWithLength sock >>= writeChan ourChannel . Received connId
@@ -863,6 +873,29 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
     theirState  = remoteState theirEndPoint
     theirAddr   = remoteAddress theirEndPoint
 
+    -- Deal with a premature exit
+    prematureExit :: N.Socket -> IOException -> IO ()
+    prematureExit sock _ = do
+      N.sClose sock
+      modifyMVar_ ourState $ return . (localConnectionTo theirAddr ^= Nothing)
+      mUnclosedConnections <- modifyMVar theirState $ \st ->
+        case st of
+          RemoteEndPointInvalid _ ->
+            error "handleIncomingMessages RELY violation"
+          RemoteEndPointValid remoteConn ->
+            return (RemoteEndPointClosed, Just $ remoteConn ^. remoteIncoming)
+          RemoteEndPointClosing _ _ ->
+            return (RemoteEndPointClosed, Nothing)
+          RemoteEndPointClosed ->
+            return (st, Nothing)
+   
+      -- We send the connection lost message even if unclosedConnections is the
+      -- empty set, because *outgoing* connections will be broken too  now
+      case mUnclosedConnections of
+        Nothing -> 
+          return ()
+        Just unclosedConnections -> writeChan ourChannel . ErrorEvent $ 
+          ErrorEventConnectionLost (remoteAddress theirEndPoint) (IntSet.elems unclosedConnections)
 
 
 -- | Get the next connection ID
@@ -911,8 +944,8 @@ localEndPointAt addr = localEndPoints >>> mapLens addr
 pendingCtrlRequestsAt :: ControlRequestId -> Lens LocalState (Maybe (MVar [ByteString]))
 pendingCtrlRequestsAt ix = pendingCtrlRequests >>> intMapLens (fromIntegral ix)
 
-connectionTo :: EndPointAddress -> Lens LocalState (Maybe RemoteEndPoint)
-connectionTo addr = localConnections >>> mapLens addr 
+localConnectionTo :: EndPointAddress -> Lens LocalState (Maybe RemoteEndPoint)
+localConnectionTo addr = localConnections >>> mapLens addr 
 
 remoteOutgoing :: Lens RemoteConnection Int
 remoteOutgoing = lens _remoteOutgoing (\cs conn -> conn { _remoteOutgoing = cs })

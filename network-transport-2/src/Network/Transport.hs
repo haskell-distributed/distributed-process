@@ -16,7 +16,7 @@ module Network.Transport ( -- * Types
                          , NewMulticastGroupErrorCode(..)
                          , ResolveMulticastGroupErrorCode(..)
                          , SendErrorCode(..)
-                         , EventErrorCode(..)
+                         , ErrorEventInfo(..)
                          ) where
 
 import Data.ByteString (ByteString)
@@ -70,7 +70,7 @@ data Event =
     -- | Received multicast
   | ReceivedMulticast MulticastAddress [ByteString]
     -- | Error that caused a bunch of connections to close (possibly none)
-  | ErrorEvent EventErrorCode [ConnectionId]
+  | ErrorEvent ErrorEventInfo 
   deriving Show
 
 -- | Connection IDs enable receivers to distinguish one connection from another.
@@ -122,6 +122,7 @@ instance Error (FailedWith error) where
 -- | Errors during the creation of an endpoint (currently, there are none)
 data NewEndPointErrorCode =
     NewEndPointTransportFailure  -- ^ Transport-wide failure 
+  deriving Show
 
 -- | Connection failure 
 data ConnectErrorCode = 
@@ -148,7 +149,11 @@ data SendErrorCode =
   deriving Show
 
 -- | Error codes used when reporting errors to endpoints (through receive)
-data EventErrorCode = 
-    EventErrorEndPointClosed    -- ^ Endpoint was closed (manually or because of an error)   
-  | EventErrorTransportFailure  -- ^ Transport-wide fatal error
+data ErrorEventInfo = 
+    -- | Endpoint was closed (manually or because of an error)   
+    ErrorEventEndPointClosed [ConnectionId] 
+    -- | Transport-wide fatal error
+  | ErrorEventTransportFailure  
+    -- | Connection to a remote endpoint was lost
+  | ErrorEventConnectionLost EndPointAddress [ConnectionId] 
   deriving Show
