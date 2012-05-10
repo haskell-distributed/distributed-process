@@ -1,4 +1,5 @@
 {-# LANGUAGE RebindableSyntax #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 module Main where
 
 import Prelude hiding (catch, (>>=), (>>), return, fail)
@@ -78,14 +79,14 @@ testEarlyDisconnect = do
         ConnectionOpened cid _ addr <- liftIO $ receive endpoint 
         True <- return $ addr == theirAddr
         
-        ErrorEvent (ErrorEventConnectionLost addr [cid']) <- liftIO $ receive endpoint 
-        True <- return $ addr == theirAddr && cid' == cid
+        ErrorEvent (ErrorEventConnectionLost addr' [cid']) <- liftIO $ receive endpoint 
+        True <- return $ addr' == theirAddr && cid' == cid
 
         -- Second test: after they dropped their connection to us, we now try to
         -- establish a connection to them. This should re-establish the broken
         -- TCP connection. 
         trlog "Trying to connect to client"
-        Right conn <- liftIO $ connect endpoint theirAddr ReliableOrdered 
+        Right _ <- liftIO $ connect endpoint theirAddr ReliableOrdered 
 
 
         return ()

@@ -108,7 +108,7 @@ class MonadS m where
   returnS :: a -> m a 
   bindS   :: Show a => m a -> (a -> m b) -> m b
   failS   :: String -> m a
-  seqS    :: Show a => m a -> m b -> m b
+  seqS    :: m a -> m b -> m b
 
 instance MonadS IO where
   returnS = Prelude.return
@@ -128,7 +128,7 @@ instance MonadS Traced where
   x `seqS` y = Traced $ unTraced x Prelude.>>= \(trace, result) ->
     case result of
       Left err -> Prelude.return (trace, Left err)
-      Right a  -> unTraced y Prelude.>>= \(trace', result') ->
+      Right _  -> unTraced y Prelude.>>= \(trace', result') ->
         Prelude.return (trace ++ trace', result')
   failS err = Traced $ Prelude.return ([], Left err)
 
