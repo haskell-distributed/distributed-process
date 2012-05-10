@@ -737,22 +737,24 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
   
     -- Normally, there would be no unclosed connections, but if the client
     -- exits prematurely there might be
-    unclosedConnections <- modifyMVar theirState $ \st ->
+    mUnclosedConnections <- modifyMVar theirState $ \st ->
       case st of
         RemoteEndPointInvalid _ ->
           error "handleIncomingMessages RELY violation"
         RemoteEndPointValid remoteConn ->
-          return (RemoteEndPointValid . (remoteIncoming ^= IntSet.empty) $ remoteConn, remoteConn ^. remoteIncoming)
-        RemoteEndPointClosing resolved remoteConn ->
-          return (RemoteEndPointClosing resolved . (remoteIncoming ^= IntSet.empty) $ remoteConn, remoteConn ^. remoteIncoming)
+          return (RemoteEndPointClosed, Just $ remoteConn ^. remoteIncoming)
+        RemoteEndPointClosing _ _ ->
+          return (RemoteEndPointClosed, Nothing)
         RemoteEndPointClosed ->
-          return (st, IntSet.empty)
+          return (st, Nothing)
 
-    -- TODO: should we give a single ErrorEvent instead?
-    forM_ (map fromIntegral $ IntSet.elems unclosedConnections) $ \cid -> do
-      writeChan ourChannel $ ConnectionClosed cid 
+    -- TODO: we need to remote this endpoint from localConnections at this point
 
-    -- TODO: if the endpoint was not in closing state, should we make it so?
+    case mUnclosedConnections of
+      Nothing -> return ()
+      Just unclosedConnections ->
+        writeChan ourChannel (ErrorEvent EventErrorEndPointClosed (IntSet.elems unclosedConnections))
+
   where
     -- Dispatch 
     go :: N.Socket -> IO ()
@@ -787,7 +789,7 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
       modifyMVar_ theirState $ \st -> do
         remoteConn <- case st of
           RemoteEndPointValid remoteConn ->
-            return (remoteIncoming ^%= IntSet.insert (fromIntegral newId) $ remoteConn)
+            return (remoteIncoming ^%= IntSet.insert newId $ remoteConn)
           RemoteEndPointClosing resolved remoteConn -> do
             -- If the endpoint is in closing state that means we send a
             -- CloseSocket request to the remote endpoint. If the remote
