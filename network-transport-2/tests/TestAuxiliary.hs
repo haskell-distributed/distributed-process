@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 module TestAuxiliary ( -- Running tests
                        runTest
                      , runTests
@@ -17,6 +18,8 @@ import System.Console.ANSI ( SGR(SetColor, Reset)
                            , ColorIntensity(Vivid)
                            , setSGR
                            )
+import Network.Transport
+import Traced (Trace(..))
 
 -- | Like fork, but throw exceptions in the child thread to the parent
 forkTry :: IO () -> IO ThreadId 
@@ -55,3 +58,25 @@ runTests :: [(String, IO ())] -> IO ()
 runTests tests = do
   success <- foldr (liftM2 (&&) . uncurry runTest) (return True) $ tests
   unless success $ fail "Some tests failed"
+
+--------------------------------------------------------------------------------
+-- Trace instances                                                            -- 
+--------------------------------------------------------------------------------
+
+instance Trace EndPoint where
+  trace = const Nothing 
+
+instance Trace Transport where
+  trace = const Nothing 
+
+instance Trace Connection where
+  trace = const Nothing 
+
+instance Trace Event where
+  trace = Just . show
+
+instance Show err => Trace (FailedWith err) where
+  trace = Just . show
+
+instance Trace EndPointAddress where
+  trace = trace .endPointAddressToByteString

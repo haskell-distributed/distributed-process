@@ -32,22 +32,24 @@ import qualified Network.Socket as N ( getAddrInfo
                                      , sClose
                                      , HostName
                                      , ServiceName
+                                     , Socket
+                                     , AddrInfo
                                      )
 import Network.Socket.ByteString (sendMany)                                     
 import Data.String (fromString)
 import Traced 
 
-instance Show (MVar a) where
-  show _ = "<<mvar>>"
+instance Trace ControlHeader where
+  trace = Just . show
 
-instance Show EndPoint where
-  show _ = "<<endpoint>>"
+instance Trace ConnectionRequestResponse where
+  trace = Just . show
 
-instance Show Transport where
-  show _ = "<<transport>>"
+instance Trace N.Socket where
+  trace = const Nothing
 
-instance Show Connection where
-  show _ = "<<connection>>"
+instance Trace N.AddrInfo where
+  trace = Just . show
 
 -- Test that the server gets a ConnectionClosed message when the client closes
 -- the socket without sending an explicit control message to the server first

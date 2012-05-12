@@ -1,5 +1,5 @@
-{-# LANGUAGE RebindableSyntax, FlexibleInstances, UndecidableInstances, ScopedTypeVariables, DeriveDataTypeable #-}
--- | Add "tracing" to the IO monad (see examples). 
+{-# LANGUAGE RebindableSyntax, ScopedTypeVariables, DeriveDataTypeable, FlexibleInstances, OverlappingInstances #-}
+-- | Add tracing to the IO monad (see examples). 
 -- 
 -- [Usage]
 -- 
@@ -46,31 +46,38 @@ module Traced ( MonadS(..)
               , (>>=)
               , (>>)
               , fail
+              , ifThenElse
+              , Trace(..)
               ) where
 
 import Prelude hiding ((>>=), return, fail, catch, (>>))
 import qualified Prelude
 import Data.String (fromString)
-import Control.Exception (catches, Handler(..), SomeException, throw, Exception(..))
+import Control.Exception (catches, Handler(..), SomeException, throw, Exception(..), IOException)
 import Data.Typeable (Typeable)
+import Data.Maybe (catMaybes)
+import Data.List (intersperse)
+import Data.ByteString (ByteString)
+import Data.Int (Int32)
+import Control.Concurrent.MVar (MVar)
 
 --------------------------------------------------------------------------------
 -- MonadS class                                                               --
 --------------------------------------------------------------------------------
 
--- | Like 'Monad' but bind is only defined for 'Showable' instances
+-- | Like 'Monad' but bind is only defined for 'Trace'able instances
 class MonadS m where
   returnS :: a -> m a 
-  bindS   :: Show a => m a -> (a -> m b) -> m b
+  bindS   :: Trace a => m a -> (a -> m b) -> m b
   failS   :: String -> m a
   seqS    :: m a -> m b -> m b
 
 -- | Redefinition of 'Prelude.>>=' 
-(>>=) :: (MonadS m, Show a) => m a -> (a -> m b) -> m b
+(>>=) :: (MonadS m, Trace a) => m a -> (a -> m b) -> m b
 (>>=) = bindS
 
 -- | Redefinition of 'Prelude.>>'
-(>>) :: (MonadS m, Show a) => m a -> m b -> m b
+(>>) :: MonadS m => m a -> m b -> m b
 (>>) = seqS
 
 -- | Redefinition of 'Prelude.return'
@@ -80,6 +87,64 @@ return = returnS
 -- | Redefinition of 'Prelude.fail'
 fail :: MonadS m => String -> m a
 fail = failS 
+
+--------------------------------------------------------------------------------
+-- Trace typeclass (for adding elements to a trace                            --
+--------------------------------------------------------------------------------
+
+-- | Used to add a term to the trace
+class Trace a where
+  -- | Return 'Nothing' not to add the term to the trace
+  trace :: a -> Maybe String
+
+instance (Trace a, Trace b) => Trace (Either a b) where
+  trace (Left x)  = trace x
+  trace (Right y) = trace y
+
+instance Trace a => Trace [a] where
+  trace as = Just $ "[" ++ (concat . intersperse "," . catMaybes . map trace $ as) ++ "]"
+
+instance (Trace a, Trace b) => Trace (a, b) where
+  trace (x, y) = case (trace x, trace y) of
+    (Nothing, Nothing) -> Nothing
+    (Just t1, Nothing) -> Just t1
+    (Nothing, Just t2) -> Just t2
+    (Just t1, Just t2) -> Just $ "(" ++ t1 ++ ", " ++ t2 ++ ")"
+
+instance (Trace a, Trace b, Trace c) => Trace (a, b, c) where
+  trace (x, y, z) = case (trace x, trace y, trace z) of
+    (Nothing, Nothing, Nothing) -> Nothing
+    (Just t1, Nothing, Nothing) -> Just t1
+    (Nothing, Just t2, Nothing) -> Just t2
+    (Nothing, Nothing, Just t3) -> Just t3
+    (Just t1, Just t2, Nothing) -> Just $ "(" ++ t1 ++ "," ++ t2 ++ ")"
+    (Just t1, Nothing, Just t3) -> Just $ "(" ++ t1 ++ "," ++ t3 ++ ")"
+    (Nothing, Just t2, Just t3) -> Just $ "(" ++ t2 ++ "," ++ t3 ++ ")"
+    (Just t1, Just t2, Just t3) -> Just $ "(" ++ t1 ++ "," ++ t2 ++ "," ++ t2 ++ "," ++ t3 ++ ")"
+
+instance Trace () where
+  trace = const Nothing
+
+instance Trace Int where
+  trace = Just . show
+
+instance Trace Int32 where
+  trace = Just . show
+
+instance Trace Bool where
+  trace = const Nothing
+
+instance Trace ByteString where
+  trace = Just . show
+
+instance Trace (MVar a) where
+  trace = const Nothing 
+
+instance Trace [Char] where
+  trace = Just . show 
+
+instance Trace IOException where
+  trace = Just . show
 
 --------------------------------------------------------------------------------
 -- IO instance for MonadS                                                     --
@@ -98,11 +163,17 @@ instance MonadS IO where
   seqS    = (Prelude.>>)
 
 instance Show TracedException where
-  show (TracedException trace ex) = 
-    show ex ++ "\nTrace:\n" ++ unlines (map (\(i, t) -> show i ++ "\t" ++ t) (zip ([0..] :: [Int]) (reverse trace)))
+  show (TracedException ts ex) = 
+    show ex ++ "\nTrace:\n" ++ unlines (map (\(i, t) -> show i ++ "\t" ++ t) (zip ([0..] :: [Int]) (reverse ts)))
 
-traceHandlers :: Show a => a -> [Handler b]
-traceHandlers a = 
-  [ Handler $ \(TracedException trace ex) -> throw $ TracedException (show a : trace) ex
-  , Handler $ \(ex :: SomeException) -> throw $ TracedException [show a] ex
-  ]
+traceHandlers :: Trace a => a -> [Handler b]
+traceHandlers a =  case trace a of
+  Nothing -> [ Handler $ \(ex :: SomeException)   -> throw ex ]
+  Just t  -> [ Handler $ \(TracedException ts ex) -> throw $ TracedException (t : ts) ex
+             , Handler $ \(ex :: SomeException)   -> throw $ TracedException [t] ex
+             ]
+  
+-- | Definition of 'ifThenElse' for use with RebindableSyntax 
+ifThenElse :: Bool -> a -> a -> a
+ifThenElse True  x _ = x
+ifThenElse False _ y = y

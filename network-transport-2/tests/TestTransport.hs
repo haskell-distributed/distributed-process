@@ -1,11 +1,10 @@
+{-# LANGUAGE RebindableSyntax, FlexibleInstances, OverlappingInstances, UndecidableInstances #-}
 module TestTransport where
 
-import Prelude hiding (catch)
+import Prelude hiding (catch, (>>=), (>>), return, fail)
 import TestAuxiliary (forkTry, runTests)
 import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar, readMVar)
 import Control.Monad (replicateM, replicateM_, when, guard, forM_)
-import Control.Exception (evaluate, throw, catch, SomeException)
-import Control.Applicative ((<$>))
 import Network.Transport
 import Network.Transport.Internal (tlog)
 import Network.Transport.Util (spawn)
@@ -13,6 +12,8 @@ import Data.ByteString (ByteString)
 import Data.ByteString.Char8 (pack)
 import Data.Map (Map)
 import qualified Data.Map as Map (empty, insert, delete, findWithDefault, adjust, null, toList, map)
+import Data.String (fromString)
+import Traced
 
 -- | Server that echoes messages straight back to the origin endpoint.
 echoServer :: EndPoint -> IO ()
@@ -40,23 +41,6 @@ echoServer endpoint = do
         ErrorEvent _ ->
           fail (show event)
 
--- | Wait for an event, throw an exception if the given predicate returns false
-expect :: EndPoint -> (Event -> (Bool, a)) -> IO a 
-expect endpoint predicate = do
-  event <- receive endpoint
-  mbool <- catch (Right <$> evaluate (predicate event)) (return . Left)
-  case mbool of
-    Left err         -> do tlog $ "Unexpected event " ++ show event 
-                           throw (err :: SomeException) 
-    Right (False, _) -> do tlog $ "Unexpected event " ++ show event 
-                           fail "Unexpected event"
-    Right (True, a)  -> return a
-
--- | Like 'expect' but without a return value
-expect' :: EndPoint -> (Event -> Bool) -> IO ()
-expect' endpoint predicate = 
-  expect endpoint (\event -> (predicate event, ()))
-
 -- | Ping client used in a few tests
 ping :: EndPoint -> EndPointAddress -> Int -> ByteString -> IO ()
 ping endpoint server numPings msg = do
@@ -66,13 +50,14 @@ ping endpoint server numPings msg = do
 
   -- Wait for the server to open reply connection
   tlog "Wait for ConnectionOpened message"
-  cid <- expect endpoint (\(ConnectionOpened cid _ _) -> (True, cid))
+  ConnectionOpened cid _ _ <- receive endpoint
 
   -- Send pings and wait for reply
   tlog "Send ping and wait for reply"
   replicateM_ numPings $ do
       send conn [msg]
-      expect' endpoint (\(Received cid' [reply]) -> cid == cid' && reply == msg)
+      Received cid' [reply] <- receive endpoint ; True <- return $ cid == cid' && reply == msg
+      return ()
 
   -- Close the connection
   tlog "Close the connection"
@@ -80,7 +65,7 @@ ping endpoint server numPings msg = do
 
   -- Wait for the server to close its connection to us
   tlog "Wait for ConnectionClosed message"
-  expect' endpoint (\(ConnectionClosed cid') -> cid == cid')
+  ConnectionClosed cid' <- receive endpoint ; True <- return $ cid == cid' 
 
   -- Done
   tlog "Ping client done"
@@ -431,11 +416,11 @@ testCloseTwice transport _ = do
     close conn1
 
     -- Verify expected response from the echo server
-    cid1 <- expect endpoint (\(ConnectionOpened cid _ _) -> (True, cid)) 
-    cid2 <- expect endpoint (\(ConnectionOpened cid _ _) -> (True, cid))
-    expect' endpoint (\(ConnectionClosed cid) -> cid == cid2)
-    expect' endpoint (\(Received cid msg) -> cid == cid1 && msg == ["ping"])
-    expect' endpoint (\(ConnectionClosed cid) -> cid == cid1)
+    ConnectionOpened cid1 _ _ <- receive endpoint
+    ConnectionOpened cid2 _ _ <- receive endpoint
+    ConnectionClosed cid2'    <- receive endpoint ; True <- return $ cid2' == cid2
+    Received cid1' ["ping"]   <- receive endpoint ; True <- return $ cid1' == cid1 
+    ConnectionClosed cid1''   <- receive endpoint ; True <- return $ cid1'' == cid1
 
     putMVar clientDone ()
 
@@ -467,19 +452,65 @@ testConnectToSelf transport numPings = do
     tlog $ "reading"
 
     tlog "Waiting for ConnectionOpened"
-    cid <- expect endpoint (\(ConnectionOpened cid _ addr) -> (addr == address endpoint, cid))
+    ConnectionOpened cid _ addr <- receive endpoint ; True <- return $ addr == address endpoint
 
     tlog "Waiting for Received"
-    replicateM_ numPings $ expect' endpoint (\(Received cid' msg) -> cid == cid' && msg == ["ping"])
+    replicateM_ numPings $ do
+       Received cid' ["ping"] <- receive endpoint ; True <- return $ cid == cid'
+       return ()
 
     tlog "Waiting for ConnectionClosed"
-    expect' endpoint (\(ConnectionClosed cid') -> cid == cid')
+    ConnectionClosed cid' <- receive endpoint ; True <- return $ cid == cid'
 
     tlog "Done"
     putMVar done ()
 
   takeMVar done
 
+-- | Test that we can connect an endpoint to itself multiple times
+testConnectToSelfTwice :: Transport -> Int -> IO ()
+testConnectToSelfTwice transport numPings = do
+  done <- newEmptyMVar
+  Right endpoint <- newEndPoint transport
+
+  tlog "Creating self-connection"
+  Right conn1 <- connect endpoint (address endpoint) ReliableOrdered
+  Right conn2 <- connect endpoint (address endpoint) ReliableOrdered
+
+  tlog "Talk to myself"
+
+  -- One thread to write to the endpoint using the first connection
+  forkTry $ do
+    tlog $ "writing" 
+
+    tlog $ "Sending ping"
+    replicateM_ numPings $ send conn1 ["pingA"]
+
+    tlog $ "Closing connection"
+    close conn1
+  
+  -- One thread to write to the endpoint using the second connection
+  forkTry $ do
+    tlog $ "writing" 
+
+    tlog $ "Sending ping"
+    replicateM_ numPings $ send conn2 ["pingB"]
+
+    tlog $ "Closing connection"
+    close conn2
+
+  -- And one thread to read
+  forkTry $ do
+    tlog $ "reading"
+
+    [(_, events1), (_, events2)] <- collect endpoint (2 * (numPings + 2))
+    True <- return $ events1 == replicate numPings ["pingA"]
+    True <- return $ events2 == replicate numPings ["pingB"]
+
+    tlog "Done"
+    putMVar done ()
+
+  takeMVar done
 
 -- Transport tests
 testTransport :: Transport -> IO ()
@@ -494,6 +525,7 @@ testTransport transport = runTests
   , ("SendAfterClose",     testSendAfterClose transport numPings)
   , ("CloseTwice",         testCloseTwice transport numPings)
   , ("ConnectToSelf",      testConnectToSelf transport numPings)
+  , ("ConnectToSelfTwice", testConnectToSelfTwice transport numPings)
   ]
   where
-    numPings = 10000
+    numPings = 10000 :: Int
