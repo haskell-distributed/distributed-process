@@ -406,18 +406,21 @@ apiCloseEndPoint transport ourEndPoint = do
     -- Close the remote socket and return the set of all incoming connections
     tryCloseRemoteSocket :: RemoteEndPoint -> IO IntSet 
     tryCloseRemoteSocket theirEndPoint = do
-      -- Like above, we take but don't put back
-      st <- takeMVar (remoteState theirEndPoint)
       -- We make an attempt to close the connection nicely (by sending a CloseSocket first)
-      case st of
-        RemoteEndPointInvalid _      -> do return IntSet.empty 
-        RemoteEndPointValid conn     -> do tryIO $ do
-                                             sendOn conn [encodeInt32 CloseSocket]
-                                             N.sClose (remoteSocket conn)
-                                           return (conn ^. remoteIncoming)
-        RemoteEndPointClosing _ conn -> do tryIO $ N.sClose (remoteSocket conn)
-                                           return IntSet.empty
-        RemoteEndPointClosed         -> do return IntSet.empty 
+      modifyMVar (remoteState theirEndPoint) $ \st ->
+        case st of
+          RemoteEndPointInvalid _ -> 
+            return (st, IntSet.empty)
+          RemoteEndPointValid conn -> do 
+            tryIO $ do
+              sendOn conn [encodeInt32 CloseSocket]
+              N.sClose (remoteSocket conn)
+            return (RemoteEndPointClosed, conn ^. remoteIncoming)
+          RemoteEndPointClosing _ conn -> do 
+            tryIO $ N.sClose (remoteSocket conn)
+            return (RemoteEndPointClosed, IntSet.empty)
+          RemoteEndPointClosed -> 
+            return (RemoteEndPointClosed, IntSet.empty)
 
 -- | Special case of 'apiConnect': connect an endpoint to itself
 connectToSelf :: LocalEndPoint -> IO (Either (FailedWith ConnectErrorCode) Connection)

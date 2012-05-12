@@ -582,6 +582,10 @@ testCloseEndPoint transport _ = do
       -- Close the endpoint 
       closeEndPoint endpoint
       ErrorEvent (ErrorEventEndPointClosed [cid'']) <- receive endpoint; True <- return $ cid == cid''
+
+      -- Attempt to send should fail with connection closed
+      Left (FailedWith SendConnectionClosed _) <- send conn ["ping2"]
+
       return ()
 
     putMVar clientDone ()
