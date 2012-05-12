@@ -19,7 +19,7 @@ import System.Console.ANSI ( SGR(SetColor, Reset)
                            , setSGR
                            )
 import Network.Transport
-import Traced (Trace(..))
+import Traced (Traceable(..), traceShow)
 
 -- | Like fork, but throw exceptions in the child thread to the parent
 forkTry :: IO () -> IO ThreadId 
@@ -60,23 +60,23 @@ runTests tests = do
   unless success $ fail "Some tests failed"
 
 --------------------------------------------------------------------------------
--- Trace instances                                                            -- 
+-- traceShow instances                                                            -- 
 --------------------------------------------------------------------------------
 
-instance Trace EndPoint where
+instance Traceable EndPoint where
+  trace = const Nothing
+
+instance Traceable Transport where
   trace = const Nothing 
 
-instance Trace Transport where
+instance Traceable Connection where
   trace = const Nothing 
 
-instance Trace Connection where
-  trace = const Nothing 
+instance Traceable Event where
+  trace = traceShow 
 
-instance Trace Event where
-  trace = Just . show
+instance Show err => Traceable (FailedWith err) where
+  trace = traceShow 
 
-instance Show err => Trace (FailedWith err) where
-  trace = Just . show
-
-instance Trace EndPointAddress where
-  trace = trace .endPointAddressToByteString
+instance Traceable EndPointAddress where
+  trace = traceShow . endPointAddressToByteString

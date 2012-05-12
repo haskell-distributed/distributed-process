@@ -1,4 +1,4 @@
-{-# LANGUAGE RebindableSyntax, ScopedTypeVariables, DeriveDataTypeable, FlexibleInstances, OverlappingInstances #-}
+{-# LANGUAGE RebindableSyntax, ScopedTypeVariables, DeriveDataTypeable, FlexibleInstances, OverlappingInstances, ExistentialQuantification, RankNTypes #-}
 -- | Add tracing to the IO monad (see examples). 
 -- 
 -- [Usage]
@@ -46,7 +46,9 @@ module Traced ( MonadS(..)
               , (>>)
               , fail
               , ifThenElse
-              , Trace(..)
+              , Showable(..)
+              , Traceable(..)
+              , traceShow
               ) where
 
 import Prelude hiding ((>>=), return, fail, catch, (>>))
@@ -56,7 +58,6 @@ import Control.Exception (catches, Handler(..), SomeException, throw, Exception(
 import Control.Applicative ((<$>))
 import Data.Typeable (Typeable)
 import Data.Maybe (catMaybes)
-import Data.List (intersperse)
 import Data.ByteString (ByteString)
 import Data.Int (Int32)
 import Control.Concurrent.MVar (MVar)
@@ -68,12 +69,12 @@ import Control.Concurrent.MVar (MVar)
 -- | Like 'Monad' but bind is only defined for 'Trace'able instances
 class MonadS m where
   returnS :: a -> m a 
-  bindS   :: Trace a => m a -> (a -> m b) -> m b
+  bindS   :: Traceable a => m a -> (a -> m b) -> m b
   failS   :: String -> m a
   seqS    :: m a -> m b -> m b
 
 -- | Redefinition of 'Prelude.>>=' 
-(>>=) :: (MonadS m, Trace a) => m a -> (a -> m b) -> m b
+(>>=) :: (MonadS m, Traceable a) => m a -> (a -> m b) -> m b
 (>>=) = bindS
 
 -- | Redefinition of 'Prelude.>>'
@@ -92,59 +93,68 @@ fail = failS
 -- Trace typeclass (for adding elements to a trace                            --
 --------------------------------------------------------------------------------
 
--- | Used to add a term to the trace
-class Trace a where
-  -- | Return 'Nothing' not to add the term to the trace
-  trace :: a -> Maybe String
+data Showable = forall a. Show a => Showable a
 
-instance (Trace a, Trace b) => Trace (Either a b) where
-  trace (Left x)  = ("Left " ++) <$> trace x 
-  trace (Right y) = ("Right " ++) <$> trace y 
+instance Show Showable where
+  show (Showable x) = show x
 
-instance Trace a => Trace [a] where
-  trace as = Just $ "[" ++ (concat . intersperse "," . catMaybes . map trace $ as) ++ "]"
+mapShowable :: (forall a. Show a => a -> Showable) -> Showable -> Showable 
+mapShowable f (Showable x) = f x 
 
-instance (Trace a, Trace b) => Trace (a, b) where
+traceShow :: Show a => a -> Maybe Showable
+traceShow = Just . Showable 
+
+class Traceable a where
+  trace :: a -> Maybe Showable 
+
+instance (Traceable a, Traceable b) => Traceable (Either a b) where
+  trace (Left x)  = (mapShowable $ Showable . (Left  :: forall c. c -> Either c ())) <$> trace x 
+  trace (Right y) = (mapShowable $ Showable . (Right :: forall c. c -> Either () c)) <$> trace y
+
+instance (Traceable a, Traceable b) => Traceable (a, b) where
   trace (x, y) = case (trace x, trace y) of
     (Nothing, Nothing) -> Nothing
-    (Just t1, Nothing) -> Just t1
-    (Nothing, Just t2) -> Just t2
-    (Just t1, Just t2) -> Just $ "(" ++ t1 ++ ", " ++ t2 ++ ")"
+    (Just t1, Nothing) -> traceShow t1
+    (Nothing, Just t2) -> traceShow t2
+    (Just t1, Just t2) -> traceShow (t1, t2)
 
-instance (Trace a, Trace b, Trace c) => Trace (a, b, c) where
+instance (Traceable a, Traceable b, Traceable c) => Traceable (a, b, c) where
   trace (x, y, z) = case (trace x, trace y, trace z) of
-    (Nothing, Nothing, Nothing) -> Nothing
-    (Just t1, Nothing, Nothing) -> Just t1
-    (Nothing, Just t2, Nothing) -> Just t2
-    (Nothing, Nothing, Just t3) -> Just t3
-    (Just t1, Just t2, Nothing) -> Just $ "(" ++ t1 ++ "," ++ t2 ++ ")"
-    (Just t1, Nothing, Just t3) -> Just $ "(" ++ t1 ++ "," ++ t3 ++ ")"
-    (Nothing, Just t2, Just t3) -> Just $ "(" ++ t2 ++ "," ++ t3 ++ ")"
-    (Just t1, Just t2, Just t3) -> Just $ "(" ++ t1 ++ "," ++ t2 ++ "," ++ t2 ++ "," ++ t3 ++ ")"
+    (Nothing, Nothing, Nothing) -> Nothing 
+    (Just t1, Nothing, Nothing) -> traceShow t1
+    (Nothing, Just t2, Nothing) -> traceShow t2
+    (Just t1, Just t2, Nothing) -> traceShow (t1, t2)
+    (Nothing, Nothing, Just t3) -> traceShow t3
+    (Just t1, Nothing, Just t3) -> traceShow (t1, t3)
+    (Nothing, Just t2, Just t3) -> traceShow (t2, t3)
+    (Just t1, Just t2, Just t3) -> traceShow (t1, t2, t3)
 
-instance Trace () where
-  trace = const Nothing
+instance Traceable a => Traceable [a] where
+  trace = traceShow . catMaybes . map trace 
 
-instance Trace Int where
-  trace = Just . show
-
-instance Trace Int32 where
-  trace = Just . show
-
-instance Trace Bool where
-  trace = const Nothing
-
-instance Trace ByteString where
-  trace = Just . show
-
-instance Trace (MVar a) where
+instance Traceable () where
   trace = const Nothing 
 
-instance Trace [Char] where
-  trace = Just . show 
+instance Traceable Int where
+  trace = traceShow 
 
-instance Trace IOException where
-  trace = Just . show
+instance Traceable Int32 where
+  trace = traceShow 
+
+instance Traceable Bool where
+  trace = const Nothing 
+
+instance Traceable ByteString where
+  trace = traceShow 
+
+instance Traceable (MVar a) where
+  trace = const Nothing 
+
+instance Traceable [Char] where
+  trace = traceShow 
+
+instance Traceable IOException where
+  trace = traceShow
 
 --------------------------------------------------------------------------------
 -- IO instance for MonadS                                                     --
@@ -166,13 +176,13 @@ instance Show TracedException where
   show (TracedException ts ex) = 
     show ex ++ "\nTrace:\n" ++ unlines (map (\(i, t) -> show i ++ "\t" ++ t) (zip ([0..] :: [Int]) (reverse ts)))
 
-traceHandlers :: Trace a => a -> [Handler b]
+traceHandlers :: Traceable a => a -> [Handler b]
 traceHandlers a =  case trace a of
   Nothing -> [ Handler $ \(ex :: SomeException)   -> throw ex ]
-  Just t  -> [ Handler $ \(TracedException ts ex) -> throw $ TracedException (t : ts) ex
-             , Handler $ \(ex :: SomeException)   -> throw $ TracedException [t] ex
+  Just t  -> [ Handler $ \(TracedException ts ex) -> throw $ TracedException (show t : ts) ex
+             , Handler $ \(ex :: SomeException)   -> throw $ TracedException [show t] ex
              ]
-  
+
 -- | Definition of 'ifThenElse' for use with RebindableSyntax 
 ifThenElse :: Bool -> a -> a -> a
 ifThenElse True  x _ = x

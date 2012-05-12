@@ -39,17 +39,17 @@ import Network.Socket.ByteString (sendMany)
 import Data.String (fromString)
 import Traced 
 
-instance Trace ControlHeader where
-  trace = Just . show
+instance Traceable ControlHeader where
+  trace = traceShow
 
-instance Trace ConnectionRequestResponse where
-  trace = Just . show
+instance Traceable ConnectionRequestResponse where
+  trace = traceShow
 
-instance Trace N.Socket where
+instance Traceable N.Socket where
   trace = const Nothing
 
-instance Trace N.AddrInfo where
-  trace = Just . show
+instance Traceable N.AddrInfo where
+  trace = traceShow
 
 -- Test that the server gets a ConnectionClosed message when the client closes
 -- the socket without sending an explicit control message to the server first
