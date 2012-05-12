@@ -49,10 +49,10 @@ import Data.Int (Int32)
 forkServer :: N.HostName               -- ^ Host
            -> N.ServiceName            -- ^ Port 
            -> Int                      -- ^ Backlog (maximum number of queued connections)
-           -> (N.Socket -> IO ())      -- ^ Request handler 
            -> (SomeException -> IO ()) -- ^ Termination handler
+           -> (N.Socket -> IO ())      -- ^ Request handler 
            -> IO ThreadId
-forkServer host port backlog requestHandler terminationHandler = do 
+forkServer host port backlog terminationHandler requestHandler = do 
     -- Resolve the specified address. By specification, getAddrInfo will never
     -- return an empty list (but will throw an exception instead) and will return
     -- the "best" address first, whatever that means

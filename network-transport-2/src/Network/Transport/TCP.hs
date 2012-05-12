@@ -292,8 +292,7 @@ createTransport host port = do
                                     }
     tryIO $ do 
       -- TODO: "5" is listed as "system dependent maximum backlog"?
-      transportThread <- forkServer host port 5 (handleConnectionRequest transport) 
-                                                (terminationHandler transport)
+      transportThread <- forkServer host port 5 (terminationHandler transport) (handleConnectionRequest transport) 
       return Transport { newEndPoint    = apiNewEndPoint transport 
                        , closeTransport = apiCloseTransport transportThread 
                        } 
@@ -369,18 +368,25 @@ apiClose theirEndPoint connId connAlive = void . tryIO $ do
 
 -- | Send data across a connection
 -- 
--- RELY: The remote endpoint must remain in state 'RemoteEndPointValid'.
+-- RELY: The remote endpoint must be in state 'RemoteEndPointValid' or 'RemoteEndPointClosed'
 -- GUARANTEE: The state of the remote endpoint will not be changed.
 apiSend :: RemoteEndPoint -> ConnectionId -> IORef Bool -> [ByteString] -> IO (Either (FailedWith SendErrorCode) ())
 apiSend theirEndPoint connId connAlive payload = do 
-  withMVar (remoteState theirEndPoint) $ \(RemoteEndPointValid remoteConn) -> do  
-    alive <- readIORef connAlive
-    runErrorT $ if alive
-      then 
-        failWithIO (FailedWith SendFailed . show) $ 
-          sendOn remoteConn (encodeInt32 connId : prependLength payload)
-      else 
-        throwError $ FailedWith SendConnectionClosed "Connection closed"
+  withMVar (remoteState theirEndPoint) $ \st -> case st of
+    RemoteEndPointValid remoteConn -> do
+      alive <- readIORef connAlive
+      runErrorT $ if alive
+        then 
+          failWithIO (FailedWith SendFailed . show) $ 
+            sendOn remoteConn (encodeInt32 connId : prependLength payload)
+        else 
+          throwError $ FailedWith SendConnectionClosed "Connection closed"
+    RemoteEndPointClosed -> do
+      return (Left $ FailedWith SendConnectionClosed "Endpoint closed")
+    RemoteEndPointClosing _ _ ->
+      error "apiSend RELY violation"
+    RemoteEndPointInvalid _ ->
+      error "apiSend RELY violation"
 
 -- | Force-close the endpoint
 apiCloseEndPoint :: TCPTransport -> LocalEndPoint -> IO ()
@@ -837,7 +843,7 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
         case st of
           RemoteEndPointValid remoteConn -> do
             -- TODO: We check only for outgoing connections here. That is
-            -- correct, but we need to makke sure that we send the right event
+            -- correct, but we need to make sure that we send the right event
             -- to our endpoint for any incoming connections that are still live
             -- at this point. 
             if remoteConn ^. remoteOutgoing == 0 
@@ -852,7 +858,7 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
             return (st, Just resolved)
           _ ->
             error "handleIncomingConnections RELY violation"
-        
+      
       case canClose of
         Nothing ->
           return False

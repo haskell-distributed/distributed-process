@@ -13,13 +13,14 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar, readMVar, isEmptyMVar)
 import Control.Monad (replicateM, guard)
 import Control.Applicative ((<$>))
+import Control.Exception (throw)
 import Network.Transport.TCP ( decodeEndPointAddress
                              , EndPointId
                              , ControlHeader(..)
                              , ConnectionRequestResponse(..)
                              )
 import Network.Transport.Internal (encodeInt32, prependLength, tlog, tryIO)
-import Network.Transport.Internal.TCP (recvInt32)
+import Network.Transport.Internal.TCP (recvInt32, forkServer, recvWithLength)
 import qualified Network.Socket as N ( getAddrInfo
                                      , socket
                                      , connect
@@ -73,36 +74,37 @@ testEarlyDisconnect = do
       putMVar serverAddr (fromJust . decodeEndPointAddress . address $ endpoint)
       theirAddr <- readMVar clientAddr
 
-      -- First test: they connect to us, then drop the connection
-      ConnectionOpened cid _ addr <- receive endpoint 
-      True <- return $ addr == theirAddr
+      -- TEST 1: they connect to us, then drop the connection
+      do
+        ConnectionOpened cid _ addr <- receive endpoint 
+        True <- return $ addr == theirAddr
       
-      ErrorEvent (ErrorEventConnectionLost addr' [cid']) <- receive endpoint 
-      True <- return $ addr' == theirAddr && cid' == cid
+        ErrorEvent (ErrorEventConnectionLost addr' [cid']) <- receive endpoint 
+        True <- return $ addr' == theirAddr && cid' == cid
 
-      -- Second test: after they dropped their connection to us, we now try to
+        return ()
+
+      -- TEST 2: after they dropped their connection to us, we now try to
       -- establish a connection to them. This should re-establish the broken
       -- TCP connection. 
       tlog "Trying to connect to client"
-      Right _ <- connect endpoint theirAddr ReliableOrdered 
+      Right conn <- connect endpoint theirAddr ReliableOrdered 
 
-      putMVar serverDone ()
-
-{-
-      -- To test the connection, we do a simple ping test; as before, however,
-      -- the remote client won't close the connection nicely but just closes
-      -- the socket
+      -- TEST 3: To test the connection, we do a simple ping test; as before,
+      -- however, the remote client won't close the connection nicely but just
+      -- closes the socket
       do
-        send conn ["ping"]
-        cid <- expect endpoint (\(ConnectionOpened cid _ addr) -> (addr == theirAddr, cid))
-        expect' endpoint (\(Received cid' [msg]) -> cid' == cid && msg == "pong") 
-        expect' endpoint (\(ErrorEvent (ErrorEventConnectionLost addr [cid'])) -> addr == theirAddr && cid' == cid)
+        Right () <- send conn ["ping"]
+        ConnectionOpened cid _ addr <- receive endpoint ; True <- return $ addr == theirAddr
+        Received cid' ["pong"] <- receive endpoint ; True <- return $ cid == cid'
+        ErrorEvent (ErrorEventConnectionLost addr' [cid'']) <- receive endpoint ; True <- return $ addr' == theirAddr && cid'' == cid
+        return ()
 
-      -- TODO: we now need to decide (and test) and should happen on a subsequent 'send'
+      -- TEST 4: A subsequent send on an already-open connection will now break
+      Left (FailedWith SendConnectionClosed _) <- send conn ["ping2"]
 
--}
-      
-
+      -- *Pfew* 
+      putMVar serverDone ()
 
     client :: MVar (N.HostName, N.ServiceName, EndPointId) -> MVar EndPointAddress -> IO ()
     client serverAddr clientAddr = do
@@ -111,7 +113,31 @@ testEarlyDisconnect = do
       putMVar clientAddr ourAddress 
       (_, _, endPointIx) <- readMVar serverAddr
  
-        
+      -- Listen for incoming messages
+      forkServer "127.0.0.1" "8082" 5 throw $ \sock -> do
+        -- Initial setup 
+        0 <- recvInt32 sock :: IO Int
+        _ <- recvWithLength sock 
+        sendMany sock [encodeInt32 ConnectionRequestAccepted]
+
+        -- Server requests a logical connection 
+        RequestConnectionId <- toEnum <$> (recvInt32 sock :: IO Int)
+        reqId <- recvInt32 sock :: IO Int
+        sendMany sock (encodeInt32 ControlResponse : encodeInt32 reqId : prependLength [encodeInt32 (10001 :: Int)])
+
+        -- Server sends a message
+        10001 <- recvInt32 sock :: IO Int
+        ["ping"] <- recvWithLength sock
+
+        -- Reply 
+        sendMany sock [encodeInt32 RequestConnectionId, encodeInt32 (10002 :: Int)]
+        ControlResponse <- toEnum <$> (recvInt32 sock :: IO Int)
+        10002 <- recvInt32 sock :: IO Int 
+        [cid] <- recvWithLength sock
+        sendMany sock (cid : prependLength ["pong"]) 
+
+        -- Close the socket
+        N.sClose sock
  
       -- Connect to the server
       addr:_ <- N.getAddrInfo Nothing (Just "127.0.0.1") (Just "8081")
@@ -131,6 +157,7 @@ testEarlyDisconnect = do
       -- Close the socket without closing the connection explicitly
       -- The server should still receive a ConnectionClosed message
       N.sClose sock
+
 
 -- | Test the creation of a transport with an invalid address
 testInvalidAddress :: IO ()
@@ -344,10 +371,11 @@ main :: IO ()
 main = do
   tryIO $ runTests 
            [ ("EarlyDisconnect",       testEarlyDisconnect)
-           , ("InvalidAddress",        testInvalidAddress)
-           , ("InvalidConnect",        testInvalidConnect)
-           , ("IgnoreCloseSocket",     testIgnoreCloseSocket)
-           , ("BlockAfterCloseSocket", testBlockAfterCloseSocket)
+            , ("InvalidAddress",        testInvalidAddress)
+            , ("InvalidConnect",        testInvalidConnect)
+            , ("IgnoreCloseSocket",     testIgnoreCloseSocket)
+            , ("BlockAfterCloseSocket", testBlockAfterCloseSocket)
            ]
   Right transport <- createTransport "127.0.0.1" "8080" 
   testTransport transport 
+  return ()
