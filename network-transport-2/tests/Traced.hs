@@ -1,161 +1,108 @@
-{-# LANGUAGE RebindableSyntax #-}
--- | Monad to trace all terms that get bound
+{-# LANGUAGE RebindableSyntax, FlexibleInstances, UndecidableInstances, ScopedTypeVariables, DeriveDataTypeable #-}
+-- | Add "tracing" to the IO monad (see examples). 
 -- 
--- Examples:
+-- [Usage]
+-- 
+-- > {-# LANGUAGE RebindableSyntax #-}
+-- > import Prelude hiding (catch, (>>=), (>>), return, fail)
+-- > import Traced
+--
+-- [Example]
 --
 -- > test1 :: IO Int
--- > test1 = runTraced $ do
+-- > test1 = do
 -- >   Left x  <- return (Left 1 :: Either Int Int)
--- >   Left y  <- return (Left 2 :: Either Int Int)
--- >   return (x + y)
---
--- outputs
---
--- > 3
---
--- as expected. Things get more interesting when we have a pattern match failure:
---
--- > test2 :: IO Int
--- > test2 = runTraced $ do
--- >   Left x  <- return (Left 1 :: Either Int Int)
+-- >   putStrLn "Hello world"
 -- >   Right y <- return (Left 2 :: Either Int Int)
 -- >   return (x + y)
 --
--- outputs
+-- outputs 
 --
--- > *** Exception: user error (Pattern match failure in do expression at Traced.hs:96:3-9
+-- > Hello world
+-- > *** Exception: user error (Pattern match failure in do expression at tests/Traced.hs:107:3-9)
 -- > Trace:
--- >   Left 1
--- >   Left 2
--- > )
+-- > 0	Left 2
+-- > 1	Left 1
 --
--- The module also exports a 'guard' function which is used in similar fashion
--- to the 'guard' from "Control.Monad":
+-- [Guards]
 --
--- > test3 :: IO Int
--- > test3 = runTraced $ do
--- >   Left x  <- return (Left 1 :: Either Int Int)
--- >   Left y  <- return (Left 2 :: Either Int Int)
--- >   guard (x == 3)
--- >   return (x + y)
+-- Use the following idiom instead of using 'Control.Monad.guard':
 --
--- outputs
---
--- > *** Exception: user error (Guard failed
--- > Trace:
--- >   Left 1
--- >   Left 2
--- > )
---  
--- Note that we get no line-number info this way; we can fix this by saying
---
--- > test4 :: IO Int
--- > test4 = runTraced $ do
--- >   Left x  <- return (Left 1 :: Either Int Int)
--- >   Left y  <- return (Left 2 :: Either Int Int)
--- >   True <- return (x == 3)
--- >   return (x + y)
---
--- which outputs
---
--- > *** Exception: user error (Pattern match failure in do expression at Traced.hs:110:3-6
--- > Trace:
--- >   Left 1
--- >   Left 2
--- >   False
--- > )
---
--- The module also exports a 'liftIO', and does not trace ignored unit values (from '>>'): 
---
--- > test5 :: IO Int
--- > test5 = runTraced $ do
+-- > test2 :: IO Int
+-- > test2 = do
 -- >   Left x <- return (Left 1 :: Either Int Int)
--- >   liftIO $ putStrLn "hi"  
--- >   Left y <- return (Left 2 :: Either Int Int)
--- >   True   <- return (y == 1)
--- >   return (x + y)
--- 
--- outputs
+-- >   True   <- return (x == 3)
+-- >   return x 
 --
--- > hi
--- > *** Exception: user error (Pattern match failure in do expression at Traced.hs:137:3-6
+-- The advantage of this idiom is that it gives you line number information when the guard fails:
+--
+-- > *Traced> test3
+-- > *** Exception: user error (Pattern match failure in do expression at tests/Traced.hs:103:3-6)
 -- > Trace:
--- >   Left 1
--- >   Left 2
--- >   False
--- > )
---
--- Every Monad is also a MonadS, but not vice versa.
-
-module Traced ( -- Subclass of monads where bind is defined only for showable arguments 
-              MonadS(..)
-            , return
-            , (>>=)
-            , (>>)
-            , fail
-            , guard
-              -- MonadS instance that shows a trace of all bound terms when an error occurs
-            , Traced
-            , runTraced
-            , liftIO
-            ) where
+-- > 0	False
+-- > 1	Left 1
+module Traced ( MonadS(..)
+              , return
+              , (>>=)
+              , (>>)
+              , fail
+              ) where
 
 import Prelude hiding ((>>=), return, fail, catch, (>>))
 import qualified Prelude
 import Data.String (fromString)
+import Control.Exception (catches, Handler(..), SomeException, throw, Exception(..))
+import Data.Typeable (Typeable)
 
+--------------------------------------------------------------------------------
+-- MonadS class                                                               --
+--------------------------------------------------------------------------------
+
+-- | Like 'Monad' but bind is only defined for 'Showable' instances
 class MonadS m where
   returnS :: a -> m a 
   bindS   :: Show a => m a -> (a -> m b) -> m b
   failS   :: String -> m a
   seqS    :: m a -> m b -> m b
 
-instance MonadS IO where
-  returnS = Prelude.return
-  bindS   = (Prelude.>>=)
-  failS   = Prelude.fail
-  seqS    = (Prelude.>>)
-
-newtype Traced a = Traced { unTraced :: IO ([String], Either String a) }
-
-instance MonadS Traced where
-  returnS x = Traced $ Prelude.return ([], Right x) 
-  x `bindS` f = Traced $ unTraced x Prelude.>>= \(trace, result) ->
-    case result of
-      Left err -> Prelude.return (trace, Left err)
-      Right a  -> unTraced (f a) Prelude.>>= \(trace', result') ->
-        Prelude.return (trace ++ show a : trace', result')
-  x `seqS` y = Traced $ unTraced x Prelude.>>= \(trace, result) ->
-    case result of
-      Left err -> Prelude.return (trace, Left err)
-      Right _  -> unTraced y Prelude.>>= \(trace', result') ->
-        Prelude.return (trace ++ trace', result')
-  failS err = Traced $ Prelude.return ([], Left err)
-
-runTraced :: Traced a -> IO a
-runTraced (Traced x) = x Prelude.>>= \(trace, ma) ->
-  case ma of
-    Left err -> Prelude.fail $ err ++ "\nTrace:\n" ++ showTrace trace
-    Right a  -> Prelude.return a 
-
-showTrace :: [String] -> String
-showTrace = unlines . map (\xs -> ' ' : ' ' : xs) 
-
-guard :: MonadS m => Bool -> m ()
-guard True  = returnS ()
-guard False = failS "Guard failed" 
-
+-- | Redefinition of 'Prelude.>>=' 
 (>>=) :: (MonadS m, Show a) => m a -> (a -> m b) -> m b
 (>>=) = bindS
 
+-- | Redefinition of 'Prelude.>>'
 (>>) :: (MonadS m, Show a) => m a -> m b -> m b
 (>>) = seqS
 
+-- | Redefinition of 'Prelude.return'
 return :: MonadS m => a -> m a
 return = returnS
 
+-- | Redefinition of 'Prelude.fail'
 fail :: MonadS m => String -> m a
 fail = failS 
 
-liftIO :: IO a -> Traced a
-liftIO x = Traced $ x Prelude.>>= \a -> Prelude.return ([], Right a) 
+--------------------------------------------------------------------------------
+-- IO instance for MonadS                                                     --
+--------------------------------------------------------------------------------
+
+data TracedException = TracedException [String] SomeException
+  deriving Typeable
+
+instance Exception TracedException
+
+-- | Add tracing to 'IO' (see examples) 
+instance MonadS IO where
+  returnS = Prelude.return
+  bindS   = \x f -> x Prelude.>>= \a -> catches (f a) (traceHandlers a)
+  failS   = Prelude.fail
+  seqS    = (Prelude.>>)
+
+instance Show TracedException where
+  show (TracedException trace ex) = 
+    show ex ++ "\nTrace:\n" ++ unlines (map (\(i, t) -> show i ++ "\t" ++ t) (zip ([0..] :: [Int]) (reverse trace)))
+
+traceHandlers :: Show a => a -> [Handler b]
+traceHandlers a = 
+  [ Handler $ \(TracedException trace ex) -> throw $ TracedException (show a : trace) ex
+  , Handler $ \(ex :: SomeException) -> throw $ TracedException [show a] ex
+  ]

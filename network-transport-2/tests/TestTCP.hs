@@ -11,7 +11,7 @@ import Data.Int (Int32)
 import Data.Maybe (fromJust)
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar, readMVar, isEmptyMVar)
-import Control.Monad (replicateM)
+import Control.Monad (replicateM, guard)
 import Control.Applicative ((<$>))
 import Network.Transport.TCP ( decodeEndPointAddress
                              , EndPointId
@@ -49,9 +49,6 @@ instance Show Transport where
 instance Show Connection where
   show _ = "<<connection>>"
 
-trlog :: String -> Traced ()
-trlog = liftIO . tlog
-
 -- Test that the server gets a ConnectionClosed message when the client closes
 -- the socket without sending an explicit control message to the server first
 testEarlyDisconnect :: IO ()
@@ -74,22 +71,18 @@ testEarlyDisconnect = do
       putMVar serverAddr (fromJust . decodeEndPointAddress . address $ endpoint)
       theirAddr <- readMVar clientAddr
 
-      runTraced $ do
-        -- First test: they connect to us, then drop the connection
-        ConnectionOpened cid _ addr <- liftIO $ receive endpoint 
-        True <- return $ addr == theirAddr
-        
-        ErrorEvent (ErrorEventConnectionLost addr' [cid']) <- liftIO $ receive endpoint 
-        True <- return $ addr' == theirAddr && cid' == cid
+      -- First test: they connect to us, then drop the connection
+      ConnectionOpened cid _ addr <- receive endpoint 
+      True <- return $ addr == theirAddr
+      
+      ErrorEvent (ErrorEventConnectionLost addr' [cid']) <- receive endpoint 
+      True <- return $ addr' == theirAddr && cid' == cid
 
-        -- Second test: after they dropped their connection to us, we now try to
-        -- establish a connection to them. This should re-establish the broken
-        -- TCP connection. 
-        trlog "Trying to connect to client"
-        Right _ <- liftIO $ connect endpoint theirAddr ReliableOrdered 
-
-
-        return ()
+      -- Second test: after they dropped their connection to us, we now try to
+      -- establish a connection to them. This should re-establish the broken
+      -- TCP connection. 
+      tlog "Trying to connect to client"
+      Right _ <- connect endpoint theirAddr ReliableOrdered 
 
       putMVar serverDone ()
 
@@ -145,24 +138,24 @@ testInvalidAddress = do
 
 -- | Test connecting to invalid or non-existing endpoints
 testInvalidConnect :: IO ()
-testInvalidConnect = runTraced $ do
-  Right transport <- liftIO $ createTransport "127.0.0.1" "8083"
-  Right endpoint  <- liftIO $ newEndPoint transport
+testInvalidConnect = do
+  Right transport <- createTransport "127.0.0.1" "8083"
+  Right endpoint  <- newEndPoint transport
 
   -- Syntax error in the endpoint address
-  Left (FailedWith ConnectInvalidAddress _) <- liftIO $ 
+  Left (FailedWith ConnectInvalidAddress _) <- 
     connect endpoint (EndPointAddress "InvalidAddress") ReliableOrdered
  
   -- Syntax connect, but invalid hostname (TCP address lookup failure)
-  Left (FailedWith ConnectInvalidAddress _) <- liftIO $
+  Left (FailedWith ConnectInvalidAddress _) <- 
     connect endpoint (EndPointAddress "invalidHost:port:0") ReliableOrdered
  
   -- TCP address correct, but nobody home at that address
-  Left (FailedWith ConnectFailed _) <- liftIO $
+  Left (FailedWith ConnectFailed _) <- 
     connect endpoint (EndPointAddress "127.0.0.1:9000:0") ReliableOrdered
  
   -- Valid TCP address but invalid endpoint number
-  Left (FailedWith ConnectInvalidAddress _) <- liftIO $
+  Left (FailedWith ConnectInvalidAddress _) <- 
     connect endpoint (EndPointAddress "127.0.0.1:8083:1") ReliableOrdered
 
   return ()
