@@ -58,13 +58,11 @@ import Control.Concurrent.MVar ( MVar
                                , putMVar
                                , newEmptyMVar
                                , withMVar
-                               , tryTakeMVar
                                )
 import Control.Category ((>>>))
 import Control.Applicative ((<*>), (*>), (<$>))
-import Control.Monad (forM_, void, when, mzero, unless)
+import Control.Monad (forM, forM_, void, when, unless)
 import Control.Monad.Error (ErrorT(ErrorT), runErrorT, throwError)
-import Control.Monad.Trans.Maybe (MaybeT, runMaybeT)
 import Control.Monad.IO.Class (liftIO)
 import Control.Exception (IOException, SomeException)
 import Data.IORef (IORef, newIORef, writeIORef, readIORef)
@@ -75,7 +73,7 @@ import Data.Int (Int32)
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap (empty)
 import Data.IntSet (IntSet)
-import qualified Data.IntSet as IntSet (empty, insert, elems, singleton, null, delete)
+import qualified Data.IntSet as IntSet (empty, insert, elems, singleton, null, delete, unions)
 import Data.Map (Map)
 import qualified Data.Map as Map (empty, elems, size)
 import Data.Lens.Lazy (Lens, lens, intMapLens, mapLens, (^.), (^=), (^+=), (^%=))
@@ -396,28 +394,30 @@ apiCloseEndPoint transport ourEndPoint = do
   -- We take the endpoint state and don't put it back
   -- (this may block some threads, but we don't care: we are killing them anyway)
   ourState <- takeMVar (localState ourEndPoint)
-  --incoming <- IntSet.elems <$> takeMVar (localIncoming ourEndPoint)
-  let incoming = undefined
-  -- Kill all threads associated with this endpoint and close all sockets
+  -- Close all endpoints and kill all threads  
+  incoming <- IntSet.elems . IntSet.unions <$> (forM (Map.elems $ ourState ^. localConnections) $ tryCloseRemoteSocket)
   forM_ (ourState ^. internalThreads) killThread
-  forM_ (Map.elems $ ourState ^. localConnections) $ \theirEndPoint ->  
-    runMaybeT $ remoteSocketOf theirEndPoint >>= liftIO . N.sClose 
   -- We send a single message to the endpoint that it is closed. Subsequent
   -- calls will block. We could change this so that all subsequent calls to
   -- receive return an error, but this would mean checking for some state on
   -- every call to receive, which is an unnecessary overhead.  
   writeChan (localChannel ourEndPoint) (ErrorEvent $ ErrorEventEndPointClosed incoming)
   where
-    remoteSocketOf :: RemoteEndPoint -> MaybeT IO N.Socket
-    remoteSocketOf theirEndPoint = do
+    -- Close the remote socket and return the set of all incoming connections
+    tryCloseRemoteSocket :: RemoteEndPoint -> IO IntSet 
+    tryCloseRemoteSocket theirEndPoint = do
       -- Like above, we take but don't put back
-      mRemoteState <- liftIO $ tryTakeMVar (remoteState theirEndPoint)
-      case mRemoteState of
-        Nothing                             -> mzero 
-        Just (RemoteEndPointInvalid _)      -> mzero 
-        Just (RemoteEndPointValid conn)     -> return $ remoteSocket conn
-        Just (RemoteEndPointClosing _ conn) -> return $ remoteSocket conn
-        Just  RemoteEndPointClosed          -> mzero 
+      st <- takeMVar (remoteState theirEndPoint)
+      -- We make an attempt to close the connection nicely (by sending a CloseSocket first)
+      case st of
+        RemoteEndPointInvalid _      -> do return IntSet.empty 
+        RemoteEndPointValid conn     -> do tryIO $ do
+                                             sendOn conn [encodeInt32 CloseSocket]
+                                             N.sClose (remoteSocket conn)
+                                           return (conn ^. remoteIncoming)
+        RemoteEndPointClosing _ conn -> do tryIO $ N.sClose (remoteSocket conn)
+                                           return IntSet.empty
+        RemoteEndPointClosed         -> do return IntSet.empty 
 
 -- | Special case of 'apiConnect': connect an endpoint to itself
 connectToSelf :: LocalEndPoint -> IO (Either (FailedWith ConnectErrorCode) Connection)
@@ -905,7 +905,6 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
           return ()
         Just unclosedConnections -> writeChan ourChannel . ErrorEvent $ 
           ErrorEventConnectionLost (remoteAddress theirEndPoint) (IntSet.elems unclosedConnections)
-
 
 -- | Get the next connection ID
 getNextConnectionId :: LocalEndPoint -> IO ConnectionId

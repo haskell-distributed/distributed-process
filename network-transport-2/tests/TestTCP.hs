@@ -498,4 +498,3 @@ main = do
            ]
   Right transport <- createTransport "127.0.0.1" "8080" 
   testTransport transport 
-  return ()

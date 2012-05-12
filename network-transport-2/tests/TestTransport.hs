@@ -512,6 +512,82 @@ testConnectToSelfTwice transport numPings = do
 
   takeMVar done
 
+-- | Test various aspects of 'closeEndPoint' 
+testCloseEndPoint :: Transport -> Int -> IO ()
+testCloseEndPoint transport _ = do
+  serverDone <- newEmptyMVar
+  clientDone <- newEmptyMVar
+  clientAddr1 <- newEmptyMVar
+  clientAddr2 <- newEmptyMVar
+  serverAddr <- newEmptyMVar
+
+  -- Server
+  forkTry $ do
+    Right endpoint <- newEndPoint transport
+    putMVar serverAddr (address endpoint)
+
+    -- First test (see client)
+    do
+      theirAddr <- readMVar clientAddr1
+      ConnectionOpened cid ReliableOrdered addr <- receive endpoint ; True <- return $ addr == theirAddr
+      ConnectionClosed cid' <- receive endpoint ; True <- return $ cid == cid'
+      return ()
+
+    -- Second test
+    do
+      theirAddr <- readMVar clientAddr2
+      
+      ConnectionOpened cid ReliableOrdered addr <- receive endpoint ; True <- return $ addr == theirAddr
+      Received cid' ["ping"] <- receive endpoint ; True <- return $ cid == cid'
+
+      Right conn <- connect endpoint theirAddr ReliableOrdered
+      send conn ["pong"]
+
+      ConnectionClosed cid'' <- receive endpoint ; True <- return $ cid == cid''
+      ErrorEvent (ErrorEventConnectionLost addr' []) <- receive endpoint ; True <- return $ addr' == theirAddr
+
+      Left (FailedWith SendConnectionClosed _) <- send conn ["pong2"]
+    
+      return ()
+
+    putMVar serverDone ()
+
+  -- Client
+  forkTry $ do
+    theirAddr <- readMVar serverAddr
+
+    -- First test: close endpoint with one outgoing but no incoming connections
+    do
+      Right endpoint <- newEndPoint transport
+      putMVar clientAddr1 (address endpoint) 
+
+      -- Connect to the server, then close the endpoint without disconnecting explicitly
+      Right _ <- connect endpoint theirAddr ReliableOrdered
+      closeEndPoint endpoint
+      ErrorEvent (ErrorEventEndPointClosed []) <- receive endpoint
+      return ()
+
+    -- Second test: close endpoint with one outgoing and one incoming connection
+    do
+      Right endpoint <- newEndPoint transport
+      putMVar clientAddr2 (address endpoint) 
+
+      Right conn <- connect endpoint theirAddr ReliableOrdered
+      send conn ["ping"]
+
+      -- Reply from the server
+      ConnectionOpened cid ReliableOrdered addr <- receive endpoint ; True <- return $ addr == theirAddr
+      Received cid' ["pong"] <- receive endpoint ; True <- return $ cid == cid'
+
+      -- Close the endpoint 
+      closeEndPoint endpoint
+      ErrorEvent (ErrorEventEndPointClosed [cid'']) <- receive endpoint; True <- return $ cid == cid''
+      return ()
+
+    putMVar clientDone ()
+
+  mapM_ takeMVar [serverDone, clientDone]
+
 -- Transport tests
 testTransport :: Transport -> IO ()
 testTransport transport = runTests 
@@ -525,7 +601,8 @@ testTransport transport = runTests
   , ("SendAfterClose",     testSendAfterClose transport numPings)
   , ("CloseTwice",         testCloseTwice transport numPings)
   , ("ConnectToSelf",      testConnectToSelf transport numPings)
-  , ("ConnectToSelfTwice", testConnectToSelfTwice transport numPings)
+  , ("ConnectToSelfTwice", testConnectToSelfTwice transport numPings) 
+  , ("CloseEndPoint",      testCloseEndPoint transport numPings)
   ]
   where
     numPings = 10000 :: Int
