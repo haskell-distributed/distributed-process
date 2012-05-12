@@ -842,18 +842,21 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
       canClose <- modifyMVar theirState $ \st ->
         case st of
           RemoteEndPointValid remoteConn -> do
-            -- TODO: We check only for outgoing connections here. That is
-            -- correct, but we need to make sure that we send the right event
-            -- to our endpoint for any incoming connections that are still live
-            -- at this point. 
-            if remoteConn ^. remoteOutgoing == 0 
+            -- We regard a CloseSocket message as an (optimized) way for the
+            -- remote endpoint to indicate that all its connections to us are
+            -- now properly closed
+            forM_ (IntSet.elems $ remoteConn ^. remoteIncoming) $ \cid ->
+              writeChan ourChannel (ConnectionClosed cid)
+            let remoteConn' = remoteIncoming ^= IntSet.empty $ remoteConn 
+            -- Check if we agree that the connection should be closed
+            if remoteConn' ^. remoteOutgoing == 0 
               then do 
-                -- TODO: code duplication with closeIfUnused
+                -- Attempt to reply (but don't insist)
+                tryIO $ sendOn remoteConn' [encodeInt32 CloseSocket]
                 resolved <- newEmptyMVar 
-                sendOn remoteConn [encodeInt32 CloseSocket]
-                return (RemoteEndPointClosing resolved remoteConn, Just resolved)
+                return (RemoteEndPointClosing resolved remoteConn', Just resolved)
               else 
-                return (st, Nothing)
+                return (RemoteEndPointValid remoteConn', Nothing)
           RemoteEndPointClosing resolved _ ->
             return (st, Just resolved)
           _ ->

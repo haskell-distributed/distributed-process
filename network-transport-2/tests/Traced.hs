@@ -129,6 +129,10 @@ instance (Traceable a, Traceable b, Traceable c) => Traceable (a, b, c) where
     (Nothing, Just t2, Just t3) -> traceShow (t2, t3)
     (Just t1, Just t2, Just t3) -> traceShow (t1, t2, t3)
 
+instance Traceable a => Traceable (Maybe a) where
+  trace Nothing  = traceShow (Nothing :: Maybe ())
+  trace (Just x) = mapShowable (Showable . Just) <$> trace x  
+
 instance Traceable a => Traceable [a] where
   trace = traceShow . catMaybes . map trace 
 

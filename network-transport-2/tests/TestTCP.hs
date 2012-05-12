@@ -10,8 +10,8 @@ import Network.Transport.TCP (createTransport, encodeEndPointAddress)
 import Data.Int (Int32)
 import Data.Maybe (fromJust)
 import Control.Concurrent (threadDelay)
-import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar, readMVar, isEmptyMVar)
-import Control.Monad (replicateM, guard)
+import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar, readMVar, isEmptyMVar, tryTakeMVar)
+import Control.Monad (replicateM, guard, forM_)
 import Control.Applicative ((<$>))
 import Control.Exception (throw)
 import Network.Transport.TCP ( decodeEndPointAddress
@@ -54,8 +54,8 @@ instance Traceable N.AddrInfo where
 
 -- Test that the server gets a ConnectionClosed message when the client closes
 -- the socket without sending an explicit control message to the server first
-testEarlyDisconnect :: IO ()
-testEarlyDisconnect = do
+testEarlyDisconnect :: IO N.ServiceName -> IO ()
+testEarlyDisconnect nextPort = do
     clientAddr <- newEmptyMVar
     serverAddr <- newEmptyMVar
     serverDone <- newEmptyMVar
@@ -66,12 +66,12 @@ testEarlyDisconnect = do
 
     takeMVar serverDone
   where
-    server :: MVar (N.HostName, N.ServiceName, EndPointId) -> MVar EndPointAddress -> MVar () -> IO ()
+    server :: MVar EndPointAddress -> MVar EndPointAddress -> MVar () -> IO ()
     server serverAddr clientAddr serverDone = do
       tlog "Server"
-      Right transport  <- createTransport "127.0.0.1" "8081" 
-      Right endpoint <- newEndPoint transport
-      putMVar serverAddr (fromJust . decodeEndPointAddress . address $ endpoint)
+      Right transport <- nextPort >>= createTransport "127.0.0.1" 
+      Right endpoint  <- newEndPoint transport
+      putMVar serverAddr (address endpoint)
       theirAddr <- readMVar clientAddr
 
       -- TEST 1: they connect to us, then drop the connection
@@ -106,15 +106,16 @@ testEarlyDisconnect = do
       -- *Pfew* 
       putMVar serverDone ()
 
-    client :: MVar (N.HostName, N.ServiceName, EndPointId) -> MVar EndPointAddress -> IO ()
+    client :: MVar EndPointAddress -> MVar EndPointAddress -> IO ()
     client serverAddr clientAddr = do
       tlog "Client"
-      let  ourAddress = encodeEndPointAddress "127.0.0.1" "8082" 0 
+      clientPort <- nextPort
+      let  ourAddress = encodeEndPointAddress "127.0.0.1" clientPort 0 
       putMVar clientAddr ourAddress 
-      (_, _, endPointIx) <- readMVar serverAddr
+      (serverHost, serverPort, endPointIx) <- fromJust . decodeEndPointAddress <$> readMVar serverAddr
  
       -- Listen for incoming messages
-      forkServer "127.0.0.1" "8082" 5 throw $ \sock -> do
+      forkServer "127.0.0.1" clientPort 5 throw $ \sock -> do
         -- Initial setup 
         0 <- recvInt32 sock :: IO Int
         _ <- recvWithLength sock 
@@ -140,7 +141,7 @@ testEarlyDisconnect = do
         N.sClose sock
  
       -- Connect to the server
-      addr:_ <- N.getAddrInfo Nothing (Just "127.0.0.1") (Just "8081")
+      addr:_ <- N.getAddrInfo Nothing (Just serverHost) (Just serverPort)
       sock   <- N.socket (N.addrFamily addr) N.Stream N.defaultProtocol
       N.setSocketOption sock N.ReuseAddr 1
       N.connect sock (N.addrAddress addr)
@@ -155,20 +156,134 @@ testEarlyDisconnect = do
       sendMany sock [encodeInt32 RequestConnectionId, encodeInt32 reqId]
   
       -- Close the socket without closing the connection explicitly
-      -- The server should still receive a ConnectionClosed message
+      -- The server should receive an error event 
       N.sClose sock
 
+-- | Test the behaviour of a premature CloseSocket request
+testEarlyCloseSocket :: IO N.ServiceName -> IO ()
+testEarlyCloseSocket nextPort = do
+    clientAddr <- newEmptyMVar
+    serverAddr <- newEmptyMVar
+    serverDone <- newEmptyMVar
+
+    tlog "testEarlyDisconnect"
+    forkTry $ server serverAddr clientAddr serverDone
+    forkTry $ client serverAddr clientAddr
+
+    takeMVar serverDone
+  where
+    server :: MVar EndPointAddress -> MVar EndPointAddress -> MVar () -> IO ()
+    server serverAddr clientAddr serverDone = do
+      tlog "Server"
+      Right transport <- nextPort >>= createTransport "127.0.0.1" 
+      Right endpoint  <- newEndPoint transport
+      putMVar serverAddr (address endpoint)
+      theirAddr <- readMVar clientAddr
+
+      -- TEST 1: they connect to us, then send a CloseSocket. Since we don't
+      -- have any outgoing connections, this means we will agree to close the
+      -- socket  
+      do
+        ConnectionOpened cid _ addr <- receive endpoint 
+        True <- return $ addr == theirAddr
+      
+        ConnectionClosed cid' <- receive endpoint 
+        True <- return $ cid' == cid
+
+        return ()
+
+      -- TEST 2: after they dropped their connection to us, we now try to
+      -- establish a connection to them. This should re-establish the broken
+      -- TCP connection. 
+      tlog "Trying to connect to client"
+      Right conn <- connect endpoint theirAddr ReliableOrdered 
+
+      -- TEST 3: To test the connection, we do a simple ping test; as before,
+      -- however, the remote client won't close the connection nicely but just
+      -- sends a CloseSocket -- except that now we *do* have outgoing
+      -- connections, so we won't agree and hence will receive an error when
+      -- the socket gets closed
+      do
+        Right () <- send conn ["ping"]
+        ConnectionOpened cid _ addr <- receive endpoint ; True <- return $ addr == theirAddr
+        Received cid' ["pong"] <- receive endpoint ; True <- return $ cid' == cid
+        ConnectionClosed cid'' <- receive endpoint ; True <- return $ cid'' == cid
+        ErrorEvent (ErrorEventConnectionLost addr' []) <- receive endpoint ; True <- return $ addr' == theirAddr 
+        return ()
+
+      -- TEST 4: A subsequent send on an already-open connection will now break
+      Left (FailedWith SendConnectionClosed _) <- send conn ["ping2"]
+
+      -- *Pfew* 
+      putMVar serverDone ()
+
+    client :: MVar EndPointAddress -> MVar EndPointAddress -> IO ()
+    client serverAddr clientAddr = do
+      tlog "Client"
+      clientPort <- nextPort
+      let  ourAddress = encodeEndPointAddress "127.0.0.1" clientPort 0 
+      putMVar clientAddr ourAddress 
+      (serverHost, serverPort, endPointIx) <- fromJust . decodeEndPointAddress <$> readMVar serverAddr
+ 
+      -- Listen for incoming messages
+      forkServer "127.0.0.1" clientPort 5 throw $ \sock -> do
+        -- Initial setup 
+        0 <- recvInt32 sock :: IO Int
+        _ <- recvWithLength sock 
+        sendMany sock [encodeInt32 ConnectionRequestAccepted]
+
+        -- Server requests a logical connection 
+        RequestConnectionId <- toEnum <$> (recvInt32 sock :: IO Int)
+        reqId <- recvInt32 sock :: IO Int
+        sendMany sock (encodeInt32 ControlResponse : encodeInt32 reqId : prependLength [encodeInt32 (10001 :: Int)])
+
+        -- Server sends a message
+        10001 <- recvInt32 sock :: IO Int
+        ["ping"] <- recvWithLength sock
+
+        -- Reply 
+        sendMany sock [encodeInt32 RequestConnectionId, encodeInt32 (10002 :: Int)]
+        ControlResponse <- toEnum <$> (recvInt32 sock :: IO Int)
+        10002 <- recvInt32 sock :: IO Int 
+        [cid] <- recvWithLength sock
+        sendMany sock (cid : prependLength ["pong"]) 
+
+        -- Send a CloseSocket even though there are still connections *in both
+        -- directions*
+        sendMany sock [encodeInt32 CloseSocket]
+        N.sClose sock
+ 
+      -- Connect to the server
+      addr:_ <- N.getAddrInfo Nothing (Just serverHost) (Just serverPort)
+      sock   <- N.socket (N.addrFamily addr) N.Stream N.defaultProtocol
+      N.setSocketOption sock N.ReuseAddr 1
+      N.connect sock (N.addrAddress addr)
+  
+      sendMany sock (encodeInt32 endPointIx : prependLength [endPointAddressToByteString ourAddress])
+
+      -- Wait for acknowledgement
+      ConnectionRequestAccepted <- toEnum <$> recvInt32 sock
+  
+      -- Request a new connection, but don't wait for the response
+      let reqId = 0 :: Int32
+      sendMany sock [encodeInt32 RequestConnectionId, encodeInt32 reqId]
+  
+      -- Send a CloseSocket without sending a closeconnecton 
+      -- The server should still receive a ConnectionClosed message
+      sendMany sock [encodeInt32 CloseSocket]
+      N.sClose sock
 
 -- | Test the creation of a transport with an invalid address
-testInvalidAddress :: IO ()
-testInvalidAddress = do
-  Left _ <- createTransport "invalidHostName" "8082"
+testInvalidAddress :: IO N.ServiceName -> IO ()
+testInvalidAddress nextPort = do
+  Left _ <- nextPort >>= createTransport "invalidHostName" 
   return ()
 
 -- | Test connecting to invalid or non-existing endpoints
-testInvalidConnect :: IO ()
-testInvalidConnect = do
-  Right transport <- createTransport "127.0.0.1" "8083"
+testInvalidConnect :: IO N.ServiceName -> IO ()
+testInvalidConnect nextPort = do
+  port            <- nextPort
+  Right transport <- createTransport "127.0.0.1" port 
   Right endpoint  <- newEndPoint transport
 
   -- Syntax error in the endpoint address
@@ -177,26 +292,26 @@ testInvalidConnect = do
  
   -- Syntax connect, but invalid hostname (TCP address lookup failure)
   Left (FailedWith ConnectInvalidAddress _) <- 
-    connect endpoint (EndPointAddress "invalidHost:port:0") ReliableOrdered
+    connect endpoint (encodeEndPointAddress "invalidHost" "port" 0) ReliableOrdered
  
   -- TCP address correct, but nobody home at that address
   Left (FailedWith ConnectFailed _) <- 
-    connect endpoint (EndPointAddress "127.0.0.1:9000:0") ReliableOrdered
+    connect endpoint (encodeEndPointAddress "127.0.0.1" "9000" 0) ReliableOrdered
  
   -- Valid TCP address but invalid endpoint number
   Left (FailedWith ConnectInvalidAddress _) <- 
-    connect endpoint (EndPointAddress "127.0.0.1:8083:1") ReliableOrdered
+    connect endpoint (encodeEndPointAddress "127.0.0.1" port 1) ReliableOrdered
 
   return ()
 
 -- | Test that an endpoint can ignore CloseSocket requests (in "reality" this
 -- would happen when the endpoint sends a new connection request before
 -- receiving an (already underway) CloseSocket request) 
-testIgnoreCloseSocket :: IO ()
-testIgnoreCloseSocket = do
+testIgnoreCloseSocket :: IO N.ServiceName -> IO ()
+testIgnoreCloseSocket nextPort = do
     serverAddr <- newEmptyMVar
     clientDone <- newEmptyMVar
-    Right transport <- createTransport "127.0.0.1" "8084"
+    Right transport <- nextPort >>= createTransport "127.0.0.1" 
   
     forkTry $ server transport serverAddr
     forkTry $ client transport serverAddr clientDone 
@@ -232,15 +347,15 @@ testIgnoreCloseSocket = do
       tlog "Client"
       Right endpoint <- newEndPoint transport
       let EndPointAddress myAddress = address endpoint
+      (serverHost, serverPort, endPointIx) <- readMVar serverAddr
 
       -- Connect to the server
-      addr:_ <- N.getAddrInfo Nothing (Just "127.0.0.1") (Just "8084")
+      addr:_ <- N.getAddrInfo Nothing (Just serverHost) (Just serverPort)
       sock   <- N.socket (N.addrFamily addr) N.Stream N.defaultProtocol
       N.setSocketOption sock N.ReuseAddr 1
       N.connect sock (N.addrAddress addr)
 
       tlog "Connecting to endpoint"
-      (_, _, endPointIx) <- readMVar serverAddr
       sendMany sock (encodeInt32 endPointIx : prependLength [myAddress])
 
       -- Wait for acknowledgement
@@ -283,12 +398,13 @@ testIgnoreCloseSocket = do
 -- | Like 'testIgnoreSocket', but now the server requests a connection after the
 -- client closed their connection. In the meantime, the server will have sent a
 -- CloseSocket request to the client, and must block until the client responds.
-testBlockAfterCloseSocket :: IO ()
-testBlockAfterCloseSocket = do
+testBlockAfterCloseSocket :: IO N.ServiceName -> IO ()
+testBlockAfterCloseSocket nextPort = do
     serverAddr <- newEmptyMVar
     clientAddr <- newEmptyMVar
     clientDone <- newEmptyMVar
-    Right transport <- createTransport "127.0.0.1" "8085"
+    port       <- nextPort 
+    Right transport <- createTransport "127.0.0.1" port
   
     forkTry $ server transport serverAddr clientAddr
     forkTry $ client transport serverAddr clientAddr clientDone 
@@ -321,15 +437,15 @@ testBlockAfterCloseSocket = do
       Right endpoint <- newEndPoint transport
       putMVar clientAddr (address endpoint)
       let EndPointAddress myAddress = address endpoint
+      (serverHost, serverPort, endPointIx) <- readMVar serverAddr
 
       -- Connect to the server
-      addr:_ <- N.getAddrInfo Nothing (Just "127.0.0.1") (Just "8084")
+      addr:_ <- N.getAddrInfo Nothing (Just serverHost) (Just serverPort)
       sock   <- N.socket (N.addrFamily addr) N.Stream N.defaultProtocol
       N.setSocketOption sock N.ReuseAddr 1
       N.connect sock (N.addrAddress addr)
 
       tlog "Connecting to endpoint"
-      (_, _, endPointIx) <- readMVar serverAddr
       sendMany sock (encodeInt32 endPointIx : prependLength [myAddress])
 
       -- Wait for acknowledgement
@@ -369,12 +485,16 @@ testBlockAfterCloseSocket = do
 
 main :: IO ()
 main = do
+  portMVar <- newEmptyMVar
+  forkTry $ forM_ ([10080 .. 10087] :: [Int]) $ putMVar portMVar . show 
+  let nextPort = do Just port <- tryTakeMVar portMVar ; return port
   tryIO $ runTests 
-           [ ("EarlyDisconnect",       testEarlyDisconnect)
-            , ("InvalidAddress",        testInvalidAddress)
-            , ("InvalidConnect",        testInvalidConnect)
-            , ("IgnoreCloseSocket",     testIgnoreCloseSocket)
-            , ("BlockAfterCloseSocket", testBlockAfterCloseSocket)
+           [ ("EarlyDisconnect",       testEarlyDisconnect nextPort)
+           , ("EarlyCloseSocket",      testEarlyCloseSocket nextPort)
+           , ("IgnoreCloseSocket",     testIgnoreCloseSocket nextPort)
+           , ("BlockAfterCloseSocket", testBlockAfterCloseSocket nextPort)
+           , ("InvalidAddress",        testInvalidAddress nextPort)
+           , ("InvalidConnect",        testInvalidConnect nextPort) 
            ]
   Right transport <- createTransport "127.0.0.1" "8080" 
   testTransport transport 
