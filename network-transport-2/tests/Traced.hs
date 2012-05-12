@@ -19,7 +19,7 @@
 -- outputs 
 --
 -- > Hello world
--- > *** Exception: user error (Pattern match failure in do expression at tests/Traced.hs:107:3-9)
+-- > *** Exception: user error (Pattern match failure in do expression at Traced.hs:187:3-9)
 -- > Trace:
 -- > 0	Left 2
 -- > 1	Left 1
@@ -36,11 +36,10 @@
 --
 -- The advantage of this idiom is that it gives you line number information when the guard fails:
 --
--- > *Traced> test3
--- > *** Exception: user error (Pattern match failure in do expression at tests/Traced.hs:103:3-6)
+-- > *Traced> test2
+-- > *** Exception: user error (Pattern match failure in do expression at Traced.hs:193:3-6)
 -- > Trace:
--- > 0	False
--- > 1	Left 1
+-- > 0	Left 1
 module Traced ( MonadS(..)
               , return
               , (>>=)
@@ -54,6 +53,7 @@ import Prelude hiding ((>>=), return, fail, catch, (>>))
 import qualified Prelude
 import Data.String (fromString)
 import Control.Exception (catches, Handler(..), SomeException, throw, Exception(..), IOException)
+import Control.Applicative ((<$>))
 import Data.Typeable (Typeable)
 import Data.Maybe (catMaybes)
 import Data.List (intersperse)
@@ -98,8 +98,8 @@ class Trace a where
   trace :: a -> Maybe String
 
 instance (Trace a, Trace b) => Trace (Either a b) where
-  trace (Left x)  = trace x
-  trace (Right y) = trace y
+  trace (Left x)  = ("Left " ++) <$> trace x 
+  trace (Right y) = ("Right " ++) <$> trace y 
 
 instance Trace a => Trace [a] where
   trace as = Just $ "[" ++ (concat . intersperse "," . catMaybes . map trace $ as) ++ "]"
