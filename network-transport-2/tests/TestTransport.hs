@@ -586,6 +586,12 @@ testCloseEndPoint transport _ = do
       -- Attempt to send should fail with connection closed
       Left (FailedWith SendConnectionClosed _) <- send conn ["ping2"]
 
+      -- An attempt to close the already closed connection should just return
+      () <- close conn
+
+      -- And so should an attempt to connect
+      Left (FailedWith ConnectFailed _) <- connect endpoint theirAddr ReliableOrdered
+
       return ()
 
     putMVar clientDone ()

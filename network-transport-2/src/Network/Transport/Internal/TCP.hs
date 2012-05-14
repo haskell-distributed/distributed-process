@@ -22,11 +22,12 @@ import qualified Network.Socket as N ( HostName
                                      , defaultProtocol
                                      , setSocketOption
                                      , accept
+                                     , sClose
                                      )
 import qualified Network.Socket.ByteString as NBS (recv)
 import Control.Concurrent (forkIO, ThreadId)
-import Control.Monad (mzero, MonadPlus, liftM, forever)
-import Control.Exception (SomeException, handle)
+import Control.Monad (liftM, forever)
+import Control.Exception (SomeException, handle, bracketOnError, throw)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (length, concat, null)
 import Data.Int (Int32)
@@ -45,7 +46,9 @@ import Data.Int (Int32)
 -- relevant exceptions in the request handler.
 --
 -- The request handler should spawn threads to handle each individual request
--- or the server will block.
+-- or the server will block. Once a thread has been spawned it will be the
+-- responsibility of the new thread to close the socket when an exception
+-- occurs. 
 forkServer :: N.HostName               -- ^ Host
            -> N.ServiceName            -- ^ Port 
            -> Int                      -- ^ Backlog (maximum number of queued connections)
@@ -61,9 +64,10 @@ forkServer host port backlog terminationHandler requestHandler = do
     N.setSocketOption sock N.ReuseAddr 1
     N.bindSocket sock (N.addrAddress addr)
     N.listen sock backlog 
-    forkIO . handle terminationHandler . forever $ do 
-      (clientSock, _) <- N.accept sock
-      requestHandler clientSock
+    forkIO . handle terminationHandler . forever $ 
+      bracketOnError (N.accept sock)
+                     (N.sClose . fst)
+                     (requestHandler . fst)
       
 -- | Read a length and then a payload of that length
 recvWithLength :: N.Socket -> IO [ByteString]
@@ -74,7 +78,7 @@ recvInt32 :: Num a => N.Socket -> IO a
 recvInt32 sock = do
   mi <- liftM (decodeInt32 . BS.concat) $ recvExact sock 4 
   case mi of
-    Nothing -> mzero
+    Nothing -> throw (userError "Invalid integer") 
     Just i  -> return i
 
 -- | Read an exact number of bytes from a socket
@@ -84,7 +88,7 @@ recvInt32 sock = do
 recvExact :: N.Socket                -- ^ Socket to read from 
           -> Int32                   -- ^ Number of bytes to read
           -> IO [ByteString]
-recvExact _ len | len <= 0 = mzero
+recvExact _ len | len <= 0 = throw (userError "Negative length") 
 recvExact sock len = go [] len
   where
     go :: [ByteString] -> Int32 -> IO [ByteString] 
@@ -92,5 +96,5 @@ recvExact sock len = go [] len
     go acc l = do
       bs <- NBS.recv sock (fromIntegral l `min` 4096)
       if BS.null bs 
-        then fail "Socket closed"
+        then throw (userError "Socket closed")
         else go (bs : acc) (l - fromIntegral (BS.length bs))

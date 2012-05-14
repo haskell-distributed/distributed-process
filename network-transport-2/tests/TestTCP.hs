@@ -8,30 +8,18 @@ import TestAuxiliary (forkTry, runTests)
 import Network.Transport
 import Network.Transport.TCP (createTransport, encodeEndPointAddress)
 import Data.Int (Int32)
-import Data.Maybe (fromJust)
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar, readMVar, isEmptyMVar, tryTakeMVar)
 import Control.Monad (replicateM, guard, forM_)
 import Control.Applicative ((<$>))
 import Control.Exception (throw)
-import Network.Transport.TCP ( decodeEndPointAddress
-                             , EndPointId
-                             , ControlHeader(..)
+import Network.Transport.TCP ( ControlHeader(..)
                              , ConnectionRequestResponse(..)
+                             , socketToEndPoint
                              )
 import Network.Transport.Internal (encodeInt32, prependLength, tlog, tryIO)
 import Network.Transport.Internal.TCP (recvInt32, forkServer, recvWithLength)
-import qualified Network.Socket as N ( getAddrInfo
-                                     , socket
-                                     , connect
-                                     , addrFamily
-                                     , addrAddress
-                                     , SocketType(Stream)
-                                     , SocketOption(ReuseAddr)
-                                     , defaultProtocol
-                                     , setSocketOption
-                                     , sClose
-                                     , HostName
+import qualified Network.Socket as N ( sClose
                                      , ServiceName
                                      , Socket
                                      , AddrInfo
@@ -51,6 +39,7 @@ instance Traceable N.Socket where
 
 instance Traceable N.AddrInfo where
   trace = traceShow
+  
 
 -- Test that the server gets a ConnectionClosed message when the client closes
 -- the socket without sending an explicit control message to the server first
@@ -112,7 +101,6 @@ testEarlyDisconnect nextPort = do
       clientPort <- nextPort
       let  ourAddress = encodeEndPointAddress "127.0.0.1" clientPort 0 
       putMVar clientAddr ourAddress 
-      (serverHost, serverPort, endPointIx) <- fromJust . decodeEndPointAddress <$> readMVar serverAddr
  
       -- Listen for incoming messages
       forkServer "127.0.0.1" clientPort 5 throw $ \sock -> do
@@ -141,15 +129,7 @@ testEarlyDisconnect nextPort = do
         N.sClose sock
  
       -- Connect to the server
-      addr:_ <- N.getAddrInfo Nothing (Just serverHost) (Just serverPort)
-      sock   <- N.socket (N.addrFamily addr) N.Stream N.defaultProtocol
-      N.setSocketOption sock N.ReuseAddr 1
-      N.connect sock (N.addrAddress addr)
-  
-      sendMany sock (encodeInt32 endPointIx : prependLength [endPointAddressToByteString ourAddress])
-
-      -- Wait for acknowledgement
-      ConnectionRequestAccepted <- toEnum <$> recvInt32 sock
+      Right (sock, ConnectionRequestAccepted) <- readMVar serverAddr >>= socketToEndPoint ourAddress 
   
       -- Request a new connection, but don't wait for the response
       let reqId = 0 :: Int32
@@ -223,7 +203,6 @@ testEarlyCloseSocket nextPort = do
       clientPort <- nextPort
       let  ourAddress = encodeEndPointAddress "127.0.0.1" clientPort 0 
       putMVar clientAddr ourAddress 
-      (serverHost, serverPort, endPointIx) <- fromJust . decodeEndPointAddress <$> readMVar serverAddr
  
       -- Listen for incoming messages
       forkServer "127.0.0.1" clientPort 5 throw $ \sock -> do
@@ -254,15 +233,7 @@ testEarlyCloseSocket nextPort = do
         N.sClose sock
  
       -- Connect to the server
-      addr:_ <- N.getAddrInfo Nothing (Just serverHost) (Just serverPort)
-      sock   <- N.socket (N.addrFamily addr) N.Stream N.defaultProtocol
-      N.setSocketOption sock N.ReuseAddr 1
-      N.connect sock (N.addrAddress addr)
-  
-      sendMany sock (encodeInt32 endPointIx : prependLength [endPointAddressToByteString ourAddress])
-
-      -- Wait for acknowledgement
-      ConnectionRequestAccepted <- toEnum <$> recvInt32 sock
+      Right (sock, ConnectionRequestAccepted) <- readMVar serverAddr >>= socketToEndPoint ourAddress 
   
       -- Request a new connection, but don't wait for the response
       let reqId = 0 :: Int32
@@ -319,11 +290,11 @@ testIgnoreCloseSocket nextPort = do
     takeMVar clientDone
 
   where
-    server :: Transport -> MVar (N.HostName, N.ServiceName, EndPointId) -> IO ()
+    server :: Transport -> MVar EndPointAddress -> IO ()
     server transport serverAddr = do
       tlog "Server"
       Right endpoint <- newEndPoint transport
-      putMVar serverAddr (fromJust . decodeEndPointAddress . address $ endpoint)
+      putMVar serverAddr (address endpoint)
 
       -- Wait for the client to connect and disconnect
       tlog "Waiting for ConnectionOpened"
@@ -342,24 +313,14 @@ testIgnoreCloseSocket nextPort = do
       
       tlog "Server waiting.."
 
-    client :: Transport -> MVar (N.HostName, N.ServiceName, EndPointId) -> MVar () -> IO ()
+    client :: Transport -> MVar EndPointAddress -> MVar () -> IO ()
     client transport serverAddr clientDone = do
       tlog "Client"
       Right endpoint <- newEndPoint transport
-      let EndPointAddress myAddress = address endpoint
-      (serverHost, serverPort, endPointIx) <- readMVar serverAddr
+      let ourAddress = address endpoint
 
       -- Connect to the server
-      addr:_ <- N.getAddrInfo Nothing (Just serverHost) (Just serverPort)
-      sock   <- N.socket (N.addrFamily addr) N.Stream N.defaultProtocol
-      N.setSocketOption sock N.ReuseAddr 1
-      N.connect sock (N.addrAddress addr)
-
-      tlog "Connecting to endpoint"
-      sendMany sock (encodeInt32 endPointIx : prependLength [myAddress])
-
-      -- Wait for acknowledgement
-      ConnectionRequestAccepted <- toEnum <$> recvInt32 sock
+      Right (sock, ConnectionRequestAccepted) <- readMVar serverAddr >>= socketToEndPoint ourAddress  
 
       -- Request a new connection
       tlog "Requesting connection"
@@ -412,11 +373,11 @@ testBlockAfterCloseSocket nextPort = do
     takeMVar clientDone
 
   where
-    server :: Transport -> MVar (N.HostName, N.ServiceName, EndPointId) -> MVar EndPointAddress -> IO ()
+    server :: Transport -> MVar EndPointAddress -> MVar EndPointAddress -> IO ()
     server transport serverAddr clientAddr = do
       tlog "Server"
       Right endpoint <- newEndPoint transport
-      putMVar serverAddr (fromJust . decodeEndPointAddress . address $ endpoint)
+      putMVar serverAddr (address endpoint)
 
       -- Wait for the client to connect and disconnect
       tlog "Waiting for ConnectionOpened"
@@ -431,25 +392,15 @@ testBlockAfterCloseSocket nextPort = do
       
       tlog "Server waiting.."
 
-    client :: Transport -> MVar (N.HostName, N.ServiceName, EndPointId) -> MVar EndPointAddress -> MVar () -> IO ()
+    client :: Transport -> MVar EndPointAddress -> MVar EndPointAddress -> MVar () -> IO ()
     client transport serverAddr clientAddr clientDone = do
       tlog "Client"
       Right endpoint <- newEndPoint transport
       putMVar clientAddr (address endpoint)
-      let EndPointAddress myAddress = address endpoint
-      (serverHost, serverPort, endPointIx) <- readMVar serverAddr
+      let ourAddress = address endpoint
 
       -- Connect to the server
-      addr:_ <- N.getAddrInfo Nothing (Just serverHost) (Just serverPort)
-      sock   <- N.socket (N.addrFamily addr) N.Stream N.defaultProtocol
-      N.setSocketOption sock N.ReuseAddr 1
-      N.connect sock (N.addrAddress addr)
-
-      tlog "Connecting to endpoint"
-      sendMany sock (encodeInt32 endPointIx : prependLength [myAddress])
-
-      -- Wait for acknowledgement
-      ConnectionRequestAccepted <- toEnum <$> recvInt32 sock
+      Right (sock, ConnectionRequestAccepted) <- readMVar serverAddr >>= socketToEndPoint ourAddress 
 
       -- Request a new connection
       tlog "Requesting connection"
@@ -483,18 +434,39 @@ testBlockAfterCloseSocket nextPort = do
       let reqId' = 1 :: Int32
       sendMany sock [encodeInt32 RequestConnectionId, encodeInt32 reqId']
 
+-- | Test what happens when a remote endpoint sends a connection request to our
+-- transport for an endpoint it already has a connection to
+testUnnecessaryConnect :: IO N.ServiceName -> IO () 
+testUnnecessaryConnect nextPort = do
+  clientDone <- newEmptyMVar
+  serverAddr <- newEmptyMVar
+
+  forkTry $ do
+    Right transport <- nextPort >>= createTransport "127.0.0.1"
+    Right endpoint <- newEndPoint transport
+    putMVar serverAddr (address endpoint)
+
+  forkTry $ do
+    let ourAddress = EndPointAddress "ourAddress"
+    Right (_, ConnectionRequestAccepted) <- readMVar serverAddr >>= socketToEndPoint ourAddress 
+    Right (_, ConnectionRequestEndPointInvalid) <- readMVar serverAddr >>= socketToEndPoint ourAddress 
+    putMVar clientDone ()
+
+  takeMVar clientDone
+
 main :: IO ()
 main = do
   portMVar <- newEmptyMVar
-  forkTry $ forM_ ([10080 .. 10087] :: [Int]) $ putMVar portMVar . show 
+  forkTry $ forM_ ([10080 .. 10088] :: [Int]) $ putMVar portMVar . show 
   let nextPort = do Just port <- tryTakeMVar portMVar ; return port
   tryIO $ runTests 
-           [ ("EarlyDisconnect",       testEarlyDisconnect nextPort)
-           , ("EarlyCloseSocket",      testEarlyCloseSocket nextPort)
-           , ("IgnoreCloseSocket",     testIgnoreCloseSocket nextPort)
-           , ("BlockAfterCloseSocket", testBlockAfterCloseSocket nextPort)
-           , ("InvalidAddress",        testInvalidAddress nextPort)
-           , ("InvalidConnect",        testInvalidConnect nextPort) 
+           [ ("EarlyDisconnect",        testEarlyDisconnect nextPort)
+           , ("EarlyCloseSocket",       testEarlyCloseSocket nextPort)
+           , ("IgnoreCloseSocket",      testIgnoreCloseSocket nextPort)
+           , ("BlockAfterCloseSocket",  testBlockAfterCloseSocket nextPort)
+           , ("TestUnnecessaryConnect", testUnnecessaryConnect nextPort)
+           , ("InvalidAddress",         testInvalidAddress nextPort)
+           , ("InvalidConnect",         testInvalidConnect nextPort) 
            ]
   Right transport <- createTransport "127.0.0.1" "8080" 
   testTransport transport 

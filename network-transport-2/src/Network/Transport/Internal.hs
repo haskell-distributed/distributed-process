@@ -6,14 +6,11 @@ module Network.Transport.Internal ( -- * Encoders/decoders
                                   , decodeInt16
                                   , prependLength
                                     -- * Miscellaneous abstractions
-                                  , failWith
-                                  , failWithIO
+                                  , mapExceptionIO
                                   , tryIO
-                                  , whileM
                                   , tryToEnum
                                     -- * Debugging
                                   , tlog
-                                  , loopInvariant
                                   ) where
 
 import Prelude hiding (catch)
@@ -23,11 +20,8 @@ import Foreign.ForeignPtr (withForeignPtr)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (length)
 import qualified Data.ByteString.Internal as BSI (unsafeCreate, toForeignPtr, inlinePerformIO)
-import Control.Applicative ((<$>))
-import Control.Monad (MonadPlus, guard, when)
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import Control.Monad.Error (MonadError, throwError)
-import Control.Exception (IOException, catch, try)
+import Control.Exception (IOException, Exception, catch, try, throw)
 --import Control.Concurrent (myThreadId)
 
 foreign import ccall unsafe "htonl" htonl :: CInt -> CInt
@@ -69,26 +63,13 @@ decodeInt16 bs = Just . BSI.inlinePerformIO $ do
 prependLength :: [ByteString] -> [ByteString]
 prependLength bss = encodeInt32 (sum . map BS.length $ bss) : bss
 
--- | Convert a "failing operation" into one that fails with a specific error 
-failWith :: (MonadError e m) => e -> Maybe a -> m a
-failWith err Nothing  = throwError err
-failWith _   (Just x) = return x
+-- | Translate exceptions that arise in IO computations
+mapExceptionIO :: (Exception e1, Exception e2) => (e1 -> e2) -> IO a -> IO a
+mapExceptionIO f p = catch p (throw . f)
 
--- | Try the specific I/O operation, and fail with the given error 
--- when an exception occurs
-failWithIO :: (MonadIO m, MonadError e m) => (IOException -> e) -> IO a -> m a
-failWithIO f io = do
-    ma <- liftIO $ catch (Right <$> io) handleIOException
-    case ma of
-      Left err -> throwError (f err)
-      Right a  -> return a
-  where
-    handleIOException :: IOException -> IO (Either IOException a)
-    handleIOException = return . Left 
-
--- | Like 'try', but specialized to IOExceptions
-tryIO :: IO a -> IO (Either IOException a)
-tryIO = try
+-- | Like 'try', but lifted and specialized to IOExceptions
+tryIO :: MonadIO m => IO a -> m (Either IOException a)
+tryIO = liftIO . try
 
 -- | Logging (for debugging)
 tlog :: MonadIO m => String -> m ()
@@ -102,15 +83,3 @@ tlog msg = liftIO $ do
 -- | Safe version of 'toEnum'
 tryToEnum :: forall a. (Enum a, Bounded a) => Int -> Maybe a 
 tryToEnum n = if fromEnum (minBound :: a) <= n && n <= fromEnum (maxBound :: a) then Just (toEnum n) else Nothing 
-
--- | Loop invariant (like 'guard')
-loopInvariant :: MonadPlus m => m Bool -> m ()
-loopInvariant = (>>= guard)
-
--- | While-loop
-whileM :: Monad m => m Bool -> m a -> m ()
-whileM cond body = go
-  where
-    go = do
-      b <- cond
-      when b $ body >> go

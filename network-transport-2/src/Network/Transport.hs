@@ -21,6 +21,8 @@ module Network.Transport ( -- * Types
 
 import Data.ByteString (ByteString)
 import Control.Monad.Error (Error(..))
+import Control.Exception (Exception)
+import Data.Typeable (Typeable)
 
 --------------------------------------------------------------------------------
 -- Main API                                                                   --
@@ -114,39 +116,42 @@ newtype MulticastAddress = MulticastAddress { multicastAddressToByteString :: By
 --------------------------------------------------------------------------------
 
 data FailedWith error = FailedWith error String
-  deriving Show
+  deriving (Show, Typeable)
 
 instance Error (FailedWith error) where
   strMsg = FailedWith undefined
 
+-- | For internal convenience, FailedWith is declared as an exception type
+instance (Typeable err, Show err) => Exception (FailedWith err)
+
 -- | Errors during the creation of an endpoint (currently, there are none)
 data NewEndPointErrorCode =
     NewEndPointTransportFailure  -- ^ Transport-wide failure 
-  deriving Show
+  deriving (Show, Typeable)
 
 -- | Connection failure 
 data ConnectErrorCode = 
     ConnectInvalidAddress        -- ^ Could not parse or resolve the address 
   | ConnectInsufficientResources -- ^ Insufficient resources (for instance, no more sockets available)
   | ConnectFailed                -- ^ Failed for other reasons 
-  deriving Show
+  deriving (Show, Typeable)
 
 -- | Failure during the creation of a new multicast group
 data NewMulticastGroupErrorCode =
     NewMulticastGroupUnsupported
-  deriving Show
+  deriving (Show, Typeable)
 
 -- | Failure during the resolution of a multicast group
 data ResolveMulticastGroupErrorCode =
     ResolveMulticastGroupNotFound
   | ResolveMulticastGroupUnsupported
-  deriving Show
+  deriving (Show, Typeable)
 
 -- | Failure during sending a message
 data SendErrorCode =
     SendConnectionClosed  -- ^ Connection was closed manually or because of an error
   | SendFailed            -- ^ Send failed for some other reason
-  deriving Show
+  deriving (Show, Typeable)
 
 -- | Error codes used when reporting errors to endpoints (through receive)
 data ErrorEventInfo = 
