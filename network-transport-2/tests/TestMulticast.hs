@@ -1,10 +1,10 @@
 module TestMulticast where
 
 import Network.Transport
+import TestAuxiliary (runTests)
 import Control.Monad (replicateM, replicateM_, forM_, when)
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, takeMVar, putMVar, readMVar)
-import Control.Applicative ((<$>))
 import Data.ByteString (ByteString)
 import Data.List (elemIndex)
 
@@ -14,7 +14,7 @@ noConfusionNode :: Transport -- ^ Transport
                 -> [MVar ()]               -- ^ I'm ready : others ready
                 -> Int                     -- ^ number of pings
                 -> [ByteString]            -- ^ my message : messages from subscribed groups (same order as 'groups to subscribe to') 
-                -> MVar Bool               -- ^ I'm done
+                -> MVar ()                 -- ^ I'm done
                 -> IO ()
 noConfusionNode transport groups ready numPings msgs done = do
   -- Create a new endpoint
@@ -49,10 +49,10 @@ noConfusionNode transport groups ready numPings msgs done = do
         error "Unexpected event"
 
   -- Success
-  putMVar done True
+  putMVar done () 
 
 -- | Test that distinct multicast groups are not confused
-testNoConfusion :: Transport -> Int -> IO Bool
+testNoConfusion :: Transport -> Int -> IO () 
 testNoConfusion transport numPings = do
   [group1, group2, group3] <- replicateM 3 newEmptyMVar
   [readyA, readyB, readyC] <- replicateM 3 newEmptyMVar
@@ -63,8 +63,10 @@ testNoConfusion transport numPings = do
   forkIO $ noConfusionNode transport [group2, group1, group3] [readyB, readyC, readyA] numPings [msgB, msgA, msgC] doneB 
   forkIO $ noConfusionNode transport [group3, group2, group3] [readyC, readyA, readyB] numPings [msgC, msgB, msgC] doneC 
   
-  and <$> mapM takeMVar [doneA, doneB, doneC] 
+  mapM_ takeMVar [doneA, doneB, doneC] 
 
 -- | Test multicast
-testMulticast :: Transport -> IO Bool
-testMulticast transport = testNoConfusion transport 10000
+testMulticast :: Transport -> IO () 
+testMulticast transport = 
+  runTests 
+    [ ("NoConfusion", testNoConfusion transport 10000) ]

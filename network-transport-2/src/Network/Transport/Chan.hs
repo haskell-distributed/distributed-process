@@ -6,9 +6,12 @@ import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
 import Control.Applicative ((<$>))
 import Control.Category ((>>>))
 import Control.Concurrent.MVar (MVar, newMVar, modifyMVar, modifyMVar_, readMVar)
+import Control.Exception (throw)
 import Control.Monad (forM_, when)
 import Data.Map (Map)
 import qualified Data.Map as Map (empty, insert, size, delete, findWithDefault)
+import Data.Set (Set)
+import qualified Data.Set as Set (empty, elems, insert, delete)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BSC (pack)
 import Data.Accessor (Accessor, accessor, (^.), (^=), (^:))
@@ -17,29 +20,8 @@ import qualified Data.Accessor.Container as DAC (mapMaybe)
 -- Global state: next available "address", mapping from addresses to channels and next available connection
 data TransportState = State { _channels         :: Map EndPointAddress (Chan Event) 
                             , _nextConnectionId :: Map EndPointAddress ConnectionId 
-                            , _multigroups      :: Map MulticastAddress (MVar [Chan Event])
+                            , _multigroups      :: Map MulticastAddress (MVar (Set EndPointAddress))
                             }
-
-channels :: Accessor TransportState (Map EndPointAddress (Chan Event))
-channels = accessor _channels (\ch st -> st { _channels = ch })
-
-nextConnectionId :: Accessor TransportState (Map EndPointAddress ConnectionId)
-nextConnectionId = accessor  _nextConnectionId (\cid st -> st { _nextConnectionId = cid })
-
-multigroups :: Accessor TransportState (Map MulticastAddress (MVar [Chan Event]))
-multigroups = accessor _multigroups (\gs st -> st { _multigroups = gs }) 
-
-at :: Ord k => k -> String -> Accessor (Map k v) v
-at k err = accessor (Map.findWithDefault (error err) k) (Map.insert k)   
-
-channelAt :: EndPointAddress -> Accessor TransportState (Chan Event) 
-channelAt addr = channels >>> at addr "Invalid channel"
-
-nextConnectionIdAt :: EndPointAddress -> Accessor TransportState ConnectionId
-nextConnectionIdAt addr = nextConnectionId >>> at addr "Invalid connection ID"
-
-multigroupAt :: MulticastAddress -> Accessor TransportState (MVar [Chan Event])
-multigroupAt addr = multigroups >>> at addr "Invalid multigroup"
 
 -- | Create a new Transport.
 --
@@ -51,7 +33,9 @@ createTransport = do
                          , _nextConnectionId = Map.empty
                          , _multigroups      = Map.empty
                          }
-  return Transport { newEndPoint = apiNewEndPoint state }
+  return Transport { newEndPoint    = apiNewEndPoint state 
+                   , closeTransport = throw (userError "closeEndPoint not implemented")
+                   }
 
 -- | Create a new end point
 apiNewEndPoint :: MVar TransportState -> IO (Either (FailedWith NewEndPointErrorCode) EndPoint)
@@ -60,11 +44,12 @@ apiNewEndPoint state = do
   addr <- modifyMVar state $ \st -> do
     let addr = EndPointAddress . BSC.pack . show . Map.size $ st ^. channels
     return ((channelAt addr ^= chan) . (nextConnectionIdAt addr ^= 1) $ st, addr)
-  return . Right $ EndPoint { receive = readChan chan  
-                            , address = addr
-                            , connect = apiConnect addr state 
-                            , newMulticastGroup     = apiNewMulticastGroup state chan
-                            , resolveMulticastGroup = apiResolveMulticastGroup state chan 
+  return . Right $ EndPoint { receive       = readChan chan  
+                            , address       = addr
+                            , connect       = apiConnect addr state 
+                            , closeEndPoint = throw (userError "closeEndPoint not implemented")
+                            , newMulticastGroup     = apiNewMulticastGroup state addr
+                            , resolveMulticastGroup = apiResolveMulticastGroup state addr
                             }
   
 -- | Create a new connection
@@ -97,13 +82,13 @@ apiClose chan conn connAlive =
     return False
 
 -- | Create a new multicast group
-apiNewMulticastGroup :: MVar TransportState -> Chan Event -> IO (Either (FailedWith NewMulticastGroupErrorCode) MulticastGroup)
-apiNewMulticastGroup state endpoint = do
-  group <- newMVar []
-  addr  <- modifyMVar state $ \st -> do
+apiNewMulticastGroup :: MVar TransportState -> EndPointAddress -> IO (Either (FailedWith NewMulticastGroupErrorCode) MulticastGroup)
+apiNewMulticastGroup state ourAddress = do
+  group <- newMVar Set.empty 
+  groupAddr <- modifyMVar state $ \st -> do
     let addr = MulticastAddress . BSC.pack . show . Map.size $ st ^. multigroups
     return (multigroupAt addr ^= group $ st, addr)
-  return . Right $ createMulticastGroup state endpoint addr group
+  return . Right $ createMulticastGroup state ourAddress groupAddr group
 
 -- | Construct a multicast group
 --
@@ -111,30 +96,55 @@ apiNewMulticastGroup state endpoint = do
 -- subsequent calls to resolveMulticastGroup will fail. This mimicks the fact
 -- that some multicast messages may still be in transit when the group is
 -- deleted.
---
--- TODO: subscribing twice means you will receive messages twice, but as soon
--- as you unsubscribe you will stop receiving all messages. Not sure if this
--- is the right behaviour.
-createMulticastGroup :: MVar TransportState -> Chan Event -> MulticastAddress -> MVar [Chan Event] -> MulticastGroup
-createMulticastGroup state endpoint addr group =
-  MulticastGroup { multicastAddress     = addr 
-                 , deleteMulticastGroup = modifyMVar_ state $ return . (multigroups ^: Map.delete addr)
+createMulticastGroup :: MVar TransportState -> EndPointAddress -> MulticastAddress -> MVar (Set EndPointAddress) -> MulticastGroup
+createMulticastGroup state ourAddress groupAddress group =
+  MulticastGroup { multicastAddress     = groupAddress 
+                 , deleteMulticastGroup = modifyMVar_ state $ return . (multigroups ^: Map.delete groupAddress)
                  , maxMsgSize           = Nothing
                  , multicastSend        = \payload -> do 
-                                            cs <- readMVar group 
-                                            forM_ cs $ \ch -> writeChan ch (ReceivedMulticast addr payload)             
-                 , multicastSubscribe   = modifyMVar_ group $ return . (endpoint :)
-                 , multicastUnsubscribe = modifyMVar_ group $ return . filter (/= endpoint) 
+                                            cs <- (^. channels) <$> readMVar state
+                                            es <- readMVar group 
+                                            forM_ (Set.elems es) $ \ep -> do 
+                                              let ch = (cs ^. at ep "Invalid endpoint")
+                                              writeChan ch (ReceivedMulticast groupAddress payload)             
+                 , multicastSubscribe   = modifyMVar_ group $ return . (Set.insert ourAddress)
+                 , multicastUnsubscribe = modifyMVar_ group $ return . (Set.delete ourAddress) 
                  , multicastClose       = return () 
                  }
 
 -- | Resolve a multicast group
 apiResolveMulticastGroup :: MVar TransportState 
-                          -> Chan Event 
-                          -> MulticastAddress 
-                          -> IO (Either (FailedWith ResolveMulticastGroupErrorCode) MulticastGroup)
-apiResolveMulticastGroup state endpoint addr = do
-  group <- (^. (multigroups >>> DAC.mapMaybe addr)) <$> readMVar state 
+                         -> EndPointAddress
+                         -> MulticastAddress 
+                         -> IO (Either (FailedWith ResolveMulticastGroupErrorCode) MulticastGroup)
+apiResolveMulticastGroup state ourAddress groupAddress = do
+  group <- (^. (multigroups >>> DAC.mapMaybe groupAddress)) <$> readMVar state 
   case group of
-    Nothing   -> return . Left $ FailedWith ResolveMulticastGroupNotFound ("Group " ++ show addr ++ " not found")
-    Just mvar -> return . Right $ createMulticastGroup state endpoint addr mvar 
+    Nothing   -> return . Left $ FailedWith ResolveMulticastGroupNotFound ("Group " ++ show groupAddress ++ " not found")
+    Just mvar -> return . Right $ createMulticastGroup state ourAddress groupAddress mvar 
+
+--------------------------------------------------------------------------------
+-- Lens definitions                                                           --
+--------------------------------------------------------------------------------
+
+channels :: Accessor TransportState (Map EndPointAddress (Chan Event))
+channels = accessor _channels (\ch st -> st { _channels = ch })
+
+nextConnectionId :: Accessor TransportState (Map EndPointAddress ConnectionId)
+nextConnectionId = accessor  _nextConnectionId (\cid st -> st { _nextConnectionId = cid })
+
+multigroups :: Accessor TransportState (Map MulticastAddress (MVar (Set EndPointAddress)))
+multigroups = accessor _multigroups (\gs st -> st { _multigroups = gs }) 
+
+at :: Ord k => k -> String -> Accessor (Map k v) v
+at k err = accessor (Map.findWithDefault (error err) k) (Map.insert k)   
+
+channelAt :: EndPointAddress -> Accessor TransportState (Chan Event) 
+channelAt addr = channels >>> at addr "Invalid channel"
+
+nextConnectionIdAt :: EndPointAddress -> Accessor TransportState ConnectionId
+nextConnectionIdAt addr = nextConnectionId >>> at addr "Invalid connection ID"
+
+multigroupAt :: MulticastAddress -> Accessor TransportState (MVar (Set EndPointAddress))
+multigroupAt addr = multigroups >>> at addr "Invalid multigroup"
+
