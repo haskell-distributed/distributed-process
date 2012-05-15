@@ -598,21 +598,125 @@ testCloseEndPoint transport _ = do
 
   mapM_ takeMVar [serverDone, clientDone]
 
+-- Test closeTransport
+--
+-- This tests many of the same things that testEndPoint does, and some more
+testCloseTransport :: IO (Either String Transport) -> IO ()
+testCloseTransport newTransport = do
+  serverDone <- newEmptyMVar
+  clientDone <- newEmptyMVar
+  clientAddr1 <- newEmptyMVar
+  clientAddr2 <- newEmptyMVar
+  serverAddr <- newEmptyMVar
+
+  -- Server
+  forkTry $ do
+    Right transport <- newTransport
+    Right endpoint <- newEndPoint transport
+    putMVar serverAddr (address endpoint)
+
+    -- Client sets up first endpoint 
+    theirAddr1 <- readMVar clientAddr1
+    ConnectionOpened cid1 ReliableOrdered addr <- receive endpoint ; True <- return $ addr == theirAddr1
+
+    -- Client sets up second endpoint 
+    theirAddr2 <- readMVar clientAddr2
+      
+    ConnectionOpened cid2 ReliableOrdered addr' <- receive endpoint ; True <- return $ addr' == theirAddr2
+    Received cid2' ["ping"] <- receive endpoint ; True <- return $ cid2' == cid2
+
+    Right conn <- connect endpoint theirAddr2 ReliableOrdered
+    send conn ["pong"]
+
+    -- Client now closes down its transport. We should receive connection closed messages
+    -- TODO: this assumes a certain ordering on the messages we receive; that's not guaranteed
+    ConnectionClosed cid2'' <- receive endpoint ; True <- return $ cid2'' == cid2
+    ErrorEvent (ErrorEventConnectionLost addr'' []) <- receive endpoint ; True <- return $ addr'' == theirAddr2
+    ConnectionClosed cid1' <- receive endpoint ; True <- return $ cid1' == cid1
+
+    -- An attempt to send to the endpoint should now fail
+    Left (FailedWith SendConnectionClosed _) <- send conn ["pong2"]
+    
+    putMVar serverDone ()
+
+  -- Client
+  forkTry $ do
+    Right transport <- newTransport
+    theirAddr <- readMVar serverAddr
+
+    -- Set up endpoint with one outgoing but no incoming connections
+    Right endpoint1 <- newEndPoint transport
+    putMVar clientAddr1 (address endpoint1) 
+
+    -- Connect to the server, then close the endpoint without disconnecting explicitly
+    Right _ <- connect endpoint1 theirAddr ReliableOrdered
+
+    -- Set up an endpoint with one outgoing and out incoming connection
+    Right endpoint2 <- newEndPoint transport
+    putMVar clientAddr2 (address endpoint2) 
+
+    Right conn <- connect endpoint2 theirAddr ReliableOrdered
+    send conn ["ping"]
+
+    -- Reply from the server
+    ConnectionOpened cid ReliableOrdered addr <- receive endpoint2 ; True <- return $ addr == theirAddr
+    Received cid' ["pong"] <- receive endpoint2 ; True <- return $ cid == cid'
+
+    -- Now shut down the entire transport
+    closeTransport transport
+
+    -- Both endpoints should report an error
+    ErrorEvent (ErrorEventEndPointClosed []) <- receive endpoint1
+    ErrorEvent (ErrorEventEndPointClosed [cid'']) <- receive endpoint2; True <- return $ cid == cid''
+
+    -- Attempt to send should fail with connection closed
+    Left (FailedWith SendConnectionClosed _) <- send conn ["ping2"]
+
+    -- An attempt to close the already closed connection should just return
+    () <- close conn
+
+    -- And so should an attempt to connect on either endpoint
+    Left (FailedWith ConnectFailed _) <- connect endpoint1 theirAddr ReliableOrdered
+    Left (FailedWith ConnectFailed _) <- connect endpoint2 theirAddr ReliableOrdered
+
+    -- And finally, so should an attempt to create a new endpoint
+    Left (FailedWith NewEndPointTransportFailure _) <- newEndPoint transport 
+
+    putMVar clientDone ()
+
+  mapM_ takeMVar [serverDone, clientDone]
+  
+testMany :: IO (Either String Transport) -> IO ()
+testMany newTransport = do
+  Right masterTransport <- newTransport
+  Right masterEndPoint  <- newEndPoint masterTransport 
+
+  replicateM_ 20 $ do
+    Right transport <- newTransport
+    replicateM_ 2 $ do
+      Right endpoint <- newEndPoint transport
+      Right _        <- connect endpoint (address masterEndPoint) ReliableOrdered 
+      return ()
+
 -- Transport tests
-testTransport :: Transport -> IO ()
-testTransport transport = runTests 
-  [ ("PingPong",           testPingPong transport numPings)
-  , ("EndPoints",          testEndPoints transport numPings)
-  , ("Connections",        testConnections transport numPings)
-  , ("CloseOneConnection", testCloseOneConnection transport numPings)
-  , ("CloseOneDirection",  testCloseOneDirection transport numPings)
-  , ("CloseReopen",        testCloseReopen transport numPings)
-  , ("ParallelConnects",   testParallelConnects transport numPings)
-  , ("SendAfterClose",     testSendAfterClose transport numPings)
-  , ("CloseTwice",         testCloseTwice transport numPings)
-  , ("ConnectToSelf",      testConnectToSelf transport numPings)
-  , ("ConnectToSelfTwice", testConnectToSelfTwice transport numPings) 
-  , ("CloseEndPoint",      testCloseEndPoint transport numPings)
-  ]
+testTransport :: IO (Either String Transport) -> IO ()
+testTransport newTransport = do
+  Right transport <- newTransport
+  runTests
+    [ ("Many",               testMany newTransport)
+    , ("PingPong",           testPingPong transport numPings)
+    , ("EndPoints",          testEndPoints transport numPings)
+    , ("Connections",        testConnections transport numPings)
+    , ("CloseOneConnection", testCloseOneConnection transport numPings)
+    , ("CloseOneDirection",  testCloseOneDirection transport numPings)
+    , ("CloseReopen",        testCloseReopen transport numPings)
+    , ("ParallelConnects",   testParallelConnects transport numPings)
+    , ("SendAfterClose",     testSendAfterClose transport numPings)
+    , ("CloseTwice",         testCloseTwice transport numPings)
+    , ("ConnectToSelf",      testConnectToSelf transport numPings) 
+    , ("ConnectToSelfTwice", testConnectToSelfTwice transport numPings)
+    , ("CloseEndPoint",      testCloseEndPoint transport numPings) 
+    , ("CloseTransport",     testCloseTransport newTransport) 
+    ]
   where
     numPings = 10000 :: Int

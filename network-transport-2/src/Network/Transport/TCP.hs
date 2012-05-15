@@ -329,21 +329,20 @@ createTransport host port = do
       -- http://www.linuxjournal.com/files/linuxjournal.com/linuxjournal/articles/023/2333/2333s2.html
       transportThread <- forkServer host port N.sOMAXCONN (terminationHandler transport) (handleConnectionRequest transport) 
       return Transport { newEndPoint    = apiNewEndPoint transport 
-                       , closeTransport = apiCloseTransport transportThread 
+                       , closeTransport = killThread transportThread -- This will invoke the termination handler
                        } 
   where
     terminationHandler :: TCPTransport -> SomeException -> IO ()
-    terminationHandler _ _ = 
-      -- TODO: implement
-      return () 
-
--- | Shut down the transport
-apiCloseTransport :: ThreadId -> IO ()
-apiCloseTransport transportThread = do
-  -- Kill the thread that is listening for new incoming connections
-  killThread transportThread 
-  -- Not yet implemented 
-  undefined
+    terminationHandler transport _ = do
+      mTSt <- modifyMVar (transportState transport) $ \st -> case st of
+        TransportValid vst -> return (TransportClosed, Just vst)
+        TransportClosed    -> return (TransportClosed, Nothing)
+      case mTSt of
+        Nothing ->
+          -- Transport already closed
+          return ()
+        Just tSt ->
+          mapM_ (apiCloseEndPoint transport) (Map.elems $ tSt ^. localEndPoints)
 
 --------------------------------------------------------------------------------
 -- API functions                                                              --
@@ -696,8 +695,10 @@ socketToEndPoint (EndPointAddress ourAddress) theirAddress = try $ do
         Just r  -> return (sock, r)
   where
     createSocket :: N.AddrInfo -> IO N.Socket
-    createSocket addr = mapExceptionIO insufficientResources $
-      N.socket (N.addrFamily addr) N.Stream N.defaultProtocol
+    createSocket addr = mapExceptionIO insufficientResources $ do
+      sock <- N.socket (N.addrFamily addr) N.Stream N.defaultProtocol
+      -- putStrLn $ "Created client socket " ++ show sock
+      return sock
 
     invalidAddress, insufficientResources, failed :: IOException -> FailedWith ConnectErrorCode
     invalidAddress        = FailedWith ConnectInvalidAddress . show 

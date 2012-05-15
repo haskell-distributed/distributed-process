@@ -9,7 +9,7 @@ import Network.Transport
 import Network.Transport.TCP (createTransport, encodeEndPointAddress)
 import Data.Int (Int32)
 import Control.Concurrent (threadDelay)
-import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar, readMVar, isEmptyMVar, tryTakeMVar)
+import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar, readMVar, isEmptyMVar)
 import Control.Monad (replicateM, guard, forM_)
 import Control.Applicative ((<$>))
 import Control.Exception (throw)
@@ -457,8 +457,8 @@ testUnnecessaryConnect nextPort = do
 main :: IO ()
 main = do
   portMVar <- newEmptyMVar
-  forkTry $ forM_ ([10080 .. 10088] :: [Int]) $ putMVar portMVar . show 
-  let nextPort = do Just port <- tryTakeMVar portMVar ; return port
+  forkTry $ forM_ ([10080 ..] :: [Int]) $ putMVar portMVar . show 
+  let nextPort = takeMVar portMVar 
   tryIO $ runTests 
            [ ("EarlyDisconnect",        testEarlyDisconnect nextPort)
            , ("EarlyCloseSocket",       testEarlyCloseSocket nextPort)
@@ -468,5 +468,4 @@ main = do
            , ("InvalidAddress",         testInvalidAddress nextPort)
            , ("InvalidConnect",         testInvalidConnect nextPort) 
            ]
-  Right transport <- createTransport "127.0.0.1" "8080" 
-  testTransport transport 
+  testTransport (either (Left . show) (Right) <$> nextPort >>= createTransport "127.0.0.1")

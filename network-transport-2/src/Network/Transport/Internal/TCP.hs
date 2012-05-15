@@ -61,9 +61,11 @@ forkServer host port backlog terminationHandler requestHandler = do
     -- the "best" address first, whatever that means
     addr:_ <- N.getAddrInfo (Just N.defaultHints) (Just host) (Just port)
     sock   <- N.socket (N.addrFamily addr) N.Stream N.defaultProtocol
+    -- putStrLn $ "Created server socket " ++ show sock ++ " for address " ++ host ++ ":" ++ port
     N.setSocketOption sock N.ReuseAddr 1
     N.bindSocket sock (N.addrAddress addr)
     N.listen sock backlog 
+    -- TODO: when is this socket closed?
     forkIO . handle terminationHandler . forever $ 
       bracketOnError (N.accept sock)
                      (N.sClose . fst)
