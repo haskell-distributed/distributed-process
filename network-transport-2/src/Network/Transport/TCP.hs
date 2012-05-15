@@ -39,6 +39,7 @@ import Network.Transport.Internal ( encodeInt32
                                   , mapExceptionIO
                                   , tryIO
                                   , tryToEnum
+				  , void
                                   )
 import qualified Network.Socket as N ( HostName
                                      , ServiceName
@@ -71,7 +72,7 @@ import Control.Concurrent.MVar ( MVar
                                )
 import Control.Category ((>>>))
 import Control.Applicative ((<$>))
-import Control.Monad (forM, forM_, void, when, unless)
+import Control.Monad (forM, forM_, when, unless)
 import Control.Exception (IOException, SomeException, handle, throw, try, bracketOnError)
 import Data.IORef (IORef, newIORef, writeIORef, readIORef)
 import Data.ByteString (ByteString)

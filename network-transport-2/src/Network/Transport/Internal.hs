@@ -9,13 +9,14 @@ module Network.Transport.Internal ( -- * Encoders/decoders
                                   , mapExceptionIO
                                   , tryIO
                                   , tryToEnum
+				  , void
                                     -- * Debugging
                                   , tlog
                                   ) where
 
 import Prelude hiding (catch)
 import Foreign.Storable (pokeByteOff, peekByteOff)
-import Foreign.C (CInt(..), CShort(..))
+import Foreign.C (CInt, CShort)
 import Foreign.ForeignPtr (withForeignPtr)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (length)
@@ -79,6 +80,10 @@ tlog msg = liftIO $ do
   tid <- myThreadId
   putStrLn $ show tid ++ ": "  ++ msg
 -}
+
+-- | Not all versions of "base" export 'void'
+void :: Monad m => m a -> m ()
+void p = p >> return ()
 
 -- | Safe version of 'toEnum'
 tryToEnum :: (Enum a, Bounded a) => Int -> Maybe a 
