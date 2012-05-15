@@ -5,6 +5,7 @@ import Prelude hiding (catch, (>>=), (>>), return, fail)
 import TestAuxiliary (forkTry, runTests)
 import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar, readMVar)
 import Control.Monad (replicateM, replicateM_, when, guard, forM_)
+import Control.Monad.Error ()
 import Network.Transport
 import Network.Transport.Internal (tlog)
 import Network.Transport.Util (spawn)
@@ -40,6 +41,8 @@ echoServer endpoint = do
           go cs
         ErrorEvent _ ->
           fail (show event)
+        EndPointClosed ->
+          return ()
 
 -- | Ping client used in a few tests
 ping :: EndPoint -> EndPointAddress -> Int -> ByteString -> IO ()
@@ -286,6 +289,8 @@ collect endPoint numEvents = go numEvents Map.empty Map.empty
           fail "Unexpected multicast"
         ErrorEvent _ ->
           fail "Unexpected error"
+        EndPointClosed ->
+          fail "Unexpected endpoint closure"
 
 -- | Open connection, close it, then reopen it
 -- (In the TCP transport this means the socket will be closed, then reopened)
@@ -384,12 +389,12 @@ testSendAfterClose transport _ = do
     -- connection (i.e., on a closed connection while there is still another
     -- connection open)
     close conn2
-    Left (FailedWith SendConnectionClosed _) <- send conn2 ["ping2"]
+    Left (TransportError SendFailed _) <- send conn2 ["ping2"]
 
     -- Now close the first connection, and output on it (i.e., output while
     -- there are no lightweight connection at all anymore)
     close conn1
-    Left (FailedWith SendConnectionClosed _) <- send conn2 ["ping2"]
+    Left (TransportError SendFailed _) <- send conn2 ["ping2"]
 
     putMVar clientDone ()
 
@@ -545,9 +550,9 @@ testCloseEndPoint transport _ = do
       send conn ["pong"]
 
       ConnectionClosed cid'' <- receive endpoint ; True <- return $ cid == cid''
-      ErrorEvent (ErrorEventConnectionLost addr' []) <- receive endpoint ; True <- return $ addr' == theirAddr
+      ErrorEvent (TransportError (EventConnectionLost addr' []) _) <- receive endpoint ; True <- return $ addr' == theirAddr
 
-      Left (FailedWith SendConnectionClosed _) <- send conn ["pong2"]
+      Left (TransportError SendFailed _) <- send conn ["pong2"]
     
       return ()
 
@@ -565,7 +570,7 @@ testCloseEndPoint transport _ = do
       -- Connect to the server, then close the endpoint without disconnecting explicitly
       Right _ <- connect endpoint theirAddr ReliableOrdered
       closeEndPoint endpoint
-      ErrorEvent (ErrorEventEndPointClosed []) <- receive endpoint
+      EndPointClosed <- receive endpoint
       return ()
 
     -- Second test: close endpoint with one outgoing and one incoming connection
@@ -582,16 +587,16 @@ testCloseEndPoint transport _ = do
 
       -- Close the endpoint 
       closeEndPoint endpoint
-      ErrorEvent (ErrorEventEndPointClosed [cid'']) <- receive endpoint; True <- return $ cid == cid''
+      EndPointClosed <- receive endpoint
 
       -- Attempt to send should fail with connection closed
-      Left (FailedWith SendConnectionClosed _) <- send conn ["ping2"]
+      Left (TransportError SendFailed _) <- send conn ["ping2"]
 
       -- An attempt to close the already closed connection should just return
       () <- close conn
 
       -- And so should an attempt to connect
-      Left (FailedWith ConnectFailed _) <- connect endpoint theirAddr ReliableOrdered
+      Left (TransportError ConnectFailed _) <- connect endpoint theirAddr ReliableOrdered
 
       return ()
 
@@ -632,11 +637,11 @@ testCloseTransport newTransport = do
     -- Client now closes down its transport. We should receive connection closed messages
     -- TODO: this assumes a certain ordering on the messages we receive; that's not guaranteed
     ConnectionClosed cid2'' <- receive endpoint ; True <- return $ cid2'' == cid2
-    ErrorEvent (ErrorEventConnectionLost addr'' []) <- receive endpoint ; True <- return $ addr'' == theirAddr2
+    ErrorEvent (TransportError (EventConnectionLost addr'' []) _) <- receive endpoint ; True <- return $ addr'' == theirAddr2
     ConnectionClosed cid1' <- receive endpoint ; True <- return $ cid1' == cid1
 
     -- An attempt to send to the endpoint should now fail
-    Left (FailedWith SendConnectionClosed _) <- send conn ["pong2"]
+    Left (TransportError SendFailed _) <- send conn ["pong2"]
     
     putMVar serverDone ()
 
@@ -666,22 +671,22 @@ testCloseTransport newTransport = do
     -- Now shut down the entire transport
     closeTransport transport
 
-    -- Both endpoints should report an error
-    ErrorEvent (ErrorEventEndPointClosed []) <- receive endpoint1
-    ErrorEvent (ErrorEventEndPointClosed [cid'']) <- receive endpoint2; True <- return $ cid == cid''
+    -- Both endpoints should report that they have been closed
+    EndPointClosed <- receive endpoint1
+    EndPointClosed <- receive endpoint2
 
     -- Attempt to send should fail with connection closed
-    Left (FailedWith SendConnectionClosed _) <- send conn ["ping2"]
+    Left (TransportError SendFailed _) <- send conn ["ping2"]
 
     -- An attempt to close the already closed connection should just return
     () <- close conn
 
     -- And so should an attempt to connect on either endpoint
-    Left (FailedWith ConnectFailed _) <- connect endpoint1 theirAddr ReliableOrdered
-    Left (FailedWith ConnectFailed _) <- connect endpoint2 theirAddr ReliableOrdered
+    Left (TransportError ConnectFailed _) <- connect endpoint1 theirAddr ReliableOrdered
+    Left (TransportError ConnectFailed _) <- connect endpoint2 theirAddr ReliableOrdered
 
     -- And finally, so should an attempt to create a new endpoint
-    Left (FailedWith NewEndPointTransportFailure _) <- newEndPoint transport 
+    Left (TransportError NewEndPointFailed _) <- newEndPoint transport 
 
     putMVar clientDone ()
 

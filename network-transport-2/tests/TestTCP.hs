@@ -68,7 +68,7 @@ testEarlyDisconnect nextPort = do
         ConnectionOpened cid _ addr <- receive endpoint 
         True <- return $ addr == theirAddr
       
-        ErrorEvent (ErrorEventConnectionLost addr' [cid']) <- receive endpoint 
+        ErrorEvent (TransportError (EventConnectionLost addr' [cid']) _) <- receive endpoint 
         True <- return $ addr' == theirAddr && cid' == cid
 
         return ()
@@ -84,13 +84,20 @@ testEarlyDisconnect nextPort = do
       -- closes the socket
       do
         Right () <- send conn ["ping"]
-        ConnectionOpened cid _ addr <- receive endpoint ; True <- return $ addr == theirAddr
-        Received cid' ["pong"] <- receive endpoint ; True <- return $ cid == cid'
-        ErrorEvent (ErrorEventConnectionLost addr' [cid'']) <- receive endpoint ; True <- return $ addr' == theirAddr && cid'' == cid
+        
+        ConnectionOpened cid _ addr <- receive endpoint 
+        True <- return $ addr == theirAddr
+        
+        Received cid' ["pong"] <- receive endpoint
+        True <- return $ cid == cid'
+        
+        ErrorEvent (TransportError (EventConnectionLost addr' [cid'']) _) <- receive endpoint
+        True <- return $ addr' == theirAddr && cid'' == cid
+
         return ()
 
       -- TEST 4: A subsequent send on an already-open connection will now break
-      Left (FailedWith SendConnectionClosed _) <- send conn ["ping2"]
+      Left (TransportError SendFailed _) <- send conn ["ping2"]
 
       -- *Pfew* 
       putMVar serverDone ()
@@ -185,14 +192,23 @@ testEarlyCloseSocket nextPort = do
       -- the socket gets closed
       do
         Right () <- send conn ["ping"]
-        ConnectionOpened cid _ addr <- receive endpoint ; True <- return $ addr == theirAddr
-        Received cid' ["pong"] <- receive endpoint ; True <- return $ cid' == cid
-        ConnectionClosed cid'' <- receive endpoint ; True <- return $ cid'' == cid
-        ErrorEvent (ErrorEventConnectionLost addr' []) <- receive endpoint ; True <- return $ addr' == theirAddr 
+        
+        ConnectionOpened cid _ addr <- receive endpoint
+        True <- return $ addr == theirAddr
+        
+        Received cid' ["pong"] <- receive endpoint
+        True <- return $ cid' == cid
+        
+        ConnectionClosed cid'' <- receive endpoint
+        True <- return $ cid'' == cid
+        
+        ErrorEvent (TransportError (EventConnectionLost addr' []) _) <- receive endpoint
+        True <- return $ addr' == theirAddr 
+        
         return ()
 
       -- TEST 4: A subsequent send on an already-open connection will now break
-      Left (FailedWith SendConnectionClosed _) <- send conn ["ping2"]
+      Left (TransportError SendFailed _) <- send conn ["ping2"]
 
       -- *Pfew* 
       putMVar serverDone ()
@@ -258,19 +274,19 @@ testInvalidConnect nextPort = do
   Right endpoint  <- newEndPoint transport
 
   -- Syntax error in the endpoint address
-  Left (FailedWith ConnectInvalidAddress _) <- 
+  Left (TransportError ConnectFailed _) <- 
     connect endpoint (EndPointAddress "InvalidAddress") ReliableOrdered
  
   -- Syntax connect, but invalid hostname (TCP address lookup failure)
-  Left (FailedWith ConnectInvalidAddress _) <- 
+  Left (TransportError ConnectNotFound _) <- 
     connect endpoint (encodeEndPointAddress "invalidHost" "port" 0) ReliableOrdered
  
   -- TCP address correct, but nobody home at that address
-  Left (FailedWith ConnectFailed _) <- 
+  Left (TransportError ConnectNotFound _) <- 
     connect endpoint (encodeEndPointAddress "127.0.0.1" "9000" 0) ReliableOrdered
  
   -- Valid TCP address but invalid endpoint number
-  Left (FailedWith ConnectInvalidAddress _) <- 
+  Left (TransportError ConnectNotFound _) <- 
     connect endpoint (encodeEndPointAddress "127.0.0.1" port 1) ReliableOrdered
 
   return ()

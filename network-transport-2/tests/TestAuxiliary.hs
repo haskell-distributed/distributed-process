@@ -75,7 +75,7 @@ instance Traceable Connection where
 instance Traceable Event where
   trace = traceShow 
 
-instance Show err => Traceable (FailedWith err) where
+instance Show err => Traceable (TransportError err) where
   trace = traceShow 
 
 instance Traceable EndPointAddress where

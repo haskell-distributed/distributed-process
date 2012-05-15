@@ -38,7 +38,7 @@ createTransport = do
                    }
 
 -- | Create a new end point
-apiNewEndPoint :: MVar TransportState -> IO (Either (FailedWith NewEndPointErrorCode) EndPoint)
+apiNewEndPoint :: MVar TransportState -> IO (Either (TransportError NewEndPointErrorCode) EndPoint)
 apiNewEndPoint state = do
   chan <- newChan
   addr <- modifyMVar state $ \st -> do
@@ -53,7 +53,7 @@ apiNewEndPoint state = do
                             }
   
 -- | Create a new connection
-apiConnect :: EndPointAddress -> MVar TransportState -> EndPointAddress -> Reliability -> IO (Either (FailedWith ConnectErrorCode) Connection)
+apiConnect :: EndPointAddress -> MVar TransportState -> EndPointAddress -> Reliability -> IO (Either (TransportError ConnectErrorCode) Connection)
 apiConnect myAddress state theirAddress _ = do 
   (chan, conn) <- modifyMVar state $ \st -> do
     let chan = st ^. channelAt theirAddress
@@ -66,13 +66,13 @@ apiConnect myAddress state theirAddress _ = do
                               } 
 
 -- | Send a message over a connection
-apiSend :: Chan Event -> ConnectionId -> MVar Bool -> [ByteString] -> IO (Either (FailedWith SendErrorCode) ())
+apiSend :: Chan Event -> ConnectionId -> MVar Bool -> [ByteString] -> IO (Either (TransportError SendErrorCode) ())
 apiSend chan conn connAlive msg = 
   modifyMVar connAlive $ \alive -> do
     if alive 
       then do writeChan chan (Received conn msg)
               return (alive, Right ())
-      else do return (alive, Left (FailedWith SendConnectionClosed "Connection closed"))
+      else do return (alive, Left (TransportError SendFailed "Connection closed"))
 
 -- | Close a connection
 apiClose :: Chan Event -> ConnectionId -> MVar Bool -> IO ()
@@ -82,7 +82,7 @@ apiClose chan conn connAlive =
     return False
 
 -- | Create a new multicast group
-apiNewMulticastGroup :: MVar TransportState -> EndPointAddress -> IO (Either (FailedWith NewMulticastGroupErrorCode) MulticastGroup)
+apiNewMulticastGroup :: MVar TransportState -> EndPointAddress -> IO (Either (TransportError NewMulticastGroupErrorCode) MulticastGroup)
 apiNewMulticastGroup state ourAddress = do
   group <- newMVar Set.empty 
   groupAddr <- modifyMVar state $ \st -> do
@@ -116,11 +116,11 @@ createMulticastGroup state ourAddress groupAddress group =
 apiResolveMulticastGroup :: MVar TransportState 
                          -> EndPointAddress
                          -> MulticastAddress 
-                         -> IO (Either (FailedWith ResolveMulticastGroupErrorCode) MulticastGroup)
+                         -> IO (Either (TransportError ResolveMulticastGroupErrorCode) MulticastGroup)
 apiResolveMulticastGroup state ourAddress groupAddress = do
   group <- (^. (multigroups >>> DAC.mapMaybe groupAddress)) <$> readMVar state 
   case group of
-    Nothing   -> return . Left $ FailedWith ResolveMulticastGroupNotFound ("Group " ++ show groupAddress ++ " not found")
+    Nothing   -> return . Left $ TransportError ResolveMulticastGroupNotFound ("Group " ++ show groupAddress ++ " not found")
     Just mvar -> return . Right $ createMulticastGroup state ourAddress groupAddress mvar 
 
 --------------------------------------------------------------------------------

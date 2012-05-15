@@ -10,17 +10,16 @@ module Network.Transport ( -- * Types
                          , EndPointAddress(..)
                          , MulticastAddress(..)
                            -- * Error codes
-                         , FailedWith(..)
+                         , TransportError(..)
                          , NewEndPointErrorCode(..)
                          , ConnectErrorCode(..)
                          , NewMulticastGroupErrorCode(..)
                          , ResolveMulticastGroupErrorCode(..)
                          , SendErrorCode(..)
-                         , ErrorEventInfo(..)
+                         , EventErrorCode(..)
                          ) where
 
 import Data.ByteString (ByteString)
-import Control.Monad.Error (Error(..))
 import Control.Exception (Exception)
 import Data.Typeable (Typeable)
 
@@ -32,7 +31,7 @@ import Data.Typeable (Typeable)
 -- @Network.Transport.*@ packages.
 data Transport = Transport {
     -- | Create a new end point (heavyweight operation)
-    newEndPoint :: IO (Either (FailedWith NewEndPointErrorCode) EndPoint)
+    newEndPoint :: IO (Either (TransportError NewEndPointErrorCode) EndPoint)
     -- | Shutdown the transport completely 
   , closeTransport :: IO () 
   }
@@ -44,11 +43,11 @@ data EndPoint = EndPoint {
     -- | EndPointAddress of the endpoint.
   , address :: EndPointAddress 
     -- | Create a new lightweight connection. 
-  , connect :: EndPointAddress -> Reliability -> IO (Either (FailedWith ConnectErrorCode) Connection)
+  , connect :: EndPointAddress -> Reliability -> IO (Either (TransportError ConnectErrorCode) Connection)
     -- | Create a new multicast group.
-  , newMulticastGroup :: IO (Either (FailedWith NewMulticastGroupErrorCode) MulticastGroup)
+  , newMulticastGroup :: IO (Either (TransportError NewMulticastGroupErrorCode) MulticastGroup)
     -- | Resolve an address to a multicast group.
-  , resolveMulticastGroup :: MulticastAddress -> IO (Either (FailedWith ResolveMulticastGroupErrorCode) MulticastGroup)
+  , resolveMulticastGroup :: MulticastAddress -> IO (Either (TransportError ResolveMulticastGroupErrorCode) MulticastGroup)
     -- | Close the endpoint
   , closeEndPoint :: IO ()
   } 
@@ -56,7 +55,7 @@ data EndPoint = EndPoint {
 -- | Lightweight connection to an endpoint.
 data Connection = Connection {
     -- | Send a message on this connection.
-    send  :: [ByteString] -> IO (Either (FailedWith SendErrorCode) ())
+    send :: [ByteString] -> IO (Either (TransportError SendErrorCode) ())
     -- | Close the connection.
   , close :: IO ()
   }
@@ -71,8 +70,10 @@ data Event =
   | ConnectionOpened ConnectionId Reliability EndPointAddress 
     -- | Received multicast
   | ReceivedMulticast MulticastAddress [ByteString]
-    -- | Error that caused a bunch of connections to close (possibly none)
-  | ErrorEvent ErrorEventInfo 
+    -- | The endpoint got closed (manually, by a call to closeEndPoint or closeTransport)
+  | EndPointClosed
+    -- | An error occurred 
+  | ErrorEvent (TransportError EventErrorCode)  
   deriving Show
 
 -- | Connection IDs enable receivers to distinguish one connection from another.
@@ -115,50 +116,77 @@ newtype MulticastAddress = MulticastAddress { multicastAddressToByteString :: By
 -- Error codes                                                                --
 --------------------------------------------------------------------------------
 
-data FailedWith error = FailedWith error String
+data TransportError error = TransportError error String
   deriving (Show, Typeable)
 
-instance Error (FailedWith error) where
-  strMsg = FailedWith undefined
+-- | Although the functions in the transport API never throw TransportErrors
+-- (but return them explicitly), application code may want to turn these into
+-- exceptions. 
+instance (Typeable err, Show err) => Exception (TransportError err)
 
--- | For internal convenience, FailedWith is declared as an exception type
-instance (Typeable err, Show err) => Exception (FailedWith err)
-
--- | Errors during the creation of an endpoint (currently, there are none)
+-- | Errors during the creation of an endpoint
 data NewEndPointErrorCode =
-    NewEndPointTransportFailure  -- ^ Transport-wide failure 
+    -- | Not enough resources
+    -- (i.e., this could be a temporary local problem)
+    NewEndPointInsufficientResources
+    -- | Failed for some other reason
+    -- (i.e., there is probably no point trying again)
+  | NewEndPointFailed 
   deriving (Show, Typeable)
 
 -- | Connection failure 
 data ConnectErrorCode = 
-    ConnectInvalidAddress        -- ^ Could not parse or resolve the address 
-  | ConnectInsufficientResources -- ^ Insufficient resources (for instance, no more sockets available)
-  | ConnectFailed                -- ^ Failed for other reasons 
+    -- | Could not resolve the address 
+    -- (i.e., this could be a temporary remote problem)
+    ConnectNotFound
+    -- | Insufficient resources (for instance, no more sockets available)
+    -- (i.e., this could be a temporary local problem)
+  | ConnectInsufficientResources 
+    -- | Failed for other reasons (including syntax error)
+    -- (i.e., there is probably no point trying again).
+  | ConnectFailed                
   deriving (Show, Typeable)
 
 -- | Failure during the creation of a new multicast group
 data NewMulticastGroupErrorCode =
-    NewMulticastGroupUnsupported
+    -- | Insufficient resources
+    -- (i.e., this could be a temporary problem)
+    NewMulticastGroupInsufficientResources
+    -- | Failed for some other reason
+    -- (i.e., there is probably no point trying again)
+  | NewMulticastGroupFailed
+    -- | Not all transport implementations support multicast
+  | NewMulticastGroupUnsupported
   deriving (Show, Typeable)
 
 -- | Failure during the resolution of a multicast group
 data ResolveMulticastGroupErrorCode =
+    -- | Multicast group not found
+    -- (i.e., this could be a temporary problem)
     ResolveMulticastGroupNotFound
+    -- | Failed for some other reason (including syntax error)
+    -- (i.e., there is probably no point trying again)
+  | ResolveMulticastGroupFailed
+    -- | Not all transport implementations support multicast 
   | ResolveMulticastGroupUnsupported
   deriving (Show, Typeable)
 
 -- | Failure during sending a message
 data SendErrorCode =
-    SendConnectionClosed  -- ^ Connection was closed manually or because of an error
-  | SendFailed            -- ^ Send failed for some other reason
+    -- | Could not send this message
+    -- (but another attempt might succeed)
+    SendUnreachable
+    -- | Send failed for some other reason
+    -- (and retrying probably won't help)
+  | SendFailed            
   deriving (Show, Typeable)
 
 -- | Error codes used when reporting errors to endpoints (through receive)
-data ErrorEventInfo = 
-    -- | Endpoint was closed (manually or because of an error)   
-    ErrorEventEndPointClosed [ConnectionId] 
+data EventErrorCode = 
+    -- | Failure of the entire endpoint 
+    EventEndPointFailed
     -- | Transport-wide fatal error
-  | ErrorEventTransportFailure  
+  | EventTransportFailed
     -- | Connection to a remote endpoint was lost
-  | ErrorEventConnectionLost EndPointAddress [ConnectionId] 
+  | EventConnectionLost EndPointAddress [ConnectionId] 
   deriving Show
