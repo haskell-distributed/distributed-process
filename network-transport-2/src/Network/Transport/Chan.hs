@@ -11,7 +11,8 @@ import Data.Map (Map)
 import qualified Data.Map as Map (empty, insert, size, delete, findWithDefault)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BSC (pack)
-import Data.Lens.Lazy (Lens, lens, (^.), (^%=), (^=), (^+=), mapLens)
+import Data.Accessor (Accessor, accessor, (^.), (^=), (^:))
+import qualified Data.Accessor.Container as DAC (mapMaybe) 
 
 -- Global state: next available "address", mapping from addresses to channels and next available connection
 data TransportState = State { _channels         :: Map EndPointAddress (Chan Event) 
@@ -19,25 +20,25 @@ data TransportState = State { _channels         :: Map EndPointAddress (Chan Eve
                             , _multigroups      :: Map MulticastAddress (MVar [Chan Event])
                             }
 
-channels :: Lens TransportState (Map EndPointAddress (Chan Event))
-channels = lens _channels (\ch st -> st { _channels = ch })
+channels :: Accessor TransportState (Map EndPointAddress (Chan Event))
+channels = accessor _channels (\ch st -> st { _channels = ch })
 
-nextConnectionId :: Lens TransportState (Map EndPointAddress ConnectionId)
-nextConnectionId = lens  _nextConnectionId (\cid st -> st { _nextConnectionId = cid })
+nextConnectionId :: Accessor TransportState (Map EndPointAddress ConnectionId)
+nextConnectionId = accessor  _nextConnectionId (\cid st -> st { _nextConnectionId = cid })
 
-multigroups :: Lens TransportState (Map MulticastAddress (MVar [Chan Event]))
-multigroups = lens _multigroups (\gs st -> st { _multigroups = gs }) 
+multigroups :: Accessor TransportState (Map MulticastAddress (MVar [Chan Event]))
+multigroups = accessor _multigroups (\gs st -> st { _multigroups = gs }) 
 
-at :: Ord k => k -> String -> Lens (Map k v) v
-at k err = lens (Map.findWithDefault (error err) k) (Map.insert k)   
+at :: Ord k => k -> String -> Accessor (Map k v) v
+at k err = accessor (Map.findWithDefault (error err) k) (Map.insert k)   
 
-channelAt :: EndPointAddress -> Lens TransportState (Chan Event) 
+channelAt :: EndPointAddress -> Accessor TransportState (Chan Event) 
 channelAt addr = channels >>> at addr "Invalid channel"
 
-nextConnectionIdAt :: EndPointAddress -> Lens TransportState ConnectionId
+nextConnectionIdAt :: EndPointAddress -> Accessor TransportState ConnectionId
 nextConnectionIdAt addr = nextConnectionId >>> at addr "Invalid connection ID"
 
-multigroupAt :: MulticastAddress -> Lens TransportState (MVar [Chan Event])
+multigroupAt :: MulticastAddress -> Accessor TransportState (MVar [Chan Event])
 multigroupAt addr = multigroups >>> at addr "Invalid multigroup"
 
 -- | Create a new Transport.
@@ -72,7 +73,7 @@ apiConnect myAddress state theirAddress _ = do
   (chan, conn) <- modifyMVar state $ \st -> do
     let chan = st ^. channelAt theirAddress
     let conn = st ^. nextConnectionIdAt theirAddress
-    return (nextConnectionIdAt theirAddress ^+= 1 $ st, (chan, conn))
+    return (nextConnectionIdAt theirAddress ^: (+ 1) $ st, (chan, conn))
   writeChan chan $ ConnectionOpened conn ReliableOrdered myAddress
   connAlive <- newMVar True
   return . Right $ Connection { send  = apiSend chan conn connAlive 
@@ -117,7 +118,7 @@ apiNewMulticastGroup state endpoint = do
 createMulticastGroup :: MVar TransportState -> Chan Event -> MulticastAddress -> MVar [Chan Event] -> MulticastGroup
 createMulticastGroup state endpoint addr group =
   MulticastGroup { multicastAddress     = addr 
-                 , deleteMulticastGroup = modifyMVar_ state $ return . (multigroups ^%= Map.delete addr)
+                 , deleteMulticastGroup = modifyMVar_ state $ return . (multigroups ^: Map.delete addr)
                  , maxMsgSize           = Nothing
                  , multicastSend        = \payload -> do 
                                             cs <- readMVar group 
@@ -133,7 +134,7 @@ apiResolveMulticastGroup :: MVar TransportState
                           -> MulticastAddress 
                           -> IO (Either (FailedWith ResolveMulticastGroupErrorCode) MulticastGroup)
 apiResolveMulticastGroup state endpoint addr = do
-  group <- (^. (multigroups >>> mapLens addr)) <$> readMVar state 
+  group <- (^. (multigroups >>> DAC.mapMaybe addr)) <$> readMVar state 
   case group of
     Nothing   -> return . Left $ FailedWith ResolveMulticastGroupNotFound ("Group " ++ show addr ++ " not found")
     Just mvar -> return . Right $ createMulticastGroup state endpoint addr mvar 

@@ -11,7 +11,7 @@ Library
   Build-Depends:   base,
                    bytestring,
                    containers,
-                   data-lens,
+                   data-accessor,
                    network,
                    mtl,
                    transformers
@@ -29,7 +29,7 @@ Test-Suite TestTCP
   Build-Depends:  base,
                   containers,
                   bytestring,
-                  data-lens,
+                  data-accessor,
                   network,
                   mtl,
                   transformers,
@@ -44,7 +44,7 @@ Test-Suite TestMulticastInMemory
   Build-Depends:  base,
                   containers,
                   bytestring,
-                  data-lens,
+                  data-accessor,
                   mtl,
                   transformers,
                   ansi-terminal
@@ -58,7 +58,7 @@ Test-Suite TestInMemory
   Build-Depends:  base,
                   containers,
                   bytestring,
-                  data-lens,
+                  data-accessor,
                   mtl,
                   transformers,
                   ansi-terminal

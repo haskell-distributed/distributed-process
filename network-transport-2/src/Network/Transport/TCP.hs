@@ -84,7 +84,8 @@ import Data.IntSet (IntSet)
 import qualified Data.IntSet as IntSet (empty, insert, elems, singleton, null, delete, unions)
 import Data.Map (Map)
 import qualified Data.Map as Map (empty, elems, size)
-import Data.Lens.Lazy (Lens, lens, intMapLens, mapLens, (^.), (^=), (^+=), (^%=))
+import Data.Accessor (Accessor, accessor, (^.), (^=), (^:)) 
+import qualified Data.Accessor.Container as DAC (mapMaybe, intMapMaybe)
 import System.IO (hPutStrLn, stderr)
 
 -- $design 
@@ -181,7 +182,7 @@ import System.IO (hPutStrLn, stderr)
 -- Internal datatypes                                                         --
 --------------------------------------------------------------------------------
 
--- We use underscores for fields that we might update (using lenses)
+-- We use underscores for fields that we might update (using accessores)
 --
 -- All data types follow the same structure:
 -- 
@@ -396,7 +397,7 @@ apiClose theirEndPoint connId connAlive = void . tryIO $ do
         then do
           writeIORef connAlive False
           sendOn vst [encodeInt32 CloseConnection, encodeInt32 connId] 
-          return (RemoteEndPointValid . (remoteOutgoing ^+= (-1)) $ vst)
+          return (RemoteEndPointValid . (remoteOutgoing ^: (+ 1)) $ vst)
         else
           return (RemoteEndPointValid vst)
     RemoteEndPointClosed -> do
@@ -559,7 +560,7 @@ requestConnectionTo ourEndPoint theirAddress = go
       endPointStateSnapshot <- modifyMVar theirState $ \st ->
         case st of
           RemoteEndPointValid ep ->
-            return (RemoteEndPointValid . (remoteOutgoing ^+= 1) $ ep, st)
+            return (RemoteEndPointValid . (remoteOutgoing ^: (+ 1)) $ ep, st)
           _ ->
             return (st, st)
   
@@ -595,7 +596,7 @@ requestConnectionTo ourEndPoint theirAddress = go
           let failureHandler :: IOException -> IO b 
               failureHandler err = do
                 modifyMVar_ theirState $ \(RemoteEndPointValid ep) -> 
-                  return (RemoteEndPointValid . (remoteOutgoing ^+= (-1)) $ ep)
+                  return (RemoteEndPointValid . (remoteOutgoing ^: (+ 1)) $ ep)
                 -- TODO: should we call closeIfUnused here?
                 throw $ FailedWith ConnectFailed (show err) 
   
@@ -754,7 +755,7 @@ doRemoteRequest (ourEndPoint, theirEndPoint) header = do
   reqId <- modifyMVar (localState ourEndPoint) $ \st -> case st of
     LocalEndPointValid vst -> do
       let reqId = vst ^. nextCtrlRequestId
-      return (LocalEndPointValid . (nextCtrlRequestId ^+= 1) . (pendingCtrlRequestsAt reqId ^= Just reply) $ vst, reqId)
+      return (LocalEndPointValid . (nextCtrlRequestId ^: (+ 1)) . (pendingCtrlRequestsAt reqId ^= Just reply) $ vst, reqId)
     LocalEndPointClosed ->
       throw (userError "Local endpoint closed")
   withMVar (remoteState theirEndPoint) $ \(RemoteEndPointValid vst) ->
@@ -785,7 +786,7 @@ forkEndPointThread ourEndPoint p =
     modifyMVar ourState $ \st -> case st of
       LocalEndPointValid vst -> do
         tid <- forkIO (p >> removeThread) 
-        return (LocalEndPointValid . (internalThreads ^%= (tid :)) $ vst, True)
+        return (LocalEndPointValid . (internalThreads ^: (tid :)) $ vst, True)
       LocalEndPointClosed ->
         return (LocalEndPointClosed, False)
   where
@@ -794,7 +795,7 @@ forkEndPointThread ourEndPoint p =
       tid <- myThreadId
       modifyMVar_ ourState $ \st -> case st of
         LocalEndPointValid vst ->
-          return (LocalEndPointValid . (internalThreads ^%= filter (/= tid)) $ vst)
+          return (LocalEndPointValid . (internalThreads ^: filter (/= tid)) $ vst)
         LocalEndPointClosed ->
           return LocalEndPointClosed
 
@@ -944,7 +945,7 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
       modifyMVar_ theirState $ \st -> do
         vst <- case st of
           RemoteEndPointValid vst ->
-            return (remoteIncoming ^%= IntSet.insert newId $ vst)
+            return (remoteIncoming ^: IntSet.insert newId $ vst)
           RemoteEndPointClosing resolved vst -> do
             -- If the endpoint is in closing state that means we send a
             -- CloseSocket request to the remote endpoint. If the remote
@@ -987,7 +988,7 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
       -- TODO: we should check that this connection is in fact open 
       writeChan ourChannel (ConnectionClosed cid)
       modifyMVar_ theirState $ \(RemoteEndPointValid vst) ->
-        return (RemoteEndPointValid . (remoteIncoming ^%= IntSet.delete cid) $ vst)
+        return (RemoteEndPointValid . (remoteIncoming ^: IntSet.delete cid) $ vst)
       closeIfUnused theirEndPoint
 
     -- Close the socket (if we don't have any outgoing connections)
@@ -1090,38 +1091,38 @@ firstNonReservedConnectionId :: ConnectionId
 firstNonReservedConnectionId = 1024
 
 --------------------------------------------------------------------------------
--- Lens definitions                                                           --
+-- Accessor definitions                                                           --
 --------------------------------------------------------------------------------
 
-localEndPoints :: Lens ValidTransportState (Map EndPointAddress LocalEndPoint)
-localEndPoints = lens _localEndPoints (\es st -> st { _localEndPoints = es })
+localEndPoints :: Accessor ValidTransportState (Map EndPointAddress LocalEndPoint)
+localEndPoints = accessor _localEndPoints (\es st -> st { _localEndPoints = es })
 
-pendingCtrlRequests :: Lens ValidLocalEndPointState (IntMap (MVar [ByteString]))
-pendingCtrlRequests = lens _pendingCtrlRequests (\rep st -> st { _pendingCtrlRequests = rep })
+pendingCtrlRequests :: Accessor ValidLocalEndPointState (IntMap (MVar [ByteString]))
+pendingCtrlRequests = accessor _pendingCtrlRequests (\rep st -> st { _pendingCtrlRequests = rep })
 
-nextCtrlRequestId :: Lens ValidLocalEndPointState ControlRequestId 
-nextCtrlRequestId = lens _nextCtrlRequestId (\cid st -> st { _nextCtrlRequestId = cid })
+nextCtrlRequestId :: Accessor ValidLocalEndPointState ControlRequestId 
+nextCtrlRequestId = accessor _nextCtrlRequestId (\cid st -> st { _nextCtrlRequestId = cid })
 
-nextConnectionId :: Lens ValidLocalEndPointState ConnectionId
-nextConnectionId = lens _nextConnectionId (\cix st -> st { _nextConnectionId = cix })
+nextConnectionId :: Accessor ValidLocalEndPointState ConnectionId
+nextConnectionId = accessor _nextConnectionId (\cix st -> st { _nextConnectionId = cix })
 
-localConnections :: Lens ValidLocalEndPointState (Map EndPointAddress RemoteEndPoint)
-localConnections = lens _localConnections (\es st -> st { _localConnections = es })
+localConnections :: Accessor ValidLocalEndPointState (Map EndPointAddress RemoteEndPoint)
+localConnections = accessor _localConnections (\es st -> st { _localConnections = es })
 
-internalThreads :: Lens ValidLocalEndPointState [ThreadId]
-internalThreads = lens _internalThreads (\ts st -> st { _internalThreads = ts })
+internalThreads :: Accessor ValidLocalEndPointState [ThreadId]
+internalThreads = accessor _internalThreads (\ts st -> st { _internalThreads = ts })
 
-localEndPointAt :: EndPointAddress -> Lens ValidTransportState (Maybe LocalEndPoint)
-localEndPointAt addr = localEndPoints >>> mapLens addr 
+localEndPointAt :: EndPointAddress -> Accessor ValidTransportState (Maybe LocalEndPoint)
+localEndPointAt addr = localEndPoints >>> DAC.mapMaybe addr 
 
-pendingCtrlRequestsAt :: ControlRequestId -> Lens ValidLocalEndPointState (Maybe (MVar [ByteString]))
-pendingCtrlRequestsAt ix = pendingCtrlRequests >>> intMapLens (fromIntegral ix)
+pendingCtrlRequestsAt :: ControlRequestId -> Accessor ValidLocalEndPointState (Maybe (MVar [ByteString]))
+pendingCtrlRequestsAt ix = pendingCtrlRequests >>> DAC.intMapMaybe (fromIntegral ix)
 
-localConnectionTo :: EndPointAddress -> Lens ValidLocalEndPointState (Maybe RemoteEndPoint)
-localConnectionTo addr = localConnections >>> mapLens addr 
+localConnectionTo :: EndPointAddress -> Accessor ValidLocalEndPointState (Maybe RemoteEndPoint)
+localConnectionTo addr = localConnections >>> DAC.mapMaybe addr 
 
-remoteOutgoing :: Lens ValidRemoteEndPointState Int
-remoteOutgoing = lens _remoteOutgoing (\cs conn -> conn { _remoteOutgoing = cs })
+remoteOutgoing :: Accessor ValidRemoteEndPointState Int
+remoteOutgoing = accessor _remoteOutgoing (\cs conn -> conn { _remoteOutgoing = cs })
 
-remoteIncoming :: Lens ValidRemoteEndPointState IntSet
-remoteIncoming = lens _remoteIncoming (\cs conn -> conn { _remoteIncoming = cs })
+remoteIncoming :: Accessor ValidRemoteEndPointState IntSet
+remoteIncoming = accessor _remoteIncoming (\cs conn -> conn { _remoteIncoming = cs })
