@@ -3,12 +3,16 @@ Version:       0.1.0
 Description:   Network Transport 
 Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
 Maintainer:    dcoutts@well-typed.com
+License:       BSD3 
+License-file:  LICENSE
+Synopsis:      Network abstraction layer 
+Category:      Network  
 Homepage:      http://github.com/haskell-distributed
 Build-Type:    Simple
 Cabal-Version: >=1.9.2
 
 Library
-  Build-Depends:   base >= 4,
+  Build-Depends:   base >= 4 && < 5,
                    bytestring,
                    containers,
                    data-accessor,
@@ -34,7 +38,7 @@ Test-Suite TestTCP
                   mtl,
                   transformers,
                   ansi-terminal
-  extensions:     OverloadedStrings, ForeignFunctionInterface, FlexibleContexts, DeriveDataTypeable
+  extensions:     OverloadedStrings, ForeignFunctionInterface, DeriveDataTypeable, ExistentialQuantification, FlexibleInstances, RankNTypes, OverlappingInstances
   ghc-options:    -Wall -fno-warn-unused-do-bind
   HS-Source-Dirs: tests src
 
@@ -48,7 +52,7 @@ Test-Suite TestMulticastInMemory
                   mtl,
                   transformers,
                   ansi-terminal
-  extensions:     OverloadedStrings, ForeignFunctionInterface, FlexibleContexts, DeriveDataTypeable
+  extensions:     OverloadedStrings, ForeignFunctionInterface, DeriveDataTypeable, ExistentialQuantification, FlexibleInstances, RankNTypes, OverlappingInstances
   ghc-options:    -Wall -fno-warn-unused-do-bind
   HS-Source-Dirs: tests src
 
@@ -62,6 +66,6 @@ Test-Suite TestInMemory
                   mtl,
                   transformers,
                   ansi-terminal
-  extensions:     OverloadedStrings, ForeignFunctionInterface, FlexibleContexts, DeriveDataTypeable
+  extensions:     OverloadedStrings, ForeignFunctionInterface, DeriveDataTypeable, ExistentialQuantification, FlexibleInstances, RankNTypes, OverlappingInstances
   ghc-options:    -Wall -fno-warn-unused-do-bind
   HS-Source-Dirs: tests src

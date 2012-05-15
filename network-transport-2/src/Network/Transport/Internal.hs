@@ -9,14 +9,14 @@ module Network.Transport.Internal ( -- * Encoders/decoders
                                   , mapExceptionIO
                                   , tryIO
                                   , tryToEnum
-				  , void
+                                  , void
                                     -- * Debugging
                                   , tlog
                                   ) where
 
 import Prelude hiding (catch)
 import Foreign.Storable (pokeByteOff, peekByteOff)
-import Foreign.C (CInt, CShort)
+import Foreign.C (CInt(..), CShort(..))
 import Foreign.ForeignPtr (withForeignPtr)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (length)

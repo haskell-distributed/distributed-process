@@ -39,7 +39,7 @@ import Network.Transport.Internal ( encodeInt32
                                   , mapExceptionIO
                                   , tryIO
                                   , tryToEnum
-				  , void
+                                  , void
                                   )
 import qualified Network.Socket as N ( HostName
                                      , ServiceName

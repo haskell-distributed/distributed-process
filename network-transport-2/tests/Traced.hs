@@ -1,4 +1,3 @@
-{-# LANGUAGE RebindableSyntax, ScopedTypeVariables, DeriveDataTypeable, FlexibleInstances, OverlappingInstances, ExistentialQuantification, RankNTypes #-}
 -- | Add tracing to the IO monad (see examples). 
 -- 
 -- [Usage]
@@ -21,8 +20,8 @@
 -- > Hello world
 -- > *** Exception: user error (Pattern match failure in do expression at Traced.hs:187:3-9)
 -- > Trace:
--- > 0	Left 2
--- > 1	Left 1
+-- > 0  Left 2
+-- > 1  Left 1
 --
 -- [Guards]
 --
@@ -39,7 +38,7 @@
 -- > *Traced> test2
 -- > *** Exception: user error (Pattern match failure in do expression at Traced.hs:193:3-6)
 -- > Trace:
--- > 0	Left 1
+-- > 0  Left 1
 module Traced ( MonadS(..)
               , return
               , (>>=)
@@ -53,7 +52,6 @@ module Traced ( MonadS(..)
 
 import Prelude hiding ((>>=), return, fail, catch, (>>))
 import qualified Prelude
-import Data.String (fromString)
 import Control.Exception (catches, Handler(..), SomeException, throw, Exception(..), IOException)
 import Control.Applicative ((<$>))
 import Data.Typeable (Typeable)
@@ -182,9 +180,9 @@ instance Show TracedException where
 
 traceHandlers :: Traceable a => a -> [Handler b]
 traceHandlers a =  case trace a of
-  Nothing -> [ Handler $ \(ex :: SomeException)   -> throw ex ]
+  Nothing -> [ Handler $ \ex -> throw (ex :: SomeException) ]
   Just t  -> [ Handler $ \(TracedException ts ex) -> throw $ TracedException (show t : ts) ex
-             , Handler $ \(ex :: SomeException)   -> throw $ TracedException [show t] ex
+             , Handler $ \ex -> throw $ TracedException [show t] (ex :: SomeException)
              ]
 
 -- | Definition of 'ifThenElse' for use with RebindableSyntax 

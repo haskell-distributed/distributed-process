@@ -1,4 +1,4 @@
-{-# LANGUAGE RebindableSyntax, FlexibleInstances, OverlappingInstances, UndecidableInstances #-}
+{-# LANGUAGE RebindableSyntax #-}
 module TestTransport where
 
 import Prelude hiding (catch, (>>=), (>>), return, fail)
