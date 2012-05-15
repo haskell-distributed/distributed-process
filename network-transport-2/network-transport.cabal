@@ -13,7 +13,6 @@ Library
                    containers,
                    data-lens,
                    network,
-                   regex-applicative,
                    mtl,
                    transformers
   Exposed-modules: Network.Transport,
@@ -32,7 +31,6 @@ Test-Suite TestTCP
                   bytestring,
                   data-lens,
                   network,
-                  regex-applicative,
                   mtl,
                   transformers,
                   ansi-terminal

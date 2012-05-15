@@ -70,13 +70,13 @@ import Control.Concurrent.MVar ( MVar
                                , withMVar
                                )
 import Control.Category ((>>>))
-import Control.Applicative ((<*>), (*>), (<$>))
+import Control.Applicative ((<$>))
 import Control.Monad (forM, forM_, void, when, unless)
 import Control.Exception (IOException, SomeException, handle, throw, try, bracketOnError)
 import Data.IORef (IORef, newIORef, writeIORef, readIORef)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (concat)
-import qualified Data.ByteString.Char8 as BSC (pack, unpack)
+import qualified Data.ByteString.Char8 as BSC (pack, unpack, split)
 import Data.Int (Int32)
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap (empty)
@@ -85,7 +85,6 @@ import qualified Data.IntSet as IntSet (empty, insert, elems, singleton, null, d
 import Data.Map (Map)
 import qualified Data.Map as Map (empty, elems, size)
 import Data.Lens.Lazy (Lens, lens, intMapLens, mapLens, (^.), (^=), (^+=), (^%=))
-import Text.Regex.Applicative (RE, few, anySym, sym, many, match)
 import System.IO (hPutStrLn, stderr)
 
 -- $design 
@@ -733,12 +732,14 @@ encodeEndPointAddress host port ix = EndPointAddress . BSC.pack $
   host ++ ":" ++ port ++ ":" ++ show ix 
 
 -- | Decode end point address
--- TODO: This uses regular expression parsing, which is nice, but unnecessary
 decodeEndPointAddress :: EndPointAddress -> Maybe (N.HostName, N.ServiceName, EndPointId)
-decodeEndPointAddress (EndPointAddress bs) = match endPointAddressRE (BSC.unpack bs) 
-  where
-    endPointAddressRE :: RE Char (N.HostName, N.ServiceName, EndPointId)
-    endPointAddressRE = (,,) <$> few anySym <*> (sym ':' *> few anySym) <*> (sym ':' *> (read <$> many anySym))
+decodeEndPointAddress (EndPointAddress bs) = case map BSC.unpack $ BSC.split ':' bs of
+    [host, port, endPointIdStr] -> 
+      case reads endPointIdStr of 
+        [(endPointId, "")] -> Just (host, port, endPointId)
+        _                  -> Nothing
+    _ ->
+      Nothing
 
 -- | Do a (blocking) remote request 
 -- 
