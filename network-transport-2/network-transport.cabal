@@ -8,7 +8,7 @@ Build-Type:    Simple
 Cabal-Version: >=1.9.2
 
 Library
-  Build-Depends:   base,
+  Build-Depends:   base >= 4,
                    bytestring,
                    containers,
                    data-accessor,
@@ -26,7 +26,7 @@ Library
 Test-Suite TestTCP 
   Type:           exitcode-stdio-1.0
   Main-Is:        TestTCP.hs
-  Build-Depends:  base,
+  Build-Depends:  base >= 4,
                   bytestring,
                   containers,
                   data-accessor,
@@ -41,7 +41,7 @@ Test-Suite TestTCP
 Test-Suite TestMulticastInMemory 
   Type:           exitcode-stdio-1.0
   Main-Is:        TestMulticastInMemory.hs
-  Build-Depends:  base,
+  Build-Depends:  base >= 4,
                   bytestring,
                   containers,
                   data-accessor,
@@ -55,7 +55,7 @@ Test-Suite TestMulticastInMemory
 Test-Suite TestInMemory 
   Type:           exitcode-stdio-1.0
   Main-Is:        TestInMemory.hs
-  Build-Depends:  base,
+  Build-Depends:  base >= 4,
                   bytestring,
                   containers,
                   data-accessor,
