@@ -268,10 +268,11 @@ testCloseOneDirection transport numPings = do
 collect :: EndPoint -> Int -> IO [(ConnectionId, [[ByteString]])]
 collect endPoint numEvents = go numEvents Map.empty Map.empty
   where
-    go 0 !open !closed = if Map.null open 
+    -- TODO: for more serious use of this function we'd need to make these arguments strict
+    go 0 open closed = if Map.null open 
                          then return . Map.toList . Map.map reverse $ closed
                          else fail "Open connections"
-    go !n !open !closed = do
+    go n open closed = do
       event <- receive endPoint 
       case event of
         ConnectionOpened cid _ _ ->

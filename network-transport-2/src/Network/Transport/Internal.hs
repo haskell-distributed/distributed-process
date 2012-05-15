@@ -81,5 +81,8 @@ tlog msg = liftIO $ do
 -}
 
 -- | Safe version of 'toEnum'
-tryToEnum :: forall a. (Enum a, Bounded a) => Int -> Maybe a 
-tryToEnum n = if fromEnum (minBound :: a) <= n && n <= fromEnum (maxBound :: a) then Just (toEnum n) else Nothing 
+tryToEnum :: (Enum a, Bounded a) => Int -> Maybe a 
+tryToEnum = go minBound maxBound
+  where
+    go :: Enum b => b -> b -> Int -> Maybe b
+    go lo hi n = if fromEnum lo <= n && n <= fromEnum hi then Just (toEnum n) else Nothing 
