@@ -864,11 +864,11 @@ handleConnectionRequest transport sock = handle tryCloseSocket $ do
                         , _remoteIncoming = IntSet.empty
                         , sendOn          = sendMany sock
                         }
+            sendMany sock [encodeInt32 ConnectionRequestAccepted]
             -- TODO: this putMVar might block if the remote endpoint sends a
             -- connection request for a local endpoint that it is already
             -- connected to
             putMVar (remoteState theirEndPoint) (RemoteEndPointValid vst)
-            sendMany sock [encodeInt32 ConnectionRequestAccepted]
             return (Just theirEndPoint)
       -- If we left the scope of the exception handler with a return value of
       -- Nothing then the socket is already closed; otherwise, the socket has
