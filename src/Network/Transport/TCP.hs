@@ -384,7 +384,7 @@ apiConnect ourEndPoint theirAddress _ = try $ do
 
 -- | Close a connection
 --
--- RELY: Remote endpoint must be in 'RemoteEndPointValid' or 'RemoteEndPointClosed' 
+-- RELY: The endpoint must not be invalid 
 -- GUARANTEE: If the connection is alive on entry then the remote endpoint will
 --   either be RemoteEndPointValid or RemoteEndPointClosing. Otherwise, the state
 --   of the remote endpoint will not be changed. 
@@ -405,14 +405,15 @@ apiClose theirEndPoint connId connAlive = void . tryIO $ do
     RemoteEndPointClosed -> do
       return st 
     RemoteEndPointClosing _ _ ->
-      fail "apiClose RELY violation"
+      -- See discussion in apiSend why we must allow for this case
+      return st
     RemoteEndPointInvalid _ ->
       fail "apiClose RELY violation"
   closeIfUnused theirEndPoint
 
 -- | Send data across a connection
 -- 
--- RELY: The remote endpoint must be in state 'RemoteEndPointValid' or 'RemoteEndPointClosed'
+-- RELY: The endpoint must not be in invalid state.  
 -- GUARANTEE: The state of the remote endpoint will not be changed.
 apiSend :: RemoteEndPoint -> ConnectionId -> IORef Bool -> [ByteString] -> IO (Either (TransportError SendErrorCode) ())
 apiSend theirEndPoint connId connAlive payload = do 
@@ -423,9 +424,16 @@ apiSend theirEndPoint connId connAlive payload = do
           then mapExceptionIO sendFailed $ sendOn vst (encodeInt32 connId : prependLength payload)
           else throw $ TransportError SendFailed "Connection closed" 
       RemoteEndPointClosed -> do
-        return (Left $ TransportError SendFailed "Endpoint closed")
+        return (Left $ TransportError SendFailed "Connection closed")
       RemoteEndPointClosing _ _ ->
-        error "apiSend RELY violation"
+        -- The only way for the endpoint to be in closing state, while a
+        -- connection is still active, is for the application to call 'close'
+        -- on the connection triggering "garbage collection" of the TCP channel
+        -- (CloseSocket request to the remote endpoint) which hasn't completed
+        -- yet. Even if the remote endpoint comes back with "please don't
+        -- close", this still means that our *outgoing* connection has been
+        -- closed
+        return (Left $ TransportError SendFailed "Connection closed")
       RemoteEndPointInvalid _ ->
         error "apiSend RELY violation"
   where
@@ -960,9 +968,9 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
           _ ->
             error "handleIncomingMessages RELY violation"
         sendOn vst ( encodeInt32 ControlResponse 
-                          : encodeInt32 reqId 
-                          : prependLength [encodeInt32 newId] 
-                          )
+                   : encodeInt32 reqId 
+                   : prependLength [encodeInt32 newId] 
+                   )
         -- We add the new connection ID to the list of open connections only once the
         -- endpoint has been notified of the new connection (sendOn may fail)
         return (RemoteEndPointValid vst)
