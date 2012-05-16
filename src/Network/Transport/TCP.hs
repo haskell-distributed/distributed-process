@@ -399,7 +399,7 @@ apiClose theirEndPoint connId connAlive = void . tryIO $ do
         then do
           writeIORef connAlive False
           sendOn vst [encodeInt32 CloseConnection, encodeInt32 connId] 
-          return (RemoteEndPointValid . (remoteOutgoing ^: (+ 1)) $ vst)
+          return (RemoteEndPointValid . (remoteOutgoing ^: (\x -> x - 1)) $ vst)
         else
           return (RemoteEndPointValid vst)
     RemoteEndPointClosed -> do
@@ -598,7 +598,7 @@ requestConnectionTo ourEndPoint theirAddress = go
           let failureHandler :: IOException -> IO b 
               failureHandler err = do
                 modifyMVar_ theirState $ \(RemoteEndPointValid ep) -> 
-                  return (RemoteEndPointValid . (remoteOutgoing ^: (+ 1)) $ ep)
+                  return (RemoteEndPointValid . (remoteOutgoing ^: (\x -> x - 1)) $ ep)
                 -- TODO: should we call closeIfUnused here?
                 throw $ TransportError ConnectFailed (show err) 
   
