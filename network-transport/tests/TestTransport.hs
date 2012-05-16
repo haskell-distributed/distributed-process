@@ -374,7 +374,7 @@ testParallelConnects transport numPings = do
 
 -- | Test that sending on a closed connection gives an error
 testSendAfterClose :: Transport -> Int -> IO ()
-testSendAfterClose transport _ = do
+testSendAfterClose transport numRepeats = do
   server <- spawn transport echoServer
   clientDone <- newEmptyMVar
 
@@ -382,19 +382,22 @@ testSendAfterClose transport _ = do
     Right endpoint <- newEndPoint transport
 
     -- We request two lightweight connections
-    Right conn1 <- connect endpoint server ReliableOrdered
-    Right conn2 <- connect endpoint server ReliableOrdered
+    replicateM numRepeats $ do
+      Right conn1 <- connect endpoint server ReliableOrdered
+      Right conn2 <- connect endpoint server ReliableOrdered
+  
+      -- Close the second, but leave the first open; then output on the second
+      -- connection (i.e., on a closed connection while there is still another
+      -- connection open)
+      close conn2
+      Left (TransportError SendFailed _) <- send conn2 ["ping2"]
+  
+      -- Now close the first connection, and output on it (i.e., output while
+      -- there are no lightweight connection at all anymore)
+      close conn1
+      Left (TransportError SendFailed _) <- send conn2 ["ping2"]
 
-    -- Close the second, but leave the first open; then output on the second
-    -- connection (i.e., on a closed connection while there is still another
-    -- connection open)
-    close conn2
-    Left (TransportError SendFailed _) <- send conn2 ["ping2"]
-
-    -- Now close the first connection, and output on it (i.e., output while
-    -- there are no lightweight connection at all anymore)
-    close conn1
-    Left (TransportError SendFailed _) <- send conn2 ["ping2"]
+      return ()
 
     putMVar clientDone ()
 
@@ -402,32 +405,35 @@ testSendAfterClose transport _ = do
 
 -- | Test that closing the same connection twice has no effect
 testCloseTwice :: Transport -> Int -> IO ()
-testCloseTwice transport _ = do 
+testCloseTwice transport numRepeats = do 
   server <- spawn transport echoServer
   clientDone <- newEmptyMVar
 
   forkTry $ do
     Right endpoint <- newEndPoint transport
 
-    -- We request two lightweight connections
-    Right conn1 <- connect endpoint server ReliableOrdered
-    Right conn2 <- connect endpoint server ReliableOrdered
+    replicateM numRepeats $ do
+      -- We request two lightweight connections
+      Right conn1 <- connect endpoint server ReliableOrdered
+      Right conn2 <- connect endpoint server ReliableOrdered
+  
+      -- Close the second one twice
+      close conn2
+      close conn2
+  
+      -- Then send a message on the first and close that twice too
+      send conn1 ["ping"]
+      close conn1
 
-    -- Close the second one twice
-    close conn2
-    close conn2
-
-    -- Then send a message on the first and close that too
-    send conn1 ["ping"]
-    close conn1
-
-    -- Verify expected response from the echo server
-    ConnectionOpened cid1 _ _ <- receive endpoint
-    ConnectionOpened cid2 _ _ <- receive endpoint
-    ConnectionClosed cid2'    <- receive endpoint ; True <- return $ cid2' == cid2
-    Received cid1' ["ping"]   <- receive endpoint ; True <- return $ cid1' == cid1 
-    ConnectionClosed cid1''   <- receive endpoint ; True <- return $ cid1'' == cid1
-
+      -- Verify expected response from the echo server
+      ConnectionOpened cid1 _ _ <- receive endpoint
+      ConnectionOpened cid2 _ _ <- receive endpoint
+      ConnectionClosed cid2'    <- receive endpoint ; True <- return $ cid2' == cid2
+      Received cid1' ["ping"]   <- receive endpoint ; True <- return $ cid1' == cid1 
+      ConnectionClosed cid1''   <- receive endpoint ; True <- return $ cid1'' == cid1
+      
+      return ()
+  
     putMVar clientDone ()
 
   takeMVar clientDone
@@ -722,7 +728,7 @@ testTransport newTransport = do
     , ("ConnectToSelf",      testConnectToSelf transport numPings) 
     , ("ConnectToSelfTwice", testConnectToSelfTwice transport numPings)
     , ("CloseEndPoint",      testCloseEndPoint transport numPings) 
-    , ("CloseTransport",     testCloseTransport newTransport) 
+    , ("CloseTransport",     testCloseTransport newTransport)
     ]
   where
     numPings = 10000 :: Int
