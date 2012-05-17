@@ -23,7 +23,7 @@ Library
                    Network.Transport.Chan,
                    Network.Transport.TCP,
                    Network.Transport.Util
-  extensions:      OverloadedStrings, ForeignFunctionInterface, DeriveDataTypeable
+  extensions:      OverloadedStrings, ForeignFunctionInterface, DeriveDataTypeable, EmptyDataDecls
   ghc-options:     -Wall -fno-warn-unused-do-bind
   HS-Source-Dirs:  src
 
@@ -38,7 +38,7 @@ Test-Suite TestTCP
                   mtl,
                   transformers,
                   ansi-terminal
-  extensions:     OverloadedStrings, ForeignFunctionInterface, DeriveDataTypeable, ExistentialQuantification, FlexibleInstances, RankNTypes, OverlappingInstances
+  extensions:     OverloadedStrings, ForeignFunctionInterface, DeriveDataTypeable, EmptyDataDecls, ExistentialQuantification, FlexibleInstances, RankNTypes, OverlappingInstances
   ghc-options:    -Wall -fno-warn-unused-do-bind
   HS-Source-Dirs: tests src
 
@@ -52,7 +52,7 @@ Test-Suite TestMulticastInMemory
                   mtl,
                   transformers,
                   ansi-terminal
-  extensions:     OverloadedStrings, ForeignFunctionInterface, DeriveDataTypeable, ExistentialQuantification, FlexibleInstances, RankNTypes, OverlappingInstances
+  extensions:     OverloadedStrings, ForeignFunctionInterface, DeriveDataTypeable, EmptyDataDecls, ExistentialQuantification, FlexibleInstances, RankNTypes, OverlappingInstances
   ghc-options:    -Wall -fno-warn-unused-do-bind
   HS-Source-Dirs: tests src
 
@@ -66,6 +66,6 @@ Test-Suite TestInMemory
                   mtl,
                   transformers,
                   ansi-terminal
-  extensions:     OverloadedStrings, ForeignFunctionInterface, DeriveDataTypeable, ExistentialQuantification, FlexibleInstances, RankNTypes, OverlappingInstances
+  extensions:     OverloadedStrings, ForeignFunctionInterface, DeriveDataTypeable, EmptyDataDecls, ExistentialQuantification, FlexibleInstances, RankNTypes, OverlappingInstances
   ghc-options:    -Wall -fno-warn-unused-do-bind
   HS-Source-Dirs: tests src

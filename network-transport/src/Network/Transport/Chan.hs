@@ -53,8 +53,13 @@ apiNewEndPoint state = do
                             }
   
 -- | Create a new connection
-apiConnect :: EndPointAddress -> MVar TransportState -> EndPointAddress -> Reliability -> IO (Either (TransportError ConnectErrorCode) Connection)
-apiConnect myAddress state theirAddress _ = do 
+apiConnect :: EndPointAddress 
+           -> MVar TransportState 
+           -> EndPointAddress 
+           -> Reliability 
+           -> ConnectHints 
+           -> IO (Either (TransportError ConnectErrorCode) Connection)
+apiConnect myAddress state theirAddress _reliability _hints = do 
   (chan, conn) <- modifyMVar state $ \st -> do
     let chan = st ^. channelAt theirAddress
     let conn = st ^. nextConnectionIdAt theirAddress
@@ -105,10 +110,10 @@ createMulticastGroup state ourAddress groupAddress group =
                                             cs <- (^. channels) <$> readMVar state
                                             es <- readMVar group 
                                             forM_ (Set.elems es) $ \ep -> do 
-                                              let ch = (cs ^. at ep "Invalid endpoint")
+                                              let ch = cs ^. at ep "Invalid endpoint"
                                               writeChan ch (ReceivedMulticast groupAddress payload)             
-                 , multicastSubscribe   = modifyMVar_ group $ return . (Set.insert ourAddress)
-                 , multicastUnsubscribe = modifyMVar_ group $ return . (Set.delete ourAddress) 
+                 , multicastSubscribe   = modifyMVar_ group $ return . Set.insert ourAddress
+                 , multicastUnsubscribe = modifyMVar_ group $ return . Set.delete ourAddress
                  , multicastClose       = return () 
                  }
 

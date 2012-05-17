@@ -77,7 +77,7 @@ testEarlyDisconnect nextPort = do
       -- establish a connection to them. This should re-establish the broken
       -- TCP connection. 
       tlog "Trying to connect to client"
-      Right conn <- connect endpoint theirAddr ReliableOrdered 
+      Right conn <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
 
       -- TEST 3: To test the connection, we do a simple ping test; as before,
       -- however, the remote client won't close the connection nicely but just
@@ -97,7 +97,7 @@ testEarlyDisconnect nextPort = do
         return ()
 
       -- TEST 4: A subsequent send on an already-open connection will now break
-      Left (TransportError SendFailed _) <- send conn ["ping2"]
+      Left (TransportError SendClosed _) <- send conn ["ping2"]
 
       -- *Pfew* 
       putMVar serverDone ()
@@ -183,7 +183,7 @@ testEarlyCloseSocket nextPort = do
       -- establish a connection to them. This should re-establish the broken
       -- TCP connection. 
       tlog "Trying to connect to client"
-      Right conn <- connect endpoint theirAddr ReliableOrdered 
+      Right conn <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
 
       -- TEST 3: To test the connection, we do a simple ping test; as before,
       -- however, the remote client won't close the connection nicely but just
@@ -208,7 +208,7 @@ testEarlyCloseSocket nextPort = do
         return ()
 
       -- TEST 4: A subsequent send on an already-open connection will now break
-      Left (TransportError SendFailed _) <- send conn ["ping2"]
+      Left (TransportError SendClosed _) <- send conn ["ping2"]
 
       -- *Pfew* 
       putMVar serverDone ()
@@ -275,19 +275,19 @@ testInvalidConnect nextPort = do
 
   -- Syntax error in the endpoint address
   Left (TransportError ConnectFailed _) <- 
-    connect endpoint (EndPointAddress "InvalidAddress") ReliableOrdered
+    connect endpoint (EndPointAddress "InvalidAddress") ReliableOrdered defaultConnectHints
  
   -- Syntax connect, but invalid hostname (TCP address lookup failure)
   Left (TransportError ConnectNotFound _) <- 
-    connect endpoint (encodeEndPointAddress "invalidHost" "port" 0) ReliableOrdered
+    connect endpoint (encodeEndPointAddress "invalidHost" "port" 0) ReliableOrdered defaultConnectHints
  
   -- TCP address correct, but nobody home at that address
   Left (TransportError ConnectNotFound _) <- 
-    connect endpoint (encodeEndPointAddress "127.0.0.1" "9000" 0) ReliableOrdered
+    connect endpoint (encodeEndPointAddress "127.0.0.1" "9000" 0) ReliableOrdered defaultConnectHints
  
   -- Valid TCP address but invalid endpoint number
   Left (TransportError ConnectNotFound _) <- 
-    connect endpoint (encodeEndPointAddress "127.0.0.1" port 1) ReliableOrdered
+    connect endpoint (encodeEndPointAddress "127.0.0.1" port 1) ReliableOrdered defaultConnectHints
 
   return ()
 
@@ -404,7 +404,7 @@ testBlockAfterCloseSocket nextPort = do
       -- At this point the server will have sent a CloseSocket request to the
       -- client, and must block until the client responds
       tlog "Server waiting to connect to the client.."
-      Right _ <- readMVar clientAddr >>= \addr -> connect endpoint addr ReliableOrdered
+      Right _ <- readMVar clientAddr >>= \addr -> connect endpoint addr ReliableOrdered defaultConnectHints
       
       tlog "Server waiting.."
 

@@ -6,7 +6,8 @@ import TestAuxiliary (forkTry, runTests)
 import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar, readMVar)
 import Control.Monad (replicateM, replicateM_, when, guard, forM_)
 import Control.Monad.Error ()
-import Network.Transport
+import Network.Transport hiding (connect)
+import qualified Network.Transport as NT
 import Network.Transport.Internal (tlog)
 import Network.Transport.Util (spawn)
 import Data.ByteString (ByteString)
@@ -15,6 +16,10 @@ import Data.Map (Map)
 import qualified Data.Map as Map (empty, insert, delete, findWithDefault, adjust, null, toList, map)
 import Data.String (fromString)
 import Traced
+
+-- | We overload connect to always pass the default hints
+connect :: EndPoint -> EndPointAddress -> Reliability -> IO (Either (TransportError ConnectErrorCode) Connection)
+connect ep addr rel = NT.connect ep addr rel defaultConnectHints
 
 -- | Server that echoes messages straight back to the origin endpoint.
 echoServer :: EndPoint -> IO ()
@@ -390,12 +395,12 @@ testSendAfterClose transport numRepeats = do
       -- connection (i.e., on a closed connection while there is still another
       -- connection open)
       close conn2
-      Left (TransportError SendFailed _) <- send conn2 ["ping2"]
+      Left (TransportError SendClosed _) <- send conn2 ["ping2"]
   
       -- Now close the first connection, and output on it (i.e., output while
       -- there are no lightweight connection at all anymore)
       close conn1
-      Left (TransportError SendFailed _) <- send conn2 ["ping2"]
+      Left (TransportError SendClosed _) <- send conn2 ["ping2"]
 
       return ()
 
@@ -558,7 +563,7 @@ testCloseEndPoint transport _ = do
       ConnectionClosed cid'' <- receive endpoint ; True <- return $ cid == cid''
       ErrorEvent (TransportError (EventConnectionLost addr' []) _) <- receive endpoint ; True <- return $ addr' == theirAddr
 
-      Left (TransportError SendFailed _) <- send conn ["pong2"]
+      Left (TransportError SendClosed _) <- send conn ["pong2"]
     
       return ()
 
@@ -596,7 +601,7 @@ testCloseEndPoint transport _ = do
       EndPointClosed <- receive endpoint
 
       -- Attempt to send should fail with connection closed
-      Left (TransportError SendFailed _) <- send conn ["ping2"]
+      Left (TransportError SendClosed _) <- send conn ["ping2"]
 
       -- An attempt to close the already closed connection should just return
       () <- close conn
