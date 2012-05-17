@@ -185,7 +185,7 @@
      inkscape:pageopacity="0.0"
      inkscape:pageshadow="2"
      inkscape:zoom="0.70710678"
-     inkscape:cx="421.4534"
+     inkscape:cx="510.54885"
      inkscape:cy="435.44033"
      inkscape:current-layer="layer1"
      inkscape:document-units="px"
@@ -210,7 +210,7 @@
         <dc:format>image/svg+xml</dc:format>
         <dc:type
            rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
-        <dc:title></dc:title>
+        <dc:title />
       </cc:Work>
     </rdf:RDF>
   </metadata>
@@ -240,15 +240,15 @@
        x="32.696255"
        y="448.07922" />
     <rect
-       style="fill:none;stroke:#000000;stroke-width:11.57752419;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none"
+       style="fill:#999999;stroke:none;stroke-width:1.97458196000000008;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none"
        id="rect4657-9"
        width="582.76776"
-       height="149.16254"
+       height="145.3952"
        x="109.61612"
        y="-307.5813"
        transform="matrix(0,1,-1,0,0,0)" />
     <rect
-       style="fill:none;stroke:#000000;stroke-width:11.57752419000000010;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none;fill-opacity:1;opacity:1"
+       style="fill:#999999;stroke:none;stroke-width:2;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none;fill-opacity:1;opacity:1"
        id="rect4657"
        width="582.76776"
        height="149.16254"
@@ -287,7 +287,7 @@
    style="fill:#800000"
    id="tspan4044">1081</tspan></tspan></text>
     <rect
-       style="fill:none;stroke:#000000;stroke-width:11.57752419000000010;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none"
+       style="fill:#999999;stroke:none;stroke-width:2;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none"
        id="rect4657-7"
        width="582.76776"
        height="149.16254"
@@ -605,18 +605,18 @@
     <text
        xml:space="preserve"
        style="font-size:40px;font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;line-height:125%;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;font-family:Courier;-inkscape-font-specification:Courier"
-       x="454"
-       y="298"
+       x="454.58578"
+       y="292.34314"
        id="text4050"
        sodipodi:linespacing="125%"><tspan
          sodipodi:role="line"
          id="tspan4052"
-         x="454"
-         y="298"
+         x="454.58578"
+         y="292.34314"
          style="font-size:16px;font-style:italic;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Arial;-inkscape-font-specification:Arial Italic">TCP connection</tspan><tspan
          sodipodi:role="line"
-         x="454"
-         y="318"
+         x="454.58578"
+         y="312.34314"
          style="font-size:16px;font-style:italic;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Arial;-inkscape-font-specification:Arial Italic"
          id="tspan4068">(bi-directional)</tspan></text>
     <path
