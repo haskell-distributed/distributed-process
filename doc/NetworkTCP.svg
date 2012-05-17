@@ -262,7 +262,7 @@
      inkscape:window-height="1036"
      inkscape:window-x="4"
      inkscape:window-y="22"
-     inkscape:window-maximized="1">
+     inkscape:window-maximized="0">
     <sodipodi:guide
        orientation="1,0"
        position="984,175"
@@ -276,7 +276,7 @@
         <dc:format>image/svg+xml</dc:format>
         <dc:type
            rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
-        <dc:title></dc:title>
+        <dc:title />
       </cc:Work>
     </rdf:RDF>
   </metadata>
@@ -330,7 +330,7 @@
          sodipodi:role="line"
          id="tspan4661"
          x="36.887089"
-         y="73.584908">192.168.1.0:8080</tspan></text>
+         y="73.584908">198.51.100.1:1080</tspan></text>
     <text
        xml:space="preserve"
        style="font-size:40px;font-style:normal;font-weight:normal;line-height:125%;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;font-family:Sans"
@@ -341,7 +341,7 @@
          sodipodi:role="line"
          id="tspan4661-9"
          x="574.88385"
-         y="73.30426">192.168.1.0:8081</tspan></text>
+         y="73.30426">198.51.100.1:1081</tspan></text>
     <rect
        style="fill:none;stroke:#000000;stroke-width:11.57752419000000010;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none"
        id="rect4657-7"
@@ -359,7 +359,7 @@
          sodipodi:role="line"
          id="tspan4661-90"
          x="321.0159"
-         y="488.19104">192.168.1.1:8080</tspan></text>
+         y="488.19104">198.51.100.2:1080</tspan></text>
     <rect
        style="fill:url(#linearGradient4732);stroke:#340000;stroke-width:2;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none;fill-opacity:1"
        id="rect4724"
@@ -377,7 +377,7 @@
          sodipodi:role="line"
          id="tspan4736"
          x="62.264153"
-         y="117.35849">192.168.1.0:8080:0</tspan></text>
+         y="117.35849">198.51.100.1:1080:0</tspan></text>
     <rect
        style="fill:url(#linearGradient4795);fill-opacity:1;stroke:#340000;stroke-width:2;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none"
        id="rect4724-0"
@@ -395,7 +395,7 @@
          sodipodi:role="line"
          id="tspan4736-8"
          x="605.52832"
-         y="121.18868">192.168.1.0:8081:0</tspan></text>
+         y="121.18868">198.51.100.1:1081:0</tspan></text>
     <rect
        style="fill:url(#linearGradient4795-1);fill-opacity:1;stroke:#340000;stroke-width:2;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none"
        id="rect4724-6"
@@ -413,7 +413,7 @@
          sodipodi:role="line"
          id="tspan4736-9"
          x="63.52832"
-         y="534.18872">192.168.1.1:8080:0</tspan></text>
+         y="534.18872">198.51.100.2:1080:0</tspan></text>
     <rect
        style="fill:url(#linearGradient4795-4);fill-opacity:1;stroke:#340000;stroke-width:2;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none"
        id="rect4724-06"
@@ -431,7 +431,7 @@
          sodipodi:role="line"
          id="tspan4736-4"
          x="604.52832"
-         y="533.18872">192.168.1.1:8080:1</tspan></text>
+         y="533.18872">198.51.100.2:1080:1</tspan></text>
     <path
        sodipodi:type="arc"
        style="fill:#000000;fill-opacity:1;stroke:#000000;stroke-width:1;stroke-miterlimit:1;stroke-opacity:1;stroke-dasharray:none"
