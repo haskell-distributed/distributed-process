@@ -370,10 +370,11 @@ apiNewEndPoint transport = try $ do
 apiConnect :: LocalEndPoint    -- ^ Local end point
            -> EndPointAddress  -- ^ Remote address
            -> Reliability      -- ^ Reliability (ignored)
+           -> ConnectHints     -- ^ Hints (ignored for now)
            -> IO (Either (TransportError ConnectErrorCode) Connection)
-apiConnect ourEndPoint theirAddress _ | localAddress ourEndPoint == theirAddress = 
+apiConnect ourEndPoint theirAddress _reliability _hints | localAddress ourEndPoint == theirAddress = 
   connectToSelf ourEndPoint 
-apiConnect ourEndPoint theirAddress _ = try $ do 
+apiConnect ourEndPoint theirAddress _reliability _hints = try $ do 
   (theirEndPoint, connId) <- requestConnectionTo ourEndPoint theirAddress
   -- connAlive can be an IORef rather than an MVar because it is protected by
   -- the remoteState MVar. We don't need the overhead of locking twice.
@@ -422,9 +423,9 @@ apiSend theirEndPoint connId connAlive payload = do
         alive <- readIORef connAlive
         try $ if alive 
           then mapExceptionIO sendFailed $ sendOn vst (encodeInt32 connId : prependLength payload)
-          else throw $ TransportError SendFailed "Connection closed" 
+          else throw $ TransportError SendClosed "Connection closed" 
       RemoteEndPointClosed -> do
-        return (Left $ TransportError SendFailed "Connection closed")
+        return (Left $ TransportError SendClosed "Connection lost")
       RemoteEndPointClosing _ _ ->
         -- The only way for the endpoint to be in closing state, while a
         -- connection is still active, is for the application to call 'close'
@@ -433,7 +434,7 @@ apiSend theirEndPoint connId connAlive payload = do
         -- yet. Even if the remote endpoint comes back with "please don't
         -- close", this still means that our *outgoing* connection has been
         -- closed
-        return (Left $ TransportError SendFailed "Connection closed")
+        return (Left $ TransportError SendClosed "Connection lost")
       RemoteEndPointInvalid _ ->
         error "apiSend RELY violation"
   where
@@ -706,9 +707,7 @@ socketToEndPoint (EndPointAddress ourAddress) theirAddress = try $ do
   where
     createSocket :: N.AddrInfo -> IO N.Socket
     createSocket addr = mapExceptionIO insufficientResources $ do
-      sock <- N.socket (N.addrFamily addr) N.Stream N.defaultProtocol
-      -- putStrLn $ "Created client socket " ++ show sock
-      return sock
+      N.socket (N.addrFamily addr) N.Stream N.defaultProtocol
 
     invalidAddress, insufficientResources, failed :: IOException -> TransportError ConnectErrorCode
     invalidAddress        = TransportError ConnectNotFound . show 

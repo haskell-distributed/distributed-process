@@ -9,6 +9,9 @@ module Network.Transport ( -- * Types
                          , MulticastGroup(..)
                          , EndPointAddress(..)
                          , MulticastAddress(..)
+                           -- * Hints
+                         , ConnectHints
+                         , defaultConnectHints
                            -- * Error codes
                          , TransportError(..)
                          , NewEndPointErrorCode(..)
@@ -43,7 +46,7 @@ data EndPoint = EndPoint {
     -- | EndPointAddress of the endpoint.
   , address :: EndPointAddress 
     -- | Create a new lightweight connection. 
-  , connect :: EndPointAddress -> Reliability -> IO (Either (TransportError ConnectErrorCode) Connection)
+  , connect :: EndPointAddress -> Reliability -> ConnectHints -> IO (Either (TransportError ConnectErrorCode) Connection)
     -- | Create a new multicast group.
   , newMulticastGroup :: IO (Either (TransportError NewMulticastGroupErrorCode) MulticastGroup)
     -- | Resolve an address to a multicast group.
@@ -76,7 +79,7 @@ data Event =
   | ErrorEvent (TransportError EventErrorCode)  
   deriving Show
 
--- | Connection IDs enable receivers to distinguish one connection from another.
+-- | Connection data ConnectHintsIDs enable receivers to distinguish one connection from another.
 type ConnectionId = Int
 
 -- | Reliability guarantees of a connection.
@@ -119,9 +122,30 @@ instance Show MulticastAddress where
   show = show . multicastAddressToByteString
 
 --------------------------------------------------------------------------------
--- Error codes                                                                --
+-- Hints                                                                      --
+--                                                                            --
+-- Hints provide transport-generic "suggestions". For now, these are          --
+-- placeholders only.                                                         --
 --------------------------------------------------------------------------------
 
+-- Hints used by 'connect'
+data ConnectHints
+
+-- Default hints for connecting
+defaultConnectHints :: ConnectHints
+defaultConnectHints = undefined
+
+--------------------------------------------------------------------------------
+-- Error codes                                                                --
+--                                                                            --
+-- Errors should be transport-implementation independent. The deciding factor --
+-- for distinguishing one kind of error from another should be: might         --
+-- application code have to take a different action depending on the kind of  --
+-- error?                                                                     --
+--------------------------------------------------------------------------------
+
+-- | Errors returned by Network.Transport API functions consist of an error
+-- code and a human readable description of the problem 
 data TransportError error = TransportError error String
   deriving (Show, Typeable)
 
@@ -133,33 +157,26 @@ instance (Typeable err, Show err) => Exception (TransportError err)
 -- | Errors during the creation of an endpoint
 data NewEndPointErrorCode =
     -- | Not enough resources
-    -- (i.e., this could be a temporary local problem)
     NewEndPointInsufficientResources
     -- | Failed for some other reason
-    -- (i.e., there is probably no point trying again)
   | NewEndPointFailed 
   deriving (Show, Typeable)
 
 -- | Connection failure 
 data ConnectErrorCode = 
     -- | Could not resolve the address 
-    -- (i.e., this could be a temporary remote problem)
     ConnectNotFound
     -- | Insufficient resources (for instance, no more sockets available)
-    -- (i.e., this could be a temporary local problem)
   | ConnectInsufficientResources 
     -- | Failed for other reasons (including syntax error)
-    -- (i.e., there is probably no point trying again).
   | ConnectFailed                
   deriving (Show, Typeable)
 
 -- | Failure during the creation of a new multicast group
 data NewMulticastGroupErrorCode =
     -- | Insufficient resources
-    -- (i.e., this could be a temporary problem)
     NewMulticastGroupInsufficientResources
     -- | Failed for some other reason
-    -- (i.e., there is probably no point trying again)
   | NewMulticastGroupFailed
     -- | Not all transport implementations support multicast
   | NewMulticastGroupUnsupported
@@ -168,10 +185,8 @@ data NewMulticastGroupErrorCode =
 -- | Failure during the resolution of a multicast group
 data ResolveMulticastGroupErrorCode =
     -- | Multicast group not found
-    -- (i.e., this could be a temporary problem)
     ResolveMulticastGroupNotFound
     -- | Failed for some other reason (including syntax error)
-    -- (i.e., there is probably no point trying again)
   | ResolveMulticastGroupFailed
     -- | Not all transport implementations support multicast 
   | ResolveMulticastGroupUnsupported
@@ -179,11 +194,9 @@ data ResolveMulticastGroupErrorCode =
 
 -- | Failure during sending a message
 data SendErrorCode =
-    -- | Could not send this message
-    -- (but another attempt might succeed)
-    SendUnreachable
+    -- | Connection was closed
+    SendClosed
     -- | Send failed for some other reason
-    -- (and retrying probably won't help)
   | SendFailed            
   deriving (Show, Typeable)
 
