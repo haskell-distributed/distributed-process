@@ -652,7 +652,7 @@ testCloseTransport newTransport = do
     ConnectionClosed cid1' <- receive endpoint ; True <- return $ cid1' == cid1
 
     -- An attempt to send to the endpoint should now fail
-    Left (TransportError SendFailed _) <- send conn ["pong2"]
+    Left (TransportError SendClosed _) <- send conn ["pong2"]
     
     putMVar serverDone ()
 
@@ -687,7 +687,7 @@ testCloseTransport newTransport = do
     EndPointClosed <- receive endpoint2
 
     -- Attempt to send should fail with connection closed
-    Left (TransportError SendFailed _) <- send conn ["ping2"]
+    Left (TransportError SendClosed _) <- send conn ["ping2"]
 
     -- An attempt to close the already closed connection should just return
     () <- close conn
