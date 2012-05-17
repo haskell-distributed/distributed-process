@@ -106,11 +106,17 @@ data MulticastGroup = MulticastGroup {
 
 -- | EndPointAddress of an endpoint.
 newtype EndPointAddress = EndPointAddress { endPointAddressToByteString :: ByteString }
-  deriving (Show, Eq, Ord)
+  deriving (Eq, Ord)
+
+instance Show EndPointAddress where
+  show = show . endPointAddressToByteString
 
 -- | EndPointAddress of a multicast group.
 newtype MulticastAddress = MulticastAddress { multicastAddressToByteString :: ByteString }
-  deriving (Show, Eq, Ord)
+  deriving (Eq, Ord)
+
+instance Show MulticastAddress where
+  show = show . multicastAddressToByteString
 
 --------------------------------------------------------------------------------
 -- Error codes                                                                --
