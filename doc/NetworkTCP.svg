@@ -15,7 +15,10 @@
    id="svg4129"
    version="1.1"
    inkscape:version="0.48.2 r9819"
-   sodipodi:docname="NetworkTCP.svg">
+   sodipodi:docname="NetworkTCP.svg"
+   inkscape:export-filename="/tmp/distributed-process/doc/NetworkTCP.png"
+   inkscape:export-xdpi="90.040001"
+   inkscape:export-ydpi="90.040001">
   <defs
      id="defs4131">
     <linearGradient
@@ -181,8 +184,8 @@
      borderopacity="1.0"
      inkscape:pageopacity="0.0"
      inkscape:pageshadow="2"
-     inkscape:zoom="0.5"
-     inkscape:cx="478.02194"
+     inkscape:zoom="0.70710678"
+     inkscape:cx="421.4534"
      inkscape:cy="435.44033"
      inkscape:current-layer="layer1"
      inkscape:document-units="px"
@@ -207,7 +210,7 @@
         <dc:format>image/svg+xml</dc:format>
         <dc:type
            rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
-        <dc:title />
+        <dc:title></dc:title>
       </cc:Work>
     </rdf:RDF>
   </metadata>
@@ -307,7 +310,7 @@
    style="fill:#800000"
    id="tspan4048">1080</tspan></tspan></text>
     <rect
-       style="fill:#e9afaf;stroke:#340000;stroke-width:2;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none;fill-opacity:1"
+       style="fill:#ffa23a;stroke:#340000;stroke-width:2;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none;fill-opacity:1"
        id="rect4724"
        width="366.79245"
        height="200.15094"
@@ -326,7 +329,7 @@
          y="117.35849"
          style="-inkscape-font-specification:Courier New;font-family:Courier New;font-weight:normal;font-style:normal;font-stretch:normal;font-variant:normal">198.51.100.1:1080:0</tspan></text>
     <rect
-       style="fill:#e9afaf;fill-opacity:1;stroke:#340000;stroke-width:2;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none"
+       style="fill:#ffa23a;fill-opacity:1;stroke:#340000;stroke-width:2;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none"
        id="rect4724-0"
        width="366.79245"
        height="200.15094"
@@ -345,7 +348,7 @@
          y="121.18868"
          style="-inkscape-font-specification:Courier New;font-family:Courier New;font-weight:normal;font-style:normal;font-stretch:normal;font-variant:normal">198.51.100.1:1081:0</tspan></text>
     <rect
-       style="fill:#e9afaf;fill-opacity:1;stroke:#340000;stroke-width:2;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none"
+       style="fill:#ffa23a;fill-opacity:1;stroke:#340000;stroke-width:2;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none"
        id="rect4724-6"
        width="366.79245"
        height="200.15094"
@@ -363,7 +366,7 @@
          x="63.52832"
          y="534.18872">198.51.100.2:1080:0</tspan></text>
     <rect
-       style="fill:#e9afaf;fill-opacity:1;stroke:#340000;stroke-width:2;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none"
+       style="fill:#ffa23a;fill-opacity:1;stroke:#340000;stroke-width:2;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none"
        id="rect4724-06"
        width="366.79245"
        height="200.15094"
@@ -615,7 +618,7 @@
          x="454"
          y="318"
          style="font-size:16px;font-style:italic;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Arial;-inkscape-font-specification:Arial Italic"
-         id="tspan4068">(bidirectional)</tspan></text>
+         id="tspan4068">(bi-directional)</tspan></text>
     <path
        style="fill:#b3b3b3;stroke:#000000;stroke-width:1;stroke-linecap:butt;stroke-linejoin:miter;stroke-opacity:1;stroke-miterlimit:4;stroke-dasharray:2,1;stroke-dashoffset:0"
        d="m 554,248 86,108"
