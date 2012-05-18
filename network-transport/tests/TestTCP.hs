@@ -10,7 +10,7 @@ import Network.Transport.TCP (createTransport, encodeEndPointAddress)
 import Data.Int (Int32)
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar, readMVar, isEmptyMVar)
-import Control.Monad (replicateM, guard, forM_)
+import Control.Monad (replicateM, guard, forM_, replicateM_)
 import Control.Applicative ((<$>))
 import Control.Exception (throw)
 import Network.Transport.TCP ( ControlHeader(..)
@@ -27,6 +27,8 @@ import qualified Network.Socket as N ( sClose
 import Network.Socket.ByteString (sendMany)                                     
 import Data.String (fromString)
 import Traced 
+import GHC.IO.Exception (ioe_errno)
+import Foreign.C.Error (Errno(..), eADDRNOTAVAIL)
 
 instance Traceable ControlHeader where
   trace = traceShow
@@ -465,10 +467,32 @@ testUnnecessaryConnect nextPort = do
   forkTry $ do
     let ourAddress = EndPointAddress "ourAddress"
     Right (_, ConnectionRequestAccepted) <- readMVar serverAddr >>= socketToEndPoint ourAddress 
-    Right (_, ConnectionRequestEndPointInvalid) <- readMVar serverAddr >>= socketToEndPoint ourAddress 
+    Right (_, ConnectionRequestCrossed)  <- readMVar serverAddr >>= socketToEndPoint ourAddress 
     putMVar clientDone ()
 
   takeMVar clientDone
+
+-- | Test that we can create "many" transport instances
+testMany :: IO N.ServiceName -> IO ()
+testMany nextPort = do
+  Right masterTransport <- nextPort >>= createTransport "127.0.0.1" 
+  Right masterEndPoint  <- newEndPoint masterTransport 
+
+  replicateM_ 20 $ do
+    mTransport <- nextPort >>= createTransport "127.0.0.1" 
+    threadDelay 2000000
+    case mTransport of
+      Left ex -> do
+        putStrLn $ "IOException: " ++ show ex ++ "; errno = " ++ show (ioe_errno ex)
+        case (ioe_errno ex) of
+          Just no | Errno no == eADDRNOTAVAIL -> putStrLn "(ADDRNOTAVAIL)" 
+          _ -> return ()
+        throw ex
+      Right transport ->
+        replicateM_ 3 $ do
+          Right endpoint <- newEndPoint transport
+          Right _        <- connect endpoint (address masterEndPoint) ReliableOrdered defaultConnectHints
+          return ()
 
 main :: IO ()
 main = do
@@ -483,5 +507,6 @@ main = do
            , ("TestUnnecessaryConnect", testUnnecessaryConnect nextPort)
            , ("InvalidAddress",         testInvalidAddress nextPort)
            , ("InvalidConnect",         testInvalidConnect nextPort) 
+           , ("TestMany",               testMany nextPort)
            ]
   testTransport (either (Left . show) (Right) <$> nextPort >>= createTransport "127.0.0.1")

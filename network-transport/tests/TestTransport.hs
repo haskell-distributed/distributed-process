@@ -703,25 +703,12 @@ testCloseTransport newTransport = do
 
   mapM_ takeMVar [serverDone, clientDone]
   
-testMany :: IO (Either String Transport) -> IO ()
-testMany newTransport = do
-  Right masterTransport <- newTransport
-  Right masterEndPoint  <- newEndPoint masterTransport 
-
-  replicateM_ 20 $ do
-    Right transport <- newTransport
-    replicateM_ 2 $ do
-      Right endpoint <- newEndPoint transport
-      Right _        <- connect endpoint (address masterEndPoint) ReliableOrdered 
-      return ()
-
 -- Transport tests
 testTransport :: IO (Either String Transport) -> IO ()
 testTransport newTransport = do
   Right transport <- newTransport
   runTests
-    [ ("Many",               testMany newTransport)
-    , ("PingPong",           testPingPong transport numPings)
+    [ ("PingPong",           testPingPong transport numPings)
     , ("EndPoints",          testEndPoints transport numPings)
     , ("Connections",        testConnections transport numPings)
     , ("CloseOneConnection", testCloseOneConnection transport numPings)
