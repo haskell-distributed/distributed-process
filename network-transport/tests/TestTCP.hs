@@ -480,7 +480,6 @@ testMany nextPort = do
 
   replicateM_ 20 $ do
     mTransport <- nextPort >>= createTransport "127.0.0.1" 
-    threadDelay 2000000
     case mTransport of
       Left ex -> do
         putStrLn $ "IOException: " ++ show ex ++ "; errno = " ++ show (ioe_errno ex)
