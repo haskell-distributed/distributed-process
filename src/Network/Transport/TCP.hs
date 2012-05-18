@@ -872,9 +872,10 @@ handleConnectionRequest transport sock = handle tryCloseSocket $ do
                         , sendOn          = sendMany sock
                         }
             sendMany sock [encodeInt32 ConnectionRequestAccepted]
-            -- TODO: this putMVar might block if the remote endpoint sends a
-            -- connection request for a local endpoint that it is already
-            -- connected to
+            -- If the remote endpoint (due to a bug) attempts to connect the
+            -- same local endpoint twice, the sceond attempt wil have been
+            -- rejected with ConnectionRequestCrossed and so will never get to
+            -- this point
             putMVar (remoteState theirEndPoint) (RemoteEndPointValid vst)
             return (Just theirEndPoint)
       -- If we left the scope of the exception handler with a return value of
