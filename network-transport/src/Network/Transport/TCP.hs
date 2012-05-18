@@ -15,8 +15,9 @@
 -- * Output exception on channel after endpoint is closed
 module Network.Transport.TCP ( -- * Main API
                                createTransport
-                             , -- * TCP specific functionality (exported mostly for testing purposes_
-                               EndPointId
+                               -- * Internals (exposed for unit tests) 
+                             , createTransportExposeInternals 
+                             , EndPointId
                              , encodeEndPointAddress
                              , decodeEndPointAddress
                              , ControlHeader(..)
@@ -319,6 +320,16 @@ data ConnectionRequestResponse =
 -- TODOs: deal with hints
 createTransport :: N.HostName -> N.ServiceName -> IO (Either IOException Transport)
 createTransport host port = do 
+  result <- createTransportExposeInternals host port 
+  case result of
+    Left err -> 
+      return $ Left err
+    Right (transport, _) ->
+      return $ Right transport
+
+-- | You should probably not use this function (used for unit testing only)
+createTransportExposeInternals :: N.HostName -> N.ServiceName -> IO (Either IOException (Transport, ThreadId)) 
+createTransportExposeInternals host port = do 
     state <- newMVar . TransportValid $ ValidTransportState { _localEndPoints = Map.empty }
     let transport = TCPTransport { transportState = state
                                  , transportHost  = host
@@ -329,26 +340,44 @@ createTransport host port = do
       -- http://tangentsoft.net/wskfaq/advanced.html#backlog
       -- http://www.linuxjournal.com/files/linuxjournal.com/linuxjournal/articles/023/2333/2333s2.html
       transportThread <- forkServer host port N.sOMAXCONN (terminationHandler transport) (handleConnectionRequest transport) 
-      return Transport { newEndPoint    = apiNewEndPoint transport 
-                       , closeTransport = killThread transportThread -- This will invoke the termination handler
-                       } 
+      return ( Transport { newEndPoint    = apiNewEndPoint transport 
+                         , closeTransport = apiCloseTransport transport (Just transportThread) [EndPointClosed] 
+                         } 
+             , transportThread
+             )
   where
     terminationHandler :: TCPTransport -> SomeException -> IO ()
-    terminationHandler transport _ = do
-      -- TODO: we currently don't make a distinction between endpoint failure and manual closure
-      mTSt <- modifyMVar (transportState transport) $ \st -> case st of
-        TransportValid vst -> return (TransportClosed, Just vst)
-        TransportClosed    -> return (TransportClosed, Nothing)
-      case mTSt of
-        Nothing ->
-          -- Transport already closed
-          return ()
-        Just tSt ->
-          mapM_ (apiCloseEndPoint transport) (Map.elems $ tSt ^. localEndPoints)
+    terminationHandler transport ex = do 
+      let ev = ErrorEvent (TransportError EventTransportFailed (show ex))
+      apiCloseTransport transport Nothing [ev] 
 
 --------------------------------------------------------------------------------
 -- API functions                                                              --
 --------------------------------------------------------------------------------
+
+-- | Close the transport
+apiCloseTransport :: TCPTransport -> Maybe ThreadId -> [Event] -> IO ()
+apiCloseTransport transport mTransportThread evs = do 
+  mTSt <- modifyMVar (transportState transport) $ \st -> case st of
+    TransportValid vst -> return (TransportClosed, Just vst)
+    TransportClosed    -> return (TransportClosed, Nothing)
+  case mTSt of
+    Nothing ->
+      -- Transport already closed
+      return ()
+    Just tSt -> do
+      mapM_ (apiCloseEndPoint transport evs) (Map.elems $ tSt ^. localEndPoints)
+      case mTransportThread of
+        Just transportThread ->
+          -- This will invoke the termination handler, which in turn will call
+          -- apiCloseTransport again, but at that point the transport is
+          -- already in closed state so at that point we return immediately
+          killThread transportThread 
+        Nothing -> 
+          -- This will happen is apiCloseTransport was invoked *because* the
+          -- transport thread died (in which case we don't need to kill it)
+          return ()
+     
 
 -- | Create a new endpoint 
 apiNewEndPoint :: TCPTransport -> IO (Either (TransportError NewEndPointErrorCode) EndPoint)
@@ -358,7 +387,7 @@ apiNewEndPoint transport = try $ do
     { receive       = readChan (localChannel ourEndPoint)
     , address       = localAddress ourEndPoint
     , connect       = apiConnect ourEndPoint 
-    , closeEndPoint = apiCloseEndPoint transport ourEndPoint
+    , closeEndPoint = apiCloseEndPoint transport [EndPointClosed] ourEndPoint
     , newMulticastGroup     = return . Left $ newMulticastGroupError 
     , resolveMulticastGroup = return . Left . const resolveMulticastGroupError
     }
@@ -442,8 +471,11 @@ apiSend theirEndPoint connId connAlive payload = do
     sendFailed = TransportError SendFailed . show
 
 -- | Force-close the endpoint
-apiCloseEndPoint :: TCPTransport -> LocalEndPoint -> IO ()
-apiCloseEndPoint transport ourEndPoint = do
+apiCloseEndPoint :: TCPTransport    -- ^ Transport 
+                 -> [Event]         -- ^ Events to output on the endpoint to indicate closure 
+                 -> LocalEndPoint   -- ^ Local endpoint
+                 -> IO ()
+apiCloseEndPoint transport evs ourEndPoint = do
   -- Remove the reference from the transport state
   removeLocalEndPoint transport ourEndPoint
   -- Close the local endpoint 
@@ -460,11 +492,7 @@ apiCloseEndPoint transport ourEndPoint = do
       -- Close all endpoints and kill all threads  
       forM_ (Map.elems $ vst ^. localConnections) $ tryCloseRemoteSocket
       forM_ (vst ^. internalThreads) killThread
-      -- We send a single message to the endpoint that it is closed. Subsequent
-      -- calls will block. We could change this so that all subsequent calls to
-      -- receive return an error, but this would mean checking for some state on
-      -- every call to receive, which is an unnecessary overhead.  
-      writeChan (localChannel ourEndPoint) EndPointClosed 
+      forM_ evs $ writeChan (localChannel ourEndPoint) 
   where
     -- Close the remote socket and return the set of all incoming connections
     tryCloseRemoteSocket :: RemoteEndPoint -> IO () 

@@ -25,9 +25,9 @@ import qualified Network.Socket as N ( HostName
                                      , sClose
                                      )
 import qualified Network.Socket.ByteString as NBS (recv)
-import Control.Concurrent (forkIO, ThreadId)
+import Control.Concurrent (ThreadId, forkIOWithUnmask)
 import Control.Monad (liftM, forever)
-import Control.Exception (SomeException, handle, bracketOnError, throw)
+import Control.Exception (SomeException, catch, bracketOnError, throw, mask_)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (length, concat, null)
 import Data.Int (Int32)
@@ -60,16 +60,20 @@ forkServer host port backlog terminationHandler requestHandler = do
     -- return an empty list (but will throw an exception instead) and will return
     -- the "best" address first, whatever that means
     addr:_ <- N.getAddrInfo (Just N.defaultHints) (Just host) (Just port)
-    sock   <- N.socket (N.addrFamily addr) N.Stream N.defaultProtocol
-    -- putStrLn $ "Created server socket " ++ show sock ++ " for address " ++ host ++ ":" ++ port
-    N.setSocketOption sock N.ReuseAddr 1
-    N.bindSocket sock (N.addrAddress addr)
-    N.listen sock backlog 
-    -- TODO: when is this socket closed?
-    forkIO . handle terminationHandler . forever $ 
-      bracketOnError (N.accept sock)
-                     (N.sClose . fst)
-                     (requestHandler . fst)
+    bracketOnError (N.socket (N.addrFamily addr) N.Stream N.defaultProtocol)
+                   N.sClose $ \sock -> do
+      N.setSocketOption sock N.ReuseAddr 1
+      N.bindSocket sock (N.addrAddress addr)
+      N.listen sock backlog 
+      mask_ $ forkIOWithUnmask $ \unmask ->  
+        catch (unmask (forever $ acceptRequest sock)) $ \ex -> do
+          N.sClose sock
+          terminationHandler ex
+  where
+    acceptRequest :: N.Socket -> IO ()
+    acceptRequest sock = bracketOnError (N.accept sock)
+                                        (N.sClose . fst)
+                                        (requestHandler . fst)
       
 -- | Read a length and then a payload of that length
 recvWithLength :: N.Socket -> IO [ByteString]

@@ -6,9 +6,9 @@ import Prelude hiding (catch, (>>=), (>>), return, fail)
 import TestTransport (testTransport) 
 import TestAuxiliary (forkTry, runTests)
 import Network.Transport
-import Network.Transport.TCP (createTransport, encodeEndPointAddress)
+import Network.Transport.TCP (createTransport, createTransportExposeInternals, encodeEndPointAddress)
 import Data.Int (Int32)
-import Control.Concurrent (threadDelay)
+import Control.Concurrent (threadDelay, ThreadId, killThread)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar, readMVar, isEmptyMVar)
 import Control.Monad (replicateM, guard, forM_, replicateM_)
 import Control.Applicative ((<$>))
@@ -41,7 +41,9 @@ instance Traceable N.Socket where
 
 instance Traceable N.AddrInfo where
   trace = traceShow
-  
+
+instance Traceable ThreadId where
+  trace = const Nothing
 
 -- Test that the server gets a ConnectionClosed message when the client closes
 -- the socket without sending an explicit control message to the server first
@@ -493,6 +495,18 @@ testMany nextPort = do
           Right _        <- connect endpoint (address masterEndPoint) ReliableOrdered defaultConnectHints
           return ()
 
+-- | Test what happens when the transport breaks completely
+testBreakTransport :: IO N.ServiceName -> IO ()
+testBreakTransport nextPort = do
+  Right (transport, transportThread) <- nextPort >>= createTransportExposeInternals "127.0.0.1"
+  Right endpoint <- newEndPoint transport
+
+  killThread transportThread -- Uh oh
+
+  ErrorEvent (TransportError EventTransportFailed _) <- receive endpoint 
+
+  return ()
+
 main :: IO ()
 main = do
   portMVar <- newEmptyMVar
@@ -507,5 +521,6 @@ main = do
            , ("InvalidAddress",         testInvalidAddress nextPort)
            , ("InvalidConnect",         testInvalidConnect nextPort) 
            , ("TestMany",               testMany nextPort)
+           , ("TestBreakTransport",     testBreakTransport nextPort)
            ]
   testTransport (either (Left . show) (Right) <$> nextPort >>= createTransport "127.0.0.1")
