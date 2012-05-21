@@ -70,6 +70,7 @@ import Control.Concurrent.MVar ( MVar
                                , putMVar
                                , newEmptyMVar
                                , withMVar
+                               , tryPutMVar
                                )
 import Control.Category ((>>>))
 import Control.Applicative ((<$>))
@@ -691,33 +692,61 @@ requestConnectionTo ourEndPoint theirAddress = go
 --   RemoteEndPointInvalid. 
 setupRemoteEndPoint :: EndPointPair -> IO ()
 setupRemoteEndPoint (ourEndPoint, theirEndPoint) = do
-    result <- socketToEndPoint (localAddress ourEndPoint) (remoteAddress theirEndPoint)
-    case result of
-      Right (sock, ConnectionRequestAccepted) -> do 
-        let vst = ValidRemoteEndPointState 
-                    {  remoteSocket   = sock
-                    , _remoteOutgoing = 0
-                    , _remoteIncoming = IntSet.empty
-                    ,  sendOn         = sendMany sock 
-                    }
-        putMVar theirState (RemoteEndPointValid vst)
-        handleIncomingMessages (ourEndPoint, theirEndPoint)
-      Right (sock, ConnectionRequestEndPointInvalid) -> do
-        -- We remove the endpoint from our local state again because the next
-        -- call to 'connect' might give a different result. Threads that were
-        -- waiting on the result of this call to connect will get the
-        -- RemoteEndPointInvalid; subsequent threads will initiate a new
-        -- connection requests. 
-        removeRemoteEndPoint (ourEndPoint, theirEndPoint)
-        putMVar theirState (RemoteEndPointInvalid (invalidAddress "Invalid endpoint"))
-        N.sClose sock
-      Right (sock, ConnectionRequestCrossed) -> do
-        N.sClose sock
-      Left err -> do 
-        -- See comment above 
-        removeRemoteEndPoint (ourEndPoint, theirEndPoint)
-        putMVar theirState (RemoteEndPointInvalid err)
+    didAccept <- bracketOnError (socketToEndPoint (localAddress ourEndPoint) (remoteAddress theirEndPoint))
+                                onError $ \result -> do
+      case result of
+        Right (sock, ConnectionRequestAccepted) -> do 
+          let vst = ValidRemoteEndPointState 
+                      {  remoteSocket   = sock
+                      , _remoteOutgoing = 0
+                      , _remoteIncoming = IntSet.empty
+                      ,  sendOn         = sendMany sock 
+                      }
+          putMVar theirState (RemoteEndPointValid vst)
+          return True
+        Right (sock, ConnectionRequestEndPointInvalid) -> do
+          -- We remove the endpoint from our local state again because the next
+          -- call to 'connect' might give a different result. Threads that were
+          -- waiting on the result of this call to connect will get the
+          -- RemoteEndPointInvalid; subsequent threads will initiate a new
+          -- connection requests. 
+          removeRemoteEndPoint (ourEndPoint, theirEndPoint)
+          putMVar theirState (RemoteEndPointInvalid (invalidAddress "Invalid endpoint"))
+          N.sClose sock
+          return False
+        Right (sock, ConnectionRequestCrossed) -> do
+          N.sClose sock
+          return False
+        Left err -> do 
+          removeRemoteEndPoint (ourEndPoint, theirEndPoint) -- See comment above 
+          putMVar theirState (RemoteEndPointInvalid err)
+          return False
+   
+    -- If we get to this point without an exception, then
+    -- * if didAccept is False the socket has already been closed
+    -- * if didAccept is True, the socket has been stored as part of the remote
+    --    state so we no longer need to worry about closing it when an
+    --    asynchronous exception occurs
+    when didAccept $ handleIncomingMessages (ourEndPoint, theirEndPoint)
   where
+    -- If an asynchronous exception occurs while we set up the remote endpoint
+    -- we need to make sure to close the socket. It is also useful to
+    -- initialize the remote state (to "invalid") so that concurrent threads
+    -- that are blocked on reading the remote state are unblocked. It is
+    -- possible, however, that the exception occurred after we already
+    -- initialized the remote state, which is why we use tryPutMVar here.
+    onError :: Either (TransportError ConnectErrorCode) (N.Socket, ConnectionRequestResponse) -> IO ()
+    onError result = do
+      removeRemoteEndPoint (ourEndPoint, theirEndPoint)
+      case result of
+        Left err -> do
+          tryPutMVar theirState (RemoteEndPointInvalid (TransportError ConnectFailed (show err)))
+          return ()
+        Right (sock, _) -> do
+          tryPutMVar theirState (RemoteEndPointInvalid (TransportError ConnectFailed "setupRemoteEndPoint failed"))
+          tryIO $ N.sClose sock
+          return ()
+
     theirState      = remoteState theirEndPoint
     invalidAddress  = TransportError ConnectNotFound
 
