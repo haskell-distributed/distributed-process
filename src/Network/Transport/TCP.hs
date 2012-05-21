@@ -74,7 +74,7 @@ import Control.Concurrent.MVar ( MVar
 import Control.Category ((>>>))
 import Control.Applicative ((<$>))
 import Control.Monad (forM_, when, unless)
-import Control.Exception (IOException, SomeException, handle, throw, try, bracketOnError)
+import Control.Exception (IOException, SomeException, handle, throw, try, bracketOnError, mask_)
 import Data.IORef (IORef, newIORef, writeIORef, readIORef)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (concat)
@@ -628,8 +628,9 @@ requestConnectionTo ourEndPoint theirAddress = go
         RemoteEndPointClosed -> do
           -- EndPointClosed indicates that a concurrent thread was in the
           -- process of closing the TCP connection to the remote endpoint when
-          -- we obtained a reference to it. The remote endpoint will now have
-          -- been removed from ourState, so we simply try again.
+          -- we obtained a reference to it. By INV-CLOSE we can assume that the
+          -- remote endpoint will now have been removed from ourState, so we
+          -- simply try again.
           go 
      
         RemoteEndPointValid _ -> do
@@ -641,7 +642,6 @@ requestConnectionTo ourEndPoint theirAddress = go
               failureHandler err = do
                 modifyMVar_ theirState $ \(RemoteEndPointValid ep) -> 
                   return (RemoteEndPointValid . (remoteOutgoing ^: (\x -> x - 1)) $ ep)
-                -- TODO: should we call closeIfUnused here?
                 throw $ TransportError ConnectFailed (show err) 
   
           -- Do the actual connection request. This blocks until the remote
@@ -827,12 +827,23 @@ closeIfUnused theirEndPoint = modifyMVar_ (remoteState theirEndPoint) $ \st ->
 -- spawned). Returns whether or not a thread was spawned.
 forkEndPointThread :: LocalEndPoint -> IO () -> IO Bool 
 forkEndPointThread ourEndPoint p = 
-    modifyMVar ourState $ \st -> case st of
-      LocalEndPointValid vst -> do
-        tid <- forkIO (p >> removeThread) 
-        return (LocalEndPointValid . (internalThreads ^: (tid :)) $ vst, True)
-      LocalEndPointClosed ->
-        return (LocalEndPointClosed, False)
+    -- We use an explicit mask_ because we don't want to be interrupted until
+    -- we have registered the thread. In particular, modifyMVar is not good
+    -- enough because if we get an asynchronous exception after the fork but
+    -- before the argument to modifyMVar returns we don't want to simply put
+    -- the old value of the mvar back.
+    mask_ $ do
+      st <- takeMVar ourState
+      case st of
+        LocalEndPointValid vst -> do
+          threadRegistered <- newEmptyMVar
+          tid <- forkIO (takeMVar threadRegistered >> p >> removeThread) 
+          putMVar ourState $ LocalEndPointValid . (internalThreads ^: (tid :)) $ vst
+          putMVar threadRegistered ()
+          return True
+        LocalEndPointClosed -> do
+          putMVar ourState st
+          return False 
   where
     removeThread :: IO ()
     removeThread = do

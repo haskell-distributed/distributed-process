@@ -507,6 +507,41 @@ testBreakTransport nextPort = do
 
   return ()
 
+-- | Test that a second call to 'connect' might succeed even if the first
+-- failed. This is a TCP specific test rather than an endpoint specific test
+-- because we must manually create the endpoint address to match an endpoint we
+-- have yet to set up
+testReconnect :: IO N.ServiceName -> IO ()
+testReconnect nextPort = do
+  clientDone      <- newEmptyMVar
+  firstAttempt    <- newEmptyMVar
+  endpointCreated <- newEmptyMVar
+  port            <- nextPort
+  Right transport <- createTransport "127.0.0.1" port
+
+  -- Server
+  forkTry $ do 
+    takeMVar firstAttempt
+    newEndPoint transport
+    putMVar endpointCreated ()
+
+  -- Client
+  forkTry $ do
+    Right endpoint <- newEndPoint transport
+    let theirAddr = encodeEndPointAddress "127.0.0.1" port 1
+
+    Left (TransportError ConnectNotFound _) <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
+    putMVar firstAttempt ()
+
+    takeMVar endpointCreated
+    Right _ <-  connect endpoint theirAddr ReliableOrdered defaultConnectHints
+
+    putMVar clientDone ()
+
+  takeMVar clientDone
+
+
+
 main :: IO ()
 main = do
   portMVar <- newEmptyMVar
@@ -520,7 +555,8 @@ main = do
            , ("TestUnnecessaryConnect", testUnnecessaryConnect nextPort)
            , ("InvalidAddress",         testInvalidAddress nextPort)
            , ("InvalidConnect",         testInvalidConnect nextPort) 
-           , ("TestMany",               testMany nextPort)
-           , ("TestBreakTransport",     testBreakTransport nextPort)
+           , ("Many",                   testMany nextPort)
+           , ("BreakTransport",         testBreakTransport nextPort)
+           , ("Reconnect",              testReconnect nextPort)
            ]
   testTransport (either (Left . show) (Right) <$> nextPort >>= createTransport "127.0.0.1")
