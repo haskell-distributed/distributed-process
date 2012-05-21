@@ -16,6 +16,7 @@ import Data.Map (Map)
 import qualified Data.Map as Map (empty, insert, delete, findWithDefault, adjust, null, toList, map)
 import Data.String (fromString)
 import Traced
+import Control.Concurrent (threadDelay)
 
 -- | We overload connect to always pass the default hints
 connect :: EndPoint -> EndPointAddress -> Reliability -> IO (Either (TransportError ConnectErrorCode) Connection)
@@ -702,25 +703,57 @@ testCloseTransport newTransport = do
     putMVar clientDone ()
 
   mapM_ takeMVar [serverDone, clientDone]
+
+-- | Remote node attempts to connect to a closed local endpoint
+testConnectClosedEndPoint :: Transport -> IO ()
+testConnectClosedEndPoint transport = do
+  serverAddr   <- newEmptyMVar
+  serverClosed <- newEmptyMVar
+  clientDone   <- newEmptyMVar
   
+  -- Server
+  forkTry $ do
+    Right endpoint <- newEndPoint transport
+    putMVar serverAddr (address endpoint)
+
+    closeEndPoint endpoint
+    putMVar serverClosed ()
+
+  -- Client
+  forkTry $ do
+    Right endpoint <- newEndPoint transport
+    readMVar serverClosed 
+
+    -- Connect to a remote closed endpoint
+    Left (TransportError ConnectNotFound _) <- readMVar serverAddr >>= \addr -> connect endpoint addr ReliableOrdered 
+
+    -- Self-connect to a closed endpoint
+    closeEndPoint endpoint
+    Left (TransportError ConnectNotFound _) <- connect endpoint (address endpoint) ReliableOrdered
+
+    putMVar clientDone ()
+  
+  takeMVar clientDone
+
 -- Transport tests
 testTransport :: IO (Either String Transport) -> IO ()
 testTransport newTransport = do
   Right transport <- newTransport
   runTests
-    [ ("PingPong",           testPingPong transport numPings)
-    , ("EndPoints",          testEndPoints transport numPings)
-    , ("Connections",        testConnections transport numPings)
-    , ("CloseOneConnection", testCloseOneConnection transport numPings)
-    , ("CloseOneDirection",  testCloseOneDirection transport numPings)
-    , ("CloseReopen",        testCloseReopen transport numPings)
-    , ("ParallelConnects",   testParallelConnects transport numPings)
-    , ("SendAfterClose",     testSendAfterClose transport 100)
-    , ("CloseTwice",         testCloseTwice transport 100)
-    , ("ConnectToSelf",      testConnectToSelf transport numPings) 
-    , ("ConnectToSelfTwice", testConnectToSelfTwice transport numPings)
-    , ("CloseEndPoint",      testCloseEndPoint transport numPings) 
-    , ("CloseTransport",     testCloseTransport newTransport)
+    [ ("PingPong",              testPingPong transport numPings)
+    , ("EndPoints",             testEndPoints transport numPings)
+    , ("Connections",           testConnections transport numPings)
+    , ("CloseOneConnection",    testCloseOneConnection transport numPings)
+    , ("CloseOneDirection",     testCloseOneDirection transport numPings)
+    , ("CloseReopen",           testCloseReopen transport numPings)
+    , ("ParallelConnects",      testParallelConnects transport numPings)
+    , ("SendAfterClose",        testSendAfterClose transport 100)
+    , ("CloseTwice",            testCloseTwice transport 100)
+    , ("ConnectToSelf",         testConnectToSelf transport numPings) 
+    , ("ConnectToSelfTwice",    testConnectToSelfTwice transport numPings)
+    , ("CloseEndPoint",         testCloseEndPoint transport numPings) 
+    , ("CloseTransport",        testCloseTransport newTransport)
+    , ("ConnectClosedEndPoint", testConnectClosedEndPoint transport)
     ]
   where
     numPings = 10000 :: Int

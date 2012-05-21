@@ -85,7 +85,7 @@ import qualified Data.IntMap as IntMap (empty)
 import Data.IntSet (IntSet)
 import qualified Data.IntSet as IntSet (empty, insert, elems, singleton, null, delete)
 import Data.Map (Map)
-import qualified Data.Map as Map (empty, elems, size)
+import qualified Data.Map as Map (empty, elems)
 import Data.Accessor (Accessor, accessor, (^.), (^=), (^:)) 
 import qualified Data.Accessor.Container as DAC (mapMaybe, intMapMaybe)
 import System.IO (hPutStrLn, stderr)
@@ -209,6 +209,7 @@ data TransportState =
 
 data ValidTransportState = ValidTransportState 
   { _localEndPoints :: Map EndPointAddress LocalEndPoint 
+  , _nextEndPointId :: EndPointId 
   }
 
 data LocalEndPoint = LocalEndPoint
@@ -330,7 +331,10 @@ createTransport host port = do
 -- | You should probably not use this function (used for unit testing only)
 createTransportExposeInternals :: N.HostName -> N.ServiceName -> IO (Either IOException (Transport, ThreadId)) 
 createTransportExposeInternals host port = do 
-    state <- newMVar . TransportValid $ ValidTransportState { _localEndPoints = Map.empty }
+    state <- newMVar . TransportValid $ ValidTransportState 
+      { _localEndPoints = Map.empty 
+      , _nextEndPointId = 0 
+      }
     let transport = TCPTransport { transportState = state
                                  , transportHost  = host
                                  , transportPort  = port
@@ -378,7 +382,6 @@ apiCloseTransport transport mTransportThread evs = do
           -- transport thread died (in which case we don't need to kill it)
           return ()
      
-
 -- | Create a new endpoint 
 apiNewEndPoint :: TCPTransport -> IO (Either (TransportError NewEndPointErrorCode) EndPoint)
 apiNewEndPoint transport = try $ do
@@ -418,8 +421,6 @@ apiConnect ourEndPoint theirAddress _reliability _hints = try $ do
 -- GUARANTEE: If the connection is alive on entry then the remote endpoint will
 --   either be RemoteEndPointValid or RemoteEndPointClosing. Otherwise, the state
 --   of the remote endpoint will not be changed. 
---
--- TODO: We ignore errors during a close. Is that right? 
 apiClose :: RemoteEndPoint -> ConnectionId -> IORef Bool -> IO ()
 apiClose theirEndPoint connId connAlive = void . tryIO $ do 
   modifyMVar_ (remoteState theirEndPoint) $ \st -> case st of
@@ -428,6 +429,7 @@ apiClose theirEndPoint connId connAlive = void . tryIO $ do
       if alive 
         then do
           writeIORef connAlive False
+          -- Possible exception caught top-level
           sendOn vst [encodeInt32 CloseConnection, encodeInt32 connId] 
           return (RemoteEndPointValid . (remoteOutgoing ^: (\x -> x - 1)) $ vst)
         else
@@ -454,7 +456,7 @@ apiSend theirEndPoint connId connAlive payload = do
           then mapExceptionIO sendFailed $ sendOn vst (encodeInt32 connId : prependLength payload)
           else throw $ TransportError SendClosed "Connection closed" 
       RemoteEndPointClosed -> do
-        return (Left $ TransportError SendClosed "Connection lost")
+        return . Left $ TransportError SendClosed "Connection lost"
       RemoteEndPointClosing _ _ ->
         -- The only way for the endpoint to be in closing state, while a
         -- connection is still active, is for the application to call 'close'
@@ -463,7 +465,7 @@ apiSend theirEndPoint connId connAlive payload = do
         -- yet. Even if the remote endpoint comes back with "please don't
         -- close", this still means that our *outgoing* connection has been
         -- closed
-        return (Left $ TransportError SendClosed "Connection lost")
+        return . Left $ TransportError SendClosed "Connection lost"
       RemoteEndPointInvalid _ ->
         error "apiSend RELY violation"
   where
@@ -520,12 +522,15 @@ connectToSelf :: LocalEndPoint -> IO (Either (TransportError ConnectErrorCode) C
 connectToSelf ourEndPoint = do
     -- Here connAlive must an MVar because it is not protected by another lock
     connAlive <- newMVar True 
-    -- TODO: catch exception
-    connId    <- getNextConnectionId ourEndPoint 
-    writeChan ourChan (ConnectionOpened connId ReliableOrdered (localAddress ourEndPoint))
-    return . Right $ Connection { send  = selfSend connAlive connId 
-                                , close = selfClose connAlive connId
-                                }
+    mConnId   <- tryIO (getNextConnectionId ourEndPoint) 
+    case mConnId of
+      Left err -> 
+        return . Left $ TransportError ConnectNotFound (show err)
+      Right connId -> do
+        writeChan ourChan (ConnectionOpened connId ReliableOrdered (localAddress ourEndPoint))
+        return . Right $ Connection { send  = selfSend connAlive connId 
+                                    , close = selfClose connAlive connId
+                                    }
   where
     ourChan :: Chan Event
     ourChan = localChannel ourEndPoint
@@ -565,13 +570,13 @@ createLocalEndPoint transport = do
       }
     modifyMVar (transportState transport) $ \st -> case st of
       TransportValid vst -> do
-        let ix   = fromIntegral $ Map.size (vst ^. localEndPoints) 
+        let ix   = vst ^. nextEndPointId
         let addr = encodeEndPointAddress (transportHost transport) (transportPort transport) ix 
         let localEndPoint = LocalEndPoint { localAddress  = addr
                                           , localChannel  = chan
                                           , localState    = state
                                           }
-        return (TransportValid . (localEndPointAt addr ^= Just localEndPoint) $ vst, localEndPoint)
+        return (TransportValid . (localEndPointAt addr ^= Just localEndPoint) . (nextEndPointId ^= ix + 1) $ vst, localEndPoint)
       TransportClosed ->
         throw (TransportError NewEndPointFailed "Transport closed")
 
@@ -644,8 +649,10 @@ requestConnectionTo ourEndPoint theirAddress = go
           -- point)
           reply <- handle failureHandler $ doRemoteRequest (ourEndPoint, theirEndPoint) RequestConnectionId 
           case decodeInt32 . BS.concat $ reply of
-            Nothing  -> failureHandler (userError "Invalid integer")
-            Just cid -> return (theirEndPoint, cid) 
+            Nothing -> 
+              failureHandler (userError "Invalid integer")
+            Just cid -> do 
+              return (theirEndPoint, cid) 
 
     -- If this is a new endpoint, fork a thread to listen for incoming
     -- connections. We don't want to do this while we hold the lock, because
@@ -979,6 +986,8 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
     -- Create a new connection
     createNewConnection :: ControlRequestId -> IO () 
     createNewConnection reqId = do 
+      -- getNextConnectionId throws an exception if ourEndPoint is closed; but
+      -- if this endpoint is closed, this thread will soon die anyway
       newId <- getNextConnectionId ourEndPoint
       modifyMVar_ theirState $ \st -> do
         vst <- case st of
@@ -1134,6 +1143,9 @@ firstNonReservedConnectionId = 1024
 
 localEndPoints :: Accessor ValidTransportState (Map EndPointAddress LocalEndPoint)
 localEndPoints = accessor _localEndPoints (\es st -> st { _localEndPoints = es })
+
+nextEndPointId :: Accessor ValidTransportState EndPointId
+nextEndPointId = accessor _nextEndPointId (\eid st -> st { _nextEndPointId = eid })
 
 pendingCtrlRequests :: Accessor ValidLocalEndPointState (IntMap (MVar [ByteString]))
 pendingCtrlRequests = accessor _pendingCtrlRequests (\rep st -> st { _pendingCtrlRequests = rep })
