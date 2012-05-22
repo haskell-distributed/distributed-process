@@ -73,11 +73,13 @@ apiConnect myAddress state theirAddress _reliability _hints = do
 -- | Send a message over a connection
 apiSend :: Chan Event -> ConnectionId -> MVar Bool -> [ByteString] -> IO (Either (TransportError SendErrorCode) ())
 apiSend chan conn connAlive msg = 
-  modifyMVar connAlive $ \alive -> do
+  modifyMVar connAlive $ \alive -> 
     if alive 
-      then do writeChan chan (Received conn msg)
-              return (alive, Right ())
-      else do return (alive, Left (TransportError SendFailed "Connection closed"))
+      then do 
+        writeChan chan (Received conn msg)
+        return (alive, Right ())
+      else 
+        return (alive, Left (TransportError SendFailed "Connection closed"))
 
 -- | Close a connection
 apiClose :: Chan Event -> ConnectionId -> MVar Bool -> IO ()
