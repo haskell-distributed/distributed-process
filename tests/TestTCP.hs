@@ -6,29 +6,44 @@ import Prelude hiding (catch, (>>=), (>>), return, fail)
 import TestTransport (testTransport) 
 import TestAuxiliary (forkTry, runTests)
 import Network.Transport
-import Network.Transport.TCP (createTransport, createTransportExposeInternals, encodeEndPointAddress)
+import Network.Transport.TCP ( createTransport
+                             , createTransportExposeInternals
+                             , TransportInternals(..)
+                             , encodeEndPointAddress
+                             )
 import Data.Int (Int32)
 import Control.Concurrent (threadDelay, ThreadId, killThread)
-import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar, readMVar, isEmptyMVar)
-import Control.Monad (replicateM, guard, forM_, replicateM_)
+import Control.Concurrent.MVar ( MVar
+                               , newEmptyMVar
+                               , putMVar
+                               , takeMVar
+                               , readMVar
+                               , isEmptyMVar
+                               , newMVar
+                               , modifyMVar
+                               )
+import Control.Monad (replicateM, guard, forM_, replicateM_, when)
 import Control.Applicative ((<$>))
-import Control.Exception (throw)
+import Control.Exception (throw, try, SomeException)
 import Network.Transport.TCP ( ControlHeader(..)
                              , ConnectionRequestResponse(..)
                              , socketToEndPoint
                              )
-import Network.Transport.Internal (encodeInt32, prependLength, tlog, tryIO)
+import Network.Transport.Internal (encodeInt32, prependLength, tlog, tryIO, void)
 import Network.Transport.Internal.TCP (recvInt32, forkServer, recvWithLength)
 import qualified Network.Socket as N ( sClose
                                      , ServiceName
                                      , Socket
                                      , AddrInfo
+                                     , shutdown
+                                     , ShutdownCmd(ShutdownSend)
                                      )
 import Network.Socket.ByteString (sendMany)                                     
 import Data.String (fromString)
 import Traced 
 import GHC.IO.Exception (ioe_errno)
 import Foreign.C.Error (Errno(..), eADDRNOTAVAIL)
+import System.Timeout (timeout)
 
 instance Traceable ControlHeader where
   trace = traceShow
@@ -37,13 +52,19 @@ instance Traceable ConnectionRequestResponse where
   trace = traceShow
 
 instance Traceable N.Socket where
-  trace = const Nothing
+  trace = traceShow 
 
 instance Traceable N.AddrInfo where
   trace = traceShow
 
 instance Traceable ThreadId where
   trace = const Nothing
+
+instance Traceable TransportInternals where
+  trace = const Nothing
+
+instance Traceable SomeException where
+  trace = traceShow
 
 -- Test that the server gets a ConnectionClosed message when the client closes
 -- the socket without sending an explicit control message to the server first
@@ -498,10 +519,10 @@ testMany nextPort = do
 -- | Test what happens when the transport breaks completely
 testBreakTransport :: IO N.ServiceName -> IO ()
 testBreakTransport nextPort = do
-  Right (transport, transportThread) <- nextPort >>= createTransportExposeInternals "127.0.0.1"
+  Right (transport, internals) <- nextPort >>= createTransportExposeInternals "127.0.0.1"
   Right endpoint <- newEndPoint transport
 
-  killThread transportThread -- Uh oh
+  killThread (transportThread internals) -- Uh oh
 
   ErrorEvent (TransportError EventTransportFailed _) <- receive endpoint 
 
@@ -510,37 +531,165 @@ testBreakTransport nextPort = do
 -- | Test that a second call to 'connect' might succeed even if the first
 -- failed. This is a TCP specific test rather than an endpoint specific test
 -- because we must manually create the endpoint address to match an endpoint we
--- have yet to set up
+-- have yet to set up.
+-- Then test that we get a connection lost message after the remote endpoint
+-- suddenly closes the socket, and that a subsequent 'connect' allows us to
+-- re-establish a connection to the same endpoint
 testReconnect :: IO N.ServiceName -> IO ()
 testReconnect nextPort = do
-  clientDone      <- newEmptyMVar
+  serverPort      <- nextPort
+  serverDone      <- newEmptyMVar
   firstAttempt    <- newEmptyMVar
   endpointCreated <- newEmptyMVar
-  port            <- nextPort
-  Right transport <- createTransport "127.0.0.1" port
 
   -- Server
   forkTry $ do 
-    takeMVar firstAttempt
-    newEndPoint transport
+    -- Wait for the client to do its first attempt
+    readMVar firstAttempt 
+
+    counter <- newMVar (0 :: Int) 
+
+    forkServer "127.0.0.1" serverPort 5 throw $ \sock -> do
+      -- Accept the connection 
+      Right 0  <- tryIO $ (recvInt32 sock :: IO Int)
+      Right _  <- tryIO $ recvWithLength sock 
+      Right () <- tryIO $ sendMany sock [encodeInt32 ConnectionRequestAccepted]
+
+      -- The first time we close the socket before accepting the logical connection
+      count <- modifyMVar counter $ \i -> return (i + 1, i)
+
+      when (count > 0) $ do
+        -- Client requests a logical connection
+        Right RequestConnectionId <- tryIO $ toEnum <$> (recvInt32 sock :: IO Int)
+        Right reqId <- tryIO $ (recvInt32 sock :: IO Int)
+        Right () <- tryIO $ sendMany sock (encodeInt32 ControlResponse : encodeInt32 reqId : prependLength [encodeInt32 (10001 :: Int)])
+        return ()
+
+      when (count > 1) $ do
+        -- Client sends a message
+        Right 10001 <- tryIO $ (recvInt32 sock :: IO Int)
+        Right ["ping"] <- tryIO $ recvWithLength sock
+        putMVar serverDone ()
+        
+      Right () <- tryIO $ N.sClose sock
+      return ()
+
     putMVar endpointCreated ()
 
   -- Client
   forkTry $ do
-    Right endpoint <- newEndPoint transport
-    let theirAddr = encodeEndPointAddress "127.0.0.1" port 1
+    Right transport <- nextPort >>= createTransport "127.0.0.1" 
+    Right endpoint  <- newEndPoint transport
+    let theirAddr = encodeEndPointAddress "127.0.0.1" serverPort 0
 
+    -- The first attempt will fail because no endpoint is yet set up
     Left (TransportError ConnectNotFound _) <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
     putMVar firstAttempt ()
 
+    -- The second attempt will fail because the server closes the socket before we can request a connection
     takeMVar endpointCreated
-    Right _ <-  connect endpoint theirAddr ReliableOrdered defaultConnectHints
+    Left (TransportError ConnectFailed _) <-  connect endpoint theirAddr ReliableOrdered defaultConnectHints
 
-    putMVar clientDone ()
+    -- The third attempt succeeds
+    Right conn1 <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
+    
+    -- But a send will fail because the server has closed the connection again
+    Left (TransportError SendClosed _) <- send conn1 ["ping"]
+    ErrorEvent (TransportError (EventConnectionLost _ []) _) <- receive endpoint
+
+    -- But a subsequent call to connect should reestablish the connection
+    Right conn2 <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
+
+    -- Send should now succeed
+    Right () <- send conn2 ["ping"]
+    return ()
+
+  takeMVar serverDone
+
+-- Test what happens if we close the socket one way only. This means that the
+-- 'recv' in 'handleIncomingMessages' will not fail, but a 'send' or 'connect'
+-- *will* fail. We are testing that error handling everywhere does the right
+-- thing.
+testUnidirectionalError :: IO N.ServiceName -> IO ()
+testUnidirectionalError nextPort = do
+  clientDone <- newEmptyMVar
+  serverPort <- nextPort
+  serverGotPing <- newEmptyMVar
+
+  -- Server
+  forkServer "127.0.0.1" serverPort 5 throw $ \sock -> do
+    -- We accept connections, but when an exception occurs we don't do
+    -- anything (in particular, we don't close the socket). This is important
+    -- because when we shutdown one direction of the socket a recv here will
+    -- fail, but we don't want to close that socket at that point (which
+    -- would shutdown the socket in the other direction)
+    void . (try :: IO () -> IO (Either SomeException ())) $ do
+      0 <- recvInt32 sock :: IO Int
+      _ <- recvWithLength sock
+      () <- sendMany sock [encodeInt32 ConnectionRequestAccepted]
+
+      RequestConnectionId <- toEnum <$> (recvInt32 sock :: IO Int)
+      reqId <- recvInt32 sock :: IO Int
+      sendMany sock (encodeInt32 ControlResponse : encodeInt32 reqId : prependLength [encodeInt32 (10001 :: Int)])
+        
+      10001    <- recvInt32 sock :: IO Int
+      ["ping"] <- recvWithLength sock
+      putMVar serverGotPing ()
+    
+  -- Client
+  forkTry $ do
+    Right (transport, internals) <- nextPort >>= createTransportExposeInternals "127.0.0.1"
+    Right endpoint <- newEndPoint transport
+    let theirAddr = encodeEndPointAddress "127.0.0.1" serverPort 0
+
+    -- Establish a connection to the server
+    Right conn1 <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
+    send conn1 ["ping"]
+    takeMVar serverGotPing
+
+    -- Close the *outgoing* part of the socket only
+    Right sock <- socketBetween internals (address endpoint) theirAddr 
+    N.shutdown sock N.ShutdownSend
+
+    -- At this point we cannot notice the problem yet so we shouldn't receive an event yet
+    Nothing <- timeout 500000 $ receive endpoint
+   
+    -- But when we send we find the error
+    Left (TransportError SendFailed _) <- send conn1 ["ping"]
+    ErrorEvent (TransportError (EventConnectionLost _ []) _) <- receive endpoint
+
+    -- A call to connect should now re-establish the connection
+    Right conn2 <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
+    send conn2 ["ping"]
+    takeMVar serverGotPing
+
+    -- Again, close the outgoing part of the socket
+    Right sock' <- socketBetween internals (address endpoint) theirAddr 
+    N.shutdown sock' N.ShutdownSend
+
+    -- We now find the error when we attempt to close the connection
+    Nothing <- timeout 500000 $ receive endpoint
+    close conn2
+    ErrorEvent (TransportError (EventConnectionLost _ []) _) <- receive endpoint
+    Right conn3 <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
+    send conn3 ["ping"]
+    takeMVar serverGotPing
+
+    -- We repeat once more. 
+    Right sock'' <- socketBetween internals (address endpoint) theirAddr 
+    N.shutdown sock'' N.ShutdownSend
+   
+    -- Now we notice the problem when we try to connect
+    Nothing <- timeout 500000 $ receive endpoint
+    Left (TransportError ConnectFailed _) <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
+    ErrorEvent (TransportError (EventConnectionLost _ []) _) <- receive endpoint
+    Right conn4 <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
+    send conn4 ["ping"]
+    takeMVar serverGotPing
+
+    putMVar clientDone  ()
 
   takeMVar clientDone
-
-
 
 main :: IO ()
 main = do
@@ -558,5 +707,6 @@ main = do
            , ("Many",                   testMany nextPort)
            , ("BreakTransport",         testBreakTransport nextPort)
            , ("Reconnect",              testReconnect nextPort)
+           , ("UnidirectionalError",    testUnidirectionalError nextPort)
            ]
   testTransport (either (Left . show) (Right) <$> nextPort >>= createTransport "127.0.0.1")
