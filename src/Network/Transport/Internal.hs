@@ -9,7 +9,9 @@ module Network.Transport.Internal ( -- * Encoders/decoders
                                   , mapIOException
                                   , tryIO
                                   , tryToEnum
+				    -- * Replicated functionality from "base"
                                   , void
+				  , forkIOWithUnmask
                                     -- * Debugging
                                   , tlog
                                   ) where
@@ -23,6 +25,8 @@ import qualified Data.ByteString as BS (length)
 import qualified Data.ByteString.Internal as BSI (unsafeCreate, toForeignPtr, inlinePerformIO)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Exception (IOException, Exception, catch, try, throwIO)
+import Control.Concurrent (ThreadId, forkIO)
+import GHC.IO (unsafeUnmask)
 --import Control.Concurrent (myThreadId)
 
 foreign import ccall unsafe "htonl" htonl :: CInt -> CInt
@@ -84,6 +88,10 @@ tlog msg = liftIO $ do
 -- | Not all versions of "base" export 'void'
 void :: Monad m => m a -> m ()
 void p = p >> return ()
+
+-- | This was introduced in "base" some time after 7.0.4
+forkIOWithUnmask :: ((forall a . IO a -> IO a) -> IO ()) -> IO ThreadId
+forkIOWithUnmask io = forkIO (io unsafeUnmask)
 
 -- | Safe version of 'toEnum'
 tryToEnum :: (Enum a, Bounded a) => Int -> Maybe a 

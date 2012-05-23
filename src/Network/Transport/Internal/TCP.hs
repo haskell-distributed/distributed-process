@@ -7,7 +7,7 @@ module Network.Transport.Internal.TCP ( forkServer
                                       ) where
 
 import Prelude hiding (catch)
-import Network.Transport.Internal (decodeInt32, void, tryIO)
+import Network.Transport.Internal (decodeInt32, void, tryIO, forkIOWithUnmask)
 import qualified Network.Socket as N ( HostName
                                      , ServiceName
                                      , Socket
@@ -26,7 +26,7 @@ import qualified Network.Socket as N ( HostName
                                      , sClose
                                      )
 import qualified Network.Socket.ByteString as NBS (recv)
-import Control.Concurrent (ThreadId, forkIOWithUnmask)
+import Control.Concurrent (ThreadId)
 import Control.Monad (liftM, forever)
 import Control.Exception (SomeException, catch, bracketOnError, throwIO, mask_)
 import Data.ByteString (ByteString)
