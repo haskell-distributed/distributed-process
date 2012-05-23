@@ -22,7 +22,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (length)
 import qualified Data.ByteString.Internal as BSI (unsafeCreate, toForeignPtr, inlinePerformIO)
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import Control.Exception (IOException, Exception, catch, try, throw)
+import Control.Exception (IOException, Exception, catch, try, throwIO)
 --import Control.Concurrent (myThreadId)
 
 foreign import ccall unsafe "htonl" htonl :: CInt -> CInt
@@ -66,7 +66,7 @@ prependLength bss = encodeInt32 (sum . map BS.length $ bss) : bss
 
 -- | Translate exceptions that arise in IO computations
 mapExceptionIO :: (Exception e1, Exception e2) => (e1 -> e2) -> IO a -> IO a
-mapExceptionIO f p = catch p (throw . f)
+mapExceptionIO f p = catch p (throwIO . f)
 
 -- | Like 'try', but lifted and specialized to IOExceptions
 tryIO :: MonadIO m => IO a -> m (Either IOException a)

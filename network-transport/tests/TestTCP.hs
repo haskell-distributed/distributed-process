@@ -24,7 +24,7 @@ import Control.Concurrent.MVar ( MVar
                                )
 import Control.Monad (replicateM, guard, forM_, replicateM_, when)
 import Control.Applicative ((<$>))
-import Control.Exception (throw, try, SomeException)
+import Control.Exception (throwIO, try, SomeException)
 import Network.Transport.TCP ( ControlHeader(..)
                              , ConnectionRequestResponse(..)
                              , socketToEndPoint
@@ -135,7 +135,7 @@ testEarlyDisconnect nextPort = do
       putMVar clientAddr ourAddress 
  
       -- Listen for incoming messages
-      forkServer "127.0.0.1" clientPort 5 throw $ \sock -> do
+      forkServer "127.0.0.1" clientPort 5 throwIO $ \sock -> do
         -- Initial setup 
         0 <- recvInt32 sock :: IO Int
         _ <- recvWithLength sock 
@@ -246,7 +246,7 @@ testEarlyCloseSocket nextPort = do
       putMVar clientAddr ourAddress 
  
       -- Listen for incoming messages
-      forkServer "127.0.0.1" clientPort 5 throw $ \sock -> do
+      forkServer "127.0.0.1" clientPort 5 throwIO $ \sock -> do
         -- Initial setup 
         0 <- recvInt32 sock :: IO Int
         _ <- recvWithLength sock 
@@ -509,7 +509,7 @@ testMany nextPort = do
         case (ioe_errno ex) of
           Just no | Errno no == eADDRNOTAVAIL -> putStrLn "(ADDRNOTAVAIL)" 
           _ -> return ()
-        throw ex
+        throwIO ex
       Right transport ->
         replicateM_ 3 $ do
           Right endpoint <- newEndPoint transport
@@ -549,7 +549,7 @@ testReconnect nextPort = do
 
     counter <- newMVar (0 :: Int) 
 
-    forkServer "127.0.0.1" serverPort 5 throw $ \sock -> do
+    forkServer "127.0.0.1" serverPort 5 throwIO $ \sock -> do
       -- Accept the connection 
       Right 0  <- tryIO $ (recvInt32 sock :: IO Int)
       Right _  <- tryIO $ recvWithLength sock 
@@ -617,7 +617,7 @@ testUnidirectionalError nextPort = do
   serverGotPing <- newEmptyMVar
 
   -- Server
-  forkServer "127.0.0.1" serverPort 5 throw $ \sock -> do
+  forkServer "127.0.0.1" serverPort 5 throwIO $ \sock -> do
     -- We accept connections, but when an exception occurs we don't do
     -- anything (in particular, we don't close the socket). This is important
     -- because when we shutdown one direction of the socket a recv here will

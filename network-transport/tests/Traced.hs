@@ -52,7 +52,7 @@ module Traced ( MonadS(..)
 
 import Prelude hiding ((>>=), return, fail, catch, (>>))
 import qualified Prelude
-import Control.Exception (catches, Handler(..), SomeException, throw, Exception(..), IOException)
+import Control.Exception (catches, Handler(..), SomeException, throwIO, Exception(..), IOException)
 import Control.Applicative ((<$>))
 import Data.Typeable (Typeable)
 import Data.Maybe (catMaybes)
@@ -180,9 +180,9 @@ instance Show TracedException where
 
 traceHandlers :: Traceable a => a -> [Handler b]
 traceHandlers a =  case trace a of
-  Nothing -> [ Handler $ \ex -> throw (ex :: SomeException) ]
-  Just t  -> [ Handler $ \(TracedException ts ex) -> throw $ TracedException (show t : ts) ex
-             , Handler $ \ex -> throw $ TracedException [show t] (ex :: SomeException)
+  Nothing -> [ Handler $ \ex -> throwIO (ex :: SomeException) ]
+  Just t  -> [ Handler $ \(TracedException ts ex) -> throwIO $ TracedException (show t : ts) ex
+             , Handler $ \ex -> throwIO $ TracedException [show t] (ex :: SomeException)
              ]
 
 -- | Definition of 'ifThenElse' for use with RebindableSyntax 
