@@ -6,7 +6,7 @@ module Network.Transport.Internal ( -- * Encoders/decoders
                                   , decodeInt16
                                   , prependLength
                                     -- * Miscellaneous abstractions
-                                  , mapExceptionIO
+                                  , mapIOException
                                   , tryIO
                                   , tryToEnum
                                   , void
@@ -65,8 +65,8 @@ prependLength :: [ByteString] -> [ByteString]
 prependLength bss = encodeInt32 (sum . map BS.length $ bss) : bss
 
 -- | Translate exceptions that arise in IO computations
-mapExceptionIO :: (Exception e1, Exception e2) => (e1 -> e2) -> IO a -> IO a
-mapExceptionIO f p = catch p (throwIO . f)
+mapIOException :: Exception e => (IOException -> e) -> IO a -> IO a
+mapIOException f p = catch p (throwIO . f)
 
 -- | Like 'try', but lifted and specialized to IOExceptions
 tryIO :: MonadIO m => IO a -> m (Either IOException a)

@@ -3,10 +3,11 @@ module Network.Transport.Internal.TCP ( forkServer
                                       , recvWithLength
                                       , recvExact 
                                       , recvInt32
+                                      , tryCloseSocket
                                       ) where
 
 import Prelude hiding (catch)
-import Network.Transport.Internal (decodeInt32)
+import Network.Transport.Internal (decodeInt32, void, tryIO)
 import qualified Network.Socket as N ( HostName
                                      , ServiceName
                                      , Socket
@@ -61,18 +62,18 @@ forkServer host port backlog terminationHandler requestHandler = do
     -- the "best" address first, whatever that means
     addr:_ <- N.getAddrInfo (Just N.defaultHints) (Just host) (Just port)
     bracketOnError (N.socket (N.addrFamily addr) N.Stream N.defaultProtocol)
-                   N.sClose $ \sock -> do
+                   tryCloseSocket $ \sock -> do
       N.setSocketOption sock N.ReuseAddr 1
       N.bindSocket sock (N.addrAddress addr)
       N.listen sock backlog 
       mask_ $ forkIOWithUnmask $ \unmask ->  
         catch (unmask (forever $ acceptRequest sock)) $ \ex -> do
-          N.sClose sock
+          tryCloseSocket sock
           terminationHandler ex
   where
     acceptRequest :: N.Socket -> IO ()
     acceptRequest sock = bracketOnError (N.accept sock)
-                                        (N.sClose . fst)
+                                        (tryCloseSocket . fst)
                                         (requestHandler . fst)
       
 -- | Read a length and then a payload of that length
@@ -86,6 +87,10 @@ recvInt32 sock = do
   case mi of
     Nothing -> throwIO (userError "Invalid integer") 
     Just i  -> return i
+
+-- | Close a socket, ignoring I/O exceptions
+tryCloseSocket :: N.Socket -> IO ()
+tryCloseSocket = void . tryIO . N.sClose
 
 -- | Read an exact number of bytes from a socket
 -- 
