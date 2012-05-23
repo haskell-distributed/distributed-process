@@ -4,11 +4,12 @@ module TestTransport where
 import Prelude hiding (catch, (>>=), (>>), return, fail)
 import TestAuxiliary (forkTry, runTests)
 import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar, readMVar)
+import Control.Exception (evaluate, try, SomeException)
 import Control.Monad (replicateM, replicateM_, when, guard, forM_)
 import Control.Monad.Error ()
 import Network.Transport hiding (connect)
 import qualified Network.Transport as NT
-import Network.Transport.Internal (tlog)
+import Network.Transport.Internal (tlog, tryIO)
 import Network.Transport.Util (spawn)
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 (pack)
@@ -734,6 +735,26 @@ testConnectClosedEndPoint transport = do
   
   takeMVar clientDone
 
+-- | We should receive an exception when doing a 'receive' after we have been
+-- notified that an endpoint has been closed
+testExceptionOnReceive :: IO (Either String Transport) -> IO ()
+testExceptionOnReceive newTransport = do
+  Right transport <- newTransport
+  
+  -- Test one: when we close an endpoint specifically
+  Right endpoint1 <- newEndPoint transport
+  closeEndPoint endpoint1
+  EndPointClosed <- receive endpoint1
+  Left _ <- (try :: IO a -> IO (Either SomeException a)) (receive endpoint1 >>= evaluate)
+
+  -- Test two: when we close the entire transport
+  Right endpoint2 <- newEndPoint transport
+  closeTransport transport
+  EndPointClosed <- receive endpoint2
+  Left _ <- (try :: IO a -> IO (Either SomeException a)) (receive endpoint2 >>= evaluate)
+
+  return ()
+
 -- Transport tests
 testTransport :: IO (Either String Transport) -> IO ()
 testTransport newTransport = do
@@ -753,6 +774,7 @@ testTransport newTransport = do
     , ("CloseEndPoint",         testCloseEndPoint transport numPings) 
     , ("CloseTransport",        testCloseTransport newTransport)
     , ("ConnectClosedEndPoint", testConnectClosedEndPoint transport)
+    , ("ExceptionOnReceive",    testExceptionOnReceive newTransport)
     ]
   where
     numPings = 10000 :: Int

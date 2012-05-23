@@ -80,3 +80,9 @@ instance Show err => Traceable (TransportError err) where
 
 instance Traceable EndPointAddress where
   trace = traceShow . endPointAddressToByteString
+
+instance Traceable SomeException where
+  trace = traceShow
+
+instance Traceable ThreadId where
+  trace = const Nothing

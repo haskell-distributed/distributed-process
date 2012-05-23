@@ -10,9 +10,6 @@
 -- Applications that use the TCP transport should use
 -- 'Network.Socket.withSocketsDo' in their main function for Windows
 -- compatibility (see "Network.Socket").
---
--- TODOs:
--- * Output exception on channel after endpoint is closed
 module Network.Transport.TCP ( -- * Main API
                                createTransport
                                -- * Internals (exposed for unit tests) 
@@ -80,6 +77,7 @@ import Control.Monad.Error (ErrorT(..), runErrorT)
 import Control.Exception ( IOException
                          , SomeException
                          , handle
+                         , throw
                          , throwIO
                          , try
                          , bracketOnError
@@ -293,7 +291,7 @@ data ValidLocalEndPointState = ValidLocalEndPointState
 --
 -- INV-CLOSE: Whenever we put an endpoint in closed state we remove that
 --   endpoint from localConnections first, so that if a concurrent thread reads
---   the mvar, finds EndPointClosed, and then looks up the endpoint in
+--   the mvar, finds RemoteEndPointClosed, and then looks up the endpoint in
 --   localConnections it is guaranteed to either find a different remote
 --   endpoint, or else none at all.
 -- INV-RESOLVE: Whenever we move a endpoint from Closing to Closed state, we
@@ -399,7 +397,9 @@ createTransportExposeInternals host port = do
       return 
         ( Transport 
             { newEndPoint    = apiNewEndPoint transport 
-            , closeTransport = let evs = [EndPointClosed] in
+            , closeTransport = let evs = [ EndPointClosed
+                                         , throw $ userError "Transport closed"
+                                         ] in
                                apiCloseTransport transport (Just tid) evs 
             } 
         , TransportInternals 
@@ -410,8 +410,10 @@ createTransportExposeInternals host port = do
   where
     terminationHandler :: TCPTransport -> SomeException -> IO ()
     terminationHandler transport ex = do 
-      let ev = ErrorEvent (TransportError EventTransportFailed (show ex))
-      apiCloseTransport transport Nothing [ev] 
+      let evs = [ ErrorEvent (TransportError EventTransportFailed (show ex))
+                , throw $ userError "Transport closed" 
+                ]
+      apiCloseTransport transport Nothing evs 
 
 --------------------------------------------------------------------------------
 -- API functions                                                              --
@@ -438,7 +440,10 @@ apiNewEndPoint transport = try $ do
     { receive       = readChan (localChannel ourEndPoint)
     , address       = localAddress ourEndPoint
     , connect       = apiConnect ourEndPoint 
-    , closeEndPoint = apiCloseEndPoint transport [EndPointClosed] ourEndPoint
+    , closeEndPoint = let evs = [ EndPointClosed
+                                , throw $ userError "Endpoint closed" 
+                                ] in
+                      apiCloseEndPoint transport evs ourEndPoint
     , newMulticastGroup     = return . Left $ newMulticastGroupError 
     , resolveMulticastGroup = return . Left . const resolveMulticastGroupError
     }
@@ -501,7 +506,7 @@ apiSend :: EndPointPair  -- ^ Local and remote endpoint
         -> [ByteString]  -- ^ Payload
         -> IO (Either (TransportError SendErrorCode) ())
 apiSend (ourEndPoint, theirEndPoint) connId connAlive payload =  
-    -- The 'join' joins the inner exception that we explicitly return) for
+    -- The 'join' joins the inner exception (which we explicitly return, for
     -- instance if the connection is closed) with the outer exception (which is
     -- returned by 'try' when an exception is thrown by 'sendOn', and handled
     -- by 'withRemoteState')
@@ -733,7 +738,7 @@ requestConnectionTo ourEndPoint theirAddress = go
           readMVar resolved >> go
   
         RemoteEndPointClosed -> 
-          -- EndPointClosed indicates that a concurrent thread was in the
+          -- RemoteEndPointClosed indicates that a concurrent thread was in the
           -- process of closing the TCP connection to the remote endpoint when
           -- we obtained a reference to it. By INV-CLOSE we can assume that the
           -- remote endpoint will now have been removed from ourState, so we

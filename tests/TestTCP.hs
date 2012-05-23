@@ -57,14 +57,8 @@ instance Traceable N.Socket where
 instance Traceable N.AddrInfo where
   trace = traceShow
 
-instance Traceable ThreadId where
-  trace = const Nothing
-
 instance Traceable TransportInternals where
   trace = const Nothing
-
-instance Traceable SomeException where
-  trace = traceShow
 
 -- Test that the server gets a ConnectionClosed message when the client closes
 -- the socket without sending an explicit control message to the server first
