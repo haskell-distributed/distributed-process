@@ -691,6 +691,43 @@ testUnidirectionalError nextPort = do
 
   takeMVar clientDone
 
+testInvalidCloseConnection :: IO N.ServiceName -> IO ()
+testInvalidCloseConnection nextPort = do
+  Right (transport, internals) <- nextPort >>= createTransportExposeInternals "127.0.0.1"
+  serverAddr <- newEmptyMVar
+  clientDone <- newEmptyMVar
+  serverDone <- newEmptyMVar
+
+  -- Server
+  forkTry $ do
+    Right endpoint <- newEndPoint transport
+    putMVar serverAddr (address endpoint)
+
+    ConnectionOpened _ _ _ <- receive endpoint
+
+    -- At this point the client sends an invalid request, so we terminate the
+    -- connection
+    ErrorEvent (TransportError (EventConnectionLost _ [_]) _) <- receive endpoint
+
+    putMVar serverDone () 
+
+  -- Client
+  forkTry $ do
+    Right endpoint <- newEndPoint transport
+    let ourAddr = address endpoint
+
+    -- Connect so that we have a TCP connection
+    theirAddr  <- readMVar serverAddr
+    Right _ <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
+
+    -- Get a handle on the TCP connection and manually send an invalid CloseConnection request
+    Right sock <- socketBetween internals ourAddr theirAddr 
+    sendMany sock [encodeInt32 CloseConnection, encodeInt32 (12345 :: Int)]
+
+    putMVar clientDone ()
+
+  mapM_ takeMVar [clientDone, serverDone]
+
 main :: IO ()
 main = do
   portMVar <- newEmptyMVar
@@ -708,5 +745,6 @@ main = do
            , ("BreakTransport",         testBreakTransport nextPort)
            , ("Reconnect",              testReconnect nextPort)
            , ("UnidirectionalError",    testUnidirectionalError nextPort)
+           , ("InvalidCloseConnection", testInvalidCloseConnection nextPort)
            ]
   testTransport (either (Left . show) (Right) <$> nextPort >>= createTransport "127.0.0.1")

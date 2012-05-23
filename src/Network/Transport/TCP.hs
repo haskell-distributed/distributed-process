@@ -101,6 +101,7 @@ import qualified Data.IntSet as IntSet ( empty
                                        , singleton
                                        , null
                                        , delete
+                                       , member
                                        )
 import Data.Map (Map)
 import qualified Data.Map as Map (empty)
@@ -1333,15 +1334,18 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
           putMVar mvar response
 
     -- Close a connection 
+    -- It is important that we verify that the connection is in fact open,
+    -- because otherwise we should not decrement the reference count
     closeConnection :: ConnectionId -> IO () 
     closeConnection cid = do
-      -- TODO: we should check that this connection is in fact open 
-      writeChan ourChannel (ConnectionClosed cid)
-      modifyMVar_ theirState $ \(RemoteEndPointValid vst) ->
+      modifyMVar_ theirState $ \(RemoteEndPointValid vst) -> do
+        unless (IntSet.member cid (vst ^. remoteIncoming)) $ 
+          throwIO $ userError "Invalid CloseConnection"
         return ( RemoteEndPointValid 
                . (remoteIncoming ^: IntSet.delete cid) 
                $ vst
                )
+      writeChan ourChannel (ConnectionClosed cid)
       closeIfUnused (ourEndPoint, theirEndPoint)
 
     -- Close the socket (if we don't have any outgoing connections)
@@ -1382,7 +1386,9 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
           putMVar resolved ()
           return True
             
-    -- Read a message and output it on the endPoint's channel
+    -- Read a message and output it on the endPoint's channel By rights we
+    -- should verify that the connection ID is valid, but this is unnecessary
+    -- overhead
     readMessage :: N.Socket -> ConnectionId -> IO () 
     readMessage sock connId = 
       recvWithLength sock >>= writeChan ourChannel . Received connId
