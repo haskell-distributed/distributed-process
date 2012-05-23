@@ -16,7 +16,6 @@ import Data.Map (Map)
 import qualified Data.Map as Map (empty, insert, delete, findWithDefault, adjust, null, toList, map)
 import Data.String (fromString)
 import Traced
-import Control.Concurrent (threadDelay)
 
 -- | We overload connect to always pass the default hints
 connect :: EndPoint -> EndPointAddress -> Reliability -> IO (Either (TransportError ConnectErrorCode) Connection)

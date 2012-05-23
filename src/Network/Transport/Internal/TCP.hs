@@ -27,7 +27,7 @@ import qualified Network.Socket as N ( HostName
 import qualified Network.Socket.ByteString as NBS (recv)
 import Control.Concurrent (ThreadId, forkIOWithUnmask)
 import Control.Monad (liftM, forever)
-import Control.Exception (SomeException, catch, bracketOnError, throw, mask_)
+import Control.Exception (SomeException, catch, bracketOnError, throwIO, mask_)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (length, concat, null)
 import Data.Int (Int32)
@@ -84,7 +84,7 @@ recvInt32 :: Num a => N.Socket -> IO a
 recvInt32 sock = do
   mi <- liftM (decodeInt32 . BS.concat) $ recvExact sock 4 
   case mi of
-    Nothing -> throw (userError "Invalid integer") 
+    Nothing -> throwIO (userError "Invalid integer") 
     Just i  -> return i
 
 -- | Read an exact number of bytes from a socket
@@ -94,7 +94,7 @@ recvInt32 sock = do
 recvExact :: N.Socket                -- ^ Socket to read from 
           -> Int32                   -- ^ Number of bytes to read
           -> IO [ByteString]
-recvExact _ len | len <= 0 = throw (userError "Negative length") 
+recvExact _ len | len <= 0 = throwIO (userError "Negative length") 
 recvExact sock len = go [] len
   where
     go :: [ByteString] -> Int32 -> IO [ByteString] 
@@ -102,5 +102,5 @@ recvExact sock len = go [] len
     go acc l = do
       bs <- NBS.recv sock (fromIntegral l `min` 4096)
       if BS.null bs 
-        then throw (userError "Socket closed")
+        then throwIO (userError "Socket closed")
         else go (bs : acc) (l - fromIntegral (BS.length bs))

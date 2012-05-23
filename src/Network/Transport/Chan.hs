@@ -6,7 +6,7 @@ import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
 import Control.Applicative ((<$>))
 import Control.Category ((>>>))
 import Control.Concurrent.MVar (MVar, newMVar, modifyMVar, modifyMVar_, readMVar)
-import Control.Exception (throw)
+import Control.Exception (throwIO)
 import Control.Monad (forM_, when)
 import Data.Map (Map)
 import qualified Data.Map as Map (empty, insert, size, delete, findWithDefault)
@@ -34,7 +34,7 @@ createTransport = do
                          , _multigroups      = Map.empty
                          }
   return Transport { newEndPoint    = apiNewEndPoint state 
-                   , closeTransport = throw (userError "closeEndPoint not implemented")
+                   , closeTransport = throwIO (userError "closeEndPoint not implemented")
                    }
 
 -- | Create a new end point
@@ -47,7 +47,7 @@ apiNewEndPoint state = do
   return . Right $ EndPoint { receive       = readChan chan  
                             , address       = addr
                             , connect       = apiConnect addr state 
-                            , closeEndPoint = throw (userError "closeEndPoint not implemented")
+                            , closeEndPoint = throwIO (userError "closeEndPoint not implemented")
                             , newMulticastGroup     = apiNewMulticastGroup state addr
                             , resolveMulticastGroup = apiResolveMulticastGroup state addr
                             }
