@@ -248,61 +248,29 @@ data ValidLocalEndPointState = ValidLocalEndPointState
   , _nextRemoteId        :: !Int
   }
 
--- A remote endpoint has incoming and outgoing connections, and when the total
--- number of connections (that is, the 'remoteRefCount') drops to zero we want
--- to close the TCP connection to the endpoint. 
+-- Invariants for dealing with remote endpoints:
 --
--- What we need to avoid, however, is a situation with two concurrent threads
--- where one closes the last (incoming or outgoing) connection, initiating the
--- process of closing the connection, while another requests (but does not yet
--- have) a new connection.
+-- INV-SEND: Whenever we send data the remote endpoint must be locked (to avoid
+--   interleaving bits of payload).
 --
--- We therefore insist that:
--- 
--- 1. All operations that change the state of the endpoint (ask for a new
---    connection, close a connection, close the endpoint completely) are
---    serialized (that is, they take the contents of the MVar containing the
---    endpoint state before starting and don't put the updated contents back
---    until they have completed). 
--- 2. Writing to ('apiSend') or reading from (in 'handleIncomingMessages') must
---    maintain the invariant that the connection they are writing to/reading
---    from *must* be "included" in the 'remoteRefCount'. 
--- 3. Since every endpoint is associated with a single socket, we regard writes
---    that endpoint a state change too (i.e., we take the MVar before the write
---    and put it back after). The reason is that we don't want to "scramble" the
---    output of multiple concurrent writes (either from an explicit 'send' or
---    the writes for control messages).
---
--- Of course, "serialize" does not mean that we want for the remote endpoint to
--- reply. "Send" takes the mvar, sends to the endpoint (asynchronously), and
--- then puts the mvar back, without waiting for the endpoint to receive the
--- message. Similarly, when requesting a new connection, we take the mvar,
--- tentatively increment the reference count, send the control request, and
--- then put the mvar back. When the remote host responds to the new connection
--- request we might have to do another state change (reduce the refcount) if
--- the connection request was refused but we don't want to increment the ref
--- count only after the remote host acknowledges the request because then a
--- concurrent 'close' might actually attempt to close the socket.
--- 
--- Since we don't do concurrent reads from the same socket we don't need to
--- take the lock when reading from the socket.
---
--- Invariants:
---
--- INV-CLOSE: Whenever we put an endpoint in closed state we remove that
+-- INV-CLOSE: Local endpoints should never point to remote endpoint in closed
+--   state.  Whenever we put an endpoint in closed state we remove that
 --   endpoint from localConnections first, so that if a concurrent thread reads
---   the mvar, finds RemoteEndPointClosed, and then looks up the endpoint in
+--   the MVar, finds RemoteEndPointClosed, and then looks up the endpoint in
 --   localConnections it is guaranteed to either find a different remote
---   endpoint, or else none at all.
--- INV-RESOLVE: Whenever we move a endpoint from Closing to Closed state, we
---   signal on the corresponding MVar only *after* the endpoint has been put in
---   Closed state. This way when to threads try to resolve they don't both
---   attempt to write to the "resolved" MVar. TODO: Make sure that this
---   invariant is adhered too.
+--   endpoint, or else none at all (if we don't insist in this order some
+--   threads might start spinning).
+-- 
+-- INV-RESOLVE: We should only signal on 'resolved' while the remote endpoint is
+--   locked, and the remote endpoint must be in Valid or Closed state once
+--   unlocked. This guarantees that there will not be two threads attempting to
+--   both signal on 'resolved'. 
+--
 -- INV-LOST: If a send or recv fails, or a socket is closed unexpectedly, we
 --   first put the remote endpoint in Closing or Closed state, and then send a
 --   EventConnectionLost event. This guarantees that we only send this event
 --   once.  
+--
 -- INV-CLOSING: An endpoint in closing state is for all intents and purposes
 --   closed; that is, we shouldn't do any 'send's on it (although 'recv' is
 --   acceptable, of course -- as we are waiting for the remote endpoint to
@@ -368,8 +336,6 @@ data TransportInternals = TransportInternals
 --------------------------------------------------------------------------------
 
 -- | Create a TCP transport
---
--- TODOs: deal with hints
 createTransport :: N.HostName 
                 -> N.ServiceName 
                 -> IO (Either IOException Transport)
@@ -1122,8 +1088,8 @@ modifyRemoteState (ourEndPoint, theirEndPoint) match =
       st <- takeMVar theirState
       case st of
         RemoteEndPointClosing resolved vst -> do
-          putMVar theirState RemoteEndPointClosed
           putMVar resolved ()
+          putMVar theirState RemoteEndPointClosed
           return . Just . IntSet.elems $ vst ^. remoteIncoming
         RemoteEndPointClosed -> do
           putMVar theirState RemoteEndPointClosed
@@ -1373,23 +1339,28 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
                 -- Attempt to reply (but don't insist)
                 tryIO $ sendOn vst' [encodeInt32 CloseSocket]
                 resolved <- newEmptyMVar 
-                return (RemoteEndPointClosing resolved vst', Just resolved)
+                return (RemoteEndPointClosing resolved vst', True)
               else 
-                return (RemoteEndPointValid vst', Nothing)
-          RemoteEndPointClosing resolved _ ->
-            return (st, Just resolved)
+                return (RemoteEndPointValid vst', False)
+          RemoteEndPointClosing _  _ ->
+            return (st, True)
           _ ->
             error "handleIncomingConnections RELY violation"
+    
+      when canClose $ do
+        removeRemoteEndPoint (ourEndPoint, theirEndPoint)
+        modifyMVar_ theirState $ \st -> do
+          case st of
+            RemoteEndPointClosing resolved _ ->
+              putMVar resolved ()
+            RemoteEndPointClosed ->
+              return ()
+            _ ->
+              fail "Impossible case"
+          return RemoteEndPointClosed 
+        tryCloseSocket sock 
       
-      case canClose of
-        Nothing ->
-          return False
-        Just resolved -> do
-          removeRemoteEndPoint (ourEndPoint, theirEndPoint)
-          modifyMVar_ theirState $ return . const RemoteEndPointClosed 
-          tryCloseSocket sock 
-          putMVar resolved ()
-          return True
+      return canClose
             
     -- Read a message and output it on the endPoint's channel By rights we
     -- should verify that the connection ID is valid, but this is unnecessary
