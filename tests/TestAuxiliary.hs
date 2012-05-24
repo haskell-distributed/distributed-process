@@ -4,10 +4,12 @@ module TestAuxiliary ( -- Running tests
                      , runTests
                        -- Writing tests
                      , forkTry
+                     , trySome
                      ) where
 
 import Prelude hiding (catch)
 import Control.Concurrent (myThreadId, forkIO, ThreadId, throwTo)
+import Control.Concurrent.Chan (Chan)
 import Control.Monad (liftM2, unless)
 import Control.Exception (SomeException, try, catch)
 import System.Timeout (timeout)
@@ -26,6 +28,10 @@ forkTry :: IO () -> IO ThreadId
 forkTry p = do
   tid <- myThreadId
   forkIO $ catch p (\e -> throwTo tid (e :: SomeException))
+
+-- | Like try, but specialized to SomeException
+trySome :: IO a -> IO (Either SomeException a)
+trySome = try
 
 -- | Run the given test, catching timeouts and exceptions
 runTest :: String -> IO () -> IO Bool 
@@ -85,4 +91,7 @@ instance Traceable SomeException where
   trace = traceShow
 
 instance Traceable ThreadId where
+  trace = const Nothing
+
+instance Traceable (Chan a) where
   trace = const Nothing
