@@ -9,7 +9,7 @@ import Control.Monad (replicateM, replicateM_, when, guard, forM_)
 import Control.Monad.Error ()
 import Network.Transport hiding (connect)
 import qualified Network.Transport as NT
-import Network.Transport.Internal (tlog, tryIO)
+import Network.Transport.Internal (tlog)
 import Network.Transport.Util (spawn)
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 (pack)
