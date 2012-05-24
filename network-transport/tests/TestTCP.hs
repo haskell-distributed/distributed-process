@@ -12,7 +12,7 @@ import Network.Transport.TCP ( createTransport
                              , encodeEndPointAddress
                              )
 import Data.Int (Int32)
-import Control.Concurrent (threadDelay, ThreadId, killThread)
+import Control.Concurrent (threadDelay, killThread)
 import Control.Concurrent.MVar ( MVar
                                , newEmptyMVar
                                , putMVar
