@@ -2,9 +2,9 @@
 module TestTransport where
 
 import Prelude hiding (catch, (>>=), (>>), return, fail)
-import TestAuxiliary (forkTry, runTests)
+import TestAuxiliary (forkTry, runTests, trySome)
 import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar, readMVar)
-import Control.Exception (evaluate, try, SomeException)
+import Control.Exception (evaluate, throw)
 import Control.Monad (replicateM, replicateM_, when, guard, forM_)
 import Control.Monad.Error ()
 import Network.Transport hiding (connect)
@@ -745,13 +745,43 @@ testExceptionOnReceive newTransport = do
   Right endpoint1 <- newEndPoint transport
   closeEndPoint endpoint1
   EndPointClosed <- receive endpoint1
-  Left _ <- (try :: IO a -> IO (Either SomeException a)) (receive endpoint1 >>= evaluate)
+  Left _ <- trySome (receive endpoint1 >>= evaluate)
 
   -- Test two: when we close the entire transport
   Right endpoint2 <- newEndPoint transport
   closeTransport transport
   EndPointClosed <- receive endpoint2
-  Left _ <- (try :: IO a -> IO (Either SomeException a)) (receive endpoint2 >>= evaluate)
+  Left _ <- trySome (receive endpoint2 >>= evaluate)
+
+  return ()
+
+testSendException :: IO (Either String Transport) -> IO ()
+testSendException newTransport = do
+  Right transport <- newTransport
+  Right endpoint1 <- newEndPoint transport
+  Right endpoint2 <- newEndPoint transport
+  
+  -- Connect endpoint1 to endpoint2
+  Right conn <- connect endpoint1 (address endpoint2) ReliableOrdered
+  ConnectionOpened _ _ _ <- receive endpoint2
+
+  -- Send an exceptional value
+  Left (TransportError SendFailed _) <- send conn (throw $ userError "uhoh")
+
+  -- This will have been as a failure to send by endpoint1, which will
+  -- therefore have closed the socket. In turn this will have caused endpoint2
+  -- to report that the connection was lost 
+  ErrorEvent (TransportError (EventConnectionLost _ []) _)  <- receive endpoint1
+  ErrorEvent (TransportError (EventConnectionLost _ [_]) _) <- receive endpoint2
+
+  -- A new connection will re-establish the connection
+  Right conn2 <- connect endpoint1 (address endpoint2) ReliableOrdered
+  send conn2 ["ping"]
+  close conn2
+
+  ConnectionOpened _ _ _ <- receive endpoint2
+  Received _ ["ping"]    <- receive endpoint2
+  ConnectionClosed _     <- receive endpoint2
 
   return ()
 
@@ -775,6 +805,7 @@ testTransport newTransport = do
     , ("CloseTransport",        testCloseTransport newTransport)
     , ("ConnectClosedEndPoint", testConnectClosedEndPoint transport)
     , ("ExceptionOnReceive",    testExceptionOnReceive newTransport)
+    , ("SendException",         testSendException newTransport) 
     ]
   where
     numPings = 10000 :: Int
