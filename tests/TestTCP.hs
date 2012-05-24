@@ -588,7 +588,7 @@ testReconnect nextPort = do
     Right conn1 <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
     
     -- But a send will fail because the server has closed the connection again
-    Left (TransportError SendClosed _) <- send conn1 ["ping"]
+    Left (TransportError SendFailed _) <- send conn1 ["ping"]
     ErrorEvent (TransportError (EventConnectionLost _ []) _) <- receive endpoint
 
     -- But a subsequent call to connect should reestablish the connection

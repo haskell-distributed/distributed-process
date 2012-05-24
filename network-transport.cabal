@@ -37,9 +37,10 @@ Test-Suite TestTCP
                   network,
                   mtl,
                   transformers,
-                  ansi-terminal
+                  ansi-terminal,
+                  random
   extensions:     OverloadedStrings, ForeignFunctionInterface, DeriveDataTypeable, EmptyDataDecls, RankNTypes, ExistentialQuantification, FlexibleInstances, OverlappingInstances
-  ghc-options:    -Wall -fno-warn-unused-do-bind
+  ghc-options:    -Wall -fno-warn-unused-do-bind -threaded -rtsopts -with-rtsopts=-N
   HS-Source-Dirs: tests src
 
 Test-Suite TestMulticastInMemory 
@@ -51,7 +52,8 @@ Test-Suite TestMulticastInMemory
                   data-accessor,
                   mtl,
                   transformers,
-                  ansi-terminal
+                  ansi-terminal,
+                  random
   extensions:     OverloadedStrings, ForeignFunctionInterface, DeriveDataTypeable, EmptyDataDecls, RankNTypes, ExistentialQuantification, FlexibleInstances, OverlappingInstances
   ghc-options:    -Wall -fno-warn-unused-do-bind
   HS-Source-Dirs: tests src
@@ -65,7 +67,8 @@ Test-Suite TestInMemory
                   data-accessor,
                   mtl,
                   transformers,
-                  ansi-terminal
+                  ansi-terminal,
+                  random
   extensions:     OverloadedStrings, ForeignFunctionInterface, DeriveDataTypeable, EmptyDataDecls, RankNTypes, ExistentialQuantification, FlexibleInstances, OverlappingInstances
   ghc-options:    -Wall -fno-warn-unused-do-bind
   HS-Source-Dirs: tests src

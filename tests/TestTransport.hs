@@ -2,20 +2,23 @@
 module TestTransport where
 
 import Prelude hiding (catch, (>>=), (>>), return, fail)
-import TestAuxiliary (forkTry, runTests, trySome)
+import TestAuxiliary (forkTry, runTests, trySome, randomThreadDelay)
+import Control.Concurrent (forkIO, killThread)
 import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar, readMVar)
 import Control.Exception (evaluate, throw)
-import Control.Monad (replicateM, replicateM_, when, guard, forM_)
+import Control.Monad (replicateM, replicateM_, when, guard, forM, forM_)
 import Control.Monad.Error ()
 import Network.Transport hiding (connect)
 import qualified Network.Transport as NT
 import Network.Transport.Internal (tlog)
 import Network.Transport.Util (spawn)
+import System.Random (randomIO)
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 (pack)
 import Data.Map (Map)
 import qualified Data.Map as Map (empty, insert, delete, findWithDefault, adjust, null, toList, map)
 import Data.String (fromString)
+import Data.Maybe (catMaybes)
 import Traced
 
 -- | We overload connect to always pass the default hints
@@ -648,9 +651,9 @@ testCloseTransport newTransport = do
 
     -- Client now closes down its transport. We should receive connection closed messages
     -- TODO: this assumes a certain ordering on the messages we receive; that's not guaranteed
+    ConnectionClosed cid1' <- receive endpoint ; True <- return $ cid1' == cid1
     ConnectionClosed cid2'' <- receive endpoint ; True <- return $ cid2'' == cid2
     ErrorEvent (TransportError (EventConnectionLost addr'' []) _) <- receive endpoint ; True <- return $ addr'' == theirAddr2
-    ConnectionClosed cid1' <- receive endpoint ; True <- return $ cid1' == cid1
 
     -- An attempt to send to the endpoint should now fail
     Left (TransportError SendClosed _) <- send conn ["pong2"]
@@ -755,6 +758,7 @@ testExceptionOnReceive newTransport = do
 
   return ()
 
+-- | Test what happens when the argument to 'send' is an exceptional value
 testSendException :: IO (Either String Transport) -> IO ()
 testSendException newTransport = do
   Right transport <- newTransport
@@ -785,6 +789,52 @@ testSendException newTransport = do
 
   return ()
 
+-- | If threads get killed while executing a 'connect', 'send', or 'close', this
+-- should not affect other threads.
+-- 
+-- The intention of this test is to see what happens when a asynchronous
+-- exception happes _while executing a send, connect, or close_. This is
+-- exceedingly difficult to guarantee, however. Hence we run a large number of
+-- tests and insert random thread delays -- and even then it might not happen.
+-- Moreover, it will only happen when we run on multiple cores. 
+testKill :: IO (Either String Transport) -> Int -> IO ()
+testKill newTransport numThreads = do
+  Right transport1 <- newTransport
+  Right transport2 <- newTransport
+  Right endpoint1 <- newEndPoint transport1
+  Right endpoint2 <- newEndPoint transport2
+
+  threads <- forM [1 .. numThreads] $ \_ -> do
+    done <- newEmptyMVar
+    tid <- forkIO $ do
+      randomThreadDelay 10
+      Right conn <- connect endpoint1 (address endpoint2) ReliableOrdered
+      randomThreadDelay 10
+      Right () <- send conn ["ping"]
+      randomThreadDelay 10
+      close conn
+      putMVar done ()
+
+    return (tid, done) 
+
+  -- Kill half of those threads, and wait on the rest
+  killerDone <- newEmptyMVar
+  forkIO $ do
+    wait <- forM threads $ \(tid, done) -> do
+      shouldKill <- randomIO
+      if shouldKill
+        then do
+          randomThreadDelay 30
+          killThread tid 
+          return Nothing 
+        else 
+          return (Just done)
+
+    mapM_ takeMVar (catMaybes wait) 
+    putMVar killerDone ()
+
+  takeMVar killerDone
+
 -- Transport tests
 testTransport :: IO (Either String Transport) -> IO ()
 testTransport newTransport = do
@@ -806,6 +856,7 @@ testTransport newTransport = do
     , ("ConnectClosedEndPoint", testConnectClosedEndPoint transport)
     , ("ExceptionOnReceive",    testExceptionOnReceive newTransport)
     , ("SendException",         testSendException newTransport) 
+    , ("Kill",                  testKill newTransport 100000)
     ]
   where
     numPings = 10000 :: Int

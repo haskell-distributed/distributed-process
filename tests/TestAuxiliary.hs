@@ -5,10 +5,11 @@ module TestAuxiliary ( -- Running tests
                        -- Writing tests
                      , forkTry
                      , trySome
+                     , randomThreadDelay
                      ) where
 
 import Prelude hiding (catch)
-import Control.Concurrent (myThreadId, forkIO, ThreadId, throwTo)
+import Control.Concurrent (myThreadId, forkIO, ThreadId, throwTo, threadDelay)
 import Control.Concurrent.Chan (Chan)
 import Control.Monad (liftM2, unless)
 import Control.Exception (SomeException, try, catch)
@@ -20,6 +21,7 @@ import System.Console.ANSI ( SGR(SetColor, Reset)
                            , ColorIntensity(Vivid)
                            , setSGR
                            )
+import System.Random (randomIO)
 import Network.Transport
 import Traced (Traceable(..), traceShow)
 
@@ -38,7 +40,7 @@ runTest :: String -> IO () -> IO Bool
 runTest description test = do
   putStr $ "Running " ++ show description ++ ": "
   hFlush stdout
-  done <- try . timeout 20000000 $ test -- 20 seconds
+  done <- try . timeout 30000000 $ test -- 30 seconds
   case done of
     Left err        -> failed $ "(exception: " ++ show (err :: SomeException) ++ ")" 
     Right Nothing   -> failed $ "(timeout)"
@@ -64,6 +66,12 @@ runTests :: [(String, IO ())] -> IO ()
 runTests tests = do
   success <- foldr (liftM2 (&&) . uncurry runTest) (return True) $ tests
   unless success $ fail "Some tests failed"
+
+-- | Random thread delay between 0 and the specified max 
+randomThreadDelay :: Int -> IO ()
+randomThreadDelay maxDelay = do
+  delay <- randomIO :: IO Int
+  threadDelay (delay `mod` maxDelay) 
 
 --------------------------------------------------------------------------------
 -- traceShow instances                                                            -- 
@@ -95,3 +103,6 @@ instance Traceable ThreadId where
 
 instance Traceable (Chan a) where
   trace = const Nothing
+
+instance Traceable Float where
+  trace = traceShow

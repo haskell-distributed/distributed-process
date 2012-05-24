@@ -483,7 +483,7 @@ apiSend (ourEndPoint, theirEndPoint) connId connAlive payload =
     -- instance if the connection is closed) with the outer exception (which is
     -- returned by 'try' when an exception is thrown by 'sendOn', and handled
     -- by 'withRemoteState')
-    liftM join . try . mapIOException sendFailed $
+    liftM join . try . mapIOException sendFailed $ 
       withRemoteState (ourEndPoint, theirEndPoint) RemoteStatePatternMatch
         { caseInvalid = \_ -> 
              relyViolation (ourEndPoint, theirEndPoint) "apiSend"
@@ -679,7 +679,7 @@ requestConnectionTo ourEndPoint theirAddress = go
         findRemoteEndPoint ourEndPoint theirAddress
 
       -- If it was new, start listening for incoming messages, too 
-      when isNew . void . forkEndPointThread ourEndPoint $  
+      when isNew . void . forkEndPointThread ourEndPoint $
         setupRemoteEndPoint (ourEndPoint, theirEndPoint)
 
       let theirState = remoteState theirEndPoint
@@ -703,15 +703,15 @@ requestConnectionTo ourEndPoint theirAddress = go
       -- endpoint state, and might have changed in the meantime, these changes
       -- won't matter.
       case endPointStateSnapshot of
-        RemoteEndPointInvalid err -> 
+        RemoteEndPointInvalid err ->
           throwIO err
       
-        RemoteEndPointClosing resolved _ -> 
+        RemoteEndPointClosing resolved _ ->
           -- If the remote endpoint is closing, then we need to block until
           -- this is resolved and we then try again
           readMVar resolved >> go
   
-        RemoteEndPointClosed -> 
+        RemoteEndPointClosed ->
           -- RemoteEndPointClosed indicates that a concurrent thread was in the
           -- process of closing the TCP connection to the remote endpoint when
           -- we obtained a reference to it. By INV-CLOSE we can assume that the
@@ -728,9 +728,9 @@ requestConnectionTo ourEndPoint theirAddress = go
           reply <- mapIOException connectFailed $ 
             doRemoteRequest (ourEndPoint, theirEndPoint) RequestConnectionId 
           case decodeInt32 . BS.concat $ reply of
-            Nothing -> 
+            Nothing ->
               throwIO (connectFailed $ userError "Invalid integer") 
-            Just cid -> 
+            Just cid ->
               return (theirEndPoint, cid) 
 
     connectFailed = TransportError ConnectFailed . show
@@ -772,15 +772,14 @@ findRemoteEndPoint ourEndPoint theirAddress =
 setupRemoteEndPoint :: EndPointPair -> IO ()
 setupRemoteEndPoint (ourEndPoint, theirEndPoint) = do
     didAccept <- bracketOnError (socketToEndPoint ourAddress theirAddress)
-                                onError $ \result -> 
+                                onError $ \result ->
       case result of
         Right (sock, ConnectionRequestAccepted) -> do 
           let vst = ValidRemoteEndPointState 
                       {  remoteSocket   = sock
                       , _remoteOutgoing = 0
                       , _remoteIncoming = IntSet.empty
-                      ,  sendOn         = (`onException` tryCloseSocket sock)
-                                        . sendMany sock
+                      ,  sendOn         = sendMany sock 
                       }
           putMVar theirState (RemoteEndPointValid vst)
           return True
@@ -871,7 +870,7 @@ socketToEndPoint (EndPointAddress ourAddress) theirAddress = try $ do
 --
 -- If the local endpoint is closed, do nothing
 removeRemoteEndPoint :: EndPointPair -> IO ()
-removeRemoteEndPoint (ourEndPoint, theirEndPoint) = 
+removeRemoteEndPoint (ourEndPoint, theirEndPoint) =
     modifyMVar_ ourState $ \st -> case st of
       LocalEndPointValid vst ->
         case vst ^. localConnectionTo theirAddress of
@@ -956,7 +955,7 @@ doRemoteRequest (ourEndPoint, theirEndPoint) header = do
 
 -- | Send a CloseSocket request if the remote endpoint is unused
 closeIfUnused :: EndPointPair -> IO ()
-closeIfUnused (ourEndPoint, theirEndPoint) = 
+closeIfUnused (ourEndPoint, theirEndPoint) =
   modifyRemoteState_ (ourEndPoint, theirEndPoint) remoteStateIdentity 
     { caseValid = \vst -> 
         if vst ^. remoteOutgoing == 0 && IntSet.null (vst ^. remoteIncoming) 
