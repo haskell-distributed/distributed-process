@@ -9,9 +9,9 @@ module Network.Transport.Internal ( -- * Encoders/decoders
                                   , mapIOException
                                   , tryIO
                                   , tryToEnum
-				    -- * Replicated functionality from "base"
+                                  -- * Replicated functionality from "base"
                                   , void
-				  , forkIOWithUnmask
+                                  , forkIOWithUnmask
                                     -- * Debugging
                                   , tlog
                                   ) where
