@@ -84,6 +84,7 @@ import Control.Exception ( IOException
                          , mask
                          , mask_
                          , onException
+                         , fromException
                          )
 import Data.IORef (IORef, newIORef, writeIORef, readIORef)
 import Data.ByteString (ByteString)
@@ -542,7 +543,7 @@ apiCloseEndPoint transport evs ourEndPoint = do
             -- TODO: should we signal on resolved here?
             tryCloseSocket (remoteSocket conn)
             return RemoteEndPointClosed
-          RemoteEndPointClosed -> 
+          RemoteEndPointClosed ->
             return RemoteEndPointClosed
 
 -- | Special case of 'apiConnect': connect an endpoint to itself
@@ -1031,7 +1032,7 @@ remoteStateIdentity =
     , caseClosed  = return RemoteEndPointClosed
     }
 
--- | Like modifyMVar, but if an exception occurs don't restore the remote
+-- | Like modifyMVar, but if an I/O exception occurs don't restore the remote
 -- endpoint to its original value but close it instead 
 modifyRemoteState :: EndPointPair 
                   -> RemoteStatePatternMatch (RemoteState, a) 
@@ -1046,8 +1047,11 @@ modifyRemoteState (ourEndPoint, theirEndPoint) match =
             Right (st', a) -> do
               putMVar theirState st'
               return a
-            Left ex -> 
-              handleException ex vst 
+            Left ex -> do
+              case fromException ex of
+                Just ioEx -> handleIOException ioEx vst 
+                Nothing   -> putMVar theirState st 
+              throw ex
         -- The other cases are less interesting, because unless the endpoint is
         -- in Valid state we're not supposed to do any IO on it
         RemoteEndPointClosing resolved vst -> do 
@@ -1069,8 +1073,8 @@ modifyRemoteState (ourEndPoint, theirEndPoint) match =
     theirState :: MVar RemoteState
     theirState = remoteState theirEndPoint
 
-    handleException :: SomeException -> ValidRemoteEndPointState -> IO a
-    handleException ex vst = do
+    handleIOException :: IOException -> ValidRemoteEndPointState -> IO () 
+    handleIOException ex vst = do
       tryCloseSocket (remoteSocket vst)
       removeRemoteEndPoint (ourEndPoint, theirEndPoint)
       putMVar theirState RemoteEndPointClosed
@@ -1078,7 +1082,6 @@ modifyRemoteState (ourEndPoint, theirEndPoint) match =
           code     = EventConnectionLost (remoteAddress theirEndPoint) incoming
           err      = TransportError code (show ex)
       writeChan (localChannel ourEndPoint) $ ErrorEvent err 
-      throwIO ex
 
 -- | Like 'modifyRemoteState' but without a return value
 modifyRemoteState_ :: EndPointPair
@@ -1330,7 +1333,7 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
 
     -- Close the socket (if we don't have any outgoing connections)
     closeSocket :: N.Socket -> IO Bool 
-    closeSocket sock = do
+    closeSocket sock =
       modifyMVar theirState $ \st ->
         case st of
           RemoteEndPointInvalid _ ->
