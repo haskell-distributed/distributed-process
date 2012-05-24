@@ -275,6 +275,12 @@ data ValidLocalEndPointState = ValidLocalEndPointState
 --   closed; that is, we shouldn't do any 'send's on it (although 'recv' is
 --   acceptable, of course -- as we are waiting for the remote endpoint to
 --   confirm or deny the request).
+--
+-- INV-LOCK-ORDER: Remote endpoint must be locked before their local endpoints.
+--   In other words: it is okay to call modifyMVar on a local endpoint inside a
+--   modifyMVar on a remote endpoint, but not the other way around. In
+--   particular, it is okay to call removeRemoteEndPoint inside
+--   modifyRemoteState.
 
 data RemoteEndPoint = RemoteEndPoint 
   { remoteAddress :: EndPointAddress
@@ -285,7 +291,7 @@ data RemoteEndPoint = RemoteEndPoint
 data RemoteState =
     RemoteEndPointInvalid (TransportError ConnectErrorCode)
   | RemoteEndPointValid ValidRemoteEndPointState 
-  | RemoteEndPointClosing (MVar ()) ValidRemoteEndPointState 
+  | RemoteEndPointClosing (MVar ()) ValidRemoteEndPointState
   | RemoteEndPointClosed
 
 data ValidRemoteEndPointState = ValidRemoteEndPointState 
@@ -479,7 +485,7 @@ apiSend (ourEndPoint, theirEndPoint) connId connAlive payload =
     liftM join . try . mapIOException sendFailed $
       withRemoteState (ourEndPoint, theirEndPoint) RemoteStatePatternMatch
         { caseInvalid = \_ -> 
-            fail "apiSend RELY violation"
+             relyViolation (ourEndPoint, theirEndPoint) "apiSend"
         , caseValid = \vst -> do
             alive <- readIORef connAlive
             if alive 
@@ -533,6 +539,7 @@ apiCloseEndPoint transport evs ourEndPoint = do
             tryCloseSocket (remoteSocket conn)
             return RemoteEndPointClosed
           RemoteEndPointClosing _ conn -> do 
+            -- TODO: should we signal on resolved here?
             tryCloseSocket (remoteSocket conn)
             return RemoteEndPointClosed
           RemoteEndPointClosed -> 
@@ -939,9 +946,9 @@ doRemoteRequest (ourEndPoint, theirEndPoint) header = do
     LocalEndPointClosed ->
       throwIO (userError "Local endpoint closed")
   withRemoteState (ourEndPoint, theirEndPoint) RemoteStatePatternMatch 
-    { caseInvalid = \_ -> fail "doRemoteRequest RELY violation"
+    { caseInvalid = \_ -> relyViolation (ourEndPoint, theirEndPoint) "doRemoteRequest"
     , caseValid   = \vst -> sendOn vst [encodeInt32 header, encodeInt32 reqId]
-    , caseClosing = \_ -> fail "doRemoteRequest RELY violation"
+    , caseClosing = \_ _ -> relyViolation (ourEndPoint, theirEndPoint) "doRemoteRequest" 
     , caseClosed  = throwIO (userError "Remote endpoint closed") 
     }
   takeMVar reply 
@@ -955,7 +962,7 @@ closeIfUnused (ourEndPoint, theirEndPoint) =
           then do 
             sendOn vst [encodeInt32 CloseSocket]
             resolved <- newEmptyMVar
-            return $ RemoteEndPointClosing resolved vst
+            return $ RemoteEndPointClosing resolved vst 
           else 
             return $ RemoteEndPointValid vst
     }
@@ -1065,37 +1072,13 @@ modifyRemoteState (ourEndPoint, theirEndPoint) match =
     handleException :: SomeException -> ValidRemoteEndPointState -> IO a
     handleException ex vst = do
       tryCloseSocket (remoteSocket vst)
-      -- We need to remove the remote endpoint from the local endpoint before
-      -- putting it in Closed state (by INV-CLOSE), but we don't want to hold
-      -- two locks at the same time. So we put it in closing state first .. 
-      resolved <- newEmptyMVar
-      putMVar theirState  (RemoteEndPointClosing resolved vst) 
-      -- .. then remove it from the local endpoint ..
       removeRemoteEndPoint (ourEndPoint, theirEndPoint)
-      -- .. close it and notify the local endpoint we lost the connection ..
-      mIncoming <- closeRemoteEndPoint
-      forM_ mIncoming $ \incoming -> do
-        let code = EventConnectionLost (remoteAddress theirEndPoint) incoming
-            err  = TransportError code (show ex)
-        writeChan (localChannel ourEndPoint) $ ErrorEvent err 
-      -- .. and finally rethrow the exception 
+      putMVar theirState RemoteEndPointClosed
+      let incoming = IntSet.elems $ vst ^. remoteIncoming
+          code     = EventConnectionLost (remoteAddress theirEndPoint) incoming
+          err      = TransportError code (show ex)
+      writeChan (localChannel ourEndPoint) $ ErrorEvent err 
       throwIO ex
-
-    -- Returns the set of incoming connections if we closed the connection, or
-    -- 'Nothing' if the endpoint was already closed
-    closeRemoteEndPoint :: IO (Maybe [ConnectionId]) 
-    closeRemoteEndPoint = do
-      st <- takeMVar theirState
-      case st of
-        RemoteEndPointClosing resolved vst -> do
-          putMVar resolved ()
-          putMVar theirState RemoteEndPointClosed
-          return . Just . IntSet.elems $ vst ^. remoteIncoming
-        RemoteEndPointClosed -> do
-          putMVar theirState RemoteEndPointClosed
-          return Nothing
-        _ ->
-          fail "the impossible happened"
 
 -- | Like 'modifyRemoteState' but without a return value
 modifyRemoteState_ :: EndPointPair
@@ -1211,25 +1194,39 @@ handleConnectionRequest transport sock = handle handleException $ do
 -- 
 -- Returns only if the remote party closes the socket or if an error occurs.
 --
--- RELY: The remote endpoint must be in RemoteEndPointValid or
---   RemoteEndPointClosing state. If the latter, then the 'resolved' MVar
---   associated with the closing state must be empty.
+-- RELY: The remote endpoint must not be invalid. 
 -- GUARANTEE: May change the remote endpoint to RemoteEndPointClosed state. 
 handleIncomingMessages :: EndPointPair -> IO () 
 handleIncomingMessages (ourEndPoint, theirEndPoint) = do
-    -- For efficiency sake we get the socket once and for all
-    sock <- withMVar theirState $ \st ->
+    mSock <- withMVar theirState $ \st ->
       case st of
+        RemoteEndPointInvalid _ ->
+          relyViolation (ourEndPoint, theirEndPoint) "handleIncomingMessages:initialization" 
         RemoteEndPointValid ep ->
-          return (remoteSocket ep)
+          return . Just $ remoteSocket ep
         RemoteEndPointClosing _ ep ->
-          return (remoteSocket ep)
-        _ ->
-          error "handleIncomingMessages RELY violation"
-  
-    tryIO (go sock) >>= either (prematureExit sock) return
+          return . Just $ remoteSocket ep
+        RemoteEndPointClosed ->
+          -- The remote endpoint got closed before we got a chance to start
+          -- dealing with incoming messages
+          return Nothing
+    
+    forM_ mSock $ \sock -> 
+      tryIO (go sock) >>= either (prematureExit sock) return
   where
     -- Dispatch 
+    --
+    -- If a recv throws an exception this will be caught top-level and
+    -- 'prematureExit' will be invoked. The same will happen if the remote
+    -- endpoint is put into a Closed (or Closing) state by a concurrent thread
+    -- (because a 'send' failed) -- the individual handlers below will throw a
+    -- user exception which is then caught and handled the same way as an
+    -- exception thrown by 'recv'.
+    --
+    -- Note: modifyRemoteState closes the socket before putting the remote
+    -- endpoint in closing state, so it is not possible that modifyRemoteState
+    -- puts the remote endpoint in Closing state only for it to be reset to
+    -- Valid by the RequestConnectionId handler below.
     go :: N.Socket -> IO ()
     go sock = do
       connId <- recvInt32 sock 
@@ -1262,6 +1259,8 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
       newId <- getNextConnectionId ourEndPoint
       modifyMVar_ theirState $ \st -> do
         vst <- case st of
+          RemoteEndPointInvalid _ ->
+            relyViolation (ourEndPoint, theirEndPoint) "handleIncomingMessages:createNewConnection"
           RemoteEndPointValid vst ->
             return (remoteIncoming ^: IntSet.insert newId $ vst)
           RemoteEndPointClosing resolved vst -> do
@@ -1273,8 +1272,8 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
             -- to RemoteEndPointValid
             putMVar resolved ()
             return (remoteIncoming ^= IntSet.singleton newId $ vst)
-          _ ->
-            error "handleIncomingMessages RELY violation"
+          RemoteEndPointClosed -> 
+            throw $ userError "Remote endpoint closed"
         sendOn vst ( encodeInt32 ControlResponse 
                    : encodeInt32 reqId 
                    : prependLength [encodeInt32 newId] 
@@ -1309,23 +1308,33 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
     -- because otherwise we should not decrement the reference count
     closeConnection :: ConnectionId -> IO () 
     closeConnection cid = do
-      modifyMVar_ theirState $ \(RemoteEndPointValid vst) -> do
-        unless (IntSet.member cid (vst ^. remoteIncoming)) $ 
-          throwIO $ userError "Invalid CloseConnection"
-        return ( RemoteEndPointValid 
-               . (remoteIncoming ^: IntSet.delete cid) 
-               $ vst
-               )
+      modifyMVar_ theirState $ \st -> case st of
+        RemoteEndPointInvalid _ ->
+          relyViolation (ourEndPoint, theirEndPoint) "closeConnection"
+        RemoteEndPointValid vst -> do 
+          unless (IntSet.member cid (vst ^. remoteIncoming)) $ 
+            throwIO $ userError "Invalid CloseConnection"
+          return ( RemoteEndPointValid 
+                 . (remoteIncoming ^: IntSet.delete cid) 
+                 $ vst
+                 )
+        RemoteEndPointClosing _ _ ->
+          -- If the remote endpoint is in Closing state, that means that are as
+          -- far as we are concerned there are no incoming connections. This
+          -- means that a CloseConnection request at this point is invalid.
+          throwIO $ userError "Invalid CloseConnection request" 
+        RemoteEndPointClosed ->
+          throwIO $ userError "Remote endpoint closed"
       writeChan ourChannel (ConnectionClosed cid)
       closeIfUnused (ourEndPoint, theirEndPoint)
 
     -- Close the socket (if we don't have any outgoing connections)
     closeSocket :: N.Socket -> IO Bool 
     closeSocket sock = do
-      -- As in modifyRemoteState we put the remote state in Closing state
-      -- before putting it in Closed state.
-      canClose <- modifyMVar theirState $ \st ->
+      modifyMVar theirState $ \st ->
         case st of
+          RemoteEndPointInvalid _ ->
+            relyViolation (ourEndPoint, theirEndPoint) "handleIncomingMessages:closeSocket"
           RemoteEndPointValid vst -> do
             -- We regard a CloseSocket message as an (optimized) way for the
             -- remote endpoint to indicate that all its connections to us are
@@ -1338,29 +1347,18 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
               then do 
                 -- Attempt to reply (but don't insist)
                 tryIO $ sendOn vst' [encodeInt32 CloseSocket]
-                resolved <- newEmptyMVar 
-                return (RemoteEndPointClosing resolved vst', True)
+                tryCloseSocket sock 
+                removeRemoteEndPoint (ourEndPoint, theirEndPoint)
+                return (RemoteEndPointClosed, True)
               else 
                 return (RemoteEndPointValid vst', False)
-          RemoteEndPointClosing _  _ ->
-            return (st, True)
-          _ ->
-            error "handleIncomingConnections RELY violation"
-    
-      when canClose $ do
-        removeRemoteEndPoint (ourEndPoint, theirEndPoint)
-        modifyMVar_ theirState $ \st -> do
-          case st of
-            RemoteEndPointClosing resolved _ ->
-              putMVar resolved ()
-            RemoteEndPointClosed ->
-              return ()
-            _ ->
-              fail "Impossible case"
-          return RemoteEndPointClosed 
-        tryCloseSocket sock 
-      
-      return canClose
+          RemoteEndPointClosing resolved  _ -> do
+            tryCloseSocket sock 
+            removeRemoteEndPoint (ourEndPoint, theirEndPoint)
+            putMVar resolved ()
+            return (RemoteEndPointClosed, True)
+          RemoteEndPointClosed ->
+            throw $ userError "Remote endpoint closed"
             
     -- Read a message and output it on the endPoint's channel By rights we
     -- should verify that the connection ID is valid, but this is unnecessary
@@ -1383,14 +1381,15 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
       modifyMVar_ theirState $ \st ->
         case st of
           RemoteEndPointInvalid _ ->
-            error "handleIncomingMessages RELY violation"
+            relyViolation (ourEndPoint, theirEndPoint) "handleIncomingMessages:prematureExit"
           RemoteEndPointValid vst -> do
             let code = EventConnectionLost 
                          (remoteAddress theirEndPoint) 
                          (IntSet.elems $ vst ^. remoteIncoming)
             writeChan ourChannel . ErrorEvent $ TransportError code (show err)
             return RemoteEndPointClosed
-          RemoteEndPointClosing _ _ ->
+          RemoteEndPointClosing resolved _ -> do
+            putMVar resolved ()
             return RemoteEndPointClosed
           RemoteEndPointClosed ->
             return RemoteEndPointClosed 
@@ -1461,3 +1460,17 @@ pendingCtrlRequestsAt ix = pendingCtrlRequests >>> DAC.intMapMaybe (fromIntegral
 localConnectionTo :: EndPointAddress 
                   -> Accessor ValidLocalEndPointState (Maybe RemoteEndPoint)
 localConnectionTo addr = localConnections >>> DAC.mapMaybe addr 
+
+-------------------------------------------------------------------------------
+-- Debugging                                                                 --
+-------------------------------------------------------------------------------
+
+relyViolation :: EndPointPair -> String -> IO a
+relyViolation (ourEndPoint, theirEndPoint) str = do
+  elog (ourEndPoint, theirEndPoint) (str ++ " RELY violation")  
+  fail (str ++ " RELY violation")
+
+elog :: EndPointPair -> String -> IO ()
+elog (ourEndPoint, theirEndPoint) msg = do
+  tid <- myThreadId
+  putStrLn $ show (localAddress ourEndPoint) ++ "/" ++ show (remoteAddress theirEndPoint) ++ "/" ++ show tid ++ ": " ++ msg
