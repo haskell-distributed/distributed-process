@@ -35,7 +35,7 @@ echoServer endpoint = do
       event <- receive endpoint
       case event of
         ConnectionOpened cid rel addr -> do
-          tlog $ "Opened new conncetion " ++ show cid
+          tlog $ "Opened new connection " ++ show cid
           Right conn <- connect endpoint addr rel 
           go (Map.insert cid conn cs) 
         Received cid payload -> do
