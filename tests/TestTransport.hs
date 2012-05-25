@@ -567,7 +567,7 @@ testCloseEndPoint transport _ = do
       ConnectionClosed cid'' <- receive endpoint ; True <- return $ cid == cid''
       ErrorEvent (TransportError (EventConnectionLost addr' []) _) <- receive endpoint ; True <- return $ addr' == theirAddr
 
-      Left (TransportError SendClosed _) <- send conn ["pong2"]
+      Left (TransportError SendFailed _) <- send conn ["pong2"]
     
       return ()
 
@@ -605,7 +605,7 @@ testCloseEndPoint transport _ = do
       EndPointClosed <- receive endpoint
 
       -- Attempt to send should fail with connection closed
-      Left (TransportError SendClosed _) <- send conn ["ping2"]
+      Left (TransportError SendFailed _) <- send conn ["ping2"]
 
       -- An attempt to close the already closed connection should just return
       () <- close conn
@@ -656,7 +656,7 @@ testCloseTransport newTransport = do
     ErrorEvent (TransportError (EventConnectionLost addr'' []) _) <- receive endpoint ; True <- return $ addr'' == theirAddr2
 
     -- An attempt to send to the endpoint should now fail
-    Left (TransportError SendClosed _) <- send conn ["pong2"]
+    Left (TransportError SendFailed _) <- send conn ["pong2"]
     
     putMVar serverDone ()
 
@@ -691,7 +691,7 @@ testCloseTransport newTransport = do
     EndPointClosed <- receive endpoint2
 
     -- Attempt to send should fail with connection closed
-    Left (TransportError SendClosed _) <- send conn ["ping2"]
+    Left (TransportError SendFailed _) <- send conn ["ping2"]
 
     -- An attempt to close the already closed connection should just return
     () <- close conn
@@ -856,7 +856,7 @@ testTransport newTransport = do
     , ("ConnectClosedEndPoint", testConnectClosedEndPoint transport)
     , ("ExceptionOnReceive",    testExceptionOnReceive newTransport)
     , ("SendException",         testSendException newTransport) 
-    , ("Kill",                  testKill newTransport 100000)
+    , ("Kill",                  testKill newTransport 10000)
     ]
   where
     numPings = 10000 :: Int

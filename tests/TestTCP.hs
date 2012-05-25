@@ -29,7 +29,12 @@ import Network.Transport.TCP ( ControlHeader(..)
                              , ConnectionRequestResponse(..)
                              , socketToEndPoint
                              )
-import Network.Transport.Internal (encodeInt32, prependLength, tlog, tryIO, void)
+import Network.Transport.Internal ( encodeInt32
+                                  , prependLength
+                                  , tlog
+                                  , tryIO
+                                  , void
+                                  )
 import Network.Transport.Internal.TCP (recvInt32, forkServer, recvWithLength)
 import qualified Network.Socket as N ( sClose
                                      , ServiceName
@@ -116,7 +121,7 @@ testEarlyDisconnect nextPort = do
         return ()
 
       -- TEST 4: A subsequent send on an already-open connection will now break
-      Left (TransportError SendClosed _) <- send conn ["ping2"]
+      Left (TransportError SendFailed _) <- send conn ["ping2"]
 
       -- *Pfew* 
       putMVar serverDone ()
@@ -227,7 +232,7 @@ testEarlyCloseSocket nextPort = do
         return ()
 
       -- TEST 4: A subsequent send on an already-open connection will now break
-      Left (TransportError SendClosed _) <- send conn ["ping2"]
+      Left (TransportError SendFailed _) <- send conn ["ping2"]
 
       -- *Pfew* 
       putMVar serverDone ()
@@ -482,9 +487,10 @@ testUnnecessaryConnect nextPort = do
     putMVar serverAddr (address endpoint)
 
   forkTry $ do
-    let ourAddress = EndPointAddress "ourAddress"
+    -- We pick an address < 127.0.0.1 so that this is not rejected purely because of the "crossed" check 
+    let ourAddress = EndPointAddress "126.0.0.1"
     Right (_, ConnectionRequestAccepted) <- readMVar serverAddr >>= socketToEndPoint ourAddress 
-    Right (_, ConnectionRequestCrossed)  <- readMVar serverAddr >>= socketToEndPoint ourAddress 
+    Right (_, ConnectionRequestInvalid)  <- readMVar serverAddr >>= socketToEndPoint ourAddress 
     putMVar clientDone ()
 
   takeMVar clientDone
@@ -582,7 +588,13 @@ testReconnect nextPort = do
 
     -- The second attempt will fail because the server closes the socket before we can request a connection
     takeMVar endpointCreated
-    Left (TransportError ConnectFailed _) <-  connect endpoint theirAddr ReliableOrdered defaultConnectHints
+    -- This might time out or not, depending on whether the server closes the
+    -- socket before or after we can send the RequestConnectionId request 
+    resultConnect <- timeout 500000 $ connect endpoint theirAddr ReliableOrdered defaultConnectHints 
+    case resultConnect of
+      Nothing -> return ()
+      Just (Left (TransportError ConnectFailed _)) -> return ()
+      _ -> fail "testReconnect"
 
     -- The third attempt succeeds
     Right conn1 <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
@@ -742,3 +754,4 @@ main = do
            , ("InvalidCloseConnection", testInvalidCloseConnection nextPort)
            ]
   testTransport (either (Left . show) (Right) <$> nextPort >>= createTransport "127.0.0.1")
+  return ()
