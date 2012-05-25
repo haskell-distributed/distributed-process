@@ -9,7 +9,6 @@ module Network.Transport.Internal ( -- * Encoders/decoders
                                   , mapIOException
                                   , tryIO
                                   , tryToEnum
-                                  , tryModifyMVar
                                   -- * Replicated functionality from "base"
                                   , void
                                   , forkIOWithUnmask
@@ -32,11 +31,8 @@ import Control.Exception ( IOException
                          , catch
                          , try
                          , throwIO
-                         , mask
-                         , onException
                          )
 import Control.Concurrent (ThreadId, forkIO)
-import Control.Concurrent (MVar, tryTakeMVar, putMVar)
 import GHC.IO (unsafeUnmask)
 --import Control.Concurrent (myThreadId)
 
@@ -110,15 +106,3 @@ tryToEnum = go minBound maxBound
   where
     go :: Enum b => b -> b -> Int -> Maybe b
     go lo hi n = if fromEnum lo <= n && n <= fromEnum hi then Just (toEnum n) else Nothing 
-
-tryModifyMVar :: MVar a -> (a -> IO (a, b)) -> IO (Maybe b)
-tryModifyMVar m io = 
-  mask $ \restore -> do
-    ma <- tryTakeMVar m
-    case ma of
-      Nothing -> return Nothing
-      Just a -> do
-        (a', b) <- restore (io a) `onException` putMVar m a
-        putMVar m a'
-        return (Just b)
-
