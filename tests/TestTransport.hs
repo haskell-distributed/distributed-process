@@ -533,6 +533,36 @@ testConnectToSelfTwice transport numPings = do
 
   takeMVar done
 
+-- | Test that we self-connections no longer work once we close our endpoint
+-- or our transport
+testCloseSelf :: IO (Either String Transport) -> IO ()
+testCloseSelf newTransport = do
+  Right transport <- newTransport
+  Right endpoint1 <- newEndPoint transport
+  Right endpoint2 <- newEndPoint transport
+  Right conn1     <- connect endpoint1 (address endpoint1) ReliableOrdered
+  Right conn2     <- connect endpoint1 (address endpoint1) ReliableOrdered
+  Right conn3     <- connect endpoint2 (address endpoint2) ReliableOrdered
+ 
+  -- Close the conneciton and try to send
+  close conn1
+  Left (TransportError SendClosed _) <- send conn1 ["ping"]
+  
+  -- Close the first endpoint. We should not be able to use the first
+  -- connection anymore, or open more self connections, but the self connection
+  -- to the second endpoint should still be fine
+  closeEndPoint endpoint1
+  Left (TransportError SendFailed _) <- send conn2 ["ping"]
+  Left (TransportError ConnectFailed _) <- connect endpoint1 (address endpoint1) ReliableOrdered
+  Right () <- send conn3 ["ping"]
+
+  -- Close the transport; now the second should no longer work
+  closeTransport transport
+  Left (TransportError SendFailed _) <- send conn3 ["ping"]
+  Left (TransportError ConnectFailed _) <- connect endpoint2 (address endpoint2) ReliableOrdered
+
+  return ()
+
 -- | Test various aspects of 'closeEndPoint' 
 testCloseEndPoint :: Transport -> Int -> IO ()
 testCloseEndPoint transport _ = do
@@ -726,12 +756,7 @@ testConnectClosedEndPoint transport = do
     Right endpoint <- newEndPoint transport
     readMVar serverClosed 
 
-    -- Connect to a remote closed endpoint
     Left (TransportError ConnectNotFound _) <- readMVar serverAddr >>= \addr -> connect endpoint addr ReliableOrdered 
-
-    -- Self-connect to a closed endpoint
-    closeEndPoint endpoint
-    Left (TransportError ConnectNotFound _) <- connect endpoint (address endpoint) ReliableOrdered
 
     putMVar clientDone ()
   
@@ -850,6 +875,7 @@ testTransport newTransport = do
     , ("CloseTwice",            testCloseTwice transport 100)
     , ("ConnectToSelf",         testConnectToSelf transport numPings) 
     , ("ConnectToSelfTwice",    testConnectToSelfTwice transport numPings)
+    , ("CloseSelf",             testCloseSelf newTransport)
     , ("CloseEndPoint",         testCloseEndPoint transport numPings) 
     , ("CloseTransport",        testCloseTransport newTransport)
     , ("ConnectClosedEndPoint", testConnectClosedEndPoint transport)

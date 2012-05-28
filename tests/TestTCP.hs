@@ -754,4 +754,3 @@ main = do
            , ("InvalidCloseConnection", testInvalidCloseConnection nextPort)
            ]
   testTransport (either (Left . show) (Right) <$> nextPort >>= createTransport "127.0.0.1")
-  return ()
