@@ -326,9 +326,11 @@ data RemoteEndPoint = RemoteEndPoint
   , remoteId      :: Int
   }
 
+data Origin = Local | Remote
+
 data RemoteState =
     RemoteEndPointInvalid (TransportError ConnectErrorCode)
-  | RemoteEndPointInit (MVar ())
+  | RemoteEndPointInit (MVar ()) Origin
   | RemoteEndPointValid ValidRemoteEndPointState 
   | RemoteEndPointClosing (MVar ()) ValidRemoteEndPointState
   | RemoteEndPointClosed
@@ -513,7 +515,7 @@ apiSend (ourEndPoint, theirEndPoint) connId connAlive payload =
       withRemoteState (ourEndPoint, theirEndPoint) RemoteStatePatternMatch
         { caseInvalid = \_ -> 
             relyViolation (ourEndPoint, theirEndPoint) "apiSend"
-        , caseInit = \_ ->
+        , caseInit = \_ _ ->
             relyViolation (ourEndPoint, theirEndPoint) "apiSend"
         , caseValid = \vst -> do
             alive <- readIORef connAlive
@@ -564,7 +566,7 @@ apiCloseEndPoint transport evs ourEndPoint = do
         case st of
           RemoteEndPointInvalid _ -> 
             return st
-          RemoteEndPointInit resolved -> do
+          RemoteEndPointInit resolved _ -> do
             putMVar resolved ()
             return RemoteEndPointClosed
           RemoteEndPointValid conn -> do 
@@ -647,7 +649,7 @@ internalSocketBetween transport ourAddress theirAddress = do
           Nothing -> throwIO $ userError "Remote endpoint not found"
           Just ep -> return ep
   withMVar (remoteState theirEndPoint) $ \st -> case st of
-    RemoteEndPointInit _ ->
+    RemoteEndPointInit _ _ ->
       throwIO $ userError "Remote endpoint not yet initialized"
     RemoteEndPointValid vst -> 
       return $ remoteSocket vst
@@ -708,8 +710,7 @@ requestConnectionTo :: LocalEndPoint
                     -> IO (RemoteEndPoint, ConnectionId)
 requestConnectionTo ourEndPoint theirAddress = do
     (theirEndPoint, isNew) <- mapIOException connectFailed $
-      findRemoteEndPoint ourEndPoint theirAddress BlockOnInit  
-        (RemoteEndPointValid . (remoteOutgoing ^: (+ 1)))
+      findRemoteEndPoint ourEndPoint theirAddress Local 
 
     -- If this is a new endpoint, start the initialization process and wait
     forM_ isNew $ \resolved -> do
@@ -800,7 +801,7 @@ resolveInit (ourEndPoint, theirEndPoint) newState =
    modifyMVar_ (remoteState theirEndPoint) $ \st -> case st of
     RemoteEndPointInvalid _ ->
       relyViolation (ourEndPoint, theirEndPoint) "resolveInit (invalid)" 
-    RemoteEndPointInit resolved -> do
+    RemoteEndPointInit resolved _ -> do
       putMVar resolved ()
       return newState
     RemoteEndPointClosed ->
@@ -917,7 +918,7 @@ doRemoteRequest (ourEndPoint, theirEndPoint) header = do
       throwIO (userError "Local endpoint closed")
   withRemoteState (ourEndPoint, theirEndPoint) RemoteStatePatternMatch 
     { caseInvalid = throwIO 
-    , caseInit    = \_ -> relyViolation (ourEndPoint, theirEndPoint) "doRemoteRequest (init)"
+    , caseInit    = \_ _ -> relyViolation (ourEndPoint, theirEndPoint) "doRemoteRequest (init)"
     , caseValid   = \vst -> sendOn vst [encodeInt32 header, encodeInt32 reqId]
     , caseClosing = \_ _ -> relyViolation (ourEndPoint, theirEndPoint) "doRemoteRequest (closing)" 
     , caseClosed  = throwIO $ userError "Remote endpoint closed"
@@ -988,7 +989,7 @@ forkEndPointThread ourEndPoint p =
 
 data RemoteStatePatternMatch a = RemoteStatePatternMatch 
   { caseInvalid :: TransportError ConnectErrorCode -> IO a
-  , caseInit    :: MVar () -> IO a
+  , caseInit    :: MVar () -> Origin -> IO a
   , caseValid   :: ValidRemoteEndPointState -> IO a
   , caseClosing :: MVar () -> ValidRemoteEndPointState -> IO a
   , caseClosed  :: IO a
@@ -998,7 +999,7 @@ remoteStateIdentity :: RemoteStatePatternMatch RemoteState
 remoteStateIdentity =
   RemoteStatePatternMatch 
     { caseInvalid = return . RemoteEndPointInvalid
-    , caseInit    = return . RemoteEndPointInit
+    , caseInit    = (return .) . RemoteEndPointInit
     , caseValid   = return . RemoteEndPointValid
     , caseClosing = (return .) . RemoteEndPointClosing 
     , caseClosed  = return RemoteEndPointClosed
@@ -1026,8 +1027,8 @@ modifyRemoteState (ourEndPoint, theirEndPoint) match =
               throwIO ex
         -- The other cases are less interesting, because unless the endpoint is
         -- in Valid state we're not supposed to do any IO on it
-        RemoteEndPointInit resolved -> do
-          (st', a) <- onException (restore $ caseInit match resolved)
+        RemoteEndPointInit resolved origin -> do
+          (st', a) <- onException (restore $ caseInit match resolved origin)
                                   (putMVar theirState st)
           putMVar theirState st'
           return a
@@ -1068,7 +1069,7 @@ modifyRemoteState_ (ourEndPoint, theirEndPoint) match =
     modifyRemoteState (ourEndPoint, theirEndPoint) 
       RemoteStatePatternMatch 
         { caseInvalid = u . caseInvalid match
-        , caseInit    = u . caseInit match
+        , caseInit    = \resolved origin -> u $ caseInit match resolved origin
         , caseValid   = u . caseValid match
         , caseClosing = \resolved vst -> u $ caseClosing match resolved vst
         , caseClosed  = u $ caseClosed match
@@ -1087,9 +1088,9 @@ withRemoteState (ourEndPoint, theirEndPoint) match =
       { caseInvalid = \err -> do
           a <- caseInvalid match err
           return (RemoteEndPointInvalid err, a)
-      , caseInit = \resolved -> do
-          a <- caseInit match resolved
-          return (RemoteEndPointInit resolved, a)
+      , caseInit = \resolved origin -> do
+          a <- caseInit match resolved origin
+          return (RemoteEndPointInit resolved origin, a)
       , caseValid = \vst -> do
           a <- caseValid match vst
           return (RemoteEndPointValid vst, a)
@@ -1139,11 +1140,9 @@ handleConnectionRequest transport sock = handle handleException $ do
     go ourEndPoint theirAddress = do 
       mEndPoint <- handle ((>> return Nothing) . invalidEndPoint) $ do 
         (theirEndPoint, isNew) <- 
-          findRemoteEndPoint ourEndPoint theirAddress DontBlockOnInit 
-            (throw $ userError "Already connected")
+          findRemoteEndPoint ourEndPoint theirAddress Remote
 
         let ourAddress = localAddress ourEndPoint
-            theirState = remoteState theirEndPoint
             crossed    = isNothing isNew && ourAddress < theirAddress
 
         if crossed 
@@ -1158,8 +1157,8 @@ handleConnectionRequest transport sock = handle handleException $ do
                         , _remoteIncoming = IntSet.empty
                         , sendOn          = sendMany sock
                         }
-            resolveInit (ourEndPoint, theirEndPoint) (RemoteEndPointValid vst)
             sendMany sock [encodeInt32 ConnectionRequestAccepted]
+            resolveInit (ourEndPoint, theirEndPoint) (RemoteEndPointValid vst)
             return (Just theirEndPoint)
       -- If we left the scope of the exception handler with a return value of
       -- Nothing then the socket is already closed; otherwise, the socket has
@@ -1176,17 +1175,14 @@ handleConnectionRequest transport sock = handle handleException $ do
       tryIO $ sendMany sock [encodeInt32 ConnectionRequestInvalid]
       tryCloseSocket sock 
 
-data BlockOnInit = BlockOnInit | DontBlockOnInit 
-
 -- | Find a remote endpoint. If the remote endpoint does not yet exist we
 -- create it in Init state and return the corresponding 'resolved' MVar.
 findRemoteEndPoint 
   :: LocalEndPoint
   -> EndPointAddress
-  -> BlockOnInit 
-  -> (ValidRemoteEndPointState -> RemoteState)  -- ^ Apply if in Valid state
+  -> Origin 
   -> IO (RemoteEndPoint, Maybe (MVar ())) 
-findRemoteEndPoint ourEndPoint theirAddress blockOnInit whenValid = go
+findRemoteEndPoint ourEndPoint theirAddress findOrigin = go
   where
     go = do
       (theirEndPoint, isNew) <- modifyMVar ourState $ \st -> case st of
@@ -1195,7 +1191,7 @@ findRemoteEndPoint ourEndPoint theirAddress blockOnInit whenValid = go
             return (st, (theirEndPoint, Nothing))
           Nothing -> do
             resolved <- newEmptyMVar
-            theirState <- newMVar (RemoteEndPointInit resolved)
+            theirState <- newMVar (RemoteEndPointInit resolved findOrigin)
             let theirEndPoint = RemoteEndPoint
                                   { remoteAddress = theirAddress
                                   , remoteState   = theirState
@@ -1216,18 +1212,29 @@ findRemoteEndPoint ourEndPoint theirAddress blockOnInit whenValid = go
         Nothing -> do
           let theirState = remoteState theirEndPoint
           snapshot <- modifyMVar theirState $ \st -> case st of
-            RemoteEndPointValid vst -> do
-              let st' = whenValid vst
-              return (st', st')
-            _ -> 
+            RemoteEndPointValid vst -> 
+              case findOrigin of
+                Local -> do
+                  let st' = RemoteEndPointValid 
+                          . (remoteOutgoing ^: (+ 1)) 
+                          $ vst 
+                  return (st', st')
+                Remote ->
+                  throwIO $ userError "Already connected" 
+            _ ->
               return (st, st)
+          -- The snapshot may no longer be up to date at this point, but if we
+          -- increased the refcount then it can only either be valid or closed
+          -- (after an explicit call to 'closeEndPoint' or 'closeTransport') 
           case snapshot of
             RemoteEndPointInvalid err ->
               throwIO err
-            RemoteEndPointInit resolved ->
-              case blockOnInit of
-                BlockOnInit     -> readMVar resolved >> go
-                DontBlockOnInit -> return (theirEndPoint, Nothing) 
+            RemoteEndPointInit resolved initOrigin ->
+              case (findOrigin, initOrigin) of
+                (Local, Local)   -> readMVar resolved >> go 
+                (Local, Remote)  -> readMVar resolved >> go
+                (Remote, Local)  -> return (theirEndPoint, Nothing)
+                (Remote, Remote) -> throwIO $ userError "Already connected"
             RemoteEndPointValid _ ->
               return (theirEndPoint, Nothing)
             RemoteEndPointClosing resolved _ ->
@@ -1246,7 +1253,7 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
       case st of
         RemoteEndPointInvalid _ ->
           relyViolation (ourEndPoint, theirEndPoint) "handleIncomingMessages" 
-        RemoteEndPointInit _ ->
+        RemoteEndPointInit _ _ ->
           relyViolation (ourEndPoint, theirEndPoint) "handleIncomingMessages"
         RemoteEndPointValid ep ->
           return . Just $ remoteSocket ep
@@ -1307,7 +1314,7 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
         vst <- case st of
           RemoteEndPointInvalid _ ->
             relyViolation (ourEndPoint, theirEndPoint) "handleIncomingMessages:createNewConnection"
-          RemoteEndPointInit _ ->
+          RemoteEndPointInit _ _ ->
             relyViolation (ourEndPoint, theirEndPoint) "handleIncomingMessages:createNewConnection"
           RemoteEndPointValid vst ->
             return (remoteIncoming ^: IntSet.insert newId $ vst)
@@ -1359,7 +1366,7 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
       modifyMVar_ theirState $ \st -> case st of
         RemoteEndPointInvalid _ ->
           relyViolation (ourEndPoint, theirEndPoint) "closeConnection"
-        RemoteEndPointInit _ ->
+        RemoteEndPointInit _ _ ->
           relyViolation (ourEndPoint, theirEndPoint) "closeConnection"
         RemoteEndPointValid vst -> do 
           unless (IntSet.member cid (vst ^. remoteIncoming)) $ 
@@ -1385,7 +1392,7 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
         case st of
           RemoteEndPointInvalid _ ->
             relyViolation (ourEndPoint, theirEndPoint) "handleIncomingMessages:closeSocket"
-          RemoteEndPointInit _ ->
+          RemoteEndPointInit _ _ ->
             relyViolation (ourEndPoint, theirEndPoint) "handleIncomingMessages:closeSocket"
           RemoteEndPointValid vst -> do
             -- We regard a CloseSocket message as an (optimized) way for the
@@ -1434,7 +1441,7 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
         case st of
           RemoteEndPointInvalid _ ->
             relyViolation (ourEndPoint, theirEndPoint) "handleIncomingMessages:prematureExit"
-          RemoteEndPointInit _ ->
+          RemoteEndPointInit _ _ ->
             relyViolation (ourEndPoint, theirEndPoint) "handleIncomingMessages:prematureExit"
           RemoteEndPointValid vst -> do
             let code = EventConnectionLost 

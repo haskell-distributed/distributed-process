@@ -476,8 +476,8 @@ testBlockAfterCloseSocket nextPort = do
 
 -- | Test what happens when a remote endpoint sends a connection request to our
 -- transport for an endpoint it already has a connection to
-testUnnecessaryConnect :: IO N.ServiceName -> IO () 
-testUnnecessaryConnect nextPort = do
+testUnnecessaryConnect :: IO N.ServiceName -> Int -> IO () 
+testUnnecessaryConnect nextPort numThreads = do
   clientDone <- newEmptyMVar
   serverAddr <- newEmptyMVar
 
@@ -489,8 +489,24 @@ testUnnecessaryConnect nextPort = do
   forkTry $ do
     -- We pick an address < 127.0.0.1 so that this is not rejected purely because of the "crossed" check 
     let ourAddress = EndPointAddress "126.0.0.1"
-    Right (_, ConnectionRequestAccepted) <- readMVar serverAddr >>= socketToEndPoint ourAddress 
-    Right (_, ConnectionRequestInvalid)  <- readMVar serverAddr >>= socketToEndPoint ourAddress 
+
+    -- We should only get a single 'Accepted' reply
+    gotAccepted <- newEmptyMVar
+    dones <- replicateM numThreads $ do
+      done <- newEmptyMVar 
+      forkTry $ do
+        Right (_, reply) <- readMVar serverAddr >>= socketToEndPoint ourAddress 
+        case reply of
+          ConnectionRequestAccepted ->
+            putMVar gotAccepted ()
+          ConnectionRequestInvalid ->
+            return ()
+          ConnectionRequestCrossed ->
+            throwIO $ userError "Unexpected response (Crossed)"
+        putMVar done ()
+      return done
+
+    mapM_ readMVar (gotAccepted : dones)
     putMVar clientDone ()
 
   takeMVar clientDone
@@ -501,7 +517,7 @@ testMany nextPort = do
   Right masterTransport <- nextPort >>= createTransport "127.0.0.1" 
   Right masterEndPoint  <- newEndPoint masterTransport 
 
-  replicateM_ 20 $ do
+  replicateM_ 10 $ do
     mTransport <- nextPort >>= createTransport "127.0.0.1" 
     case mTransport of
       Left ex -> do
@@ -511,7 +527,7 @@ testMany nextPort = do
           _ -> return ()
         throwIO ex
       Right transport ->
-        replicateM_ 3 $ do
+        replicateM_ 2 $ do
           Right endpoint <- newEndPoint transport
           Right _        <- connect endpoint (address masterEndPoint) ReliableOrdered defaultConnectHints
           return ()
@@ -744,7 +760,7 @@ main = do
            , ("EarlyCloseSocket",       testEarlyCloseSocket nextPort)
            , ("IgnoreCloseSocket",      testIgnoreCloseSocket nextPort)
            , ("BlockAfterCloseSocket",  testBlockAfterCloseSocket nextPort)
-           , ("TestUnnecessaryConnect", testUnnecessaryConnect nextPort)
+           , ("TestUnnecessaryConnect", testUnnecessaryConnect nextPort 10)
            , ("InvalidAddress",         testInvalidAddress nextPort)
            , ("InvalidConnect",         testInvalidConnect nextPort) 
            , ("Many",                   testMany nextPort)
