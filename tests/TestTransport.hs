@@ -650,9 +650,8 @@ testCloseTransport newTransport = do
     send conn ["pong"]
 
     -- Client now closes down its transport. We should receive connection closed messages
-    -- TODO: this assumes a certain ordering on the messages we receive; that's not guaranteed
-    ConnectionClosed cid1' <- receive endpoint ; True <- return $ cid1' == cid1
-    ConnectionClosed cid2'' <- receive endpoint ; True <- return $ cid2'' == cid2
+    ConnectionClosed cid' <- receive endpoint ; True <- return $ cid' == cid1 || cid' == cid2
+    ConnectionClosed cid'' <- receive endpoint ; True <- return $ (cid'' == cid1 || cid'' == cid2) && cid'' /= cid'
     ErrorEvent (TransportError (EventConnectionLost addr'' []) _) <- receive endpoint ; True <- return $ addr'' == theirAddr2
 
     -- An attempt to send to the endpoint should now fail

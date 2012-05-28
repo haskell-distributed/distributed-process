@@ -72,7 +72,7 @@ import Control.Concurrent.MVar ( MVar
                                )
 import Control.Category ((>>>))
 import Control.Applicative ((<$>))
-import Control.Monad (when, unless, join, liftM)
+import Control.Monad (when, unless)
 import Control.Monad.Error (ErrorT(..), runErrorT)
 import Control.Exception ( IOException
                          , SomeException
@@ -250,6 +250,43 @@ data ValidLocalEndPointState = ValidLocalEndPointState
   , _nextRemoteId        :: !Int
   }
 
+-- REMOTE ENDPOINTS 
+--
+-- Remote endpoints (basically, TCP connections) have the following lifecycle:
+--
+--   Init ----+---> Invalid
+--            |
+--            |       /----------------\
+--            |       |                |
+--            |       v                |
+--            \---> Valid ----+---> Closing
+--                            |        |
+--                            |        v 
+--                            \---> Closed
+--
+-- Init: There are two places where we create new remote endpoints: in
+--   requestConnectionTo (in response to an API 'connect' call) and in
+--   handleConnectionRequest (when a remote node tries to connect to us).
+--   'Init' carries an MVar () 'resolved' which concurrent threads can use to
+--   wait for the remote endpoint to finish initialization.
+--
+-- Invalid: We put the remote endpoint in invalid state only during
+--   requestConnectionTo when we fail to connect.
+--
+-- Valid: This is the "normal" state for a working remote endpoint.
+-- 
+-- Closing: When we detect that a remote endpoint is no longer used, we send a
+--   CloseSocket request across the connection and put the remote endpoint in
+--   closing state. As with Init, 'Closing' carries an MVar () 'resolved' which
+--   concurrent threads can use to wait for the remote endpoint to either be
+--   closed fully (if the communication parnet responds with another
+--   CloseSocket) or be put back in 'Valid' state if the remote endpoint denies
+--   the request.
+--
+-- Closed: The endpoint is put in Closed state after a successful garbage
+--   collection, when the endpoint (or the whole transport) is closed manually,
+--   or when an IO exception occurs during communication.
+--
 -- Invariants for dealing with remote endpoints:
 --
 -- INV-SEND: Whenever we send data the remote endpoint must be locked (to avoid
@@ -269,7 +306,7 @@ data ValidLocalEndPointState = ValidLocalEndPointState
 --   both signal on 'resolved'. 
 --
 -- INV-LOST: If a send or recv fails, or a socket is closed unexpectedly, we
---   first put the remote endpoint in Closing or Closed state, and then send a
+--   first put the remote endpoint in Closed state, and then send a
 --   EventConnectionLost event. This guarantees that we only send this event
 --   once.  
 --
@@ -448,11 +485,6 @@ apiConnect ourEndPoint theirAddress _reliability _hints =
         }
 
 -- | Close a connection
---
--- RELY: The endpoint must not be invalid 
--- GUARANTEE: If the connection is alive on entry then the remote endpoint will
---   either be RemoteEndPointValid or RemoteEndPointClosing. Otherwise, the
---   state of the remote endpoint will not be changed. 
 apiClose :: EndPointPair -> ConnectionId -> IORef Bool -> IO ()
 apiClose (ourEndPoint, theirEndPoint) connId connAlive = void . tryIO $ do 
   modifyRemoteState_ (ourEndPoint, theirEndPoint) remoteStateIdentity  
@@ -472,20 +504,13 @@ apiClose (ourEndPoint, theirEndPoint) connId connAlive = void . tryIO $ do
   closeIfUnused (ourEndPoint, theirEndPoint)
 
 -- | Send data across a connection
--- 
--- RELY: The endpoint must not be in invalid state.  
--- GUARANTEE: The state of the remote endpoint will not be changed.
 apiSend :: EndPointPair  -- ^ Local and remote endpoint 
         -> ConnectionId  -- ^ Connection ID (supplied by remote endpoint)
         -> IORef Bool    -- ^ Is the connection still alive?
         -> [ByteString]  -- ^ Payload
         -> IO (Either (TransportError SendErrorCode) ())
 apiSend (ourEndPoint, theirEndPoint) connId connAlive payload =  
-    -- The 'join' joins the inner exception (which we explicitly return, for
-    -- instance if the connection is closed) with the outer exception (which is
-    -- returned by 'try' when an exception is thrown by 'sendOn', and handled
-    -- by 'withRemoteState')
-    liftM join . try . mapIOException sendFailed $ 
+    try . mapIOException sendFailed $ 
       withRemoteState (ourEndPoint, theirEndPoint) RemoteStatePatternMatch
         { caseInvalid = \_ -> 
             relyViolation (ourEndPoint, theirEndPoint) "apiSend"
@@ -494,21 +519,18 @@ apiSend (ourEndPoint, theirEndPoint) connId connAlive payload =
         , caseValid = \vst -> do
             alive <- readIORef connAlive
             if alive 
-              then do 
-                sendOn vst (encodeInt32 connId : prependLength payload)
-                return . Right $ ()
-              else 
-                return . Left $ TransportError SendClosed "Connection closed"
+              then sendOn vst (encodeInt32 connId : prependLength payload)
+              else throwIO $ TransportError SendClosed "Connection closed"
         , caseClosing = \_ _ -> do
             alive <- readIORef connAlive
             if alive 
-              then return . Left $ TransportError SendFailed "Connection lost"
-              else return . Left $ TransportError SendClosed "Connection closed"
+              then throwIO $ TransportError SendFailed "Connection lost"
+              else throwIO $ TransportError SendClosed "Connection closed"
         , caseClosed = do
             alive <- readIORef connAlive
             if alive 
-              then return . Left $ TransportError SendFailed "Connection lost"
-              else return . Left $ TransportError SendClosed "Connection closed"
+              then throwIO $ TransportError SendFailed "Connection lost"
+              else throwIO $ TransportError SendClosed "Connection closed"
         }
   where
     sendFailed = TransportError SendFailed . show
@@ -704,7 +726,7 @@ requestConnectionTo ourEndPoint theirAddress = go
       case decodeInt32 . BS.concat $ reply of
         Nothing ->
           throwIO (connectFailed $ userError "Invalid integer") 
-        Just cid -> do
+        Just cid -> 
           return (theirEndPoint, cid) 
 
     connectFailed = TransportError ConnectFailed . show
