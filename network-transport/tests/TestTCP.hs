@@ -654,7 +654,7 @@ testUnidirectionalError nextPort = do
     takeMVar serverGotPing
 
     -- Close the *outgoing* part of the socket only
-    Right sock <- socketBetween internals (address endpoint) theirAddr 
+    sock <- socketBetween internals (address endpoint) theirAddr 
     N.shutdown sock N.ShutdownSend
 
     -- At this point we cannot notice the problem yet so we shouldn't receive an event yet
@@ -670,7 +670,7 @@ testUnidirectionalError nextPort = do
     takeMVar serverGotPing
 
     -- Again, close the outgoing part of the socket
-    Right sock' <- socketBetween internals (address endpoint) theirAddr 
+    sock' <- socketBetween internals (address endpoint) theirAddr 
     N.shutdown sock' N.ShutdownSend
 
     -- We now find the error when we attempt to close the connection
@@ -682,7 +682,7 @@ testUnidirectionalError nextPort = do
     takeMVar serverGotPing
 
     -- We repeat once more. 
-    Right sock'' <- socketBetween internals (address endpoint) theirAddr 
+    sock'' <- socketBetween internals (address endpoint) theirAddr 
     N.shutdown sock'' N.ShutdownSend
    
     -- Now we notice the problem when we try to connect
@@ -727,7 +727,7 @@ testInvalidCloseConnection nextPort = do
     Right _ <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
 
     -- Get a handle on the TCP connection and manually send an invalid CloseConnection request
-    Right sock <- socketBetween internals ourAddr theirAddr 
+    sock <- socketBetween internals ourAddr theirAddr 
     sendMany sock [encodeInt32 CloseConnection, encodeInt32 (12345 :: Int)]
 
     putMVar clientDone ()

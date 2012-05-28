@@ -30,6 +30,7 @@ import Control.Exception ( IOException
                          , Exception
                          , catch
                          , try
+                         , throw
                          , throwIO
                          )
 import Control.Concurrent (ThreadId, forkIO)
@@ -48,13 +49,15 @@ encodeInt32 i32 =
     pokeByteOff p 0 (htonl . fromIntegral . fromEnum $ i32)
 
 -- | Deserialize 32-bit from network byte order 
-decodeInt32 :: Num a => ByteString -> Maybe a 
-decodeInt32 bs | BS.length bs /= 4 = Nothing 
-decodeInt32 bs = Just . BSI.inlinePerformIO $ do 
-  let (fp, _, _) = BSI.toForeignPtr bs 
-  withForeignPtr fp $ \p -> do
-    w32 <- peekByteOff p 0 
-    return (fromIntegral . ntohl $ w32)
+-- Throws an IO exception if this is not a valid integer.
+decodeInt32 :: Num a => ByteString -> a 
+decodeInt32 bs 
+  | BS.length bs /= 4 = throw $ userError "decodeInt32: Invalid length" 
+  | otherwise         = BSI.inlinePerformIO $ do 
+      let (fp, _, _) = BSI.toForeignPtr bs 
+      withForeignPtr fp $ \p -> do
+        w32 <- peekByteOff p 0 
+        return (fromIntegral . ntohl $ w32)
 
 -- | Serialize 16-bit to network byte order 
 encodeInt16 :: Enum a => a -> ByteString 
@@ -63,13 +66,15 @@ encodeInt16 i16 =
     pokeByteOff p 0 (htons . fromIntegral . fromEnum $ i16)
 
 -- | Deserialize 16-bit from network byte order 
-decodeInt16 :: Num a => ByteString -> Maybe a
-decodeInt16 bs | BS.length bs /= 2 = Nothing 
-decodeInt16 bs = Just . BSI.inlinePerformIO $ do
-  let (fp, _, _) = BSI.toForeignPtr bs 
-  withForeignPtr fp $ \p -> do
-    w16 <- peekByteOff p 0 
-    return (fromIntegral . ntohs $ w16)
+-- Throws an IO exception if this is not a valid integer
+decodeInt16 :: Num a => ByteString -> a
+decodeInt16 bs 
+  | BS.length bs /= 2 = throw $ userError "decodeInt16: Invalid length" 
+  | otherwise         = BSI.inlinePerformIO $ do
+      let (fp, _, _) = BSI.toForeignPtr bs 
+      withForeignPtr fp $ \p -> do
+        w16 <- peekByteOff p 0 
+        return (fromIntegral . ntohs $ w16)
 
 -- | Prepend a list of bytestrings with their total length
 prependLength :: [ByteString] -> [ByteString]
