@@ -49,7 +49,7 @@ echoServer endpoint = do
           -- Ignore
           go cs
         ErrorEvent _ ->
-          fail (show event)
+          putStrLn $ "Echo server received error event: " ++ show event
         EndPointClosed ->
           return ()
 

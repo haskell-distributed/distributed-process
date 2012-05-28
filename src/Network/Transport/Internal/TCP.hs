@@ -27,8 +27,9 @@ import qualified Network.Socket as N ( HostName
                                      )
 import qualified Network.Socket.ByteString as NBS (recv)
 import Control.Concurrent (ThreadId)
-import Control.Monad (liftM, forever)
+import Control.Monad (forever)
 import Control.Exception (SomeException, catch, bracketOnError, throwIO, mask_)
+import Control.Applicative ((<$>))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (length, concat, null)
 import Data.Int (Int32)
@@ -82,11 +83,7 @@ recvWithLength sock = recvInt32 sock >>= recvExact sock
 
 -- | Receive a 32-bit integer
 recvInt32 :: Num a => N.Socket -> IO a 
-recvInt32 sock = do
-  mi <- liftM (decodeInt32 . BS.concat) $ recvExact sock 4 
-  case mi of
-    Nothing -> throwIO (userError "Invalid integer") 
-    Just i  -> return i
+recvInt32 sock = decodeInt32 . BS.concat <$> recvExact sock 4 
 
 -- | Close a socket, ignoring I/O exceptions
 tryCloseSocket :: N.Socket -> IO ()
