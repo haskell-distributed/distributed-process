@@ -259,10 +259,10 @@ data ValidLocalEndPointState = ValidLocalEndPointState
 --            |       /----------------\
 --            |       |                |
 --            |       v                |
---            \---> Valid ----+---> Closing
---                            |        |
---                            |        v 
---                            \---> Closed
+--            +---> Valid ----+---> Closing
+--            |               |        |
+--            |               |        v 
+--            \---------------+---> Closed
 --
 -- Init: There are two places where we create new remote endpoints: in
 --   requestConnectionTo (in response to an API 'connect' call) and in
@@ -565,16 +565,15 @@ apiCloseEndPoint transport evs ourEndPoint = do
         case st of
           RemoteEndPointInvalid _ -> 
             return st
-          RemoteEndPointInit _ ->
-            return st
+          RemoteEndPointInit resolved -> do
+            putMVar resolved ()
+            return RemoteEndPointClosed
           RemoteEndPointValid conn -> do 
-            -- Try to send a CloseSocket request
             tryIO $ sendOn conn [encodeInt32 CloseSocket]
-            -- .. but even if it fails, close the socket anyway 
             tryCloseSocket (remoteSocket conn)
             return RemoteEndPointClosed
-          RemoteEndPointClosing _ conn -> do 
-            -- TODO: should we signal on resolved here?
+          RemoteEndPointClosing resolved conn -> do 
+            putMVar resolved ()
             tryCloseSocket (remoteSocket conn)
             return RemoteEndPointClosed
           RemoteEndPointClosed ->
@@ -583,42 +582,44 @@ apiCloseEndPoint transport evs ourEndPoint = do
 -- | Special case of 'apiConnect': connect an endpoint to itself
 connectToSelf :: LocalEndPoint 
               -> IO (Either (TransportError ConnectErrorCode) Connection)
-connectToSelf ourEndPoint = do
-    -- Here connAlive must an MVar because it is not protected by another lock
-    connAlive <- newMVar True 
-    mConnId   <- tryIO (getNextConnectionId ourEndPoint) 
-    case mConnId of
-      Left err -> 
-        return . Left $ TransportError ConnectNotFound (show err)
-      Right connId -> do
-        writeChan ourChan $
-          ConnectionOpened connId ReliableOrdered (localAddress ourEndPoint)
-        return . Right $ Connection 
-          { send  = selfSend connAlive connId 
-          , close = selfClose connAlive connId
-          }
+connectToSelf ourEndPoint = try . mapIOException connectFailed $ do  
+    connAlive <- newIORef True  -- Protected by the local endpoint lock
+    connId    <- getNextConnectionId ourEndPoint 
+    writeChan ourChan $
+      ConnectionOpened connId ReliableOrdered (localAddress ourEndPoint)
+    return Connection 
+      { send  = selfSend connAlive connId 
+      , close = selfClose connAlive connId
+      }
   where
-    ourChan :: Chan Event
-    ourChan = localChannel ourEndPoint
-
-    selfSend :: MVar Bool 
+    selfSend :: IORef Bool 
              -> ConnectionId 
              -> [ByteString] 
              -> IO (Either (TransportError SendErrorCode) ())
     selfSend connAlive connId msg = 
-      modifyMVar connAlive $ \alive ->
-        if alive
-          then do 
-            writeChan ourChan (Received connId msg)
-            return (alive, Right ())
-          else 
-            return (alive, Left (TransportError SendFailed "Connection closed"))
+      try . withMVar ourState $ \st -> case st of
+        LocalEndPointValid _ -> do
+          alive <- readIORef connAlive
+          if alive
+            then writeChan ourChan (Received connId msg)
+            else throwIO $ TransportError SendClosed "Connection closed"
+        LocalEndPointClosed ->
+          throwIO $ TransportError SendFailed "Endpoint closed"
 
-    selfClose :: MVar Bool -> ConnectionId -> IO ()
+    selfClose :: IORef Bool -> ConnectionId -> IO ()
     selfClose connAlive connId = 
-      modifyMVar_ connAlive $ \alive -> do
-        when alive $ writeChan ourChan (ConnectionClosed connId) 
-        return False
+      withMVar ourState $ \st -> case st of
+        LocalEndPointValid _ -> do
+          alive <- readIORef connAlive
+          when alive $ do
+            writeChan ourChan (ConnectionClosed connId) 
+            writeIORef connAlive False
+        LocalEndPointClosed ->
+          return () 
+
+    ourChan  = localChannel ourEndPoint
+    ourState = localState ourEndPoint
+    connectFailed = TransportError ConnectFailed . show 
 
 --------------------------------------------------------------------------------
 -- Functions from TransportInternals                                          --
