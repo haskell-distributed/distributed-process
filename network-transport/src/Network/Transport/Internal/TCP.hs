@@ -87,7 +87,8 @@ recvInt32 sock = decodeInt32 . BS.concat <$> recvExact sock 4
 
 -- | Close a socket, ignoring I/O exceptions
 tryCloseSocket :: N.Socket -> IO ()
-tryCloseSocket = void . tryIO . N.sClose
+tryCloseSocket sock = void . tryIO $ 
+  N.sClose sock
 
 -- | Read an exact number of bytes from a socket
 -- 
@@ -96,7 +97,7 @@ tryCloseSocket = void . tryIO . N.sClose
 recvExact :: N.Socket                -- ^ Socket to read from 
           -> Int32                   -- ^ Number of bytes to read
           -> IO [ByteString]
-recvExact _ len | len <= 0 = throwIO (userError "Negative length") 
+recvExact _ len | len <= 0 = throwIO (userError "recvExact: Negative length") 
 recvExact sock len = go [] len
   where
     go :: [ByteString] -> Int32 -> IO [ByteString] 
@@ -104,5 +105,5 @@ recvExact sock len = go [] len
     go acc l = do
       bs <- NBS.recv sock (fromIntegral l `min` 4096)
       if BS.null bs 
-        then throwIO (userError "Socket closed")
+        then throwIO (userError "recvExact: Socket closed")
         else go (bs : acc) (l - fromIntegral (BS.length bs))

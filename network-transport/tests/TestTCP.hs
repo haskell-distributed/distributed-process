@@ -499,10 +499,12 @@ testUnnecessaryConnect nextPort numThreads = do
         case reply of
           ConnectionRequestAccepted ->
             putMVar gotAccepted ()
+          -- We might get either Invalid or Crossed (the transport does not 
+          -- maintain enough history to be able to tell)
           ConnectionRequestInvalid ->
             return ()
           ConnectionRequestCrossed ->
-            throwIO $ userError "Unexpected response (Crossed)"
+            return ()
         putMVar done ()
       return done
 
