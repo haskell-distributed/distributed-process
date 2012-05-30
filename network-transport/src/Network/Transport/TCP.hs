@@ -733,7 +733,7 @@ requestConnectionTo :: LocalEndPoint
 requestConnectionTo ourEndPoint theirAddress = go
   where
     go = do
-      (theirEndPoint, isNew, _) <- mapIOException connectFailed $
+      (theirEndPoint, isNew) <- mapIOException connectFailed $
         findRemoteEndPoint ourEndPoint theirAddress Local
 
       if isNew 
@@ -774,6 +774,7 @@ setupRemoteEndPoint (ourEndPoint, theirEndPoint) = do
         Right (sock, ConnectionRequestCrossed) -> do
           -- We leave the endpoint in Init state, handleConnectionRequest will
           -- take care of it
+          resolveInit (ourEndPoint, theirEndPoint) (RemoteEndPointClosed Nothing)
           tryCloseSocket sock
           return False
         Left err -> do 
@@ -812,22 +813,22 @@ setupRemoteEndPoint (ourEndPoint, theirEndPoint) = do
     theirState      = remoteState theirEndPoint
     invalidAddress  = TransportError ConnectNotFound
 
--- TODO: Document
--- TODO: is this what we want? modifyRemoteState only does something special
--- when an exception is thrown in the Valid case.
+-- | Resolve an endpoint currently in 'Init' state
 resolveInit :: EndPointPair -> RemoteState -> IO ()
 resolveInit (ourEndPoint, theirEndPoint) newState =
-    modifyRemoteState_ (ourEndPoint, theirEndPoint) $ remoteStateIdentity 
-      { caseInit = \resolved _ -> do
-          putMVar resolved ()
-          return newState
-      , caseInvalid = \_ -> throwException
-      , caseValid   = \_ -> throwException
-      , caseClosing = \_ _ -> throwException
-      , caseClosed  = \_ -> throwException
-      }
-  where
-    throwException = throwIO $ userError "resolveInit: not in Init state"
+  modifyMVar_ (remoteState theirEndPoint) $ \st -> case st of
+    RemoteEndPointInit resolved _ -> do
+      putMVar resolved ()
+      case newState of 
+        RemoteEndPointClosed _ -> 
+          removeRemoteEndPoint (ourEndPoint, theirEndPoint)
+        _ ->
+          return ()
+      return newState
+    RemoteEndPointClosed (Just ex) ->
+      throwIO ex
+    _ ->
+      relyViolation (ourEndPoint, theirEndPoint) "resolveInit"
 
 -- | Establish a connection to a remote endpoint
 socketToEndPoint :: EndPointAddress -- ^ Our address 
@@ -1157,10 +1158,10 @@ handleConnectionRequest transport sock = handle handleException $ do
     go :: LocalEndPoint -> EndPointAddress -> IO ()
     go ourEndPoint theirAddress = do 
       mEndPoint <- handle ((>> return Nothing) . invalidEndPoint) $ do 
-        (theirEndPoint, _, crossed) <- 
+        (theirEndPoint, isNew) <- 
           findRemoteEndPoint ourEndPoint theirAddress Remote
         
-        if crossed 
+        if not isNew 
           then do
             tryIO $ sendMany sock [encodeInt32 ConnectionRequestCrossed]
             tryCloseSocket sock
@@ -1193,13 +1194,12 @@ handleConnectionRequest transport sock = handle handleException $ do
       tryCloseSocket sock 
 
 -- | Find a remote endpoint. If the remote endpoint does not yet exist we
--- create it in Init state. Returns if the endpoint was new and, for requests
--- of Remote origin, whether the request crossed. 
+-- create it in Init state. Returns if the endpoint was new. 
 findRemoteEndPoint 
   :: LocalEndPoint
   -> EndPointAddress
   -> Origin 
-  -> IO (RemoteEndPoint, Bool, Bool) 
+  -> IO (RemoteEndPoint, Bool) 
 findRemoteEndPoint ourEndPoint theirAddress findOrigin = go
   where
     go = do
@@ -1226,7 +1226,7 @@ findRemoteEndPoint ourEndPoint theirAddress findOrigin = go
       
       if isNew 
         then
-          return (theirEndPoint, True, False)
+          return (theirEndPoint, True)
         else do
           let theirState = remoteState theirEndPoint
           snapshot <- modifyMVar theirState $ \st -> case st of
@@ -1251,14 +1251,19 @@ findRemoteEndPoint ourEndPoint theirAddress findOrigin = go
               case (findOrigin, initOrigin) of
                 (Local, Local)   -> readMVar resolved >> go 
                 (Local, Remote)  -> readMVar resolved >> go
-                (Remote, Local)  -> return (theirEndPoint, False, ourAddress < theirAddress)
+                (Remote, Local)  -> if ourAddress > theirAddress 
+                                      then
+                                        -- Wait for the Crossed message
+                                        readMVar resolved >> go 
+                                      else
+                                        return (theirEndPoint, False)
                 (Remote, Remote) -> throwIO $ userError "Already connected (B)"
             RemoteEndPointValid _ ->
               -- We assume that the request crossed if we find the endpoint in
               -- Valid state. It is possible that this is really an invalid
               -- request, but only in the case of a broken client (we don't
               -- maintain enough history to be able to tell the difference).
-              return (theirEndPoint, False, True)
+              return (theirEndPoint, False)
             RemoteEndPointClosing resolved _ ->
               readMVar resolved >> go
             RemoteEndPointClosed Nothing ->
