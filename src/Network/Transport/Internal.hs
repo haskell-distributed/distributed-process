@@ -9,6 +9,7 @@ module Network.Transport.Internal ( -- * Encoders/decoders
                                   , mapIOException
                                   , tryIO
                                   , tryToEnum
+                                  , timeoutMaybe
                                   -- * Replicated functionality from "base"
                                   , void
                                   , forkIOWithUnmask
@@ -35,6 +36,7 @@ import Control.Exception ( IOException
                          )
 import Control.Concurrent (ThreadId, forkIO)
 import GHC.IO (unsafeUnmask)
+import System.Timeout (timeout)
 --import Control.Concurrent (myThreadId)
 
 foreign import ccall unsafe "htonl" htonl :: CInt -> CInt
@@ -111,3 +113,14 @@ tryToEnum = go minBound maxBound
   where
     go :: Enum b => b -> b -> Int -> Maybe b
     go lo hi n = if fromEnum lo <= n && n <= fromEnum hi then Just (toEnum n) else Nothing 
+
+-- | If the timeout value is not Nothing, wrap the given computation with a
+-- timeout and it if times out throw the specified exception. Identity
+-- otherwise.
+timeoutMaybe :: Exception e => Maybe Int -> e -> IO a -> IO a
+timeoutMaybe Nothing  _ f = f 
+timeoutMaybe (Just n) e f = do
+  ma <- timeout n f
+  case ma of
+    Nothing -> throwIO e
+    Just a  -> return a

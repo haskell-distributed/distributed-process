@@ -160,7 +160,7 @@ testEarlyDisconnect nextPort = do
         N.sClose sock
  
       -- Connect to the server
-      Right (sock, ConnectionRequestAccepted) <- readMVar serverAddr >>= socketToEndPoint ourAddress 
+      Right (sock, ConnectionRequestAccepted) <- readMVar serverAddr >>= \addr -> socketToEndPoint ourAddress addr defaultConnectHints
   
       -- Request a new connection, but don't wait for the response
       let reqId = 0 :: Int32
@@ -273,7 +273,7 @@ testEarlyCloseSocket nextPort = do
         N.sClose sock
  
       -- Connect to the server
-      Right (sock, ConnectionRequestAccepted) <- readMVar serverAddr >>= socketToEndPoint ourAddress 
+      Right (sock, ConnectionRequestAccepted) <- readMVar serverAddr >>= \addr -> socketToEndPoint ourAddress addr defaultConnectHints
   
       -- Request a new connection, but don't wait for the response
       let reqId = 0 :: Int32
@@ -360,7 +360,7 @@ testIgnoreCloseSocket nextPort = do
       let ourAddress = address endpoint
 
       -- Connect to the server
-      Right (sock, ConnectionRequestAccepted) <- readMVar serverAddr >>= socketToEndPoint ourAddress  
+      Right (sock, ConnectionRequestAccepted) <- readMVar serverAddr >>= \addr -> socketToEndPoint ourAddress addr defaultConnectHints
 
       -- Request a new connection
       tlog "Requesting connection"
@@ -440,7 +440,7 @@ testBlockAfterCloseSocket nextPort = do
       let ourAddress = address endpoint
 
       -- Connect to the server
-      Right (sock, ConnectionRequestAccepted) <- readMVar serverAddr >>= socketToEndPoint ourAddress 
+      Right (sock, ConnectionRequestAccepted) <- readMVar serverAddr >>= \addr -> socketToEndPoint ourAddress addr defaultConnectHints
 
       -- Request a new connection
       tlog "Requesting connection"
@@ -495,7 +495,7 @@ testUnnecessaryConnect nextPort numThreads = do
     dones <- replicateM numThreads $ do
       done <- newEmptyMVar 
       forkTry $ do
-        Right (_, reply) <- readMVar serverAddr >>= socketToEndPoint ourAddress 
+        Right (_, reply) <- readMVar serverAddr >>= \addr -> socketToEndPoint ourAddress addr defaultConnectHints
         case reply of
           ConnectionRequestAccepted ->
             putMVar gotAccepted ()
@@ -601,7 +601,7 @@ testReconnect nextPort = do
     let theirAddr = encodeEndPointAddress "127.0.0.1" serverPort 0
 
     -- The first attempt will fail because no endpoint is yet set up
-    Left (TransportError ConnectNotFound _) <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
+    -- Left (TransportError ConnectNotFound _) <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
     putMVar firstAttempt ()
 
     -- The second attempt will fail because the server closes the socket before we can request a connection
@@ -612,7 +612,8 @@ testReconnect nextPort = do
     case resultConnect of
       Nothing -> return ()
       Just (Left (TransportError ConnectFailed _)) -> return ()
-      _ -> fail "testReconnect"
+      Just (Left err) -> throwIO err
+      Just (Right _) -> throwIO $ userError "testConnect: unexpected connect success" 
 
     -- The third attempt succeeds
     Right conn1 <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
@@ -757,7 +758,7 @@ main = do
   portMVar <- newEmptyMVar
   forkTry $ forM_ ([10080 ..] :: [Int]) $ putMVar portMVar . show 
   let nextPort = takeMVar portMVar 
-  tryIO $ runTests 
+  tcpResult <- tryIO $ runTests 
            [ ("EarlyDisconnect",        testEarlyDisconnect nextPort)
            , ("EarlyCloseSocket",       testEarlyCloseSocket nextPort)
            , ("IgnoreCloseSocket",      testIgnoreCloseSocket nextPort)
@@ -772,3 +773,6 @@ main = do
            , ("InvalidCloseConnection", testInvalidCloseConnection nextPort)
            ]
   testTransport (either (Left . show) (Right) <$> nextPort >>= createTransport "127.0.0.1")
+  case tcpResult of
+    Left err -> throwIO err
+    Right () -> return ()
