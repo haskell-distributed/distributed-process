@@ -3,7 +3,7 @@ module TestTransport where
 
 import Prelude hiding (catch, (>>=), (>>), return, fail)
 import TestAuxiliary (forkTry, runTests, trySome, randomThreadDelay)
-import Control.Concurrent (forkIO, killThread)
+import Control.Concurrent (forkIO, killThread, yield)
 import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar, readMVar)
 import Control.Exception (evaluate, throw)
 import Control.Monad (replicateM, replicateM_, when, guard, forM, forM_)
@@ -859,6 +859,45 @@ testKill newTransport numThreads = do
 
   takeMVar killerDone
 
+-- | Set up conditions with a high likelyhood of "crossing" (for transports
+-- that multiplex lightweight connections across heavyweight connections)
+testCrossing :: Transport -> Int -> IO () 
+testCrossing transport numRepeats = do
+  [aAddr, bAddr] <- replicateM 2 newEmptyMVar
+  [aDone, bDone] <- replicateM 2 newEmptyMVar
+  go <- newEmptyMVar
+
+  -- A
+  forkTry $ do
+    Right endpoint <- newEndPoint transport
+    putMVar aAddr (address endpoint)
+    theirAddress <- readMVar bAddr
+
+    replicateM_ numRepeats $ do
+      takeMVar go >> yield
+      Right conn <- connect endpoint theirAddress ReliableOrdered
+      close conn
+      putMVar aDone ()
+
+  -- B
+  forkTry $ do
+    Right endpoint <- newEndPoint transport
+    putMVar bAddr (address endpoint)
+    theirAddress <- readMVar aAddr
+    
+    replicateM_ numRepeats $ do
+      takeMVar go >> yield
+      Right conn <- connect endpoint theirAddress ReliableOrdered
+      close conn
+      putMVar bDone ()
+  
+  -- Driver
+  forM_ [1 .. numRepeats] $ \_i -> do
+    putMVar go ()
+    putMVar go ()
+    takeMVar aDone
+    takeMVar bDone
+
 -- Transport tests
 testTransport :: IO (Either String Transport) -> IO ()
 testTransport newTransport = do
@@ -871,7 +910,8 @@ testTransport newTransport = do
     , ("CloseOneDirection",     testCloseOneDirection transport numPings)
     , ("CloseReopen",           testCloseReopen transport numPings)
     , ("ParallelConnects",      testParallelConnects transport numPings)
-    , ("SendAfterClose",        testSendAfterClose transport 100)
+    , ("SendAfterClose",        testSendAfterClose transport 1000)
+    , ("Crossing",              testCrossing transport 1000)
     , ("CloseTwice",            testCloseTwice transport 100)
     , ("ConnectToSelf",         testConnectToSelf transport numPings) 
     , ("ConnectToSelfTwice",    testConnectToSelfTwice transport numPings)
