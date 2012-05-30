@@ -4,12 +4,11 @@ module TestTransport where
 import Prelude hiding (catch, (>>=), (>>), return, fail)
 import TestAuxiliary (forkTry, runTests, trySome, randomThreadDelay)
 import Control.Concurrent (forkIO, killThread, yield)
-import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar, readMVar)
-import Control.Exception (evaluate, throw)
+import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar, readMVar, tryTakeMVar)
+import Control.Exception (evaluate, throw, throwIO)
 import Control.Monad (replicateM, replicateM_, when, guard, forM, forM_)
 import Control.Monad.Error ()
-import Network.Transport hiding (connect)
-import qualified Network.Transport as NT
+import Network.Transport 
 import Network.Transport.Internal (tlog)
 import Network.Transport.Util (spawn)
 import System.Random (randomIO)
@@ -22,10 +21,6 @@ import Data.Maybe (catMaybes)
 import Data.List (permutations)
 import Traced
 
--- | We overload connect to always pass the default hints
-connect :: EndPoint -> EndPointAddress -> Reliability -> IO (Either (TransportError ConnectErrorCode) Connection)
-connect ep addr rel = NT.connect ep addr rel defaultConnectHints
-
 -- | Server that echoes messages straight back to the origin endpoint.
 echoServer :: EndPoint -> IO ()
 echoServer endpoint = do
@@ -37,7 +32,7 @@ echoServer endpoint = do
       case event of
         ConnectionOpened cid rel addr -> do
           tlog $ "Opened new connection " ++ show cid
-          Right conn <- connect endpoint addr rel 
+          Right conn <- connect endpoint addr rel defaultConnectHints
           go (Map.insert cid conn cs) 
         Received cid payload -> do
           send (Map.findWithDefault (error $ "Received: Invalid cid " ++ show cid) cid cs) payload 
@@ -59,7 +54,7 @@ ping :: EndPoint -> EndPointAddress -> Int -> ByteString -> IO ()
 ping endpoint server numPings msg = do
   -- Open connection to the server
   tlog "Connect to echo server"
-  Right conn <- connect endpoint server ReliableOrdered
+  Right conn <- connect endpoint server ReliableOrdered defaultConnectHints
 
   -- Wait for the server to open reply connection
   tlog "Wait for ConnectionOpened message"
@@ -126,10 +121,10 @@ testConnections transport numPings = do
     Right endpoint <- newEndPoint transport
 
     -- Open two connections to the server
-    Right conn1 <- connect endpoint server ReliableOrdered
+    Right conn1 <- connect endpoint server ReliableOrdered defaultConnectHints
     ConnectionOpened serv1 _ _ <- receive endpoint
    
-    Right conn2 <- connect endpoint server ReliableOrdered
+    Right conn2 <- connect endpoint server ReliableOrdered defaultConnectHints
     ConnectionOpened serv2 _ _ <- receive endpoint
 
     -- One thread to send "pingA" on the first connection
@@ -164,10 +159,10 @@ testCloseOneConnection transport numPings = do
     Right endpoint <- newEndPoint transport
 
     -- Open two connections to the server
-    Right conn1 <- connect endpoint server ReliableOrdered
+    Right conn1 <- connect endpoint server ReliableOrdered defaultConnectHints
     ConnectionOpened serv1 _ _ <- receive endpoint
    
-    Right conn2 <- connect endpoint server ReliableOrdered
+    Right conn2 <- connect endpoint server ReliableOrdered defaultConnectHints
     ConnectionOpened serv2 _ _ <- receive endpoint
 
     -- One thread to send "pingA" on the first connection
@@ -212,7 +207,7 @@ testCloseOneDirection transport numPings = do
 
     -- Connect to B
     tlog "Connect to B"
-    Right conn <- readMVar addrB >>= \addr -> connect endpoint addr ReliableOrdered 
+    Right conn <- readMVar addrB >>= \addr -> connect endpoint addr ReliableOrdered defaultConnectHints
 
     -- Wait for B to connect to us
     tlog "Wait for B" 
@@ -252,7 +247,7 @@ testCloseOneDirection transport numPings = do
 
     -- Connect to A
     tlog "Connect to A"
-    Right conn <- readMVar addrA >>= \addr -> connect endpoint addr ReliableOrdered 
+    Right conn <- readMVar addrA >>= \addr -> connect endpoint addr ReliableOrdered defaultConnectHints
 
     -- Wait for A's pings
     tlog "Wait for pings from A"
@@ -331,7 +326,7 @@ testCloseReopen transport numPings = do
     forM_ [1 .. numRepeats] $ \i -> do
       tlog "A connecting"
       -- Connect to B
-      Right conn <- readMVar addrB >>= \addr -> connect endpoint addr ReliableOrdered
+      Right conn <- readMVar addrB >>= \addr -> connect endpoint addr ReliableOrdered defaultConnectHints
   
       tlog "A pinging"
       -- Say hi
@@ -368,7 +363,7 @@ testParallelConnects transport numPings = do
 
   -- Spawn lots of clients
   forM_ [1 .. numPings] $ \i -> forkTry $ do 
-    Right conn <- connect endpoint server ReliableOrdered
+    Right conn <- connect endpoint server ReliableOrdered defaultConnectHints
     send conn [pack $ "ping" ++ show i]
     send conn [pack $ "ping" ++ show i]
     close conn
@@ -393,8 +388,8 @@ testSendAfterClose transport numRepeats = do
 
     -- We request two lightweight connections
     replicateM numRepeats $ do
-      Right conn1 <- connect endpoint server ReliableOrdered
-      Right conn2 <- connect endpoint server ReliableOrdered
+      Right conn1 <- connect endpoint server ReliableOrdered defaultConnectHints
+      Right conn2 <- connect endpoint server ReliableOrdered defaultConnectHints
   
       -- Close the second, but leave the first open; then output on the second
       -- connection (i.e., on a closed connection while there is still another
@@ -424,8 +419,8 @@ testCloseTwice transport numRepeats = do
 
     replicateM numRepeats $ do
       -- We request two lightweight connections
-      Right conn1 <- connect endpoint server ReliableOrdered
-      Right conn2 <- connect endpoint server ReliableOrdered
+      Right conn1 <- connect endpoint server ReliableOrdered defaultConnectHints
+      Right conn2 <- connect endpoint server ReliableOrdered defaultConnectHints
   
       -- Close the second one twice
       close conn2
@@ -455,7 +450,7 @@ testConnectToSelf transport numPings = do
   Right endpoint <- newEndPoint transport
 
   tlog "Creating self-connection"
-  Right conn <- connect endpoint (address endpoint) ReliableOrdered
+  Right conn <- connect endpoint (address endpoint) ReliableOrdered defaultConnectHints
 
   tlog "Talk to myself"
 
@@ -496,8 +491,8 @@ testConnectToSelfTwice transport numPings = do
   Right endpoint <- newEndPoint transport
 
   tlog "Creating self-connection"
-  Right conn1 <- connect endpoint (address endpoint) ReliableOrdered
-  Right conn2 <- connect endpoint (address endpoint) ReliableOrdered
+  Right conn1 <- connect endpoint (address endpoint) ReliableOrdered defaultConnectHints
+  Right conn2 <- connect endpoint (address endpoint) ReliableOrdered defaultConnectHints
 
   tlog "Talk to myself"
 
@@ -541,9 +536,9 @@ testCloseSelf newTransport = do
   Right transport <- newTransport
   Right endpoint1 <- newEndPoint transport
   Right endpoint2 <- newEndPoint transport
-  Right conn1     <- connect endpoint1 (address endpoint1) ReliableOrdered
-  Right conn2     <- connect endpoint1 (address endpoint1) ReliableOrdered
-  Right conn3     <- connect endpoint2 (address endpoint2) ReliableOrdered
+  Right conn1     <- connect endpoint1 (address endpoint1) ReliableOrdered defaultConnectHints
+  Right conn2     <- connect endpoint1 (address endpoint1) ReliableOrdered defaultConnectHints
+  Right conn3     <- connect endpoint2 (address endpoint2) ReliableOrdered defaultConnectHints
  
   -- Close the conneciton and try to send
   close conn1
@@ -554,13 +549,13 @@ testCloseSelf newTransport = do
   -- to the second endpoint should still be fine
   closeEndPoint endpoint1
   Left (TransportError SendFailed _) <- send conn2 ["ping"]
-  Left (TransportError ConnectFailed _) <- connect endpoint1 (address endpoint1) ReliableOrdered
+  Left (TransportError ConnectFailed _) <- connect endpoint1 (address endpoint1) ReliableOrdered defaultConnectHints
   Right () <- send conn3 ["ping"]
 
   -- Close the transport; now the second should no longer work
   closeTransport transport
   Left (TransportError SendFailed _) <- send conn3 ["ping"]
-  Left (TransportError ConnectFailed _) <- connect endpoint2 (address endpoint2) ReliableOrdered
+  Left (TransportError ConnectFailed _) <- connect endpoint2 (address endpoint2) ReliableOrdered defaultConnectHints
 
   return ()
 
@@ -592,7 +587,7 @@ testCloseEndPoint transport _ = do
       ConnectionOpened cid ReliableOrdered addr <- receive endpoint ; True <- return $ addr == theirAddr
       Received cid' ["ping"] <- receive endpoint ; True <- return $ cid == cid'
 
-      Right conn <- connect endpoint theirAddr ReliableOrdered
+      Right conn <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
       send conn ["pong"]
 
       ConnectionClosed cid'' <- receive endpoint ; True <- return $ cid == cid''
@@ -614,7 +609,7 @@ testCloseEndPoint transport _ = do
       putMVar clientAddr1 (address endpoint) 
 
       -- Connect to the server, then close the endpoint without disconnecting explicitly
-      Right _ <- connect endpoint theirAddr ReliableOrdered
+      Right _ <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
       closeEndPoint endpoint
       EndPointClosed <- receive endpoint
       return ()
@@ -624,7 +619,7 @@ testCloseEndPoint transport _ = do
       Right endpoint <- newEndPoint transport
       putMVar clientAddr2 (address endpoint) 
 
-      Right conn <- connect endpoint theirAddr ReliableOrdered
+      Right conn <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
       send conn ["ping"]
 
       -- Reply from the server
@@ -642,7 +637,7 @@ testCloseEndPoint transport _ = do
       () <- close conn
 
       -- And so should an attempt to connect
-      Left (TransportError ConnectFailed _) <- connect endpoint theirAddr ReliableOrdered
+      Left (TransportError ConnectFailed _) <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
 
       return ()
 
@@ -677,7 +672,7 @@ testCloseTransport newTransport = do
     ConnectionOpened cid2 ReliableOrdered addr' <- receive endpoint ; True <- return $ addr' == theirAddr2
     Received cid2' ["ping"] <- receive endpoint ; True <- return $ cid2' == cid2
 
-    Right conn <- connect endpoint theirAddr2 ReliableOrdered
+    Right conn <- connect endpoint theirAddr2 ReliableOrdered defaultConnectHints
     send conn ["pong"]
 
     -- Client now closes down its transport. We should receive connection closed messages (we don't know the precise order, however)
@@ -703,13 +698,13 @@ testCloseTransport newTransport = do
     putMVar clientAddr1 (address endpoint1) 
 
     -- Connect to the server, then close the endpoint without disconnecting explicitly
-    Right _ <- connect endpoint1 theirAddr ReliableOrdered
+    Right _ <- connect endpoint1 theirAddr ReliableOrdered defaultConnectHints
 
     -- Set up an endpoint with one outgoing and out incoming connection
     Right endpoint2 <- newEndPoint transport
     putMVar clientAddr2 (address endpoint2) 
 
-    Right conn <- connect endpoint2 theirAddr ReliableOrdered
+    Right conn <- connect endpoint2 theirAddr ReliableOrdered defaultConnectHints
     send conn ["ping"]
 
     -- Reply from the server
@@ -730,8 +725,8 @@ testCloseTransport newTransport = do
     () <- close conn
 
     -- And so should an attempt to connect on either endpoint
-    Left (TransportError ConnectFailed _) <- connect endpoint1 theirAddr ReliableOrdered
-    Left (TransportError ConnectFailed _) <- connect endpoint2 theirAddr ReliableOrdered
+    Left (TransportError ConnectFailed _) <- connect endpoint1 theirAddr ReliableOrdered defaultConnectHints
+    Left (TransportError ConnectFailed _) <- connect endpoint2 theirAddr ReliableOrdered defaultConnectHints
 
     -- And finally, so should an attempt to create a new endpoint
     Left (TransportError NewEndPointFailed _) <- newEndPoint transport 
@@ -760,7 +755,7 @@ testConnectClosedEndPoint transport = do
     Right endpoint <- newEndPoint transport
     readMVar serverClosed 
 
-    Left (TransportError ConnectNotFound _) <- readMVar serverAddr >>= \addr -> connect endpoint addr ReliableOrdered 
+    Left (TransportError ConnectNotFound _) <- readMVar serverAddr >>= \addr -> connect endpoint addr ReliableOrdered defaultConnectHints
 
     putMVar clientDone ()
   
@@ -794,7 +789,7 @@ testSendException newTransport = do
   Right endpoint2 <- newEndPoint transport
   
   -- Connect endpoint1 to endpoint2
-  Right conn <- connect endpoint1 (address endpoint2) ReliableOrdered
+  Right conn <- connect endpoint1 (address endpoint2) ReliableOrdered defaultConnectHints
   ConnectionOpened _ _ _ <- receive endpoint2
 
   -- Send an exceptional value
@@ -807,7 +802,7 @@ testSendException newTransport = do
   ErrorEvent (TransportError (EventConnectionLost _ [_]) _) <- receive endpoint2
 
   -- A new connection will re-establish the connection
-  Right conn2 <- connect endpoint1 (address endpoint2) ReliableOrdered
+  Right conn2 <- connect endpoint1 (address endpoint2) ReliableOrdered defaultConnectHints
   send conn2 ["ping"]
   close conn2
 
@@ -836,7 +831,7 @@ testKill newTransport numThreads = do
     done <- newEmptyMVar
     tid <- forkIO $ do
       randomThreadDelay 10
-      Right conn <- connect endpoint1 (address endpoint2) ReliableOrdered
+      Right conn <- connect endpoint1 (address endpoint2) ReliableOrdered defaultConnectHints
       randomThreadDelay 10
       Right () <- send conn ["ping"]
       randomThreadDelay 10
@@ -869,7 +864,12 @@ testCrossing :: Transport -> Int -> IO ()
 testCrossing transport numRepeats = do
   [aAddr, bAddr] <- replicateM 2 newEmptyMVar
   [aDone, bDone] <- replicateM 2 newEmptyMVar
+  [aTimeout, bTimeout] <- replicateM 2 newEmptyMVar
   go <- newEmptyMVar
+
+  let hints = defaultConnectHints {
+                connectTimeout = Just 5000000
+              }
 
   -- A
   forkTry $ do
@@ -879,8 +879,16 @@ testCrossing transport numRepeats = do
 
     replicateM_ numRepeats $ do
       takeMVar go >> yield
-      Right conn <- connect endpoint theirAddress ReliableOrdered
-      close conn
+      -- Because we are creating lots of connections, it's possible that
+      -- connect times out (for instance, in the TCP transport,
+      -- Network.Socket.connect may time out). We shouldn't regard this as an
+      -- error in the Transport, though. 
+      connectResult <- connect endpoint theirAddress ReliableOrdered hints
+      case connectResult of
+        Right conn -> close conn 
+        Left (TransportError ConnectTimeout _) -> putMVar aTimeout ()
+        Left (TransportError ConnectFailed _) -> readMVar bTimeout
+        Left err -> throwIO . userError $ "testCrossed: " ++ show err
       putMVar aDone ()
 
   -- B
@@ -891,12 +899,19 @@ testCrossing transport numRepeats = do
     
     replicateM_ numRepeats $ do
       takeMVar go >> yield
-      Right conn <- connect endpoint theirAddress ReliableOrdered
-      close conn
+      connectResult <- connect endpoint theirAddress ReliableOrdered hints
+      case connectResult of
+        Right conn -> close conn 
+        Left (TransportError ConnectTimeout _) -> putMVar bTimeout () 
+        Left (TransportError ConnectFailed _) -> readMVar aTimeout
+        Left err -> throwIO . userError $ "testCrossed: " ++ show err
       putMVar bDone ()
   
   -- Driver
   forM_ [1 .. numRepeats] $ \_i -> do
+    -- putStrLn $ "Round " ++ show _i
+    tryTakeMVar aTimeout
+    tryTakeMVar bTimeout
     putMVar go ()
     putMVar go ()
     takeMVar aDone

@@ -40,6 +40,7 @@ import Network.Transport.Internal ( encodeInt32
                                   , tryIO
                                   , tryToEnum
                                   , void
+                                  , timeoutMaybe
                                   )
 import qualified Network.Socket as N ( HostName
                                      , ServiceName
@@ -84,7 +85,6 @@ import Control.Exception ( IOException
                          , mask_
                          , onException
                          , fromException
-                         , catch
                          )
 import Data.IORef (IORef, newIORef, writeIORef, readIORef)
 import Data.ByteString (ByteString)
@@ -473,12 +473,13 @@ apiConnect :: LocalEndPoint    -- ^ Local end point
            -> Reliability      -- ^ Reliability (ignored)
            -> ConnectHints     -- ^ Hints (ignored for now)
            -> IO (Either (TransportError ConnectErrorCode) Connection)
-apiConnect ourEndPoint theirAddress _reliability _hints = 
+apiConnect ourEndPoint theirAddress _reliability hints = do
   if localAddress ourEndPoint == theirAddress 
     then connectToSelf ourEndPoint  
     else try $ do
-      resetIfInvalid ourEndPoint theirAddress
-      (theirEndPoint, connId) <- requestConnectionTo ourEndPoint theirAddress
+      resetRemoteEndPoint ourEndPoint theirAddress
+      (theirEndPoint, connId) <- 
+        requestConnectionTo ourEndPoint theirAddress hints
       -- connAlive can be an IORef rather than an MVar because it is protected
       -- by the remoteState MVar. We don't need the overhead of locking twice.
       connAlive <- newIORef True
@@ -669,13 +670,13 @@ internalSocketBetween transport ourAddress theirAddress = do
 -- | Reset a remote endpoint if it is in Invalid mode
 --
 -- If a user calls the API function 'connect' and the remote endpoint is
--- currently in Invalid state, we remove the remote endpoint first because a
+-- currently in broken state, we remove the remote endpoint first because a
 -- new attempt to connect might succeed even if the previous one failed.
 --
 -- Throws a TransportError ConnectFailed exception if the local endpoint is
 -- closed.
-resetIfInvalid :: LocalEndPoint -> EndPointAddress -> IO ()
-resetIfInvalid ourEndPoint theirAddress = do
+resetRemoteEndPoint :: LocalEndPoint -> EndPointAddress -> IO ()
+resetRemoteEndPoint ourEndPoint theirAddress = do
   mTheirEndPoint <- withMVar (localState ourEndPoint) $ \st -> case st of
     LocalEndPointValid vst ->
       return (vst ^. localConnectionTo theirAddress)
@@ -684,6 +685,8 @@ resetIfInvalid ourEndPoint theirAddress = do
   forM_ mTheirEndPoint $ \theirEndPoint -> 
     withMVar (remoteState theirEndPoint) $ \st -> case st of
       RemoteEndPointInvalid _ ->
+        removeRemoteEndPoint (ourEndPoint, theirEndPoint)
+      RemoteEndPointClosed (Just _) ->
         removeRemoteEndPoint (ourEndPoint, theirEndPoint)
       _ ->
         return ()
@@ -729,8 +732,9 @@ createLocalEndPoint transport = do
 -- May throw a TransportError ConnectErrorCode exception.
 requestConnectionTo :: LocalEndPoint 
                     -> EndPointAddress 
+                    -> ConnectHints
                     -> IO (RemoteEndPoint, ConnectionId)
-requestConnectionTo ourEndPoint theirAddress = go
+requestConnectionTo ourEndPoint theirAddress hints = go
   where
     go = do
       (theirEndPoint, isNew) <- mapIOException connectFailed $
@@ -738,9 +742,8 @@ requestConnectionTo ourEndPoint theirAddress = go
 
       if isNew 
         then do
-          void . forkEndPointThread ourEndPoint $
-            catch (setupRemoteEndPoint (ourEndPoint, theirEndPoint)) 
-              (\err -> let _ = err :: SomeException in return ())
+          void . forkEndPointThread ourEndPoint . handle absorbAllExceptions $
+            setupRemoteEndPoint (ourEndPoint, theirEndPoint) hints 
           go
         else do
           reply <- mapIOException connectFailed $ 
@@ -749,10 +752,14 @@ requestConnectionTo ourEndPoint theirAddress = go
 
     connectFailed = TransportError ConnectFailed . show
 
+    absorbAllExceptions :: SomeException -> IO ()
+    absorbAllExceptions _ex = 
+      return ()
+
 -- | Set up a remote endpoint
-setupRemoteEndPoint :: EndPointPair -> IO () 
-setupRemoteEndPoint (ourEndPoint, theirEndPoint) = do
-    didAccept <- bracketOnError (socketToEndPoint ourAddress theirAddress)
+setupRemoteEndPoint :: EndPointPair -> ConnectHints -> IO () 
+setupRemoteEndPoint (ourEndPoint, theirEndPoint) hints = do
+    didAccept <- bracketOnError (socketToEndPoint ourAddress theirAddress hints)
                                 onError $ \result ->
       case result of
         Right (sock, ConnectionRequestAccepted) -> do 
@@ -767,7 +774,7 @@ setupRemoteEndPoint (ourEndPoint, theirEndPoint) = do
           resolveInit (ourEndPoint, theirEndPoint) (RemoteEndPointValid vst)
           return True
         Right (sock, ConnectionRequestInvalid) -> do
-          let err = invalidAddress "Invalid endpoint"
+          let err = invalidAddress "setupRemoteEndPoint: Invalid endpoint"
           resolveInit (ourEndPoint, theirEndPoint) (RemoteEndPointInvalid err)
           tryCloseSocket sock
           return False
@@ -820,22 +827,25 @@ resolveInit (ourEndPoint, theirEndPoint) newState =
     RemoteEndPointInit resolved _ -> do
       putMVar resolved ()
       case newState of 
-        RemoteEndPointClosed _ -> 
+        RemoteEndPointClosed Nothing -> 
           removeRemoteEndPoint (ourEndPoint, theirEndPoint)
         _ ->
           return ()
       return newState
-    RemoteEndPointClosed (Just ex) ->
+    RemoteEndPointClosed (Just ex) -> 
       throwIO ex
     _ ->
       relyViolation (ourEndPoint, theirEndPoint) "resolveInit"
 
 -- | Establish a connection to a remote endpoint
+--
+-- Maybe throw a TransportError
 socketToEndPoint :: EndPointAddress -- ^ Our address 
                  -> EndPointAddress -- ^ Their address
+                 -> ConnectHints    -- ^ Connection hints
                  -> IO (Either (TransportError ConnectErrorCode) 
                                (N.Socket, ConnectionRequestResponse)) 
-socketToEndPoint (EndPointAddress ourAddress) theirAddress = try $ do 
+socketToEndPoint (EndPointAddress ourAddress) theirAddress hints = try $ do 
     (host, port, theirEndPointId) <- case decodeEndPointAddress theirAddress of 
       Nothing  -> throwIO (failed . userError $ "Could not parse")
       Just dec -> return dec
@@ -843,7 +853,9 @@ socketToEndPoint (EndPointAddress ourAddress) theirAddress = try $ do
       N.getAddrInfo Nothing (Just host) (Just port)
     bracketOnError (createSocket addr) tryCloseSocket $ \sock -> do
       mapIOException failed $ N.setSocketOption sock N.ReuseAddr 1
-      mapIOException invalidAddress $ N.connect sock (N.addrAddress addr) 
+      mapIOException invalidAddress $ 
+        timeoutMaybe (connectTimeout hints) timeoutError $ 
+          N.connect sock (N.addrAddress addr) 
       response <- mapIOException failed $ do
         sendMany sock (encodeInt32 theirEndPointId : prependLength [ourAddress]) 
         recvInt32 sock
@@ -858,6 +870,7 @@ socketToEndPoint (EndPointAddress ourAddress) theirAddress = try $ do
     invalidAddress        = TransportError ConnectNotFound . show 
     insufficientResources = TransportError ConnectInsufficientResources . show 
     failed                = TransportError ConnectFailed . show
+    timeoutError          = TransportError ConnectTimeout "Timed out"
 
 -- | Remove reference to a remote endpoint from a local endpoint
 --
@@ -1073,7 +1086,6 @@ modifyRemoteState (ourEndPoint, theirEndPoint) match =
     handleIOException :: IOException -> ValidRemoteEndPointState -> IO () 
     handleIOException ex vst = do
       tryCloseSocket (remoteSocket vst)
-      removeRemoteEndPoint (ourEndPoint, theirEndPoint)
       putMVar theirState (RemoteEndPointClosed $ Just ex)
       let incoming = IntSet.elems $ vst ^. remoteIncoming
           code     = EventConnectionLost (remoteAddress theirEndPoint) incoming
@@ -1148,7 +1160,7 @@ handleConnectionRequest transport sock = handle handleException $ do
         case vst ^. localEndPointAt ourAddress of
           Nothing -> do
             sendMany sock [encodeInt32 ConnectionRequestInvalid]
-            throwIO $ userError "Invalid endpoint"
+            throwIO $ userError "handleConnectionRequest: Invalid endpoint"
           Just ourEndPoint ->
             return ourEndPoint
       TransportClosed -> 
@@ -1157,7 +1169,8 @@ handleConnectionRequest transport sock = handle handleException $ do
   where
     go :: LocalEndPoint -> EndPointAddress -> IO ()
     go ourEndPoint theirAddress = do 
-      mEndPoint <- handle ((>> return Nothing) . invalidEndPoint) $ do 
+      mEndPoint <- handle ((>> return Nothing) . handleException) $ do 
+        resetRemoteEndPoint ourEndPoint theirAddress
         (theirEndPoint, isNew) <- 
           findRemoteEndPoint ourEndPoint theirAddress Remote
         
@@ -1185,12 +1198,9 @@ handleConnectionRequest transport sock = handle handleException $ do
       -- exception from this point forward. 
       forM_ mEndPoint $ handleIncomingMessages . (,) ourEndPoint
 
-    handleException :: IOException -> IO ()
-    handleException _ = tryCloseSocket sock 
-
-    invalidEndPoint :: IOException -> IO () 
-    invalidEndPoint _ = do
-      tryIO $ sendMany sock [encodeInt32 ConnectionRequestInvalid]
+    handleException :: SomeException -> IO ()
+    handleException _ex = 
+      -- putStrLn $ "handleConnectionRequest " ++ show _ex
       tryCloseSocket sock 
 
 -- | Find a remote endpoint. If the remote endpoint does not yet exist we
@@ -1268,7 +1278,7 @@ findRemoteEndPoint ourEndPoint theirAddress findOrigin = go
               readMVar resolved >> go
             RemoteEndPointClosed Nothing ->
               go
-            RemoteEndPointClosed (Just err) ->
+            RemoteEndPointClosed (Just err) -> 
               throwIO err
           
     ourState   = localState ourEndPoint 
@@ -1491,7 +1501,6 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
     -- Deal with a premature exit
     prematureExit :: N.Socket -> IOException -> IO ()
     prematureExit sock err = do
-      removeRemoteEndPoint (ourEndPoint, theirEndPoint)
       tryCloseSocket sock
       modifyMVar_ theirState $ \st ->
         case st of

@@ -10,7 +10,7 @@ module Network.Transport ( -- * Types
                          , EndPointAddress(..)
                          , MulticastAddress(..)
                            -- * Hints
-                         , ConnectHints
+                         , ConnectHints(..)
                          , defaultConnectHints
                            -- * Error codes
                          , TransportError(..)
@@ -129,11 +129,16 @@ instance Show MulticastAddress where
 --------------------------------------------------------------------------------
 
 -- Hints used by 'connect'
-data ConnectHints
+data ConnectHints = ConnectHints {
+    -- Timeout
+    connectTimeout :: Maybe Int
+  }
 
 -- Default hints for connecting
 defaultConnectHints :: ConnectHints
-defaultConnectHints = undefined
+defaultConnectHints = ConnectHints {
+    connectTimeout = Nothing
+  }
 
 --------------------------------------------------------------------------------
 -- Error codes                                                                --
@@ -172,6 +177,8 @@ data ConnectErrorCode =
     ConnectNotFound
     -- | Insufficient resources (for instance, no more sockets available)
   | ConnectInsufficientResources 
+    -- | Timeout
+  | ConnectTimeout
     -- | Failed for other reasons (including syntax error)
   | ConnectFailed                
   deriving (Show, Typeable, Eq)
