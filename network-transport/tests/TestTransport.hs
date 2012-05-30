@@ -19,6 +19,7 @@ import Data.Map (Map)
 import qualified Data.Map as Map (empty, insert, delete, findWithDefault, adjust, null, toList, map)
 import Data.String (fromString)
 import Data.Maybe (catMaybes)
+import Data.List (permutations)
 import Traced
 
 -- | We overload connect to always pass the default hints
@@ -679,10 +680,13 @@ testCloseTransport newTransport = do
     Right conn <- connect endpoint theirAddr2 ReliableOrdered
     send conn ["pong"]
 
-    -- Client now closes down its transport. We should receive connection closed messages
-    ConnectionClosed cid' <- receive endpoint ; True <- return $ cid' == cid1 || cid' == cid2
-    ConnectionClosed cid'' <- receive endpoint ; True <- return $ (cid'' == cid1 || cid'' == cid2) && cid'' /= cid'
-    ErrorEvent (TransportError (EventConnectionLost addr'' []) _) <- receive endpoint ; True <- return $ addr'' == theirAddr2
+    -- Client now closes down its transport. We should receive connection closed messages (we don't know the precise order, however)
+    evs <- replicateM 3 $ receive endpoint
+    let expected = [ ConnectionClosed cid1
+                   , ConnectionClosed cid2
+                   , ErrorEvent (TransportError (EventConnectionLost theirAddr2 []) "")
+                   ]
+    True <- return $ any (== expected) (permutations evs)
 
     -- An attempt to send to the endpoint should now fail
     Left (TransportError SendFailed _) <- send conn ["pong2"]
