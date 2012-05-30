@@ -77,7 +77,7 @@ data Event =
   | EndPointClosed
     -- | An error occurred 
   | ErrorEvent (TransportError EventErrorCode)  
-  deriving Show
+  deriving (Show, Eq)
 
 -- | Connection data ConnectHintsIDs enable receivers to distinguish one connection from another.
 type ConnectionId = Int
@@ -87,7 +87,7 @@ data Reliability =
     ReliableOrdered 
   | ReliableUnordered 
   | Unreliable
-  deriving Show
+  deriving (Show, Eq)
 
 -- | Multicast group.
 data MulticastGroup = MulticastGroup {
@@ -154,13 +154,17 @@ data TransportError error = TransportError error String
 -- exceptions. 
 instance (Typeable err, Show err) => Exception (TransportError err)
 
+-- | When comparing errors we ignore the human-readable strings
+instance Eq error => Eq (TransportError error) where
+  TransportError err1 _ == TransportError err2 _ = err1 == err2
+
 -- | Errors during the creation of an endpoint
 data NewEndPointErrorCode =
     -- | Not enough resources
     NewEndPointInsufficientResources
     -- | Failed for some other reason
   | NewEndPointFailed 
-  deriving (Show, Typeable)
+  deriving (Show, Typeable, Eq)
 
 -- | Connection failure 
 data ConnectErrorCode = 
@@ -170,7 +174,7 @@ data ConnectErrorCode =
   | ConnectInsufficientResources 
     -- | Failed for other reasons (including syntax error)
   | ConnectFailed                
-  deriving (Show, Typeable)
+  deriving (Show, Typeable, Eq)
 
 -- | Failure during the creation of a new multicast group
 data NewMulticastGroupErrorCode =
@@ -180,7 +184,7 @@ data NewMulticastGroupErrorCode =
   | NewMulticastGroupFailed
     -- | Not all transport implementations support multicast
   | NewMulticastGroupUnsupported
-  deriving (Show, Typeable)
+  deriving (Show, Typeable, Eq)
 
 -- | Failure during the resolution of a multicast group
 data ResolveMulticastGroupErrorCode =
@@ -190,7 +194,7 @@ data ResolveMulticastGroupErrorCode =
   | ResolveMulticastGroupFailed
     -- | Not all transport implementations support multicast 
   | ResolveMulticastGroupUnsupported
-  deriving (Show, Typeable)
+  deriving (Show, Typeable, Eq)
 
 -- | Failure during sending a message
 data SendErrorCode =
@@ -198,7 +202,7 @@ data SendErrorCode =
     SendClosed
     -- | Send failed for some other reason
   | SendFailed            
-  deriving (Show, Typeable)
+  deriving (Show, Typeable, Eq)
 
 -- | Error codes used when reporting errors to endpoints (through receive)
 data EventErrorCode = 
@@ -208,4 +212,4 @@ data EventErrorCode =
   | EventTransportFailed
     -- | Connection to a remote endpoint was lost
   | EventConnectionLost EndPointAddress [ConnectionId] 
-  deriving Show
+  deriving (Show, Typeable, Eq)
