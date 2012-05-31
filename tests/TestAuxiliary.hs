@@ -40,7 +40,7 @@ runTest :: String -> IO () -> IO Bool
 runTest description test = do
   putStr $ "Running " ++ show description ++ ": "
   hFlush stdout
-  done <- try . timeout 30000000 $ test -- 30 seconds
+  done <- try . timeout 60000000 $ test -- 60 seconds
   case done of
     Left err        -> failed $ "(exception: " ++ show (err :: SomeException) ++ ")" 
     Right Nothing   -> failed $ "(timeout)"
