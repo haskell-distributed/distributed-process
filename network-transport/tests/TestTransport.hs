@@ -6,7 +6,7 @@ import TestAuxiliary (forkTry, runTests, trySome, randomThreadDelay)
 import Control.Concurrent (forkIO, killThread, yield)
 import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar, readMVar, tryTakeMVar)
 import Control.Exception (evaluate, throw, throwIO)
-import Control.Monad (replicateM, replicateM_, when, guard, forM, forM_)
+import Control.Monad (replicateM, replicateM_, when, guard, forM, forM_, unless)
 import Control.Monad.Error ()
 import Network.Transport 
 import Network.Transport.Internal (tlog)
@@ -17,7 +17,6 @@ import Data.ByteString.Char8 (pack)
 import Data.Map (Map)
 import qualified Data.Map as Map (empty, insert, delete, findWithDefault, adjust, null, toList, map)
 import Data.String (fromString)
-import Data.Maybe (catMaybes)
 import Data.List (permutations)
 import Traced
 
@@ -816,44 +815,39 @@ testSendException newTransport = do
 -- should not affect other threads.
 -- 
 -- The intention of this test is to see what happens when a asynchronous
--- exception happes _while executing a send, connect, or close_. This is
--- exceedingly difficult to guarantee, however. Hence we run a large number of
--- tests and insert random thread delays -- and even then it might not happen.
--- Moreover, it will only happen when we run on multiple cores. 
+-- exception happes _while executing a send_. This is exceedingly difficult to
+-- guarantee, however. Hence we run a large number of tests and insert random
+-- thread delays -- and even then it might not happen.  Moreover, it will only
+-- happen when we run on multiple cores. 
 testKill :: IO (Either String Transport) -> Int -> IO ()
 testKill newTransport numThreads = do
   Right transport1 <- newTransport
   Right transport2 <- newTransport
   Right endpoint1 <- newEndPoint transport1
   Right endpoint2 <- newEndPoint transport2
+      
+  Right conn <- connect endpoint1 (address endpoint2) ReliableOrdered defaultConnectHints
+  ConnectionOpened _ _ _ <- receive endpoint2
 
-  threads <- forM [1 .. numThreads] $ \_ -> do
-    done <- newEmptyMVar
-    tid <- forkIO $ do
-      randomThreadDelay 10
-      Right conn <- connect endpoint1 (address endpoint2) ReliableOrdered defaultConnectHints
-      randomThreadDelay 10
-      Right () <- send conn ["ping"]
-      randomThreadDelay 10
-      close conn
-      putMVar done ()
-
-    return (tid, done) 
+  threads <- replicateM numThreads . forkIO $ do 
+    randomThreadDelay 10
+    Right () <- send conn ["ping"]
+    return ()
 
   -- Kill half of those threads, and wait on the rest
   killerDone <- newEmptyMVar
   forkIO $ do
-    wait <- forM threads $ \(tid, done) -> do
+    killed <- forM threads $ \tid -> do
       shouldKill <- randomIO
-      if shouldKill
-        then do
-          randomThreadDelay 30
-          killThread tid 
-          return Nothing 
-        else 
-          return (Just done)
+      when shouldKill $ randomThreadDelay 10 >> killThread tid 
+      return shouldKill
 
-    mapM_ takeMVar (catMaybes wait) 
+    -- We should receive at least the pings from the threads that we didn't
+    -- kill (we might get more, depending on when exactly the kill happens)
+    forM_ killed $ \wasKilled -> unless wasKilled $ do 
+      Received _ ["ping"] <- receive endpoint2
+      return ()
+
     putMVar killerDone ()
 
   takeMVar killerDone

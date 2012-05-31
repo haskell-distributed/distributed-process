@@ -772,7 +772,9 @@ main = do
            , ("UnidirectionalError",    testUnidirectionalError nextPort)
            , ("InvalidCloseConnection", testInvalidCloseConnection nextPort)
            ]
+  -- Run the generic tests even if the TCP specific tests failed.. 
   testTransport (either (Left . show) (Right) <$> nextPort >>= createTransport "127.0.0.1")
+  -- ..but if the generic tests pass, still fail if the specific tests did
   case tcpResult of
     Left err -> throwIO err
     Right () -> return ()
