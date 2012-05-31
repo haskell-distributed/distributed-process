@@ -471,7 +471,7 @@ apiNewEndPoint transport = try $ do
 apiConnect :: LocalEndPoint    -- ^ Local end point
            -> EndPointAddress  -- ^ Remote address
            -> Reliability      -- ^ Reliability (ignored)
-           -> ConnectHints     -- ^ Hints (ignored for now)
+           -> ConnectHints     -- ^ Hints
            -> IO (Either (TransportError ConnectErrorCode) Connection)
 apiConnect ourEndPoint theirAddress _reliability hints =
   if localAddress ourEndPoint == theirAddress 
@@ -779,8 +779,6 @@ setupRemoteEndPoint (ourEndPoint, theirEndPoint) hints = do
         tryCloseSocket sock
         return False
       Right (sock, ConnectionRequestCrossed) -> do
-        -- We leave the endpoint in Init state, handleConnectionRequest will
-        -- take care of it
         resolveInit (ourEndPoint, theirEndPoint) (RemoteEndPointClosed Nothing)
         tryCloseSocket sock
         return False
