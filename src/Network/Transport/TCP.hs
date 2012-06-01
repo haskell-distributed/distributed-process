@@ -12,6 +12,8 @@
 -- compatibility (see "Network.Socket").
 module Network.Transport.TCP ( -- * Main API
                                createTransport
+                             , TCPParameters(..)
+                             , defaultTCPParameters
                                -- * Internals (exposed for unit tests) 
                              , createTransportExposeInternals 
                              , TransportInternals(..)
@@ -216,9 +218,10 @@ import Data.Foldable (forM_, mapM_)
 --   ValidRemoteEndPointState).
 
 data TCPTransport = TCPTransport 
-  { transportHost  :: N.HostName
-  , transportPort  :: N.ServiceName
-  , transportState :: MVar TransportState 
+  { transportHost   :: N.HostName
+  , transportPort   :: N.ServiceName
+  , transportState  :: MVar TransportState 
+  , transportParams :: TCPParameters
   }
 
 data TransportState = 
@@ -381,6 +384,19 @@ data ConnectionRequestResponse =
   | ConnectionRequestCrossed         
   deriving (Enum, Bounded, Show)
 
+-- Parameters for setting up the TCP transport
+data TCPParameters = TCPParameters {
+    -- | Backlog for 'listen'.
+    -- Defaults to SOMAXCONN.
+    tcpBacklog :: Int
+    -- | Should we set SO_REUSEADDR on the server socket? 
+    -- Defaults to True.
+  , tcpReuseServerAddr :: Bool
+    -- | Should we set SO_REUSEADDR on client sockets?
+    -- Defaults to True.
+  , tcpReuseClientAddr :: Bool
+  }
+
 -- Internal functionality we expose for unit testing
 data TransportInternals = TransportInternals 
   { -- | The ID of the thread that listens for new incoming connections
@@ -398,48 +414,68 @@ data TransportInternals = TransportInternals
 -- | Create a TCP transport
 createTransport :: N.HostName 
                 -> N.ServiceName 
+                -> TCPParameters
                 -> IO (Either IOException Transport)
-createTransport host port = 
-  either Left (Right . fst) <$> createTransportExposeInternals host port 
+createTransport host port params = 
+  either Left (Right . fst) <$> createTransportExposeInternals host port params
 
 -- | You should probably not use this function (used for unit testing only)
 createTransportExposeInternals 
   :: N.HostName 
   -> N.ServiceName 
+  -> TCPParameters
   -> IO (Either IOException (Transport, TransportInternals)) 
-createTransportExposeInternals host port = do 
+createTransportExposeInternals host port params = do 
     state <- newMVar . TransportValid $ ValidTransportState 
       { _localEndPoints = Map.empty 
       , _nextEndPointId = 0 
       }
-    let transport = TCPTransport { transportState = state
-                                 , transportHost  = host
-                                 , transportPort  = port
+    let transport = TCPTransport { transportState  = state
+                                 , transportHost   = host
+                                 , transportPort   = port
+                                 , transportParams = params
                                  }
-    tryIO $ do 
-      tid <- forkServer host port N.sOMAXCONN 
-               (terminationHandler transport) 
-               (handleConnectionRequest transport) 
-      return 
-        ( Transport 
-            { newEndPoint    = apiNewEndPoint transport 
-            , closeTransport = let evs = [ EndPointClosed
-                                         , throw $ userError "Transport closed"
-                                         ] in
-                               apiCloseTransport transport (Just tid) evs 
-            } 
-        , TransportInternals 
-            { transportThread = tid
-            , socketBetween   = internalSocketBetween transport
-            }
-        )
+    tryIO $ bracketOnError (forkServer 
+                             host 
+                             port 
+                             (tcpBacklog params) 
+                             (tcpReuseServerAddr params)
+                             (terminationHandler transport) 
+                             (handleConnectionRequest transport))
+                           killThread
+                           (mkTransport transport)
   where
+    mkTransport :: TCPTransport 
+                -> ThreadId 
+                -> IO (Transport, TransportInternals)
+    mkTransport transport tid = return
+      ( Transport 
+          { newEndPoint    = apiNewEndPoint transport 
+          , closeTransport = let evs = [ EndPointClosed
+                                       , throw $ userError "Transport closed"
+                                       ] in
+                             apiCloseTransport transport (Just tid) evs 
+          } 
+      , TransportInternals 
+          { transportThread = tid
+          , socketBetween   = internalSocketBetween transport
+          }
+      )
+
     terminationHandler :: TCPTransport -> SomeException -> IO ()
     terminationHandler transport ex = do 
       let evs = [ ErrorEvent (TransportError EventTransportFailed (show ex))
                 , throw $ userError "Transport closed" 
                 ]
       apiCloseTransport transport Nothing evs 
+
+-- | Default TCP parameters
+defaultTCPParameters :: TCPParameters
+defaultTCPParameters = TCPParameters {
+    tcpBacklog         = N.sOMAXCONN
+  , tcpReuseServerAddr = True
+  , tcpReuseClientAddr = True
+  }
 
 --------------------------------------------------------------------------------
 -- API functions                                                              --
@@ -465,7 +501,7 @@ apiNewEndPoint transport = try $ do
   return EndPoint 
     { receive       = readChan (localChannel ourEndPoint)
     , address       = localAddress ourEndPoint
-    , connect       = apiConnect ourEndPoint 
+    , connect       = apiConnect (transportParams transport) ourEndPoint 
     , closeEndPoint = let evs = [ EndPointClosed
                                 , throw $ userError "Endpoint closed" 
                                 ] in
@@ -480,18 +516,19 @@ apiNewEndPoint transport = try $ do
       TransportError ResolveMulticastGroupUnsupported "Multicast not supported" 
 
 -- | Connnect to an endpoint
-apiConnect :: LocalEndPoint    -- ^ Local end point
+apiConnect :: TCPParameters    -- ^ Parameters
+           -> LocalEndPoint    -- ^ Local end point
            -> EndPointAddress  -- ^ Remote address
            -> Reliability      -- ^ Reliability (ignored)
            -> ConnectHints     -- ^ Hints
            -> IO (Either (TransportError ConnectErrorCode) Connection)
-apiConnect ourEndPoint theirAddress _reliability hints =
+apiConnect params ourEndPoint theirAddress _reliability hints =
   if localAddress ourEndPoint == theirAddress 
     then connectToSelf ourEndPoint  
     else try $ do
       resetIfBroken ourEndPoint theirAddress
       (theirEndPoint, connId) <- 
-        requestConnectionTo ourEndPoint theirAddress hints
+        requestConnectionTo params ourEndPoint theirAddress hints
       -- connAlive can be an IORef rather than an MVar because it is protected
       -- by the remoteState MVar. We don't need the overhead of locking twice.
       connAlive <- newIORef True
@@ -752,11 +789,12 @@ createLocalEndPoint transport = do
 -- additionally block until that is resolved. 
 --
 -- May throw a TransportError ConnectErrorCode exception.
-requestConnectionTo :: LocalEndPoint 
+requestConnectionTo :: TCPParameters 
+                    -> LocalEndPoint 
                     -> EndPointAddress 
                     -> ConnectHints
                     -> IO (RemoteEndPoint, ConnectionId)
-requestConnectionTo ourEndPoint theirAddress hints = go
+requestConnectionTo params ourEndPoint theirAddress hints = go
   where
     go = do
       (theirEndPoint, isNew) <- mapIOException connectFailed $
@@ -765,7 +803,7 @@ requestConnectionTo ourEndPoint theirAddress hints = go
       if isNew 
         then do
           void . forkEndPointThread ourEndPoint . handle absorbAllExceptions $
-            setupRemoteEndPoint (ourEndPoint, theirEndPoint) hints 
+            setupRemoteEndPoint params (ourEndPoint, theirEndPoint) hints 
           go
         else do
           reply <- mapIOException connectFailed $ 
@@ -779,9 +817,13 @@ requestConnectionTo ourEndPoint theirAddress hints = go
       return ()
 
 -- | Set up a remote endpoint
-setupRemoteEndPoint :: EndPointPair -> ConnectHints -> IO () 
-setupRemoteEndPoint (ourEndPoint, theirEndPoint) hints = do
-    didAccept <- bracketOnError (socketToEndPoint ourAddress theirAddress hints)
+setupRemoteEndPoint :: TCPParameters -> EndPointPair -> ConnectHints -> IO () 
+setupRemoteEndPoint params (ourEndPoint, theirEndPoint) hints = do
+    didAccept <- bracketOnError (socketToEndPoint 
+                                   ourAddress 
+                                   theirAddress 
+                                   (tcpReuseClientAddr params)
+                                   (connectTimeout hints))
                                 onError $ \result -> case result of
       Right (sock, ConnectionRequestAccepted) -> do 
         let vst = ValidRemoteEndPointState 
@@ -861,19 +903,22 @@ resolveInit (ourEndPoint, theirEndPoint) newState =
 -- Maybe throw a TransportError
 socketToEndPoint :: EndPointAddress -- ^ Our address 
                  -> EndPointAddress -- ^ Their address
-                 -> ConnectHints    -- ^ Connection hints
+                 -> Bool            -- ^ Use SO_REUSEADDR?
+                 -> Maybe Int       -- ^ Timeout for connect 
                  -> IO (Either (TransportError ConnectErrorCode) 
                                (N.Socket, ConnectionRequestResponse)) 
-socketToEndPoint (EndPointAddress ourAddress) theirAddress hints = try $ do 
+socketToEndPoint (EndPointAddress ourAddress) theirAddress reuseAddr timeout = 
+  try $ do 
     (host, port, theirEndPointId) <- case decodeEndPointAddress theirAddress of 
       Nothing  -> throwIO (failed . userError $ "Could not parse")
       Just dec -> return dec
     addr:_ <- mapIOException invalidAddress $ 
       N.getAddrInfo Nothing (Just host) (Just port)
     bracketOnError (createSocket addr) tryCloseSocket $ \sock -> do
-      mapIOException failed $ N.setSocketOption sock N.ReuseAddr 1
+      when reuseAddr $ 
+        mapIOException failed $ N.setSocketOption sock N.ReuseAddr 1
       mapIOException invalidAddress $ 
-        timeoutMaybe (connectTimeout hints) timeoutError $ 
+        timeoutMaybe timeout timeoutError $ 
           N.connect sock (N.addrAddress addr) 
       response <- mapIOException failed $ do
         sendMany sock (encodeInt32 theirEndPointId : prependLength [ourAddress])
