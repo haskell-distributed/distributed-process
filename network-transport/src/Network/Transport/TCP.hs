@@ -251,21 +251,22 @@ data ValidLocalEndPointState = ValidLocalEndPointState
 --
 -- Remote endpoints (basically, TCP connections) have the following lifecycle:
 --
---   Init ----+---> Invalid
+--   Init  ---+---> Invalid
 --            |
---            |       /----------------\
---            |       |                |
---            |       v                |
---            +---> Valid ----+---> Closing
---            |               |        |
---            |               |        v 
---            \---------------+---> Closed
+--            |       /--------------\
+--            |       |              |
+--            |       v              |
+--            +---> Valid ---+---> Closing ---+---> Closed
+--            |       |              |                |
+--            |       |              |                v
+--            \-------+--------------+------------> Failed
 --
 -- Init: There are two places where we create new remote endpoints: in
 --   requestConnectionTo (in response to an API 'connect' call) and in
 --   handleConnectionRequest (when a remote node tries to connect to us).
 --   'Init' carries an MVar () 'resolved' which concurrent threads can use to
---   wait for the remote endpoint to finish initialization.
+--   wait for the remote endpoint to finish initialization. We record who
+--   requested the connection (the local endpoint or the remote endpoint).
 --
 -- Invalid: We put the remote endpoint in invalid state only during
 --   requestConnectionTo when we fail to connect.
@@ -281,8 +282,11 @@ data ValidLocalEndPointState = ValidLocalEndPointState
 --   the request.
 --
 -- Closed: The endpoint is put in Closed state after a successful garbage
---   collection, when the endpoint (or the whole transport) is closed manually,
---   or when an IO exception occurs during communication.
+--   collection.
+--
+-- Failed: If the connection to the remote endpoint is lost, or the local
+-- endpoint (or the whole transport) is closed manually, the remote endpoint is
+-- put in Failed state, and we record the reason.
 --
 -- Invariants for dealing with remote endpoints:
 --
@@ -290,7 +294,7 @@ data ValidLocalEndPointState = ValidLocalEndPointState
 --   interleaving bits of payload).
 --
 -- INV-CLOSE: Local endpoints should never point to remote endpoint in closed
---   state.  Whenever we put an endpoint in closed state we remove that
+--   state.  Whenever we put an endpoint in Closed state we remove that
 --   endpoint from localConnections first, so that if a concurrent thread reads
 --   the MVar, finds RemoteEndPointClosed, and then looks up the endpoint in
 --   localConnections it is guaranteed to either find a different remote
