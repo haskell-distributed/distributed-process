@@ -27,7 +27,7 @@ import qualified Network.Socket as N ( HostName
                                      )
 import qualified Network.Socket.ByteString as NBS (recv)
 import Control.Concurrent (ThreadId)
-import Control.Monad (forever)
+import Control.Monad (forever, when)
 import Control.Exception (SomeException, catch, bracketOnError, throwIO, mask_)
 import Control.Applicative ((<$>))
 import Data.ByteString (ByteString)
@@ -54,17 +54,18 @@ import Data.Int (Int32)
 forkServer :: N.HostName               -- ^ Host
            -> N.ServiceName            -- ^ Port 
            -> Int                      -- ^ Backlog (maximum number of queued connections)
+           -> Bool                     -- ^ Set ReuseAddr option?
            -> (SomeException -> IO ()) -- ^ Termination handler
            -> (N.Socket -> IO ())      -- ^ Request handler 
            -> IO ThreadId
-forkServer host port backlog terminationHandler requestHandler = do 
+forkServer host port backlog reuseAddr terminationHandler requestHandler = do 
     -- Resolve the specified address. By specification, getAddrInfo will never
     -- return an empty list (but will throw an exception instead) and will return
     -- the "best" address first, whatever that means
     addr:_ <- N.getAddrInfo (Just N.defaultHints) (Just host) (Just port)
     bracketOnError (N.socket (N.addrFamily addr) N.Stream N.defaultProtocol)
                    tryCloseSocket $ \sock -> do
-      N.setSocketOption sock N.ReuseAddr 1
+      when reuseAddr $ N.setSocketOption sock N.ReuseAddr 1
       N.bindSocket sock (N.addrAddress addr)
       N.listen sock backlog 
       mask_ $ forkIOWithUnmask $ \unmask ->  

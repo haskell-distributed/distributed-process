@@ -10,6 +10,7 @@ import Network.Transport.TCP ( createTransport
                              , createTransportExposeInternals
                              , TransportInternals(..)
                              , encodeEndPointAddress
+                             , defaultTCPParameters
                              )
 import Data.Int (Int32)
 import Control.Concurrent (threadDelay, killThread)
@@ -82,7 +83,7 @@ testEarlyDisconnect nextPort = do
     server :: MVar EndPointAddress -> MVar EndPointAddress -> MVar () -> IO ()
     server serverAddr clientAddr serverDone = do
       tlog "Server"
-      Right transport <- nextPort >>= createTransport "127.0.0.1" 
+      Right transport <- nextPort >>= \port -> createTransport "127.0.0.1" port defaultTCPParameters
       Right endpoint  <- newEndPoint transport
       putMVar serverAddr (address endpoint)
       theirAddr <- readMVar clientAddr
@@ -134,7 +135,7 @@ testEarlyDisconnect nextPort = do
       putMVar clientAddr ourAddress 
  
       -- Listen for incoming messages
-      forkServer "127.0.0.1" clientPort 5 throwIO $ \sock -> do
+      forkServer "127.0.0.1" clientPort 5 True throwIO $ \sock -> do
         -- Initial setup 
         0 <- recvInt32 sock :: IO Int
         _ <- recvWithLength sock 
@@ -160,7 +161,7 @@ testEarlyDisconnect nextPort = do
         N.sClose sock
  
       -- Connect to the server
-      Right (sock, ConnectionRequestAccepted) <- readMVar serverAddr >>= \addr -> socketToEndPoint ourAddress addr defaultConnectHints
+      Right (sock, ConnectionRequestAccepted) <- readMVar serverAddr >>= \addr -> socketToEndPoint ourAddress addr True Nothing
   
       -- Request a new connection, but don't wait for the response
       let reqId = 0 :: Int32
@@ -186,7 +187,7 @@ testEarlyCloseSocket nextPort = do
     server :: MVar EndPointAddress -> MVar EndPointAddress -> MVar () -> IO ()
     server serverAddr clientAddr serverDone = do
       tlog "Server"
-      Right transport <- nextPort >>= createTransport "127.0.0.1" 
+      Right transport <- nextPort >>= \port -> createTransport "127.0.0.1" port defaultTCPParameters
       Right endpoint  <- newEndPoint transport
       putMVar serverAddr (address endpoint)
       theirAddr <- readMVar clientAddr
@@ -245,7 +246,7 @@ testEarlyCloseSocket nextPort = do
       putMVar clientAddr ourAddress 
  
       -- Listen for incoming messages
-      forkServer "127.0.0.1" clientPort 5 throwIO $ \sock -> do
+      forkServer "127.0.0.1" clientPort 5 True throwIO $ \sock -> do
         -- Initial setup 
         0 <- recvInt32 sock :: IO Int
         _ <- recvWithLength sock 
@@ -273,7 +274,7 @@ testEarlyCloseSocket nextPort = do
         N.sClose sock
  
       -- Connect to the server
-      Right (sock, ConnectionRequestAccepted) <- readMVar serverAddr >>= \addr -> socketToEndPoint ourAddress addr defaultConnectHints
+      Right (sock, ConnectionRequestAccepted) <- readMVar serverAddr >>= \addr -> socketToEndPoint ourAddress addr True Nothing
   
       -- Request a new connection, but don't wait for the response
       let reqId = 0 :: Int32
@@ -287,14 +288,14 @@ testEarlyCloseSocket nextPort = do
 -- | Test the creation of a transport with an invalid address
 testInvalidAddress :: IO N.ServiceName -> IO ()
 testInvalidAddress nextPort = do
-  Left _ <- nextPort >>= createTransport "invalidHostName" 
+  Left _ <- nextPort >>= \port -> createTransport "invalidHostName" port defaultTCPParameters
   return ()
 
 -- | Test connecting to invalid or non-existing endpoints
 testInvalidConnect :: IO N.ServiceName -> IO ()
 testInvalidConnect nextPort = do
   port            <- nextPort
-  Right transport <- createTransport "127.0.0.1" port 
+  Right transport <- createTransport "127.0.0.1" port defaultTCPParameters
   Right endpoint  <- newEndPoint transport
 
   -- Syntax error in the endpoint address
@@ -322,7 +323,7 @@ testIgnoreCloseSocket :: IO N.ServiceName -> IO ()
 testIgnoreCloseSocket nextPort = do
     serverAddr <- newEmptyMVar
     clientDone <- newEmptyMVar
-    Right transport <- nextPort >>= createTransport "127.0.0.1" 
+    Right transport <- nextPort >>= \port -> createTransport "127.0.0.1" port defaultTCPParameters
   
     forkTry $ server transport serverAddr
     forkTry $ client transport serverAddr clientDone 
@@ -360,7 +361,7 @@ testIgnoreCloseSocket nextPort = do
       let ourAddress = address endpoint
 
       -- Connect to the server
-      Right (sock, ConnectionRequestAccepted) <- readMVar serverAddr >>= \addr -> socketToEndPoint ourAddress addr defaultConnectHints
+      Right (sock, ConnectionRequestAccepted) <- readMVar serverAddr >>= \addr -> socketToEndPoint ourAddress addr True Nothing
 
       -- Request a new connection
       tlog "Requesting connection"
@@ -405,7 +406,7 @@ testBlockAfterCloseSocket nextPort = do
     clientAddr <- newEmptyMVar
     clientDone <- newEmptyMVar
     port       <- nextPort 
-    Right transport <- createTransport "127.0.0.1" port
+    Right transport <- createTransport "127.0.0.1" port defaultTCPParameters
   
     forkTry $ server transport serverAddr clientAddr
     forkTry $ client transport serverAddr clientAddr clientDone 
@@ -440,7 +441,7 @@ testBlockAfterCloseSocket nextPort = do
       let ourAddress = address endpoint
 
       -- Connect to the server
-      Right (sock, ConnectionRequestAccepted) <- readMVar serverAddr >>= \addr -> socketToEndPoint ourAddress addr defaultConnectHints
+      Right (sock, ConnectionRequestAccepted) <- readMVar serverAddr >>= \addr -> socketToEndPoint ourAddress addr True Nothing 
 
       -- Request a new connection
       tlog "Requesting connection"
@@ -482,7 +483,7 @@ testUnnecessaryConnect nextPort numThreads = do
   serverAddr <- newEmptyMVar
 
   forkTry $ do
-    Right transport <- nextPort >>= createTransport "127.0.0.1"
+    Right transport <- nextPort >>= \port -> createTransport "127.0.0.1" port defaultTCPParameters
     Right endpoint <- newEndPoint transport
     putMVar serverAddr (address endpoint)
 
@@ -495,7 +496,7 @@ testUnnecessaryConnect nextPort numThreads = do
     dones <- replicateM numThreads $ do
       done <- newEmptyMVar 
       forkTry $ do
-        Right (_, reply) <- readMVar serverAddr >>= \addr -> socketToEndPoint ourAddress addr defaultConnectHints
+        Right (_, reply) <- readMVar serverAddr >>= \addr -> socketToEndPoint ourAddress addr True Nothing 
         case reply of
           ConnectionRequestAccepted ->
             putMVar gotAccepted ()
@@ -516,11 +517,11 @@ testUnnecessaryConnect nextPort numThreads = do
 -- | Test that we can create "many" transport instances
 testMany :: IO N.ServiceName -> IO ()
 testMany nextPort = do
-  Right masterTransport <- nextPort >>= createTransport "127.0.0.1" 
+  Right masterTransport <- nextPort >>= \port -> createTransport "127.0.0.1" port defaultTCPParameters
   Right masterEndPoint  <- newEndPoint masterTransport 
 
   replicateM_ 10 $ do
-    mTransport <- nextPort >>= createTransport "127.0.0.1" 
+    mTransport <- nextPort >>= \port -> createTransport "127.0.0.1" port defaultTCPParameters
     case mTransport of
       Left ex -> do
         putStrLn $ "IOException: " ++ show ex ++ "; errno = " ++ show (ioe_errno ex)
@@ -537,7 +538,7 @@ testMany nextPort = do
 -- | Test what happens when the transport breaks completely
 testBreakTransport :: IO N.ServiceName -> IO ()
 testBreakTransport nextPort = do
-  Right (transport, internals) <- nextPort >>= createTransportExposeInternals "127.0.0.1"
+  Right (transport, internals) <- nextPort >>= \port -> createTransportExposeInternals "127.0.0.1" port defaultTCPParameters
   Right endpoint <- newEndPoint transport
 
   killThread (transportThread internals) -- Uh oh
@@ -567,7 +568,7 @@ testReconnect nextPort = do
 
     counter <- newMVar (0 :: Int) 
 
-    forkServer "127.0.0.1" serverPort 5 throwIO $ \sock -> do
+    forkServer "127.0.0.1" serverPort 5 True throwIO $ \sock -> do
       -- Accept the connection 
       Right 0  <- tryIO $ (recvInt32 sock :: IO Int)
       Right _  <- tryIO $ recvWithLength sock 
@@ -596,7 +597,7 @@ testReconnect nextPort = do
 
   -- Client
   forkTry $ do
-    Right transport <- nextPort >>= createTransport "127.0.0.1" 
+    Right transport <- nextPort >>= \port -> createTransport "127.0.0.1" port defaultTCPParameters
     Right endpoint  <- newEndPoint transport
     let theirAddr = encodeEndPointAddress "127.0.0.1" serverPort 0
 
@@ -642,7 +643,7 @@ testUnidirectionalError nextPort = do
   serverGotPing <- newEmptyMVar
 
   -- Server
-  forkServer "127.0.0.1" serverPort 5 throwIO $ \sock -> do
+  forkServer "127.0.0.1" serverPort 5 True throwIO $ \sock -> do
     -- We accept connections, but when an exception occurs we don't do
     -- anything (in particular, we don't close the socket). This is important
     -- because when we shutdown one direction of the socket a recv here will
@@ -663,7 +664,7 @@ testUnidirectionalError nextPort = do
     
   -- Client
   forkTry $ do
-    Right (transport, internals) <- nextPort >>= createTransportExposeInternals "127.0.0.1"
+    Right (transport, internals) <- nextPort >>= \port -> createTransportExposeInternals "127.0.0.1" port defaultTCPParameters
     Right endpoint <- newEndPoint transport
     let theirAddr = encodeEndPointAddress "127.0.0.1" serverPort 0
 
@@ -718,7 +719,7 @@ testUnidirectionalError nextPort = do
 
 testInvalidCloseConnection :: IO N.ServiceName -> IO ()
 testInvalidCloseConnection nextPort = do
-  Right (transport, internals) <- nextPort >>= createTransportExposeInternals "127.0.0.1"
+  Right (transport, internals) <- nextPort >>= \port -> createTransportExposeInternals "127.0.0.1" port defaultTCPParameters
   serverAddr <- newEmptyMVar
   clientDone <- newEmptyMVar
   serverDone <- newEmptyMVar
@@ -773,7 +774,7 @@ main = do
            , ("InvalidCloseConnection", testInvalidCloseConnection nextPort)
            ]
   -- Run the generic tests even if the TCP specific tests failed.. 
-  testTransport (either (Left . show) (Right) <$> nextPort >>= createTransport "127.0.0.1")
+  testTransport (either (Left . show) (Right) <$> nextPort >>= \port -> createTransport "127.0.0.1" port defaultTCPParameters)
   -- ..but if the generic tests pass, still fail if the specific tests did
   case tcpResult of
     Left err -> throwIO err
