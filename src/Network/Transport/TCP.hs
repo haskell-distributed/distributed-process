@@ -72,7 +72,6 @@ import Control.Concurrent.MVar ( MVar
                                , putMVar
                                , newEmptyMVar
                                , withMVar
-                               , tryPutMVar
                                )
 import Control.Category ((>>>))
 import Control.Applicative ((<$>))
@@ -85,7 +84,6 @@ import Control.Exception ( IOException
                          , try
                          , bracketOnError
                          , mask
-                         , mask_
                          , onException
                          , fromException
                          )
@@ -247,7 +245,6 @@ data LocalEndPointState =
 data ValidLocalEndPointState = ValidLocalEndPointState 
   { _nextConnectionId :: !ConnectionId 
   , _localConnections :: Map EndPointAddress RemoteEndPoint 
-  , _internalThreads  :: [ThreadId]
   , _nextRemoteId     :: !Int
   }
 
@@ -529,7 +526,7 @@ apiConnect params ourEndPoint theirAddress _reliability hints =
     else try . asyncWhenCancelled close $ do
         resetIfBroken ourEndPoint theirAddress
         (theirEndPoint, connId) <- 
-          requestConnectionTo params ourEndPoint theirAddress hints
+          uRequestConnectionTo params ourEndPoint theirAddress hints
         -- connAlive can be an IORef rather than an MVar because it is protected
         -- by the remoteState MVar. We don't need the overhead of locking twice.
         connAlive <- newIORef True
@@ -611,9 +608,7 @@ apiCloseEndPoint transport evs ourEndPoint = do
       LocalEndPointClosed ->
         return (LocalEndPointClosed, Nothing)
   forM_ mOurState $ \vst -> do
-    -- Close all endpoints and kill all threads  
     forM_ (vst ^. localConnections) tryCloseRemoteSocket
-    forM_ (vst ^. internalThreads) killThread
     forM_ evs $ writeChan (localChannel ourEndPoint) 
   where
     -- Close the remote socket and return the set of all incoming connections
@@ -762,7 +757,6 @@ createLocalEndPoint transport = do
     state <- newMVar . LocalEndPointValid $ ValidLocalEndPointState 
       { _nextConnectionId    = firstNonReservedConnectionId 
       , _localConnections    = Map.empty
-      , _internalThreads     = []
       , _nextRemoteId        = 0
       }
     modifyMVar (transportState transport) $ \st -> case st of
@@ -784,104 +778,6 @@ createLocalEndPoint transport = do
       TransportClosed ->
         throwIO (TransportError NewEndPointFailed "Transport closed")
 
--- | Request a connection to a remote endpoint
---
--- This will block until we get a connection ID from the remote endpoint; if
--- the remote endpoint was in 'RemoteEndPointClosing' state then we will
--- additionally block until that is resolved. 
---
--- May throw a TransportError ConnectErrorCode exception.
-requestConnectionTo :: TCPParameters 
-                    -> LocalEndPoint 
-                    -> EndPointAddress 
-                    -> ConnectHints
-                    -> IO (RemoteEndPoint, ConnectionId)
-requestConnectionTo params ourEndPoint theirAddress hints = go
-  where
-    go = do
-      (theirEndPoint, isNew) <- mapIOException connectFailed $
-        findRemoteEndPoint ourEndPoint theirAddress RequestedByUs
-
-      if isNew 
-        then do
-          void . forkEndPointThread ourEndPoint . handle absorbAllExceptions $
-            setupRemoteEndPoint params (ourEndPoint, theirEndPoint) hints 
-          go
-        else do
-          reply <- mapIOException connectFailed $ 
-            doRemoteRequest (ourEndPoint, theirEndPoint) RequestConnectionId 
-          return (theirEndPoint, decodeInt32 . BS.concat $ reply)
-
-    connectFailed = TransportError ConnectFailed . show
-
-    absorbAllExceptions :: SomeException -> IO ()
-    absorbAllExceptions _ex = 
-      return ()
-
--- | Set up a remote endpoint
-setupRemoteEndPoint :: TCPParameters -> EndPointPair -> ConnectHints -> IO () 
-setupRemoteEndPoint params (ourEndPoint, theirEndPoint) hints = do
-    didAccept <- bracketOnError (socketToEndPoint 
-                                   ourAddress 
-                                   theirAddress 
-                                   (tcpReuseClientAddr params)
-                                   (connectTimeout hints))
-                                onError $ \result -> case result of
-      Right (sock, ConnectionRequestAccepted) -> do 
-        let vst = ValidRemoteEndPointState 
-                    {  remoteSocket        = sock
-                    , _remoteOutgoing      = 0 
-                    , _remoteIncoming      = IntSet.empty
-                    ,  sendOn              = sendMany sock 
-                    , _pendingCtrlRequests = IntMap.empty
-                    , _nextCtrlRequestId   = 0
-                    }
-        resolveInit (ourEndPoint, theirEndPoint) (RemoteEndPointValid vst)
-        return True
-      Right (sock, ConnectionRequestInvalid) -> do
-        let err = invalidAddress "setupRemoteEndPoint: Invalid endpoint"
-        resolveInit (ourEndPoint, theirEndPoint) (RemoteEndPointInvalid err)
-        tryCloseSocket sock
-        return False
-      Right (sock, ConnectionRequestCrossed) -> do
-        resolveInit (ourEndPoint, theirEndPoint) RemoteEndPointClosed
-        tryCloseSocket sock
-        return False
-      Left err -> do 
-        resolveInit (ourEndPoint, theirEndPoint) (RemoteEndPointInvalid err)
-        return False
-   
-    -- If we get to this point without an exception, then
-    --
-    -- if didAccept is False the socket has already been closed
-    -- if didAccept is True, the socket has been stored as part of the remote
-    --   state so we no longer need to worry about closing it when an
-    --   asynchronous exception occurs
-    when didAccept $ handleIncomingMessages (ourEndPoint, theirEndPoint) 
-  where
-    -- If an asynchronous exception occurs while we set up the remote endpoint
-    -- we need to make sure to close the socket. It is also useful to
-    -- initialize the remote state (to "invalid") so that concurrent threads
-    -- that are blocked on reading the remote state are unblocked. It is
-    -- possible, however, that the exception occurred after we already
-    -- initialized the remote state, which is why we use tryPutMVar here.
-    onError :: Either (TransportError ConnectErrorCode) 
-                      (N.Socket, ConnectionRequestResponse)
-            -> IO ()
-    onError result = 
-      case result of
-        Left err -> 
-          void $ tryPutMVar theirState (RemoteEndPointInvalid err)
-        Right (sock, _) -> do
-          let err = failed "setupRemoteEndPoint failed"
-          tryPutMVar theirState (RemoteEndPointInvalid err)
-          tryCloseSocket sock
-
-    failed          = TransportError ConnectFailed 
-    ourAddress      = localAddress ourEndPoint
-    theirAddress    = remoteAddress theirEndPoint
-    theirState      = remoteState theirEndPoint
-    invalidAddress  = TransportError ConnectNotFound
 
 -- | Resolve an endpoint currently in 'Init' state
 resolveInit :: EndPointPair -> RemoteState -> IO ()
@@ -1042,48 +938,6 @@ closeIfUnused (ourEndPoint, theirEndPoint) =
           else 
             return $ RemoteEndPointValid vst
     }
-
--- | Fork a new thread and store its ID as part of the transport state
--- 
--- If the local end point is closed this function does nothing (no thread is
--- spawned). Returns whether or not a thread was spawned.
-forkEndPointThread :: LocalEndPoint -> IO () -> IO Bool 
-forkEndPointThread ourEndPoint p = 
-    -- We use an explicit mask_ because we don't want to be interrupted until
-    -- we have registered the thread. In particular, modifyMVar is not good
-    -- enough because if we get an asynchronous exception after the fork but
-    -- before the argument to modifyMVar returns we don't want to simply put
-    -- the old value of the mvar back.
-    mask_ $ do
-      st <- takeMVar ourState
-      case st of
-        LocalEndPointValid vst -> do
-          threadRegistered <- newEmptyMVar
-          tid <- forkIO (takeMVar threadRegistered >> p >> removeThread) 
-          putMVar ourState ( LocalEndPointValid 
-                           . (internalThreads ^: (tid :))
-                           $ vst
-                           )
-          putMVar threadRegistered ()
-          return True
-        LocalEndPointClosed -> do
-          putMVar ourState st
-          return False 
-  where
-    removeThread :: IO ()
-    removeThread = do
-      tid <- myThreadId
-      modifyMVar_ ourState $ \st -> case st of
-        LocalEndPointValid vst ->
-          return ( LocalEndPointValid 
-                 . (internalThreads ^: filter (/= tid)) 
-                 $ vst
-                 )
-        LocalEndPointClosed ->
-          return LocalEndPointClosed
-
-    ourState :: MVar LocalEndPointState
-    ourState = localState ourEndPoint
 
 --------------------------------------------------------------------------------
 -- As soon as a remote connection fails, we want to put notify our endpoint   --
@@ -1248,7 +1102,7 @@ handleConnectionRequest transport sock = handle handleException $ do
             return ourEndPoint
       TransportClosed -> 
         throwIO $ userError "Transport closed"
-    void . forkEndPointThread ourEndPoint $ go ourEndPoint theirAddress
+    void . forkIO $ go ourEndPoint theirAddress
   where
     go :: LocalEndPoint -> EndPointAddress -> IO ()
     go ourEndPoint theirAddress = do 
@@ -1627,6 +1481,93 @@ getNextConnectionId ourEndpoint =
       throwIO $ userError "Local endpoint closed"
 
 --------------------------------------------------------------------------------
+-- Uninterruptable auxiliary functions                                        --
+--                                                                            --
+-- All these functions assume they are running in a thread which will never   --
+-- be killed, and are designed to be used in conjunction with                 --
+-- 'asyncWhenCancelled'. To be explicit about this assumption the function    --
+-- names are prefixed with 'u'.                                               --
+--------------------------------------------------------------------------------
+
+-- | Request a connection to a remote endpoint
+--
+-- This will block until we get a connection ID from the remote endpoint; if
+-- the remote endpoint was in 'RemoteEndPointClosing' state then we will
+-- additionally block until that is resolved. 
+--
+-- May throw a TransportError ConnectErrorCode exception.
+uRequestConnectionTo :: TCPParameters 
+                     -> LocalEndPoint 
+                     -> EndPointAddress 
+                     -> ConnectHints
+                     -> IO (RemoteEndPoint, ConnectionId)
+uRequestConnectionTo params ourEndPoint theirAddress hints = go
+  where
+    go = do
+      (theirEndPoint, isNew) <- mapIOException connectFailed $
+        findRemoteEndPoint ourEndPoint theirAddress RequestedByUs
+
+      if isNew 
+        then do
+          forkIO . handle absorbAllExceptions $ 
+            uSetupRemoteEndPoint params (ourEndPoint, theirEndPoint) hints 
+          go
+        else do
+          reply <- mapIOException connectFailed $ 
+            doRemoteRequest (ourEndPoint, theirEndPoint) RequestConnectionId 
+          return (theirEndPoint, decodeInt32 . BS.concat $ reply)
+
+    connectFailed = TransportError ConnectFailed . show
+
+    absorbAllExceptions :: SomeException -> IO ()
+    absorbAllExceptions _ex = 
+      return ()
+
+-- | Set up a remote endpoint
+uSetupRemoteEndPoint :: TCPParameters -> EndPointPair -> ConnectHints -> IO () 
+uSetupRemoteEndPoint params (ourEndPoint, theirEndPoint) hints = do
+    result <- socketToEndPoint ourAddress 
+                               theirAddress 
+                               (tcpReuseClientAddr params)
+                               (connectTimeout hints)
+    didAccept <- case result of
+      Right (sock, ConnectionRequestAccepted) -> do 
+        let vst = ValidRemoteEndPointState 
+                    {  remoteSocket        = sock
+                    , _remoteOutgoing      = 0 
+                    , _remoteIncoming      = IntSet.empty
+                    ,  sendOn              = sendMany sock 
+                    , _pendingCtrlRequests = IntMap.empty
+                    , _nextCtrlRequestId   = 0
+                    }
+        resolveInit (ourEndPoint, theirEndPoint) (RemoteEndPointValid vst)
+        return True
+      Right (sock, ConnectionRequestInvalid) -> do
+        let err = invalidAddress "setupRemoteEndPoint: Invalid endpoint"
+        resolveInit (ourEndPoint, theirEndPoint) (RemoteEndPointInvalid err)
+        tryCloseSocket sock
+        return False
+      Right (sock, ConnectionRequestCrossed) -> do
+        resolveInit (ourEndPoint, theirEndPoint) RemoteEndPointClosed
+        tryCloseSocket sock
+        return False
+      Left err -> do 
+        resolveInit (ourEndPoint, theirEndPoint) (RemoteEndPointInvalid err)
+        return False
+   
+    -- If we get to this point without an exception, then
+    --
+    -- if didAccept is False the socket has already been closed
+    -- if didAccept is True, the socket has been stored as part of the remote
+    --   state so we no longer need to worry about closing it when an
+    --   asynchronous exception occurs
+    when didAccept $ handleIncomingMessages (ourEndPoint, theirEndPoint) 
+  where
+    ourAddress      = localAddress ourEndPoint
+    theirAddress    = remoteAddress theirEndPoint
+    invalidAddress  = TransportError ConnectNotFound
+
+--------------------------------------------------------------------------------
 -- Constants                                                                  --
 --------------------------------------------------------------------------------
 
@@ -1649,9 +1590,6 @@ nextConnectionId = accessor _nextConnectionId (\cix st -> st { _nextConnectionId
 
 localConnections :: Accessor ValidLocalEndPointState (Map EndPointAddress RemoteEndPoint)
 localConnections = accessor _localConnections (\es st -> st { _localConnections = es })
-
-internalThreads :: Accessor ValidLocalEndPointState [ThreadId]
-internalThreads = accessor _internalThreads (\ts st -> st { _internalThreads = ts })
 
 nextRemoteId :: Accessor ValidLocalEndPointState Int
 nextRemoteId = accessor _nextRemoteId (\rid st -> st { _nextRemoteId = rid })
