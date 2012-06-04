@@ -775,7 +775,7 @@ main = do
            ]
   -- Run the generic tests even if the TCP specific tests failed.. 
   testTransport (either (Left . show) (Right) <$> nextPort >>= \port -> createTransport "127.0.0.1" port defaultTCPParameters)
-  -- ..but if the generic tests pass, still fail if the specific tests did
+  -- ..but if the generic tests pass, still fail if the specific tests did not
   case tcpResult of
     Left err -> throwIO err
     Right () -> return ()
