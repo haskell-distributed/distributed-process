@@ -302,7 +302,7 @@ collect endPoint maxEvents timeout = go maxEvents Map.empty Map.empty
     finish open closed = 
       if Map.null open 
         then return . Map.toList . Map.map reverse $ closed
-        else fail "Open connections"
+        else fail $ "Open connections: " ++ show (map fst . Map.toList $ open)
 
 -- | Open connection, close it, then reopen it
 -- (In the TCP transport this means the socket will be closed, then reopened)
@@ -837,8 +837,13 @@ testKill newTransport numThreads = do
   threads <- replicateM numThreads . forkIO $ do 
     randomThreadDelay 100 
     bracket (connect endpoint1 (address endpoint2) ReliableOrdered defaultConnectHints)
-            (\(Right conn) -> randomThreadDelay 100 >> close conn)
-            (\(Right conn) -> randomThreadDelay 100 >> do Right () <- send conn ["ping"] ; return ())
+            -- Note that we should not insert a randomThreadDelay into the 
+            -- exception handler itself as this means that the exception handler
+            -- could be interrupted and we might not close
+            (\(Right conn) -> close conn)
+            (\(Right conn) -> do randomThreadDelay 100 
+                                 Right () <- send conn ["ping"]
+                                 randomThreadDelay 100)
 
   numAlive <- newMVar (0 :: Int)
 
@@ -935,7 +940,7 @@ testTransport newTransport = do
     , ("CloseReopen",           testCloseReopen transport numPings)
     , ("ParallelConnects",      testParallelConnects transport numPings)
     , ("SendAfterClose",        testSendAfterClose transport 1000)
-    , ("Crossing",              testCrossing transport 1000)
+    , ("Crossing",              testCrossing transport 100)
     , ("CloseTwice",            testCloseTwice transport 100)
     , ("ConnectToSelf",         testConnectToSelf transport numPings) 
     , ("ConnectToSelfTwice",    testConnectToSelfTwice transport numPings)

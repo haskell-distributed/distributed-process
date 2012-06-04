@@ -176,7 +176,7 @@ instance MonadS IO where
 
 instance Show TracedException where
   show (TracedException ts ex) = 
-    show ex ++ "\nTrace:\n" ++ unlines (map (\(i, t) -> show i ++ "\t" ++ t) (zip ([0..] :: [Int]) (reverse ts)))
+    show ex ++ "\nTrace:\n" ++ unlines (map (\(i, t) -> show i ++ "\t" ++ t) (zip ([0..] :: [Int]) (take 10 . reverse $ ts)))
 
 traceHandlers :: Traceable a => a -> [Handler b]
 traceHandlers a =  case trace a of
