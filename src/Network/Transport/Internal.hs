@@ -10,6 +10,7 @@ module Network.Transport.Internal ( -- * Encoders/decoders
                                   , tryIO
                                   , tryToEnum
                                   , timeoutMaybe
+                                  , asyncWhenCancelled
                                   -- * Replicated functionality from "base"
                                   , void
                                   , forkIOWithUnmask
@@ -28,13 +29,17 @@ import qualified Data.ByteString.Internal as BSI ( unsafeCreate
                                                  , inlinePerformIO)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Exception ( IOException
+                         , SomeException
+                         , AsyncException
                          , Exception
                          , catch
                          , try
                          , throw
                          , throwIO
+                         , mask_
                          )
 import Control.Concurrent (ThreadId, forkIO)
+import Control.Concurrent.MVar (MVar, newEmptyMVar, takeMVar, putMVar)
 import GHC.IO (unsafeUnmask)
 import System.Timeout (timeout)
 --import Control.Concurrent (myThreadId)
@@ -124,3 +129,22 @@ timeoutMaybe (Just n) e f = do
   case ma of
     Nothing -> throwIO e
     Just a  -> return a
+
+-- | @asyncWhenCancelled g f@ runs f in a separate thread and waits for it
+-- to complete. If f throws an exception we catch it and rethrow it in the 
+-- current thread. If the current thread is interrupted before f completes,
+-- we run the specified clean up handler (if f throws an exception we assume
+-- that no cleanup is necessary).
+asyncWhenCancelled :: forall a. (a -> IO ()) -> IO a -> IO a
+asyncWhenCancelled g f = mask_ $ do
+    mvar <- newEmptyMVar
+    forkIO $ try f >>= putMVar mvar 
+    -- takeMVar is interruptible (even inside a mask_)
+    catch (takeMVar mvar) (exceptionHandler mvar) >>= either throwIO return
+  where
+    exceptionHandler :: MVar (Either SomeException a) 
+                     -> AsyncException 
+                     -> IO (Either SomeException a)
+    exceptionHandler mvar ex = do
+      forkIO $ takeMVar mvar >>= either (const $ return ()) g
+      throwIO ex

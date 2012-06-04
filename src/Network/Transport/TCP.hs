@@ -43,6 +43,7 @@ import Network.Transport.Internal ( encodeInt32
                                   , tryToEnum
                                   , void
                                   , timeoutMaybe
+                                  , asyncWhenCancelled
                                   )
 import qualified Network.Socket as N ( HostName
                                      , ServiceName
@@ -525,36 +526,37 @@ apiConnect :: TCPParameters    -- ^ Parameters
 apiConnect params ourEndPoint theirAddress _reliability hints =
   if localAddress ourEndPoint == theirAddress 
     then connectToSelf ourEndPoint  
-    else try $ do
-      resetIfBroken ourEndPoint theirAddress
-      (theirEndPoint, connId) <- 
-        requestConnectionTo params ourEndPoint theirAddress hints
-      -- connAlive can be an IORef rather than an MVar because it is protected
-      -- by the remoteState MVar. We don't need the overhead of locking twice.
-      connAlive <- newIORef True
-      return Connection 
-        { send  = apiSend  (ourEndPoint, theirEndPoint) connId connAlive 
-        , close = apiClose (ourEndPoint, theirEndPoint) connId connAlive 
-        }
+    else try . asyncWhenCancelled close $ do
+        resetIfBroken ourEndPoint theirAddress
+        (theirEndPoint, connId) <- 
+          requestConnectionTo params ourEndPoint theirAddress hints
+        -- connAlive can be an IORef rather than an MVar because it is protected
+        -- by the remoteState MVar. We don't need the overhead of locking twice.
+        connAlive <- newIORef True
+        return Connection 
+          { send  = apiSend  (ourEndPoint, theirEndPoint) connId connAlive 
+          , close = apiClose (ourEndPoint, theirEndPoint) connId connAlive 
+          }
 
 -- | Close a connection
 apiClose :: EndPointPair -> ConnectionId -> IORef Bool -> IO ()
-apiClose (ourEndPoint, theirEndPoint) connId connAlive = void . tryIO $ do 
-  modifyRemoteState_ (ourEndPoint, theirEndPoint) remoteStateIdentity  
-    { caseValid = \vst -> do
-        alive <- readIORef connAlive
-        if alive 
-          then do
-            writeIORef connAlive False
-            sendOn vst [encodeInt32 CloseConnection, encodeInt32 connId] 
-            return ( RemoteEndPointValid 
-                   . (remoteOutgoing ^: (\x -> x - 1)) 
-                   $ vst
-                   )
-          else
-            return (RemoteEndPointValid vst)
-    }
-  closeIfUnused (ourEndPoint, theirEndPoint)
+apiClose (ourEndPoint, theirEndPoint) connId connAlive = 
+  void . tryIO . asyncWhenCancelled return $ do 
+    modifyRemoteState_ (ourEndPoint, theirEndPoint) remoteStateIdentity  
+      { caseValid = \vst -> do
+          alive <- readIORef connAlive
+          if alive 
+            then do
+              writeIORef connAlive False
+              sendOn vst [encodeInt32 CloseConnection, encodeInt32 connId] 
+              return ( RemoteEndPointValid 
+                     . (remoteOutgoing ^: (\x -> x - 1)) 
+                     $ vst
+                     )
+            else
+              return (RemoteEndPointValid vst)
+      }
+    closeIfUnused (ourEndPoint, theirEndPoint)
 
 -- | Send data across a connection
 apiSend :: EndPointPair  -- ^ Local and remote endpoint 

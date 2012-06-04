@@ -4,12 +4,13 @@ module TestTransport where
 import Prelude hiding (catch, (>>=), (>>), return, fail)
 import TestAuxiliary (forkTry, runTests, trySome, randomThreadDelay)
 import Control.Concurrent (forkIO, killThread, yield)
-import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar, readMVar, tryTakeMVar)
-import Control.Exception (evaluate, throw, throwIO)
-import Control.Monad (replicateM, replicateM_, when, guard, forM, forM_, unless)
+import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar, readMVar, tryTakeMVar, modifyMVar_, newMVar)
+import Control.Exception (evaluate, throw, throwIO, bracket)
+import Control.Monad (replicateM, replicateM_, when, guard, forM_, unless)
 import Control.Monad.Error ()
+import Control.Applicative ((<$>))
 import Network.Transport 
-import Network.Transport.Internal (tlog)
+import Network.Transport.Internal (tlog, tryIO, timeoutMaybe)
 import Network.Transport.Util (spawn)
 import System.Random (randomIO)
 import Data.ByteString (ByteString)
@@ -271,30 +272,37 @@ testCloseOneDirection transport numPings = do
 
   mapM_ takeMVar [doneA, doneB]
 
--- | Collect a given number of events and order them by connection ID
-collect :: EndPoint -> Int -> IO [(ConnectionId, [[ByteString]])]
-collect endPoint numEvents = go numEvents Map.empty Map.empty
+-- | Collect events and order them by connection ID
+collect :: EndPoint -> Maybe Int -> Maybe Int -> IO [(ConnectionId, [[ByteString]])]
+collect endPoint maxEvents timeout = go maxEvents Map.empty Map.empty
   where
     -- TODO: for more serious use of this function we'd need to make these arguments strict
-    go 0 open closed = if Map.null open 
-                         then return . Map.toList . Map.map reverse $ closed
-                         else fail "Open connections"
+    go (Just 0) open closed = finish open closed 
     go n open closed = do
-      event <- receive endPoint 
-      case event of
-        ConnectionOpened cid _ _ ->
-          go (n - 1) (Map.insert cid [] open) closed
-        ConnectionClosed cid ->
-          let list = Map.findWithDefault (error "Invalid ConnectionClosed") cid open in
-          go (n - 1) (Map.delete cid open) (Map.insert cid list closed)
-        Received cid msg ->
-          go (n - 1) (Map.adjust (msg :) cid open) closed
-        ReceivedMulticast _ _ ->
-          fail "Unexpected multicast"
-        ErrorEvent _ ->
-          fail "Unexpected error"
-        EndPointClosed ->
-          fail "Unexpected endpoint closure"
+      mEvent <- tryIO . timeoutMaybe timeout (userError "timeout") $ receive endPoint 
+      case mEvent of 
+        Left _ -> finish open closed
+        Right event -> do
+          let n' = (\x -> x - 1) <$> n
+          case event of
+            ConnectionOpened cid _ _ ->
+              go n' (Map.insert cid [] open) closed
+            ConnectionClosed cid ->
+              let list = Map.findWithDefault (error "Invalid ConnectionClosed") cid open in
+              go n' (Map.delete cid open) (Map.insert cid list closed)
+            Received cid msg ->
+              go n' (Map.adjust (msg :) cid open) closed
+            ReceivedMulticast _ _ ->
+              fail "Unexpected multicast"
+            ErrorEvent _ ->
+              fail "Unexpected error"
+            EndPointClosed ->
+              fail "Unexpected endpoint closure"
+
+    finish open closed = 
+      if Map.null open 
+        then return . Map.toList . Map.map reverse $ closed
+        else fail "Open connections"
 
 -- | Open connection, close it, then reopen it
 -- (In the TCP transport this means the socket will be closed, then reopened)
@@ -342,7 +350,7 @@ testCloseReopen transport numPings = do
     Right endpoint <- newEndPoint transport
     putMVar addrB (address endpoint)
 
-    eventss <- collect endpoint (numRepeats * (numPings + 2))
+    eventss <- collect endpoint (Just (numRepeats * (numPings + 2))) Nothing
 
     forM_ (zip [1 .. numRepeats] eventss) $ \(i, (_, events)) -> do
       forM_ (zip [1 .. numPings] events) $ \(j, event) -> do
@@ -368,7 +376,7 @@ testParallelConnects transport numPings = do
     close conn
 
   forkTry $ do
-    eventss <- collect endpoint (numPings * 4)
+    eventss <- collect endpoint (Just (numPings * 4)) Nothing
     -- Check that no pings got sent to the wrong connection
     forM_ eventss $ \(_, [[ping1], [ping2]]) -> 
       guard (ping1 == ping2)
@@ -519,7 +527,7 @@ testConnectToSelfTwice transport numPings = do
   forkTry $ do
     tlog $ "reading"
 
-    [(_, events1), (_, events2)] <- collect endpoint (2 * (numPings + 2))
+    [(_, events1), (_, events2)] <- collect endpoint (Just (2 * (numPings + 2))) Nothing
     True <- return $ events1 == replicate numPings ["pingA"]
     True <- return $ events2 == replicate numPings ["pingB"]
 
@@ -826,31 +834,34 @@ testKill newTransport numThreads = do
   Right endpoint1 <- newEndPoint transport1
   Right endpoint2 <- newEndPoint transport2
       
-  Right conn <- connect endpoint1 (address endpoint2) ReliableOrdered defaultConnectHints
-  ConnectionOpened _ _ _ <- receive endpoint2
-
   threads <- replicateM numThreads . forkIO $ do 
-    randomThreadDelay 10
-    Right () <- send conn ["ping"]
-    return ()
+    randomThreadDelay 100 
+    bracket (connect endpoint1 (address endpoint2) ReliableOrdered defaultConnectHints)
+            (\(Right conn) -> randomThreadDelay 100 >> close conn)
+            (\(Right conn) -> randomThreadDelay 100 >> do Right () <- send conn ["ping"] ; return ())
 
-  -- Kill half of those threads, and wait on the rest
-  killerDone <- newEmptyMVar
-  forkIO $ do
-    killed <- forM threads $ \tid -> do
-      shouldKill <- randomIO
-      when shouldKill $ randomThreadDelay 10 >> killThread tid 
-      return shouldKill
+  numAlive <- newMVar (0 :: Int)
 
-    -- We should receive at least the pings from the threads that we didn't
-    -- kill (we might get more, depending on when exactly the kill happens)
-    forM_ killed $ \wasKilled -> unless wasKilled $ do 
-      Received _ ["ping"] <- receive endpoint2
-      return ()
+  -- Kill half of those threads
+  forkIO . forM_ threads $ \tid -> do
+    shouldKill <- randomIO
+    if shouldKill
+      then randomThreadDelay 600 >> killThread tid 
+      else modifyMVar_ numAlive (return . (+ 1))
 
-    putMVar killerDone ()
+  -- Since it is impossible to predict when the kill exactly happens, we don't
+  -- know how many connects were opened and how many pings were sent. But we
+  -- should not have any open connections (if we do, collect will throw an
+  -- error) and we should have at least the number of pings equal to the number
+  -- of threads we did *not* kill 
+  eventss <- collect endpoint2 Nothing (Just 1000000)   
+  let actualPings = sum . map (length . snd) $ eventss
+  expectedPings <- takeMVar numAlive
+  unless (actualPings >= expectedPings) $ 
+    throwIO (userError "Missing pings")
+  
+--  print (actualPings, expectedPings)
 
-  takeMVar killerDone
 
 -- | Set up conditions with a high likelyhood of "crossing" (for transports
 -- that multiplex lightweight connections across heavyweight connections)
