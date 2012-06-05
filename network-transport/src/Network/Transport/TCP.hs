@@ -255,15 +255,15 @@ data ValidLocalEndPointState = ValidLocalEndPointState
 --
 --   Init  ---+---> Invalid
 --            |
---            +---------------------------------------\
---            |                                       |
---            |       /--------------\                |
---            |       |              |                |
---            |       v              |                v
---            +---> Valid ---+---> Closing ---+---> Closed
---            |       |              |                |
---            |       |              |                v
---            \-------+--------------+------------> Failed
+--            +-------------------------------\
+--            |                               |
+--            |       /----------\            |
+--            |       |          |            |
+--            |       v          |            v
+--            +---> Valid ---> Closing ---> Closed
+--            |       |          |            |
+--            |       |          |            v
+--            \-------+----------+--------> Failed
 --
 -- Init: There are two places where we create new remote endpoints: in
 --   requestConnectionTo (in response to an API 'connect' call) and in
