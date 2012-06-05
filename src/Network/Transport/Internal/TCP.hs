@@ -68,6 +68,12 @@ forkServer host port backlog reuseAddr terminationHandler requestHandler = do
       when reuseAddr $ N.setSocketOption sock N.ReuseAddr 1
       N.bindSocket sock (N.addrAddress addr)
       N.listen sock backlog 
+      -- We start listening for incoming requests in a separate thread. When
+      -- that thread is killed, we close the server socket and the termination
+      -- handler. We have to make sure that the exception handler is installed
+      -- /before/ any asynchronous exception occurs. So we mask_, then fork
+      -- (the child thread inherits the masked state from the parent), then
+      -- unmask only inside the catch.
       mask_ $ forkIOWithUnmask $ \unmask ->  
         catch (unmask (forever $ acceptRequest sock)) $ \ex -> do
           tryCloseSocket sock
