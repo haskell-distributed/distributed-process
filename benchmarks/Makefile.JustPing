@@ -8,7 +8,11 @@ INCLUDES=-i../network-transport/src -i../network-transport-pipes/src
 # PROF_EXE=+RTS -pa -RTS
 
 GCC=gcc -std=c99
-GHC=ghc -rtsopts
+GHC=ghc -rtsopts -XRankNTypes -XScopedTypeVariables -XDeriveDataTypeable
+
+NewTransport.ps: JustPingHaskell.data \
+                 JustPingTransport.data
+	gnuplot ./NewTransport.gnuplot								 
 
 Indirection.ps: JustPingWithHeader.data \
                 JustPingThroughChan.data \

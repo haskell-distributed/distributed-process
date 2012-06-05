@@ -17,9 +17,8 @@ import Data.ByteString.Char8 (pack, unpack)
 import qualified Data.ByteString as BS
 import qualified Network.Socket.ByteString as NBS
 import Data.Time (getCurrentTime, diffUTCTime, NominalDiffTime)
-import Network.Transport (newConnection, receive, connect, send, defaultHints,
-			  serialize, deserialize, SourceEnd, TargetEnd)
-import Network.Transport.TCP (mkTransport, TCPConfig (..))
+import Network.Transport
+import Network.Transport.TCP
 
 main :: IO ()
 main = do
@@ -30,66 +29,67 @@ main = do
 
   -- Start the server
   forkIO $ do
-    -- establish transport
+    -- establish transport and endpoint
     putStrLn "server: creating TCP connection"
-    transport <- mkTransport $ TCPConfig defaultHints "127.0.0.1" "8080"
+    Right transport <- createTransport "127.0.0.1" "8080" defaultTCPParameters 
+    Right endpoint  <- newEndPoint transport 
+    putMVar serverAddr (address endpoint)
 
-    -- create ping end
-    (sourceAddrPing, targetEndPing) <- newConnection transport
-    putMVar serverAddr sourceAddrPing
-   
-    -- create pong end
-    sourceAddrPong <- takeMVar clientAddr
-    sourceEndPong <- connect sourceAddrPong
+    -- Connect to the client so that we can reply 
+    theirAddr <- takeMVar clientAddr
+    Right conn <- connect endpoint theirAddr ReliableOrdered defaultConnectHints 
 
     -- reply to pings with pongs
     putStrLn "server: awaiting client connection"
-    pong targetEndPing sourceEndPong 
+    ConnectionOpened _ _ _ <- receive endpoint
+    pong endpoint conn 
 
   -- Start the client
   forkIO $ do
-    sourceAddr <- takeMVar serverAddr
     let pings = read pingsStr
 
-    -- establish transport
-    transport <- mkTransport $ TCPConfig defaultHints "127.0.0.1" "8081"
+    -- establish transport and endpoint
+    Right transport <- createTransport "127.0.0.1" "8081" defaultTCPParameters
+    Right endpoint  <- newEndPoint transport
+    putMVar clientAddr (address endpoint)
 
-    -- Create ping end
-    sourceEndPing <- connect sourceAddr
+    -- Connect to the server to send pings
+    theirAddr <- takeMVar serverAddr
+    Right conn <- connect endpoint theirAddr ReliableOrdered defaultConnectHints 
 
-    -- Create pong end
-    (sourceAddrPong, targetEndPong) <- newConnection transport
-    putMVar clientAddr sourceAddrPong
-
-    ping sourceEndPing targetEndPong pings
+    -- Send pings, waiting for a reply after every ping 
+    ConnectionOpened _ _ _ <- receive endpoint
+    ping endpoint conn pings
     putMVar clientDone ()
 
   -- Wait for the client to finish
   takeMVar clientDone
 
-pingMessage :: ByteString
-pingMessage = pack "ping123"
+pingMessage :: [ByteString]
+pingMessage = [pack "ping123"]
 
-ping :: SourceEnd -> TargetEnd -> Int -> IO () 
-ping sourceEndPing targetEndPong pings = go pings
+ping :: EndPoint -> Connection -> Int -> IO () 
+ping endpoint conn pings = go pings
   where
     go :: Int -> IO ()
     go 0 = do 
       putStrLn $ "client did " ++ show pings ++ " pings"
     go !i = do
       before <- getCurrentTime
-      send sourceEndPing [pingMessage]
-      [bs] <- receive targetEndPong
+      send conn pingMessage
+      Received _ _payload <- receive endpoint 
       after <- getCurrentTime
-      -- putStrLn $ "client received " ++ unpack bs
+      -- putStrLn $ "client received " ++ show _payload 
       let latency = (1e6 :: Double) * realToFrac (diffUTCTime after before)
       hPutStrLn stderr $ show i ++ " " ++ show latency 
       go (i - 1)
 
-pong :: TargetEnd -> SourceEnd -> IO ()
-pong targetEndPing sourceEndPong = do
-  [bs] <- receive targetEndPing 
-  -- putStrLn $ "server received " ++ unpack bs
-  when (BS.length bs > 0) $ do
-    send sourceEndPong [bs]
-    pong targetEndPing sourceEndPong 
+pong :: EndPoint -> Connection -> IO ()
+pong endpoint conn = go
+  where 
+    go = do
+      msg <- receive endpoint 
+      case msg of
+        Received _ payload -> send conn payload >> go
+        ConnectionClosed _ -> return ()
+        _ -> fail "Unexpected message"
