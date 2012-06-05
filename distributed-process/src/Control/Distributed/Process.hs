@@ -1,3 +1,37 @@
+module Control.Distributed.Process ( expect ) where
+
+import Data.ByteString.Lazy (ByteString)
+import Data.Typeable (Typeable(typeOf))
+import Data.Binary (decode)
+import Control.Monad.Reader (MonadReader(..), ReaderT, liftIO)
+import Control.Applicative ((<$>))
+import Control.Distributed.Process.Internal.CQueue ( CQueue 
+                                                   , dequeueMatching
+                                                   )
+import Control.Distributed.Process.Serializable ( Serializable
+                                                , Fingerprint
+                                                , encodeFingerprint
+                                                , fingerprint
+                                                )
+
+data Message = Message { messageFingerprint :: Fingerprint 
+                       , messageEncoding    :: ByteString
+                       }
+
+data ProcessState = ProcessState { processQueue :: CQueue Message }
+
+newtype Process a = Process (ReaderT ProcessState IO a)
+  deriving (Monad)
+
+expect :: forall a. Serializable a => Process a
+expect = Process $ do
+  queue <- processQueue <$> ask 
+  let fp = fingerprint (undefined :: a)
+  msg <- liftIO $ dequeueMatching queue ((== fp) . messageFingerprint)
+  return (decode . messageEncoding $ msg)
+
+
+{-
 {-# LANGUAGE CPP, ExplicitForAll, ScopedTypeVariables #-}
 
 module Control.Distributed.Process (
@@ -198,33 +232,5 @@ monitorProcess :: ProcessId -> ProcessId -> MonitorAction -> Process ()
 
 -}
 
--- Concurrent queue for single reader, single writer
 --
-data CQueue a = CQueue (MVar [a]) -- arrived
-                       (Chan a) -- incomming
-
-newCQueue :: IO (CQueue a)
-newCQueue = do
-  arrived   <- newMVar []
-  incomming <- newChan
-  return (CQueue arrived incomming)
-
-enqueue :: CQueue a -> a -> IO ()
-enqueue (CQueue _arrived incomming) a = writeChan incomming a
-
-dequeueMatching :: forall a. CQueue a -> (a -> Bool) -> IO a
-dequeueMatching (CQueue arrived incomming) matches = do
-    modifyMVar arrived (checkArrived [])
-  where
-    checkArrived :: [a] -> [a] -> IO ([a], a)
-    checkArrived xs' []     = checkIncomming xs'
-    checkArrived xs' (x:xs)
-                | matches x = return (reverse xs' ++ xs, x)
-                | otherwise = checkArrived (x:xs') xs
-
-    checkIncomming :: [a] -> IO ([a], a)
-    checkIncomming xs' = do
-      x <- readChan incomming
-      if matches x
-        then return (reverse xs', x)
-        else checkIncomming (x:xs')
+-}        

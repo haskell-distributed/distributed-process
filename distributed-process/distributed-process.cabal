@@ -1,9 +1,9 @@
 Name:                distributed-process
-Version:             0.0.1
+Version:             0.1.0
 Description:         Distributed processes for message based concurrency.
 License:             BSD3
 License-file:        LICENSE
-Author:              Duncan Coutts, Nicolas Wu
+Author:              Duncan Coutts, Nicolas Wu, Edsko de Vries
 Maintainer:          duncan@well-typed.com
 Homepage:            http://github.com/haskell-distributed/
 Build-Type:          Simple
@@ -14,8 +14,9 @@ Library
                      bytestring >= 0.9,
                      containers >= 0.4,
                      mtl >= 2.0,
-                     network-transport >= 0.0
+                     binary,
+                     network-transport >= 0.1
   Exposed-modules:   Control.Distributed.Process
-  Extensions:        ExplicitForAll ScopedTypeVariables
+  Extensions:        ExplicitForAll, ScopedTypeVariables, GeneralizedNewtypeDeriving, FlexibleInstances, UndecidableInstances
   ghc-options:       -Wall
   HS-Source-Dirs:    src
