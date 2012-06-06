@@ -25,6 +25,7 @@ module Network.Transport ( -- * Types
 import Data.ByteString (ByteString)
 import Control.Exception (Exception)
 import Data.Typeable (Typeable)
+import Data.Binary (Binary)
 
 --------------------------------------------------------------------------------
 -- Main API                                                                   --
@@ -109,7 +110,7 @@ data MulticastGroup = MulticastGroup {
 
 -- | EndPointAddress of an endpoint.
 newtype EndPointAddress = EndPointAddress { endPointAddressToByteString :: ByteString }
-  deriving (Eq, Ord)
+  deriving (Eq, Ord, Typeable, Binary)
 
 instance Show EndPointAddress where
   show = show . endPointAddressToByteString
