@@ -496,15 +496,20 @@ testUnnecessaryConnect nextPort numThreads = do
     dones <- replicateM numThreads $ do
       done <- newEmptyMVar 
       forkTry $ do
-        Right (_, reply) <- readMVar serverAddr >>= \addr -> socketToEndPoint ourAddress addr True Nothing 
-        case reply of
-          ConnectionRequestAccepted ->
+        -- It is possible that the remote endpoint just rejects the request by closing the socket
+        -- immediately (depending on far the remote endpoint got with the initialization)
+        response <- readMVar serverAddr >>= \addr -> socketToEndPoint ourAddress addr True Nothing 
+        case response of
+          Right (_, ConnectionRequestAccepted) -> 
+            -- We don't close this socket because we want to keep this connection open
             putMVar gotAccepted ()
           -- We might get either Invalid or Crossed (the transport does not 
           -- maintain enough history to be able to tell)
-          ConnectionRequestInvalid ->
-            return ()
-          ConnectionRequestCrossed ->
+          Right (sock, ConnectionRequestInvalid) ->
+            N.sClose sock
+          Right (sock, ConnectionRequestCrossed) ->
+            N.sClose sock
+          Left _ ->
             return ()
         putMVar done ()
       return done
