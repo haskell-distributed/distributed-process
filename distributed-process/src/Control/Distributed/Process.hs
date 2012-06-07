@@ -50,12 +50,18 @@
 -- [4] "Delivery of Messages", post on erlang-questions
 --       http://erlang.org/pipermail/erlang-questions/2012-February/064767.html
 module Control.Distributed.Process 
-  ( -- * Cloud Haskell API
+  ( -- * Basic cloud Haskell API
     ProcessId
   , Process
   , expect
   , send 
   , getSelfPid
+  , monitorProcess
+  , linkProcess
+    -- * Monitoring
+  , MonitorAction(..)
+  , ProcessMonitorException(..)
+  , SignalReason(..) 
     -- * Initialization
   , newLocalNode
   , forkProcess
@@ -68,18 +74,18 @@ import qualified Data.ByteString.Lazy as BSL ( ByteString
                                              , fromChunks
                                              , splitAt
                                              )
-import Data.Binary (Binary, decode, encode, put, get)
+import Data.Binary (Binary, decode, encode, put, get, getWord8, putWord8)
 import Data.Map (Map)
 import qualified Data.Map as Map (empty, lookup, insert, delete)
 import qualified Data.List as List (delete)
 import Data.Int (Int32)
 import Data.Typeable (Typeable)
-import Control.Monad (void, liftM2)
+import Control.Monad (void, liftM, liftM2)
 import Control.Monad.Reader (MonadReader(..), ReaderT, runReaderT)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Applicative ((<$>))
 import Control.Category ((>>>))
-import Control.Exception (throwIO)
+import Control.Exception (Exception, throwIO)
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar ( MVar
                                , newMVar
@@ -168,7 +174,7 @@ newtype Process a = Process { unProcess :: ReaderT ProcessState IO a }
   deriving (Functor, Monad, MonadIO, MonadReader ProcessState)
 
 --------------------------------------------------------------------------------
--- Cloud Haskell API                                                          --
+-- Basic Cloud Haskell API                                                    --
 --------------------------------------------------------------------------------
 
 expect :: forall a. Serializable a => Process a
@@ -191,6 +197,100 @@ send pid msg = do
 
 getSelfPid :: Process ProcessId
 getSelfPid = processId <$> ask 
+
+monitorProcess :: ProcessId -> ProcessId -> MonitorAction -> Process ()
+monitorProcess = undefined
+
+linkProcess :: ProcessId -> Process ()
+linkProcess = undefined
+
+--------------------------------------------------------------------------------
+-- Monitoring                                                                 --
+--                                                                            --
+-- TODO: Many of these definitions are not available in the paper, and are    --
+-- taken from 'remote'. Do we want to stick to them precisely?                --
+--------------------------------------------------------------------------------
+
+-- | The different kinds of monitoring available between processes.
+data MonitorAction = 
+    -- ^ MaMonitor means that the monitor process will be sent a
+    -- ProcessMonitorException message when the monitee terminates for any
+    -- reason.
+    MaMonitor 
+    -- ^ MaLink means that the monitor process will receive an asynchronous
+    -- exception of type ProcessMonitorException when the monitee terminates
+    -- for any reason
+  | MaLink 
+    -- ^ MaLinkError means that the monitor process will receive an
+    -- asynchronous exception of type ProcessMonitorException when the monitee
+    -- terminates abnormally
+  | MaLinkError 
+  deriving (Typeable, Show, Ord, Eq)
+
+-- | The main form of notification to a monitoring process that a monitored
+-- process has terminated.  This data structure can be delivered to the monitor
+-- either as a message (if the monitor is of type 'MaMonitor') or as an
+-- asynchronous exception (if the monitor is of type 'MaLink' or
+-- 'MaLinkError').  It contains the PID of the monitored process and the reason
+-- for its nofication.
+data ProcessMonitorException = ProcessMonitorException ProcessId SignalReason 
+  deriving (Typeable)
+
+-- | Part of the notification system of process monitoring, indicating why the
+-- monitor is being notified.
+data SignalReason = 
+    -- ^ the monitee terminated normally
+    SrNormal  
+    -- ^ the monitee terminated with an uncaught exception, which is given as a
+    -- string
+  | SrException String 
+    -- ^ the monitee is believed to have ended or be inaccessible, as the node
+    -- on which its running is not responding to pings. This may indicate a
+    -- network bisection or that the remote node has crashed.
+  | SrNoPing 
+    -- ^ SrInvalid: the monitee was not running at the time of the attempt to
+    -- establish monitoring
+  | SrInvalid 
+  deriving (Typeable,Show)
+
+instance Binary MonitorAction where
+  put MaMonitor   = putWord8 0
+  put MaLink      = putWord8 1
+  put MaLinkError = putWord8 2
+
+  get = do x <- getWord8
+           case x of
+             0 -> return MaMonitor
+             1 -> return MaLink
+             2 -> return MaLinkError
+             _ -> fail "Invalid MonitorAction"
+
+instance Binary ProcessMonitorException where
+  put (ProcessMonitorException pid sr) = put pid >> put sr
+  get = liftM2 ProcessMonitorException get get
+
+instance Binary SignalReason where
+  put SrNormal        = putWord8 0
+  put (SrException s) = putWord8 1 >> put s
+  put SrNoPing        = putWord8 2
+  put SrInvalid       = putWord8 3
+
+  get = do a <- getWord8
+           case a of
+              0 -> return SrNormal
+              1 -> liftM SrException get
+              2 -> return SrNoPing
+              3 -> return SrInvalid
+              _ -> fail "Invalid SignalReason"
+
+instance Exception ProcessMonitorException
+
+instance Show ProcessMonitorException where
+  show (ProcessMonitorException pid why) = 
+       "ProcessMonitorException: " 
+    ++ show pid 
+    ++ " has terminated because "
+    ++ show why
 
 --------------------------------------------------------------------------------
 -- Initialization                                                             --
