@@ -213,17 +213,17 @@ linkProcess = undefined
 
 -- | The different kinds of monitoring available between processes.
 data MonitorAction = 
-    -- ^ MaMonitor means that the monitor process will be sent a
+    -- MaMonitor means that the monitor process will be sent a
     -- ProcessMonitorException message when the monitee terminates for any
     -- reason.
     MaMonitor 
-    -- ^ MaLink means that the monitor process will receive an asynchronous
+    -- MaLink means that the monitor process will receive an asynchronous
     -- exception of type ProcessMonitorException when the monitee terminates
     -- for any reason
   | MaLink 
-    -- ^ MaLinkError means that the monitor process will receive an
-    -- asynchronous exception of type ProcessMonitorException when the monitee
-    -- terminates abnormally
+    -- MaLinkError means that the monitor process will receive an asynchronous
+    -- exception of type ProcessMonitorException when the monitee terminates
+    -- abnormally
   | MaLinkError 
   deriving (Typeable, Show, Ord, Eq)
 
@@ -239,17 +239,17 @@ data ProcessMonitorException = ProcessMonitorException ProcessId SignalReason
 -- | Part of the notification system of process monitoring, indicating why the
 -- monitor is being notified.
 data SignalReason = 
-    -- ^ the monitee terminated normally
+    -- the monitee terminated normally
     SrNormal  
-    -- ^ the monitee terminated with an uncaught exception, which is given as a
+    -- the monitee terminated with an uncaught exception, which is given as a
     -- string
   | SrException String 
-    -- ^ the monitee is believed to have ended or be inaccessible, as the node
-    -- on which its running is not responding to pings. This may indicate a
+    -- the monitee is believed to have ended or be inaccessible, as the node on
+    -- which its running is not responding to pings. This may indicate a
     -- network bisection or that the remote node has crashed.
   | SrNoPing 
-    -- ^ SrInvalid: the monitee was not running at the time of the attempt to
-    -- establish monitoring
+    -- the monitee was not running at the time of the attempt to establish
+    -- monitoring
   | SrInvalid 
   deriving (Typeable,Show)
 
