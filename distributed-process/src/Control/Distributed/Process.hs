@@ -193,6 +193,7 @@ handleIncomingMessages node = go [] IntMap.empty
             Just proc -> do
               let msg = payloadToMessage payload
               enqueue (processQueue proc) msg
+              go halfOpenConns openConns
             Nothing -> if cid `elem` halfOpenConns
               then do
                 let pid = NTI.decodeInt32 . BSS.concat $ payload 

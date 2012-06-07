@@ -9,7 +9,6 @@ import Control.Concurrent.MVar ( newEmptyMVar
                                , readMVar
                                )
 import Control.Monad (replicateM_)
-import Control.Monad.IO.Class (liftIO)
 import Control.Distributed.Process
 import Network.Transport.TCP (createTransport, defaultTCPParameters)
 
@@ -44,14 +43,18 @@ testPing = do
     localNode <- newLocalNode transport
     pingServer <- readMVar serverAddr
 
+    let numPings = 10000
+
     runProcess localNode $ do
       pid <- getSelfPid
-      replicateM_ 10 $ do
+      replicateM_ numPings $ do
         send pingServer (Pong pid)
-        msg@(Ping _) <- expect
-        liftIO $ print msg
+        Ping _ <- expect
+        return ()
 
+    putStrLn $ "Client did " ++ show numPings ++ " pings"
     putMVar clientDone ()
+
 
   takeMVar clientDone
 

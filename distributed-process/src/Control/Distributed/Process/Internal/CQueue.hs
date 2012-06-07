@@ -26,14 +26,14 @@ dequeueMatching (CQueue arrived incoming) matches =
     modifyMVar arrived (checkArrived [])
   where
     checkArrived :: [a] -> [a] -> IO ([a], a)
-    checkArrived xs' []     = checkIncomming xs'
+    checkArrived xs' []     = checkIncoming xs'
     checkArrived xs' (x:xs)
                 | matches x = return (reverse xs' ++ xs, x)
                 | otherwise = checkArrived (x:xs') xs
 
-    checkIncomming :: [a] -> IO ([a], a)
-    checkIncomming xs' = do
+    checkIncoming :: [a] -> IO ([a], a)
+    checkIncoming xs' = do
       x <- readChan incoming
       if matches x
         then return (reverse xs', x)
-        else checkIncomming (x:xs')
+        else checkIncoming (x:xs')
