@@ -61,9 +61,9 @@ decodeInt32 :: Num a => ByteString -> a
 decodeInt32 bs 
   | BS.length bs /= 4 = throw $ userError "decodeInt32: Invalid length" 
   | otherwise         = BSI.inlinePerformIO $ do 
-      let (fp, _, _) = BSI.toForeignPtr bs 
+      let (fp, offset, _) = BSI.toForeignPtr bs 
       withForeignPtr fp $ \p -> do
-        w32 <- peekByteOff p 0 
+        w32 <- peekByteOff p offset 
         return (fromIntegral . ntohl $ w32)
 
 -- | Serialize 16-bit to network byte order 
@@ -78,9 +78,9 @@ decodeInt16 :: Num a => ByteString -> a
 decodeInt16 bs 
   | BS.length bs /= 2 = throw $ userError "decodeInt16: Invalid length" 
   | otherwise         = BSI.inlinePerformIO $ do
-      let (fp, _, _) = BSI.toForeignPtr bs 
+      let (fp, offset, _) = BSI.toForeignPtr bs 
       withForeignPtr fp $ \p -> do
-        w16 <- peekByteOff p 0 
+        w16 <- peekByteOff p offset
         return (fromIntegral . ntohs $ w16)
 
 -- | Prepend a list of bytestrings with their total length

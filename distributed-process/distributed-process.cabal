@@ -17,6 +17,7 @@ Library
                      binary,
                      transformers,
                      data-accessor,
+                     random,
                      network-transport >= 0.1
   Exposed-modules:   Control.Distributed.Process
   Extensions:        ExplicitForAll, ScopedTypeVariables, GeneralizedNewtypeDeriving, FlexibleInstances, UndecidableInstances, MultiParamTypeClasses, DeriveDataTypeable
@@ -33,6 +34,7 @@ Test-Suite TestCH
                      binary,
                      transformers,
                      data-accessor,
+                     random,
                      network-transport >= 0.1
   Extensions:        ExplicitForAll, ScopedTypeVariables, GeneralizedNewtypeDeriving, FlexibleInstances, UndecidableInstances, MultiParamTypeClasses, DeriveDataTypeable
   ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind 
