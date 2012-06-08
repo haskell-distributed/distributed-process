@@ -49,6 +49,20 @@
 --       http://www.erlang.org/faq/academic.html
 -- [4] "Delivery of Messages", post on erlang-questions
 --       http://erlang.org/pipermail/erlang-questions/2012-February/064767.html
+--
+-- TODOs:
+--
+-- 1. Central MonitorAction mapping, so that we can efficiently execute monitor
+--    actions from Network.Transport.receive-ing thread. 
+-- 2. Access this mapping from send too, because we cannot rely on
+--    EventConnectionLost (although it so happens that with the TCP transport
+--    we can). 
+-- 3. Modify EvenConnectionLost to have Maybe EndPointAddress
+-- 4. Change in API? (you can register multiple monitors, they get MonitorIds.
+--    to unregister, to provide the monitor ID -- if we do, unregistering the
+--    same ID multiple times is idempotent)
+-- 5. You get precisely one notification per monitor
+-- 6. When a connection is already broken, monitor notifies immediately
 module Control.Distributed.Process 
   ( -- * Basic cloud Haskell API
     ProcessId
@@ -490,14 +504,8 @@ sendBinary them conn payload = do
   result <- liftIO $ NT.send conn payload 
   case result of
     Right () -> return ()
-    Left _ -> 
-      {-
-      -- TODO: put into unreachable state rather than Nothing
-      -- ourState <- processState <$> ask
-      liftIO $ modifyMVar_ ourState $ 
-        return . (connectionTo them ^= Nothing)
-      -}
-      remoteProcessFailed them
+    Left _ -> remoteProcessFailed them
+
 
 sendMessage :: ProcessId -> NT.Connection -> Message -> Process ()
 sendMessage them conn (Message fp enc) = 
