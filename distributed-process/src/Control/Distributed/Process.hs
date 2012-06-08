@@ -67,8 +67,12 @@ module Control.Distributed.Process
   , newLocalNode
   , forkProcess
   , runProcess
+    -- * Auxiliary API
+  , closeLocalNode
+  , pcatch
   ) where
 
+import Prelude hiding (catch)
 import qualified Data.ByteString as BSS (ByteString, concat, splitAt)
 import qualified Data.ByteString.Lazy as BSL ( ByteString
                                              , toChunks
@@ -81,12 +85,13 @@ import qualified Data.Map as Map (empty, lookup, insert, delete)
 import qualified Data.List as List (delete)
 import Data.Int (Int32)
 import Data.Typeable (Typeable)
+import Data.Foldable (forM_)
 import Control.Monad (void, liftM, liftM2)
 import Control.Monad.Reader (MonadReader(..), ReaderT, runReaderT)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Applicative ((<$>))
 import Control.Category ((>>>))
-import Control.Exception (Exception, throwIO)
+import Control.Exception (Exception, throwIO, catch)
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar ( MVar
                                , newMVar
@@ -122,6 +127,7 @@ import qualified Network.Transport as NT ( Transport
                                          , receive
                                          , Event(..)
                                          , address
+                                         , closeEndPoint
                                          )
 import qualified Network.Transport.Internal as NTI (encodeInt32, decodeInt32)
 import Data.Accessor (Accessor, accessor, (^.), (^=), (^:))
@@ -158,8 +164,7 @@ data LocalNode = LocalNode
 
 -- | Local node state
 data LocalNodeState = LocalNodeState 
-  { _localConnections :: Map ProcessId NT.Connection
-  , _localProcesses   :: Map LocalProcessId LocalProcess
+  { _localProcesses   :: Map LocalProcessId LocalProcess
   , _localPidCounter  :: Int32
   , _localPidUnique   :: Int32
   }
@@ -169,6 +174,13 @@ data LocalProcess = LocalProcess
   { processQueue :: CQueue Message 
   , processNode  :: LocalNode   
   , processId    :: ProcessId
+  , processState :: MVar LocalProcessState
+  }
+
+-- | Local process state
+data LocalProcessState = LocalProcessState
+  { _monitorActions :: Map ProcessId MonitorAction
+  , _connections    :: Map ProcessId NT.Connection
   }
 
 -- The Cloud Haskell 'Process' type
@@ -189,31 +201,55 @@ expect = do
 
 -- | Send a message
 send :: Serializable a => ProcessId -> a -> Process ()
-send pid msg = do
+send them msg = do
   -- This requires a lookup on every send. If we want to avoid that we need to
   -- modify serializable to allow for stateful (IO) deserialization
-  node <- processNode <$> ask
-  liftIO $ do
-    conn <- connectionTo node pid
-    sendBinary node pid conn ( encodeFingerprint (fingerprint msg)
-                             : BSL.toChunks (encode msg)
-                             )
+  mConn <- getConnectionTo them 
+  forM_ mConn $ \conn -> sendMessage them conn (createMessage msg)
 
 -- | Our own process ID
 getSelfPid :: Process ProcessId
 getSelfPid = processId <$> ask 
 
 -- | Variation on 'monitorProcess' where the monitor is the current process
+--
+-- TODO: we need to decide what to do with multiple calls to monitor with 
+-- the same argument. The Erlang manual is very specific: it creates multiple
+-- monitors (http://www.erlang.org/doc/reference_manual/processes.html#id82613)
 monitor :: ProcessId -> MonitorAction -> Process ()
-monitor _them = undefined 
+monitor them action = do
+  ourState <- processState <$> ask
+  liftIO $ modifyMVar_ ourState $ \st ->
+    return . (monitorActionFor them ^= Just action) $ st
 
 -- | Have one process monitor another
+-- 
+-- TODO: this is a weird function to expose at the API level ('monitor' is more
+-- natural and more Erlang-like)
 monitorProcess :: ProcessId -> ProcessId -> MonitorAction -> Process ()
 monitorProcess = undefined
 
 -- | Link failure in two processes
 linkProcess :: ProcessId -> Process ()
 linkProcess = undefined
+
+--------------------------------------------------------------------------------
+-- Auxiliary API                                                              --
+--------------------------------------------------------------------------------
+
+-- Force-close a local node
+--
+-- TODO: for now we just close the associated endpoint
+closeLocalNode :: LocalNode -> IO ()
+closeLocalNode node = 
+  NT.closeEndPoint (localEndPoint node)
+
+-- Catch exceptions within a process
+-- TODO: should this be called simply 'catch'?
+pcatch :: Exception e => Process a -> (e -> Process a) -> Process a
+pcatch p h = do
+  run <- runLocalProcess <$> ask
+  liftIO $ catch (run p) (run . h) 
 
 --------------------------------------------------------------------------------
 -- Monitoring                                                                 --
@@ -315,8 +351,7 @@ newLocalNode transport = do
     Right endPoint -> do
       unq <- randomIO
       state <- newMVar LocalNodeState 
-        { _localConnections = Map.empty
-        , _localProcesses   = Map.empty
+        { _localProcesses   = Map.empty
         , _localPidCounter  = 0 
         , _localPidUnique   = unq 
         }
@@ -335,25 +370,29 @@ runProcess node proc = do
 forkProcess :: LocalNode -> Process () -> IO ProcessId
 forkProcess node proc = do
   queue <- newCQueue
-  state <- modifyMVar (localState node) $ \st -> do
+  lproc <- modifyMVar (localState node) $ \st -> do
     let lpid  = LocalProcessId { lpidCounter = st ^. localPidCounter
                                , lpidUnique  = st ^. localPidUnique
                                }
     let pid   = ProcessId { processAddress = NT.address (localEndPoint node)
                           , processLocalId = lpid
                           }
-    let state = LocalProcess { processQueue = queue
+    pst <- newMVar LocalProcessState { _connections    = Map.empty
+                                     , _monitorActions = Map.empty
+                                     }
+    let lproc = LocalProcess { processQueue = queue
                              , processNode  = node
                              , processId    = pid
+                             , processState = pst 
                              }
     -- TODO: if the counter overflows we should pick a new unique                           
-    return ( (localProcessWithId lpid ^= Just state)
+    return ( (localProcessWithId lpid ^= Just lproc)
            . (localPidCounter ^: (+ 1))
            $ st
-           , state 
+           , lproc 
            )
-  void . forkIO $ runReaderT (unProcess proc) state 
-  return (processId state)
+  void . forkIO $ runLocalProcess lproc proc
+  return (processId lproc)
    
 handleIncomingMessages :: LocalNode -> IO ()
 handleIncomingMessages node = go [] Map.empty
@@ -397,27 +436,27 @@ handleIncomingMessages node = go [] Map.empty
 -- Auxiliary functions                                                        --
 --------------------------------------------------------------------------------
 
-connectionTo :: LocalNode -> ProcessId -> IO NT.Connection
-connectionTo node pid = do
-  mConn <- withMVar (localState node) $ return . (^. localConnectionTo pid)
+getConnectionTo :: ProcessId -> Process (Maybe NT.Connection)
+getConnectionTo pid = do
+  ourState <- processState <$> ask
+  mConn <- liftIO $ withMVar ourState $ return . (^. connectionTo pid)
   case mConn of
-    Just conn -> return conn
-    Nothing   -> createConnectionTo node pid
+    Just conn -> return . Just $ conn
+    Nothing   -> createConnectionTo pid
 
-createConnectionTo :: LocalNode -> ProcessId -> IO NT.Connection
-createConnectionTo node pid = do 
-  mConn <- NT.connect (localEndPoint node) 
-                      (processAddress pid)  
-                      NT.ReliableOrdered
-                      NT.defaultConnectHints
+createConnectionTo :: ProcessId -> Process (Maybe NT.Connection)
+createConnectionTo pid = do 
+  proc <- ask
+  mConn <- liftIO $ NT.connect (localEndPoint . processNode $ proc) 
+                               (processAddress pid)  
+                               NT.ReliableOrdered
+                               NT.defaultConnectHints
   case mConn of
     Right conn -> do
-      mConn' <- modifyMVar (localState node) $ \st ->
-        case st ^. localConnectionTo pid of
+      mConn' <- liftIO $ modifyMVar (processState proc) $ \st ->
+        case st ^. connectionTo pid of
           Just conn' -> return (st, Just conn')
-          Nothing    -> return ( localConnectionTo pid ^= Just conn $ st
-                               , Nothing
-                               )
+          Nothing    -> return (connectionTo pid ^= Just conn $ st, Nothing)
       case mConn' of
         Just conn' -> do
           -- Somebody else already created a connection while we weren't looking
@@ -425,27 +464,30 @@ createConnectionTo node pid = do
           -- connection because that would limit concurrency too much, and
           -- since Network.Transport supports lgihtweight connections creating
           -- an unnecessary connection now and then is cheap anyway)
-          NT.close conn
-          return conn'
+          liftIO $ NT.close conn
+          return . Just $ conn'
         Nothing -> do
-          sendBinary node pid conn $ lpidToPayload (processLocalId pid) 
-          return conn
-    Left err ->
-      throwIO err
+          sendBinary pid conn $ lpidToPayload (processLocalId pid) 
+          return . Just $ conn
+    Left _err -> do
+      -- TODO: should probably pass this error to remoteProcessFailed
+      remoteProcessFailed pid 
+      return Nothing 
 
-sendBinary :: LocalNode 
-           -> ProcessId 
-           -> NT.Connection 
-           -> [BSS.ByteString] 
-           -> IO ()
-sendBinary node pid conn msg = do
-  result <- NT.send conn msg
+sendBinary :: ProcessId -> NT.Connection -> [BSS.ByteString] -> Process () 
+sendBinary pid conn payload = do
+  result <- liftIO $ NT.send conn payload 
   case result of
     Right () -> return ()
     Left err -> do  
-      modifyMVar_ (localState node) $ 
-        return . (localConnectionTo pid ^= Nothing)
-      throwIO err
+      ourState <- processState <$> ask
+      liftIO $ modifyMVar_ ourState $ 
+        return . (connectionTo pid ^= Nothing)
+      liftIO $ throwIO err
+
+sendMessage :: ProcessId -> NT.Connection -> Message -> Process ()
+sendMessage pid conn (Message fp enc) = 
+  sendBinary pid conn $ encodeFingerprint fp : BSL.toChunks enc
 
 payloadToMessage :: [BSS.ByteString] -> Message
 payloadToMessage payload = Message fp msg
@@ -464,7 +506,31 @@ payloadToLpid bss = let (bs1, bs2) = BSS.splitAt 4 . BSS.concat $ bss
                     in LocalProcessId { lpidCounter = NTI.decodeInt32 bs1
                                       , lpidUnique  = NTI.decodeInt32 bs2
                                       }
-                        
+
+remoteProcessFailed :: ProcessId -> Process ()
+remoteProcessFailed them = do
+  proc <- ask
+  let ourState = processState proc
+  action <- liftIO $ withMVar ourState $ return . (^. monitorActionFor them)
+  let err = ProcessMonitorException them SrNoPing 
+  liftIO $ case action of
+    Just MaMonitor ->
+      -- TODO: can/should we avoid this encoding/decoding?
+      enqueue (processQueue proc) $ createMessage err 
+    Just MaLink ->
+      throwIO err 
+    Just MaLinkError ->
+      throwIO err 
+    Nothing -> 
+      return ()
+
+createMessage :: Serializable a => a -> Message
+createMessage a = Message (fingerprint a) (encode a)
+
+-- This is most definitely NOT exported
+runLocalProcess :: LocalProcess -> Process a -> IO a
+runLocalProcess lproc proc = runReaderT (unProcess proc) lproc
+
 --------------------------------------------------------------------------------
 -- Binary instances                                                           --
 --------------------------------------------------------------------------------
@@ -481,9 +547,6 @@ instance Binary ProcessId where
 -- Accessors                                                                  --
 --------------------------------------------------------------------------------
 
-localConnections :: Accessor LocalNodeState (Map ProcessId NT.Connection)
-localConnections = accessor _localConnections (\conns st -> st { _localConnections = conns })
-
 localProcesses :: Accessor LocalNodeState (Map LocalProcessId LocalProcess)
 localProcesses = accessor _localProcesses (\procs st -> st { _localProcesses = procs })
 
@@ -493,8 +556,17 @@ localPidCounter = accessor _localPidCounter (\ctr st -> st { _localPidCounter = 
 localPidUnique :: Accessor LocalNodeState Int32
 localPidUnique = accessor _localPidUnique (\unq st -> st { _localPidUnique = unq })
 
-localConnectionTo :: ProcessId -> Accessor LocalNodeState (Maybe NT.Connection)
-localConnectionTo pid = localConnections >>> DAC.mapMaybe pid
-
 localProcessWithId :: LocalProcessId -> Accessor LocalNodeState (Maybe LocalProcess)
 localProcessWithId lpid = localProcesses >>> DAC.mapMaybe lpid
+
+connections :: Accessor LocalProcessState (Map ProcessId NT.Connection)
+connections = accessor _connections (\conns st -> st { _connections = conns })
+
+monitorActions :: Accessor LocalProcessState (Map ProcessId MonitorAction)
+monitorActions = accessor _monitorActions (\ms st -> st { _monitorActions = ms})
+
+connectionTo :: ProcessId -> Accessor LocalProcessState (Maybe NT.Connection)
+connectionTo pid = connections >>> DAC.mapMaybe pid
+
+monitorActionFor :: ProcessId -> Accessor LocalProcessState (Maybe MonitorAction)
+monitorActionFor pid = monitorActions >>> DAC.mapMaybe pid
