@@ -35,6 +35,7 @@ Test-Suite TestCH
                      transformers,
                      data-accessor,
                      random,
+                     ansi-terminal,
                      network-transport >= 0.1
   Extensions:        ExplicitForAll, ScopedTypeVariables, GeneralizedNewtypeDeriving, FlexibleInstances, UndecidableInstances, MultiParamTypeClasses, DeriveDataTypeable
   ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind 

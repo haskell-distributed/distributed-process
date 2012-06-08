@@ -9,11 +9,11 @@ import Control.Concurrent.MVar ( newEmptyMVar
                                , takeMVar
                                , readMVar
                                )
-import Control.Exception (catch)                               
 import Control.Monad (replicateM_)
 import Control.Distributed.Process
 import qualified Network.Transport as NT (Transport)
 import Network.Transport.TCP (createTransport, defaultTCPParameters)
+import TestAuxiliary
 
 newtype Ping = Ping ProcessId
   deriving (Typeable, Binary, Show)
@@ -55,7 +55,6 @@ testPing transport = do
         Ping _ <- expect
         return ()
 
-    putStrLn $ "Client did " ++ show numPings ++ " pings"
     putMVar clientDone ()
 
 
@@ -113,6 +112,8 @@ testMonitor2 transport = do
 main :: IO ()
 main = do
   Right transport <- createTransport "127.0.0.1" "8080" defaultTCPParameters
-  -- testPing transport
-  testMonitor1 transport
-  testMonitor2 transport
+  runTests 
+    [ ("Ping",     testPing transport)
+    , ("Monitor1", testMonitor1 transport)
+    , ("Monitor2", testMonitor2 transport)
+    ]
