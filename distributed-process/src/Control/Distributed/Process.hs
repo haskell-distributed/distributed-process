@@ -423,7 +423,8 @@ handleIncomingMessages node = go [] Map.empty
         NT.ConnectionClosed cid -> 
           go (List.delete cid halfOpenConns) (Map.delete cid openConns)
         NT.ErrorEvent _ ->
-          fail "handleIncomingMessages: TODO 3"
+          -- fail "handleIncomingMessages: TODO 3"
+          go halfOpenConns openConns
         NT.EndPointClosed ->
           return ()
         NT.ReceivedMulticast _ _ ->
@@ -437,26 +438,26 @@ handleIncomingMessages node = go [] Map.empty
 --------------------------------------------------------------------------------
 
 getConnectionTo :: ProcessId -> Process (Maybe NT.Connection)
-getConnectionTo pid = do
+getConnectionTo them = do
   ourState <- processState <$> ask
-  mConn <- liftIO $ withMVar ourState $ return . (^. connectionTo pid)
+  mConn <- liftIO $ withMVar ourState $ return . (^. connectionTo them)
   case mConn of
     Just conn -> return . Just $ conn
-    Nothing   -> createConnectionTo pid
+    Nothing   -> createConnectionTo them
 
 createConnectionTo :: ProcessId -> Process (Maybe NT.Connection)
-createConnectionTo pid = do 
+createConnectionTo them = do 
   proc <- ask
   mConn <- liftIO $ NT.connect (localEndPoint . processNode $ proc) 
-                               (processAddress pid)  
+                               (processAddress them)  
                                NT.ReliableOrdered
                                NT.defaultConnectHints
   case mConn of
     Right conn -> do
       mConn' <- liftIO $ modifyMVar (processState proc) $ \st ->
-        case st ^. connectionTo pid of
+        case st ^. connectionTo them of
           Just conn' -> return (st, Just conn')
-          Nothing    -> return (connectionTo pid ^= Just conn $ st, Nothing)
+          Nothing    -> return (connectionTo them ^= Just conn $ st, Nothing)
       case mConn' of
         Just conn' -> do
           -- Somebody else already created a connection while we weren't looking
@@ -467,27 +468,30 @@ createConnectionTo pid = do
           liftIO $ NT.close conn
           return . Just $ conn'
         Nothing -> do
-          sendBinary pid conn $ lpidToPayload (processLocalId pid) 
+          sendBinary them conn $ lpidToPayload (processLocalId them) 
           return . Just $ conn
     Left _err -> do
       -- TODO: should probably pass this error to remoteProcessFailed
-      remoteProcessFailed pid 
+      remoteProcessFailed them 
       return Nothing 
 
 sendBinary :: ProcessId -> NT.Connection -> [BSS.ByteString] -> Process () 
-sendBinary pid conn payload = do
+sendBinary them conn payload = do
   result <- liftIO $ NT.send conn payload 
   case result of
     Right () -> return ()
-    Left err -> do  
-      ourState <- processState <$> ask
+    Left _ -> 
+      {-
+      -- TODO: put into unreachable state rather than Nothing
+      -- ourState <- processState <$> ask
       liftIO $ modifyMVar_ ourState $ 
-        return . (connectionTo pid ^= Nothing)
-      liftIO $ throwIO err
+        return . (connectionTo them ^= Nothing)
+      -}
+      remoteProcessFailed them
 
 sendMessage :: ProcessId -> NT.Connection -> Message -> Process ()
-sendMessage pid conn (Message fp enc) = 
-  sendBinary pid conn $ encodeFingerprint fp : BSL.toChunks enc
+sendMessage them conn (Message fp enc) = 
+  sendBinary them conn $ encodeFingerprint fp : BSL.toChunks enc
 
 payloadToMessage :: [BSS.ByteString] -> Message
 payloadToMessage payload = Message fp msg

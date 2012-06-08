@@ -3,7 +3,7 @@ module Main where
 import Prelude hiding (catch)
 import Data.Binary (Binary)
 import Data.Typeable (Typeable)
-import Control.Concurrent (forkIO)
+import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar ( newEmptyMVar
                                , putMVar
                                , takeMVar
@@ -11,6 +11,7 @@ import Control.Concurrent.MVar ( newEmptyMVar
                                )
 import Control.Monad (replicateM_)
 import Control.Distributed.Process
+import Control.Monad.IO.Class (liftIO)
 import qualified Network.Transport as NT (Transport)
 import Network.Transport.TCP (createTransport, defaultTCPParameters)
 import TestAuxiliary
@@ -56,7 +57,6 @@ testPing transport = do
         return ()
 
     putMVar clientDone ()
-
 
   takeMVar clientDone
 
@@ -109,11 +109,51 @@ testMonitor2 transport = do
       
   takeMVar done
 
+-- The first send succeeds, connection is set up, but then the second send
+-- fails. 
+--
+-- TODO: should we specify that we receive exactly one notification per process
+-- failure?
+testMonitor3 :: NT.Transport -> IO ()
+testMonitor3 transport = do
+  firstSend <- newEmptyMVar
+  serverAddr <- newEmptyMVar
+  serverDead <- newEmptyMVar
+  done <- newEmptyMVar
+
+  forkIO $ do
+    localNode <- newLocalNode transport
+    -- TODO: what happens when processes terminate? 
+    addr <- forkProcess localNode $ return ()
+    putMVar serverAddr addr
+    readMVar firstSend
+    closeLocalNode localNode
+    threadDelay 10000 -- Give the TCP layer a chance to actually close the socket
+    putMVar serverDead ()
+
+  forkIO $ do
+    localNode <- newLocalNode transport
+    theirAddr <- readMVar serverAddr 
+    runProcess localNode $ do 
+      monitor theirAddr MaMonitor
+      send theirAddr "Hi"
+      liftIO $ putMVar firstSend () >> readMVar serverDead
+      send theirAddr "Ho"
+      ProcessMonitorException pid SrNoPing <- expect
+      True <- return $ pid == theirAddr
+      return ()
+    putMVar done ()
+      
+  takeMVar done
+
+-- TODO: test/specify normal process termination
+
 main :: IO ()
 main = do
   Right transport <- createTransport "127.0.0.1" "8080" defaultTCPParameters
   runTests 
-    [ ("Ping",     testPing transport)
-    , ("Monitor1", testMonitor1 transport)
+    [ -- ("Ping",     testPing transport)
+      ("Monitor1", testMonitor1 transport)
     , ("Monitor2", testMonitor2 transport)
+    , ("Monitor3", testMonitor3 transport)
     ]
