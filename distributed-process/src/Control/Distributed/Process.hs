@@ -70,6 +70,7 @@ module Control.Distributed.Process
     -- * Auxiliary API
   , closeLocalNode
   , pcatch
+  , expectTimeout
   ) where
 
 import Prelude hiding (catch)
@@ -196,7 +197,8 @@ expect :: forall a. Serializable a => Process a
 expect = do
   queue <- processQueue <$> ask 
   let fp = fingerprint (undefined :: a)
-  msg <- liftIO $ dequeueMatching queue ((== fp) . messageFingerprint)
+  Just msg <- liftIO $ 
+    dequeueMatching queue Nothing ((== fp) . messageFingerprint)
   return (decode . messageEncoding $ msg)
 
 -- | Send a message
@@ -250,6 +252,14 @@ pcatch :: Exception e => Process a -> (e -> Process a) -> Process a
 pcatch p h = do
   run <- runLocalProcess <$> ask
   liftIO $ catch (run p) (run . h) 
+
+expectTimeout :: forall a. Serializable a => Int -> Process (Maybe a)
+expectTimeout timeout = do
+  queue <- processQueue <$> ask 
+  let fp = fingerprint (undefined :: a)
+  msg <- liftIO $ 
+    dequeueMatching queue (Just timeout) ((== fp) . messageFingerprint)
+  return $ fmap (decode . messageEncoding) msg
 
 --------------------------------------------------------------------------------
 -- Monitoring                                                                 --
@@ -515,7 +525,9 @@ remoteProcessFailed :: ProcessId -> Process ()
 remoteProcessFailed them = do
   proc <- ask
   let ourState = processState proc
-  action <- liftIO $ withMVar ourState $ return . (^. monitorActionFor them)
+  -- We only execute monitor actions once
+  action <- liftIO . modifyMVar ourState $ \st ->
+    return (monitorActionFor them ^= Nothing $ st, st ^. monitorActionFor them)
   let err = ProcessMonitorException them SrNoPing 
   liftIO $ case action of
     Just MaMonitor ->

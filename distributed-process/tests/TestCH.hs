@@ -141,6 +141,9 @@ testMonitor3 transport = do
       send theirAddr "Ho"
       ProcessMonitorException pid SrNoPing <- expect
       True <- return $ pid == theirAddr
+      -- We should not receive a second exception
+      send theirAddr "Hey"
+      Nothing <- expectTimeout 1000000 :: Process (Maybe ProcessMonitorException) 
       return ()
     putMVar done ()
       
