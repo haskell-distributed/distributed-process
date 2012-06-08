@@ -56,6 +56,7 @@ module Control.Distributed.Process
   , expect
   , send 
   , getSelfPid
+  , monitor
   , monitorProcess
   , linkProcess
     -- * Monitoring
@@ -127,56 +128,58 @@ import Data.Accessor (Accessor, accessor, (^.), (^=), (^:))
 import qualified Data.Accessor.Container as DAC (mapMaybe)
 import System.Random (randomIO)
 
+-- | A local process ID consists of a seed which distinguishes processes from
+-- different instances of the same local node and a counter
 data LocalProcessId = LocalProcessId 
-  { pidUnique  :: Int32
-  , pidCounter :: Int32
+  { lpidUnique  :: Int32
+  , lpidCounter :: Int32
   }
   deriving (Eq, Ord, Typeable, Show)
 
-instance Binary LocalProcessId where
-  put lpid = put (pidUnique lpid) >> put (pidCounter lpid)
-  get      = liftM2 LocalProcessId get get
-
+-- | A process ID combines a local process with with an endpoint address
+-- (in other words, we identify nodes and endpoints)
 data ProcessId = ProcessId 
   { processAddress :: NT.EndPointAddress 
   , processLocalId :: LocalProcessId 
   }
   deriving (Eq, Ord, Typeable, Show)
 
-instance Binary ProcessId where
-  put pid = put (processAddress pid) >> put (processLocalId pid)
-  get     = liftM2 ProcessId get get
-
+-- | Messages consist of their typeRep fingerprint and their encoding
 data Message = Message 
   { messageFingerprint :: Fingerprint 
   , messageEncoding    :: BSL.ByteString
   }
 
+-- | Local nodes
 data LocalNode = LocalNode 
   { localEndPoint :: NT.EndPoint 
   , localState    :: MVar LocalNodeState
   }
 
+-- | Local node state
 data LocalNodeState = LocalNodeState 
   { _localConnections :: Map ProcessId NT.Connection
-  , _localProcesses   :: Map LocalProcessId ProcessState
+  , _localProcesses   :: Map LocalProcessId LocalProcess
   , _localPidCounter  :: Int32
   , _localPidUnique   :: Int32
   }
 
-data ProcessState = ProcessState 
+-- | Processes running on our local node
+data LocalProcess = LocalProcess 
   { processQueue :: CQueue Message 
   , processNode  :: LocalNode   
   , processId    :: ProcessId
   }
 
-newtype Process a = Process { unProcess :: ReaderT ProcessState IO a }
-  deriving (Functor, Monad, MonadIO, MonadReader ProcessState)
+-- The Cloud Haskell 'Process' type
+newtype Process a = Process { unProcess :: ReaderT LocalProcess IO a }
+  deriving (Functor, Monad, MonadIO, MonadReader LocalProcess)
 
 --------------------------------------------------------------------------------
 -- Basic Cloud Haskell API                                                    --
 --------------------------------------------------------------------------------
 
+-- | Wait for a message of a specific type
 expect :: forall a. Serializable a => Process a
 expect = do
   queue <- processQueue <$> ask 
@@ -184,6 +187,7 @@ expect = do
   msg <- liftIO $ dequeueMatching queue ((== fp) . messageFingerprint)
   return (decode . messageEncoding $ msg)
 
+-- | Send a message
 send :: Serializable a => ProcessId -> a -> Process ()
 send pid msg = do
   -- This requires a lookup on every send. If we want to avoid that we need to
@@ -195,12 +199,19 @@ send pid msg = do
                              : BSL.toChunks (encode msg)
                              )
 
+-- | Our own process ID
 getSelfPid :: Process ProcessId
 getSelfPid = processId <$> ask 
 
+-- | Variation on 'monitorProcess' where the monitor is the current process
+monitor :: ProcessId -> MonitorAction -> Process ()
+monitor _them = undefined 
+
+-- | Have one process monitor another
 monitorProcess :: ProcessId -> ProcessId -> MonitorAction -> Process ()
 monitorProcess = undefined
 
+-- | Link failure in two processes
 linkProcess :: ProcessId -> Process ()
 linkProcess = undefined
 
@@ -325,13 +336,13 @@ forkProcess :: LocalNode -> Process () -> IO ProcessId
 forkProcess node proc = do
   queue <- newCQueue
   state <- modifyMVar (localState node) $ \st -> do
-    let lpid  = LocalProcessId { pidCounter = st ^. localPidCounter
-                               , pidUnique  = st ^. localPidUnique
+    let lpid  = LocalProcessId { lpidCounter = st ^. localPidCounter
+                               , lpidUnique  = st ^. localPidUnique
                                }
     let pid   = ProcessId { processAddress = NT.address (localEndPoint node)
                           , processLocalId = lpid
                           }
-    let state = ProcessState { processQueue = queue
+    let state = LocalProcess { processQueue = queue
                              , processNode  = node
                              , processId    = pid
                              }
@@ -444,16 +455,28 @@ payloadToMessage payload = Message fp msg
     fp = decodeFingerprint . BSS.concat . BSL.toChunks $ encFp
 
 lpidToPayload :: LocalProcessId -> [BSS.ByteString]
-lpidToPayload lpid = [ NTI.encodeInt32 (pidCounter lpid)
-                     , NTI.encodeInt32 (pidUnique lpid)
+lpidToPayload lpid = [ NTI.encodeInt32 (lpidCounter lpid)
+                     , NTI.encodeInt32 (lpidUnique lpid)
                      ]
 
 payloadToLpid :: [BSS.ByteString] -> LocalProcessId
 payloadToLpid bss = let (bs1, bs2) = BSS.splitAt 4 . BSS.concat $ bss
-                    in LocalProcessId { pidCounter = NTI.decodeInt32 bs1
-                                      , pidUnique  = NTI.decodeInt32 bs2
+                    in LocalProcessId { lpidCounter = NTI.decodeInt32 bs1
+                                      , lpidUnique  = NTI.decodeInt32 bs2
                                       }
                         
+--------------------------------------------------------------------------------
+-- Binary instances                                                           --
+--------------------------------------------------------------------------------
+
+instance Binary LocalProcessId where
+  put lpid = put (lpidUnique lpid) >> put (lpidCounter lpid)
+  get      = liftM2 LocalProcessId get get
+
+instance Binary ProcessId where
+  put pid = put (processAddress pid) >> put (processLocalId pid)
+  get     = liftM2 ProcessId get get
+
 --------------------------------------------------------------------------------
 -- Accessors                                                                  --
 --------------------------------------------------------------------------------
@@ -461,7 +484,7 @@ payloadToLpid bss = let (bs1, bs2) = BSS.splitAt 4 . BSS.concat $ bss
 localConnections :: Accessor LocalNodeState (Map ProcessId NT.Connection)
 localConnections = accessor _localConnections (\conns st -> st { _localConnections = conns })
 
-localProcesses :: Accessor LocalNodeState (Map LocalProcessId ProcessState)
+localProcesses :: Accessor LocalNodeState (Map LocalProcessId LocalProcess)
 localProcesses = accessor _localProcesses (\procs st -> st { _localProcesses = procs })
 
 localPidCounter :: Accessor LocalNodeState Int32
@@ -473,5 +496,5 @@ localPidUnique = accessor _localPidUnique (\unq st -> st { _localPidUnique = unq
 localConnectionTo :: ProcessId -> Accessor LocalNodeState (Maybe NT.Connection)
 localConnectionTo pid = localConnections >>> DAC.mapMaybe pid
 
-localProcessWithId :: LocalProcessId -> Accessor LocalNodeState (Maybe ProcessState)
+localProcessWithId :: LocalProcessId -> Accessor LocalNodeState (Maybe LocalProcess)
 localProcessWithId lpid = localProcesses >>> DAC.mapMaybe lpid
