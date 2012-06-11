@@ -149,6 +149,40 @@ testMonitor3 transport = do
       
   takeMVar done
 
+
+-- Like testMonitor3, except without the second send (so we must detect the
+-- failure elsewhere) 
+testMonitor4 :: NT.Transport -> IO ()
+testMonitor4 transport = do
+  firstSend <- newEmptyMVar
+  serverAddr <- newEmptyMVar
+  serverDead <- newEmptyMVar
+  done <- newEmptyMVar
+
+  forkIO $ do
+    localNode <- newLocalNode transport
+    -- TODO: what happens when processes terminate? 
+    addr <- forkProcess localNode $ return ()
+    putMVar serverAddr addr
+    readMVar firstSend
+    closeLocalNode localNode
+    threadDelay 10000 -- Give the TCP layer a chance to actually close the socket
+    putMVar serverDead ()
+
+  forkIO $ do
+    localNode <- newLocalNode transport
+    theirAddr <- readMVar serverAddr 
+    runProcess localNode $ do 
+      monitor theirAddr MaMonitor
+      send theirAddr "Hi"
+      liftIO $ putMVar firstSend () >> readMVar serverDead
+      ProcessMonitorException pid SrNoPing <- expect
+      True <- return $ pid == theirAddr
+      return ()
+    putMVar done ()
+      
+  takeMVar done
+
 -- TODO: test/specify normal process termination
 
 main :: IO ()
@@ -159,4 +193,5 @@ main = do
       ("Monitor1", testMonitor1 transport)
     , ("Monitor2", testMonitor2 transport)
     , ("Monitor3", testMonitor3 transport)
+    , ("Monitor4", testMonitor4 transport)
     ]
