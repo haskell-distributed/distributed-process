@@ -17,16 +17,18 @@
 --
 -- In order to guarantee (3), we stipulate that
 --
--- 3a. Once a connection to a remote process fails, that process is considered
---     forever unreachable. When the remote process restarts, it will receive a
---     brand new ProcessId.
+-- 3a. We do not garbage collect connections because Network.Transport provides
+--     ordering guarantees only *per connection*.
 --
--- 3b. We do not garbage collect (lightweight) connections, because we have
---     ordering guarantees from Network.Transport only per lightweight
---     connection.  We could lift this restriction later, if we wish, by adding
---     some acknowledgement control messages: we can drop one lightweight
---     connection and open another once we know that all messages sent on the
---     former have been received.
+-- 3b. Once a connection breaks, we have no way of knowing which messages
+--     arrived and which did not; hence, once a connection fails, we assume the
+--     remote process to be forever unreachable. Otherwise we might sent m1 and
+--     m2, get notified of the broken connection, reconnect, send m3, but only
+--     m1 and m3 arrive.
+--
+-- 3c. As a consequence of (3b) we should not reuse PIDs. If a process dies,
+--     we consider it forever unreachable. Hence, new processes should get new
+--     IDs or they too would be considered unreachable.
 --
 -- Main reference for Cloud Haskell is
 --
@@ -70,13 +72,10 @@ module Control.Distributed.Process
   , expect
   , send 
   , getSelfPid
+    -- * Monitoring and linking
   , monitor
-  , monitorProcess
-  , linkProcess
-    -- * Monitoring
-  , MonitorAction(..)
-  , ProcessMonitorException(..)
-  , SignalReason(..) 
+  , MonitorReply(..)
+  , DiedReason(..)
     -- * Initialization
   , newLocalNode
   , forkProcess
@@ -94,20 +93,23 @@ import qualified Data.ByteString.Lazy as BSL ( ByteString
                                              , fromChunks
                                              , splitAt
                                              )
-import Data.Binary (Binary, decode, encode, put, get, getWord8, putWord8)
+import Data.Binary (Binary, decode, encode, put, get, putWord8, getWord8)
 import Data.Map (Map)
-import qualified Data.Map as Map (empty, lookup, insert, delete, keys)
+import qualified Data.Map as Map (empty, lookup, insert, delete, keys, toList)
 import qualified Data.List as List (delete)
+import Data.Set (Set)
+import qualified Data.Set as Set (empty, insert)
 import Data.Int (Int32)
 import Data.Typeable (Typeable)
 import Data.Foldable (forM_)
-import Control.Monad (void, liftM, liftM2)
+import Data.Maybe (isNothing)
+import Control.Monad (void, liftM2, liftM3, when)
 import Control.Monad.Reader (MonadReader(..), ReaderT, runReaderT)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Applicative ((<$>))
 import Control.Category ((>>>))
-import Control.Exception (Exception, throwIO, catch, throwTo)
-import Control.Concurrent (forkIO, myThreadId)
+import Control.Exception (Exception, throwIO, catch)
+import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar ( MVar
                                , newMVar
                                , withMVar
@@ -117,6 +119,7 @@ import Control.Concurrent.MVar ( MVar
                                , putMVar
                                , takeMVar
                                )
+import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
 import Control.Distributed.Process.Internal.CQueue ( CQueue 
                                                    , dequeueMatching
                                                    , enqueue
@@ -145,6 +148,7 @@ import qualified Network.Transport as NT ( Transport
                                          , TransportError(..)
                                          , address
                                          , closeEndPoint
+                                         , ConnectionId
                                          )
 import qualified Network.Transport.Internal as NTI (encodeInt32, decodeInt32)
 import Data.Accessor (Accessor, accessor, (^.), (^=), (^:))
@@ -159,10 +163,14 @@ data LocalProcessId = LocalProcessId
   }
   deriving (Eq, Ord, Typeable, Show)
 
+-- We identify node IDs and endpoint IDs
+newtype NodeId = NodeId { nodeAddress :: NT.EndPointAddress }
+  deriving (Show, Eq, Ord, Binary)
+
 -- | A process ID combines a local process with with an endpoint address
 -- (in other words, we identify nodes and endpoints)
 data ProcessId = ProcessId 
-  { processAddress :: NT.EndPointAddress 
+  { processNodeId  :: NodeId
   , processLocalId :: LocalProcessId 
   }
   deriving (Eq, Ord, Typeable, Show)
@@ -175,16 +183,19 @@ data Message = Message
 
 -- | Local nodes
 data LocalNode = LocalNode 
-  { localEndPoint   :: NT.EndPoint 
-  , localState      :: MVar LocalNodeState
+  { localNodeId   :: NodeId
+  , localEndPoint :: NT.EndPoint 
+  , localState    :: MVar LocalNodeState
+  , localCtrlChan :: Chan NodeCtrlMsg
   }
 
 -- | Local node state
 data LocalNodeState = LocalNodeState 
-  { _localProcesses  :: Map LocalProcessId LocalProcess
-  , _localPidCounter :: Int32
-  , _localPidUnique  :: Int32
-  , _monitorActions  :: Map ProcessId [IO ()]
+  { _localProcesses      :: Map LocalProcessId LocalProcess
+  , _localPidCounter     :: Int32
+  , _localPidUnique      :: Int32
+  , _monitorActions      :: Map ProcessId [IO ()]
+  , _localMonitorCounter :: Int32
   }
 
 -- | Processes running on our local node
@@ -229,40 +240,16 @@ send them msg = do
 getSelfPid :: Process ProcessId
 getSelfPid = processId <$> ask 
 
--- | Variation on 'monitorProcess' where the monitor is the current process
---
--- TODO: we need to decide what to do with multiple calls to monitor with 
--- the same argument. The Erlang manual is very specific: it creates multiple
--- monitors (http://www.erlang.org/doc/reference_manual/processes.html#id82613)
-monitor :: ProcessId -> MonitorAction -> Process ()
-monitor them action = do
-  proc <- ask
-  liftIO $ do
-    tid <- myThreadId
-    let err = ProcessMonitorException them SrNoPing
-        act = case action of
-                MaMonitor   -> enqueue (processQueue proc) $ createMessage err
-                MaLink      -> throwTo tid err
-                MaLinkError -> fail "monitor: MaLinkError not implemented"
-    modifyMVar_ (localState . processNode $ proc) $
-      return . (monitorActionsFor them ^: (act :)) 
-
-{-
-  ourState <- processState <$> ask
-  liftIO $ modifyMVar_ ourState $ \st ->
-    return . (monitorActionFor them ^= Just action) $ st
--}
-
--- | Have one process monitor another
--- 
--- TODO: this is a weird function to expose at the API level ('monitor' is more
--- natural and more Erlang-like)
-monitorProcess :: ProcessId -> ProcessId -> MonitorAction -> Process ()
-monitorProcess = undefined
-
--- | Link failure in two processes
-linkProcess :: ProcessId -> Process ()
-linkProcess = undefined
+monitor :: ProcessId -> Process MonitorRef 
+monitor them = do
+  us          <- getSelfPid
+  monitorRef  <- getMonitorRef
+  ourCtrlChan <- localCtrlChan . processNode <$> ask
+  liftIO . writeChan ourCtrlChan $ NodeCtrlMsg 
+    { ctrlMsgSender = Left us
+    , ctrlMsgSignal = Monitor them monitorRef
+    }
+  return monitorRef
 
 --------------------------------------------------------------------------------
 -- Auxiliary API                                                              --
@@ -290,93 +277,166 @@ expectTimeout timeout = do
     dequeueMatching queue (Just timeout) ((== fp) . messageFingerprint)
   return $ fmap (decode . messageEncoding) msg
 
+
 --------------------------------------------------------------------------------
--- Monitoring                                                                 --
---                                                                            --
--- TODO: Many of these definitions are not available in the paper, and are    --
--- taken from 'remote'. Do we want to stick to them precisely?                --
+-- The node controller                                                        --
 --------------------------------------------------------------------------------
 
--- | The different kinds of monitoring available between processes.
-data MonitorAction = 
-    -- MaMonitor means that the monitor process will be sent a
-    -- ProcessMonitorException message when the monitee terminates for any
-    -- reason.
-    MaMonitor 
-    -- MaLink means that the monitor process will receive an asynchronous
-    -- exception of type ProcessMonitorException when the monitee terminates
-    -- for any reason
-  | MaLink 
-    -- MaLinkError means that the monitor process will receive an asynchronous
-    -- exception of type ProcessMonitorException when the monitee terminates
-    -- abnormally
-  | MaLinkError 
-  deriving (Typeable, Show, Ord, Eq)
+data ProcessSignal =
+    Monitor ProcessId MonitorRef
+  | Died Identifier DiedReason
 
--- | The main form of notification to a monitoring process that a monitored
--- process has terminated.  This data structure can be delivered to the monitor
--- either as a message (if the monitor is of type 'MaMonitor') or as an
--- asynchronous exception (if the monitor is of type 'MaLink' or
--- 'MaLinkError').  It contains the PID of the monitored process and the reason
--- for its nofication.
-data ProcessMonitorException = ProcessMonitorException ProcessId SignalReason 
+type MonitorRef = Int32
+
+data MonitorReply = ProcessDied MonitorRef ProcessId DiedReason
   deriving (Typeable)
 
--- | Part of the notification system of process monitoring, indicating why the
--- monitor is being notified.
-data SignalReason = 
-    -- the monitee terminated normally
-    SrNormal  
-    -- the monitee terminated with an uncaught exception, which is given as a
-    -- string
-  | SrException String 
-    -- the monitee is believed to have ended or be inaccessible, as the node on
-    -- which its running is not responding to pings. This may indicate a
-    -- network bisection or that the remote node has crashed.
-  | SrNoPing 
-    -- the monitee was not running at the time of the attempt to establish
-    -- monitoring
-  | SrInvalid 
-  deriving (Typeable,Show)
+data DiedReason = 
+    DiedNormal
+  | DiedDisconnect
+  | DiedNodeDown
 
-instance Binary MonitorAction where
-  put MaMonitor   = putWord8 0
-  put MaLink      = putWord8 1
-  put MaLinkError = putWord8 2
+type Identifier = Either ProcessId NodeId
 
-  get = do x <- getWord8
-           case x of
-             0 -> return MaMonitor
-             1 -> return MaLink
-             2 -> return MaLinkError
-             _ -> fail "Invalid MonitorAction"
+data NodeCtrlMsg = NodeCtrlMsg 
+  { ctrlMsgSender :: Identifier 
+  , ctrlMsgSignal :: ProcessSignal
+  }
 
-instance Binary ProcessMonitorException where
-  put (ProcessMonitorException pid sr) = put pid >> put sr
-  get = liftM2 ProcessMonitorException get get
+data NodeCtrlState = NodeCtrlState 
+  {  -- Mapping from remote processes to linked local processes
+    _nodeCtrlLinks :: Map NodeId (Map LocalProcessId (Set ProcessId))
+     -- Mapping from remote processes to monitoring local processes
+  , _nodeCtrlMons  :: Map NodeId (Map LocalProcessId (Map ProcessId (Set (MonitorRef))))
+     -- The node controller maintains its own set of connections
+     -- TODO: still not convinced that this is correct
+  , _nodeCtrlConns :: Map Identifier NT.Connection 
+  }
 
-instance Binary SignalReason where
-  put SrNormal        = putWord8 0
-  put (SrException s) = putWord8 1 >> put s
-  put SrNoPing        = putWord8 2
-  put SrInvalid       = putWord8 3
+destNid :: ProcessSignal -> Maybe NodeId
+destNid (Monitor pid _)      = Just $ processNodeId pid 
+destNid (Died (Right _) _)   = Nothing
+destNid (Died (Left _pid) _) = fail "destNid: TODO"
 
-  get = do a <- getWord8
-           case a of
-              0 -> return SrNormal
-              1 -> liftM SrException get
-              2 -> return SrNoPing
-              3 -> return SrInvalid
-              _ -> fail "Invalid SignalReason"
+initNodeCtrlState :: NodeCtrlState
+initNodeCtrlState = NodeCtrlState
+  { _nodeCtrlLinks = Map.empty
+  , _nodeCtrlMons  = Map.empty
+  , _nodeCtrlConns = Map.empty 
+  }
 
-instance Exception ProcessMonitorException
+nodeController :: LocalNode -> IO ()
+nodeController node = go initNodeCtrlState
+  where
+    -- [Unified: Table 7]
+    go :: NodeCtrlState -> IO ()
+    go st = do
+      msg <- readChan ourChan
+      st' <- case destNid (ctrlMsgSignal msg) of
+        Just nid' | nid' /= localNodeId node -> do
+          (st', mConn) <- connTo st (Right nid')
+          didSend <- case mConn of
+            Just conn -> do
+              didSend <- NT.send conn (BSL.toChunks . encode $ msg) 
+              case didSend of
+                Left _   -> return False
+                Right () -> return True
+            Nothing ->
+              return False
+          if didSend
+            then 
+              return st'
+            else do
+              writeChan ourChan $ NodeCtrlMsg 
+                { ctrlMsgSender = Right nid'
+                , ctrlMsgSignal = Died (Right nid') DiedDisconnect
+                }
+              return st'
+        _ ->
+          -- No need to forward
+          return st 
+      st'' <- processCtrlMsg node st' msg
+      go st''
 
-instance Show ProcessMonitorException where
-  show (ProcessMonitorException pid why) = 
-       "ProcessMonitorException: " 
-    ++ show pid 
-    ++ " has terminated because "
-    ++ show why
+    ourChan     = localCtrlChan node
+    ourEndPoint = localEndPoint node 
+
+    connTo :: NodeCtrlState 
+           -> Identifier 
+           -> IO (NodeCtrlState, Maybe NT.Connection)
+    connTo st them = do
+      case st ^. nodeCtrlConnFor them of
+        Nothing -> do
+          (addr, firstMsg) <- return $ case them of
+             Left pid  -> ( nodeAddress (processNodeId pid)
+                          , idToPayload (Just $ processLocalId pid)
+                          )
+             Right nid -> ( nodeAddress nid
+                          , idToPayload Nothing 
+                          )
+          mConn <- NT.connect ourEndPoint 
+                              addr 
+                              NT.ReliableOrdered 
+                              NT.defaultConnectHints 
+          case mConn of
+            Right conn -> do
+              didSend <- NT.send conn firstMsg
+              case didSend of
+                Left _ -> 
+                  return (st, Nothing)
+                Right () -> 
+                  return (nodeCtrlConnFor them ^= Just conn $ st, Just conn)
+            Left _ ->
+              return (st, Nothing) 
+        Just conn ->
+          return (st, Just conn)
+
+-- [Unified: ncEffect]
+processCtrlMsg :: LocalNode 
+               -> NodeCtrlState 
+               -> NodeCtrlMsg 
+               -> IO (NodeCtrlState)
+-- [Unified: Table 10]
+processCtrlMsg node st (NodeCtrlMsg from (Monitor them ref)) = do
+  shouldLink <- 
+    if processNodeId them /= localNodeId node 
+      then return True
+      else withMVar (localState node) $ 
+        return . isNothing . (^. localProcessWithId (processLocalId them))
+  if shouldLink 
+    then
+      return (nodeCtrlMonsFor them (fromLeft from) ^: Set.insert ref $ st) 
+    else 
+      fail "processCtrlMsg: TODO"
+
+-- [Unified Table 9 and Table 12] 
+processCtrlMsg node st (NodeCtrlMsg _from (Died (Right nid) reason)) = do
+  let localLinks :: Map LocalProcessId (Set ProcessId)
+      localLinks = st ^. nodeCtrlLinksForNode nid
+
+      localMons :: Map LocalProcessId (Map ProcessId (Set MonitorRef))
+      localMons  = st ^. nodeCtrlMonsForNode nid
+
+  forM_ (Map.toList localLinks) $ \(_them, _uss) -> do 
+    fail "disconnected: linking not implemented"
+
+  forM_ (Map.toList localMons) $ \(them, uss) -> do
+    forM_ (Map.toList uss) $ \(us, refs) -> do
+      -- We only need to notify local processes
+      when (processNodeId us == localNodeId node) $ do
+        let lpid = processLocalId us
+            rpid = ProcessId nid them 
+        forM_ refs $ \ref -> do
+          mProc <- withMVar (localState node) $ 
+            return . (^. localProcessWithId lpid)
+          forM_ mProc $ \proc ->
+            enqueue (processQueue proc) . createMessage $
+              ProcessDied ref rpid reason
+
+  return . (nodeCtrlLinksForNode nid ^= Map.empty)
+         . (nodeCtrlMonsForNode nid ^= Map.empty)
+         $ st
+
 
 --------------------------------------------------------------------------------
 -- Initialization                                                             --
@@ -390,14 +450,19 @@ newLocalNode transport = do
     Right endPoint -> do
       unq <- randomIO
       state <- newMVar LocalNodeState 
-        { _localProcesses  = Map.empty
-        , _localPidCounter = 0 
-        , _localPidUnique  = unq 
-        , _monitorActions  = Map.empty
+        { _localProcesses      = Map.empty
+        , _localPidCounter     = 0 
+        , _localPidUnique      = unq 
+        , _monitorActions      = Map.empty
+        , _localMonitorCounter = 0
         }
-      let node = LocalNode { localEndPoint = endPoint
+      ctrlChan <- newChan
+      let node = LocalNode { localNodeId   = NodeId $ NT.address endPoint
+                           , localEndPoint = endPoint
                            , localState    = state
+                           , localCtrlChan = ctrlChan
                            }
+      void . forkIO $ nodeController node
       void . forkIO $ handleIncomingMessages node
       return node
 
@@ -414,7 +479,7 @@ forkProcess node proc = do
     let lpid  = LocalProcessId { lpidCounter = st ^. localPidCounter
                                , lpidUnique  = st ^. localPidUnique
                                }
-    let pid   = ProcessId { processAddress = NT.address (localEndPoint node)
+    let pid   = ProcessId { processNodeId  = localNodeId node 
                           , processLocalId = lpid
                           }
     pst <- newMVar LocalProcessState { _connections = Map.empty
@@ -436,6 +501,7 @@ forkProcess node proc = do
 handleIncomingMessages :: LocalNode -> IO ()
 handleIncomingMessages node = go [] Map.empty
   where
+    go :: [NT.ConnectionId] -> Map NT.ConnectionId LocalProcess -> IO () 
     go halfOpenConns openConns = do
       event <- NT.receive endpoint
       case event of
@@ -449,7 +515,7 @@ handleIncomingMessages node = go [] Map.empty
               go halfOpenConns openConns
             Nothing -> if cid `elem` halfOpenConns
               then do
-                let lpid = payloadToLpid payload
+                let Just lpid = payloadToId payload
                 mProc <- withMVar state $ return . (^. localProcessWithId lpid) 
                 case mProc of
                   Just proc -> 
@@ -464,7 +530,8 @@ handleIncomingMessages node = go [] Map.empty
         NT.ErrorEvent (NT.TransportError (NT.EventConnectionLost theirAddr _) _) -> do 
           -- TODO: we could cache this information
           pids <- withMVar state $ \st -> 
-            return $ filter ((== theirAddr) . processAddress) . Map.keys 
+            return $ filter ((== theirAddr) . nodeAddress . processNodeId) 
+                   . Map.keys 
                    $ st ^. monitorActions
           forM_ pids $ remoteProcessFailed node 
         NT.ErrorEvent _ ->
@@ -493,7 +560,7 @@ createConnectionTo :: ProcessId -> Process (Maybe NT.Connection)
 createConnectionTo them = do 
   proc <- ask
   mConn <- liftIO $ NT.connect (localEndPoint . processNode $ proc) 
-                               (processAddress them)  
+                               (nodeAddress . processNodeId $ them)  
                                NT.ReliableOrdered
                                NT.defaultConnectHints
   case mConn of
@@ -512,7 +579,7 @@ createConnectionTo them = do
           liftIO $ NT.close conn
           return . Just $ conn'
         Nothing -> do
-          sendBinary them conn $ lpidToPayload (processLocalId them) 
+          sendBinary them conn . idToPayload . Just . processLocalId $ them 
           return . Just $ conn
     Left _err -> do
       -- TODO: should probably pass this error to remoteProcessFailed
@@ -541,16 +608,26 @@ payloadToMessage payload = Message fp msg
                  $ BSL.fromChunks payload 
     fp = decodeFingerprint . BSS.concat . BSL.toChunks $ encFp
 
-lpidToPayload :: LocalProcessId -> [BSS.ByteString]
-lpidToPayload lpid = [ NTI.encodeInt32 (lpidCounter lpid)
-                     , NTI.encodeInt32 (lpidUnique lpid)
-                     ]
+-- | The first message we send across a connection to indicate the intended
+-- recipient. Pass Nothing for the remote node controller
+idToPayload :: Maybe LocalProcessId -> [BSS.ByteString]
+idToPayload Nothing     = [ NTI.encodeInt32 (0 :: Int) ]
+idToPayload (Just lpid) = [ NTI.encodeInt32 (1 :: Int)
+                          , NTI.encodeInt32 (lpidCounter lpid)
+                          , NTI.encodeInt32 (lpidUnique lpid)
+                          ]
 
-payloadToLpid :: [BSS.ByteString] -> LocalProcessId
-payloadToLpid bss = let (bs1, bs2) = BSS.splitAt 4 . BSS.concat $ bss
-                    in LocalProcessId { lpidCounter = NTI.decodeInt32 bs1
-                                      , lpidUnique  = NTI.decodeInt32 bs2
-                                      }
+-- | Inverse of 'idToPayload'
+payloadToId :: [BSS.ByteString] -> Maybe LocalProcessId
+payloadToId bss = let (bs1, bss') = BSS.splitAt 4 . BSS.concat $ bss
+                      (bs2, bs3)  = BSS.splitAt 4 bss' in
+                  case NTI.decodeInt32 bs1 :: Int of
+                    0 -> Nothing
+                    1 -> Just $ LocalProcessId 
+                           { lpidCounter = NTI.decodeInt32 bs2
+                           , lpidUnique  = NTI.decodeInt32 bs3
+                           }
+                    _ -> fail "payloadToId"
 
 remoteProcessFailed :: LocalNode -> ProcessId -> IO ()
 remoteProcessFailed node them = do
@@ -580,6 +657,14 @@ remoteProcessFailed node them = do
 createMessage :: Serializable a => a -> Message
 createMessage a = Message (fingerprint a) (encode a)
 
+getMonitorRef :: Process MonitorRef
+getMonitorRef = do
+  node <- processNode <$> ask
+  liftIO $ modifyMVar (localState node) $ \st ->
+    return ( localMonitorCounter ^: (+ 1) $ st
+           , st ^. localMonitorCounter
+           )
+
 -- This is most definitely NOT exported
 runLocalProcess :: LocalProcess -> Process a -> IO a
 runLocalProcess lproc proc = runReaderT (unProcess proc) lproc
@@ -593,8 +678,37 @@ instance Binary LocalProcessId where
   get      = liftM2 LocalProcessId get get
 
 instance Binary ProcessId where
-  put pid = put (processAddress pid) >> put (processLocalId pid)
+  put pid = put (processNodeId pid) >> put (processLocalId pid)
   get     = liftM2 ProcessId get get
+
+instance Binary MonitorReply where
+  put (ProcessDied ref pid reason) = put ref >> put pid >> put reason
+  get = liftM3 ProcessDied get get get
+
+instance Binary NodeCtrlMsg where
+  put msg = put (ctrlMsgSender msg) >> put (ctrlMsgSignal msg)
+  get     = liftM2 NodeCtrlMsg get get
+
+instance Binary ProcessSignal where
+  put (Monitor pid ref) = putWord8 0 >> put pid >> put ref
+  put (Died who reason) = putWord8 1 >> put who >> put reason
+  get = do
+    header <- getWord8
+    case header of
+      0 -> liftM2 Monitor get get
+      _ -> fail "ProcessSignal.get: invalid"
+
+instance Binary DiedReason where
+  put DiedNormal     = putWord8 0
+  put DiedDisconnect = putWord8 1
+  put DiedNodeDown   = putWord8 2
+  get = do
+    header <- getWord8
+    case header of
+      0 -> return DiedNormal
+      1 -> return DiedDisconnect
+      2 -> return DiedNodeDown
+      _ -> fail "DiedReason.get: invalid"
 
 --------------------------------------------------------------------------------
 -- Accessors                                                                  --
@@ -612,6 +726,9 @@ localPidUnique = accessor _localPidUnique (\unq st -> st { _localPidUnique = unq
 monitorActions :: Accessor LocalNodeState (Map ProcessId [IO ()])
 monitorActions = accessor _monitorActions (\as st -> st { _monitorActions = as })
 
+localMonitorCounter :: Accessor LocalNodeState Int32
+localMonitorCounter = accessor _localMonitorCounter (\ctr st -> st { _localMonitorCounter = ctr }) 
+
 localProcessWithId :: LocalProcessId -> Accessor LocalNodeState (Maybe LocalProcess)
 localProcessWithId lpid = localProcesses >>> DAC.mapMaybe lpid
 
@@ -623,3 +740,40 @@ connections = accessor _connections (\conns st -> st { _connections = conns })
 
 connectionTo :: ProcessId -> Accessor LocalProcessState (Maybe NT.Connection)
 connectionTo pid = connections >>> DAC.mapMaybe pid
+
+nodeCtrlLinks :: Accessor NodeCtrlState (Map NodeId (Map LocalProcessId (Set ProcessId)))
+nodeCtrlLinks = accessor _nodeCtrlLinks (\links st -> st { _nodeCtrlLinks = links })
+
+nodeCtrlMons :: Accessor NodeCtrlState (Map NodeId (Map LocalProcessId (Map ProcessId (Set MonitorRef))))
+nodeCtrlMons = accessor _nodeCtrlMons (\mons st -> st { _nodeCtrlMons = mons })
+
+nodeCtrlConns :: Accessor NodeCtrlState (Map Identifier NT.Connection)
+nodeCtrlConns = accessor _nodeCtrlConns (\conns st -> st { _nodeCtrlConns = conns })
+
+nodeCtrlConnFor :: Identifier -> Accessor NodeCtrlState (Maybe NT.Connection)
+nodeCtrlConnFor them = nodeCtrlConns >>> DAC.mapMaybe them 
+
+nodeCtrlLinksForNode :: NodeId -> Accessor NodeCtrlState (Map LocalProcessId (Set ProcessId))
+nodeCtrlLinksForNode nid = nodeCtrlLinks >>> DAC.mapDefault Map.empty nid 
+
+nodeCtrlMonsForNode :: NodeId -> Accessor NodeCtrlState (Map LocalProcessId (Map ProcessId (Set MonitorRef)))
+nodeCtrlMonsForNode nid = nodeCtrlMons >>> DAC.mapDefault Map.empty nid 
+
+nodeCtrlLinksForProcess :: ProcessId -> Accessor NodeCtrlState (Set ProcessId)
+nodeCtrlLinksForProcess pid = nodeCtrlLinksForNode (processNodeId pid) >>> DAC.mapDefault Set.empty (processLocalId pid)
+
+nodeCtrlMonsForProcess :: ProcessId -> Accessor NodeCtrlState (Map ProcessId (Set MonitorRef))
+nodeCtrlMonsForProcess pid = nodeCtrlMonsForNode (processNodeId pid) >>> DAC.mapDefault Map.empty (processLocalId pid) 
+
+nodeCtrlMonsFor :: ProcessId -> ProcessId -> Accessor NodeCtrlState (Set MonitorRef)
+nodeCtrlMonsFor them us = nodeCtrlMonsForProcess them >>> DAC.mapDefault Set.empty us 
+
+
+--------------------------------------------------------------------------------
+-- Auxiliary                                                                  --
+--------------------------------------------------------------------------------
+
+fromLeft :: Either a b -> a
+fromLeft (Left a)  = a
+fromLeft (Right _) = error "fromLeft"
+
