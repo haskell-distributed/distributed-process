@@ -78,32 +78,22 @@ module Control.Distributed.Process
   ) where
 
 import Prelude hiding (catch)
-import qualified Data.ByteString as BSS (ByteString, concat, splitAt)
-import qualified Data.ByteString.Lazy as BSL ( ByteString
-                                             , toChunks
-                                             , fromChunks
-                                             , splitAt
-                                             )
-import Data.Binary (Binary, decode, encode, put, get, putWord8, getWord8)
+import qualified Data.ByteString as BSS (ByteString)
+import qualified Data.ByteString.Lazy as BSL (fromChunks)
+import Data.Binary (decode)
 import Data.Map (Map)
-import qualified Data.Map as Map (empty, lookup, insert, delete, toList)
+import qualified Data.Map as Map (empty, lookup, insert, delete)
 import qualified Data.List as List (delete)
 import Data.Set (Set)
 import qualified Data.Set as Set (empty, insert, delete, member)
-import Data.Int (Int32)
-import Data.Typeable (Typeable)
 import Data.Foldable (forM_)
-import Data.Maybe (isJust)
-import Control.Monad (void, when, unless, forever)
+import Control.Monad (void)
 import Control.Monad.Reader (MonadReader(..), ReaderT, runReaderT)
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import Control.Monad.State (MonadState, StateT, evalStateT, gets, modify)
-import Control.Applicative ((<$>), (<*>))
-import Control.Category ((>>>))
+import Control.Applicative ((<$>))
 import Control.Exception (Exception, throwIO, catch, SomeException)
 import Control.Concurrent (forkIO)
-import Control.Concurrent.MVar ( MVar
-                               , newMVar
+import Control.Concurrent.MVar ( newMVar 
                                , withMVar
                                , modifyMVar
                                , modifyMVar_
@@ -111,22 +101,14 @@ import Control.Concurrent.MVar ( MVar
                                , putMVar
                                , takeMVar
                                )
-import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
-import Control.Distributed.Process.Internal.CQueue ( CQueue 
-                                                   , dequeueMatching
+import Control.Concurrent.Chan (newChan, writeChan)
+import Control.Distributed.Process.Internal.CQueue ( dequeueMatching
                                                    , enqueue
                                                    , newCQueue
                                                    )
-import Control.Distributed.Process.Serializable ( Serializable
-                                                , Fingerprint
-                                                , encodeFingerprint
-                                                , decodeFingerprint
-                                                , fingerprint
-                                                , sizeOfFingerprint
-                                                )
+import Control.Distributed.Process.Serializable (Serializable, fingerprint)
 import qualified Network.Transport as NT ( Transport
                                          , EndPoint
-                                         , EndPointAddress
                                          , Connection
                                          , Reliability(ReliableOrdered)
                                          , defaultConnectHints
@@ -142,65 +124,33 @@ import qualified Network.Transport as NT ( Transport
                                          , closeEndPoint
                                          , ConnectionId
                                          )
-import qualified Network.Transport.Internal as NTI (encodeInt32, decodeInt32)
-import Data.Accessor (Accessor, accessor, (^.), (^=), (^:))
-import qualified Data.Accessor.Container as DAC (mapMaybe, mapDefault)
+import Data.Accessor ((^.), (^=), (^:))
 import System.Random (randomIO)
-
--- | A local process ID consists of a seed which distinguishes processes from
--- different instances of the same local node and a counter
-data LocalProcessId = LocalProcessId 
-  { lpidUnique  :: Int32
-  , lpidCounter :: Int32
-  }
-  deriving (Eq, Ord, Typeable, Show)
-
--- We identify node IDs and endpoint IDs
-newtype NodeId = NodeId { nodeAddress :: NT.EndPointAddress }
-  deriving (Show, Eq, Ord, Binary)
-
--- | A process ID combines a local process with with an endpoint address
--- (in other words, we identify nodes and endpoints)
-data ProcessId = ProcessId 
-  { processNodeId  :: NodeId
-  , processLocalId :: LocalProcessId 
-  }
-  deriving (Eq, Ord, Typeable, Show)
-
--- | Messages consist of their typeRep fingerprint and their encoding
-data Message = Message 
-  { messageFingerprint :: Fingerprint 
-  , messageEncoding    :: BSL.ByteString
-  }
-
--- | Local nodes
-data LocalNode = LocalNode 
-  { localNodeId   :: NodeId
-  , localEndPoint :: NT.EndPoint 
-  , localState    :: MVar LocalNodeState
-  , localCtrlChan :: Chan NCMsg
-  }
-
--- | Local node state
-data LocalNodeState = LocalNodeState 
-  { _localProcesses      :: Map LocalProcessId LocalProcess
-  , _localPidCounter     :: Int32
-  , _localPidUnique      :: Int32
-  , _localMonitorCounter :: Int32
-  }
-
--- | Processes running on our local node
-data LocalProcess = LocalProcess 
-  { processQueue :: CQueue Message 
-  , processNode  :: LocalNode   
-  , processId    :: ProcessId
-  , processState :: MVar LocalProcessState
-  }
-
--- | Local process state
-data LocalProcessState = LocalProcessState
-  { _connections    :: Map ProcessId NT.Connection 
-  }
+import Control.Distributed.Process.Internal.NodeController (runNodeController)
+import Control.Distributed.Process.Internal ( NodeId(..)
+                                            , LocalProcessId(..)
+                                            , ProcessId(..)
+                                            , LocalNode(..)
+                                            , LocalNodeState(..)
+                                            , LocalProcess(..)
+                                            , LocalProcessState(..)
+                                            , Message(..)
+                                            , MonitorRef
+                                            , MonitorReply(..)
+                                            , DiedReason(..)
+                                            , NCMsg(..)
+                                            , ProcessSignal(..)
+                                            , createMessage
+                                            , messageToPayload
+                                            , payloadToMessage
+                                            , payloadToId
+                                            , idToPayload
+                                            , localPidCounter
+                                            , localPidUnique
+                                            , localProcessWithId
+                                            , localMonitorCounter
+                                            , connectionTo
+                                            )
 
 -- The Cloud Haskell 'Process' type
 newtype Process a = Process { unProcess :: ReaderT LocalProcess IO a }
@@ -270,209 +220,6 @@ expectTimeout timeout = do
   return $ fmap (decode . messageEncoding) msg
 
 --------------------------------------------------------------------------------
--- The node controller                                                        --
---------------------------------------------------------------------------------
-
-data ProcessSignal =
-    Monitor ProcessId MonitorRef
-  | Died Identifier DiedReason
-
-type MonitorRef = Int32
-
-data MonitorReply = ProcessDied MonitorRef ProcessId DiedReason
-  deriving (Typeable)
-
-data DiedReason = 
-    DiedNormal
-  | DiedException String -- TODO: would prefer SomeException instead of String, but exceptions don't implement Binary
-  | DiedDisconnect
-  | DiedNodeDown
-  | DiedNoProc
-  deriving Show
-
-type Identifier = Either ProcessId NodeId
-
-data NCMsg = NCMsg 
-  { ctrlMsgSender :: Identifier 
-  , ctrlMsgSignal :: ProcessSignal
-  }
-
-data NCState = NCState 
-  {  -- Mapping from remote processes to linked local processes 
-    _ncLinks :: Map NodeId (Map LocalProcessId (Set ProcessId))
-     -- Mapping from remote processes to monitoring local processes
-  , _ncMons  :: Map NodeId (Map LocalProcessId (Map ProcessId (Set MonitorRef)))
-     -- The node controller maintains its own set of connections
-     -- TODO: still not convinced that this is correct
-  , _ncConns :: Map Identifier NT.Connection 
-  }
-
-destNid :: ProcessSignal -> Maybe NodeId
-destNid (Monitor pid _)      = Just $ processNodeId pid 
-destNid (Died (Right _) _)   = Nothing
-destNid (Died (Left _pid) _) = fail "destNid: TODO"
-
-initNCState :: NCState
-initNCState = NCState
-  { _ncLinks = Map.empty
-  , _ncMons  = Map.empty
-  , _ncConns = Map.empty 
-  }
-
-newtype NC a = NC { unNC :: ReaderT LocalNode (StateT NCState IO) a }
-  deriving (Functor, Monad, MonadIO, MonadState NCState, MonadReader LocalNode)
-
-nodeController :: NC ()
-nodeController = forever $ do
-  node <- ask
-  msg  <- liftIO $ readChan (localCtrlChan node)
-
-  -- Forward the message if appropriate
-  case destNid (ctrlMsgSignal msg) of
-    Just nid' | nid' /= localNodeId node -> ncSendCtrlMsg nid' msg
-    _ -> return ()
-
-  ncEffect msg
-
-ctrlSendTo :: Identifier -> [BSS.ByteString] -> NC () 
-ctrlSendTo them payload = do
-  mConn <- ncConnTo them
-  didSend <- case mConn of
-    Just conn -> do
-      didSend <- liftIO $ NT.send conn payload
-      case didSend of
-        Left _   -> return False
-        Right () -> return True
-    Nothing ->
-      return False
-  unless didSend $ do
-    -- [Unified: Table 9, rule node_disconnect]
-    node <- ask
-    liftIO . writeChan (localCtrlChan node) $ NCMsg 
-      { ctrlMsgSender = them 
-      , ctrlMsgSignal = Died them DiedDisconnect
-      }
-
-ncSendCtrlMsg :: NodeId -> NCMsg -> NC ()
-ncSendCtrlMsg dest = ctrlSendTo (Right dest) . BSL.toChunks . encode 
-
-ncSendLocal :: LocalProcessId -> Message -> NC ()
-ncSendLocal lpid msg = do
-  node <- ask
-  liftIO $ do
-    mProc <- withMVar (localState node) $ return . (^. localProcessWithId lpid)
-    -- By [Unified: table 6, rule missing_process] messages to dead processes
-    -- can silently be dropped
-    forM_ mProc $ \proc -> enqueue (processQueue proc) msg 
-
-ncConnTo :: Identifier -> NC (Maybe NT.Connection)
-ncConnTo them = do
-  mConn <- gets (^. ncConnFor them)
-  case mConn of
-    Just conn -> return (Just conn)
-    Nothing   -> ncCreateConnTo them
-
-ncCreateConnTo :: Identifier -> NC (Maybe NT.Connection)
-ncCreateConnTo them = do
-    node  <- ask
-    mConn <- liftIO $ NT.connect (localEndPoint node) 
-                                 addr 
-                                 NT.ReliableOrdered 
-                                 NT.defaultConnectHints 
-    case mConn of
-      Right conn -> do
-        didSend <- liftIO $ NT.send conn firstMsg
-        case didSend of
-          Left _ -> 
-            return Nothing 
-          Right () -> do
-            modify $ ncConnFor them ^= Just conn
-            return $ Just conn
-      Left _ ->
-        return Nothing
-  where
-    (addr, firstMsg) = case them of
-       Left pid  -> ( nodeAddress (processNodeId pid)
-                    , idToPayload (Just $ processLocalId pid)
-                    )
-       Right nid -> ( nodeAddress nid
-                    , idToPayload Nothing 
-                    )
-
-
--- [Unified: ncEffect]
-ncEffect :: NCMsg -> NC ()
-
--- [Unified: Table 10]
-ncEffect (NCMsg (Left from) (Monitor them ref)) = do
-  node <- ask 
-  shouldLink <- 
-    if processNodeId them /= localNodeId node 
-      then return True
-      else liftIO . withMVar (localState node) $ 
-        return . isJust . (^. localProcessWithId (processLocalId them))
-  let localFrom = processNodeId from == localNodeId node
-  case (shouldLink, localFrom) of
-    (True, _) ->  -- [Unified: first rule]
-      modify $ ncMonsFor them from ^: Set.insert ref
-    (False, True) -> -- [Unified: second rule]
-      ncSendLocal (processLocalId from) . createMessage $
-        ProcessDied ref them DiedNoProc 
-    (False, False) -> -- [Unified: third rule]
-      ncSendCtrlMsg (processNodeId from) NCMsg 
-        { ctrlMsgSender = Right (localNodeId node)
-        , ctrlMsgSignal = Died (Left them) DiedNoProc
-        }
-      
-ncEffect (NCMsg (Right _) (Monitor _ _)) = 
-  error "Monitor message from a node?"
-
--- [Unified: Table 12, bottom rule] 
-ncEffect (NCMsg _from (Died (Right nid) reason)) = do
-  node  <- ask
-  links <- gets (^. ncLinksForNode nid)
-  mons  <- gets (^. ncMonsForNode nid)
-
-  forM_ (Map.toList links) $ \(_them, _uss) -> 
-    fail "ncEffect: linking not implemented"
-
-  forM_ (Map.toList mons) $ \(them, uss) ->
-    forM_ (Map.toList uss) $ \(us, refs) -> 
-      -- We only need to notify local processes
-      when (processNodeId us == localNodeId node) $ do
-        let lpid = processLocalId us
-            rpid = ProcessId nid them 
-        forM_ refs $ \ref -> 
-          ncSendLocal lpid . createMessage $ ProcessDied ref rpid reason
-
-  modify $ (ncLinksForNode nid ^= Map.empty)
-         . (ncMonsForNode nid ^= Map.empty)
-
--- [Unified: Table 12, top rule]
-ncEffect (NCMsg _from (Died (Left pid) reason)) = do
-  node  <- ask
-  links <- gets (^. ncLinksForProcess pid)
-  mons  <- gets (^. ncMonsForProcess pid)
-
-  forM_ links $ \_us ->
-    fail "ncEffect: linking not implemented"
-
-  forM_ (Map.toList mons) $ \(us, refs) ->
-    forM_ refs $ \ref -> do
-      let msg = createMessage $ ProcessDied ref pid reason
-      if processNodeId us == localNodeId node 
-        then 
-          ncSendLocal (processLocalId us) msg
-        else 
-          ncSendCtrlMsg (processNodeId us) NCMsg
-            { ctrlMsgSender = Right (localNodeId node) -- TODO: why the change in sender? How does that affect 'reconnect' semantics?
-            , ctrlMsgSignal = Died (Left pid) reason
-            }
-
-  modify $ (ncLinksForProcess pid ^= Set.empty)
-         . (ncMonsForProcess pid ^= Map.empty)
-
---------------------------------------------------------------------------------
 -- Initialization                                                             --
 --------------------------------------------------------------------------------
 
@@ -495,8 +242,7 @@ newLocalNode transport = do
                            , localState    = state
                            , localCtrlChan = ctrlChan
                            }
-      void . forkIO $ evalStateT (runReaderT (unNC nodeController) node) 
-                                 initNCState
+      void . forkIO $ runNodeController node 
       void . forkIO $ handleIncomingMessages node
       return node
 
@@ -658,37 +404,6 @@ sendBinary them conn payload = do
 sendMessage :: ProcessId -> NT.Connection -> Message -> Process ()
 sendMessage them conn = sendBinary them conn . messageToPayload 
 
-messageToPayload :: Message -> [BSS.ByteString]
-messageToPayload (Message fp enc) = encodeFingerprint fp : BSL.toChunks enc
-
-payloadToMessage :: [BSS.ByteString] -> Message
-payloadToMessage payload = Message fp msg
-  where
-    (encFp, msg) = BSL.splitAt (fromIntegral sizeOfFingerprint) 
-                 $ BSL.fromChunks payload 
-    fp = decodeFingerprint . BSS.concat . BSL.toChunks $ encFp
-
--- | The first message we send across a connection to indicate the intended
--- recipient. Pass Nothing for the remote node controller
-idToPayload :: Maybe LocalProcessId -> [BSS.ByteString]
-idToPayload Nothing     = [ NTI.encodeInt32 (0 :: Int) ]
-idToPayload (Just lpid) = [ NTI.encodeInt32 (1 :: Int)
-                          , NTI.encodeInt32 (lpidCounter lpid)
-                          , NTI.encodeInt32 (lpidUnique lpid)
-                          ]
-
--- | Inverse of 'idToPayload'
-payloadToId :: [BSS.ByteString] -> Maybe LocalProcessId
-payloadToId bss = let (bs1, bss') = BSS.splitAt 4 . BSS.concat $ bss
-                      (bs2, bs3)  = BSS.splitAt 4 bss' in
-                  case NTI.decodeInt32 bs1 :: Int of
-                    0 -> Nothing
-                    1 -> Just LocalProcessId 
-                           { lpidCounter = NTI.decodeInt32 bs2
-                           , lpidUnique  = NTI.decodeInt32 bs3
-                           }
-                    _ -> fail "payloadToId"
-
 remoteProcessFailed :: LocalNode -> ProcessId -> IO ()
 remoteProcessFailed node them = do
   -- [Unified: Table 9 rule node_disconnect]
@@ -698,9 +413,6 @@ remoteProcessFailed node them = do
     , ctrlMsgSignal = Died nid DiedDisconnect 
     }
     
-createMessage :: Serializable a => a -> Message
-createMessage a = Message (fingerprint a) (encode a)
-
 getMonitorRef :: Process MonitorRef
 getMonitorRef = do
   node <- processNode <$> ask
@@ -712,101 +424,3 @@ getMonitorRef = do
 -- This is most definitely NOT exported
 runLocalProcess :: LocalProcess -> Process a -> IO a
 runLocalProcess lproc proc = runReaderT (unProcess proc) lproc
-
---------------------------------------------------------------------------------
--- Binary instances                                                           --
---------------------------------------------------------------------------------
-
-instance Binary LocalProcessId where
-  put lpid = put (lpidUnique lpid) >> put (lpidCounter lpid)
-  get      = LocalProcessId <$> get <*> get
-
-instance Binary ProcessId where
-  put pid = put (processNodeId pid) >> put (processLocalId pid)
-  get     = ProcessId <$> get <*> get
-
-instance Binary MonitorReply where
-  put (ProcessDied ref pid reason) = put ref >> put pid >> put reason
-  get = ProcessDied <$> get <*> get <*> get
-
-instance Binary NCMsg where
-  put msg = put (ctrlMsgSender msg) >> put (ctrlMsgSignal msg)
-  get     = NCMsg <$> get <*> get
-
-instance Binary ProcessSignal where
-  put (Monitor pid ref) = putWord8 0 >> put pid >> put ref
-  put (Died who reason) = putWord8 1 >> put who >> put reason
-  get = do
-    header <- getWord8
-    case header of
-      0 -> Monitor <$> get <*> get
-      1 -> Died <$> get <*> get
-      _ -> fail "ProcessSignal.get: invalid"
-
-instance Binary DiedReason where
-  put DiedNormal        = putWord8 0
-  put (DiedException e) = putWord8 1 >> put e 
-  put DiedDisconnect    = putWord8 2
-  put DiedNodeDown      = putWord8 3
-  put DiedNoProc        = putWord8 4
-  get = do
-    header <- getWord8
-    case header of
-      0 -> return DiedNormal
-      1 -> DiedException <$> get
-      2 -> return DiedDisconnect
-      3 -> return DiedNodeDown
-      4 -> return DiedNoProc
-      _ -> fail "DiedReason.get: invalid"
-
---------------------------------------------------------------------------------
--- Accessors                                                                  --
---------------------------------------------------------------------------------
-
-localProcesses :: Accessor LocalNodeState (Map LocalProcessId LocalProcess)
-localProcesses = accessor _localProcesses (\procs st -> st { _localProcesses = procs })
-
-localPidCounter :: Accessor LocalNodeState Int32
-localPidCounter = accessor _localPidCounter (\ctr st -> st { _localPidCounter = ctr })
-
-localPidUnique :: Accessor LocalNodeState Int32
-localPidUnique = accessor _localPidUnique (\unq st -> st { _localPidUnique = unq })
-
-localMonitorCounter :: Accessor LocalNodeState Int32
-localMonitorCounter = accessor _localMonitorCounter (\ctr st -> st { _localMonitorCounter = ctr }) 
-
-localProcessWithId :: LocalProcessId -> Accessor LocalNodeState (Maybe LocalProcess)
-localProcessWithId lpid = localProcesses >>> DAC.mapMaybe lpid
-
-connections :: Accessor LocalProcessState (Map ProcessId NT.Connection)
-connections = accessor _connections (\conns st -> st { _connections = conns })
-
-connectionTo :: ProcessId -> Accessor LocalProcessState (Maybe NT.Connection)
-connectionTo pid = connections >>> DAC.mapMaybe pid
-
-ncLinks :: Accessor NCState (Map NodeId (Map LocalProcessId (Set ProcessId)))
-ncLinks = accessor _ncLinks (\links st -> st { _ncLinks = links })
-
-ncMons :: Accessor NCState (Map NodeId (Map LocalProcessId (Map ProcessId (Set MonitorRef))))
-ncMons = accessor _ncMons (\mons st -> st { _ncMons = mons })
-
-ncConns :: Accessor NCState (Map Identifier NT.Connection)
-ncConns = accessor _ncConns (\conns st -> st { _ncConns = conns })
-
-ncConnFor :: Identifier -> Accessor NCState (Maybe NT.Connection)
-ncConnFor them = ncConns >>> DAC.mapMaybe them 
-
-ncLinksForNode :: NodeId -> Accessor NCState (Map LocalProcessId (Set ProcessId))
-ncLinksForNode nid = ncLinks >>> DAC.mapDefault Map.empty nid 
-
-ncMonsForNode :: NodeId -> Accessor NCState (Map LocalProcessId (Map ProcessId (Set MonitorRef)))
-ncMonsForNode nid = ncMons >>> DAC.mapDefault Map.empty nid 
-
-ncLinksForProcess :: ProcessId -> Accessor NCState (Set ProcessId)
-ncLinksForProcess pid = ncLinksForNode (processNodeId pid) >>> DAC.mapDefault Set.empty (processLocalId pid)
-
-ncMonsForProcess :: ProcessId -> Accessor NCState (Map ProcessId (Set MonitorRef))
-ncMonsForProcess pid = ncMonsForNode (processNodeId pid) >>> DAC.mapDefault Map.empty (processLocalId pid) 
-
-ncMonsFor :: ProcessId -> ProcessId -> Accessor NCState (Set MonitorRef)
-ncMonsFor them us = ncMonsForProcess them >>> DAC.mapDefault Set.empty us 
