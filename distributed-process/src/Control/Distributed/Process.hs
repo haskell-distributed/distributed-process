@@ -36,35 +36,26 @@
 --     Peyton-Jones.
 --       http://research.microsoft.com/en-us/um/people/simonpj/papers/parallel/remote.pdf
 --
+-- The precise semantics for message passing is based on
+-- 
+-- [2] "A Unified Semantics for Future Erlang", Hans Svensson, Lars-Ake Fredlund
+--     and Clara Benac Earle (not freely available online, unfortunately)
+--
 -- Some pointers to related documentation about Erlang, for comparison and
 -- inspiration: 
 --
--- [1] "Programming Distributed Erlang Applications: Pitfalls and Recipes",
+-- [3] "Programming Distributed Erlang Applications: Pitfalls and Recipes",
 --     Hans Svensson and Lars-Ake Fredlund 
 --       http://man.lupaworld.com/content/develop/p37-svensson.pdf
--- [2] The Erlang manual, sections "Message Sending" and "Send" 
+-- [4] The Erlang manual, sections "Message Sending" and "Send" 
 --       http://www.erlang.org/doc/reference_manual/processes.html#id82409
 --       http://www.erlang.org/doc/reference_manual/expressions.html#send
--- [3] Questions "Is the order of message reception guaranteed?" and
+-- [5] Questions "Is the order of message reception guaranteed?" and
 --     "If I send a message, is it guaranteed to reach the receiver?" of
 --     the Erlang FAQ
 --       http://www.erlang.org/faq/academic.html
--- [4] "Delivery of Messages", post on erlang-questions
+-- [6] "Delivery of Messages", post on erlang-questions
 --       http://erlang.org/pipermail/erlang-questions/2012-February/064767.html
---
--- TODOs:
---
--- 1. Central MonitorAction mapping, so that we can efficiently execute monitor
---    actions from Network.Transport.receive-ing thread. 
--- 2. Access this mapping from send too, because we cannot rely on
---    EventConnectionLost (although it so happens that with the TCP transport
---    we can). 
--- 3. Modify EvenConnectionLost to have Maybe EndPointAddress
--- 4. Change in API? (you can register multiple monitors, they get MonitorIds.
---    to unregister, to provide the monitor ID -- if we do, unregistering the
---    same ID multiple times is idempotent)
--- 5. You get precisely one notification per monitor
--- 6. When a connection is already broken, monitor notifies immediately
 module Control.Distributed.Process 
   ( -- * Basic cloud Haskell API
     ProcessId
@@ -700,32 +691,15 @@ payloadToId bss = let (bs1, bss') = BSS.splitAt 4 . BSS.concat $ bss
                            }
                     _ -> fail "payloadToId"
 
--- TODO: this was written before the change to the new semantics 
 remoteProcessFailed :: LocalNode -> ProcessId -> IO ()
-remoteProcessFailed node them = liftIO $ 
-  modifyMVar_ (localState node) $ \st -> do
-    sequence_ (st ^. monitorActionsFor them)
-    return (monitorActionsFor them ^= [] $ st)
-
-{-do
-  proc <- ask
-  let ourState = processState proc
-  -- We only execute monitor actions once
-  action <- liftIO . modifyMVar ourState $ \st ->
-    return (monitorActionFor them ^= Nothing $ st, st ^. monitorActionFor them)
-  let err = ProcessMonitorException them SrNoPing 
-  liftIO $ case action of
-    Just MaMonitor ->
-      -- TODO: can/should we avoid this encoding/decoding?
-      enqueue (processQueue proc) $ createMessage err 
-    Just MaLink ->
-      throwIO err 
-    Just MaLinkError ->
-      throwIO err 
-    Nothing -> 
-      return ()
- -}
-
+remoteProcessFailed node them = do
+  -- [Unified: Table 9 rule node_disconnect]
+  let nid = Right (processNodeId them)
+  writeChan (localCtrlChan node) NCMsg
+    { ctrlMsgSender = nid 
+    , ctrlMsgSignal = Died nid DiedDisconnect 
+    }
+    
 createMessage :: Serializable a => a -> Message
 createMessage a = Message (fingerprint a) (encode a)
 
