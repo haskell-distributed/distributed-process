@@ -371,6 +371,8 @@ ncSendLocal lpid msg = do
   node <- ask
   liftIO $ do
     mProc <- withMVar (localState node) $ return . (^. localProcessWithId lpid)
+    -- By [Unified: table 6, rule missing_process] messages to dead processes
+    -- can silently be dropped
     forM_ mProc $ \proc -> enqueue (processQueue proc) msg 
 
 ncConnTo :: Identifier -> NC (Maybe NT.Connection)
