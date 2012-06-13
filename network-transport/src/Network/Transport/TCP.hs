@@ -732,7 +732,7 @@ modifyRemoteState (ourEndPoint, theirEndPoint) match =
       tryCloseSocket (remoteSocket vst)
       putMVar theirState (RemoteEndPointFailed ex)
       let incoming = IntSet.elems $ vst ^. remoteIncoming
-          code     = EventConnectionLost (remoteAddress theirEndPoint) incoming
+          code     = EventConnectionLost (Just $ remoteAddress theirEndPoint) incoming
           err      = TransportError code (show ex)
       writeChan (localChannel ourEndPoint) $ ErrorEvent err 
 
@@ -1072,7 +1072,7 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
               "handleIncomingMessages:prematureExit"
           RemoteEndPointValid vst -> do
             let code = EventConnectionLost 
-                         (remoteAddress theirEndPoint) 
+                         (Just $ remoteAddress theirEndPoint) 
                          (IntSet.elems $ vst ^. remoteIncoming)
             writeChan ourChannel . ErrorEvent $ TransportError code (show err)
             forM_ (vst ^. pendingCtrlRequests) $ flip putMVar (Left err) 

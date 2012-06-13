@@ -586,7 +586,7 @@ handleIncomingMessages node = go [] Map.empty Set.empty
           go (List.delete cid uninitConns) 
              (Map.delete cid procConns)
              (Set.delete cid ctrlConns)
-        NT.ErrorEvent (NT.TransportError (NT.EventConnectionLost theirAddr _) _) -> do 
+        NT.ErrorEvent (NT.TransportError (NT.EventConnectionLost (Just theirAddr) _) _) -> do 
           -- TODO: we could cache this information
           pids <- withMVar state $ \st -> 
             return $ filter ((== theirAddr) . nodeAddress . processNodeId) 

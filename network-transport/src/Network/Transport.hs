@@ -218,6 +218,8 @@ data EventErrorCode =
     EventEndPointFailed
     -- | Transport-wide fatal error
   | EventTransportFailed
-    -- | Connection to a remote endpoint was lost
-  | EventConnectionLost EndPointAddress [ConnectionId] 
+    -- | Some incoming connections were closed abruptly.
+    -- If an endpoint address is specified, then all connections to and
+    -- from that endpoint are now lost
+  | EventConnectionLost (Maybe EndPointAddress) [ConnectionId] 
   deriving (Show, Typeable, Eq)
