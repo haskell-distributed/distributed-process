@@ -297,6 +297,8 @@ data DiedReason =
   | DiedException String -- TODO: would prefer SomeException instead of String, but exceptions don't implement Binary
   | DiedDisconnect
   | DiedNodeDown
+  | DiedNoProc
+  deriving Show
 
 type Identifier = Either ProcessId NodeId
 
@@ -363,6 +365,13 @@ ctrlSendTo them payload = do
       , ctrlMsgSignal = Died them DiedDisconnect
       }
 
+ctrlSendLocal :: LocalProcessId -> Message -> NodeCtrl ()
+ctrlSendLocal lpid msg = do
+  node <- ask
+  liftIO $ do
+    mProc <- withMVar (localState node) $ return . (^. localProcessWithId lpid)
+    forM_ mProc $ \proc -> enqueue (processQueue proc) msg 
+
 ctrlConnTo :: Identifier -> NodeCtrl (Maybe NT.Connection)
 ctrlConnTo them = do
   mConn <- gets (^. nodeCtrlConnFor them)
@@ -402,18 +411,23 @@ createCtrlConnTo them = do
 processCtrlMsg :: NodeCtrlMsg -> NodeCtrl ()
 
 -- [Unified: Table 10]
-processCtrlMsg (NodeCtrlMsg from (Monitor them ref)) = do
+processCtrlMsg (NodeCtrlMsg (Left from) (Monitor them ref)) = do
   node <- ask 
   shouldLink <- 
     if processNodeId them /= localNodeId node 
       then return True
       else liftIO . withMVar (localState node) $ 
         return . isJust . (^. localProcessWithId (processLocalId them))
-  if shouldLink 
-    then
-      modify $ nodeCtrlMonsFor them (fromLeft from) ^: Set.insert ref
-    else 
-      fail "processCtrlMsg: TODO"
+  let localFrom = processNodeId from == localNodeId node
+  case (shouldLink, localFrom) of
+    (True, _) ->  -- [Unified: first rule]
+      modify $ nodeCtrlMonsFor them from ^: Set.insert ref
+    (False, True) -> -- [Unified: second rule]
+      ctrlSendLocal (processLocalId from) . createMessage $
+        ProcessDied ref them DiedNoProc 
+      
+processCtrlMsg (NodeCtrlMsg (Right _) (Monitor _ _)) = 
+  error "Monitor message from a node?"
 
 -- [Unified: Table 12, bottom rule] 
 processCtrlMsg (NodeCtrlMsg _from (Died (Right nid) reason)) = do
@@ -427,15 +441,11 @@ processCtrlMsg (NodeCtrlMsg _from (Died (Right nid) reason)) = do
   forM_ (Map.toList mons) $ \(them, uss) -> do
     forM_ (Map.toList uss) $ \(us, refs) -> do
       -- We only need to notify local processes
-      when (processNodeId us == localNodeId node) . liftIO $ do
+      when (processNodeId us == localNodeId node) $ do
         let lpid = processLocalId us
             rpid = ProcessId nid them 
         forM_ refs $ \ref -> do
-          mProc <- withMVar (localState node) $ 
-            return . (^. localProcessWithId lpid)
-          forM_ mProc $ \proc -> 
-            enqueue (processQueue proc) . createMessage $
-              ProcessDied ref rpid reason
+          ctrlSendLocal lpid . createMessage $ ProcessDied ref rpid reason
 
   modify $ (nodeCtrlLinksForNode nid ^= Map.empty)
          . (nodeCtrlMonsForNode nid ^= Map.empty)
@@ -453,19 +463,15 @@ processCtrlMsg (NodeCtrlMsg _from (Died (Left pid) reason)) = do
     forM_ refs $ \ref -> do
       let msg = createMessage $ ProcessDied ref pid reason
       if processNodeId us == localNodeId node 
-        then liftIO $ do
-          let lpid = processLocalId us
-          mProc <- withMVar (localState node) $
-            return . (^. localProcessWithId lpid)
-          forM_ mProc $ \proc ->
-            enqueue (processQueue proc) msg 
-        else do
+        then 
+          ctrlSendLocal (processLocalId us) msg
+        else 
           ctrlSendTo (Right . processNodeId $ us) . BSL.toChunks . encode $ 
             NodeCtrlMsg
               { ctrlMsgSender = Right (localNodeId node) -- TODO: why the change in sender? How does that affect 'reconnect' semantics?
               , ctrlMsgSignal = Died (Left pid) reason
               }
-                 
+
   modify $ (nodeCtrlLinksForProcess pid ^= Set.empty)
          . (nodeCtrlMonsForProcess pid ^= Map.empty)
 
@@ -528,24 +534,17 @@ forkProcess node proc = do
              , lproc 
              )
     void . forkIO $ do
-      catch (do
-               runLocalProcess lproc proc
-               -- [Unified: Table 4]
-               let pid = processId lproc
-               writeChan (localCtrlChan node) $ NodeCtrlMsg 
-                 { ctrlMsgSender = Left pid 
-                 , ctrlMsgSignal = Died (Left pid) DiedNormal 
-                 }
-            )
-            (\ex -> do 
-               let pid = processId lproc
-                   err = show (ex :: SomeException)
-               writeChan (localCtrlChan node) $ NodeCtrlMsg 
-                 { ctrlMsgSender = Left pid 
-                 , ctrlMsgSignal = Died (Left pid) (DiedException err) 
-                 }
-            )
-
+      let pid  = processId lproc
+          lpid = processLocalId pid
+      reason <- catch (runLocalProcess lproc proc >> return DiedNormal)
+                      (return . DiedException . (show :: SomeException -> String))
+      -- [Unified: Table 4, rules termination and exiting]
+      modifyMVar_ (localState node) $ 
+        return . (localProcessWithId lpid ^= Nothing)
+      writeChan (localCtrlChan node) $ NodeCtrlMsg 
+        { ctrlMsgSender = Left pid 
+        , ctrlMsgSignal = Died (Left pid) reason 
+        }
     return (processId lproc)
    
 handleIncomingMessages :: LocalNode -> IO ()
@@ -768,6 +767,7 @@ instance Binary DiedReason where
   put (DiedException e) = putWord8 1 >> put e 
   put DiedDisconnect    = putWord8 2
   put DiedNodeDown      = putWord8 3
+  put DiedNoProc        = putWord8 4
   get = do
     header <- getWord8
     case header of
@@ -775,6 +775,7 @@ instance Binary DiedReason where
       1 -> DiedException <$> get
       2 -> return DiedDisconnect
       3 -> return DiedNodeDown
+      4 -> return DiedNoProc
       _ -> fail "DiedReason.get: invalid"
 
 --------------------------------------------------------------------------------
