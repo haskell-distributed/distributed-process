@@ -93,7 +93,7 @@ testEarlyDisconnect nextPort = do
         ConnectionOpened cid _ addr <- receive endpoint 
         True <- return $ addr == theirAddr
       
-        ErrorEvent (TransportError (EventConnectionLost addr' [cid']) _) <- receive endpoint 
+        ErrorEvent (TransportError (EventConnectionLost (Just addr') [cid']) _) <- receive endpoint 
         True <- return $ addr' == theirAddr && cid' == cid
 
         return ()
@@ -116,7 +116,7 @@ testEarlyDisconnect nextPort = do
         Received cid' ["pong"] <- receive endpoint
         True <- return $ cid == cid'
         
-        ErrorEvent (TransportError (EventConnectionLost addr' [cid'']) _) <- receive endpoint
+        ErrorEvent (TransportError (EventConnectionLost (Just addr') [cid'']) _) <- receive endpoint
         True <- return $ addr' == theirAddr && cid'' == cid
 
         return ()
@@ -227,7 +227,7 @@ testEarlyCloseSocket nextPort = do
         ConnectionClosed cid'' <- receive endpoint
         True <- return $ cid'' == cid
         
-        ErrorEvent (TransportError (EventConnectionLost addr' []) _) <- receive endpoint
+        ErrorEvent (TransportError (EventConnectionLost (Just addr') []) _) <- receive endpoint
         True <- return $ addr' == theirAddr 
         
         return ()
