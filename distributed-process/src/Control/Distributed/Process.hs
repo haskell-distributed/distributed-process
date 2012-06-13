@@ -103,13 +103,13 @@ import Data.Int (Int32)
 import Data.Typeable (Typeable)
 import Data.Foldable (forM_)
 import Data.Maybe (isJust)
-import Control.Monad (void, liftM2, liftM3, when, unless, forever)
+import Control.Monad (void, when, unless, forever)
 import Control.Monad.Reader (MonadReader(..), ReaderT, runReaderT)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.State (MonadState, StateT, evalStateT, gets, modify)
-import Control.Applicative ((<$>))
+import Control.Applicative ((<$>), (<*>))
 import Control.Category ((>>>))
-import Control.Exception (Exception, throwIO, catch)
+import Control.Exception (Exception, throwIO, catch, SomeException)
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar ( MVar
                                , newMVar
@@ -294,6 +294,7 @@ data MonitorReply = ProcessDied MonitorRef ProcessId DiedReason
 
 data DiedReason = 
     DiedNormal
+  | DiedException String -- TODO: would prefer SomeException instead of String, but exceptions don't implement Binary
   | DiedDisconnect
   | DiedNodeDown
 
@@ -527,13 +528,24 @@ forkProcess node proc = do
              , lproc 
              )
     void . forkIO $ do
-      runLocalProcess lproc proc
-      -- [Unified: Table 4]
-      let pid = processId lproc
-      writeChan (localCtrlChan node) $ NodeCtrlMsg 
-        { ctrlMsgSender = Left pid 
-        , ctrlMsgSignal = Died (Left pid) DiedNormal 
-        }
+      catch (do
+               runLocalProcess lproc proc
+               -- [Unified: Table 4]
+               let pid = processId lproc
+               writeChan (localCtrlChan node) $ NodeCtrlMsg 
+                 { ctrlMsgSender = Left pid 
+                 , ctrlMsgSignal = Died (Left pid) DiedNormal 
+                 }
+            )
+            (\ex -> do 
+               let pid = processId lproc
+                   err = show (ex :: SomeException)
+               writeChan (localCtrlChan node) $ NodeCtrlMsg 
+                 { ctrlMsgSender = Left pid 
+                 , ctrlMsgSignal = Died (Left pid) (DiedException err) 
+                 }
+            )
+
     return (processId lproc)
    
 handleIncomingMessages :: LocalNode -> IO ()
@@ -727,19 +739,19 @@ runLocalProcess lproc proc = runReaderT (unProcess proc) lproc
 
 instance Binary LocalProcessId where
   put lpid = put (lpidUnique lpid) >> put (lpidCounter lpid)
-  get      = liftM2 LocalProcessId get get
+  get      = LocalProcessId <$> get <*> get
 
 instance Binary ProcessId where
   put pid = put (processNodeId pid) >> put (processLocalId pid)
-  get     = liftM2 ProcessId get get
+  get     = ProcessId <$> get <*> get
 
 instance Binary MonitorReply where
   put (ProcessDied ref pid reason) = put ref >> put pid >> put reason
-  get = liftM3 ProcessDied get get get
+  get = ProcessDied <$> get <*> get <*> get
 
 instance Binary NodeCtrlMsg where
   put msg = put (ctrlMsgSender msg) >> put (ctrlMsgSignal msg)
-  get     = liftM2 NodeCtrlMsg get get
+  get     = NodeCtrlMsg <$> get <*> get
 
 instance Binary ProcessSignal where
   put (Monitor pid ref) = putWord8 0 >> put pid >> put ref
@@ -747,20 +759,22 @@ instance Binary ProcessSignal where
   get = do
     header <- getWord8
     case header of
-      0 -> liftM2 Monitor get get
-      1 -> liftM2 Died get get
+      0 -> Monitor <$> get <*> get
+      1 -> Died <$> get <*> get
       _ -> fail "ProcessSignal.get: invalid"
 
 instance Binary DiedReason where
-  put DiedNormal     = putWord8 0
-  put DiedDisconnect = putWord8 1
-  put DiedNodeDown   = putWord8 2
+  put DiedNormal        = putWord8 0
+  put (DiedException e) = putWord8 1 >> put e 
+  put DiedDisconnect    = putWord8 2
+  put DiedNodeDown      = putWord8 3
   get = do
     header <- getWord8
     case header of
       0 -> return DiedNormal
-      1 -> return DiedDisconnect
-      2 -> return DiedNodeDown
+      1 -> DiedException <$> get
+      2 -> return DiedDisconnect
+      3 -> return DiedNodeDown
       _ -> fail "DiedReason.get: invalid"
 
 --------------------------------------------------------------------------------

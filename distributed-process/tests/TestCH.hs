@@ -12,6 +12,7 @@ import Control.Concurrent.MVar ( newEmptyMVar
 import Control.Monad (replicateM_)
 import Control.Distributed.Process
 import Control.Monad.IO.Class (liftIO)
+import Control.Exception (throwIO)
 import qualified Network.Transport as NT (Transport)
 import Network.Transport.TCP (createTransport, defaultTCPParameters)
 import TestAuxiliary
@@ -116,6 +117,39 @@ testMonitorNormalTermination transport = do
 
   takeMVar done
 
+-- | Monitor a process which terminates abnormally
+testMonitorAbnormalTermination :: NT.Transport -> IO ()
+testMonitorAbnormalTermination transport = do
+  monitorSetup <- newEmptyMVar
+  monitoredProcess <- newEmptyMVar
+  done <- newEmptyMVar
+
+  let err = userError "Abnormal termination"
+
+  forkIO $ do
+    localNode <- newLocalNode transport
+    addr <- forkProcess localNode . liftIO $ do
+      readMVar monitorSetup
+      throwIO err 
+    putMVar monitoredProcess addr
+
+  forkIO $ do
+    localNode <- newLocalNode transport
+    theirAddr <- readMVar monitoredProcess
+    runProcess localNode $ do
+      ref <- monitor theirAddr
+      liftIO $ do
+        -- Monitor is asynchronous, but we want to make sure the monitor has
+        -- been fully created before allowing the remote process to terminate,
+        -- otherwise we might get a different signal here 
+        threadDelay 100000
+        putMVar monitorSetup () 
+      ProcessDied ref' pid (DiedException err') <- expect
+      True <- return $ ref' == ref && pid == theirAddr && err' == show err 
+      return ()
+    putMVar done ()
+
+  takeMVar done
     
 
 
@@ -226,8 +260,9 @@ main = do
   Right transport <- createTransport "127.0.0.1" "8080" defaultTCPParameters
   runTests 
     [ --("Ping",                     testPing transport)
-      ("MonitorUnreachable",       testMonitorUnreachable transport)
-    , ("MonitorNormalTermination", testMonitorNormalTermination transport)
+      ("MonitorUnreachable",         testMonitorUnreachable transport)
+    , ("MonitorNormalTermination",   testMonitorNormalTermination transport)
+    , ("MonitorAbnormalTermination", testMonitorAbnormalTermination transport)
     {-
     , ("Monitor2", testMonitor2 transport)
     , ("Monitor3", testMonitor3 transport)
