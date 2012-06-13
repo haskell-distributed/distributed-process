@@ -61,15 +61,15 @@ testPing transport = do
   takeMVar clientDone
 
 
--- | Set up monitoring, send first message to an unreachable node 
-testMonitor1 :: NT.Transport -> IO ()
-testMonitor1 transport = do
+-- | Monitor an unreachable node 
+testMonitorUnreachable :: NT.Transport -> IO ()
+testMonitorUnreachable transport = do
   deadProcess <- newEmptyMVar
   done <- newEmptyMVar
 
   forkIO $ do
     localNode <- newLocalNode transport
-    addr <- forkProcess localNode $ return ()
+    addr <- forkProcess localNode $ liftIO $ newEmptyMVar >>= readMVar -- deadlock
     closeLocalNode localNode
     putMVar deadProcess addr
 
@@ -84,6 +84,40 @@ testMonitor1 transport = do
     putMVar done ()
       
   takeMVar done
+
+-- | Monitor a process which terminates normally
+testMonitorNormalTermination :: NT.Transport -> IO ()
+testMonitorNormalTermination transport = do
+  monitorSetup <- newEmptyMVar
+  monitoredProcess <- newEmptyMVar
+  done <- newEmptyMVar
+
+  forkIO $ do
+    localNode <- newLocalNode transport
+    addr <- forkProcess localNode $ 
+      liftIO $ readMVar monitorSetup
+    putMVar monitoredProcess addr
+
+  forkIO $ do
+    localNode <- newLocalNode transport
+    theirAddr <- readMVar monitoredProcess
+    runProcess localNode $ do
+      ref <- monitor theirAddr
+      liftIO $ do
+        -- Monitor is asynchronous, but we want to make sure the monitor has
+        -- been fully created before allowing the remote process to terminate,
+        -- otherwise we might get a different signal here 
+        threadDelay 100000
+        putMVar monitorSetup () 
+      ProcessDied ref' pid DiedNormal <- expect
+      True <- return $ ref' == ref && pid == theirAddr
+      return ()
+    putMVar done ()
+
+  takeMVar done
+
+    
+
 
 {-
 -- Like 'testMonitor1', but throw an exception instead
@@ -191,8 +225,9 @@ main :: IO ()
 main = do
   Right transport <- createTransport "127.0.0.1" "8080" defaultTCPParameters
   runTests 
-    [ ("Ping",     testPing transport)
-    , ("Monitor1", testMonitor1 transport)
+    [ --("Ping",                     testPing transport)
+      ("MonitorUnreachable",       testMonitorUnreachable transport)
+    , ("MonitorNormalTermination", testMonitorNormalTermination transport)
     {-
     , ("Monitor2", testMonitor2 transport)
     , ("Monitor3", testMonitor3 transport)

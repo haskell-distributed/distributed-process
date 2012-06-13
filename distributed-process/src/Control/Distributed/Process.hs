@@ -98,14 +98,15 @@ import Data.Map (Map)
 import qualified Data.Map as Map (empty, lookup, insert, delete, keys, toList)
 import qualified Data.List as List (delete)
 import Data.Set (Set)
-import qualified Data.Set as Set (empty, insert)
+import qualified Data.Set as Set (empty, insert, delete, member)
 import Data.Int (Int32)
 import Data.Typeable (Typeable)
 import Data.Foldable (forM_)
-import Data.Maybe (isNothing)
-import Control.Monad (void, liftM2, liftM3, when)
+import Data.Maybe (isJust)
+import Control.Monad (void, liftM2, liftM3, when, unless, forever)
 import Control.Monad.Reader (MonadReader(..), ReaderT, runReaderT)
 import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.State (MonadState, StateT, evalStateT, gets, modify)
 import Control.Applicative ((<$>))
 import Control.Category ((>>>))
 import Control.Exception (Exception, throwIO, catch)
@@ -304,10 +305,10 @@ data NodeCtrlMsg = NodeCtrlMsg
   }
 
 data NodeCtrlState = NodeCtrlState 
-  {  -- Mapping from remote processes to linked local processes
+  {  -- Mapping from remote processes to linked local processes 
     _nodeCtrlLinks :: Map NodeId (Map LocalProcessId (Set ProcessId))
      -- Mapping from remote processes to monitoring local processes
-  , _nodeCtrlMons  :: Map NodeId (Map LocalProcessId (Map ProcessId (Set (MonitorRef))))
+  , _nodeCtrlMons  :: Map NodeId (Map LocalProcessId (Map ProcessId (Set MonitorRef)))
      -- The node controller maintains its own set of connections
      -- TODO: still not convinced that this is correct
   , _nodeCtrlConns :: Map Identifier NT.Connection 
@@ -325,118 +326,147 @@ initNodeCtrlState = NodeCtrlState
   , _nodeCtrlConns = Map.empty 
   }
 
-nodeController :: LocalNode -> IO ()
-nodeController node = go initNodeCtrlState
+newtype NodeCtrl a = NodeCtrl { unNodeCtrl :: ReaderT LocalNode (StateT NodeCtrlState IO) a }
+  deriving (Functor, Monad, MonadIO, MonadState NodeCtrlState, MonadReader LocalNode)
+
+nodeController :: NodeCtrl ()
+nodeController = forever $ do
+  node <- ask
+  msg  <- liftIO $ readChan (localCtrlChan node)
+
+  -- Forward the message if appropriate
+  case destNid (ctrlMsgSignal msg) of
+    Just nid' | nid' /= localNodeId node -> 
+      ctrlSendTo (Right nid') . BSL.toChunks . encode $ msg
+    _ ->
+      return ()
+
+  processCtrlMsg msg
+
+ctrlSendTo :: Identifier -> [BSS.ByteString] -> NodeCtrl () 
+ctrlSendTo them payload = do
+  mConn <- ctrlConnTo them
+  didSend <- case mConn of
+    Just conn -> do
+      didSend <- liftIO $ NT.send conn payload
+      case didSend of
+        Left _   -> return False
+        Right () -> return True
+    Nothing ->
+      return False
+  unless didSend $ do
+    -- [Unified: Table 9, rule node_disconnect]
+    node <- ask
+    liftIO . writeChan (localCtrlChan node) $ NodeCtrlMsg 
+      { ctrlMsgSender = them 
+      , ctrlMsgSignal = Died them DiedDisconnect
+      }
+
+ctrlConnTo :: Identifier -> NodeCtrl (Maybe NT.Connection)
+ctrlConnTo them = do
+  mConn <- gets (^. nodeCtrlConnFor them)
+  case mConn of
+    Just conn -> return (Just conn)
+    Nothing   -> createCtrlConnTo them
+
+createCtrlConnTo :: Identifier -> NodeCtrl (Maybe NT.Connection)
+createCtrlConnTo them = do
+    node  <- ask
+    mConn <- liftIO $ NT.connect (localEndPoint node) 
+                                 addr 
+                                 NT.ReliableOrdered 
+                                 NT.defaultConnectHints 
+    case mConn of
+      Right conn -> do
+        didSend <- liftIO $ NT.send conn firstMsg
+        case didSend of
+          Left _ -> 
+            return Nothing 
+          Right () -> do
+            modify $ nodeCtrlConnFor them ^= Just conn
+            return $ Just conn
+      Left _ ->
+        return Nothing
   where
-    -- [Unified: Table 7]
-    go :: NodeCtrlState -> IO ()
-    go st = do
-      msg <- readChan ourChan
-      st' <- case destNid (ctrlMsgSignal msg) of
-        Just nid' | nid' /= localNodeId node -> do
-          (st', mConn) <- connTo st (Right nid')
-          didSend <- case mConn of
-            Just conn -> do
-              didSend <- NT.send conn (BSL.toChunks . encode $ msg) 
-              case didSend of
-                Left _   -> return False
-                Right () -> return True
-            Nothing ->
-              return False
-          if didSend
-            then 
-              return st'
-            else do
-              writeChan ourChan $ NodeCtrlMsg 
-                { ctrlMsgSender = Right nid'
-                , ctrlMsgSignal = Died (Right nid') DiedDisconnect
-                }
-              return st'
-        _ ->
-          -- No need to forward
-          return st 
-      st'' <- processCtrlMsg node st' msg
-      go st''
+    (addr, firstMsg) = case them of
+       Left pid  -> ( nodeAddress (processNodeId pid)
+                    , idToPayload (Just $ processLocalId pid)
+                    )
+       Right nid -> ( nodeAddress nid
+                    , idToPayload Nothing 
+                    )
 
-    ourChan     = localCtrlChan node
-    ourEndPoint = localEndPoint node 
-
-    connTo :: NodeCtrlState 
-           -> Identifier 
-           -> IO (NodeCtrlState, Maybe NT.Connection)
-    connTo st them = do
-      case st ^. nodeCtrlConnFor them of
-        Nothing -> do
-          (addr, firstMsg) <- return $ case them of
-             Left pid  -> ( nodeAddress (processNodeId pid)
-                          , idToPayload (Just $ processLocalId pid)
-                          )
-             Right nid -> ( nodeAddress nid
-                          , idToPayload Nothing 
-                          )
-          mConn <- NT.connect ourEndPoint 
-                              addr 
-                              NT.ReliableOrdered 
-                              NT.defaultConnectHints 
-          case mConn of
-            Right conn -> do
-              didSend <- NT.send conn firstMsg
-              case didSend of
-                Left _ -> 
-                  return (st, Nothing)
-                Right () -> 
-                  return (nodeCtrlConnFor them ^= Just conn $ st, Just conn)
-            Left _ ->
-              return (st, Nothing) 
-        Just conn ->
-          return (st, Just conn)
 
 -- [Unified: ncEffect]
-processCtrlMsg :: LocalNode 
-               -> NodeCtrlState 
-               -> NodeCtrlMsg 
-               -> IO (NodeCtrlState)
+processCtrlMsg :: NodeCtrlMsg -> NodeCtrl ()
+
 -- [Unified: Table 10]
-processCtrlMsg node st (NodeCtrlMsg from (Monitor them ref)) = do
+processCtrlMsg (NodeCtrlMsg from (Monitor them ref)) = do
+  node <- ask 
   shouldLink <- 
     if processNodeId them /= localNodeId node 
       then return True
-      else withMVar (localState node) $ 
-        return . isNothing . (^. localProcessWithId (processLocalId them))
+      else liftIO . withMVar (localState node) $ 
+        return . isJust . (^. localProcessWithId (processLocalId them))
   if shouldLink 
     then
-      return (nodeCtrlMonsFor them (fromLeft from) ^: Set.insert ref $ st) 
+      modify $ nodeCtrlMonsFor them (fromLeft from) ^: Set.insert ref
     else 
       fail "processCtrlMsg: TODO"
 
--- [Unified Table 9 and Table 12] 
-processCtrlMsg node st (NodeCtrlMsg _from (Died (Right nid) reason)) = do
-  let localLinks :: Map LocalProcessId (Set ProcessId)
-      localLinks = st ^. nodeCtrlLinksForNode nid
+-- [Unified: Table 12, bottom rule] 
+processCtrlMsg (NodeCtrlMsg _from (Died (Right nid) reason)) = do
+  node  <- ask
+  links <- gets (^. nodeCtrlLinksForNode nid)
+  mons  <- gets (^. nodeCtrlMonsForNode nid)
 
-      localMons :: Map LocalProcessId (Map ProcessId (Set MonitorRef))
-      localMons  = st ^. nodeCtrlMonsForNode nid
+  forM_ (Map.toList links) $ \(_them, _uss) -> do 
+    fail "processCtrlMsg: linking not implemented"
 
-  forM_ (Map.toList localLinks) $ \(_them, _uss) -> do 
-    fail "disconnected: linking not implemented"
-
-  forM_ (Map.toList localMons) $ \(them, uss) -> do
+  forM_ (Map.toList mons) $ \(them, uss) -> do
     forM_ (Map.toList uss) $ \(us, refs) -> do
       -- We only need to notify local processes
-      when (processNodeId us == localNodeId node) $ do
+      when (processNodeId us == localNodeId node) . liftIO $ do
         let lpid = processLocalId us
             rpid = ProcessId nid them 
         forM_ refs $ \ref -> do
           mProc <- withMVar (localState node) $ 
             return . (^. localProcessWithId lpid)
-          forM_ mProc $ \proc ->
+          forM_ mProc $ \proc -> 
             enqueue (processQueue proc) . createMessage $
               ProcessDied ref rpid reason
 
-  return . (nodeCtrlLinksForNode nid ^= Map.empty)
+  modify $ (nodeCtrlLinksForNode nid ^= Map.empty)
          . (nodeCtrlMonsForNode nid ^= Map.empty)
-         $ st
 
+-- [Unified: Table 12, top rule]
+processCtrlMsg (NodeCtrlMsg _from (Died (Left pid) reason)) = do
+  node  <- ask
+  links <- gets (^. nodeCtrlLinksForProcess pid)
+  mons  <- gets (^. nodeCtrlMonsForProcess pid)
+
+  forM_ links $ \_us ->
+    fail "processCtrlMsg: linking not implemented"
+
+  forM_ (Map.toList mons) $ \(us, refs) ->
+    forM_ refs $ \ref -> do
+      let msg = createMessage $ ProcessDied ref pid reason
+      if processNodeId us == localNodeId node 
+        then liftIO $ do
+          let lpid = processLocalId us
+          mProc <- withMVar (localState node) $
+            return . (^. localProcessWithId lpid)
+          forM_ mProc $ \proc ->
+            enqueue (processQueue proc) msg 
+        else do
+          ctrlSendTo (Right . processNodeId $ us) . BSL.toChunks . encode $ 
+            NodeCtrlMsg
+              { ctrlMsgSender = Right (localNodeId node) -- TODO: why the change in sender? How does that affect 'reconnect' semantics?
+              , ctrlMsgSignal = Died (Left pid) reason
+              }
+                 
+  modify $ (nodeCtrlLinksForProcess pid ^= Set.empty)
+         . (nodeCtrlMonsForProcess pid ^= Map.empty)
 
 --------------------------------------------------------------------------------
 -- Initialization                                                             --
@@ -462,7 +492,8 @@ newLocalNode transport = do
                            , localState    = state
                            , localCtrlChan = ctrlChan
                            }
-      void . forkIO $ nodeController node
+      void . forkIO $ evalStateT (runReaderT (unNodeCtrl nodeController) node) 
+                                 initNodeCtrlState
       void . forkIO $ handleIncomingMessages node
       return node
 
@@ -474,59 +505,77 @@ runProcess node proc = do
 
 forkProcess :: LocalNode -> Process () -> IO ProcessId
 forkProcess node proc = do
-  queue <- newCQueue
-  lproc <- modifyMVar (localState node) $ \st -> do
-    let lpid  = LocalProcessId { lpidCounter = st ^. localPidCounter
-                               , lpidUnique  = st ^. localPidUnique
+    queue <- newCQueue
+    lproc <- modifyMVar (localState node) $ \st -> do
+      let lpid  = LocalProcessId { lpidCounter = st ^. localPidCounter
+                                 , lpidUnique  = st ^. localPidUnique
+                                 }
+      let pid   = ProcessId { processNodeId  = localNodeId node 
+                            , processLocalId = lpid
+                            }
+      pst <- newMVar LocalProcessState { _connections = Map.empty
+                                       }
+      let lproc = LocalProcess { processQueue = queue
+                               , processNode  = node
+                               , processId    = pid
+                               , processState = pst 
                                }
-    let pid   = ProcessId { processNodeId  = localNodeId node 
-                          , processLocalId = lpid
-                          }
-    pst <- newMVar LocalProcessState { _connections = Map.empty
-                                     }
-    let lproc = LocalProcess { processQueue = queue
-                             , processNode  = node
-                             , processId    = pid
-                             , processState = pst 
-                             }
-    -- TODO: if the counter overflows we should pick a new unique                           
-    return ( (localProcessWithId lpid ^= Just lproc)
-           . (localPidCounter ^: (+ 1))
-           $ st
-           , lproc 
-           )
-  void . forkIO $ runLocalProcess lproc proc
-  return (processId lproc)
+      -- TODO: if the counter overflows we should pick a new unique                           
+      return ( (localProcessWithId lpid ^= Just lproc)
+             . (localPidCounter ^: (+ 1))
+             $ st
+             , lproc 
+             )
+    void . forkIO $ do
+      runLocalProcess lproc proc
+      -- [Unified: Table 4]
+      let pid = processId lproc
+      writeChan (localCtrlChan node) $ NodeCtrlMsg 
+        { ctrlMsgSender = Left pid 
+        , ctrlMsgSignal = Died (Left pid) DiedNormal 
+        }
+    return (processId lproc)
    
 handleIncomingMessages :: LocalNode -> IO ()
-handleIncomingMessages node = go [] Map.empty
+handleIncomingMessages node = go [] Map.empty Set.empty
   where
-    go :: [NT.ConnectionId] -> Map NT.ConnectionId LocalProcess -> IO () 
-    go halfOpenConns openConns = do
+    go :: [NT.ConnectionId] -- ^ Connections whose purpose we don't yet know 
+       -> Map NT.ConnectionId LocalProcess -- ^ Connections to local processes
+       -> Set NT.ConnectionId              -- ^ Connections to our controller
+       -> IO () 
+    go uninitConns procConns ctrlConns = do
       event <- NT.receive endpoint
       case event of
         NT.ConnectionOpened cid _rel _theirAddr ->
-          go (cid : halfOpenConns) openConns
+          go (cid : uninitConns) procConns ctrlConns 
         NT.Received cid payload -> 
-          case Map.lookup cid openConns of
+          case Map.lookup cid procConns of
             Just proc -> do
               let msg = payloadToMessage payload
               enqueue (processQueue proc) msg
-              go halfOpenConns openConns
-            Nothing -> if cid `elem` halfOpenConns
-              then do
-                let Just lpid = payloadToId payload
-                mProc <- withMVar state $ return . (^. localProcessWithId lpid) 
-                case mProc of
-                  Just proc -> 
-                    go (List.delete cid halfOpenConns) 
-                       (Map.insert cid proc openConns)
+              go uninitConns procConns ctrlConns 
+            Nothing -> if cid `Set.member` ctrlConns 
+              then writeChan ctrlChan (decode . BSL.fromChunks $ payload)
+              else if cid `elem` uninitConns 
+                then case payloadToId payload of
+                  Just lpid -> do
+                    mProc <- withMVar state $ return . (^. localProcessWithId lpid) 
+                    case mProc of
+                      Just proc -> 
+                        go (List.delete cid uninitConns) 
+                           (Map.insert cid proc procConns)
+                           ctrlConns
+                      Nothing ->
+                        fail "handleIncomingMessages: TODO 1" 
                   Nothing ->
-                    fail "handleIncomingMessages: TODO 1"
-              else
-                fail "handleIncomingMessages: TODO 2" 
+                    go (List.delete cid uninitConns)
+                       procConns
+                       (Set.insert cid ctrlConns)
+                else fail "handleIncomingMessages: TODO 2" 
         NT.ConnectionClosed cid -> 
-          go (List.delete cid halfOpenConns) (Map.delete cid openConns)
+          go (List.delete cid uninitConns) 
+             (Map.delete cid procConns)
+             (Set.delete cid ctrlConns)
         NT.ErrorEvent (NT.TransportError (NT.EventConnectionLost theirAddr _) _) -> do 
           -- TODO: we could cache this information
           pids <- withMVar state $ \st -> 
@@ -543,6 +592,7 @@ handleIncomingMessages node = go [] Map.empty
     
     state    = localState node
     endpoint = localEndPoint node
+    ctrlChan = localCtrlChan node
 
 --------------------------------------------------------------------------------
 -- Auxiliary functions                                                        --
@@ -598,8 +648,10 @@ sendBinary them conn payload = do
       liftIO $ remoteProcessFailed node them
 
 sendMessage :: ProcessId -> NT.Connection -> Message -> Process ()
-sendMessage them conn (Message fp enc) = 
-  sendBinary them conn $ encodeFingerprint fp : BSL.toChunks enc
+sendMessage them conn = sendBinary them conn . messageToPayload 
+
+messageToPayload :: Message -> [BSS.ByteString]
+messageToPayload (Message fp enc) = encodeFingerprint fp : BSL.toChunks enc
 
 payloadToMessage :: [BSS.ByteString] -> Message
 payloadToMessage payload = Message fp msg
@@ -696,6 +748,7 @@ instance Binary ProcessSignal where
     header <- getWord8
     case header of
       0 -> liftM2 Monitor get get
+      1 -> liftM2 Died get get
       _ -> fail "ProcessSignal.get: invalid"
 
 instance Binary DiedReason where
