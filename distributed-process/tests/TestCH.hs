@@ -175,6 +175,31 @@ testMonitorLocalDeadProcess transport = do
 
   takeMVar done
 
+-- | Monitor a remote process that is already dead
+testMonitorRemoteDeadProcess :: NT.Transport -> IO ()
+testMonitorRemoteDeadProcess transport = do
+  processDead <- newEmptyMVar
+  processAddr <- newEmptyMVar
+  done <- newEmptyMVar
+
+  forkIO $ do
+    localNode <- newLocalNode transport
+    addr <- forkProcess localNode . liftIO $ putMVar processDead ()
+    putMVar processAddr addr
+
+  forkIO $ do
+    localNode <- newLocalNode transport
+    theirAddr <- readMVar processAddr
+    readMVar processDead
+    runProcess localNode $ do
+      ref <- monitor theirAddr
+      ProcessDied ref' pid DiedNoProc <- expect
+      True <- return $ ref' == ref && pid == theirAddr
+      return ()
+    putMVar done ()
+
+  takeMVar done
+
 {-
 -- Like 'testMonitor1', but throw an exception instead
 testMonitor2 :: NT.Transport -> IO ()
@@ -286,6 +311,7 @@ main = do
     , ("MonitorNormalTermination",   testMonitorNormalTermination transport)
     , ("MonitorAbnormalTermination", testMonitorAbnormalTermination transport)
     , ("MonitorLocalDeadProcess",    testMonitorLocalDeadProcess transport)
+    , ("MonitorRemoteDeadProcess",   testMonitorRemoteDeadProcess transport)
     {-
     , ("Monitor2", testMonitor2 transport)
     , ("Monitor3", testMonitor3 transport)

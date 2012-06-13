@@ -339,10 +339,8 @@ nodeController = forever $ do
 
   -- Forward the message if appropriate
   case destNid (ctrlMsgSignal msg) of
-    Just nid' | nid' /= localNodeId node -> 
-      ctrlSendTo (Right nid') . BSL.toChunks . encode $ msg
-    _ ->
-      return ()
+    Just nid' | nid' /= localNodeId node -> ncSendCtrlMsg nid' msg
+    _ -> return ()
 
   processCtrlMsg msg
 
@@ -364,6 +362,9 @@ ctrlSendTo them payload = do
       { ctrlMsgSender = them 
       , ctrlMsgSignal = Died them DiedDisconnect
       }
+
+ncSendCtrlMsg :: NodeId -> NodeCtrlMsg -> NodeCtrl ()
+ncSendCtrlMsg dest = ctrlSendTo (Right dest) . BSL.toChunks . encode 
 
 ctrlSendLocal :: LocalProcessId -> Message -> NodeCtrl ()
 ctrlSendLocal lpid msg = do
@@ -425,6 +426,11 @@ processCtrlMsg (NodeCtrlMsg (Left from) (Monitor them ref)) = do
     (False, True) -> -- [Unified: second rule]
       ctrlSendLocal (processLocalId from) . createMessage $
         ProcessDied ref them DiedNoProc 
+    (False, False) -> -- [Unified: third rule]
+      ncSendCtrlMsg (processNodeId from) $ NodeCtrlMsg 
+        { ctrlMsgSender = Right (localNodeId node)
+        , ctrlMsgSignal = Died (Left them) DiedNoProc
+        }
       
 processCtrlMsg (NodeCtrlMsg (Right _) (Monitor _ _)) = 
   error "Monitor message from a node?"
@@ -466,11 +472,10 @@ processCtrlMsg (NodeCtrlMsg _from (Died (Left pid) reason)) = do
         then 
           ctrlSendLocal (processLocalId us) msg
         else 
-          ctrlSendTo (Right . processNodeId $ us) . BSL.toChunks . encode $ 
-            NodeCtrlMsg
-              { ctrlMsgSender = Right (localNodeId node) -- TODO: why the change in sender? How does that affect 'reconnect' semantics?
-              , ctrlMsgSignal = Died (Left pid) reason
-              }
+          ncSendCtrlMsg (processNodeId us) $ NodeCtrlMsg
+            { ctrlMsgSender = Right (localNodeId node) -- TODO: why the change in sender? How does that affect 'reconnect' semantics?
+            , ctrlMsgSignal = Died (Left pid) reason
+            }
 
   modify $ (nodeCtrlLinksForProcess pid ^= Set.empty)
          . (nodeCtrlMonsForProcess pid ^= Map.empty)
