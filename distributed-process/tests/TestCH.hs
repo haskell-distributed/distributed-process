@@ -70,7 +70,7 @@ testMonitorUnreachable transport = do
 
   forkIO $ do
     localNode <- newLocalNode transport
-    addr <- forkProcess localNode $ liftIO $ newEmptyMVar >>= readMVar -- deadlock
+    addr <- forkProcess localNode . liftIO $ threadDelay 1000000 
     closeLocalNode localNode
     putMVar deadProcess addr
 
@@ -200,6 +200,35 @@ testMonitorRemoteDeadProcess transport = do
 
   takeMVar done
 
+-- | Monitor a process that becomes disconnected
+testMonitorDisconnect :: NT.Transport -> IO ()
+testMonitorDisconnect transport = do
+  processAddr <- newEmptyMVar
+  monitorSetup <- newEmptyMVar
+  done <- newEmptyMVar
+
+  forkIO $ do
+    localNode <- newLocalNode transport
+    addr <- forkProcess localNode . liftIO $ threadDelay 1000000 
+    putMVar processAddr addr
+    readMVar monitorSetup
+    -- TODO: closeLocalNode should eventually kill processes too, so it's not a good test of a network disconnect
+    closeLocalNode localNode
+
+  forkIO $ do
+    localNode <- newLocalNode transport
+    theirAddr <- readMVar processAddr
+    runProcess localNode $ do
+      ref <- monitor theirAddr
+      liftIO $ threadDelay 100000 >> putMVar monitorSetup ()
+      ProcessDied ref' pid DiedDisconnect <- expect
+      True <- return $ ref' == ref && pid == theirAddr
+      return ()
+    putMVar done ()
+
+  takeMVar done
+
+
 {-
 -- Like 'testMonitor1', but throw an exception instead
 testMonitor2 :: NT.Transport -> IO ()
@@ -312,6 +341,7 @@ main = do
     , ("MonitorAbnormalTermination", testMonitorAbnormalTermination transport)
     , ("MonitorLocalDeadProcess",    testMonitorLocalDeadProcess transport)
     , ("MonitorRemoteDeadProcess",   testMonitorRemoteDeadProcess transport)
+    , ("MonitorDisconnect",          testMonitorDisconnect transport)
     {-
     , ("Monitor2", testMonitor2 transport)
     , ("Monitor3", testMonitor3 transport)

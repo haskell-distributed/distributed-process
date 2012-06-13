@@ -86,7 +86,7 @@ import qualified Data.ByteString.Lazy as BSL ( ByteString
                                              )
 import Data.Binary (Binary, decode, encode, put, get, putWord8, getWord8)
 import Data.Map (Map)
-import qualified Data.Map as Map (empty, lookup, insert, delete, keys, toList)
+import qualified Data.Map as Map (empty, lookup, insert, delete, toList)
 import qualified Data.List as List (delete)
 import Data.Set (Set)
 import qualified Data.Set as Set (empty, insert, delete, member)
@@ -186,7 +186,6 @@ data LocalNodeState = LocalNodeState
   { _localProcesses      :: Map LocalProcessId LocalProcess
   , _localPidCounter     :: Int32
   , _localPidUnique      :: Int32
-  , _monitorActions      :: Map ProcessId [IO ()]
   , _localMonitorCounter :: Int32
   }
 
@@ -232,6 +231,7 @@ send them msg = do
 getSelfPid :: Process ProcessId
 getSelfPid = processId <$> ask 
 
+-- | Monitor another process
 monitor :: ProcessId -> Process MonitorRef 
 monitor them = do
   us          <- getSelfPid
@@ -268,7 +268,6 @@ expectTimeout timeout = do
   msg <- liftIO $ 
     dequeueMatching queue (Just timeout) ((== fp) . messageFingerprint)
   return $ fmap (decode . messageEncoding) msg
-
 
 --------------------------------------------------------------------------------
 -- The node controller                                                        --
@@ -488,7 +487,6 @@ newLocalNode transport = do
         { _localProcesses      = Map.empty
         , _localPidCounter     = 0 
         , _localPidUnique      = unq 
-        , _monitorActions      = Map.empty
         , _localMonitorCounter = 0
         }
       ctrlChan <- newChan
@@ -587,12 +585,12 @@ handleIncomingMessages node = go [] Map.empty Set.empty
              (Map.delete cid procConns)
              (Set.delete cid ctrlConns)
         NT.ErrorEvent (NT.TransportError (NT.EventConnectionLost (Just theirAddr) _) _) -> do 
-          -- TODO: we could cache this information
-          pids <- withMVar state $ \st -> 
-            return $ filter ((== theirAddr) . nodeAddress . processNodeId) 
-                   . Map.keys 
-                   $ st ^. monitorActions
-          forM_ pids $ remoteProcessFailed node 
+          -- [Unified table 9, rule node_disconnect]
+          let nid = Right $ NodeId theirAddr
+          writeChan ctrlChan NCMsg 
+            { ctrlMsgSender = nid
+            , ctrlMsgSignal = Died nid DiedDisconnect
+            }
         NT.ErrorEvent _ ->
           fail "handleIncomingMessages: TODO 4"
         NT.EndPointClosed ->
@@ -774,17 +772,11 @@ localPidCounter = accessor _localPidCounter (\ctr st -> st { _localPidCounter = 
 localPidUnique :: Accessor LocalNodeState Int32
 localPidUnique = accessor _localPidUnique (\unq st -> st { _localPidUnique = unq })
 
-monitorActions :: Accessor LocalNodeState (Map ProcessId [IO ()])
-monitorActions = accessor _monitorActions (\as st -> st { _monitorActions = as })
-
 localMonitorCounter :: Accessor LocalNodeState Int32
 localMonitorCounter = accessor _localMonitorCounter (\ctr st -> st { _localMonitorCounter = ctr }) 
 
 localProcessWithId :: LocalProcessId -> Accessor LocalNodeState (Maybe LocalProcess)
 localProcessWithId lpid = localProcesses >>> DAC.mapMaybe lpid
-
-monitorActionsFor :: ProcessId -> Accessor LocalNodeState [IO ()]
-monitorActionsFor pid = monitorActions >>> DAC.mapDefault [] pid
 
 connections :: Accessor LocalProcessState (Map ProcessId NT.Connection)
 connections = accessor _connections (\conns st -> st { _connections = conns })
