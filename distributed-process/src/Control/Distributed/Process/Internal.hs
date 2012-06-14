@@ -10,9 +10,10 @@ module Control.Distributed.Process.Internal
   , LocalProcessState(..)
     -- * Messages 
   , Message(..)
-    -- * Monitoring
+    -- * Monitoring and linking
   , MonitorRef
-  , MonitorReply(..)
+  , MonitorNotification(..)
+  , LinkException(..)
   , DiedReason(..)
     -- * Node controller data types
   , Identifier
@@ -34,9 +35,11 @@ module Control.Distributed.Process.Internal
   , connectionTo
   ) where
 
+import Control.Concurrent (ThreadId)
 import Control.Concurrent.MVar (MVar)
 import Control.Concurrent.Chan (Chan)
 import Control.Category ((>>>))
+import Control.Exception (Exception)
 import Data.Map (Map)
 import Data.Int (Int32)
 import Data.Typeable (Typeable)
@@ -95,10 +98,11 @@ data LocalNodeState = LocalNodeState
 
 -- | Processes running on our local node
 data LocalProcess = LocalProcess 
-  { processQueue :: CQueue Message 
-  , processNode  :: LocalNode   
-  , processId    :: ProcessId
-  , processState :: MVar LocalProcessState
+  { processQueue  :: CQueue Message 
+  , processNode   :: LocalNode   
+  , processId     :: ProcessId
+  , processState  :: MVar LocalProcessState
+  , processThread :: ThreadId
   }
 
 -- | Local process state
@@ -116,8 +120,14 @@ data Message = Message
 type MonitorRef = Int32
 
 -- | Messages sent by monitors
-data MonitorReply = ProcessDied MonitorRef ProcessId DiedReason
+data MonitorNotification = MonitorNotification MonitorRef ProcessId DiedReason
   deriving (Typeable)
+
+-- | Exceptions thrown when a linked process dies
+data LinkException = LinkException ProcessId DiedReason
+  deriving (Typeable, Show)
+
+instance Exception LinkException
 
 -- | Why did a process die?
 data DiedReason = 
@@ -140,6 +150,7 @@ data NCMsg = NCMsg
 -- | Signals to the node controller (see 'NCMsg')
 data ProcessSignal =
     Monitor ProcessId MonitorRef
+  | Link ProcessId
   | Died Identifier DiedReason
 
 --------------------------------------------------------------------------------
@@ -192,9 +203,9 @@ instance Binary ProcessId where
   put pid = put (processNodeId pid) >> put (processLocalId pid)
   get     = ProcessId <$> get <*> get
 
-instance Binary MonitorReply where
-  put (ProcessDied ref pid reason) = put ref >> put pid >> put reason
-  get = ProcessDied <$> get <*> get <*> get
+instance Binary MonitorNotification where
+  put (MonitorNotification ref pid reason) = put ref >> put pid >> put reason
+  get = MonitorNotification <$> get <*> get <*> get
 
 instance Binary NCMsg where
   put msg = put (ctrlMsgSender msg) >> put (ctrlMsgSignal msg)
@@ -202,12 +213,14 @@ instance Binary NCMsg where
 
 instance Binary ProcessSignal where
   put (Monitor pid ref) = putWord8 0 >> put pid >> put ref
-  put (Died who reason) = putWord8 1 >> put who >> put reason
+  put (Link pid)        = putWord8 1 >> put pid
+  put (Died who reason) = putWord8 2 >> put who >> put reason
   get = do
     header <- getWord8
     case header of
       0 -> Monitor <$> get <*> get
-      1 -> Died <$> get <*> get
+      1 -> Link <$> get
+      2 -> Died <$> get <*> get
       _ -> fail "ProcessSignal.get: invalid"
 
 instance Binary DiedReason where

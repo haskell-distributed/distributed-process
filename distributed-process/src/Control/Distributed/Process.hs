@@ -65,19 +65,23 @@ module Control.Distributed.Process
   , getSelfPid
     -- * Monitoring and linking
   , monitor
-  , MonitorReply(..)
+  , MonitorNotification(..)
+  , MonitorRef
+  , LinkException(..)
   , DiedReason(..)
+  , link
     -- * Initialization
   , newLocalNode
   , forkProcess
   , runProcess
     -- * Auxiliary API
   , closeLocalNode
-  , pcatch
+  , catch
   , expectTimeout
   ) where
 
 import Prelude hiding (catch)
+import System.IO (fixIO)
 import qualified Data.ByteString as BSS (ByteString)
 import qualified Data.ByteString.Lazy as BSL (fromChunks)
 import Data.Binary (decode)
@@ -91,7 +95,8 @@ import Control.Monad (void)
 import Control.Monad.Reader (MonadReader(..), ReaderT, runReaderT)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Applicative ((<$>))
-import Control.Exception (Exception, throwIO, catch, SomeException)
+import Control.Exception (Exception, throwIO, SomeException)
+import qualified Control.Exception as Exception (catch)
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar ( newMVar 
                                , withMVar
@@ -136,7 +141,8 @@ import Control.Distributed.Process.Internal ( NodeId(..)
                                             , LocalProcessState(..)
                                             , Message(..)
                                             , MonitorRef
-                                            , MonitorReply(..)
+                                            , MonitorNotification(..)
+                                            , LinkException(..)
                                             , DiedReason(..)
                                             , NCMsg(..)
                                             , ProcessSignal(..)
@@ -186,12 +192,18 @@ monitor :: ProcessId -> Process MonitorRef
 monitor them = do
   us          <- getSelfPid
   monitorRef  <- getMonitorRef
-  ourCtrlChan <- localCtrlChan . processNode <$> ask
-  liftIO . writeChan ourCtrlChan $ NCMsg 
-    { ctrlMsgSender = Left us
-    , ctrlMsgSignal = Monitor them monitorRef
-    }
+  postCtrlMsg NCMsg { ctrlMsgSender = Left us
+                    , ctrlMsgSignal = Monitor them monitorRef
+                    }
   return monitorRef
+
+-- | Link to a remote process
+link :: ProcessId -> Process ()
+link them = do
+  us <- getSelfPid
+  postCtrlMsg NCMsg { ctrlMsgSender = Left us
+                    , ctrlMsgSignal = Link them
+                    }
 
 --------------------------------------------------------------------------------
 -- Auxiliary API                                                              --
@@ -205,11 +217,10 @@ closeLocalNode node =
   NT.closeEndPoint (localEndPoint node)
 
 -- Catch exceptions within a process
--- TODO: should this be called simply 'catch'?
-pcatch :: Exception e => Process a -> (e -> Process a) -> Process a
-pcatch p h = do
+catch :: Exception e => Process a -> (e -> Process a) -> Process a
+catch p h = do
   run <- runLocalProcess <$> ask
-  liftIO $ catch (run p) (run . h) 
+  liftIO $ Exception.catch (run p) (run . h) 
 
 expectTimeout :: forall a. Serializable a => Int -> Process (Maybe a)
 expectTimeout timeout = do
@@ -253,33 +264,27 @@ runProcess node proc = do
   takeMVar done
 
 forkProcess :: LocalNode -> Process () -> IO ProcessId
-forkProcess node proc = do
-    queue <- newCQueue
-    lproc <- modifyMVar (localState node) $ \st -> do
-      let lpid  = LocalProcessId { lpidCounter = st ^. localPidCounter
-                                 , lpidUnique  = st ^. localPidUnique
-                                 }
-      let pid   = ProcessId { processNodeId  = localNodeId node 
-                            , processLocalId = lpid
-                            }
-      pst <- newMVar LocalProcessState { _connections = Map.empty
-                                       }
-      let lproc = LocalProcess { processQueue = queue
-                               , processNode  = node
-                               , processId    = pid
-                               , processState = pst 
-                               }
-      -- TODO: if the counter overflows we should pick a new unique                           
-      return ( (localProcessWithId lpid ^= Just lproc)
-             . (localPidCounter ^: (+ 1))
-             $ st
-             , lproc 
-             )
-    void . forkIO $ do
-      let pid  = processId lproc
-          lpid = processLocalId pid
-      reason <- catch (runLocalProcess lproc proc >> return DiedNormal)
-                      (return . DiedException . (show :: SomeException -> String))
+forkProcess node proc = modifyMVar (localState node) $ \st -> do
+  let lpid  = LocalProcessId { lpidCounter = st ^. localPidCounter
+                             , lpidUnique  = st ^. localPidUnique
+                             }
+  let pid   = ProcessId { processNodeId  = localNodeId node 
+                        , processLocalId = lpid
+                        }
+  pst <- newMVar LocalProcessState { _connections = Map.empty
+                                   }
+  queue <- newCQueue
+  (_, lproc) <- fixIO $ \ ~(tid, _) -> do
+    let lproc = LocalProcess { processQueue  = queue
+                             , processNode   = node
+                             , processId     = pid
+                             , processState  = pst 
+                             , processThread = tid
+                             }
+    tid' <- forkIO $ do
+      reason <- Exception.catch 
+        (runLocalProcess lproc proc >> return DiedNormal)
+        (return . DiedException . (show :: SomeException -> String))
       -- [Unified: Table 4, rules termination and exiting]
       modifyMVar_ (localState node) $ 
         return . (localProcessWithId lpid ^= Nothing)
@@ -287,7 +292,14 @@ forkProcess node proc = do
         { ctrlMsgSender = Left pid 
         , ctrlMsgSignal = Died (Left pid) reason 
         }
-    return (processId lproc)
+    return (tid', lproc)
+
+  -- TODO: if the counter overflows we should pick a new unique                           
+  return ( (localProcessWithId lpid ^= Just lproc)
+         . (localPidCounter ^: (+ 1))
+         $ st
+         , pid 
+         )
    
 handleIncomingMessages :: LocalNode -> IO ()
 handleIncomingMessages node = go [] Map.empty Set.empty
@@ -424,3 +436,9 @@ getMonitorRef = do
 -- This is most definitely NOT exported
 runLocalProcess :: LocalProcess -> Process a -> IO a
 runLocalProcess lproc proc = runReaderT (unProcess proc) lproc
+
+-- | Post a control message on the local node controller
+postCtrlMsg :: NCMsg -> Process ()
+postCtrlMsg msg = do
+  ctrlChan <- localCtrlChan . processNode <$> ask
+  liftIO $ writeChan ctrlChan msg

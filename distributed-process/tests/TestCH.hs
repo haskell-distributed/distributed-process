@@ -12,6 +12,7 @@ import Control.Concurrent.MVar ( newEmptyMVar
 import Control.Monad (replicateM_)
 import Control.Monad.IO.Class (liftIO)
 import Control.Exception (throwIO)
+import Control.Applicative ((<$>))
 import qualified Network.Transport as NT (Transport, closeEndPoint)
 import Network.Transport.TCP (createTransport, defaultTCPParameters)
 import Control.Distributed.Process
@@ -62,10 +63,14 @@ testPing transport = do
 
   takeMVar clientDone
 
+-- | Monitor or link to a remote node
+monitorOrLink :: Bool -> ProcessId -> Process (Maybe MonitorRef) 
+monitorOrLink True  pid = Just <$> monitor pid
+monitorOrLink False pid = link pid >> return Nothing
 
 -- | Monitor an unreachable node 
-testMonitorUnreachable :: NT.Transport -> IO ()
-testMonitorUnreachable transport = do
+testMonitorUnreachable :: NT.Transport -> Bool -> IO ()
+testMonitorUnreachable transport mOrL = do
   deadProcess <- newEmptyMVar
   done <- newEmptyMVar
 
@@ -78,18 +83,20 @@ testMonitorUnreachable transport = do
   forkIO $ do
     localNode <- newLocalNode transport
     theirAddr <- readMVar deadProcess
-    runProcess localNode $ do 
-      ref <- monitor theirAddr
-      ProcessDied ref' pid DiedDisconnect <- expect
-      True <- return $ ref' == ref && pid == theirAddr
-      return ()
-    putMVar done ()
-      
+    runProcess localNode $
+      catch (do ref <- monitorOrLink mOrL theirAddr
+                MonitorNotification ref' pid DiedDisconnect <- expect
+                True <- return $ Just ref' == ref && pid == theirAddr && mOrL
+                liftIO $ putMVar done ())
+            (\(LinkException pid DiedDisconnect) -> do
+                True <- return $ pid == theirAddr && not mOrL
+                liftIO $ putMVar done ())
+
   takeMVar done
 
 -- | Monitor a process which terminates normally
-testMonitorNormalTermination :: NT.Transport -> IO ()
-testMonitorNormalTermination transport = do
+testMonitorNormalTermination :: NT.Transport -> Bool -> IO ()
+testMonitorNormalTermination transport mOrL = do
   monitorSetup <- newEmptyMVar
   monitoredProcess <- newEmptyMVar
   done <- newEmptyMVar
@@ -103,24 +110,26 @@ testMonitorNormalTermination transport = do
   forkIO $ do
     localNode <- newLocalNode transport
     theirAddr <- readMVar monitoredProcess
-    runProcess localNode $ do
-      ref <- monitor theirAddr
-      liftIO $ do
-        -- Monitor is asynchronous, but we want to make sure the monitor has
-        -- been fully created before allowing the remote process to terminate,
-        -- otherwise we might get a different signal here 
-        threadDelay 100000
-        putMVar monitorSetup () 
-      ProcessDied ref' pid DiedNormal <- expect
-      True <- return $ ref' == ref && pid == theirAddr
-      return ()
-    putMVar done ()
+    runProcess localNode $ 
+      catch (do ref <- monitorOrLink mOrL theirAddr
+                liftIO $ do
+                  -- Monitor is asynchronous, but we want to make sure the monitor has
+                  -- been fully created before allowing the remote process to terminate,
+                  -- otherwise we might get a different signal here 
+                  threadDelay 100000
+                  putMVar monitorSetup () 
+                MonitorNotification ref' pid DiedNormal <- expect
+                True <- return $ Just ref' == ref && pid == theirAddr && mOrL
+                liftIO $ putMVar done ())
+            (\(LinkException pid DiedNormal) -> do
+                True <- return $ pid == theirAddr && not mOrL
+                liftIO $ putMVar done ())
 
   takeMVar done
 
 -- | Monitor a process which terminates abnormally
-testMonitorAbnormalTermination :: NT.Transport -> IO ()
-testMonitorAbnormalTermination transport = do
+testMonitorAbnormalTermination :: NT.Transport -> Bool -> IO ()
+testMonitorAbnormalTermination transport mOrL = do
   monitorSetup <- newEmptyMVar
   monitoredProcess <- newEmptyMVar
   done <- newEmptyMVar
@@ -137,24 +146,26 @@ testMonitorAbnormalTermination transport = do
   forkIO $ do
     localNode <- newLocalNode transport
     theirAddr <- readMVar monitoredProcess
-    runProcess localNode $ do
-      ref <- monitor theirAddr
-      liftIO $ do
-        -- Monitor is asynchronous, but we want to make sure the monitor has
-        -- been fully created before allowing the remote process to terminate,
-        -- otherwise we might get a different signal here 
-        threadDelay 100000
-        putMVar monitorSetup () 
-      ProcessDied ref' pid (DiedException err') <- expect
-      True <- return $ ref' == ref && pid == theirAddr && err' == show err 
-      return ()
-    putMVar done ()
+    runProcess localNode $ 
+      catch (do ref <- monitorOrLink mOrL theirAddr
+                liftIO $ do
+                  -- Monitor is asynchronous, but we want to make sure the monitor has
+                  -- been fully created before allowing the remote process to terminate,
+                  -- otherwise we might get a different signal here 
+                  threadDelay 100000
+                  putMVar monitorSetup () 
+                MonitorNotification ref' pid (DiedException err') <- expect
+                True <- return $ Just ref' == ref && pid == theirAddr && err' == show err && mOrL 
+                liftIO $ putMVar done ())
+            (\(LinkException pid (DiedException err')) -> do
+                True <- return $ pid == theirAddr && err' == show err && not mOrL
+                liftIO $ putMVar done ())
 
   takeMVar done
     
 -- | Monitor a local process that is already dead
-testMonitorLocalDeadProcess :: NT.Transport -> IO ()
-testMonitorLocalDeadProcess transport = do
+testMonitorLocalDeadProcess :: NT.Transport -> Bool -> IO ()
+testMonitorLocalDeadProcess transport mOrL = do
   processDead <- newEmptyMVar
   processAddr <- newEmptyMVar
   localNode <- newLocalNode transport
@@ -168,17 +179,19 @@ testMonitorLocalDeadProcess transport = do
     theirAddr <- readMVar processAddr
     readMVar processDead
     runProcess localNode $ do
-      ref <- monitor theirAddr
-      ProcessDied ref' pid DiedNoProc <- expect
-      True <- return $ ref' == ref && pid == theirAddr
-      return ()
-    putMVar done ()
+      catch (do ref <- monitorOrLink mOrL theirAddr
+                MonitorNotification ref' pid DiedNoProc <- expect
+                True <- return $ Just ref' == ref && pid == theirAddr && mOrL
+                liftIO $ putMVar done ())
+            (\(LinkException pid DiedNoProc) -> do
+                True <- return $ pid == theirAddr && not mOrL
+                liftIO $ putMVar done ())
 
   takeMVar done
 
 -- | Monitor a remote process that is already dead
-testMonitorRemoteDeadProcess :: NT.Transport -> IO ()
-testMonitorRemoteDeadProcess transport = do
+testMonitorRemoteDeadProcess :: NT.Transport -> Bool -> IO ()
+testMonitorRemoteDeadProcess transport mOrL = do
   processDead <- newEmptyMVar
   processAddr <- newEmptyMVar
   done <- newEmptyMVar
@@ -193,17 +206,19 @@ testMonitorRemoteDeadProcess transport = do
     theirAddr <- readMVar processAddr
     readMVar processDead
     runProcess localNode $ do
-      ref <- monitor theirAddr
-      ProcessDied ref' pid DiedNoProc <- expect
-      True <- return $ ref' == ref && pid == theirAddr
-      return ()
-    putMVar done ()
+      catch (do ref <- monitorOrLink mOrL theirAddr
+                MonitorNotification ref' pid DiedNoProc <- expect
+                True <- return $ Just ref' == ref && pid == theirAddr && mOrL
+                liftIO $ putMVar done ())
+            (\(LinkException pid DiedNoProc) -> do
+                True <- return $ pid == theirAddr && not mOrL
+                liftIO $ putMVar done ())
 
   takeMVar done
 
 -- | Monitor a process that becomes disconnected
-testMonitorDisconnect :: NT.Transport -> IO ()
-testMonitorDisconnect transport = do
+testMonitorDisconnect :: NT.Transport -> Bool -> IO ()
+testMonitorDisconnect transport mOrL = do
   processAddr <- newEmptyMVar
   monitorSetup <- newEmptyMVar
   done <- newEmptyMVar
@@ -219,13 +234,15 @@ testMonitorDisconnect transport = do
     localNode <- newLocalNode transport
     theirAddr <- readMVar processAddr
     runProcess localNode $ do
-      ref <- monitor theirAddr
-      liftIO $ threadDelay 100000 >> putMVar monitorSetup ()
-      ProcessDied ref' pid DiedDisconnect <- expect
-      True <- return $ ref' == ref && pid == theirAddr
-      return ()
-    putMVar done ()
-
+      catch (do ref <- monitorOrLink mOrL theirAddr
+                liftIO $ threadDelay 100000 >> putMVar monitorSetup ()
+                MonitorNotification ref' pid DiedDisconnect <- expect
+                True <- return $ Just ref' == ref && pid == theirAddr && mOrL
+                liftIO $ putMVar done ())
+            (\(LinkException pid DiedDisconnect) -> do
+                True <- return $ pid == theirAddr && not mOrL
+                liftIO $ putMVar done ())
+  
   takeMVar done
 
 
@@ -336,12 +353,18 @@ main = do
   Right transport <- createTransport "127.0.0.1" "8080" defaultTCPParameters
   runTests 
     [ --("Ping",                     testPing transport)
-      ("MonitorUnreachable",         testMonitorUnreachable transport)
-    , ("MonitorNormalTermination",   testMonitorNormalTermination transport)
-    , ("MonitorAbnormalTermination", testMonitorAbnormalTermination transport)
-    , ("MonitorLocalDeadProcess",    testMonitorLocalDeadProcess transport)
-    , ("MonitorRemoteDeadProcess",   testMonitorRemoteDeadProcess transport)
-    , ("MonitorDisconnect",          testMonitorDisconnect transport)
+      ("MonitorUnreachable",         testMonitorUnreachable transport True)
+    , ("MonitorNormalTermination",   testMonitorNormalTermination transport True)
+    , ("MonitorAbnormalTermination", testMonitorAbnormalTermination transport True)
+    , ("MonitorLocalDeadProcess",    testMonitorLocalDeadProcess transport True)
+    , ("MonitorRemoteDeadProcess",   testMonitorRemoteDeadProcess transport True)
+    , ("MonitorDisconnect",          testMonitorDisconnect transport True)
+    , ("LinkUnreachable",            testMonitorUnreachable transport False)
+    , ("LinkNormalTermination",      testMonitorNormalTermination transport False)
+    , ("LinkAbnormalTermination",    testMonitorAbnormalTermination transport False)
+    , ("LinkLocalDeadProcess",       testMonitorLocalDeadProcess transport False)
+    , ("LinkRemoteDeadProcess",      testMonitorRemoteDeadProcess transport False)
+    , ("LinkDisconnect",             testMonitorDisconnect transport False)
     {-
     , ("Monitor2", testMonitor2 transport)
     , ("Monitor3", testMonitor3 transport)

@@ -21,6 +21,7 @@ import Control.Monad.State (MonadState, StateT, evalStateT, gets, modify)
 import Control.Monad.Reader (MonadReader(..), ReaderT, runReaderT)
 import Control.Concurrent.MVar (withMVar)
 import Control.Concurrent.Chan (readChan, writeChan)
+import Control.Exception (throwTo)
 import qualified Network.Transport as NT ( EndPoint
                                          , Connection
                                          , Reliability(ReliableOrdered)
@@ -34,9 +35,9 @@ import Control.Distributed.Process.Internal ( NodeId(..)
                                             , ProcessId(..)
                                             , LocalNode(..)
                                             , LocalProcess(..)
-                                            , Message(..)
                                             , MonitorRef
-                                            , MonitorReply(..)
+                                            , MonitorNotification(..)
+                                            , LinkException(..)
                                             , DiedReason(..)
                                             , Identifier
                                             , NCMsg(..)
@@ -87,13 +88,26 @@ nodeController = do
       Just nid' | nid' /= localNodeId node -> sendCtrlMsg nid' msg
       _ -> return ()
 
-    ncEffect msg
-
--- [Unified: ncEffect]
-ncEffect :: NCMsg -> NC ()
+    case msg of
+      NCMsg (Left from) (Monitor them ref) ->
+        ncEffectMonitor from them (Just ref)
+      NCMsg (Right _) (Monitor _ _) ->
+        error "Monitor message from a node?"
+      NCMsg (Left from) (Link them) ->
+        ncEffectMonitor from them Nothing
+      NCMsg (Right _) (Link _) ->
+        error "Link message from a node?"
+      NCMsg _from (Died (Right nid) reason) ->
+        ncEffectNodeDied nid reason
+      NCMsg _from (Died (Left pid) reason) ->
+        ncEffectProcessDied pid reason
 
 -- [Unified: Table 10]
-ncEffect (NCMsg (Left from) (Monitor them ref)) = do
+ncEffectMonitor :: ProcessId        -- ^ Who's watching? 
+                -> ProcessId        -- ^ Who's being watched?
+                -> Maybe MonitorRef -- ^ 'Nothing' to link
+                -> NC ()
+ncEffectMonitor from them mRef = do
   node <- ask 
   shouldLink <- 
     if processNodeId them /= localNodeId node 
@@ -103,60 +117,52 @@ ncEffect (NCMsg (Left from) (Monitor them ref)) = do
   let localFrom = processNodeId from == localNodeId node
   case (shouldLink, localFrom) of
     (True, _) ->  -- [Unified: first rule]
-      modify $ monitorsFor them from ^: Set.insert ref
+      case mRef of
+        Just ref -> modify $ monitorsFor them from ^: Set.insert ref
+        Nothing  -> modify $ linksForProcess them ^: Set.insert from 
     (False, True) -> -- [Unified: second rule]
-      sendLocal (processLocalId from) . createMessage $
-        ProcessDied ref them DiedNoProc 
+      notifyDied from them DiedNoProc mRef 
     (False, False) -> -- [Unified: third rule]
       sendCtrlMsg (processNodeId from) NCMsg 
         { ctrlMsgSender = Right (localNodeId node)
         , ctrlMsgSignal = Died (Left them) DiedNoProc
         }
-      
-ncEffect (NCMsg (Right _) (Monitor _ _)) = 
-  error "Monitor message from a node?"
 
--- [Unified: Table 12, bottom rule] 
-ncEffect (NCMsg _from (Died (Right nid) reason)) = do
+-- [Unified: Table 12, bottom rule]
+ncEffectNodeDied :: NodeId -> DiedReason -> NC ()
+ncEffectNodeDied nid reason = do
   node <- ask
   lnks <- gets (^. linksForNode nid)
   mons <- gets (^. monitorsForNode nid)
 
-  forM_ (Map.toList lnks) $ \(_them, _uss) -> 
-    fail "ncEffect: linking not implemented"
+  -- We only need to notify local processes
+  forM_ (Map.toList lnks) $ \(them, uss) -> do
+    let pid = ProcessId nid them
+    forM_ uss $ \us ->
+      when (processNodeId us == localNodeId node) $
+        notifyDied us pid reason Nothing
 
-  forM_ (Map.toList mons) $ \(them, uss) ->
+  forM_ (Map.toList mons) $ \(them, uss) -> do
+    let pid = ProcessId nid them 
     forM_ (Map.toList uss) $ \(us, refs) -> 
-      -- We only need to notify local processes
-      when (processNodeId us == localNodeId node) $ do
-        let lpid = processLocalId us
-            rpid = ProcessId nid them 
-        forM_ refs $ \ref -> 
-          sendLocal lpid . createMessage $ ProcessDied ref rpid reason
+      when (processNodeId us == localNodeId node) $
+        forM_ refs $ notifyDied us pid reason . Just
 
   modify $ (linksForNode nid ^= Map.empty)
          . (monitorsForNode nid ^= Map.empty)
 
 -- [Unified: Table 12, top rule]
-ncEffect (NCMsg _from (Died (Left pid) reason)) = do
-  node <- ask
+ncEffectProcessDied :: ProcessId -> DiedReason -> NC ()
+ncEffectProcessDied pid reason = do
   lnks <- gets (^. linksForProcess pid)
   mons <- gets (^. monitorsForProcess pid)
 
-  forM_ lnks $ \_us ->
-    fail "ncEffect: linking not implemented"
+  forM_ lnks $ \us ->
+    notifyDied us pid reason Nothing 
 
   forM_ (Map.toList mons) $ \(us, refs) ->
-    forM_ refs $ \ref -> do
-      let msg = createMessage $ ProcessDied ref pid reason
-      if processNodeId us == localNodeId node 
-        then 
-          sendLocal (processLocalId us) msg
-        else 
-          sendCtrlMsg (processNodeId us) NCMsg
-            { ctrlMsgSender = Right (localNodeId node) -- TODO: why the change in sender? How does that affect 'reconnect' semantics?
-            , ctrlMsgSignal = Died (Left pid) reason
-            }
+    forM_ refs $ 
+      notifyDied us pid reason . Just
 
   modify $ (linksForProcess pid ^= Set.empty)
          . (monitorsForProcess pid ^= Map.empty)
@@ -164,6 +170,33 @@ ncEffect (NCMsg _from (Died (Left pid) reason)) = do
 --------------------------------------------------------------------------------
 -- Connections                                                                --
 --------------------------------------------------------------------------------
+
+notifyDied :: ProcessId         -- ^ Who to notify?
+           -> ProcessId         -- ^ Who died?
+           -> DiedReason        -- ^ How did they die?
+           -> Maybe MonitorRef  -- ^ 'Nothing' for linking
+           -> NC ()
+notifyDied dest src reason mRef = do
+  node <- ask
+  if processNodeId dest == localNodeId node 
+    then liftIO $ do
+      let lpid = processLocalId dest 
+      mProc <- withMVar (localState node) $ return . (^. localProcessWithId lpid)
+      -- By [Unified: table 6, rule missing_process] messages to dead processes
+      -- can silently be dropped
+      forM_ mProc $ \proc -> case mRef of
+        Just ref -> do
+          let msg = createMessage $ MonitorNotification ref src reason
+          enqueue (processQueue proc) msg
+        Nothing ->
+          throwTo (processThread proc) $ LinkException src reason 
+    else
+      -- TODO: why the change in sender? How does that affect 'reconnect' semantics?
+      -- (see [Unified: Table 10]
+      sendCtrlMsg (processNodeId dest) NCMsg
+        { ctrlMsgSender = Right (localNodeId node) 
+        , ctrlMsgSignal = Died (Left src) reason
+        }
 
 sendTo :: Identifier -> [BSS.ByteString] -> NC () 
 sendTo them payload = do
@@ -186,15 +219,6 @@ sendTo them payload = do
 
 sendCtrlMsg :: NodeId -> NCMsg -> NC ()
 sendCtrlMsg dest = sendTo (Right dest) . BSL.toChunks . encode 
-
-sendLocal :: LocalProcessId -> Message -> NC ()
-sendLocal lpid msg = do
-  node <- ask
-  liftIO $ do
-    mProc <- withMVar (localState node) $ return . (^. localProcessWithId lpid)
-    -- By [Unified: table 6, rule missing_process] messages to dead processes
-    -- can silently be dropped
-    forM_ mProc $ \proc -> enqueue (processQueue proc) msg 
 
 connTo :: Identifier -> NC (Maybe NT.Connection)
 connTo them = do
@@ -236,6 +260,7 @@ createConnTo them = do
 
 destNid :: ProcessSignal -> Maybe NodeId
 destNid (Monitor pid _)      = Just $ processNodeId pid 
+destNid (Link pid)           = Just $ processNodeId pid
 destNid (Died (Right _) _)   = Nothing
 destNid (Died (Left _pid) _) = fail "destNid: TODO"
 
