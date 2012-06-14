@@ -10,11 +10,12 @@ import Control.Concurrent.MVar ( newEmptyMVar
                                , readMVar
                                )
 import Control.Monad (replicateM_)
-import Control.Distributed.Process
 import Control.Monad.IO.Class (liftIO)
 import Control.Exception (throwIO)
-import qualified Network.Transport as NT (Transport)
+import qualified Network.Transport as NT (Transport, closeEndPoint)
 import Network.Transport.TCP (createTransport, defaultTCPParameters)
+import Control.Distributed.Process
+import Control.Distributed.Process.Internal (LocalNode(localEndPoint))
 import TestAuxiliary
 
 newtype Ping = Ping ProcessId
@@ -212,8 +213,7 @@ testMonitorDisconnect transport = do
     addr <- forkProcess localNode . liftIO $ threadDelay 1000000 
     putMVar processAddr addr
     readMVar monitorSetup
-    -- TODO: closeLocalNode should eventually kill processes too, so it's not a good test of a network disconnect
-    closeLocalNode localNode
+    NT.closeEndPoint (localEndPoint localNode)
 
   forkIO $ do
     localNode <- newLocalNode transport

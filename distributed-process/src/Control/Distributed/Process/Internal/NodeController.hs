@@ -54,47 +54,120 @@ runNodeController :: LocalNode -> IO ()
 runNodeController node = 
   evalStateT (runReaderT (unNC nodeController) node) initNCState
 
+--------------------------------------------------------------------------------
+-- Internal data types                                                        --
+--------------------------------------------------------------------------------
 
 data NCState = NCState 
   {  -- Mapping from remote processes to linked local processes 
-    _ncLinks :: Map NodeId (Map LocalProcessId (Set ProcessId))
+    _links :: Map NodeId (Map LocalProcessId (Set ProcessId))
      -- Mapping from remote processes to monitoring local processes
-  , _ncMons  :: Map NodeId (Map LocalProcessId (Map ProcessId (Set MonitorRef)))
+  , _monitors  :: Map NodeId (Map LocalProcessId (Map ProcessId (Set MonitorRef)))
      -- The node controller maintains its own set of connections
      -- TODO: still not convinced that this is correct
-  , _ncConns :: Map Identifier NT.Connection 
-  }
-
-destNid :: ProcessSignal -> Maybe NodeId
-destNid (Monitor pid _)      = Just $ processNodeId pid 
-destNid (Died (Right _) _)   = Nothing
-destNid (Died (Left _pid) _) = fail "destNid: TODO"
-
-initNCState :: NCState
-initNCState = NCState
-  { _ncLinks = Map.empty
-  , _ncMons  = Map.empty
-  , _ncConns = Map.empty 
+  , _connections :: Map Identifier NT.Connection 
   }
 
 newtype NC a = NC { unNC :: ReaderT LocalNode (StateT NCState IO) a }
   deriving (Functor, Monad, MonadIO, MonadState NCState, MonadReader LocalNode)
 
+--------------------------------------------------------------------------------
+-- Core functionality                                                         --
+--------------------------------------------------------------------------------
+
+-- [Unified: Table 7]
 nodeController :: NC ()
-nodeController = forever $ do
+nodeController = do
   node <- ask
-  msg  <- liftIO $ readChan (localCtrlChan node)
+  forever $ do
+    msg  <- liftIO $ readChan (localCtrlChan node)
 
-  -- Forward the message if appropriate
-  case destNid (ctrlMsgSignal msg) of
-    Just nid' | nid' /= localNodeId node -> ncSendCtrlMsg nid' msg
-    _ -> return ()
+    -- [Unified: Table 7, rule nc_forward] 
+    case destNid (ctrlMsgSignal msg) of
+      Just nid' | nid' /= localNodeId node -> sendCtrlMsg nid' msg
+      _ -> return ()
 
-  ncEffect msg
+    ncEffect msg
 
-ctrlSendTo :: Identifier -> [BSS.ByteString] -> NC () 
-ctrlSendTo them payload = do
-  mConn <- ncConnTo them
+-- [Unified: ncEffect]
+ncEffect :: NCMsg -> NC ()
+
+-- [Unified: Table 10]
+ncEffect (NCMsg (Left from) (Monitor them ref)) = do
+  node <- ask 
+  shouldLink <- 
+    if processNodeId them /= localNodeId node 
+      then return True
+      else liftIO . withMVar (localState node) $ 
+        return . isJust . (^. localProcessWithId (processLocalId them))
+  let localFrom = processNodeId from == localNodeId node
+  case (shouldLink, localFrom) of
+    (True, _) ->  -- [Unified: first rule]
+      modify $ monitorsFor them from ^: Set.insert ref
+    (False, True) -> -- [Unified: second rule]
+      sendLocal (processLocalId from) . createMessage $
+        ProcessDied ref them DiedNoProc 
+    (False, False) -> -- [Unified: third rule]
+      sendCtrlMsg (processNodeId from) NCMsg 
+        { ctrlMsgSender = Right (localNodeId node)
+        , ctrlMsgSignal = Died (Left them) DiedNoProc
+        }
+      
+ncEffect (NCMsg (Right _) (Monitor _ _)) = 
+  error "Monitor message from a node?"
+
+-- [Unified: Table 12, bottom rule] 
+ncEffect (NCMsg _from (Died (Right nid) reason)) = do
+  node <- ask
+  lnks <- gets (^. linksForNode nid)
+  mons <- gets (^. monitorsForNode nid)
+
+  forM_ (Map.toList lnks) $ \(_them, _uss) -> 
+    fail "ncEffect: linking not implemented"
+
+  forM_ (Map.toList mons) $ \(them, uss) ->
+    forM_ (Map.toList uss) $ \(us, refs) -> 
+      -- We only need to notify local processes
+      when (processNodeId us == localNodeId node) $ do
+        let lpid = processLocalId us
+            rpid = ProcessId nid them 
+        forM_ refs $ \ref -> 
+          sendLocal lpid . createMessage $ ProcessDied ref rpid reason
+
+  modify $ (linksForNode nid ^= Map.empty)
+         . (monitorsForNode nid ^= Map.empty)
+
+-- [Unified: Table 12, top rule]
+ncEffect (NCMsg _from (Died (Left pid) reason)) = do
+  node <- ask
+  lnks <- gets (^. linksForProcess pid)
+  mons <- gets (^. monitorsForProcess pid)
+
+  forM_ lnks $ \_us ->
+    fail "ncEffect: linking not implemented"
+
+  forM_ (Map.toList mons) $ \(us, refs) ->
+    forM_ refs $ \ref -> do
+      let msg = createMessage $ ProcessDied ref pid reason
+      if processNodeId us == localNodeId node 
+        then 
+          sendLocal (processLocalId us) msg
+        else 
+          sendCtrlMsg (processNodeId us) NCMsg
+            { ctrlMsgSender = Right (localNodeId node) -- TODO: why the change in sender? How does that affect 'reconnect' semantics?
+            , ctrlMsgSignal = Died (Left pid) reason
+            }
+
+  modify $ (linksForProcess pid ^= Set.empty)
+         . (monitorsForProcess pid ^= Map.empty)
+
+--------------------------------------------------------------------------------
+-- Connections                                                                --
+--------------------------------------------------------------------------------
+
+sendTo :: Identifier -> [BSS.ByteString] -> NC () 
+sendTo them payload = do
+  mConn <- connTo them
   didSend <- case mConn of
     Just conn -> do
       didSend <- liftIO $ NT.send conn payload
@@ -111,11 +184,11 @@ ctrlSendTo them payload = do
       , ctrlMsgSignal = Died them DiedDisconnect
       }
 
-ncSendCtrlMsg :: NodeId -> NCMsg -> NC ()
-ncSendCtrlMsg dest = ctrlSendTo (Right dest) . BSL.toChunks . encode 
+sendCtrlMsg :: NodeId -> NCMsg -> NC ()
+sendCtrlMsg dest = sendTo (Right dest) . BSL.toChunks . encode 
 
-ncSendLocal :: LocalProcessId -> Message -> NC ()
-ncSendLocal lpid msg = do
+sendLocal :: LocalProcessId -> Message -> NC ()
+sendLocal lpid msg = do
   node <- ask
   liftIO $ do
     mProc <- withMVar (localState node) $ return . (^. localProcessWithId lpid)
@@ -123,15 +196,15 @@ ncSendLocal lpid msg = do
     -- can silently be dropped
     forM_ mProc $ \proc -> enqueue (processQueue proc) msg 
 
-ncConnTo :: Identifier -> NC (Maybe NT.Connection)
-ncConnTo them = do
-  mConn <- gets (^. ncConnFor them)
+connTo :: Identifier -> NC (Maybe NT.Connection)
+connTo them = do
+  mConn <- gets (^. connectionTo them)
   case mConn of
     Just conn -> return (Just conn)
-    Nothing   -> ncCreateConnTo them
+    Nothing   -> createConnTo them
 
-ncCreateConnTo :: Identifier -> NC (Maybe NT.Connection)
-ncCreateConnTo them = do
+createConnTo :: Identifier -> NC (Maybe NT.Connection)
+createConnTo them = do
     node  <- ask
     mConn <- liftIO $ NT.connect (localEndPoint node) 
                                  addr 
@@ -144,7 +217,7 @@ ncCreateConnTo them = do
           Left _ -> 
             return Nothing 
           Right () -> do
-            modify $ ncConnFor them ^= Just conn
+            modify $ connectionTo them ^= Just conn
             return $ Just conn
       Left _ ->
         return Nothing
@@ -157,106 +230,49 @@ ncCreateConnTo them = do
                     , idToPayload Nothing 
                     )
 
+--------------------------------------------------------------------------------
+-- Auxiliary                                                                  --
+--------------------------------------------------------------------------------
 
--- [Unified: ncEffect]
-ncEffect :: NCMsg -> NC ()
+destNid :: ProcessSignal -> Maybe NodeId
+destNid (Monitor pid _)      = Just $ processNodeId pid 
+destNid (Died (Right _) _)   = Nothing
+destNid (Died (Left _pid) _) = fail "destNid: TODO"
 
--- [Unified: Table 10]
-ncEffect (NCMsg (Left from) (Monitor them ref)) = do
-  node <- ask 
-  shouldLink <- 
-    if processNodeId them /= localNodeId node 
-      then return True
-      else liftIO . withMVar (localState node) $ 
-        return . isJust . (^. localProcessWithId (processLocalId them))
-  let localFrom = processNodeId from == localNodeId node
-  case (shouldLink, localFrom) of
-    (True, _) ->  -- [Unified: first rule]
-      modify $ ncMonsFor them from ^: Set.insert ref
-    (False, True) -> -- [Unified: second rule]
-      ncSendLocal (processLocalId from) . createMessage $
-        ProcessDied ref them DiedNoProc 
-    (False, False) -> -- [Unified: third rule]
-      ncSendCtrlMsg (processNodeId from) NCMsg 
-        { ctrlMsgSender = Right (localNodeId node)
-        , ctrlMsgSignal = Died (Left them) DiedNoProc
-        }
-      
-ncEffect (NCMsg (Right _) (Monitor _ _)) = 
-  error "Monitor message from a node?"
-
--- [Unified: Table 12, bottom rule] 
-ncEffect (NCMsg _from (Died (Right nid) reason)) = do
-  node  <- ask
-  links <- gets (^. ncLinksForNode nid)
-  mons  <- gets (^. ncMonsForNode nid)
-
-  forM_ (Map.toList links) $ \(_them, _uss) -> 
-    fail "ncEffect: linking not implemented"
-
-  forM_ (Map.toList mons) $ \(them, uss) ->
-    forM_ (Map.toList uss) $ \(us, refs) -> 
-      -- We only need to notify local processes
-      when (processNodeId us == localNodeId node) $ do
-        let lpid = processLocalId us
-            rpid = ProcessId nid them 
-        forM_ refs $ \ref -> 
-          ncSendLocal lpid . createMessage $ ProcessDied ref rpid reason
-
-  modify $ (ncLinksForNode nid ^= Map.empty)
-         . (ncMonsForNode nid ^= Map.empty)
-
--- [Unified: Table 12, top rule]
-ncEffect (NCMsg _from (Died (Left pid) reason)) = do
-  node  <- ask
-  links <- gets (^. ncLinksForProcess pid)
-  mons  <- gets (^. ncMonsForProcess pid)
-
-  forM_ links $ \_us ->
-    fail "ncEffect: linking not implemented"
-
-  forM_ (Map.toList mons) $ \(us, refs) ->
-    forM_ refs $ \ref -> do
-      let msg = createMessage $ ProcessDied ref pid reason
-      if processNodeId us == localNodeId node 
-        then 
-          ncSendLocal (processLocalId us) msg
-        else 
-          ncSendCtrlMsg (processNodeId us) NCMsg
-            { ctrlMsgSender = Right (localNodeId node) -- TODO: why the change in sender? How does that affect 'reconnect' semantics?
-            , ctrlMsgSignal = Died (Left pid) reason
-            }
-
-  modify $ (ncLinksForProcess pid ^= Set.empty)
-         . (ncMonsForProcess pid ^= Map.empty)
+initNCState :: NCState
+initNCState = NCState
+  { _links = Map.empty
+  , _monitors  = Map.empty
+  , _connections = Map.empty 
+  }
 
 --------------------------------------------------------------------------------
 -- Accessors                                                                  --
 --------------------------------------------------------------------------------
 
-ncLinks :: Accessor NCState (Map NodeId (Map LocalProcessId (Set ProcessId)))
-ncLinks = accessor _ncLinks (\links st -> st { _ncLinks = links })
+links :: Accessor NCState (Map NodeId (Map LocalProcessId (Set ProcessId)))
+links = accessor _links (\lnks st -> st { _links = lnks })
 
-ncMons :: Accessor NCState (Map NodeId (Map LocalProcessId (Map ProcessId (Set MonitorRef))))
-ncMons = accessor _ncMons (\mons st -> st { _ncMons = mons })
+monitors :: Accessor NCState (Map NodeId (Map LocalProcessId (Map ProcessId (Set MonitorRef))))
+monitors = accessor _monitors (\mons st -> st { _monitors = mons })
 
-ncConns :: Accessor NCState (Map Identifier NT.Connection)
-ncConns = accessor _ncConns (\conns st -> st { _ncConns = conns })
+connections :: Accessor NCState (Map Identifier NT.Connection)
+connections = accessor _connections (\conns st -> st { _connections = conns })
 
-ncConnFor :: Identifier -> Accessor NCState (Maybe NT.Connection)
-ncConnFor them = ncConns >>> DAC.mapMaybe them 
+connectionTo :: Identifier -> Accessor NCState (Maybe NT.Connection)
+connectionTo them = connections >>> DAC.mapMaybe them 
 
-ncLinksForNode :: NodeId -> Accessor NCState (Map LocalProcessId (Set ProcessId))
-ncLinksForNode nid = ncLinks >>> DAC.mapDefault Map.empty nid 
+linksForNode :: NodeId -> Accessor NCState (Map LocalProcessId (Set ProcessId))
+linksForNode nid = links >>> DAC.mapDefault Map.empty nid 
 
-ncMonsForNode :: NodeId -> Accessor NCState (Map LocalProcessId (Map ProcessId (Set MonitorRef)))
-ncMonsForNode nid = ncMons >>> DAC.mapDefault Map.empty nid 
+monitorsForNode :: NodeId -> Accessor NCState (Map LocalProcessId (Map ProcessId (Set MonitorRef)))
+monitorsForNode nid = monitors >>> DAC.mapDefault Map.empty nid 
 
-ncLinksForProcess :: ProcessId -> Accessor NCState (Set ProcessId)
-ncLinksForProcess pid = ncLinksForNode (processNodeId pid) >>> DAC.mapDefault Set.empty (processLocalId pid)
+linksForProcess :: ProcessId -> Accessor NCState (Set ProcessId)
+linksForProcess pid = linksForNode (processNodeId pid) >>> DAC.mapDefault Set.empty (processLocalId pid)
 
-ncMonsForProcess :: ProcessId -> Accessor NCState (Map ProcessId (Set MonitorRef))
-ncMonsForProcess pid = ncMonsForNode (processNodeId pid) >>> DAC.mapDefault Map.empty (processLocalId pid) 
+monitorsForProcess :: ProcessId -> Accessor NCState (Map ProcessId (Set MonitorRef))
+monitorsForProcess pid = monitorsForNode (processNodeId pid) >>> DAC.mapDefault Map.empty (processLocalId pid) 
 
-ncMonsFor :: ProcessId -> ProcessId -> Accessor NCState (Set MonitorRef)
-ncMonsFor them us = ncMonsForProcess them >>> DAC.mapDefault Set.empty us 
+monitorsFor :: ProcessId -> ProcessId -> Accessor NCState (Set MonitorRef)
+monitorsFor them us = monitorsForProcess them >>> DAC.mapDefault Set.empty us 
