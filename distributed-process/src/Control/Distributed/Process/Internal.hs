@@ -11,10 +11,12 @@ module Control.Distributed.Process.Internal
     -- * Messages 
   , Message(..)
     -- * Monitoring and linking
-  , MonitorRef
+  , MonitorRef(..)
   , MonitorNotification(..)
   , LinkException(..)
   , DiedReason(..)
+  , DidUnmonitor(..)
+  , DidUnlink(..)
     -- * Node controller data types
   , Identifier
   , NCMsg(..)
@@ -62,7 +64,10 @@ import Control.Distributed.Process.Internal.CQueue (CQueue)
 
 -- We identify node IDs and endpoint IDs
 newtype NodeId = NodeId { nodeAddress :: NT.EndPointAddress }
-  deriving (Show, Eq, Ord, Binary)
+  deriving (Eq, Ord, Binary)
+
+instance Show NodeId where
+  show = show . nodeAddress
 
 -- | A local process ID consists of a seed which distinguishes processes from
 -- different instances of the same local node and a counter
@@ -70,7 +75,10 @@ data LocalProcessId = LocalProcessId
   { lpidUnique  :: Int32
   , lpidCounter :: Int32
   }
-  deriving (Eq, Ord, Typeable, Show)
+  deriving (Eq, Ord, Typeable)
+
+instance Show LocalProcessId where
+  show = show . lpidCounter 
 
 -- | A process ID combines a local process with with an endpoint address
 -- (in other words, we identify nodes and endpoints)
@@ -78,7 +86,10 @@ data ProcessId = ProcessId
   { processNodeId  :: NodeId
   , processLocalId :: LocalProcessId 
   }
-  deriving (Eq, Ord, Typeable, Show)
+  deriving (Eq, Ord, Typeable)
+
+instance Show ProcessId where
+  show pid = show (processNodeId pid) ++ ":" ++ show (processLocalId pid)
 
 -- | Local nodes
 data LocalNode = LocalNode 
@@ -116,8 +127,12 @@ data Message = Message
   , messageEncoding    :: BSL.ByteString
   }
 
--- | MonitorRef should be an opaque type
-type MonitorRef = Int32
+-- | MonitorRef is opaque for regular Cloud Haskell processes 
+data MonitorRef = MonitorRef 
+  { monitorRefPid     :: ProcessId
+  , monitorRefCounter :: Int32
+  }
+  deriving (Eq, Ord, Show)
 
 -- | Messages sent by monitors
 data MonitorNotification = MonitorNotification MonitorRef ProcessId DiedReason
@@ -129,6 +144,14 @@ data LinkException = LinkException ProcessId DiedReason
 
 instance Exception LinkException
 
+-- | (Asynchronous) reply from unmonitor
+newtype DidUnmonitor = DidUnmonitor MonitorRef
+  deriving (Typeable, Binary)
+
+-- | (Asynchronous) reply from unlink
+newtype DidUnlink = DidUnlink ProcessId
+  deriving (Typeable, Binary)
+
 -- | Why did a process die?
 data DiedReason = 
     DiedNormal
@@ -136,7 +159,7 @@ data DiedReason =
   | DiedDisconnect
   | DiedNodeDown
   | DiedNoProc
-  deriving Show
+  deriving (Show, Eq)
 
 -- | Node or process identifier
 type Identifier = Either ProcessId NodeId
@@ -146,12 +169,16 @@ data NCMsg = NCMsg
   { ctrlMsgSender :: Identifier 
   , ctrlMsgSignal :: ProcessSignal
   }
+  deriving Show
 
 -- | Signals to the node controller (see 'NCMsg')
 data ProcessSignal =
-    Monitor ProcessId MonitorRef
-  | Link ProcessId
+    Link ProcessId
+  | Unlink ProcessId
+  | Monitor ProcessId MonitorRef
+  | Unmonitor MonitorRef
   | Died Identifier DiedReason
+  deriving Show
 
 --------------------------------------------------------------------------------
 -- Serialization/deserialization                                              --
@@ -211,16 +238,24 @@ instance Binary NCMsg where
   put msg = put (ctrlMsgSender msg) >> put (ctrlMsgSignal msg)
   get     = NCMsg <$> get <*> get
 
+instance Binary MonitorRef where
+  put ref = put (monitorRefPid ref) >> put (monitorRefCounter ref)
+  get     = MonitorRef <$> get <*> get
+
 instance Binary ProcessSignal where
-  put (Monitor pid ref) = putWord8 0 >> put pid >> put ref
-  put (Link pid)        = putWord8 1 >> put pid
-  put (Died who reason) = putWord8 2 >> put who >> put reason
+  put (Link pid)        = putWord8 0 >> put pid
+  put (Unlink pid)      = putWord8 1 >> put pid
+  put (Monitor pid ref) = putWord8 2 >> put pid >> put ref
+  put (Unmonitor ref)   = putWord8 3 >> put ref 
+  put (Died who reason) = putWord8 4 >> put who >> put reason
   get = do
     header <- getWord8
     case header of
-      0 -> Monitor <$> get <*> get
-      1 -> Link <$> get
-      2 -> Died <$> get <*> get
+      0 -> Link <$> get
+      1 -> Unlink <$> get
+      2 -> Monitor <$> get <*> get
+      3 -> Unmonitor <$> get
+      4 -> Died <$> get <*> get
       _ -> fail "ProcessSignal.get: invalid"
 
 instance Binary DiedReason where

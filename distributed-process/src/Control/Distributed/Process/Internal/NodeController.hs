@@ -6,7 +6,7 @@ module Control.Distributed.Process.Internal.NodeController
 import Data.Map (Map)
 import qualified Data.Map as Map (empty, toList)
 import Data.Set (Set)
-import qualified Data.Set as Set (empty, insert)
+import qualified Data.Set as Set (empty, insert, delete)
 import qualified Data.ByteString as BSS (ByteString)
 import qualified Data.ByteString.Lazy as BSL (toChunks)
 import Data.Binary (encode)
@@ -21,7 +21,7 @@ import Control.Monad.State (MonadState, StateT, evalStateT, gets, modify)
 import Control.Monad.Reader (MonadReader(..), ReaderT, runReaderT)
 import Control.Concurrent.MVar (withMVar)
 import Control.Concurrent.Chan (readChan, writeChan)
-import Control.Exception (throwTo)
+import Control.Exception (Exception, throwTo)
 import qualified Network.Transport as NT ( EndPoint
                                          , Connection
                                          , Reliability(ReliableOrdered)
@@ -29,15 +29,18 @@ import qualified Network.Transport as NT ( EndPoint
                                          , send
                                          , connect
                                          )
+import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Internal.CQueue (enqueue)
 import Control.Distributed.Process.Internal ( NodeId(..)
                                             , LocalProcessId(..)
                                             , ProcessId(..)
                                             , LocalNode(..)
                                             , LocalProcess(..)
-                                            , MonitorRef
+                                            , MonitorRef(..)
                                             , MonitorNotification(..)
                                             , LinkException(..)
+                                            , DidUnmonitor(..)
+                                            , DidUnlink(..)
                                             , DiedReason(..)
                                             , Identifier
                                             , NCMsg(..)
@@ -89,18 +92,27 @@ nodeController = do
       _ -> return ()
 
     case msg of
-      NCMsg (Left from) (Monitor them ref) ->
-        ncEffectMonitor from them (Just ref)
-      NCMsg (Right _) (Monitor _ _) ->
-        error "Monitor message from a node?"
       NCMsg (Left from) (Link them) ->
         ncEffectMonitor from them Nothing
-      NCMsg (Right _) (Link _) ->
-        error "Link message from a node?"
+      NCMsg (Left from) (Monitor them ref) ->
+        ncEffectMonitor from them (Just ref)
+      NCMsg (Left from) (Unlink them) ->
+        ncEffectUnlink from them 
+      NCMsg (Left from) (Unmonitor ref) ->
+        ncEffectUnmonitor from ref
       NCMsg _from (Died (Right nid) reason) ->
         ncEffectNodeDied nid reason
       NCMsg _from (Died (Left pid) reason) ->
         ncEffectProcessDied pid reason
+      -- Error cases
+      NCMsg (Right _) (Link _) ->
+        error "Link message from a node?"
+      NCMsg (Right _) (Monitor _ _) ->
+        error "Monitor message from a node?"
+      NCMsg (Right _) (Unlink _) ->
+        error "Unlink message from a node?"
+      NCMsg (Right _) (Unmonitor _) ->
+        error "Unmonitor message from a node?"
 
 -- [Unified: Table 10]
 ncEffectMonitor :: ProcessId        -- ^ Who's watching? 
@@ -110,12 +122,11 @@ ncEffectMonitor :: ProcessId        -- ^ Who's watching?
 ncEffectMonitor from them mRef = do
   node <- ask 
   shouldLink <- 
-    if processNodeId them /= localNodeId node 
+    if not (isLocal node them) 
       then return True
       else liftIO . withMVar (localState node) $ 
         return . isJust . (^. localProcessWithId (processLocalId them))
-  let localFrom = processNodeId from == localNodeId node
-  case (shouldLink, localFrom) of
+  case (shouldLink, isLocal node from) of
     (True, _) ->  -- [Unified: first rule]
       case mRef of
         Just ref -> modify $ monitorsFor them from ^: Set.insert ref
@@ -128,6 +139,20 @@ ncEffectMonitor from them mRef = do
         , ctrlMsgSignal = Died (Left them) DiedNoProc
         }
 
+-- [Unified: Table 11]
+ncEffectUnlink :: ProcessId -> ProcessId -> NC ()
+ncEffectUnlink from them = do
+  node <- ask
+  when (isLocal node from) $ postMessage from $ DidUnlink them 
+  modify $ linksForProcess them ^: Set.delete from
+
+-- [Unified: Table 11]
+ncEffectUnmonitor :: ProcessId -> MonitorRef -> NC ()
+ncEffectUnmonitor from ref = do
+  node <- ask
+  when (isLocal node from) $ postMessage from $ DidUnmonitor ref
+  modify $ monitorsFor (monitorRefPid ref) from ^: Set.delete ref 
+
 -- [Unified: Table 12, bottom rule]
 ncEffectNodeDied :: NodeId -> DiedReason -> NC ()
 ncEffectNodeDied nid reason = do
@@ -139,13 +164,13 @@ ncEffectNodeDied nid reason = do
   forM_ (Map.toList lnks) $ \(them, uss) -> do
     let pid = ProcessId nid them
     forM_ uss $ \us ->
-      when (processNodeId us == localNodeId node) $
+      when (isLocal node us) $ 
         notifyDied us pid reason Nothing
 
   forM_ (Map.toList mons) $ \(them, uss) -> do
     let pid = ProcessId nid them 
     forM_ (Map.toList uss) $ \(us, refs) -> 
-      when (processNodeId us == localNodeId node) $
+      when (isLocal node us) $
         forM_ refs $ notifyDied us pid reason . Just
 
   modify $ (linksForNode nid ^= Map.empty)
@@ -171,6 +196,10 @@ ncEffectProcessDied pid reason = do
 -- Connections                                                                --
 --------------------------------------------------------------------------------
 
+-- | Check if a process is local to our own node
+isLocal :: LocalNode -> ProcessId -> Bool 
+isLocal nid pid = processNodeId pid == localNodeId nid 
+
 notifyDied :: ProcessId         -- ^ Who to notify?
            -> ProcessId         -- ^ Who died?
            -> DiedReason        -- ^ How did they die?
@@ -178,25 +207,36 @@ notifyDied :: ProcessId         -- ^ Who to notify?
            -> NC ()
 notifyDied dest src reason mRef = do
   node <- ask
-  if processNodeId dest == localNodeId node 
-    then liftIO $ do
-      let lpid = processLocalId dest 
-      mProc <- withMVar (localState node) $ return . (^. localProcessWithId lpid)
-      -- By [Unified: table 6, rule missing_process] messages to dead processes
-      -- can silently be dropped
-      forM_ mProc $ \proc -> case mRef of
-        Just ref -> do
-          let msg = createMessage $ MonitorNotification ref src reason
-          enqueue (processQueue proc) msg
-        Nothing ->
-          throwTo (processThread proc) $ LinkException src reason 
-    else
+  case (isLocal node dest, mRef) of
+    (True, Just ref) ->
+      postMessage dest $ MonitorNotification ref src reason
+    (True, Nothing) ->
+      throwException dest $ LinkException src reason 
+    (False, _) ->
       -- TODO: why the change in sender? How does that affect 'reconnect' semantics?
       -- (see [Unified: Table 10]
       sendCtrlMsg (processNodeId dest) NCMsg
         { ctrlMsgSender = Right (localNodeId node) 
         , ctrlMsgSignal = Died (Left src) reason
         }
+      
+postMessage :: Serializable a => ProcessId -> a -> NC ()
+postMessage pid msg = withLocalProc pid $ \p -> 
+  enqueue (processQueue p) (createMessage msg)
+
+throwException :: Exception e => ProcessId -> e -> NC ()
+throwException pid e = withLocalProc pid $ \p -> 
+  throwTo (processThread p) e
+
+withLocalProc :: ProcessId -> (LocalProcess -> IO ()) -> NC () 
+withLocalProc pid p = do
+  node <- ask
+  liftIO $ do 
+    -- By [Unified: table 6, rule missing_process] messages to dead processes
+    -- can silently be dropped
+    let lpid = processLocalId pid
+    mProc <- withMVar (localState node) $ return . (^. localProcessWithId lpid)
+    forM_ mProc p 
 
 sendTo :: Identifier -> [BSS.ByteString] -> NC () 
 sendTo them payload = do
@@ -259,8 +299,10 @@ createConnTo them = do
 --------------------------------------------------------------------------------
 
 destNid :: ProcessSignal -> Maybe NodeId
-destNid (Monitor pid _)      = Just $ processNodeId pid 
-destNid (Link pid)           = Just $ processNodeId pid
+destNid (Link pid)           = Just . processNodeId $ pid
+destNid (Unlink pid)         = Just . processNodeId $ pid
+destNid (Monitor pid _)      = Just . processNodeId $ pid 
+destNid (Unmonitor ref)      = Just . processNodeId . monitorRefPid $ ref 
 destNid (Died (Right _) _)   = Nothing
 destNid (Died (Left _pid) _) = fail "destNid: TODO"
 

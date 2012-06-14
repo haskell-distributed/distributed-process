@@ -64,12 +64,16 @@ module Control.Distributed.Process
   , send 
   , getSelfPid
     -- * Monitoring and linking
-  , monitor
-  , MonitorNotification(..)
-  , MonitorRef
-  , LinkException(..)
-  , DiedReason(..)
   , link
+  , unlink
+  , monitor
+  , unmonitor
+  , LinkException(..)
+  , MonitorRef -- opaque
+  , MonitorNotification(..)
+  , DiedReason(..)
+  , DidUnmonitor(..)
+  , DidUnlink(..)
     -- * Initialization
   , newLocalNode
   , forkProcess
@@ -140,9 +144,11 @@ import Control.Distributed.Process.Internal ( NodeId(..)
                                             , LocalProcess(..)
                                             , LocalProcessState(..)
                                             , Message(..)
-                                            , MonitorRef
+                                            , MonitorRef(..)
                                             , MonitorNotification(..)
                                             , LinkException(..)
+                                            , DidUnmonitor(..)
+                                            , DidUnlink(..)
                                             , DiedReason(..)
                                             , NCMsg(..)
                                             , ProcessSignal(..)
@@ -190,20 +196,21 @@ getSelfPid = processId <$> ask
 -- | Monitor another process
 monitor :: ProcessId -> Process MonitorRef 
 monitor them = do
-  us          <- getSelfPid
-  monitorRef  <- getMonitorRef
-  postCtrlMsg NCMsg { ctrlMsgSender = Left us
-                    , ctrlMsgSignal = Monitor them monitorRef
-                    }
+  monitorRef <- getMonitorRefFor them
+  postCtrlMsg $ Monitor them monitorRef
   return monitorRef
 
 -- | Link to a remote process
 link :: ProcessId -> Process ()
-link them = do
-  us <- getSelfPid
-  postCtrlMsg NCMsg { ctrlMsgSender = Left us
-                    , ctrlMsgSignal = Link them
-                    }
+link = postCtrlMsg . Link
+
+-- | Remove a monitor
+unmonitor :: MonitorRef -> Process ()
+unmonitor = postCtrlMsg . Unmonitor
+
+-- | Remove a link
+unlink :: ProcessId -> Process ()
+unlink = postCtrlMsg . Unlink
 
 --------------------------------------------------------------------------------
 -- Auxiliary API                                                              --
@@ -319,8 +326,9 @@ handleIncomingMessages node = go [] Map.empty Set.empty
               let msg = payloadToMessage payload
               enqueue (processQueue proc) msg
               go uninitConns procConns ctrlConns 
-            Nothing | cid `Set.member` ctrlConns -> 
+            Nothing | cid `Set.member` ctrlConns ->  do
               writeChan ctrlChan (decode . BSL.fromChunks $ payload)
+              go uninitConns procConns ctrlConns 
             Nothing | cid `elem` uninitConns ->
               case payloadToId payload of
                 Just lpid -> do
@@ -425,12 +433,13 @@ remoteProcessFailed node them = do
     , ctrlMsgSignal = Died nid DiedDisconnect 
     }
     
-getMonitorRef :: Process MonitorRef
-getMonitorRef = do
+getMonitorRefFor :: ProcessId -> Process MonitorRef
+getMonitorRefFor pid = do
   node <- processNode <$> ask
-  liftIO $ modifyMVar (localState node) $ \st ->
+  liftIO $ modifyMVar (localState node) $ \st -> do
+    let counter = st ^. localMonitorCounter
     return ( localMonitorCounter ^: (+ 1) $ st
-           , st ^. localMonitorCounter
+           , MonitorRef pid counter 
            )
 
 -- This is most definitely NOT exported
@@ -438,7 +447,10 @@ runLocalProcess :: LocalProcess -> Process a -> IO a
 runLocalProcess lproc proc = runReaderT (unProcess proc) lproc
 
 -- | Post a control message on the local node controller
-postCtrlMsg :: NCMsg -> Process ()
-postCtrlMsg msg = do
+postCtrlMsg :: ProcessSignal -> Process ()
+postCtrlMsg signal = do
+  us <- getSelfPid
   ctrlChan <- localCtrlChan . processNode <$> ask
-  liftIO $ writeChan ctrlChan msg
+  liftIO $ writeChan ctrlChan NCMsg { ctrlMsgSender = Left us
+                                    , ctrlMsgSignal = signal
+                                    }
