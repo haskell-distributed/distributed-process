@@ -1,10 +1,9 @@
 module Main where 
 
 import Prelude hiding (catch)
-import Data.Binary (Binary)
+import Data.Binary (Binary(..))
 import Data.Typeable (Typeable)
 import Data.Foldable (forM_)
-import qualified Data.Map as Map (empty)
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar ( MVar
                                , newEmptyMVar
@@ -15,7 +14,7 @@ import Control.Concurrent.MVar ( MVar
 import Control.Monad (replicateM_)
 import Control.Monad.IO.Class (liftIO)
 import Control.Exception (throwIO)
-import Control.Applicative ((<$>))
+import Control.Applicative ((<$>), (<*>))
 import qualified Network.Transport as NT (Transport, closeEndPoint)
 import Network.Transport.TCP (createTransport, defaultTCPParameters)
 import Control.Distributed.Process
@@ -44,13 +43,13 @@ testPing transport = do
 
   -- Server
   forkIO $ do
-    localNode <- newLocalNode transport Map.empty
+    localNode <- newLocalNode transport initRemoteCallMetaData
     addr <- forkProcess localNode ping
     putMVar serverAddr addr
 
   -- Client
   forkIO $ do
-    localNode <- newLocalNode transport Map.empty
+    localNode <- newLocalNode transport initRemoteCallMetaData
     pingServer <- readMVar serverAddr
 
     let numPings = 10000
@@ -118,13 +117,13 @@ testMonitorUnreachable transport mOrL un = do
   done <- newEmptyMVar
 
   forkIO $ do
-    localNode <- newLocalNode transport Map.empty
+    localNode <- newLocalNode transport initRemoteCallMetaData
     addr <- forkProcess localNode . liftIO $ threadDelay 1000000 
     closeLocalNode localNode
     putMVar deadProcess addr
 
   forkIO $ do
-    localNode <- newLocalNode transport Map.empty
+    localNode <- newLocalNode transport initRemoteCallMetaData
     theirAddr <- readMVar deadProcess
     runProcess localNode $
       monitorTestProcess theirAddr mOrL un DiedDisconnect Nothing done 
@@ -139,13 +138,13 @@ testMonitorNormalTermination transport mOrL un = do
   done <- newEmptyMVar
 
   forkIO $ do
-    localNode <- newLocalNode transport Map.empty
+    localNode <- newLocalNode transport initRemoteCallMetaData
     addr <- forkProcess localNode $ 
       liftIO $ readMVar monitorSetup
     putMVar monitoredProcess addr
 
   forkIO $ do
-    localNode <- newLocalNode transport Map.empty
+    localNode <- newLocalNode transport initRemoteCallMetaData
     theirAddr <- readMVar monitoredProcess
     runProcess localNode $ 
       monitorTestProcess theirAddr mOrL un DiedNormal (Just monitorSetup) done
@@ -162,14 +161,14 @@ testMonitorAbnormalTermination transport mOrL un = do
   let err = userError "Abnormal termination"
 
   forkIO $ do
-    localNode <- newLocalNode transport Map.empty
+    localNode <- newLocalNode transport initRemoteCallMetaData
     addr <- forkProcess localNode . liftIO $ do
       readMVar monitorSetup
       throwIO err 
     putMVar monitoredProcess addr
 
   forkIO $ do
-    localNode <- newLocalNode transport Map.empty
+    localNode <- newLocalNode transport initRemoteCallMetaData
     theirAddr <- readMVar monitoredProcess
     runProcess localNode $ 
       monitorTestProcess theirAddr mOrL un (DiedException (show err)) (Just monitorSetup) done
@@ -181,7 +180,7 @@ testMonitorLocalDeadProcess :: NT.Transport -> Bool -> Bool -> IO ()
 testMonitorLocalDeadProcess transport mOrL un = do
   processDead <- newEmptyMVar
   processAddr <- newEmptyMVar
-  localNode <- newLocalNode transport Map.empty
+  localNode <- newLocalNode transport initRemoteCallMetaData
   done <- newEmptyMVar
 
   forkIO $ do
@@ -204,12 +203,12 @@ testMonitorRemoteDeadProcess transport mOrL un = do
   done <- newEmptyMVar
 
   forkIO $ do
-    localNode <- newLocalNode transport Map.empty
+    localNode <- newLocalNode transport initRemoteCallMetaData
     addr <- forkProcess localNode . liftIO $ putMVar processDead ()
     putMVar processAddr addr
 
   forkIO $ do
-    localNode <- newLocalNode transport Map.empty
+    localNode <- newLocalNode transport initRemoteCallMetaData
     theirAddr <- readMVar processAddr
     readMVar processDead
     runProcess localNode $ do
@@ -225,128 +224,83 @@ testMonitorDisconnect transport mOrL un = do
   done <- newEmptyMVar
 
   forkIO $ do
-    localNode <- newLocalNode transport Map.empty
+    localNode <- newLocalNode transport initRemoteCallMetaData
     addr <- forkProcess localNode . liftIO $ threadDelay 1000000 
     putMVar processAddr addr
     readMVar monitorSetup
     NT.closeEndPoint (localEndPoint localNode)
 
   forkIO $ do
-    localNode <- newLocalNode transport Map.empty
+    localNode <- newLocalNode transport initRemoteCallMetaData
     theirAddr <- readMVar processAddr
     runProcess localNode $ do
       monitorTestProcess theirAddr mOrL un DiedDisconnect (Just monitorSetup) done
   
   takeMVar done
 
+data Add       = Add    ProcessId Double Double deriving (Typeable) 
+data Divide    = Divide ProcessId Double Double deriving (Typeable)
+data DivByZero = DivByZero deriving (Typeable)
 
-{-
--- Like 'testMonitor1', but throw an exception instead
-testMonitor2 :: NT.Transport -> IO ()
-testMonitor2 transport = do
-  deadProcess <- newEmptyMVar
-  done <- newEmptyMVar
+instance Binary Add where
+  put (Add pid x y) = put pid >> put x >> put y
+  get = Add <$> get <*> get <*> get
 
+instance Binary Divide where
+  put (Divide pid x y) = put pid >> put x >> put y
+  get = Divide <$> get <*> get <*> get
+
+instance Binary DivByZero where
+  put DivByZero = return ()
+  get = return DivByZero
+
+math :: Process ()
+math = do
+  receiveWait
+    [ match (\(Add pid x y) -> send pid (x + y))
+    , matchIf (\(Divide _   _ y) -> y /= 0)
+              (\(Divide pid x y) -> send pid (x / y))
+    , match (\(Divide pid _ _) -> send pid DivByZero)
+    ]
+  math
+
+-- | Test the math server (i.e., receiveWait)
+testMath :: NT.Transport -> IO ()
+testMath transport = do
+  serverAddr <- newEmptyMVar 
+  clientDone <- newEmptyMVar
+
+  -- Server
   forkIO $ do
-    localNode <- newLocalNode transport Map.empty
-    addr <- forkProcess localNode $ return ()
-    closeLocalNode localNode
-    putMVar deadProcess addr
+    localNode <- newLocalNode transport initRemoteCallMetaData 
+    addr <- forkProcess localNode math
+    putMVar serverAddr addr
 
+  -- Client
   forkIO $ do
-    localNode <- newLocalNode transport Map.empty
-    theirAddr <- readMVar deadProcess
+    localNode <- newLocalNode transport initRemoteCallMetaData
+    mathServer <- readMVar serverAddr
+
     runProcess localNode $ do
-      monitor theirAddr MaLink
-      pcatch (send theirAddr "Hi") $ \(ProcessMonitorException pid SrNoPing) -> do 
-        True <- return $ pid == theirAddr
-        return ()
-    putMVar done ()
-      
-  takeMVar done
+      pid <- getSelfPid
+      send mathServer (Add pid 1 2)
+      3 <- expect :: Process Double  
+      send mathServer (Divide pid 8 2)
+      4 <- expect :: Process Double
+      send mathServer (Divide pid 8 0)
+      DivByZero <- expect
+      liftIO $ putMVar clientDone ()
 
--- The first send succeeds, connection is set up, but then the second send
--- fails. 
---
--- TODO: should we specify that we receive exactly one notification per process
--- failure?
-testMonitor3 :: NT.Transport -> IO ()
-testMonitor3 transport = do
-  firstSend <- newEmptyMVar
-  serverAddr <- newEmptyMVar
-  serverDead <- newEmptyMVar
-  done <- newEmptyMVar
+  takeMVar clientDone
 
-  forkIO $ do
-    localNode <- newLocalNode transport Map.empty
-    -- TODO: what happens when processes terminate? 
-    addr <- forkProcess localNode $ return ()
-    putMVar serverAddr addr
-    readMVar firstSend
-    closeLocalNode localNode
-    threadDelay 10000 -- Give the TCP layer a chance to actually close the socket
-    putMVar serverDead ()
-
-  forkIO $ do
-    localNode <- newLocalNode transport Map.empty
-    theirAddr <- readMVar serverAddr 
-    runProcess localNode $ do 
-      monitor theirAddr MaMonitor
-      send theirAddr "Hi"
-      liftIO $ putMVar firstSend () >> readMVar serverDead
-      send theirAddr "Ho"
-      ProcessMonitorException pid SrNoPing <- expect
-      True <- return $ pid == theirAddr
-      -- We should not receive a second exception
-      send theirAddr "Hey"
-      Nothing <- expectTimeout 1000000 :: Process (Maybe ProcessMonitorException) 
-      return ()
-    putMVar done ()
-      
-  takeMVar done
-
-
--- Like testMonitor3, except without the second send (so we must detect the
--- failure elsewhere) 
-testMonitor4 :: NT.Transport -> IO ()
-testMonitor4 transport = do
-  firstSend <- newEmptyMVar
-  serverAddr <- newEmptyMVar
-  serverDead <- newEmptyMVar
-  done <- newEmptyMVar
-
-  forkIO $ do
-    localNode <- newLocalNode transport Map.empty
-    -- TODO: what happens when processes terminate? 
-    addr <- forkProcess localNode $ return ()
-    putMVar serverAddr addr
-    readMVar firstSend
-    closeLocalNode localNode
-    threadDelay 10000 -- Give the TCP layer a chance to actually close the socket
-    putMVar serverDead ()
-
-  forkIO $ do
-    localNode <- newLocalNode transport Map.empty
-    theirAddr <- readMVar serverAddr 
-    runProcess localNode $ do 
-      monitor theirAddr MaMonitor
-      send theirAddr "Hi"
-      liftIO $ putMVar firstSend () >> readMVar serverDead
-      ProcessMonitorException pid SrNoPing <- expect
-      True <- return $ pid == theirAddr
-      return ()
-    putMVar done ()
-      
-  takeMVar done
-
--- TODO: test/specify normal process termination
--}
+-- TODO: test timeout
 
 main :: IO ()
 main = do
   Right transport <- createTransport "127.0.0.1" "8080" defaultTCPParameters
   runTests 
-    [ ("Ping",                     testPing transport)
+    [ ("Ping", testPing transport)
+    , ("Math", testMath transport) 
       -- The "missing" combinations in the list below don't make much sense, as
       -- we cannot guarantee that the monitor reply or link exception will not 
       -- happen before the unmonitor or unlink
@@ -368,9 +322,4 @@ main = do
     , ("UnlinkNormalTermination",      testMonitorNormalTermination   transport False True)
     , ("UnlinkAbnormalTermination",    testMonitorAbnormalTermination transport False True)
     , ("UnlinkDisconnect",             testMonitorDisconnect          transport False True)
-    {-
-    , ("Monitor2", testMonitor2 transport)
-    , ("Monitor3", testMonitor3 transport)
-    , ("Monitor4", testMonitor4 transport)
-    -}
     ]

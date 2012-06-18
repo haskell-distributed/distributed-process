@@ -65,6 +65,12 @@ module Control.Distributed.Process
   , getSelfPid
   , RemoteCallMetaData
   , initRemoteCallMetaData
+    -- * Matching messages
+  , Match
+  , match
+  , matchIf
+  , receiveWait
+  , receiveTimeout
     -- * Monitoring and linking
   , link
   , unlink
@@ -115,11 +121,11 @@ import Control.Concurrent.MVar ( newMVar
                                , takeMVar
                                )
 import Control.Concurrent.Chan (newChan, writeChan)
-import Control.Distributed.Process.Internal.CQueue ( dequeueMatching
-                                                   , enqueue
-                                                   , newCQueue
-                                                   )
-import Control.Distributed.Process.Serializable (Serializable, fingerprint)
+import Control.Distributed.Process.Internal.CQueue (enqueue, dequeue, newCQueue)
+import Control.Distributed.Process.Serializable ( Serializable
+                                                , Fingerprint
+                                                , fingerprint
+                                                )
 import qualified Network.Transport as NT ( Transport
                                          , EndPoint
                                          , Connection
@@ -180,12 +186,7 @@ newtype Process a = Process { unProcess :: ReaderT LocalProcess IO a }
 
 -- | Wait for a message of a specific type
 expect :: forall a. Serializable a => Process a
-expect = do
-  queue <- processQueue <$> ask 
-  let fp = fingerprint (undefined :: a)
-  Just msg <- liftIO $ 
-    dequeueMatching queue Nothing ((== fp) . messageFingerprint)
-  return (decode . messageEncoding $ msg)
+expect = receiveWait [match return] 
 
 -- | Send a message
 send :: Serializable a => ProcessId -> a -> Process ()
@@ -219,6 +220,46 @@ unlink :: ProcessId -> Process ()
 unlink = postCtrlMsg . Unlink
 
 --------------------------------------------------------------------------------
+-- Matching                                                                   --
+--------------------------------------------------------------------------------
+
+data Match b =
+    forall a. Serializable a => Match Fingerprint (a -> Process b) 
+  | forall a. Serializable a => MatchIf Fingerprint (a -> Bool) (a -> Process b)
+
+match :: forall a b. Serializable a => (a -> Process b) -> Match b
+match = Match (fingerprint (undefined :: a))
+
+matchIf :: forall a b. Serializable a => (a -> Bool) -> (a -> Process b) -> Match b
+matchIf = MatchIf (fingerprint (undefined :: a)) 
+
+receiveWait :: [Match b] -> Process b
+receiveWait ms = do
+  queue <- processQueue <$> ask
+  Just proc <- liftIO $ dequeue queue Nothing (map evalMatch ms) 
+  proc
+
+receiveTimeout :: Int -> [Match b] -> Process (Maybe b)
+receiveTimeout t ms = do
+  queue <- processQueue <$> ask
+  mProc <- liftIO $ dequeue queue (Just t) (map evalMatch ms)
+  case mProc of
+    Nothing   -> return Nothing
+    Just proc -> Just <$> proc
+
+evalMatch :: Match b -> Message -> Maybe (Process b)
+evalMatch (Match fp proc) msg =  
+  let decoded = decode . messageEncoding $ msg in
+  if messageFingerprint msg == fp
+    then Just . proc $ decoded
+    else Nothing
+evalMatch (MatchIf fp cond proc) msg = 
+  let decoded = decode . messageEncoding $ msg in
+  if messageFingerprint msg == fp && cond decoded
+    then Just . proc $ decoded
+    else Nothing
+
+--------------------------------------------------------------------------------
 -- Auxiliary API                                                              --
 --------------------------------------------------------------------------------
 
@@ -236,12 +277,7 @@ catch p h = do
   liftIO $ Exception.catch (run p) (run . h) 
 
 expectTimeout :: forall a. Serializable a => Int -> Process (Maybe a)
-expectTimeout timeout = do
-  queue <- processQueue <$> ask 
-  let fp = fingerprint (undefined :: a)
-  msg <- liftIO $ 
-    dequeueMatching queue (Just timeout) ((== fp) . messageFingerprint)
-  return $ fmap (decode . messageEncoding) msg
+expectTimeout timeout = receiveTimeout timeout [match return] 
 
 --------------------------------------------------------------------------------
 -- Initialization                                                             --

@@ -3,7 +3,7 @@ module Control.Distributed.Process.Internal.CQueue
   ( CQueue
   , newCQueue
   , enqueue
-  , dequeueMatching
+  , dequeue
   ) where
 
 import Control.Concurrent.MVar (MVar, newMVar, modifyMVar)
@@ -23,29 +23,38 @@ newCQueue = do
 enqueue :: CQueue a -> a -> IO ()
 enqueue (CQueue _arrived incoming) = writeChan incoming
 
--- TODO: subtract the timeout value if a non-matching messages arrives
-dequeueMatching :: forall a. 
-                   CQueue a 
-                -> Maybe Int 
-                -> (a -> Bool) 
-                -> IO (Maybe a)
-dequeueMatching (CQueue arrived incoming) mTimeout matches =
+dequeue :: forall a b. 
+           CQueue a        -- ^ Queue
+        -> Maybe Int       -- ^ Timeout
+        -> [a -> Maybe b]  -- ^ List of matches
+        -> IO (Maybe b)    -- ^ Nothing only on timeout
+dequeue (CQueue arrived incoming) mTimeout matches = 
     modifyMVar arrived (checkArrived [])
   where
-    checkArrived :: [a] -> [a] -> IO ([a], Maybe a)
-    checkArrived xs' []     = checkIncoming xs'
-    checkArrived xs' (x:xs)
-                | matches x = return (reverse xs' ++ xs, Just x)
-                | otherwise = checkArrived (x:xs') xs
+    checkArrived :: [a] -> [a] -> IO ([a], Maybe b)
+    checkArrived acc (x:xs) = 
+      case check x of
+        Just y  -> return (reverse acc ++ xs, Just y)
+        Nothing -> checkArrived (x:acc) xs
+    checkArrived acc [] = do
+      result <- case mTimeout of
+        Nothing -> Just      <$> checkIncoming acc 
+        Just t  -> timeout t  $  checkIncoming acc 
+      case result of
+        Nothing        -> return (reverse acc, Nothing)
+        Just (acc', b) -> return (reverse acc', Just b)
 
-    checkIncoming :: [a] -> IO ([a], Maybe a)
-    checkIncoming xs' = do
-      mx <- case mTimeout of 
-        Just 0  -> return Nothing
-        Just n  -> timeout n $ readChan incoming
-        Nothing -> Just <$> readChan incoming
-      case mx of
-        Nothing -> return (reverse xs', Nothing)
-        Just x 
-          | matches x -> return (reverse xs', Just x)
-          | otherwise -> checkIncoming (x:xs')
+    checkIncoming :: [a] -> IO ([a], b)
+    checkIncoming acc = do
+      x <- readChan incoming
+      case check x of
+        Just y  -> return (acc, y)
+        Nothing -> checkIncoming (x:acc)
+
+    check :: a -> Maybe b
+    check = checkMatches matches 
+
+    checkMatches :: [a -> Maybe b] -> a -> Maybe b
+    checkMatches []     _ = Nothing
+    checkMatches (m:ms) a = case m a of Nothing -> checkMatches ms a
+                                        Just b  -> Just b

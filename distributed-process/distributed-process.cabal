@@ -23,7 +23,7 @@ Library
   Exposed-modules:   Control.Distributed.Process,
                      Control.Distributed.Process.Serializable,
                      Control.Distributed.Process.Closure
-  Extensions:        ExplicitForAll, ScopedTypeVariables, GeneralizedNewtypeDeriving, FlexibleInstances, UndecidableInstances, MultiParamTypeClasses, DeriveDataTypeable, TemplateHaskell
+  Extensions:        ExplicitForAll, ScopedTypeVariables, GeneralizedNewtypeDeriving, FlexibleInstances, UndecidableInstances, MultiParamTypeClasses, DeriveDataTypeable, TemplateHaskell, ExistentialQuantification
   ghc-options:       -Wall
   HS-Source-Dirs:    src
 
@@ -41,7 +41,7 @@ Test-Suite TestCH
                      ansi-terminal,
                      template-haskell,
                      network-transport >= 0.1
-  Extensions:        ExplicitForAll, ScopedTypeVariables, GeneralizedNewtypeDeriving, FlexibleInstances, UndecidableInstances, MultiParamTypeClasses, DeriveDataTypeable, TemplateHaskell
+  Extensions:        ExplicitForAll, ScopedTypeVariables, GeneralizedNewtypeDeriving, FlexibleInstances, UndecidableInstances, MultiParamTypeClasses, DeriveDataTypeable, TemplateHaskell, ExistentialQuantification
   ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind 
   HS-Source-Dirs:    tests src
 
@@ -61,6 +61,6 @@ Test-Suite TestClosure
                      ansi-terminal,
                      template-haskell,
                      network-transport >= 0.1
-  Extensions:        ExplicitForAll, ScopedTypeVariables, GeneralizedNewtypeDeriving, FlexibleInstances, UndecidableInstances, MultiParamTypeClasses, DeriveDataTypeable, TemplateHaskell
+  Extensions:        ExplicitForAll, ScopedTypeVariables, GeneralizedNewtypeDeriving, FlexibleInstances, UndecidableInstances, MultiParamTypeClasses, DeriveDataTypeable, TemplateHaskell, ExistentialQuantification
   ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind 
   HS-Source-Dirs:    tests src
