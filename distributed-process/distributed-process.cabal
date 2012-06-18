@@ -18,9 +18,12 @@ Library
                      transformers,
                      data-accessor,
                      random,
+                     template-haskell,
                      network-transport >= 0.1
-  Exposed-modules:   Control.Distributed.Process
-  Extensions:        ExplicitForAll, ScopedTypeVariables, GeneralizedNewtypeDeriving, FlexibleInstances, UndecidableInstances, MultiParamTypeClasses, DeriveDataTypeable
+  Exposed-modules:   Control.Distributed.Process,
+                     Control.Distributed.Process.Serializable,
+                     Control.Distributed.Process.Closure
+  Extensions:        ExplicitForAll, ScopedTypeVariables, GeneralizedNewtypeDeriving, FlexibleInstances, UndecidableInstances, MultiParamTypeClasses, DeriveDataTypeable, TemplateHaskell
   ghc-options:       -Wall
   HS-Source-Dirs:    src
 
@@ -36,7 +39,28 @@ Test-Suite TestCH
                      data-accessor,
                      random,
                      ansi-terminal,
+                     template-haskell,
                      network-transport >= 0.1
-  Extensions:        ExplicitForAll, ScopedTypeVariables, GeneralizedNewtypeDeriving, FlexibleInstances, UndecidableInstances, MultiParamTypeClasses, DeriveDataTypeable
+  Extensions:        ExplicitForAll, ScopedTypeVariables, GeneralizedNewtypeDeriving, FlexibleInstances, UndecidableInstances, MultiParamTypeClasses, DeriveDataTypeable, TemplateHaskell
+  ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind 
+  HS-Source-Dirs:    tests src
+
+-- Separate test suite for tests that involve closures, as this will be replaced
+-- once we have proper support for 'static'
+Test-Suite TestClosure
+  Type:              exitcode-stdio-1.0
+  Main-Is:           TestClosure.hs
+  Build-Depends:     base,
+                     bytestring,
+                     containers,
+                     mtl,
+                     binary,
+                     transformers,
+                     data-accessor,
+                     random,
+                     ansi-terminal,
+                     template-haskell,
+                     network-transport >= 0.1
+  Extensions:        ExplicitForAll, ScopedTypeVariables, GeneralizedNewtypeDeriving, FlexibleInstances, UndecidableInstances, MultiParamTypeClasses, DeriveDataTypeable, TemplateHaskell
   ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind 
   HS-Source-Dirs:    tests src

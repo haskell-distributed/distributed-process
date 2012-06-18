@@ -63,6 +63,7 @@ module Control.Distributed.Process
   , expect
   , send 
   , getSelfPid
+  , RemoteCallMetaData
     -- * Monitoring and linking
   , link
   , unlink
@@ -95,6 +96,8 @@ import qualified Data.List as List (delete)
 import Data.Set (Set)
 import qualified Data.Set as Set (empty, insert, delete, member)
 import Data.Foldable (forM_)
+import Data.Dynamic (Dynamic)
+import Data.Typeable (Typeable)
 import Control.Monad (void)
 import Control.Monad.Reader (MonadReader(..), ReaderT, runReaderT)
 import Control.Monad.IO.Class (MonadIO, liftIO)
@@ -136,7 +139,8 @@ import qualified Network.Transport as NT ( Transport
 import Data.Accessor ((^.), (^=), (^:))
 import System.Random (randomIO)
 import Control.Distributed.Process.Internal.NodeController (runNodeController)
-import Control.Distributed.Process.Internal ( NodeId(..)
+import Control.Distributed.Process.Internal ( RemoteCallMetaData
+                                            , NodeId(..)
                                             , LocalProcessId(..)
                                             , ProcessId(..)
                                             , LocalNode(..)
@@ -166,7 +170,7 @@ import Control.Distributed.Process.Internal ( NodeId(..)
 
 -- The Cloud Haskell 'Process' type
 newtype Process a = Process { unProcess :: ReaderT LocalProcess IO a }
-  deriving (Functor, Monad, MonadIO, MonadReader LocalProcess)
+  deriving (Functor, Monad, MonadIO, MonadReader LocalProcess, Typeable)
 
 --------------------------------------------------------------------------------
 -- Basic Cloud Haskell API                                                    --
@@ -241,8 +245,8 @@ expectTimeout timeout = do
 -- Initialization                                                             --
 --------------------------------------------------------------------------------
 
-newLocalNode :: NT.Transport -> IO LocalNode
-newLocalNode transport = do
+newLocalNode :: NT.Transport -> Map String Dynamic -> IO LocalNode
+newLocalNode transport metaData = do
   mEndPoint <- NT.newEndPoint transport
   case mEndPoint of
     Left ex -> throwIO ex
@@ -259,6 +263,7 @@ newLocalNode transport = do
                            , localEndPoint = endPoint
                            , localState    = state
                            , localCtrlChan = ctrlChan
+                           , localMetaData = metaData
                            }
       void . forkIO $ runNodeController node 
       void . forkIO $ handleIncomingMessages node

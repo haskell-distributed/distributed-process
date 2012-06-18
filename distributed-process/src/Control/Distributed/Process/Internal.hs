@@ -1,5 +1,7 @@
 module Control.Distributed.Process.Internal 
-  ( -- * Node and process identifiers 
+  ( -- * Global CH state
+    RemoteCallMetaData
+  , -- * Node and process identifiers 
     NodeId(..)
   , LocalProcessId(..)
   , ProcessId(..)
@@ -45,6 +47,7 @@ import Control.Exception (Exception)
 import Data.Map (Map)
 import Data.Int (Int32)
 import Data.Typeable (Typeable)
+import Data.Dynamic (Dynamic) 
 import Data.Binary (Binary, encode, put, get, putWord8, getWord8)
 import Data.Accessor (Accessor, accessor)
 import qualified Data.Accessor.Container as DAC (mapMaybe)
@@ -91,12 +94,17 @@ data ProcessId = ProcessId
 instance Show ProcessId where
   show pid = show (processNodeId pid) ++ ":" ++ show (processLocalId pid)
 
+-- | Used to fake 'static' (see paper)
+type RemoteCallMetaData = Map String Dynamic 
+
 -- | Local nodes
 data LocalNode = LocalNode 
   { localNodeId   :: NodeId
   , localEndPoint :: NT.EndPoint 
   , localState    :: MVar LocalNodeState
   , localCtrlChan :: Chan NCMsg
+  -- TODO: this should be part of the CH state, not the local endpoint state
+  , localMetaData :: RemoteCallMetaData 
   }
 
 -- | Local node state

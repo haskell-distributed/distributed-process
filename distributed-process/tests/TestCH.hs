@@ -4,6 +4,7 @@ import Prelude hiding (catch)
 import Data.Binary (Binary)
 import Data.Typeable (Typeable)
 import Data.Foldable (forM_)
+import qualified Data.Map as Map (empty)
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar ( MVar
                                , newEmptyMVar
@@ -43,13 +44,13 @@ testPing transport = do
 
   -- Server
   forkIO $ do
-    localNode <- newLocalNode transport
+    localNode <- newLocalNode transport Map.empty
     addr <- forkProcess localNode ping
     putMVar serverAddr addr
 
   -- Client
   forkIO $ do
-    localNode <- newLocalNode transport
+    localNode <- newLocalNode transport Map.empty
     pingServer <- readMVar serverAddr
 
     let numPings = 10000
@@ -117,13 +118,13 @@ testMonitorUnreachable transport mOrL un = do
   done <- newEmptyMVar
 
   forkIO $ do
-    localNode <- newLocalNode transport
+    localNode <- newLocalNode transport Map.empty
     addr <- forkProcess localNode . liftIO $ threadDelay 1000000 
     closeLocalNode localNode
     putMVar deadProcess addr
 
   forkIO $ do
-    localNode <- newLocalNode transport
+    localNode <- newLocalNode transport Map.empty
     theirAddr <- readMVar deadProcess
     runProcess localNode $
       monitorTestProcess theirAddr mOrL un DiedDisconnect Nothing done 
@@ -138,13 +139,13 @@ testMonitorNormalTermination transport mOrL un = do
   done <- newEmptyMVar
 
   forkIO $ do
-    localNode <- newLocalNode transport
+    localNode <- newLocalNode transport Map.empty
     addr <- forkProcess localNode $ 
       liftIO $ readMVar monitorSetup
     putMVar monitoredProcess addr
 
   forkIO $ do
-    localNode <- newLocalNode transport
+    localNode <- newLocalNode transport Map.empty
     theirAddr <- readMVar monitoredProcess
     runProcess localNode $ 
       monitorTestProcess theirAddr mOrL un DiedNormal (Just monitorSetup) done
@@ -161,14 +162,14 @@ testMonitorAbnormalTermination transport mOrL un = do
   let err = userError "Abnormal termination"
 
   forkIO $ do
-    localNode <- newLocalNode transport
+    localNode <- newLocalNode transport Map.empty
     addr <- forkProcess localNode . liftIO $ do
       readMVar monitorSetup
       throwIO err 
     putMVar monitoredProcess addr
 
   forkIO $ do
-    localNode <- newLocalNode transport
+    localNode <- newLocalNode transport Map.empty
     theirAddr <- readMVar monitoredProcess
     runProcess localNode $ 
       monitorTestProcess theirAddr mOrL un (DiedException (show err)) (Just monitorSetup) done
@@ -180,7 +181,7 @@ testMonitorLocalDeadProcess :: NT.Transport -> Bool -> Bool -> IO ()
 testMonitorLocalDeadProcess transport mOrL un = do
   processDead <- newEmptyMVar
   processAddr <- newEmptyMVar
-  localNode <- newLocalNode transport
+  localNode <- newLocalNode transport Map.empty
   done <- newEmptyMVar
 
   forkIO $ do
@@ -203,12 +204,12 @@ testMonitorRemoteDeadProcess transport mOrL un = do
   done <- newEmptyMVar
 
   forkIO $ do
-    localNode <- newLocalNode transport
+    localNode <- newLocalNode transport Map.empty
     addr <- forkProcess localNode . liftIO $ putMVar processDead ()
     putMVar processAddr addr
 
   forkIO $ do
-    localNode <- newLocalNode transport
+    localNode <- newLocalNode transport Map.empty
     theirAddr <- readMVar processAddr
     readMVar processDead
     runProcess localNode $ do
@@ -224,14 +225,14 @@ testMonitorDisconnect transport mOrL un = do
   done <- newEmptyMVar
 
   forkIO $ do
-    localNode <- newLocalNode transport
+    localNode <- newLocalNode transport Map.empty
     addr <- forkProcess localNode . liftIO $ threadDelay 1000000 
     putMVar processAddr addr
     readMVar monitorSetup
     NT.closeEndPoint (localEndPoint localNode)
 
   forkIO $ do
-    localNode <- newLocalNode transport
+    localNode <- newLocalNode transport Map.empty
     theirAddr <- readMVar processAddr
     runProcess localNode $ do
       monitorTestProcess theirAddr mOrL un DiedDisconnect (Just monitorSetup) done
@@ -247,13 +248,13 @@ testMonitor2 transport = do
   done <- newEmptyMVar
 
   forkIO $ do
-    localNode <- newLocalNode transport
+    localNode <- newLocalNode transport Map.empty
     addr <- forkProcess localNode $ return ()
     closeLocalNode localNode
     putMVar deadProcess addr
 
   forkIO $ do
-    localNode <- newLocalNode transport
+    localNode <- newLocalNode transport Map.empty
     theirAddr <- readMVar deadProcess
     runProcess localNode $ do
       monitor theirAddr MaLink
@@ -277,7 +278,7 @@ testMonitor3 transport = do
   done <- newEmptyMVar
 
   forkIO $ do
-    localNode <- newLocalNode transport
+    localNode <- newLocalNode transport Map.empty
     -- TODO: what happens when processes terminate? 
     addr <- forkProcess localNode $ return ()
     putMVar serverAddr addr
@@ -287,7 +288,7 @@ testMonitor3 transport = do
     putMVar serverDead ()
 
   forkIO $ do
-    localNode <- newLocalNode transport
+    localNode <- newLocalNode transport Map.empty
     theirAddr <- readMVar serverAddr 
     runProcess localNode $ do 
       monitor theirAddr MaMonitor
@@ -315,7 +316,7 @@ testMonitor4 transport = do
   done <- newEmptyMVar
 
   forkIO $ do
-    localNode <- newLocalNode transport
+    localNode <- newLocalNode transport Map.empty
     -- TODO: what happens when processes terminate? 
     addr <- forkProcess localNode $ return ()
     putMVar serverAddr addr
@@ -325,7 +326,7 @@ testMonitor4 transport = do
     putMVar serverDead ()
 
   forkIO $ do
-    localNode <- newLocalNode transport
+    localNode <- newLocalNode transport Map.empty
     theirAddr <- readMVar serverAddr 
     runProcess localNode $ do 
       monitor theirAddr MaMonitor
