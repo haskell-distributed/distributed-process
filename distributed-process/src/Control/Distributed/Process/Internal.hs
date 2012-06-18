@@ -1,6 +1,7 @@
 module Control.Distributed.Process.Internal 
   ( -- * Global CH state
     RemoteCallMetaData
+  , initRemoteCallMetaData
   , -- * Node and process identifiers 
     NodeId(..)
   , LocalProcessId(..)
@@ -45,6 +46,7 @@ import Control.Concurrent.Chan (Chan)
 import Control.Category ((>>>))
 import Control.Exception (Exception)
 import Data.Map (Map)
+import qualified Data.Map as Map (empty)
 import Data.Int (Int32)
 import Data.Typeable (Typeable)
 import Data.Dynamic (Dynamic) 
@@ -96,6 +98,10 @@ instance Show ProcessId where
 
 -- | Used to fake 'static' (see paper)
 type RemoteCallMetaData = Map String Dynamic 
+
+-- | Initial (empty) remote-call meta data
+initRemoteCallMetaData :: RemoteCallMetaData
+initRemoteCallMetaData = Map.empty
 
 -- | Local nodes
 data LocalNode = LocalNode 

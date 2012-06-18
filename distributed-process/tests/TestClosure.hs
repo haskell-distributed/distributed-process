@@ -1,6 +1,5 @@
 module Main where
 
-import qualified Data.Map as Map (empty)
 import Control.Monad.IO.Class (liftIO) 
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, readMVar, takeMVar, putMVar)
@@ -93,7 +92,7 @@ testSendProcClosure transport metaData = do
 main :: IO ()
 main = do
   Right transport <- createTransport "127.0.0.1" "8080" defaultTCPParameters
-  let metaData = __remoteCallMetaData Map.empty
+  let metaData = __remoteCallMetaData initRemoteCallMetaData 
   runTests 
     [ ("SendPureClosure", testSendPureClosure transport metaData)
     , ("SendIOClosure",   testSendIOClosure   transport metaData)

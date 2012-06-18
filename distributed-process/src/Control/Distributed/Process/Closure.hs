@@ -20,21 +20,24 @@
 --
 -- > unClosure :: Typeable a => Closure a -> Process a
 --
+-- In general, given a monomorphic function @f : a -> b@ the corresponding 
+-- function @$(mkClosure 'f)@ will have type @a -> Closure b@.
+--
 -- The call to 'remotable' will also generate a function
 --
 -- > __remoteCallMetaData :: RemoteCallMetaData -> RemoteCallMetaData
 --
 -- which can be used to construct the 'RemoteCallMetaData' used to initialize
--- Cloud Haskell. You should have one call to 'remotable' per module, and
--- compose all created functions when initializing Cloud Haskell:
+-- Cloud Haskell. You should have (at most) one call to 'remotable' per module,
+-- and compose all created functions when initializing Cloud Haskell:
 --
 -- > let metaData = M1.__remoteCallMetaData
 -- >              . M2.__remoteCallMetaData
 -- >              . ...
 -- >              . Mn.__remoteCallMetaData
--- >              $ Map.empty
+-- >              $ initRemoteCallMetaData 
 --
--- See Section 6, Faking It, of Towards Haskell in the Cloud for more info. 
+-- See Section 6, /Faking It/, of /Towards Haskell in the Cloud/ for more info. 
 {-# LANGUAGE TemplateHaskell #-}
 module Control.Distributed.Process.Closure 
   ( unClosure
@@ -53,7 +56,6 @@ import Control.Monad.Reader (ask)
 import Control.Exception (throw)
 import Language.Haskell.TH ( -- Q monad and operations
                              Q
-                           , report
                            , reify
                              -- Names
                            , Name
@@ -102,7 +104,6 @@ remotable :: [Name] -> Q [Dec]
 remotable ns = do
   (closures, decoders, inserts) <- unzip3 <$> mapM process ns
   metaData <- createMetaData inserts 
-  report False "Cloud Haskell '__remoteCallMetaData' generated" 
   return $ concat closures ++ concat decoders ++ metaData 
 
 -- | Deserialize a closure

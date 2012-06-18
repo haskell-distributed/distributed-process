@@ -64,6 +64,7 @@ module Control.Distributed.Process
   , send 
   , getSelfPid
   , RemoteCallMetaData
+  , initRemoteCallMetaData
     -- * Monitoring and linking
   , link
   , unlink
@@ -140,6 +141,7 @@ import Data.Accessor ((^.), (^=), (^:))
 import System.Random (randomIO)
 import Control.Distributed.Process.Internal.NodeController (runNodeController)
 import Control.Distributed.Process.Internal ( RemoteCallMetaData
+                                            , initRemoteCallMetaData
                                             , NodeId(..)
                                             , LocalProcessId(..)
                                             , ProcessId(..)
