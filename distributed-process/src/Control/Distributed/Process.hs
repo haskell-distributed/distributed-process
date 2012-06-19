@@ -15,7 +15,7 @@ module Control.Distributed.Process
   , expect
   , send 
   , getSelfPid
-  , RemoteTable
+  , spawn
     -- * Matching messages
   , Match
   , match
@@ -38,6 +38,7 @@ module Control.Distributed.Process
   , Closure
   , Static
   , unClosure
+  , RemoteTable
     -- * Auxiliary API
   , catch
   , expectTimeout
@@ -78,6 +79,7 @@ import Control.Distributed.Process.Internal.Types
   , DidUnlink(..)
   , DiedReason(..)
   , SpawnRef(..)
+  , DidSpawn(..)
   , NCMsg(..)
   , ProcessSignal(..)
   , monitorCounter 
@@ -87,6 +89,7 @@ import Control.Distributed.Process.Internal.Types
   )
 import Control.Distributed.Process.Internal.MessageT 
   ( sendMessage
+  , sendBinary
   , getLocalNode
   )  
 
@@ -171,21 +174,29 @@ getSelfPid = processId <$> ask
 monitor :: ProcessId -> Process MonitorRef 
 monitor them = do
   monitorRef <- getMonitorRefFor them
-  postCtrlMsg $ Monitor them monitorRef
+  sendCtrlMsg Nothing $ Monitor them monitorRef
   return monitorRef
 
 -- | Link to a remote process
 link :: ProcessId -> Process ()
-link = postCtrlMsg . Link
+link = sendCtrlMsg Nothing . Link
 
 -- | Remove a monitor
 unmonitor :: MonitorRef -> Process ()
-unmonitor = postCtrlMsg . Unmonitor
+unmonitor = sendCtrlMsg Nothing . Unmonitor
 
 -- | Remove a link
 unlink :: ProcessId -> Process ()
-unlink = postCtrlMsg . Unlink
+unlink = sendCtrlMsg Nothing . Unlink
 
+-- | Spawn a process
+spawn :: NodeId -> Closure (Process ()) -> Process ProcessId
+spawn nid proc = do
+  ref <- spawnAsync nid proc 
+  receiveWait [ matchIf (\(DidSpawn ref' _) -> ref == ref')
+                        (\(DidSpawn _ pid) -> return pid)
+              ]
+                       
 --------------------------------------------------------------------------------
 -- Matching                                                                   --
 --------------------------------------------------------------------------------
@@ -257,9 +268,9 @@ expectTimeout timeout = receiveTimeout timeout [match return]
 -- 
 -- ('spawn' is defined in terms of 'spawnAsync' and 'expect')
 spawnAsync :: NodeId -> Closure (Process ()) -> Process SpawnRef
-spawnAsync _nid proc = do
+spawnAsync nid proc = do
   spawnRef <- getSpawnRef
-  postCtrlMsg (Spawn proc spawnRef)
+  sendCtrlMsg (Just nid) $ Spawn proc spawnRef
   return spawnRef
 
 --------------------------------------------------------------------------------
@@ -284,14 +295,21 @@ getSpawnRef = do
            , SpawnRef counter
            )
 
--- | Post a control message on the local node controller
-postCtrlMsg :: ProcessSignal -> Process ()
-postCtrlMsg signal = do
+-- Send a control message
+sendCtrlMsg :: Maybe NodeId  -- ^ Nothing for the local node
+            -> ProcessSignal -- ^ Message to send 
+            -> Process ()
+sendCtrlMsg mNid signal = do            
   us <- getSelfPid
-  ctrlChan <- localCtrlChan <$> lift getLocalNode 
-  liftIO $ writeChan ctrlChan NCMsg { ctrlMsgSender = Left us
-                                    , ctrlMsgSignal = signal
-                                    }
+  let msg = NCMsg { ctrlMsgSender = Left us
+                  , ctrlMsgSignal = signal
+                  }
+  case mNid of
+    Nothing -> do
+      ctrlChan <- localCtrlChan <$> lift getLocalNode 
+      liftIO $ writeChan ctrlChan msg 
+    Just nid ->
+      lift $ sendBinary (Right nid) msg
 
 lookupStatic :: Typeable a => String -> Process a
 lookupStatic label = do

@@ -19,15 +19,20 @@ putInt = flip putMVar
 sendInt :: ProcessId -> Int -> Process ()
 sendInt = send
 
-$(remotable ['addInt, 'putInt, 'sendInt])
+sendPid :: ProcessId -> Process ()
+sendPid toPid = do
+  fromPid <- getSelfPid
+  send toPid fromPid
+
+$(remotable ['addInt, 'putInt, 'sendInt, 'sendPid])
 
 testSendPureClosure :: Transport -> RemoteTable -> IO ()
-testSendPureClosure transport metaData = do
+testSendPureClosure transport rtable = do
   serverAddr <- newEmptyMVar
   serverDone <- newEmptyMVar
 
   forkIO $ do 
-    node <- newLocalNode transport metaData 
+    node <- newLocalNode transport rtable 
     addr <- forkProcess node $ do
       cl <- expect
       fn <- unClosure cl :: Process (Int -> Int)
@@ -36,19 +41,19 @@ testSendPureClosure transport metaData = do
     putMVar serverAddr addr 
 
   forkIO $ do
-    node <- newLocalNode transport metaData 
+    node <- newLocalNode transport rtable 
     theirAddr <- readMVar serverAddr
     runProcess node $ send theirAddr ($(mkClosure 'addInt) 5) 
 
   takeMVar serverDone
 
 testSendIOClosure :: Transport -> RemoteTable -> IO ()
-testSendIOClosure transport metaData = do
+testSendIOClosure transport rtable = do
   serverAddr <- newEmptyMVar
   serverDone <- newEmptyMVar
 
   forkIO $ do 
-    node <- newLocalNode transport metaData 
+    node <- newLocalNode transport rtable 
     addr <- forkProcess node $ do
       cl <- expect
       io <- unClosure cl :: Process (MVar Int -> IO ())
@@ -60,19 +65,19 @@ testSendIOClosure transport metaData = do
     putMVar serverAddr addr 
 
   forkIO $ do
-    node <- newLocalNode transport metaData 
+    node <- newLocalNode transport rtable 
     theirAddr <- readMVar serverAddr
     runProcess node $ send theirAddr ($(mkClosure 'putInt) 5) 
 
   takeMVar serverDone
 
 testSendProcClosure :: Transport -> RemoteTable -> IO ()
-testSendProcClosure transport metaData = do
+testSendProcClosure transport rtable = do
   serverAddr <- newEmptyMVar
   clientDone <- newEmptyMVar
 
   forkIO $ do 
-    node <- newLocalNode transport metaData 
+    node <- newLocalNode transport rtable 
     addr <- forkProcess node $ do
       cl <- expect
       pr <- unClosure cl :: Process (Int -> Process ())
@@ -80,7 +85,7 @@ testSendProcClosure transport metaData = do
     putMVar serverAddr addr 
 
   forkIO $ do
-    node <- newLocalNode transport metaData 
+    node <- newLocalNode transport rtable 
     theirAddr <- readMVar serverAddr
     runProcess node $ do
       pid <- getSelfPid
@@ -90,12 +95,35 @@ testSendProcClosure transport metaData = do
 
   takeMVar clientDone
 
+testSpawn :: Transport -> RemoteTable -> IO ()
+testSpawn transport rtable = do
+  serverNodeAddr <- newEmptyMVar
+  clientDone <- newEmptyMVar
+
+  forkIO $ do
+    node <- newLocalNode transport rtable
+    print (localNodeId node)
+    putMVar serverNodeAddr (localNodeId node)
+
+  forkIO $ do
+    node <- newLocalNode transport rtable
+    nid <- readMVar serverNodeAddr
+    runProcess node $ do
+      pid   <- getSelfPid
+      pid'  <- spawn nid ($(mkClosure 'sendPid) pid)
+      pid'' <- expect
+      True <- return $ pid' == pid''
+      liftIO $ putMVar clientDone ()
+
+  takeMVar clientDone
+
 main :: IO ()
 main = do
   Right transport <- createTransport "127.0.0.1" "8080" defaultTCPParameters
-  let metaData = __remoteTable initRemoteTable 
+  let rtable = __remoteTable initRemoteTable 
   runTests 
-    [ ("SendPureClosure", testSendPureClosure transport metaData)
-    , ("SendIOClosure",   testSendIOClosure   transport metaData)
-    , ("SendProcClosure", testSendProcClosure transport metaData)
+    [ ("SendPureClosure", testSendPureClosure transport rtable)
+    , ("SendIOClosure",   testSendIOClosure   transport rtable)
+    , ("SendProcClosure", testSendProcClosure transport rtable)
+    , ("Spawn",           testSpawn           transport rtable)
     ]

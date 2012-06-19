@@ -29,6 +29,7 @@ module Control.Distributed.Process.Internal.Types
   , DidUnmonitor(..)
   , DidUnlink(..)
   , SpawnRef(..)
+  , DidSpawn(..)
     -- * Node controller internal data types 
   , NCMsg(..)
   , ProcessSignal(..)
@@ -244,7 +245,11 @@ newtype DidUnlink = DidUnlink ProcessId
 
 -- | 'SpawnRef' are used to return pids of spawned processes
 newtype SpawnRef = SpawnRef Int32
-  deriving (Show, Binary, Typeable)
+  deriving (Show, Binary, Typeable, Eq)
+
+-- | (Asynchronius) reply from spawn
+data DidSpawn = DidSpawn SpawnRef ProcessId
+  deriving (Show, Typeable)
 
 --------------------------------------------------------------------------------
 -- Node controller internal data types                                        --
@@ -370,6 +375,10 @@ instance Binary DiedReason where
 instance Binary (Closure a) where
   put (Closure (Static label) env) = put label >> put env
   get = Closure <$> (Static <$> get) <*> get 
+
+instance Binary DidSpawn where
+  put (DidSpawn ref pid) = put ref >> put pid
+  get = DidSpawn <$> get <*> get
 
 --------------------------------------------------------------------------------
 -- Accessors                                                                  --

@@ -105,7 +105,7 @@ nodeController = do
       NCMsg _from (Died (Left pid) reason) ->
         ncEffectProcessDied pid reason
       NCMsg _from (Spawn _ _) ->
-        fail "spawn not implemented"
+        fail $ show (localNodeId node) ++ ": spawn not implemented"
       unexpected ->
         error $ "Unexpected message " ++ show unexpected
 
