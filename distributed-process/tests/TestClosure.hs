@@ -20,7 +20,7 @@ sendInt = send
 
 $(remotable ['addInt, 'putInt, 'sendInt])
 
-testSendPureClosure :: Transport -> RemoteCallMetaData -> IO ()
+testSendPureClosure :: Transport -> RemoteTable -> IO ()
 testSendPureClosure transport metaData = do
   serverAddr <- newEmptyMVar
   serverDone <- newEmptyMVar
@@ -41,7 +41,7 @@ testSendPureClosure transport metaData = do
 
   takeMVar serverDone
 
-testSendIOClosure :: Transport -> RemoteCallMetaData -> IO ()
+testSendIOClosure :: Transport -> RemoteTable -> IO ()
 testSendIOClosure transport metaData = do
   serverAddr <- newEmptyMVar
   serverDone <- newEmptyMVar
@@ -65,7 +65,7 @@ testSendIOClosure transport metaData = do
 
   takeMVar serverDone
 
-testSendProcClosure :: Transport -> RemoteCallMetaData -> IO ()
+testSendProcClosure :: Transport -> RemoteTable -> IO ()
 testSendProcClosure transport metaData = do
   serverAddr <- newEmptyMVar
   clientDone <- newEmptyMVar
@@ -92,7 +92,7 @@ testSendProcClosure transport metaData = do
 main :: IO ()
 main = do
   Right transport <- createTransport "127.0.0.1" "8080" defaultTCPParameters
-  let metaData = __remoteCallMetaData initRemoteCallMetaData 
+  let metaData = __remoteTable initRemoteTable 
   runTests 
     [ ("SendPureClosure", testSendPureClosure transport metaData)
     , ("SendIOClosure",   testSendIOClosure   transport metaData)

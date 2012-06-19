@@ -1,7 +1,7 @@
 module Control.Distributed.Process.Internal 
   ( -- * Global CH state
-    RemoteCallMetaData
-  , initRemoteCallMetaData
+    RemoteTable
+  , initRemoteTable
   , -- * Node and process identifiers 
     NodeId(..)
   , LocalProcessId(..)
@@ -96,11 +96,11 @@ instance Show ProcessId where
   show pid = show (processNodeId pid) ++ ":" ++ show (processLocalId pid)
 
 -- | Used to fake 'static' (see paper)
-type RemoteCallMetaData = Map String Dynamic 
+type RemoteTable = Map String Dynamic 
 
 -- | Initial (empty) remote-call meta data
-initRemoteCallMetaData :: RemoteCallMetaData
-initRemoteCallMetaData = Map.empty
+initRemoteTable :: RemoteTable
+initRemoteTable = Map.empty
 
 -- | Local nodes
 data LocalNode = LocalNode 
@@ -109,7 +109,7 @@ data LocalNode = LocalNode
   , localState    :: MVar LocalNodeState
   , localCtrlChan :: Chan NCMsg
   -- TODO: this should be part of the CH state, not the local endpoint state
-  , localMetaData :: RemoteCallMetaData 
+  , remoteTable   :: RemoteTable 
   }
 
 -- | Local node state

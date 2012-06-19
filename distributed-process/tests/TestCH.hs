@@ -43,13 +43,13 @@ testPing transport = do
 
   -- Server
   forkIO $ do
-    localNode <- newLocalNode transport initRemoteCallMetaData
+    localNode <- newLocalNode transport initRemoteTable
     addr <- forkProcess localNode ping
     putMVar serverAddr addr
 
   -- Client
   forkIO $ do
-    localNode <- newLocalNode transport initRemoteCallMetaData
+    localNode <- newLocalNode transport initRemoteTable
     pingServer <- readMVar serverAddr
 
     let numPings = 10000
@@ -117,13 +117,13 @@ testMonitorUnreachable transport mOrL un = do
   done <- newEmptyMVar
 
   forkIO $ do
-    localNode <- newLocalNode transport initRemoteCallMetaData
+    localNode <- newLocalNode transport initRemoteTable
     addr <- forkProcess localNode . liftIO $ threadDelay 1000000 
     closeLocalNode localNode
     putMVar deadProcess addr
 
   forkIO $ do
-    localNode <- newLocalNode transport initRemoteCallMetaData
+    localNode <- newLocalNode transport initRemoteTable
     theirAddr <- readMVar deadProcess
     runProcess localNode $
       monitorTestProcess theirAddr mOrL un DiedDisconnect Nothing done 
@@ -138,13 +138,13 @@ testMonitorNormalTermination transport mOrL un = do
   done <- newEmptyMVar
 
   forkIO $ do
-    localNode <- newLocalNode transport initRemoteCallMetaData
+    localNode <- newLocalNode transport initRemoteTable
     addr <- forkProcess localNode $ 
       liftIO $ readMVar monitorSetup
     putMVar monitoredProcess addr
 
   forkIO $ do
-    localNode <- newLocalNode transport initRemoteCallMetaData
+    localNode <- newLocalNode transport initRemoteTable
     theirAddr <- readMVar monitoredProcess
     runProcess localNode $ 
       monitorTestProcess theirAddr mOrL un DiedNormal (Just monitorSetup) done
@@ -161,14 +161,14 @@ testMonitorAbnormalTermination transport mOrL un = do
   let err = userError "Abnormal termination"
 
   forkIO $ do
-    localNode <- newLocalNode transport initRemoteCallMetaData
+    localNode <- newLocalNode transport initRemoteTable
     addr <- forkProcess localNode . liftIO $ do
       readMVar monitorSetup
       throwIO err 
     putMVar monitoredProcess addr
 
   forkIO $ do
-    localNode <- newLocalNode transport initRemoteCallMetaData
+    localNode <- newLocalNode transport initRemoteTable
     theirAddr <- readMVar monitoredProcess
     runProcess localNode $ 
       monitorTestProcess theirAddr mOrL un (DiedException (show err)) (Just monitorSetup) done
@@ -180,7 +180,7 @@ testMonitorLocalDeadProcess :: NT.Transport -> Bool -> Bool -> IO ()
 testMonitorLocalDeadProcess transport mOrL un = do
   processDead <- newEmptyMVar
   processAddr <- newEmptyMVar
-  localNode <- newLocalNode transport initRemoteCallMetaData
+  localNode <- newLocalNode transport initRemoteTable
   done <- newEmptyMVar
 
   forkIO $ do
@@ -203,12 +203,12 @@ testMonitorRemoteDeadProcess transport mOrL un = do
   done <- newEmptyMVar
 
   forkIO $ do
-    localNode <- newLocalNode transport initRemoteCallMetaData
+    localNode <- newLocalNode transport initRemoteTable
     addr <- forkProcess localNode . liftIO $ putMVar processDead ()
     putMVar processAddr addr
 
   forkIO $ do
-    localNode <- newLocalNode transport initRemoteCallMetaData
+    localNode <- newLocalNode transport initRemoteTable
     theirAddr <- readMVar processAddr
     readMVar processDead
     runProcess localNode $ do
@@ -224,14 +224,14 @@ testMonitorDisconnect transport mOrL un = do
   done <- newEmptyMVar
 
   forkIO $ do
-    localNode <- newLocalNode transport initRemoteCallMetaData
+    localNode <- newLocalNode transport initRemoteTable
     addr <- forkProcess localNode . liftIO $ threadDelay 1000000 
     putMVar processAddr addr
     readMVar monitorSetup
     NT.closeEndPoint (localEndPoint localNode)
 
   forkIO $ do
-    localNode <- newLocalNode transport initRemoteCallMetaData
+    localNode <- newLocalNode transport initRemoteTable
     theirAddr <- readMVar processAddr
     runProcess localNode $ do
       monitorTestProcess theirAddr mOrL un DiedDisconnect (Just monitorSetup) done
@@ -272,13 +272,13 @@ testMath transport = do
 
   -- Server
   forkIO $ do
-    localNode <- newLocalNode transport initRemoteCallMetaData 
+    localNode <- newLocalNode transport initRemoteTable 
     addr <- forkProcess localNode math
     putMVar serverAddr addr
 
   -- Client
   forkIO $ do
-    localNode <- newLocalNode transport initRemoteCallMetaData
+    localNode <- newLocalNode transport initRemoteTable
     mathServer <- readMVar serverAddr
 
     runProcess localNode $ do

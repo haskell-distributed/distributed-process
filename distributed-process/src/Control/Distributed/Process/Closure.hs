@@ -25,17 +25,17 @@
 --
 -- The call to 'remotable' will also generate a function
 --
--- > __remoteCallMetaData :: RemoteCallMetaData -> RemoteCallMetaData
+-- > __remoteTable :: RemoteTable -> RemoteTable
 --
--- which can be used to construct the 'RemoteCallMetaData' used to initialize
+-- which can be used to construct the 'RemoteTable' used to initialize
 -- Cloud Haskell. You should have (at most) one call to 'remotable' per module,
 -- and compose all created functions when initializing Cloud Haskell:
 --
--- > let metaData = M1.__remoteCallMetaData
--- >              . M2.__remoteCallMetaData
--- >              . ...
--- >              . Mn.__remoteCallMetaData
--- >              $ initRemoteCallMetaData 
+-- > let rtable = M1.__remoteTable
+-- >            . M2.__remoteTable
+-- >            . ...
+-- >            . Mn.__remoteTable
+-- >            $ initRemoteTable 
 --
 -- See Section 6, /Faking It/, of /Towards Haskell in the Cloud/ for more info. 
 {-# LANGUAGE TemplateHaskell #-}
@@ -80,9 +80,9 @@ import Language.Haskell.TH ( -- Q monad and operations
                            , sigD
                            )
 import Control.Distributed.Process (Process)                           
-import Control.Distributed.Process.Internal ( RemoteCallMetaData
+import Control.Distributed.Process.Internal ( RemoteTable
                                             , LocalProcess(processNode)
-                                            , LocalNode(localMetaData)
+                                            , LocalNode(remoteTable)
                                             )
 
 -- | A static value is one that is bound at top-level.
@@ -103,8 +103,8 @@ data Closure a = Closure (Static (ByteString -> a)) ByteString
 remotable :: [Name] -> Q [Dec] 
 remotable ns = do
   (closures, decoders, inserts) <- unzip3 <$> mapM process ns
-  metaData <- createMetaData inserts 
-  return $ concat closures ++ concat decoders ++ metaData 
+  rtable <- createMetaData inserts 
+  return $ concat closures ++ concat decoders ++ rtable 
 
 -- | Deserialize a closure
 unClosure :: Typeable a => Closure a -> Process a
@@ -122,8 +122,8 @@ mkClosure = varE . closureName
 
 lookupStatic :: Typeable a => String -> Process a
 lookupStatic label = do
-    metaData <- localMetaData . processNode <$> ask
-    return $ fromDyn (metaData Map.! label) (throw typeError)
+    rtable <- remoteTable . processNode <$> ask
+    return $ fromDyn (rtable Map.! label) (throw typeError)
   where
     typeError = userError "lookupStatic type error"
 
@@ -138,8 +138,8 @@ instance Binary (Closure a) where
 -- | Generate the code to add the metadata to the CH runtime
 createMetaData :: [Q Exp] -> Q [Dec]
 createMetaData is = 
-  [d| __remoteCallMetaData :: RemoteCallMetaData -> RemoteCallMetaData ;
-      __remoteCallMetaData = $(compose is)
+  [d| __remoteTable :: RemoteTable -> RemoteTable ;
+      __remoteTable = $(compose is)
     |]
 
 -- | Generate the necessary definitions for one function 

@@ -15,8 +15,8 @@ module Control.Distributed.Process
   , expect
   , send 
   , getSelfPid
-  , RemoteCallMetaData
-  , initRemoteCallMetaData
+  , RemoteTable
+  , initRemoteTable
     -- * Matching messages
   , Match
   , match
@@ -95,8 +95,8 @@ import qualified Network.Transport as NT ( Transport
 import Data.Accessor ((^.), (^=), (^:))
 import System.Random (randomIO)
 import Control.Distributed.Process.Internal.NodeController (runNodeController)
-import Control.Distributed.Process.Internal ( RemoteCallMetaData
-                                            , initRemoteCallMetaData
+import Control.Distributed.Process.Internal ( RemoteTable
+                                            , initRemoteTable
                                             , NodeId(..)
                                             , LocalProcessId(..)
                                             , ProcessId(..)
@@ -296,8 +296,8 @@ expectTimeout timeout = receiveTimeout timeout [match return]
 -- 
 -- Note that proper Cloud Haskell initialization and configuration is still 
 -- to do.
-newLocalNode :: NT.Transport -> RemoteCallMetaData -> IO LocalNode
-newLocalNode transport metaData = do
+newLocalNode :: NT.Transport -> RemoteTable -> IO LocalNode
+newLocalNode transport rtable = do
   mEndPoint <- NT.newEndPoint transport
   case mEndPoint of
     Left ex -> throwIO ex
@@ -314,7 +314,7 @@ newLocalNode transport metaData = do
                            , localEndPoint = endPoint
                            , localState    = state
                            , localCtrlChan = ctrlChan
-                           , localMetaData = metaData
+                           , remoteTable   = rtable
                            }
       void . forkIO $ runNodeController node 
       void . forkIO $ handleIncomingMessages node
