@@ -7,6 +7,7 @@ import Network.Transport (Transport)
 import Network.Transport.TCP (createTransport, defaultTCPParameters)
 import Control.Distributed.Process
 import Control.Distributed.Process.Closure
+import Control.Distributed.Process.Node
 import TestAuxiliary
 
 addInt :: Int -> Int -> Int

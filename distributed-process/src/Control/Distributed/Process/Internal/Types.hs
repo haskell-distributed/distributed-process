@@ -1,4 +1,6 @@
-module Control.Distributed.Process.Internal 
+-- | We collect all types used internally in a single module to avoid using
+-- mutually recursive modules
+module Control.Distributed.Process.Internal.Types
   ( -- * Global CH state
     RemoteTable
   , initRemoteTable
@@ -13,6 +15,7 @@ module Control.Distributed.Process.Internal
   , LocalProcess(..)
   , LocalProcessState(..)
   , Process(..)
+  , runLocalProcess
     -- * Closures
   , Static(..) 
   , Closure(..)
@@ -40,10 +43,12 @@ module Control.Distributed.Process.Internal
   , localPidCounter
   , localPidUnique
   , localProcessWithId
-  , connections
   , monitorCounter
   , spawnCounter
-  , connectionTo
+    -- * MessageT monad
+  , MessageT(..)
+  , MessageState(..)
+  , runMessageT
   ) where
 
 import Control.Concurrent (ThreadId)
@@ -65,8 +70,9 @@ import qualified Data.ByteString as BSS (ByteString, concat, splitAt)
 import qualified Network.Transport as NT (EndPoint, EndPointAddress, Connection)
 import qualified Network.Transport.Internal as NTI (encodeInt32, decodeInt32)
 import Control.Applicative ((<$>), (<*>))
-import Control.Monad.Reader (MonadReader(..), ReaderT)
+import Control.Monad.Reader (MonadReader(..), ReaderT, runReaderT)
 import Control.Monad.IO.Class (MonadIO)
+import Control.Monad.State (MonadState, StateT, evalStateT)
 import Control.Distributed.Process.Serializable ( Fingerprint
                                                 , Serializable
                                                 , encodeFingerprint
@@ -146,7 +152,6 @@ data LocalNodeState = LocalNodeState
 -- | Processes running on our local node
 data LocalProcess = LocalProcess 
   { processQueue  :: CQueue Message 
-  , processNode   :: LocalNode   
   , processId     :: ProcessId
   , processState  :: MVar LocalProcessState
   , processThread :: ThreadId
@@ -154,14 +159,19 @@ data LocalProcess = LocalProcess
 
 -- | Local process state
 data LocalProcessState = LocalProcessState
-  { _connections    :: Map ProcessId NT.Connection 
-  , _monitorCounter :: Int32
+  { _monitorCounter :: Int32
   , _spawnCounter   :: Int32
   }
 
 -- | The Cloud Haskell 'Process' type
-newtype Process a = Process { unProcess :: ReaderT LocalProcess IO a }
+newtype Process a = Process { 
+    unProcess :: ReaderT LocalProcess (MessageT IO) a 
+  }
   deriving (Functor, Monad, MonadIO, MonadReader LocalProcess, Typeable)
+
+-- | Deconstructor for 'Process' (not exported to the public API) 
+runLocalProcess :: LocalNode -> Process a -> LocalProcess -> IO a
+runLocalProcess node proc = runMessageT node . runReaderT (unProcess proc) 
 
 --------------------------------------------------------------------------------
 -- Closures                                                                   --
@@ -377,16 +387,31 @@ localPidUnique = accessor _localPidUnique (\unq st -> st { _localPidUnique = unq
 localProcessWithId :: LocalProcessId -> Accessor LocalNodeState (Maybe LocalProcess)
 localProcessWithId lpid = localProcesses >>> DAC.mapMaybe lpid
 
-connections :: Accessor LocalProcessState (Map ProcessId NT.Connection)
-connections = accessor _connections (\conns st -> st { _connections = conns })
-
 monitorCounter :: Accessor LocalProcessState Int32
 monitorCounter = accessor _monitorCounter (\cnt st -> st { _monitorCounter = cnt })
 
 spawnCounter :: Accessor LocalProcessState Int32
 spawnCounter = accessor _spawnCounter (\cnt st -> st { _spawnCounter = cnt })
 
-connectionTo :: ProcessId -> Accessor LocalProcessState (Maybe NT.Connection)
-connectionTo pid = connections >>> DAC.mapMaybe pid
+--------------------------------------------------------------------------------
+-- MessageT monad                                                             --
+--------------------------------------------------------------------------------
 
+newtype MessageT m a = MessageT { unMessageT :: StateT MessageState m a }
+  deriving (Functor, Monad, MonadIO, MonadState MessageState)
+
+data MessageState = MessageState { 
+     messageLocalNode   :: LocalNode
+  , _messageConnections :: Map Identifier NT.Connection 
+  }
+
+runMessageT :: Monad m => LocalNode -> MessageT m a -> m a
+runMessageT localNode m = 
+  evalStateT (unMessageT m) $ initMessageState localNode 
+
+initMessageState :: LocalNode -> MessageState
+initMessageState localNode = MessageState {
+     messageLocalNode   = localNode 
+  , _messageConnections = Map.empty
+  }
 

@@ -5,12 +5,13 @@ import Data.Binary (Binary(..))
 import Data.Typeable (Typeable)
 import Data.Foldable (forM_)
 import Control.Concurrent (forkIO, threadDelay)
-import Control.Concurrent.MVar ( MVar
-                               , newEmptyMVar
-                               , putMVar
-                               , takeMVar
-                               , readMVar
-                               )
+import Control.Concurrent.MVar 
+  ( MVar
+  , newEmptyMVar
+  , putMVar
+  , takeMVar
+  , readMVar
+  )
 import Control.Monad (replicateM_)
 import Control.Monad.IO.Class (liftIO)
 import Control.Exception (throwIO)
@@ -18,7 +19,8 @@ import Control.Applicative ((<$>), (<*>))
 import qualified Network.Transport as NT (Transport, closeEndPoint)
 import Network.Transport.TCP (createTransport, defaultTCPParameters)
 import Control.Distributed.Process
-import Control.Distributed.Process.Internal (LocalNode(localEndPoint))
+import Control.Distributed.Process.Internal.Types (LocalNode(localEndPoint))
+import Control.Distributed.Process.Node
 import TestAuxiliary
 
 newtype Ping = Ping ProcessId

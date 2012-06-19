@@ -22,7 +22,8 @@ Library
                      network-transport >= 0.1
   Exposed-modules:   Control.Distributed.Process,
                      Control.Distributed.Process.Serializable,
-                     Control.Distributed.Process.Closure
+                     Control.Distributed.Process.Closure,
+                     Control.Distributed.Process.Node
   Extensions:        ExplicitForAll, ScopedTypeVariables, GeneralizedNewtypeDeriving, FlexibleInstances, UndecidableInstances, MultiParamTypeClasses, DeriveDataTypeable, TemplateHaskell, ExistentialQuantification
   ghc-options:       -Wall
   HS-Source-Dirs:    src

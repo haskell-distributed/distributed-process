@@ -39,53 +39,45 @@
 --
 -- See Section 6, /Faking It/, of /Towards Haskell in the Cloud/ for more info. 
 {-# LANGUAGE TemplateHaskell #-}
-module Control.Distributed.Process.Closure 
-  ( unClosure
-  , remotable 
-  , mkClosure
-  ) where
+module Control.Distributed.Process.Closure (remotable, mkClosure) where 
 
 import Prelude hiding (lookup)
 import Data.ByteString.Lazy (ByteString)
 import Data.Binary (encode, decode)
-import qualified Data.Map as Map (insert, (!))
-import Data.Dynamic (toDyn, fromDyn)
-import Data.Typeable (Typeable)
+import qualified Data.Map as Map (insert)
+import Data.Dynamic (toDyn)
 import Control.Applicative ((<$>))
-import Control.Monad.Reader (ask)
-import Control.Exception (throw)
-import Language.Haskell.TH ( -- Q monad and operations
-                             Q
-                           , reify
-                             -- Names
-                           , Name
-                           , mkName
-                           , nameBase
-                             -- Algebraic data types
-                           , Dec
-                           , Exp
-                           , Type(AppT, ArrowT)
-                           , Info(VarI)
-                             -- Lifted constructors
-                             -- .. Literals
-                           , stringL
-                             -- .. Patterns
-                           , normalB
-                           , clause
-                             -- .. Expressions
-                           , varE
-                           , litE
-                            -- .. Top-level declarations
-                           , funD
-                           , sigD
-                           )
-import Control.Distributed.Process (Process)                           
-import Control.Distributed.Process.Internal ( RemoteTable
-                                            , LocalProcess(processNode)
-                                            , LocalNode(remoteTable)
-                                            , Closure(..)
-                                            , Static(..)
-                                            )
+import Language.Haskell.TH 
+  ( -- Q monad and operations
+    Q
+  , reify
+    -- Names
+  , Name
+  , mkName
+  , nameBase
+    -- Algebraic data types
+  , Dec
+  , Exp
+  , Type(AppT, ArrowT)
+  , Info(VarI)
+    -- Lifted constructors
+    -- .. Literals
+  , stringL
+    -- .. Patterns
+  , normalB
+  , clause
+    -- .. Expressions
+  , varE
+  , litE
+   -- .. Top-level declarations
+  , funD
+  , sigD
+  )
+import Control.Distributed.Process.Internal.Types
+  ( RemoteTable
+  , Closure(..)
+  , Static(..)
+  )
 
 --------------------------------------------------------------------------------
 -- Top-level API                                                              --
@@ -99,26 +91,9 @@ remotable ns = do
   rtable <- createMetaData inserts 
   return $ concat closures ++ concat decoders ++ rtable 
 
--- | Deserialize a closure
-unClosure :: Typeable a => Closure a -> Process a
-unClosure (Closure (Static label) env) = do
-  dec <- lookupStatic label 
-  return (dec env)
-
 -- | Create a closure
 mkClosure :: Name -> Q Exp
 mkClosure = varE . closureName 
-
---------------------------------------------------------------------------------
--- Internal (Cloud Haskell state)                                             --
---------------------------------------------------------------------------------
-
-lookupStatic :: Typeable a => String -> Process a
-lookupStatic label = do
-    rtable <- remoteTable . processNode <$> ask
-    return $ fromDyn (rtable Map.! label) (throw typeError)
-  where
-    typeError = userError "lookupStatic type error"
 
 --------------------------------------------------------------------------------
 -- Internal (Template Haskell)                                                --
