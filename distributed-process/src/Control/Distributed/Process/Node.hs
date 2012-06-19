@@ -1,49 +1,244 @@
-module Control.Distributed.Process.Internal.NodeController 
-  ( runNodeController
-  , NCMsg(..)
+-- | Local nodes
+module Control.Distributed.Process.Node 
+  ( newLocalNode
+  , closeLocalNode
+  , forkProcess
+  , runProcess
+  , initRemoteTable
+  , localNodeId
   ) where
 
+import Prelude hiding (catch)
+import System.IO (fixIO)
+import qualified Data.ByteString.Lazy as BSL (fromChunks)
+import Data.Binary (decode)
 import Data.Map (Map)
-import qualified Data.Map as Map (empty, toList)
+import qualified Data.Map as Map (empty, lookup, insert, delete, toList)
+import qualified Data.List as List (delete)
 import Data.Set (Set)
-import qualified Data.Set as Set (empty, insert, delete)
+import qualified Data.Set as Set (empty, insert, delete, member)
 import Data.Foldable (forM_)
 import Data.Maybe (isJust)
-import Data.Accessor (Accessor, accessor, (^.), (^=), (^:))
-import qualified Data.Accessor.Container as DAC (mapDefault)
+import Data.Typeable (Typeable)
+import Data.Dynamic (fromDynamic)
 import Control.Category ((>>>))
-import Control.Monad (when, forever)
+import Control.Applicative ((<$>))
+import Control.Monad (void, when, forever)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.State (MonadState, StateT, evalStateT, gets, modify)
 import qualified Control.Monad.Trans.Class as Trans (lift)
-import Control.Concurrent.MVar (withMVar)
-import Control.Concurrent.Chan (readChan)
-import Control.Exception (Exception, throwTo)
-import Control.Distributed.Process.Serializable (Serializable)
-import Control.Distributed.Process.Internal.CQueue (enqueue)
-import Control.Distributed.Process.Internal.Types
-  ( NodeId(..)
+import Control.Exception (throwIO, SomeException, Exception, throwTo)
+import qualified Control.Exception as Exception (catch)
+import Control.Concurrent (forkIO)
+import Control.Concurrent.MVar 
+  ( newMVar 
+  , withMVar
+  , modifyMVar
+  , modifyMVar_
+  , newEmptyMVar
+  , putMVar
+  , takeMVar
+  )
+import Control.Concurrent.Chan (newChan, writeChan, readChan)
+import Control.Distributed.Process.Internal.CQueue (enqueue, newCQueue)
+import qualified Network.Transport as NT 
+  ( Transport
+  , EndPoint
+  , newEndPoint
+  , receive
+  , Event(..)
+  , EventErrorCode(..)
+  , TransportError(..)
+  , address
+  , closeEndPoint
+  , ConnectionId
+  )
+import Data.Accessor (Accessor, accessor, (^.), (^=), (^:))
+import qualified Data.Accessor.Container as DAC (mapDefault)
+import System.Random (randomIO)
+import Control.Distributed.Process.Internal.Types 
+  ( RemoteTable
+  , NodeId(..)
   , LocalProcessId(..)
   , ProcessId(..)
   , LocalNode(..)
+  , LocalNodeState(..)
   , LocalProcess(..)
+  , LocalProcessState(..)
+  , Process(..)
+  , runLocalProcess
+  , DiedReason(..)
+  , NCMsg(..)
+  , ProcessSignal(..)
+  , payloadToMessage
+  , payloadToId
+  , localPidCounter
+  , localPidUnique
+  , localProcessWithId
+  , initRemoteTable
   , MonitorRef(..)
   , MonitorNotification(..)
   , LinkException(..)
   , DidUnmonitor(..)
   , DidUnlink(..)
-  , DiedReason(..)
-  , NCMsg(..)
-  , ProcessSignal(..)
+  , SpawnRef
+  , DidSpawn(..)
+  , Closure(..)
+  , Static(..)
   , createMessage
-  , localProcessWithId
   , MessageT
   , runMessageT
   )
+import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Internal.MessageT 
   ( sendBinary
+  , sendMessage
   , getLocalNode
   )
+
+--------------------------------------------------------------------------------
+-- Initialization                                                             --
+--------------------------------------------------------------------------------
+
+-- | Initialize a new local node. 
+-- 
+-- Note that proper Cloud Haskell initialization and configuration is still 
+-- to do.
+newLocalNode :: NT.Transport -> RemoteTable -> IO LocalNode
+newLocalNode transport rtable = do
+  mEndPoint <- NT.newEndPoint transport
+  case mEndPoint of
+    Left ex -> throwIO ex
+    Right endPoint -> do
+      unq <- randomIO
+      state <- newMVar LocalNodeState 
+        { _localProcesses      = Map.empty
+        , _localPidCounter     = 0 
+        , _localPidUnique      = unq 
+        }
+      ctrlChan <- newChan
+      let node = LocalNode { localNodeId   = NodeId $ NT.address endPoint
+                           , localEndPoint = endPoint
+                           , localState    = state
+                           , localCtrlChan = ctrlChan
+                           , remoteTable   = rtable
+                           }
+      void . forkIO $ runNodeController node 
+      void . forkIO $ handleIncomingMessages node
+      return node
+
+-- | Force-close a local node
+--
+-- TODO: for now we just close the associated endpoint
+closeLocalNode :: LocalNode -> IO ()
+closeLocalNode node =
+  NT.closeEndPoint (localEndPoint node)
+
+-- | Run a process on a local node and wait for it to finish
+runProcess :: LocalNode -> Process () -> IO ()
+runProcess node proc = do
+  done <- newEmptyMVar
+  void $ forkProcess node (proc >> liftIO (putMVar done ()))
+  takeMVar done
+
+-- | Spawn a new process on a local node
+forkProcess :: LocalNode -> Process () -> IO ProcessId
+forkProcess node proc = modifyMVar (localState node) $ \st -> do
+  let lpid  = LocalProcessId { lpidCounter = st ^. localPidCounter
+                             , lpidUnique  = st ^. localPidUnique
+                             }
+  let pid   = ProcessId { processNodeId  = localNodeId node 
+                        , processLocalId = lpid
+                        }
+  pst <- newMVar LocalProcessState { _monitorCounter = 0
+                                   , _spawnCounter   = 0
+                                   }
+  queue <- newCQueue
+  (_, lproc) <- fixIO $ \ ~(tid, _) -> do
+    let lproc = LocalProcess { processQueue  = queue
+                             , processId     = pid
+                             , processState  = pst 
+                             , processThread = tid
+                             }
+    tid' <- forkIO $ do
+      reason <- Exception.catch 
+        (runLocalProcess node proc lproc >> return DiedNormal)
+        (return . DiedException . (show :: SomeException -> String))
+      -- [Unified: Table 4, rules termination and exiting]
+      modifyMVar_ (localState node) $ 
+        return . (localProcessWithId lpid ^= Nothing)
+      writeChan (localCtrlChan node) NCMsg 
+        { ctrlMsgSender = Left pid 
+        , ctrlMsgSignal = Died (Left pid) reason 
+        }
+    return (tid', lproc)
+
+  -- TODO: if the counter overflows we should pick a new unique                           
+  return ( (localProcessWithId lpid ^= Just lproc)
+         . (localPidCounter ^: (+ 1))
+         $ st
+         , pid 
+         )
+   
+handleIncomingMessages :: LocalNode -> IO ()
+handleIncomingMessages node = go [] Map.empty Set.empty
+  where
+    go :: [NT.ConnectionId] -- ^ Connections whose purpose we don't yet know 
+       -> Map NT.ConnectionId LocalProcess -- ^ Connections to local processes
+       -> Set NT.ConnectionId              -- ^ Connections to our controller
+       -> IO () 
+    go uninitConns procConns ctrlConns = do
+      event <- NT.receive endpoint
+      case event of
+        NT.ConnectionOpened cid _rel _theirAddr ->
+          go (cid : uninitConns) procConns ctrlConns 
+        NT.Received cid payload -> 
+          case Map.lookup cid procConns of
+            Just proc -> do
+              let msg = payloadToMessage payload
+              enqueue (processQueue proc) msg
+              go uninitConns procConns ctrlConns 
+            Nothing | cid `Set.member` ctrlConns ->  do
+              writeChan ctrlChan (decode . BSL.fromChunks $ payload)
+              go uninitConns procConns ctrlConns 
+            Nothing | cid `elem` uninitConns ->
+              case payloadToId payload of
+                Just lpid -> do
+                  mProc <- withMVar state $ return . (^. localProcessWithId lpid) 
+                  case mProc of
+                    Just proc -> 
+                      go (List.delete cid uninitConns) 
+                         (Map.insert cid proc procConns)
+                         ctrlConns
+                    Nothing ->
+                      fail "handleIncomingMessages: TODO 1" 
+                Nothing ->
+                  go (List.delete cid uninitConns)
+                     procConns
+                     (Set.insert cid ctrlConns)
+            _ -> 
+              fail "handleIncomingMessages: TODO 2" 
+        NT.ConnectionClosed cid -> 
+          go (List.delete cid uninitConns) 
+             (Map.delete cid procConns)
+             (Set.delete cid ctrlConns)
+        NT.ErrorEvent (NT.TransportError (NT.EventConnectionLost (Just theirAddr) _) _) -> do 
+          -- [Unified table 9, rule node_disconnect]
+          let nid = Right $ NodeId theirAddr
+          writeChan ctrlChan NCMsg 
+            { ctrlMsgSender = nid
+            , ctrlMsgSignal = Died nid DiedDisconnect
+            }
+        NT.ErrorEvent _ ->
+          fail "handleIncomingMessages: TODO 4"
+        NT.EndPointClosed ->
+          return ()
+        NT.ReceivedMulticast _ _ ->
+          fail "Unexpected multicast"
+    
+    state    = localState node
+    endpoint = localEndPoint node
+    ctrlChan = localCtrlChan node
 
 --------------------------------------------------------------------------------
 -- Top-level access to the node controller                                    --
@@ -104,8 +299,8 @@ nodeController = do
         ncEffectNodeDied nid reason
       NCMsg _from (Died (Left pid) reason) ->
         ncEffectProcessDied pid reason
-      NCMsg _from (Spawn _ _) ->
-        fail $ show (localNodeId node) ++ ": spawn not implemented"
+      NCMsg (Left from) (Spawn proc ref) ->
+        ncEffectSpawn from proc ref
       unexpected ->
         error $ "Unexpected message " ++ show unexpected
 
@@ -187,6 +382,16 @@ ncEffectProcessDied pid reason = do
   modify $ (linksForProcess pid ^= Set.empty)
          . (monitorsForProcess pid ^= Map.empty)
 
+-- [Unified: Table 13]
+ncEffectSpawn :: ProcessId -> Closure (Process ()) -> SpawnRef -> NC ()
+ncEffectSpawn pid cProc ref = do
+  mProc <- unClosure cProc
+  -- TODO: what should we do when unClosure returns Nothing?
+  forM_ mProc $ \proc -> do
+    node <- lift getLocalNode
+    pid' <- liftIO $ forkProcess node proc
+    lift $ sendMessage (Left pid) (DidSpawn ref pid') 
+
 --------------------------------------------------------------------------------
 -- Auxiliary                                                                  --
 --------------------------------------------------------------------------------
@@ -224,6 +429,18 @@ destNid (Spawn _ _)          = Nothing
 -- | Check if a process is local to our own node
 isLocal :: LocalNode -> ProcessId -> Bool 
 isLocal nid pid = processNodeId pid == localNodeId nid 
+
+-- | Lookup a local closure 
+--
+-- TODO: Duplication with onClosure in Process
+unClosure :: Typeable a => Closure a -> NC (Maybe a)
+unClosure (Closure (Static label) env) = do
+  rtable <- remoteTable <$> lift getLocalNode
+  case Map.lookup label rtable of
+    Nothing  -> return Nothing
+    Just dyn -> case fromDynamic dyn of
+      Nothing  -> return Nothing
+      Just dec -> return (Just $ dec env)
 
 --------------------------------------------------------------------------------
 -- Messages to local processes                                                --

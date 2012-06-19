@@ -102,7 +102,6 @@ testSpawn transport rtable = do
 
   forkIO $ do
     node <- newLocalNode transport rtable
-    print (localNodeId node)
     putMVar serverNodeAddr (localNodeId node)
 
   forkIO $ do
