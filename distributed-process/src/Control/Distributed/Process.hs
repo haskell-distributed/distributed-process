@@ -69,6 +69,7 @@ module Control.Distributed.Process
   , Match
   , match
   , matchIf
+  , matchUnknown
   , receiveWait
   , receiveTimeout
     -- * Monitoring and linking
@@ -122,10 +123,7 @@ import Control.Concurrent.MVar ( newMVar
                                )
 import Control.Concurrent.Chan (newChan, writeChan)
 import Control.Distributed.Process.Internal.CQueue (enqueue, dequeue, newCQueue)
-import Control.Distributed.Process.Serializable ( Serializable
-                                                , Fingerprint
-                                                , fingerprint
-                                                )
+import Control.Distributed.Process.Serializable (Serializable, fingerprint)
 import qualified Network.Transport as NT ( Transport
                                          , EndPoint
                                          , Connection
@@ -223,41 +221,41 @@ unlink = postCtrlMsg . Unlink
 -- Matching                                                                   --
 --------------------------------------------------------------------------------
 
-data Match b =
-    forall a. Serializable a => Match Fingerprint (a -> Process b) 
-  | forall a. Serializable a => MatchIf Fingerprint (a -> Bool) (a -> Process b)
+-- | Opaque type used in 'receiveWait' and 'receiveTimeout'
+newtype Match b = Match { unMatch :: Message -> Maybe (Process b) }
 
+-- | Match against any message of the right type
 match :: forall a b. Serializable a => (a -> Process b) -> Match b
-match = Match (fingerprint (undefined :: a))
+match = matchIf (const True) 
 
+-- | Match against any message of the right type that satisfies a predicate
 matchIf :: forall a b. Serializable a => (a -> Bool) -> (a -> Process b) -> Match b
-matchIf = MatchIf (fingerprint (undefined :: a)) 
+matchIf c p = Match $ \msg -> 
+  let decoded :: a
+      decoded = decode . messageEncoding $ msg in
+  if messageFingerprint msg == fingerprint (undefined :: a) && c decoded
+    then Just . p . decode . messageEncoding $ msg
+    else Nothing
 
+-- | Remove any message from the queue
+matchUnknown :: Process b -> Match b
+matchUnknown = Match . const . Just
+
+-- | Test the matches in order against each message in the queue
 receiveWait :: [Match b] -> Process b
 receiveWait ms = do
   queue <- processQueue <$> ask
-  Just proc <- liftIO $ dequeue queue Nothing (map evalMatch ms) 
+  Just proc <- liftIO $ dequeue queue Nothing (map unMatch ms)
   proc
 
+-- | Like 'receiveWait' but with a timeout
 receiveTimeout :: Int -> [Match b] -> Process (Maybe b)
 receiveTimeout t ms = do
   queue <- processQueue <$> ask
-  mProc <- liftIO $ dequeue queue (Just t) (map evalMatch ms)
+  mProc <- liftIO $ dequeue queue (Just t) (map unMatch ms)
   case mProc of
     Nothing   -> return Nothing
     Just proc -> Just <$> proc
-
-evalMatch :: Match b -> Message -> Maybe (Process b)
-evalMatch (Match fp proc) msg =  
-  let decoded = decode . messageEncoding $ msg in
-  if messageFingerprint msg == fp
-    then Just . proc $ decoded
-    else Nothing
-evalMatch (MatchIf fp cond proc) msg = 
-  let decoded = decode . messageEncoding $ msg in
-  if messageFingerprint msg == fp && cond decoded
-    then Just . proc $ decoded
-    else Nothing
 
 --------------------------------------------------------------------------------
 -- Auxiliary API                                                              --
