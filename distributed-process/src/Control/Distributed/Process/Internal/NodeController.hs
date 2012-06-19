@@ -104,6 +104,8 @@ nodeController = do
         ncEffectNodeDied nid reason
       NCMsg _from (Died (Left pid) reason) ->
         ncEffectProcessDied pid reason
+      NCMsg _from (Spawn _ _) ->
+        fail "spawn not implemented"
       -- Error cases
       NCMsg (Right _) (Link _) ->
         error "Link message from a node?"
@@ -305,6 +307,7 @@ destNid (Monitor pid _)      = Just . processNodeId $ pid
 destNid (Unmonitor ref)      = Just . processNodeId . monitorRefPid $ ref 
 destNid (Died (Right _) _)   = Nothing
 destNid (Died (Left _pid) _) = fail "destNid: TODO"
+destNid (Spawn _ _)          = Nothing
 
 initNCState :: NCState
 initNCState = NCState

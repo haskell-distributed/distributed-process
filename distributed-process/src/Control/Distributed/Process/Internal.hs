@@ -6,22 +6,27 @@ module Control.Distributed.Process.Internal
     NodeId(..)
   , LocalProcessId(..)
   , ProcessId(..)
+  , Identifier
     -- * Local nodes and processes
   , LocalNode(..)
   , LocalNodeState(..)
   , LocalProcess(..)
   , LocalProcessState(..)
+  , Process(..)
+    -- * Closures
+  , Static(..) 
+  , Closure(..)
     -- * Messages 
   , Message(..)
-    -- * Monitoring and linking
+    -- * Node controller user-visible data types 
   , MonitorRef(..)
   , MonitorNotification(..)
   , LinkException(..)
   , DiedReason(..)
   , DidUnmonitor(..)
   , DidUnlink(..)
-    -- * Node controller data types
-  , Identifier
+  , SpawnRef(..)
+    -- * Node controller internal data types 
   , NCMsg(..)
   , ProcessSignal(..)
     -- * Serialization/deserialization
@@ -34,9 +39,10 @@ module Control.Distributed.Process.Internal
   , localProcesses
   , localPidCounter
   , localPidUnique
-  , localMonitorCounter
   , localProcessWithId
   , connections
+  , monitorCounter
+  , spawnCounter
   , connectionTo
   ) where
 
@@ -51,6 +57,7 @@ import Data.Int (Int32)
 import Data.Typeable (Typeable)
 import Data.Dynamic (Dynamic) 
 import Data.Binary (Binary, encode, put, get, putWord8, getWord8)
+import Data.ByteString.Lazy (ByteString)
 import Data.Accessor (Accessor, accessor)
 import qualified Data.Accessor.Container as DAC (mapMaybe)
 import qualified Data.ByteString.Lazy as BSL (ByteString, toChunks, fromChunks, splitAt)
@@ -58,6 +65,8 @@ import qualified Data.ByteString as BSS (ByteString, concat, splitAt)
 import qualified Network.Transport as NT (EndPoint, EndPointAddress, Connection)
 import qualified Network.Transport.Internal as NTI (encodeInt32, decodeInt32)
 import Control.Applicative ((<$>), (<*>))
+import Control.Monad.Reader (MonadReader(..), ReaderT)
+import Control.Monad.IO.Class (MonadIO)
 import Control.Distributed.Process.Serializable ( Fingerprint
                                                 , Serializable
                                                 , encodeFingerprint
@@ -66,6 +75,21 @@ import Control.Distributed.Process.Serializable ( Fingerprint
                                                 , sizeOfFingerprint
                                                 )
 import Control.Distributed.Process.Internal.CQueue (CQueue)
+
+--------------------------------------------------------------------------------
+-- Global state                                                               --
+--------------------------------------------------------------------------------
+
+-- | Used to fake 'static' (see paper)
+type RemoteTable = Map String Dynamic 
+
+-- | Initial (empty) remote-call meta data
+initRemoteTable :: RemoteTable
+initRemoteTable = Map.empty
+
+--------------------------------------------------------------------------------
+-- Node and process identifiers                                               --
+--------------------------------------------------------------------------------
 
 -- | Node identifier 
 newtype NodeId = NodeId { nodeAddress :: NT.EndPointAddress }
@@ -95,12 +119,12 @@ data ProcessId = ProcessId
 instance Show ProcessId where
   show pid = show (processNodeId pid) ++ ":" ++ show (processLocalId pid)
 
--- | Used to fake 'static' (see paper)
-type RemoteTable = Map String Dynamic 
+-- | Node or process identifier
+type Identifier = Either ProcessId NodeId
 
--- | Initial (empty) remote-call meta data
-initRemoteTable :: RemoteTable
-initRemoteTable = Map.empty
+--------------------------------------------------------------------------------
+-- Local nodes and processes                                                  --
+--------------------------------------------------------------------------------
 
 -- | Local nodes
 data LocalNode = LocalNode 
@@ -117,7 +141,6 @@ data LocalNodeState = LocalNodeState
   { _localProcesses      :: Map LocalProcessId LocalProcess
   , _localPidCounter     :: Int32
   , _localPidUnique      :: Int32
-  , _localMonitorCounter :: Int32
   }
 
 -- | Processes running on our local node
@@ -132,7 +155,30 @@ data LocalProcess = LocalProcess
 -- | Local process state
 data LocalProcessState = LocalProcessState
   { _connections    :: Map ProcessId NT.Connection 
+  , _monitorCounter :: Int32
+  , _spawnCounter   :: Int32
   }
+
+-- | The Cloud Haskell 'Process' type
+newtype Process a = Process { unProcess :: ReaderT LocalProcess IO a }
+  deriving (Functor, Monad, MonadIO, MonadReader LocalProcess, Typeable)
+
+--------------------------------------------------------------------------------
+-- Closures                                                                   --
+--------------------------------------------------------------------------------
+
+-- | A static value is one that is bound at top-level.
+-- We represent it simply by a string
+newtype Static a = Static String
+  deriving (Typeable, Show)
+
+-- | A closure is a static value and an encoded environment
+data Closure a = Closure (Static (ByteString -> a)) ByteString
+  deriving (Typeable, Show)
+
+--------------------------------------------------------------------------------
+-- Messages                                                                   --
+--------------------------------------------------------------------------------
 
 -- | Messages consist of their typeRep fingerprint and their encoding
 data Message = Message 
@@ -140,9 +186,15 @@ data Message = Message
   , messageEncoding    :: BSL.ByteString
   }
 
+--------------------------------------------------------------------------------
+-- Node controller user-visible data types                                    --
+--------------------------------------------------------------------------------
+
 -- | MonitorRef is opaque for regular Cloud Haskell processes 
 data MonitorRef = MonitorRef 
-  { monitorRefPid     :: ProcessId
+  { -- | PID of the process to be monitored (for routing purposes)
+    monitorRefPid     :: ProcessId  
+    -- | Unique to distinguish multiple monitor requests by the same process
   , monitorRefCounter :: Int32
   }
   deriving (Eq, Ord, Show)
@@ -156,14 +208,6 @@ data LinkException = LinkException ProcessId DiedReason
   deriving (Typeable, Show)
 
 instance Exception LinkException
-
--- | (Asynchronous) reply from unmonitor
-newtype DidUnmonitor = DidUnmonitor MonitorRef
-  deriving (Typeable, Binary)
-
--- | (Asynchronous) reply from unlink
-newtype DidUnlink = DidUnlink ProcessId
-  deriving (Typeable, Binary)
 
 -- | Why did a process die?
 data DiedReason = 
@@ -180,8 +224,21 @@ data DiedReason =
   | DiedNoProc
   deriving (Show, Eq)
 
--- | Node or process identifier
-type Identifier = Either ProcessId NodeId
+-- | (Asynchronous) reply from unmonitor
+newtype DidUnmonitor = DidUnmonitor MonitorRef
+  deriving (Typeable, Binary)
+
+-- | (Asynchronous) reply from unlink
+newtype DidUnlink = DidUnlink ProcessId
+  deriving (Typeable, Binary)
+
+-- | 'SpawnRef' are used to return pids of spawned processes
+newtype SpawnRef = SpawnRef Int32
+  deriving (Show, Binary, Typeable)
+
+--------------------------------------------------------------------------------
+-- Node controller internal data types                                        --
+--------------------------------------------------------------------------------
 
 -- | Messages to the node controller
 data NCMsg = NCMsg 
@@ -197,6 +254,7 @@ data ProcessSignal =
   | Monitor ProcessId MonitorRef
   | Unmonitor MonitorRef
   | Died Identifier DiedReason
+  | Spawn (Closure (Process ())) SpawnRef 
   deriving Show
 
 --------------------------------------------------------------------------------
@@ -241,6 +299,10 @@ payloadToId bss = let (bs1, bss') = BSS.splitAt 4 . BSS.concat $ bss
                            }
                     _ -> fail "payloadToId"
 
+--------------------------------------------------------------------------------
+-- Binary instances                                                           --
+--------------------------------------------------------------------------------
+
 instance Binary LocalProcessId where
   put lpid = put (lpidUnique lpid) >> put (lpidCounter lpid)
   get      = LocalProcessId <$> get <*> get
@@ -267,6 +329,7 @@ instance Binary ProcessSignal where
   put (Monitor pid ref) = putWord8 2 >> put pid >> put ref
   put (Unmonitor ref)   = putWord8 3 >> put ref 
   put (Died who reason) = putWord8 4 >> put who >> put reason
+  put (Spawn proc ref)  = putWord8 5 >> put proc >> put ref
   get = do
     header <- getWord8
     case header of
@@ -275,6 +338,7 @@ instance Binary ProcessSignal where
       2 -> Monitor <$> get <*> get
       3 -> Unmonitor <$> get
       4 -> Died <$> get <*> get
+      5 -> Spawn <$> get <*> get
       _ -> fail "ProcessSignal.get: invalid"
 
 instance Binary DiedReason where
@@ -293,6 +357,10 @@ instance Binary DiedReason where
       4 -> return DiedNoProc
       _ -> fail "DiedReason.get: invalid"
 
+instance Binary (Closure a) where
+  put (Closure (Static label) env) = put label >> put env
+  get = Closure <$> (Static <$> get) <*> get 
+
 --------------------------------------------------------------------------------
 -- Accessors                                                                  --
 --------------------------------------------------------------------------------
@@ -306,14 +374,19 @@ localPidCounter = accessor _localPidCounter (\ctr st -> st { _localPidCounter = 
 localPidUnique :: Accessor LocalNodeState Int32
 localPidUnique = accessor _localPidUnique (\unq st -> st { _localPidUnique = unq })
 
-localMonitorCounter :: Accessor LocalNodeState Int32
-localMonitorCounter = accessor _localMonitorCounter (\ctr st -> st { _localMonitorCounter = ctr }) 
-
 localProcessWithId :: LocalProcessId -> Accessor LocalNodeState (Maybe LocalProcess)
 localProcessWithId lpid = localProcesses >>> DAC.mapMaybe lpid
 
 connections :: Accessor LocalProcessState (Map ProcessId NT.Connection)
 connections = accessor _connections (\conns st -> st { _connections = conns })
 
+monitorCounter :: Accessor LocalProcessState Int32
+monitorCounter = accessor _monitorCounter (\cnt st -> st { _monitorCounter = cnt })
+
+spawnCounter :: Accessor LocalProcessState Int32
+spawnCounter = accessor _spawnCounter (\cnt st -> st { _spawnCounter = cnt })
+
 connectionTo :: ProcessId -> Accessor LocalProcessState (Maybe NT.Connection)
 connectionTo pid = connections >>> DAC.mapMaybe pid
+
+

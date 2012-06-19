@@ -43,6 +43,7 @@ module Control.Distributed.Process
   , closeLocalNode
   , catch
   , expectTimeout
+  , spawnAsync
   ) where
 
 import Prelude hiding (catch)
@@ -56,7 +57,6 @@ import qualified Data.List as List (delete)
 import Data.Set (Set)
 import qualified Data.Set as Set (empty, insert, delete, member)
 import Data.Foldable (forM_)
-import Data.Typeable (Typeable)
 import Control.Monad (void)
 import Control.Monad.Reader (MonadReader(..), ReaderT, runReaderT)
 import Control.Monad.IO.Class (MonadIO, liftIO)
@@ -104,6 +104,8 @@ import Control.Distributed.Process.Internal ( RemoteTable
                                             , LocalNodeState(..)
                                             , LocalProcess(..)
                                             , LocalProcessState(..)
+                                            , Process(..)
+                                            , Closure
                                             , Message(..)
                                             , MonitorRef(..)
                                             , MonitorNotification(..)
@@ -111,6 +113,7 @@ import Control.Distributed.Process.Internal ( RemoteTable
                                             , DidUnmonitor(..)
                                             , DidUnlink(..)
                                             , DiedReason(..)
+                                            , SpawnRef(..)
                                             , NCMsg(..)
                                             , ProcessSignal(..)
                                             , createMessage
@@ -121,7 +124,8 @@ import Control.Distributed.Process.Internal ( RemoteTable
                                             , localPidCounter
                                             , localPidUnique
                                             , localProcessWithId
-                                            , localMonitorCounter
+                                            , monitorCounter 
+                                            , spawnCounter
                                             , connectionTo
                                             )
 
@@ -187,10 +191,6 @@ import Control.Distributed.Process.Internal ( RemoteTable
 --------------------------------------------------------------------------------
 -- Basic Cloud Haskell API                                                    --
 --------------------------------------------------------------------------------
-
--- | The Cloud Haskell 'Process' type
-newtype Process a = Process { unProcess :: ReaderT LocalProcess IO a }
-  deriving (Functor, Monad, MonadIO, MonadReader LocalProcess, Typeable)
 
 -- | Wait for a message of a specific type
 expect :: forall a. Serializable a => Process a
@@ -288,6 +288,15 @@ catch p h = do
 expectTimeout :: forall a. Serializable a => Int -> Process (Maybe a)
 expectTimeout timeout = receiveTimeout timeout [match return] 
 
+-- | Asynchronous version of 'spawn'
+-- 
+-- ('spawn' is defined in terms of 'spawnAsync' and 'expect')
+spawnAsync :: NodeId -> Closure (Process ()) -> Process SpawnRef
+spawnAsync _nid proc = do
+  spawnRef <- getSpawnRef
+  postCtrlMsg (Spawn proc spawnRef)
+  return spawnRef
+
 --------------------------------------------------------------------------------
 -- Initialization                                                             --
 --------------------------------------------------------------------------------
@@ -307,7 +316,6 @@ newLocalNode transport rtable = do
         { _localProcesses      = Map.empty
         , _localPidCounter     = 0 
         , _localPidUnique      = unq 
-        , _localMonitorCounter = 0
         }
       ctrlChan <- newChan
       let node = LocalNode { localNodeId   = NodeId $ NT.address endPoint
@@ -336,7 +344,9 @@ forkProcess node proc = modifyMVar (localState node) $ \st -> do
   let pid   = ProcessId { processNodeId  = localNodeId node 
                         , processLocalId = lpid
                         }
-  pst <- newMVar LocalProcessState { _connections = Map.empty
+  pst <- newMVar LocalProcessState { _connections    = Map.empty
+                                   , _monitorCounter = 0
+                                   , _spawnCounter   = 0
                                    }
   queue <- newCQueue
   (_, lproc) <- fixIO $ \ ~(tid, _) -> do
@@ -493,11 +503,20 @@ remoteProcessFailed node them = do
     
 getMonitorRefFor :: ProcessId -> Process MonitorRef
 getMonitorRefFor pid = do
-  node <- processNode <$> ask
-  liftIO $ modifyMVar (localState node) $ \st -> do
-    let counter = st ^. localMonitorCounter
-    return ( localMonitorCounter ^: (+ 1) $ st
+  proc <- ask
+  liftIO $ modifyMVar (processState proc) $ \st -> do 
+    let counter = st ^. monitorCounter 
+    return ( monitorCounter ^: (+ 1) $ st
            , MonitorRef pid counter 
+           )
+
+getSpawnRef :: Process SpawnRef
+getSpawnRef = do
+  proc <- ask
+  liftIO $ modifyMVar (processState proc) $ \st -> do
+    let counter = st ^. spawnCounter
+    return ( spawnCounter ^: (+ 1) $ st
+           , SpawnRef counter
            )
 
 -- This is most definitely NOT exported

@@ -47,11 +47,11 @@ module Control.Distributed.Process.Closure
 
 import Prelude hiding (lookup)
 import Data.ByteString.Lazy (ByteString)
-import Data.Binary (Binary(..), encode, decode)
+import Data.Binary (encode, decode)
 import qualified Data.Map as Map (insert, (!))
 import Data.Dynamic (toDyn, fromDyn)
 import Data.Typeable (Typeable)
-import Control.Applicative ((<$>), (<*>))
+import Control.Applicative ((<$>))
 import Control.Monad.Reader (ask)
 import Control.Exception (throw)
 import Language.Haskell.TH ( -- Q monad and operations
@@ -83,16 +83,9 @@ import Control.Distributed.Process (Process)
 import Control.Distributed.Process.Internal ( RemoteTable
                                             , LocalProcess(processNode)
                                             , LocalNode(remoteTable)
+                                            , Closure(..)
+                                            , Static(..)
                                             )
-
--- | A static value is one that is bound at top-level.
--- We represent it simply by a string
-newtype Static a = Static String
-  deriving (Typeable)
-
--- | A closure is a static value and an encoded environment
-data Closure a = Closure (Static (ByteString -> a)) ByteString
-  deriving (Typeable)
 
 --------------------------------------------------------------------------------
 -- Top-level API                                                              --
@@ -126,10 +119,6 @@ lookupStatic label = do
     return $ fromDyn (rtable Map.! label) (throw typeError)
   where
     typeError = userError "lookupStatic type error"
-
-instance Binary (Closure a) where
-  put (Closure (Static label) env) = put label >> put env
-  get = Closure <$> (Static <$> get) <*> get 
 
 --------------------------------------------------------------------------------
 -- Internal (Template Haskell)                                                --
