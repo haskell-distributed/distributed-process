@@ -67,7 +67,7 @@ import Control.Distributed.Process.Serializable ( Fingerprint
                                                 )
 import Control.Distributed.Process.Internal.CQueue (CQueue)
 
--- We identify node IDs and endpoint IDs
+-- | Node identifier 
 newtype NodeId = NodeId { nodeAddress :: NT.EndPointAddress }
   deriving (Eq, Ord, Binary)
 
@@ -85,8 +85,7 @@ data LocalProcessId = LocalProcessId
 instance Show LocalProcessId where
   show = show . lpidCounter 
 
--- | A process ID combines a local process with with an endpoint address
--- (in other words, we identify nodes and endpoints)
+-- | Process identifier
 data ProcessId = ProcessId 
   { processNodeId  :: NodeId
   , processLocalId :: LocalProcessId 
@@ -168,10 +167,16 @@ newtype DidUnlink = DidUnlink ProcessId
 
 -- | Why did a process die?
 data DiedReason = 
+    -- | Normal termination
     DiedNormal
-  | DiedException String -- TODO: would prefer SomeException instead of String, but exceptions don't implement Binary
+    -- | The process exited with an exception
+    -- (provided as 'String' because 'Exception' does not implement 'Binary')
+  | DiedException String
+    -- | We got disconnected from the process node
   | DiedDisconnect
+    -- | The process node died
   | DiedNodeDown
+    -- | Invalid process ID
   | DiedNoProc
   deriving (Show, Eq)
 

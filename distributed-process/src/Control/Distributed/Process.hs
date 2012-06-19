@@ -1,64 +1,16 @@
--- | Cloud Haskell
+-- | [Cloud Haskell]
 -- 
--- 1.  'send' never fails. If you want to know that the remote process received
---     your message, you will need to send an explicit acknowledgement. If you
---     want to know when the remote process failed, you will need to monitor
---     that remote process.
---
--- 2.  'send' may block (when the system TCP buffers are full, while we are
---     trying to establish a connection to the remote endpoint, etc.) but its
---     return does not imply that the remote process received the message (much
---     less processed it)
---
--- 3.  Message delivery is reliable and ordered. That means that if process A
---     sends messages m1, m2, m3 to process B, B will either arrive all three
---     messages in order (m1, m2, m3) or a prefix thereof; messages will not be
---     'missing' (m1, m3) or reordered (m1, m3, m2)
---
--- In order to guarantee (3), we stipulate that
---
--- 3a. We do not garbage collect connections because Network.Transport provides
---     ordering guarantees only *per connection*.
---
--- 3b. Once a connection breaks, we have no way of knowing which messages
---     arrived and which did not; hence, once a connection fails, we assume the
---     remote process to be forever unreachable. Otherwise we might sent m1 and
---     m2, get notified of the broken connection, reconnect, send m3, but only
---     m1 and m3 arrive.
---
--- 3c. As a consequence of (3b) we should not reuse PIDs. If a process dies,
---     we consider it forever unreachable. Hence, new processes should get new
---     IDs or they too would be considered unreachable.
---
--- Main reference for Cloud Haskell is
---
--- [1] "Towards Haskell in the Cloud", Jeff Epstein, Andrew Black and Simon
---     Peyton-Jones.
---       http://research.microsoft.com/en-us/um/people/simonpj/papers/parallel/remote.pdf
---
--- The precise semantics for message passing is based on
--- 
--- [2] "A Unified Semantics for Future Erlang", Hans Svensson, Lars-Ake Fredlund
---     and Clara Benac Earle (not freely available online, unfortunately)
---
--- Some pointers to related documentation about Erlang, for comparison and
--- inspiration: 
---
--- [3] "Programming Distributed Erlang Applications: Pitfalls and Recipes",
---     Hans Svensson and Lars-Ake Fredlund 
---       http://man.lupaworld.com/content/develop/p37-svensson.pdf
--- [4] The Erlang manual, sections "Message Sending" and "Send" 
---       http://www.erlang.org/doc/reference_manual/processes.html#id82409
---       http://www.erlang.org/doc/reference_manual/expressions.html#send
--- [5] Questions "Is the order of message reception guaranteed?" and
---     "If I send a message, is it guaranteed to reach the receiver?" of
---     the Erlang FAQ
---       http://www.erlang.org/faq/academic.html
--- [6] "Delivery of Messages", post on erlang-questions
---       http://erlang.org/pipermail/erlang-questions/2012-February/064767.html
+-- This is an implementation of Cloud Haskell, as described in 
+-- /Towards Haskell in the Cloud/ by Jeff Epstein, Andrew Black, and Simon
+-- Peyton Jones
+-- (<http://research.microsoft.com/en-us/um/people/simonpj/papers/parallel/>),
+-- although some of the details are different. The precise message passing
+-- semantics are based on /A unified semantics for future Erlang/ by	Hans
+-- Svensson, Lars-Åke Fredlund and Clara Benac Earle.
 module Control.Distributed.Process 
   ( -- * Basic cloud Haskell API
     ProcessId
+  , NodeId
   , Process
   , expect
   , send 
@@ -104,7 +56,6 @@ import qualified Data.List as List (delete)
 import Data.Set (Set)
 import qualified Data.Set as Set (empty, insert, delete, member)
 import Data.Foldable (forM_)
-import Data.Dynamic (Dynamic)
 import Data.Typeable (Typeable)
 import Control.Monad (void)
 import Control.Monad.Reader (MonadReader(..), ReaderT, runReaderT)
@@ -174,13 +125,72 @@ import Control.Distributed.Process.Internal ( RemoteCallMetaData
                                             , connectionTo
                                             )
 
--- The Cloud Haskell 'Process' type
-newtype Process a = Process { unProcess :: ReaderT LocalProcess IO a }
-  deriving (Functor, Monad, MonadIO, MonadReader LocalProcess, Typeable)
+-- INTERNAL NOTES
+-- 
+-- 1.  'send' never fails. If you want to know that the remote process received
+--     your message, you will need to send an explicit acknowledgement. If you
+--     want to know when the remote process failed, you will need to monitor
+--     that remote process.
+--
+-- 2.  'send' may block (when the system TCP buffers are full, while we are
+--     trying to establish a connection to the remote endpoint, etc.) but its
+--     return does not imply that the remote process received the message (much
+--     less processed it)
+--
+-- 3.  Message delivery is reliable and ordered. That means that if process A
+--     sends messages m1, m2, m3 to process B, B will either arrive all three
+--     messages in order (m1, m2, m3) or a prefix thereof; messages will not be
+--     'missing' (m1, m3) or reordered (m1, m3, m2)
+--
+-- In order to guarantee (3), we stipulate that
+--
+-- 3a. We do not garbage collect connections because Network.Transport provides
+--     ordering guarantees only *per connection*.
+--
+-- 3b. Once a connection breaks, we have no way of knowing which messages
+--     arrived and which did not; hence, once a connection fails, we assume the
+--     remote process to be forever unreachable. Otherwise we might sent m1 and
+--     m2, get notified of the broken connection, reconnect, send m3, but only
+--     m1 and m3 arrive.
+--
+-- 3c. As a consequence of (3b) we should not reuse PIDs. If a process dies,
+--     we consider it forever unreachable. Hence, new processes should get new
+--     IDs or they too would be considered unreachable.
+--
+-- Main reference for Cloud Haskell is
+--
+-- [1] "Towards Haskell in the Cloud", Jeff Epstein, Andrew Black and Simon
+--     Peyton-Jones.
+--       http://research.microsoft.com/en-us/um/people/simonpj/papers/parallel/remote.pdf
+--
+-- The precise semantics for message passing is based on
+-- 
+-- [2] "A Unified Semantics for Future Erlang", Hans Svensson, Lars-Ake Fredlund
+--     and Clara Benac Earle (not freely available online, unfortunately)
+--
+-- Some pointers to related documentation about Erlang, for comparison and
+-- inspiration: 
+--
+-- [3] "Programming Distributed Erlang Applications: Pitfalls and Recipes",
+--     Hans Svensson and Lars-Ake Fredlund 
+--       http://man.lupaworld.com/content/develop/p37-svensson.pdf
+-- [4] The Erlang manual, sections "Message Sending" and "Send" 
+--       http://www.erlang.org/doc/reference_manual/processes.html#id82409
+--       http://www.erlang.org/doc/reference_manual/expressions.html#send
+-- [5] Questions "Is the order of message reception guaranteed?" and
+--     "If I send a message, is it guaranteed to reach the receiver?" of
+--     the Erlang FAQ
+--       http://www.erlang.org/faq/academic.html
+-- [6] "Delivery of Messages", post on erlang-questions
+--       http://erlang.org/pipermail/erlang-questions/2012-February/064767.html
 
 --------------------------------------------------------------------------------
 -- Basic Cloud Haskell API                                                    --
 --------------------------------------------------------------------------------
+
+-- | The Cloud Haskell 'Process' type
+newtype Process a = Process { unProcess :: ReaderT LocalProcess IO a }
+  deriving (Functor, Monad, MonadIO, MonadReader LocalProcess, Typeable)
 
 -- | Wait for a message of a specific type
 expect :: forall a. Serializable a => Process a
@@ -261,19 +271,20 @@ receiveTimeout t ms = do
 -- Auxiliary API                                                              --
 --------------------------------------------------------------------------------
 
--- Force-close a local node
+-- | Force-close a local node
 --
 -- TODO: for now we just close the associated endpoint
 closeLocalNode :: LocalNode -> IO ()
 closeLocalNode node = 
   NT.closeEndPoint (localEndPoint node)
 
--- Catch exceptions within a process
+-- | Catch exceptions within a process
 catch :: Exception e => Process a -> (e -> Process a) -> Process a
 catch p h = do
   run <- runLocalProcess <$> ask
   liftIO $ Exception.catch (run p) (run . h) 
 
+-- | Like 'expect' but with a timeout
 expectTimeout :: forall a. Serializable a => Int -> Process (Maybe a)
 expectTimeout timeout = receiveTimeout timeout [match return] 
 
@@ -281,7 +292,11 @@ expectTimeout timeout = receiveTimeout timeout [match return]
 -- Initialization                                                             --
 --------------------------------------------------------------------------------
 
-newLocalNode :: NT.Transport -> Map String Dynamic -> IO LocalNode
+-- | Initialize a new local node. 
+-- 
+-- Note that proper Cloud Haskell initialization and configuration is still 
+-- to do.
+newLocalNode :: NT.Transport -> RemoteCallMetaData -> IO LocalNode
 newLocalNode transport metaData = do
   mEndPoint <- NT.newEndPoint transport
   case mEndPoint of
@@ -305,12 +320,14 @@ newLocalNode transport metaData = do
       void . forkIO $ handleIncomingMessages node
       return node
 
+-- | Run a process on a local node and wait for it to finish
 runProcess :: LocalNode -> Process () -> IO ()
 runProcess node proc = do
   done <- newEmptyMVar
   void $ forkProcess node (proc >> liftIO (putMVar done ()))
   takeMVar done
 
+-- | Spawn a new process on a local node
 forkProcess :: LocalNode -> Process () -> IO ProcessId
 forkProcess node proc = modifyMVar (localState node) $ \st -> do
   let lpid  = LocalProcessId { lpidCounter = st ^. localPidCounter
