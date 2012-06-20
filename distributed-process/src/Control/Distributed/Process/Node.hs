@@ -71,7 +71,6 @@ import Control.Distributed.Process.Internal.Types
   , NCMsg(..)
   , ProcessSignal(..)
   , payloadToMessage
-  , payloadToId
   , localPidCounter
   , localPidUnique
   , localProcessWithId
@@ -88,6 +87,8 @@ import Control.Distributed.Process.Internal.Types
   , createMessage
   , MessageT
   , runMessageT
+  , TypedChannel(..)
+  , Identifier(..)
   )
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Internal.MessageT 
@@ -152,6 +153,8 @@ forkProcess node proc = modifyMVar (localState node) $ \st -> do
                         }
   pst <- newMVar LocalProcessState { _monitorCounter = 0
                                    , _spawnCounter   = 0
+                                   , _channelCounter = 0
+                                   , _typedChannels  = Map.empty
                                    }
   queue <- newCQueue
   (_, lproc) <- fixIO $ \ ~(tid, _) -> do
@@ -168,8 +171,8 @@ forkProcess node proc = modifyMVar (localState node) $ \st -> do
       modifyMVar_ (localState node) $ 
         return . (localProcessWithId lpid ^= Nothing)
       writeChan (localCtrlChan node) NCMsg 
-        { ctrlMsgSender = Left pid 
-        , ctrlMsgSignal = Died (Left pid) reason 
+        { ctrlMsgSender = ProcessIdentifier pid 
+        , ctrlMsgSignal = Died (ProcessIdentifier pid) reason 
         }
     return (tid', lproc)
 
@@ -181,35 +184,45 @@ forkProcess node proc = modifyMVar (localState node) $ \st -> do
          )
    
 handleIncomingMessages :: LocalNode -> IO ()
-handleIncomingMessages node = go [] Map.empty Set.empty
+handleIncomingMessages node = go [] Map.empty Map.empty Set.empty
   where
     go :: [NT.ConnectionId] -- ^ Connections whose purpose we don't yet know 
        -> Map NT.ConnectionId LocalProcess -- ^ Connections to local processes
+       -> Map NT.ConnectionId TypedChannel -- ^ Connections to typed channels
        -> Set NT.ConnectionId              -- ^ Connections to our controller
        -> IO () 
-    go uninitConns procConns ctrlConns = do
+    go uninitConns procs chans ctrls = do
       event <- NT.receive endpoint
       case event of
         NT.ConnectionOpened cid _rel _theirAddr ->
-          go (cid : uninitConns) procConns ctrlConns 
+          go (cid : uninitConns) procs chans ctrls 
         NT.Received cid payload -> 
-          case Map.lookup cid procConns of
-            Just proc -> do
+          case ( Map.lookup cid procs 
+               , Map.lookup cid chans
+               , cid `Set.member` ctrls
+               , cid `elem` uninitConns
+               ) of
+            (Just proc, _, _, _) -> do
               let msg = payloadToMessage payload
               enqueue (processQueue proc) msg
-              go uninitConns procConns ctrlConns 
-            Nothing | cid `Set.member` ctrlConns ->  do
+              go uninitConns procs chans ctrls 
+            (_, Just (TypedChannel queue), _, _) -> do
+              enqueue queue . decode . BSL.fromChunks $ payload
+              go uninitConns procs chans ctrls 
+            (_, _, True, _) -> do
               writeChan ctrlChan (decode . BSL.fromChunks $ payload)
-              go uninitConns procConns ctrlConns 
-            Nothing | cid `elem` uninitConns ->
-              case payloadToId payload of
-                Just lpid -> do
+              go uninitConns procs chans ctrls 
+            (_, _, _, True) -> 
+              case decode (BSL.fromChunks payload) of
+                ProcessIdentifier pid -> do
+                  let lpid = processLocalId pid
                   mProc <- withMVar state $ return . (^. localProcessWithId lpid) 
                   case mProc of
                     Just proc -> 
                       go (List.delete cid uninitConns) 
-                         (Map.insert cid proc procConns)
-                         ctrlConns
+                         (Map.insert cid proc procs)
+                         chans
+                         ctrls
                     Nothing ->
                       -- Request for an unknown process. 
                       -- TODO: We should close the incoming connection here, but
@@ -217,22 +230,27 @@ handleIncomingMessages node = go [] Map.empty Set.empty
                       -- functionality. Not sure what the right approach is.
                       -- For now, we just drop the incoming messages 
                       go (List.delete cid uninitConns)
-                         procConns
-                         ctrlConns
-                Nothing ->
+                         procs
+                         chans
+                         ctrls
+                ChannelIdentifier _chId -> 
+                  fail "Connecting to typed channels not yet implemented"
+                NodeIdentifier _ ->
                   go (List.delete cid uninitConns)
-                     procConns
-                     (Set.insert cid ctrlConns)
-            _ -> 
+                     procs
+                     chans
+                     (Set.insert cid ctrls)
+            _ ->
               -- Unexpected message. We just drop it.
-              go uninitConns procConns ctrlConns
+              go uninitConns procs chans ctrls
         NT.ConnectionClosed cid -> 
           go (List.delete cid uninitConns) 
-             (Map.delete cid procConns)
-             (Set.delete cid ctrlConns)
+             (Map.delete cid procs)
+             (Map.delete cid chans)
+             (Set.delete cid ctrls)
         NT.ErrorEvent (NT.TransportError (NT.EventConnectionLost (Just theirAddr) _) _) -> do 
           -- [Unified table 9, rule node_disconnect]
-          let nid = Right $ NodeId theirAddr
+          let nid = NodeIdentifier $ NodeId theirAddr
           writeChan ctrlChan NCMsg 
             { ctrlMsgSender = nid
             , ctrlMsgSignal = Died nid DiedDisconnect
@@ -291,23 +309,25 @@ nodeController = do
 
     -- [Unified: Table 7, rule nc_forward] 
     case destNid (ctrlMsgSignal msg) of
-      Just nid' | nid' /= localNodeId node -> lift $ sendBinary (Right nid') msg
-      _ -> return ()
+      Just nid' | nid' /= localNodeId node -> 
+        lift $ sendBinary (NodeIdentifier nid') msg
+      _ -> 
+        return ()
 
     case msg of
-      NCMsg (Left from) (Link them) ->
+      NCMsg (ProcessIdentifier from) (Link them) ->
         ncEffectMonitor from them Nothing
-      NCMsg (Left from) (Monitor them ref) ->
+      NCMsg (ProcessIdentifier from) (Monitor them ref) ->
         ncEffectMonitor from them (Just ref)
-      NCMsg (Left from) (Unlink them) ->
+      NCMsg (ProcessIdentifier from) (Unlink them) ->
         ncEffectUnlink from them 
-      NCMsg (Left from) (Unmonitor ref) ->
+      NCMsg (ProcessIdentifier from) (Unmonitor ref) ->
         ncEffectUnmonitor from ref
-      NCMsg _from (Died (Right nid) reason) ->
+      NCMsg _from (Died (NodeIdentifier nid) reason) ->
         ncEffectNodeDied nid reason
-      NCMsg _from (Died (Left pid) reason) ->
+      NCMsg _from (Died (ProcessIdentifier pid) reason) ->
         ncEffectProcessDied pid reason
-      NCMsg (Left from) (Spawn proc ref) ->
+      NCMsg (ProcessIdentifier from) (Spawn proc ref) ->
         ncEffectSpawn from proc ref
       unexpected ->
         error $ "Unexpected message " ++ show unexpected
@@ -332,9 +352,9 @@ ncEffectMonitor from them mRef = do
     (False, True) -> -- [Unified: second rule]
       notifyDied from them DiedNoProc mRef 
     (False, False) -> -- [Unified: third rule]
-      lift $ sendBinary (Right $ processNodeId from) NCMsg 
-        { ctrlMsgSender = Right (localNodeId node)
-        , ctrlMsgSignal = Died (Left them) DiedNoProc
+      lift $ sendBinary (NodeIdentifier $ processNodeId from) NCMsg 
+        { ctrlMsgSender = NodeIdentifier (localNodeId node)
+        , ctrlMsgSignal = Died (ProcessIdentifier them) DiedNoProc
         }
 
 -- [Unified: Table 11]
@@ -398,7 +418,7 @@ ncEffectSpawn pid cProc ref = do
   forM_ mProc $ \proc -> do
     node <- lift getLocalNode
     pid' <- liftIO $ forkProcess node proc
-    lift $ sendMessage (Left pid) (DidSpawn ref pid') 
+    lift $ sendMessage (ProcessIdentifier pid) (DidSpawn ref pid') 
 
 --------------------------------------------------------------------------------
 -- Auxiliary                                                                  --
@@ -419,20 +439,29 @@ notifyDied dest src reason mRef = do
     (False, _) ->
       -- TODO: why the change in sender? How does that affect 'reconnect' semantics?
       -- (see [Unified: Table 10]
-      lift $ sendBinary (Right $ processNodeId dest) NCMsg
-        { ctrlMsgSender = Right (localNodeId node) 
-        , ctrlMsgSignal = Died (Left src) reason
+      lift $ sendBinary (NodeIdentifier $ processNodeId dest) NCMsg
+        { ctrlMsgSender = NodeIdentifier (localNodeId node) 
+        , ctrlMsgSignal = Died (ProcessIdentifier src) reason
         }
       
 -- | [Unified: Table 8]
 destNid :: ProcessSignal -> Maybe NodeId
-destNid (Link pid)           = Just . processNodeId $ pid
-destNid (Unlink pid)         = Just . processNodeId $ pid
-destNid (Monitor pid _)      = Just . processNodeId $ pid 
-destNid (Unmonitor ref)      = Just . processNodeId . monitorRefPid $ ref 
-destNid (Died (Right _) _)   = Nothing
-destNid (Died (Left _pid) _) = fail "destNid: TODO"
-destNid (Spawn _ _)          = Nothing
+destNid (Link pid) = 
+  Just . processNodeId $ pid
+destNid (Unlink pid) = 
+  Just . processNodeId $ pid
+destNid (Monitor pid _) = 
+  Just . processNodeId $ pid 
+destNid (Unmonitor ref) = 
+  Just . processNodeId . monitorRefPid $ ref 
+destNid (Died (NodeIdentifier _) _) = 
+  Nothing
+destNid (Died (ProcessIdentifier _pid) _) = 
+  fail "destNid: TODO"
+destNid (Died (ChannelIdentifier _cid) _) = 
+  fail "destNid: TODO"
+destNid (Spawn _ _) = 
+  Nothing
 
 -- | Check if a process is local to our own node
 isLocal :: LocalNode -> ProcessId -> Bool 

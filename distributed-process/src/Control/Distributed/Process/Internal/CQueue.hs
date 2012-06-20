@@ -39,7 +39,7 @@ data BlockSpec =
 
 dequeue :: forall a b. 
            CQueue a          -- ^ Queue
-        -> BlockSpec -- ^ Blocking behaviour 
+        -> BlockSpec         -- ^ Blocking behaviour 
         -> [a -> Maybe b]    -- ^ List of matches
         -> IO (Maybe b)      -- ^ 'Nothing' only on timeout
 dequeue (CQueue arrived incoming) blockSpec matches = 

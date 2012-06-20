@@ -15,6 +15,10 @@ module Control.Distributed.Process
     -- * Basic messaging
   , send 
   , expect
+    -- * Channels
+  , ReceivePort
+  , SendPort
+  , newChan
     -- * Advanced messaging
   , Match
   , receiveWait
@@ -62,9 +66,13 @@ import Control.Exception (Exception, throw)
 import qualified Control.Exception as Exception (catch)
 import Control.Concurrent.MVar (modifyMVar)
 import Control.Concurrent.Chan (writeChan)
-import Control.Distributed.Process.Internal.CQueue (dequeue, BlockSpec(..))
+import Control.Distributed.Process.Internal.CQueue 
+  ( newCQueue
+  , dequeue
+  , BlockSpec(..)
+  )
 import Control.Distributed.Process.Serializable (Serializable, fingerprint)
-import Data.Accessor ((^.), (^:))
+import Data.Accessor ((^.), (^:), (^=))
 import Control.Distributed.Process.Internal.Types 
   ( RemoteTable
   , NodeId(..)
@@ -90,6 +98,13 @@ import Control.Distributed.Process.Internal.Types
   , spawnCounter
   , MessageT
   , Closure(..)
+  , SendPort(..)
+  , ReceivePort(..)
+  , channelCounter
+  , typedChannelWithId
+  , TypedChannel(..)
+  , ChannelId(..)
+  , Identifier(..)
   )
 import Control.Distributed.Process.Internal.MessageT 
   ( sendMessage
@@ -164,11 +179,34 @@ import Control.Distributed.Process.Internal.MessageT
 send :: Serializable a => ProcessId -> a -> Process ()
 -- This requires a lookup on every send. If we want to avoid that we need to
 -- modify serializable to allow for stateful (IO) deserialization
-send them msg = lift $ sendMessage (Left them) msg 
+send them msg = lift $ sendMessage (ProcessIdentifier them) msg 
 
 -- | Wait for a message of a specific type
 expect :: forall a. Serializable a => Process a
 expect = receiveWait [match return] 
+
+--------------------------------------------------------------------------------
+-- Channels                                                                   --
+--------------------------------------------------------------------------------
+
+-- | Create a new typed channel (WORK IN PROGRESS)
+newChan :: Serializable a => Process (SendPort a, ReceivePort a)
+newChan = do
+  proc <- ask 
+  liftIO . modifyMVar (processState proc) $ \st -> do
+    queue <- liftIO newCQueue 
+    let lcid  = st ^. channelCounter
+        cid   = ChannelId { channelProcessId = processId proc
+                          , channelLocalId   = lcid
+                          }
+        sport = SendPort cid 
+        rport = ReceivePort queue
+        tch   = TypedChannel queue
+    return ( (channelCounter ^: (+ 1))
+           . (typedChannelWithId lcid ^= Just tch)
+           $ st
+           , (sport, rport)
+           )
 
 --------------------------------------------------------------------------------
 -- Advanced messaging                                                         -- 
@@ -320,7 +358,7 @@ sendCtrlMsg :: Maybe NodeId  -- ^ Nothing for the local node
             -> Process ()
 sendCtrlMsg mNid signal = do            
   us <- getSelfPid
-  let msg = NCMsg { ctrlMsgSender = Left us
+  let msg = NCMsg { ctrlMsgSender = ProcessIdentifier us
                   , ctrlMsgSignal = signal
                   }
   case mNid of
@@ -328,7 +366,7 @@ sendCtrlMsg mNid signal = do
       ctrlChan <- localCtrlChan <$> lift getLocalNode 
       liftIO $ writeChan ctrlChan msg 
     Just nid ->
-      lift $ sendBinary (Right nid) msg
+      lift $ sendBinary (NodeIdentifier nid) msg
 
 lookupStatic :: Typeable a => String -> Process a
 lookupStatic label = do

@@ -8,7 +8,7 @@ module Control.Distributed.Process.Internal.Types
     NodeId(..)
   , LocalProcessId(..)
   , ProcessId(..)
-  , Identifier
+  , Identifier(..)
     -- * Local nodes and processes
   , LocalNode(..)
   , LocalNodeState(..)
@@ -16,6 +16,12 @@ module Control.Distributed.Process.Internal.Types
   , LocalProcessState(..)
   , Process(..)
   , runLocalProcess
+    -- * Typed channels
+  , LocalChannelId 
+  , ChannelId(..)
+  , TypedChannel(..)
+  , SendPort(..)
+  , ReceivePort(..)
     -- * Closures
   , Static(..) 
   , Closure(..)
@@ -37,8 +43,6 @@ module Control.Distributed.Process.Internal.Types
   , createMessage
   , messageToPayload
   , payloadToMessage
-  , idToPayload
-  , payloadToId
     -- * Accessors
   , localProcesses
   , localPidCounter
@@ -46,6 +50,9 @@ module Control.Distributed.Process.Internal.Types
   , localProcessWithId
   , monitorCounter
   , spawnCounter
+  , channelCounter
+  , typedChannels
+  , typedChannelWithId
     -- * MessageT monad
   , MessageT(..)
   , MessageState(..)
@@ -67,9 +74,8 @@ import Data.ByteString.Lazy (ByteString)
 import Data.Accessor (Accessor, accessor)
 import qualified Data.Accessor.Container as DAC (mapMaybe)
 import qualified Data.ByteString.Lazy as BSL (ByteString, toChunks, fromChunks, splitAt)
-import qualified Data.ByteString as BSS (ByteString, concat, splitAt)
+import qualified Data.ByteString as BSS (ByteString, concat)
 import qualified Network.Transport as NT (EndPoint, EndPointAddress, Connection)
-import qualified Network.Transport.Internal as NTI (encodeInt32, decodeInt32)
 import Control.Applicative ((<$>), (<*>))
 import Control.Monad.Reader (MonadReader(..), ReaderT, runReaderT)
 import Control.Monad.IO.Class (MonadIO)
@@ -126,8 +132,12 @@ data ProcessId = ProcessId
 instance Show ProcessId where
   show pid = show (processNodeId pid) ++ ":" ++ show (processLocalId pid)
 
--- | Node or process identifier
-type Identifier = Either ProcessId NodeId
+-- | Union of all kinds of identifiers 
+data Identifier = 
+    ProcessIdentifier ProcessId 
+  | NodeIdentifier NodeId
+  | ChannelIdentifier ChannelId 
+  deriving (Show, Eq, Ord)
 
 --------------------------------------------------------------------------------
 -- Local nodes and processes                                                  --
@@ -162,6 +172,8 @@ data LocalProcess = LocalProcess
 data LocalProcessState = LocalProcessState
   { _monitorCounter :: Int32
   , _spawnCounter   :: Int32
+  , _channelCounter :: Int32
+  , _typedChannels  :: Map LocalChannelId TypedChannel 
   }
 
 -- | The Cloud Haskell 'Process' type
@@ -173,6 +185,23 @@ newtype Process a = Process {
 -- | Deconstructor for 'Process' (not exported to the public API) 
 runLocalProcess :: LocalNode -> Process a -> LocalProcess -> IO a
 runLocalProcess node proc = runMessageT node . runReaderT (unProcess proc) 
+
+--------------------------------------------------------------------------------
+-- Typed channels                                                             --
+--------------------------------------------------------------------------------
+
+type LocalChannelId = Int32
+
+data ChannelId = ChannelId {
+    channelProcessId :: ProcessId
+  , channelLocalId   :: LocalChannelId
+  }
+  deriving (Show, Eq, Ord)
+
+data TypedChannel = forall a. Serializable a => TypedChannel (CQueue a)
+
+newtype SendPort a = SendPort ChannelId
+newtype ReceivePort a = ReceivePort (CQueue a)
 
 --------------------------------------------------------------------------------
 -- Closures                                                                   --
@@ -292,28 +321,6 @@ payloadToMessage payload = Message fp msg
                  $ BSL.fromChunks payload 
     fp = decodeFingerprint . BSS.concat . BSL.toChunks $ encFp
 
-
--- | The first message we send across a connection to indicate the intended
--- recipient. Pass Nothing for the remote node controller
-idToPayload :: Maybe LocalProcessId -> [BSS.ByteString]
-idToPayload Nothing     = [ NTI.encodeInt32 (0 :: Int) ]
-idToPayload (Just lpid) = [ NTI.encodeInt32 (1 :: Int)
-                          , NTI.encodeInt32 (lpidCounter lpid)
-                          , NTI.encodeInt32 (lpidUnique lpid)
-                          ]
-
--- | Inverse of 'idToPayload'
-payloadToId :: [BSS.ByteString] -> Maybe LocalProcessId
-payloadToId bss = let (bs1, bss') = BSS.splitAt 4 . BSS.concat $ bss
-                      (bs2, bs3)  = BSS.splitAt 4 bss' in
-                  case NTI.decodeInt32 bs1 :: Int of
-                    0 -> Nothing
-                    1 -> Just LocalProcessId 
-                           { lpidCounter = NTI.decodeInt32 bs2
-                           , lpidUnique  = NTI.decodeInt32 bs3
-                           }
-                    _ -> fail "payloadToId"
-
 --------------------------------------------------------------------------------
 -- Binary instances                                                           --
 --------------------------------------------------------------------------------
@@ -380,6 +387,22 @@ instance Binary DidSpawn where
   put (DidSpawn ref pid) = put ref >> put pid
   get = DidSpawn <$> get <*> get
 
+instance Binary ChannelId where
+  put cid = put (channelProcessId cid) >> put (channelLocalId cid)
+  get = ChannelId <$> get <*> get 
+
+instance Binary Identifier where
+  put (ProcessIdentifier pid) = putWord8 0 >> put pid
+  put (NodeIdentifier nid)    = putWord8 1 >> put nid
+  put (ChannelIdentifier cid) = putWord8 2 >> put cid
+  get = do
+    header <- getWord8 
+    case header of
+      0 -> ProcessIdentifier <$> get
+      1 -> NodeIdentifier <$> get
+      2 -> ChannelIdentifier <$> get
+      _ -> fail "Identifier.get: invalid"
+
 --------------------------------------------------------------------------------
 -- Accessors                                                                  --
 --------------------------------------------------------------------------------
@@ -401,6 +424,15 @@ monitorCounter = accessor _monitorCounter (\cnt st -> st { _monitorCounter = cnt
 
 spawnCounter :: Accessor LocalProcessState Int32
 spawnCounter = accessor _spawnCounter (\cnt st -> st { _spawnCounter = cnt })
+
+channelCounter :: Accessor LocalProcessState LocalChannelId
+channelCounter = accessor _channelCounter (\cnt st -> st { _channelCounter = cnt })
+
+typedChannels :: Accessor LocalProcessState (Map LocalChannelId TypedChannel)
+typedChannels = accessor _typedChannels (\cs st -> st { _typedChannels = cs })
+
+typedChannelWithId :: LocalChannelId -> Accessor LocalProcessState (Maybe TypedChannel)
+typedChannelWithId cid = typedChannels >>> DAC.mapMaybe cid
 
 --------------------------------------------------------------------------------
 -- MessageT monad                                                             --

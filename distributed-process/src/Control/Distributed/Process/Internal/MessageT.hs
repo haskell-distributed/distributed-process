@@ -22,10 +22,10 @@ import Control.Monad.State (gets, modify)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Concurrent.Chan (writeChan)
 import Control.Distributed.Process.Internal.Types
-  ( Identifier
+  ( Identifier(..)
   , NodeId(nodeAddress) 
-  , ProcessId(processNodeId, processLocalId)
-  , idToPayload
+  , ProcessId(processNodeId)
+  , ChannelId(channelProcessId)
   , LocalNode(localCtrlChan, localEndPoint)
   , NCMsg(NCMsg, ctrlMsgSender, ctrlMsgSignal)
   , DiedReason(DiedDisconnect)
@@ -75,12 +75,12 @@ setupConnTo :: MonadIO m => Identifier -> MessageT m (Maybe NT.Connection)
 setupConnTo them = do
     endPoint <- localEndPoint `liftM` getLocalNode 
     mConn    <- liftIO $ NT.connect endPoint 
-                                    addr 
+                                    (nodeAddress . identifierNode $ them) 
                                     NT.ReliableOrdered 
                                     NT.defaultConnectHints
     case mConn of 
       Right conn -> do
-        didSend <- liftIO $ NT.send conn firstMsg 
+        didSend <- liftIO $ NT.send conn (BSL.toChunks . encode $ them)
         case didSend of
           Left _ ->
             return Nothing
@@ -89,14 +89,6 @@ setupConnTo them = do
             return $ Just conn
       Left _ ->
         return Nothing
-  where
-    (addr, firstMsg) = case them of
-      Left pid  -> ( nodeAddress (processNodeId pid)
-                   , idToPayload (Just $ processLocalId pid)
-                   )
-      Right nid -> ( nodeAddress nid
-                   , idToPayload Nothing
-                   )
 
 connTo :: MonadIO m => Identifier -> MessageT m (Maybe NT.Connection)
 connTo them = do
@@ -104,6 +96,11 @@ connTo them = do
   case mConn of
     Just conn -> return $ Just conn
     Nothing   -> setupConnTo them
+
+identifierNode :: Identifier -> NodeId
+identifierNode (NodeIdentifier nid)    = nid
+identifierNode (ProcessIdentifier pid) = processNodeId pid
+identifierNode (ChannelIdentifier cid) = processNodeId (channelProcessId cid)
 
 --------------------------------------------------------------------------------
 -- Accessors                                                                  --
