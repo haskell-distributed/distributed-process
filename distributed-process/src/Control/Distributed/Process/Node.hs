@@ -211,13 +211,21 @@ handleIncomingMessages node = go [] Map.empty Set.empty
                          (Map.insert cid proc procConns)
                          ctrlConns
                     Nothing ->
-                      fail "handleIncomingMessages: TODO 1" 
+                      -- Request for an unknown process. 
+                      -- TODO: We should close the incoming connection here, but
+                      -- we cannot! Network.Transport does not provide this 
+                      -- functionality. Not sure what the right approach is.
+                      -- For now, we just drop the incoming messages 
+                      go (List.delete cid uninitConns)
+                         procConns
+                         ctrlConns
                 Nothing ->
                   go (List.delete cid uninitConns)
                      procConns
                      (Set.insert cid ctrlConns)
             _ -> 
-              fail "handleIncomingMessages: TODO 2" 
+              -- Unexpected message. We just drop it.
+              go uninitConns procConns ctrlConns
         NT.ConnectionClosed cid -> 
           go (List.delete cid uninitConns) 
              (Map.delete cid procConns)

@@ -295,6 +295,39 @@ testMath transport = do
 
   takeMVar clientDone
 
+-- | Send first message (i.e. connect) to an already terminated process
+-- (without monitoring); then send another message to a second process on 
+-- the same remote node (we're checking that the remote node did not die)
+testSendToTerminated :: NT.Transport -> IO ()
+testSendToTerminated transport = do
+  serverAddr1 <- newEmptyMVar
+  serverAddr2 <- newEmptyMVar
+  clientDone <- newEmptyMVar
+
+  forkIO $ do 
+    terminated <- newEmptyMVar
+    localNode <- newLocalNode transport initRemoteTable
+    addr1 <- forkProcess localNode $ liftIO $ putMVar terminated ()
+    addr2 <- forkProcess localNode $ ping
+    readMVar terminated
+    putMVar serverAddr1 addr1
+    putMVar serverAddr2 addr2
+
+  forkIO $ do
+    localNode <- newLocalNode transport initRemoteTable
+    server1 <- readMVar serverAddr1
+    server2 <- readMVar serverAddr2
+    runProcess localNode $ do
+      pid <- getSelfPid
+      send server1 "Hi"
+      send server2 (Pong pid)
+      Ping pid' <- expect
+      True <- return $ pid' == server2 
+      liftIO $ putMVar clientDone ()
+
+  takeMVar clientDone
+
+-- | Test (non-zero) timeout
 testTimeout :: NT.Transport -> IO ()
 testTimeout transport = do
   localNode <- newLocalNode transport initRemoteTable
@@ -302,15 +335,49 @@ testTimeout transport = do
     Nothing <- receiveTimeout 1000000 [match (\(Add _ _ _) -> return ())]
     return ()
 
--- TODO: test timeout
+-- | Test zero timeout
+testTimeout0 :: NT.Transport -> IO ()
+testTimeout0 transport = do
+  serverAddr <- newEmptyMVar
+  clientDone <- newEmptyMVar
+  messagesSent <- newEmptyMVar
+
+  forkIO $ do 
+    localNode <- newLocalNode transport initRemoteTable
+    addr <- forkProcess localNode $ do
+      liftIO $ readMVar messagesSent >> threadDelay 1000000
+      -- Variation on the venerable ping server which uses a zero timeout
+      -- Since we wait for all messages to be sent before doing this receive,
+      -- we should nevertheless find the right message immediately
+      Just partner <- receiveTimeout 0 [match (\(Pong partner) -> return partner)] 
+      self <- getSelfPid
+      send partner (Ping self)
+    putMVar serverAddr addr
+
+  forkIO $ do
+    localNode <- newLocalNode transport initRemoteTable
+    server <- readMVar serverAddr
+    runProcess localNode $ do
+      pid <- getSelfPid
+      -- Send a bunch of messages. A large number of messages that the server
+      -- is not interested in, and then a single message that it wants
+      replicateM_ 10000 $ send server "Irrelevant message"
+      send server (Pong pid)
+      liftIO $ putMVar messagesSent ()
+      Ping _ <- expect 
+      liftIO $ putMVar clientDone ()
+
+  takeMVar clientDone
 
 main :: IO ()
 main = do
   Right transport <- createTransport "127.0.0.1" "8080" defaultTCPParameters
   runTests 
-    [ ("Ping", testPing transport)
-    , ("Math", testMath transport) 
-    , ("Timeout", testTimeout transport)
+    [ ("Ping",     testPing     transport)
+    , ("Math",     testMath     transport) 
+    , ("Timeout",  testTimeout  transport)
+    , ("Timeout0", testTimeout0 transport)
+    , ("SendToTerminated", testSendToTerminated transport)
       -- The "missing" combinations in the list below don't make much sense, as
       -- we cannot guarantee that the monitor reply or link exception will not 
       -- happen before the unmonitor or unlink
