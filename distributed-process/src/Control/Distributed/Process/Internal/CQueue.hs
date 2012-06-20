@@ -51,7 +51,7 @@ dequeue (CQueue arrived incoming) blockSpec matches =
     go = mask $ \restore -> do
       arr <- takeMVar arrived 
       -- We first check the arrived messages. If we timeout during this search,
-      -- we just put the MVar back (we haven't touched the Chan yet)
+      -- we just put the MVar back (since we haven't touched the Chan yet)
       (arr', mb) <- onException (restore (checkArrived [] arr))
                                 (putMVar arrived arr) 
       case (mb, blockSpec) of

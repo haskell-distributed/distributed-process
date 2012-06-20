@@ -89,6 +89,8 @@ import Control.Distributed.Process.Internal.Types
   , runMessageT
   , TypedChannel(..)
   , Identifier(..)
+  , ChannelId(..)
+  , typedChannelWithId
   )
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Internal.MessageT 
@@ -229,12 +231,24 @@ handleIncomingMessages node = go [] Map.empty Map.empty Set.empty
                       -- we cannot! Network.Transport does not provide this 
                       -- functionality. Not sure what the right approach is.
                       -- For now, we just drop the incoming messages 
-                      go (List.delete cid uninitConns)
-                         procs
-                         chans
-                         ctrls
-                ChannelIdentifier _chId -> 
-                  fail "Connecting to typed channels not yet implemented"
+                      go (List.delete cid uninitConns) procs chans ctrls
+                ChannelIdentifier chId -> do
+                  let lcid = channelLocalId chId
+                      lpid = processLocalId (channelProcessId chId)
+                  mProc <- withMVar state $ return . (^. localProcessWithId lpid)
+                  case mProc of
+                    Just proc -> do
+                      mChannel <- withMVar (processState proc) $ return . (^. typedChannelWithId lcid)
+                      case mChannel of
+                        Just channel ->
+                          go (List.delete cid uninitConns)
+                             procs
+                             (Map.insert cid channel chans)
+                             ctrls
+                        Nothing ->
+                          go (List.delete cid uninitConns) procs chans ctrls
+                    Nothing ->
+                      go (List.delete cid uninitConns) procs chans ctrls
                 NodeIdentifier _ ->
                   go (List.delete cid uninitConns)
                      procs

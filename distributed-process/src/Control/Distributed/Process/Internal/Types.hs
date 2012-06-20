@@ -200,7 +200,7 @@ data ChannelId = ChannelId {
 
 data TypedChannel = forall a. Serializable a => TypedChannel (CQueue a)
 
-newtype SendPort a = SendPort ChannelId
+newtype SendPort a = SendPort ChannelId deriving (Typeable, Binary)
 newtype ReceivePort a = ReceivePort (CQueue a)
 
 --------------------------------------------------------------------------------

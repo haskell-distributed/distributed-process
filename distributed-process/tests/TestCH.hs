@@ -369,15 +369,42 @@ testTimeout0 transport = do
 
   takeMVar clientDone
 
+-- | Test typed channels
+testTypedChannels :: NT.Transport -> IO ()
+testTypedChannels transport = do
+  serverChannel <- newEmptyMVar :: IO (MVar (SendPort (SendPort Bool, Int)))
+  clientDone <- newEmptyMVar
+
+  forkIO $ do
+    localNode <- newLocalNode transport initRemoteTable
+    forkProcess localNode $ do
+      (serverSendPort, rport) <- newChan
+      liftIO $ putMVar serverChannel serverSendPort 
+      (clientSendPort, i) <- receiveChan rport
+      sendChan clientSendPort (even i)
+    return ()
+
+  forkIO $ do
+    localNode <- newLocalNode transport initRemoteTable
+    serverSendPort <- readMVar serverChannel
+    runProcess localNode $ do
+      (clientSendPort, rport) <- newChan
+      sendChan serverSendPort (clientSendPort, 5) 
+      False <- receiveChan rport
+      liftIO $ putMVar clientDone ()
+      
+  takeMVar clientDone 
+
 main :: IO ()
 main = do
   Right transport <- createTransport "127.0.0.1" "8080" defaultTCPParameters
   runTests 
-    [ ("Ping",     testPing     transport)
-    , ("Math",     testMath     transport) 
-    , ("Timeout",  testTimeout  transport)
-    , ("Timeout0", testTimeout0 transport)
+    [ ("Ping",             testPing             transport)
+    , ("Math",             testMath             transport) 
+    , ("Timeout",          testTimeout          transport)
+    , ("Timeout0",         testTimeout0         transport)
     , ("SendToTerminated", testSendToTerminated transport)
+    , ("TypedChannnels",   testTypedChannels    transport)
       -- The "missing" combinations in the list below don't make much sense, as
       -- we cannot guarantee that the monitor reply or link exception will not 
       -- happen before the unmonitor or unlink

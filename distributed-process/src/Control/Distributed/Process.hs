@@ -19,6 +19,8 @@ module Control.Distributed.Process
   , ReceivePort
   , SendPort
   , newChan
+  , sendChan
+  , receiveChan
     -- * Advanced messaging
   , Match
   , receiveWait
@@ -207,6 +209,14 @@ newChan = do
            $ st
            , (sport, rport)
            )
+
+sendChan :: Serializable a => SendPort a -> a -> Process ()
+sendChan (SendPort them) msg = lift $ sendBinary (ChannelIdentifier them) msg 
+
+receiveChan :: Serializable a => ReceivePort a -> Process a
+receiveChan (ReceivePort queue) = do
+  Just msg <- liftIO $ dequeue queue Blocking [Just] 
+  return msg
 
 --------------------------------------------------------------------------------
 -- Advanced messaging                                                         -- 
