@@ -230,11 +230,11 @@ handleIncomingMessages node = go [] Map.empty Set.empty
             , ctrlMsgSignal = Died nid DiedDisconnect
             }
         NT.ErrorEvent _ ->
-          fail "handleIncomingMessages: TODO 4"
+          fail "handleIncomingMessages: TODO 3"
         NT.EndPointClosed ->
           return ()
         NT.ReceivedMulticast _ _ ->
-          fail "Unexpected multicast"
+          fail "handleIncomingMessages: TODO 4"
     
     state    = localState node
     endpoint = localEndPoint node

@@ -8,21 +8,25 @@
 -- semantics are based on /A unified semantics for future Erlang/ by	Hans
 -- Svensson, Lars-Åke Fredlund and Clara Benac Earle.
 module Control.Distributed.Process 
-  ( -- * Basic cloud Haskell API
+  ( -- * Basic types 
     ProcessId
   , NodeId
   , Process
-  , expect
+    -- * Basic messaging
   , send 
-  , getSelfPid
-  , spawn
-    -- * Matching messages
+  , expect
+    -- * Advanced messaging
   , Match
+  , receiveWait
+  , receiveTimeout
   , match
   , matchIf
   , matchUnknown
-  , receiveWait
-  , receiveTimeout
+    -- * Process management
+  , spawn
+  , SpawnRef
+  , getSelfPid
+  , getSelfNode
     -- * Monitoring and linking
   , link
   , unlink
@@ -153,12 +157,8 @@ import Control.Distributed.Process.Internal.MessageT
 --       http://erlang.org/pipermail/erlang-questions/2012-February/064767.html
 
 --------------------------------------------------------------------------------
--- Basic Cloud Haskell API                                                    --
+-- Basic messaging                                                            --
 --------------------------------------------------------------------------------
-
--- | Wait for a message of a specific type
-expect :: forall a. Serializable a => Process a
-expect = receiveWait [match return] 
 
 -- | Send a message
 send :: Serializable a => ProcessId -> a -> Process ()
@@ -166,60 +166,16 @@ send :: Serializable a => ProcessId -> a -> Process ()
 -- modify serializable to allow for stateful (IO) deserialization
 send them msg = lift $ sendMessage (Left them) msg 
 
--- | Our own process ID
-getSelfPid :: Process ProcessId
-getSelfPid = processId <$> ask 
+-- | Wait for a message of a specific type
+expect :: forall a. Serializable a => Process a
+expect = receiveWait [match return] 
 
--- | Monitor another process
-monitor :: ProcessId -> Process MonitorRef 
-monitor them = do
-  monitorRef <- getMonitorRefFor them
-  sendCtrlMsg Nothing $ Monitor them monitorRef
-  return monitorRef
-
--- | Link to a remote process
-link :: ProcessId -> Process ()
-link = sendCtrlMsg Nothing . Link
-
--- | Remove a monitor
-unmonitor :: MonitorRef -> Process ()
-unmonitor = sendCtrlMsg Nothing . Unmonitor
-
--- | Remove a link
-unlink :: ProcessId -> Process ()
-unlink = sendCtrlMsg Nothing . Unlink
-
--- | Spawn a process
-spawn :: NodeId -> Closure (Process ()) -> Process ProcessId
-spawn nid proc = do
-  ref <- spawnAsync nid proc 
-  receiveWait [ matchIf (\(DidSpawn ref' _) -> ref == ref')
-                        (\(DidSpawn _ pid) -> return pid)
-              ]
-                       
 --------------------------------------------------------------------------------
--- Matching                                                                   --
+-- Advanced messaging                                                         -- 
 --------------------------------------------------------------------------------
 
 -- | Opaque type used in 'receiveWait' and 'receiveTimeout'
 newtype Match b = Match { unMatch :: Message -> Maybe (Process b) }
-
--- | Match against any message of the right type
-match :: forall a b. Serializable a => (a -> Process b) -> Match b
-match = matchIf (const True) 
-
--- | Match against any message of the right type that satisfies a predicate
-matchIf :: forall a b. Serializable a => (a -> Bool) -> (a -> Process b) -> Match b
-matchIf c p = Match $ \msg -> 
-  let decoded :: a
-      decoded = decode . messageEncoding $ msg in
-  if messageFingerprint msg == fingerprint (undefined :: a) && c decoded
-    then Just . p . decode . messageEncoding $ msg
-    else Nothing
-
--- | Remove any message from the queue
-matchUnknown :: Process b -> Match b
-matchUnknown = Match . const . Just
 
 -- | Test the matches in order against each message in the queue
 receiveWait :: [Match b] -> Process b
@@ -236,6 +192,66 @@ receiveTimeout t ms = do
   case mProc of
     Nothing   -> return Nothing
     Just proc -> Just <$> proc
+
+-- | Match against any message of the right type
+match :: forall a b. Serializable a => (a -> Process b) -> Match b
+match = matchIf (const True) 
+
+-- | Match against any message of the right type that satisfies a predicate
+matchIf :: forall a b. Serializable a => (a -> Bool) -> (a -> Process b) -> Match b
+matchIf c p = Match $ \msg -> 
+  let decoded :: a
+      decoded = decode . messageEncoding $ msg in
+  if messageFingerprint msg == fingerprint (undefined :: a) && c decoded
+    then Just $ p decoded 
+    else Nothing
+
+-- | Remove any message from the queue
+matchUnknown :: Process b -> Match b
+matchUnknown = Match . const . Just
+
+--------------------------------------------------------------------------------
+-- Process management                                                         --
+--------------------------------------------------------------------------------
+
+-- | Spawn a process
+spawn :: NodeId -> Closure (Process ()) -> Process ProcessId
+spawn nid proc = do
+  ref <- spawnAsync nid proc 
+  receiveWait [ matchIf (\(DidSpawn ref' _) -> ref == ref')
+                        (\(DidSpawn _ pid) -> return pid)
+              ]
+
+-- | Our own process ID
+getSelfPid :: Process ProcessId
+getSelfPid = processId <$> ask 
+
+-- | Get the node ID of our local node
+getSelfNode :: Process NodeId
+getSelfNode = localNodeId <$> lift getLocalNode
+
+--------------------------------------------------------------------------------
+-- Monitoring and linking                                                     --
+--------------------------------------------------------------------------------
+
+-- | Link to a remote process
+link :: ProcessId -> Process ()
+link = sendCtrlMsg Nothing . Link
+
+-- | Remove a link
+unlink :: ProcessId -> Process ()
+unlink = sendCtrlMsg Nothing . Unlink
+
+-- | Monitor another process
+monitor :: ProcessId -> Process MonitorRef 
+monitor them = do
+  monitorRef <- getMonitorRefFor them
+  sendCtrlMsg Nothing $ Monitor them monitorRef
+  return monitorRef
+
+-- | Remove a monitor
+unmonitor :: MonitorRef -> Process ()
+unmonitor = sendCtrlMsg Nothing . Unmonitor
 
 --------------------------------------------------------------------------------
 -- Closures                                                                   --
