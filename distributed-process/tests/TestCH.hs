@@ -295,6 +295,13 @@ testMath transport = do
 
   takeMVar clientDone
 
+testTimeout :: NT.Transport -> IO ()
+testTimeout transport = do
+  localNode <- newLocalNode transport initRemoteTable
+  runProcess localNode $ do
+    Nothing <- receiveTimeout 1000000 [match (\(Add _ _ _) -> return ())]
+    return ()
+
 -- TODO: test timeout
 
 main :: IO ()
@@ -303,6 +310,7 @@ main = do
   runTests 
     [ ("Ping", testPing transport)
     , ("Math", testMath transport) 
+    , ("Timeout", testTimeout transport)
       -- The "missing" combinations in the list below don't make much sense, as
       -- we cannot guarantee that the monitor reply or link exception will not 
       -- happen before the unmonitor or unlink
