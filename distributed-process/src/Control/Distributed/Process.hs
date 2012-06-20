@@ -62,7 +62,7 @@ import Control.Exception (Exception, throw)
 import qualified Control.Exception as Exception (catch)
 import Control.Concurrent.MVar (modifyMVar)
 import Control.Concurrent.Chan (writeChan)
-import Control.Distributed.Process.Internal.CQueue (dequeue)
+import Control.Distributed.Process.Internal.CQueue (dequeue, BlockSpec(..))
 import Control.Distributed.Process.Serializable (Serializable, fingerprint)
 import Data.Accessor ((^.), (^:))
 import Control.Distributed.Process.Internal.Types 
@@ -181,14 +181,17 @@ newtype Match b = Match { unMatch :: Message -> Maybe (Process b) }
 receiveWait :: [Match b] -> Process b
 receiveWait ms = do
   queue <- processQueue <$> ask
-  Just proc <- liftIO $ dequeue queue Nothing (map unMatch ms)
+  Just proc <- liftIO $ dequeue queue Blocking (map unMatch ms)
   proc
 
--- | Like 'receiveWait' but with a timeout
+-- | Like 'receiveWait' but with a timeout.
+-- 
+-- If the timeout is zero do a non-blocking check for matching messages.
 receiveTimeout :: Int -> [Match b] -> Process (Maybe b)
 receiveTimeout t ms = do
   queue <- processQueue <$> ask
-  mProc <- liftIO $ dequeue queue (Just t) (map unMatch ms)
+  let blockSpec = if t == 0 then NonBlocking else Timeout t
+  mProc <- liftIO $ dequeue queue blockSpec (map unMatch ms)
   case mProc of
     Nothing   -> return Nothing
     Just proc -> Just <$> proc
