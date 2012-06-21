@@ -59,11 +59,6 @@ module Control.Distributed.Process.Internal.Types
   , runMessageT
   ) where
 
-import Control.Concurrent (ThreadId)
-import Control.Concurrent.MVar (MVar)
-import Control.Concurrent.Chan (Chan)
-import Control.Category ((>>>))
-import Control.Exception (Exception)
 import Data.Map (Map)
 import qualified Data.Map as Map (empty)
 import Data.Int (Int32)
@@ -75,6 +70,12 @@ import Data.Accessor (Accessor, accessor)
 import qualified Data.Accessor.Container as DAC (mapMaybe)
 import qualified Data.ByteString.Lazy as BSL (ByteString, toChunks, fromChunks, splitAt)
 import qualified Data.ByteString as BSS (ByteString, concat)
+import Control.Category ((>>>))
+import Control.Exception (Exception)
+import Control.Concurrent (ThreadId)
+import Control.Concurrent.MVar (MVar)
+import Control.Concurrent.Chan (Chan)
+import Control.Concurrent.STM (TChan, TVar)
 import qualified Network.Transport as NT (EndPoint, EndPointAddress, Connection)
 import Control.Applicative ((<$>), (<*>))
 import Control.Monad.Reader (MonadReader(..), ReaderT, runReaderT)
@@ -198,10 +199,19 @@ data ChannelId = ChannelId {
   }
   deriving (Show, Eq, Ord)
 
-data TypedChannel = forall a. Serializable a => TypedChannel (CQueue a)
+data TypedChannel = forall a. Serializable a => TypedChannel (TChan a)
 
+-- | The send send of a typed channel (serializable)
 newtype SendPort a = SendPort ChannelId deriving (Typeable, Binary)
-newtype ReceivePort a = ReceivePort (CQueue a)
+
+-- | The receive end of a typed channel (not serializable)
+data ReceivePort a = 
+    -- | A single receive port
+    ReceivePortSingle (TChan a)
+    -- | A left-biased combination of receive ports 
+  | ReceivePortBiased [ReceivePort a] 
+    -- | A round-robin combination of receive ports
+  | ReceivePortRR (TVar [ReceivePort a]) 
 
 --------------------------------------------------------------------------------
 -- Closures                                                                   --

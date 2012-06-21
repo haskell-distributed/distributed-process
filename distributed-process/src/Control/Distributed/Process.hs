@@ -21,6 +21,8 @@ module Control.Distributed.Process
   , newChan
   , sendChan
   , receiveChan
+  , mergePortsBiased
+  , mergePortsRR
     -- * Advanced messaging
   , Match
   , receiveWait
@@ -68,11 +70,17 @@ import Control.Exception (Exception, throw)
 import qualified Control.Exception as Exception (catch)
 import Control.Concurrent.MVar (modifyMVar)
 import Control.Concurrent.Chan (writeChan)
-import Control.Distributed.Process.Internal.CQueue 
-  ( newCQueue
-  , dequeue
-  , BlockSpec(..)
+import Control.Concurrent.STM 
+  ( STM
+  , atomically
+  , orElse
+  , newTChan
+  , readTChan
+  , newTVar
+  , readTVar
+  , writeTVar
   )
+import Control.Distributed.Process.Internal.CQueue (dequeue, BlockSpec(..))
 import Control.Distributed.Process.Serializable (Serializable, fingerprint)
 import Data.Accessor ((^.), (^:), (^=))
 import Control.Distributed.Process.Internal.Types 
@@ -191,19 +199,19 @@ expect = receiveWait [match return]
 -- Channels                                                                   --
 --------------------------------------------------------------------------------
 
--- | Create a new typed channel (WORK IN PROGRESS)
+-- | Create a new typed channel
 newChan :: Serializable a => Process (SendPort a, ReceivePort a)
 newChan = do
   proc <- ask 
   liftIO . modifyMVar (processState proc) $ \st -> do
-    queue <- liftIO newCQueue 
+    chan <- liftIO . atomically $ newTChan
     let lcid  = st ^. channelCounter
         cid   = ChannelId { channelProcessId = processId proc
                           , channelLocalId   = lcid
                           }
         sport = SendPort cid 
-        rport = ReceivePort queue
-        tch   = TypedChannel queue
+        rport = ReceivePortSingle chan
+        tch   = TypedChannel chan 
     return ( (channelCounter ^: (+ 1))
            . (typedChannelWithId lcid ^= Just tch)
            $ st
@@ -214,9 +222,28 @@ sendChan :: Serializable a => SendPort a -> a -> Process ()
 sendChan (SendPort them) msg = lift $ sendBinary (ChannelIdentifier them) msg 
 
 receiveChan :: Serializable a => ReceivePort a -> Process a
-receiveChan (ReceivePort queue) = do
-  Just msg <- liftIO $ dequeue queue Blocking [Just] 
-  return msg
+receiveChan = liftIO . atomically . receiveSTM 
+  where
+    receiveSTM :: ReceivePort a -> STM a
+    receiveSTM (ReceivePortSingle c) = 
+      readTChan c
+    receiveSTM (ReceivePortBiased ps) =
+      foldr1 orElse (map receiveSTM ps)
+    receiveSTM (ReceivePortRR psVar) = do
+      ps <- readTVar psVar
+      a  <- foldr1 orElse (map receiveSTM ps)
+      writeTVar psVar (rotate ps)
+      return a
+
+    rotate :: [a] -> [a]
+    rotate []     = []
+    rotate (x:xs) = xs ++ [x]
+
+mergePortsBiased :: Serializable a => [ReceivePort a] -> Process (ReceivePort a)
+mergePortsBiased = return . ReceivePortBiased 
+
+mergePortsRR :: Serializable a => [ReceivePort a] -> Process (ReceivePort a)
+mergePortsRR ps = liftIO . atomically $ ReceivePortRR <$> newTVar ps
 
 --------------------------------------------------------------------------------
 -- Advanced messaging                                                         -- 

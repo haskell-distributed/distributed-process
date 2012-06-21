@@ -12,7 +12,7 @@ import Control.Concurrent.MVar
   , takeMVar
   , readMVar
   )
-import Control.Monad (replicateM_)
+import Control.Monad (replicateM_, replicateM)
 import Control.Monad.IO.Class (liftIO)
 import Control.Exception (throwIO)
 import Control.Applicative ((<$>), (<*>))
@@ -21,6 +21,7 @@ import Network.Transport.TCP (createTransport, defaultTCPParameters)
 import Control.Distributed.Process
 import Control.Distributed.Process.Internal.Types (LocalNode(localEndPoint))
 import Control.Distributed.Process.Node
+import Control.Distributed.Process.Serializable (Serializable)
 import TestAuxiliary
 
 newtype Ping = Ping ProcessId
@@ -395,6 +396,93 @@ testTypedChannels transport = do
       
   takeMVar clientDone 
 
+-- | Test merging receive ports
+testMergeChannels :: NT.Transport -> IO ()
+testMergeChannels transport = do
+    localNode <- newLocalNode transport initRemoteTable
+    testFlat localNode True          "aaabbbccc"
+    testFlat localNode False         "abcabcabc"
+    testNested localNode True True   "aaabbbcccdddeeefffggghhhiii"
+    testNested localNode True False  "adgadgadgbehbehbehcficficfi"
+    testNested localNode False True  "abcabcabcdefdefdefghighighi"
+    testNested localNode False False "adgbehcfiadgbehcfiadgbehcfi"
+    testBlocked localNode True
+    testBlocked localNode False
+  where
+    -- Single layer of merging
+    testFlat :: LocalNode -> Bool -> String -> IO () 
+    testFlat localNode biased expected = 
+      runProcess localNode $ do
+        rs  <- mapM charChannel "abc" 
+        m   <- mergePorts biased rs 
+        xs  <- replicateM 9 $ receiveChan m 
+        True <- return $ xs == expected
+        return ()
+
+    -- Two layers of merging
+    testNested :: LocalNode -> Bool -> Bool -> String -> IO ()
+    testNested localNode biasedInner biasedOuter expected = 
+      runProcess localNode $ do
+        rss  <- mapM (mapM charChannel) ["abc", "def", "ghi"]
+        ms   <- mapM (mergePorts biasedInner) rss
+        m    <- mergePorts biasedOuter ms
+        xs   <- replicateM (9 * 3) $ receiveChan m 
+        True <- return $ xs == expected
+        return ()
+
+    -- Test that if no messages are (immediately) available, the scheduler makes no difference
+    testBlocked :: LocalNode -> Bool -> IO ()
+    testBlocked localNode biased = do
+      vs <- replicateM 3 newEmptyMVar 
+
+      forkProcess localNode $ do
+        [sa, sb, sc] <- liftIO $ mapM readMVar vs 
+        mapM_ ((>> liftIO (threadDelay 10000)) . uncurry sendChan) 
+          [ -- a, b, c
+            (sa, 'a')
+          , (sb, 'b')
+          , (sc, 'c')
+            -- a, c, b
+          , (sa, 'a')
+          , (sc, 'c')
+          , (sb, 'b')
+            -- b, a, c
+          , (sb, 'b')
+          , (sa, 'a')
+          , (sc, 'c')
+            -- b, c, a
+          , (sb, 'b')
+          , (sc, 'c')
+          , (sa, 'a')
+            -- c, a, b
+          , (sc, 'c')
+          , (sa, 'a')
+          , (sb, 'b')
+            -- c, b, a
+          , (sc, 'c')
+          , (sb, 'b')
+          , (sa, 'a')
+          ]
+
+      runProcess localNode $ do
+        (ss, rs) <- unzip <$> replicateM 3 newChan
+        liftIO $ mapM_ (uncurry putMVar) $ zip vs ss 
+        m  <- mergePorts biased rs 
+        xs <- replicateM (6 * 3) $ receiveChan m
+        True <- return $ xs == "abcacbbacbcacabcba"
+        return ()
+
+    mergePorts :: Serializable a => Bool -> [ReceivePort a] -> Process (ReceivePort a)
+    mergePorts True  = mergePortsBiased
+    mergePorts False = mergePortsRR 
+
+    charChannel :: Char -> Process (ReceivePort Char)
+    charChannel c = do
+      (sport, rport) <- newChan
+      replicateM_ 3 $ sendChan sport c 
+      liftIO $ threadDelay 10000 -- Make sure messages have been sent
+      return rport
+
 main :: IO ()
 main = do
   Right transport <- createTransport "127.0.0.1" "8080" defaultTCPParameters
@@ -403,8 +491,9 @@ main = do
     , ("Math",             testMath             transport) 
     , ("Timeout",          testTimeout          transport)
     , ("Timeout0",         testTimeout0         transport)
-    , ("SendToTerminated", testSendToTerminated transport)
+    , ("SendToTerminated", testSendToTerminated transport) 
     , ("TypedChannnels",   testTypedChannels    transport)
+    , ("MergeChannels",    testMergeChannels    transport)
       -- The "missing" combinations in the list below don't make much sense, as
       -- we cannot guarantee that the monitor reply or link exception will not 
       -- happen before the unmonitor or unlink

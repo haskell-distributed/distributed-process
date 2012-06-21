@@ -40,6 +40,7 @@ import Control.Concurrent.MVar
   , takeMVar
   )
 import Control.Concurrent.Chan (newChan, writeChan, readChan)
+import Control.Concurrent.STM (atomically, writeTChan)
 import Control.Distributed.Process.Internal.CQueue (enqueue, newCQueue)
 import qualified Network.Transport as NT 
   ( Transport
@@ -208,8 +209,8 @@ handleIncomingMessages node = go [] Map.empty Map.empty Set.empty
               let msg = payloadToMessage payload
               enqueue (processQueue proc) msg
               go uninitConns procs chans ctrls 
-            (_, Just (TypedChannel queue), _, _) -> do
-              enqueue queue . decode . BSL.fromChunks $ payload
+            (_, Just (TypedChannel chan), _, _) -> do
+              atomically $ writeTChan chan . decode . BSL.fromChunks $ payload
               go uninitConns procs chans ctrls 
             (_, _, True, _) -> do
               writeChan ctrlChan (decode . BSL.fromChunks $ payload)
