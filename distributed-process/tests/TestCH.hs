@@ -483,6 +483,20 @@ testMergeChannels transport = do
       liftIO $ threadDelay 10000 -- Make sure messages have been sent
       return rport
 
+testTerminate :: NT.Transport -> IO ()
+testTerminate transport = do
+  localNode <- newLocalNode transport initRemoteTable
+
+  pid <- forkProcess localNode $ do
+    liftIO $ threadDelay 100000
+    terminate
+
+  runProcess localNode $ do
+    ref <- monitor pid
+    MonitorNotification ref' pid' (DiedException ex) <- expect
+    True <- return $ ref == ref' && pid == pid' && ex == "ProcessTerminationException" 
+    return ()
+
 main :: IO ()
 main = do
   Right transport <- createTransport "127.0.0.1" "8080" defaultTCPParameters
@@ -494,6 +508,7 @@ main = do
     , ("SendToTerminated", testSendToTerminated transport) 
     , ("TypedChannnels",   testTypedChannels    transport)
     , ("MergeChannels",    testMergeChannels    transport)
+    , ("TestTerminate",    testTerminate        transport)
       -- The "missing" combinations in the list below don't make much sense, as
       -- we cannot guarantee that the monitor reply or link exception will not 
       -- happen before the unmonitor or unlink

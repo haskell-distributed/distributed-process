@@ -256,7 +256,7 @@ data MonitorRef = MonitorRef
 
 -- | Messages sent by monitors
 data MonitorNotification = MonitorNotification MonitorRef ProcessId DiedReason
-  deriving (Typeable)
+  deriving (Typeable, Show)
 
 -- | Exceptions thrown when a linked process dies
 data LinkException = LinkException ProcessId DiedReason

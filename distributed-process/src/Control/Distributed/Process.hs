@@ -33,6 +33,8 @@ module Control.Distributed.Process
     -- * Process management
   , spawn
   , call
+  , terminate
+  , ProcessTerminationException
   , SpawnRef
   , getSelfPid
   , getSelfNode
@@ -302,12 +304,22 @@ spawn nid proc = do
                         (\(DidSpawn _ pid) -> return pid)
               ]
 
+-- | Run a process remotely and wait for it to reply
 call :: Serializable a => NodeId -> Closure (Process a) -> Process a
 call nid proc@(Closure (Static label) _) = do
   us <- getSelfPid
   spawn nid (Closure (Static (label ++ "__call")) (encode (proc, us)))
   CallReply a <- expect
   return a
+
+data ProcessTerminationException = ProcessTerminationException
+  deriving (Show, Typeable)
+
+instance Exception ProcessTerminationException
+
+-- | Terminate (throws a ProcessTerminationException)
+terminate :: Process a
+terminate = liftIO $ throw ProcessTerminationException
 
 -- | Our own process ID
 getSelfPid :: Process ProcessId
