@@ -222,9 +222,11 @@ newChan = do
            , (sport, rport)
            )
 
+-- | Send a message on a typed channel
 sendChan :: Serializable a => SendPort a -> a -> Process ()
 sendChan (SendPort them) msg = lift $ sendBinary (ChannelIdentifier them) msg 
 
+-- | Wait for a message on a typed channel
 receiveChan :: Serializable a => ReceivePort a -> Process a
 receiveChan = liftIO . atomically . receiveSTM 
   where
@@ -243,9 +245,15 @@ receiveChan = liftIO . atomically . receiveSTM
     rotate []     = []
     rotate (x:xs) = xs ++ [x]
 
+-- | Merge a list of typed channels.
+-- 
+-- The result port is left-biased: if there are messages available on more
+-- than one port, the first available message is returned.
 mergePortsBiased :: Serializable a => [ReceivePort a] -> Process (ReceivePort a)
 mergePortsBiased = return . ReceivePortBiased 
 
+-- | Like 'mergePortsBiased', but with a round-robin scheduler (rather than
+-- left-biased)
 mergePortsRR :: Serializable a => [ReceivePort a] -> Process (ReceivePort a)
 mergePortsRR ps = liftIO . atomically $ ReceivePortRR <$> newTVar ps
 
@@ -312,6 +320,7 @@ call nid proc@(Closure (Static label) _) = do
   CallReply a <- expect
   return a
 
+-- | Thrown by 'terminate'
 data ProcessTerminationException = ProcessTerminationException
   deriving (Show, Typeable)
 
