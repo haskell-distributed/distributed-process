@@ -494,7 +494,7 @@ testTerminate transport = do
   runProcess localNode $ do
     ref <- monitor pid
     MonitorNotification ref' pid' (DiedException ex) <- expect
-    True <- return $ ref == ref' && pid == pid' && ex == "ProcessTerminationException" 
+    True <- return $ ref == ref' && pid == pid' && ex == show ProcessTerminationException 
     return ()
 
 main :: IO ()
