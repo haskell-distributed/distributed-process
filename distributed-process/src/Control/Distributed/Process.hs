@@ -32,6 +32,7 @@ module Control.Distributed.Process
   , matchUnknown
     -- * Process management
   , spawn
+  , call
   , SpawnRef
   , getSelfPid
   , getSelfNode
@@ -58,7 +59,7 @@ module Control.Distributed.Process
   ) where
 
 import Prelude hiding (catch)
-import Data.Binary (decode)
+import Data.Binary (decode, encode)
 import Data.Typeable (Typeable)
 import Data.Dynamic (fromDyn)
 import qualified Data.Map as Map ((!))
@@ -108,6 +109,7 @@ import Control.Distributed.Process.Internal.Types
   , spawnCounter
   , MessageT
   , Closure(..)
+  , CallReply(..)
   , SendPort(..)
   , ReceivePort(..)
   , channelCounter
@@ -299,6 +301,13 @@ spawn nid proc = do
   receiveWait [ matchIf (\(DidSpawn ref' _) -> ref == ref')
                         (\(DidSpawn _ pid) -> return pid)
               ]
+
+call :: Serializable a => NodeId -> Closure (Process a) -> Process a
+call nid proc@(Closure (Static label) _) = do
+  us <- getSelfPid
+  spawn nid (Closure (Static (label ++ "__call")) (encode (proc, us)))
+  CallReply a <- expect
+  return a
 
 -- | Our own process ID
 getSelfPid :: Process ProcessId

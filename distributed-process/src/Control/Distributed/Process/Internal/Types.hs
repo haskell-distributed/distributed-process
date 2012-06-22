@@ -25,6 +25,7 @@ module Control.Distributed.Process.Internal.Types
     -- * Closures
   , Static(..) 
   , Closure(..)
+  , CallReply(..)
     -- * Messages 
   , Message(..)
     -- * Node controller user-visible data types 
@@ -77,7 +78,7 @@ import Control.Concurrent.MVar (MVar)
 import Control.Concurrent.Chan (Chan)
 import Control.Concurrent.STM (TChan, TVar)
 import qualified Network.Transport as NT (EndPoint, EndPointAddress, Connection)
-import Control.Applicative ((<$>), (<*>))
+import Control.Applicative (Applicative, (<$>), (<*>))
 import Control.Monad.Reader (MonadReader(..), ReaderT, runReaderT)
 import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.State (MonadState, StateT, evalStateT)
@@ -181,7 +182,7 @@ data LocalProcessState = LocalProcessState
 newtype Process a = Process { 
     unProcess :: ReaderT LocalProcess (MessageT IO) a 
   }
-  deriving (Functor, Monad, MonadIO, MonadReader LocalProcess, Typeable)
+  deriving (Functor, Monad, MonadIO, MonadReader LocalProcess, Typeable, Applicative)
 
 -- | Deconstructor for 'Process' (not exported to the public API) 
 runLocalProcess :: LocalNode -> Process a -> LocalProcess -> IO a
@@ -225,6 +226,10 @@ newtype Static a = Static String
 -- | A closure is a static value and an encoded environment
 data Closure a = Closure (Static (ByteString -> a)) ByteString
   deriving (Typeable, Show)
+
+-- | Used for the implementation of 'call'
+newtype CallReply a = CallReply a
+  deriving (Typeable, Binary)
 
 --------------------------------------------------------------------------------
 -- Messages                                                                   --
@@ -449,7 +454,7 @@ typedChannelWithId cid = typedChannels >>> DAC.mapMaybe cid
 --------------------------------------------------------------------------------
 
 newtype MessageT m a = MessageT { unMessageT :: StateT MessageState m a }
-  deriving (Functor, Monad, MonadIO, MonadState MessageState)
+  deriving (Functor, Monad, MonadIO, MonadState MessageState, Applicative)
 
 data MessageState = MessageState { 
      messageLocalNode   :: LocalNode

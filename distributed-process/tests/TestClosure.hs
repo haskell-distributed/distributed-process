@@ -3,6 +3,7 @@ module Main where
 import Control.Monad.IO.Class (liftIO) 
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, readMVar, takeMVar, putMVar)
+import Control.Applicative ((<$>))
 import Network.Transport (Transport)
 import Network.Transport.TCP (createTransport, defaultTCPParameters)
 import Control.Distributed.Process
@@ -24,7 +25,11 @@ sendPid toPid = do
   fromPid <- getSelfPid
   send toPid fromPid
 
-$(remotable ['addInt, 'putInt, 'sendInt, 'sendPid])
+factorial :: Int -> Process Int
+factorial 0 = return 1
+factorial n = (n *) <$> factorial (n - 1) 
+
+$(remotable ['addInt, 'putInt, 'sendInt, 'sendPid, 'factorial])
 
 testSendPureClosure :: Transport -> RemoteTable -> IO ()
 testSendPureClosure transport rtable = do
@@ -116,6 +121,24 @@ testSpawn transport rtable = do
 
   takeMVar clientDone
 
+testCall :: Transport -> RemoteTable -> IO ()
+testCall transport rtable = do
+  serverNodeAddr <- newEmptyMVar
+  clientDone <- newEmptyMVar
+
+  forkIO $ do
+    node <- newLocalNode transport rtable
+    putMVar serverNodeAddr (localNodeId node)
+
+  forkIO $ do
+    node <- newLocalNode transport rtable
+    nid <- readMVar serverNodeAddr
+    runProcess node $ do
+      (120 :: Int) <- call nid ($(mkClosure 'factorial) 5)
+      liftIO $ putMVar clientDone ()
+
+  takeMVar clientDone
+
 main :: IO ()
 main = do
   Right transport <- createTransport "127.0.0.1" "8080" defaultTCPParameters
@@ -125,4 +148,5 @@ main = do
     , ("SendIOClosure",   testSendIOClosure   transport rtable)
     , ("SendProcClosure", testSendProcClosure transport rtable)
     , ("Spawn",           testSpawn           transport rtable)
+    , ("Call",            testCall            transport rtable)
     ]

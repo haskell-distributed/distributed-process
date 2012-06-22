@@ -47,6 +47,7 @@ import Data.Binary (encode, decode)
 import qualified Data.Map as Map (insert)
 import Data.Dynamic (toDyn)
 import Control.Applicative ((<$>))
+import Control.Monad (join)
 import Language.Haskell.TH 
   ( -- Q monad and operations
     Q
@@ -77,7 +78,11 @@ import Control.Distributed.Process.Internal.Types
   ( RemoteTable
   , Closure(..)
   , Static(..)
+  , Process
+  , ProcessId
+  , CallReply(..)
   )
+import Control.Distributed.Process (send, unClosure)
 
 --------------------------------------------------------------------------------
 -- Top-level API                                                              --
@@ -87,9 +92,9 @@ import Control.Distributed.Process.Internal.Types
 -- of functions
 remotable :: [Name] -> Q [Dec] 
 remotable ns = do
-  (closures, decoders, inserts) <- unzip3 <$> mapM process ns
-  rtable <- createMetaData inserts 
-  return $ concat closures ++ concat decoders ++ rtable 
+  (closures, inserts) <- unzip <$> mapM generateDefs ns
+  rtable <- createMetaData (concat inserts)
+  return $ concat closures ++ rtable 
 
 -- | Create a closure
 mkClosure :: Name -> Q Exp
@@ -110,22 +115,36 @@ createMetaData is =
 --
 -- Given an (f :: a -> b) in module M, create: 
 --  1. f__closure :: a -> Closure b,
---  2. f__dec :: ByteString -> b
---  3. Map.insert "M.f" (toDyn f__dec)
-process :: Name -> Q ([Dec], [Dec], Q Exp)
-process n = do
+--  2. Map.insert "M.f" (toDyn ((f . enc) :: ByteString -> b))
+-- 
+-- Moreover, if b is of the form Process c, then additionally create
+--  3. Map.insert "M.f__call" (... :: ByteString -> Process ())
+-- (see 'generateCallClosure') 
+generateDefs :: Name -> Q ([Dec], [Q Exp])
+generateDefs n = do
   mType <- getType n
   case mType of
     Just (origName, ArrowT `AppT` arg `AppT` res) -> do
       (closure, label) <- generateClosure origName (return arg) (return res)
-      decoder <- generateDecoder origName (return res)
-      let decoderE = varE (decoderName n)
-          insert   = [| Map.insert $(stringE label) (toDyn $decoderE) |]
-      return (closure, decoder, insert)
+      let decoder = generateDecoder origName (return res)
+          insert  = [| Map.insert $(stringE label) (toDyn $decoder) |]
+ 
+      -- Generate special closure to support 'call'
+      mResult <- processResult res
+      insert' <- case mResult of
+        Nothing -> 
+          return [] 
+        Just result -> do 
+          let encoder = generateCallClosure origName (return result)
+              label'  = label ++ "__call" 
+          return . return $ 
+            [| Map.insert $(stringE label') (toDyn $encoder) |]
+
+      return (closure, insert : insert')
     _ -> 
       fail $ "remotable: " ++ show n ++ " is not a function"
    
--- | Generate the closure creator (see 'process')
+-- | Generate the closure creator (see 'generateDefs')
 generateClosure :: Name -> Q Type -> Q Type -> Q ([Dec], String)
 generateClosure n arg res = do
     closure <- sequence 
@@ -137,12 +156,26 @@ generateClosure n arg res = do
     label :: String 
     label = show $ n
 
--- | Generate the decoder (see 'process')
-generateDecoder :: Name -> Q Type -> Q [Dec]
-generateDecoder n res = do 
-  sequence [ sigD (decoderName n) [t| ByteString -> $res |]
-           , sfnD (decoderName n) [| $(varE n) . decode |]
-           ]
+-- | If 't' is of the form 'Process b', return 'Just b'
+processResult :: Type -> Q (Maybe Type)
+processResult t = do
+  process <- [t| Process |]
+  case t of
+    p `AppT` a | p == process -> return $ Just a
+    _                         -> return Nothing
+
+-- | Generate the decoder (see 'generateDefs')
+generateDecoder :: Name -> Q Type -> Q Exp 
+generateDecoder n res = [| $(varE n) . decode :: ByteString -> $res |]
+
+-- | Generate the call-closure. This is necessary to support 'call' 
+generateCallClosure :: Name -> Q Type -> Q Exp
+generateCallClosure n t = 
+  [| (\env -> do
+       let (cl, them) = decode env :: (Closure (Process $t), ProcessId) 
+       join (unClosure cl) >>= send them . CallReply
+     ) :: ByteString -> Process () 
+   |] 
 
 -- | The name for the function that generates the closure
 closureName :: Name -> Name
