@@ -34,7 +34,7 @@ module Control.Distributed.Process
   , spawn
   , call
   , terminate
-  , ProcessTerminationException
+  , ProcessTerminationException(..)
   , SpawnRef
   , getSelfPid
   , getSelfNode
