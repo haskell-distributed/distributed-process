@@ -39,7 +39,13 @@
 --
 -- See Section 6, /Faking It/, of /Towards Haskell in the Cloud/ for more info. 
 {-# LANGUAGE TemplateHaskell #-}
-module Control.Distributed.Process.Closure (remotable, mkClosure) where 
+module Control.Distributed.Process.Closure 
+  ( -- * Primitive closures
+    remotable
+  , mkClosure
+    -- * Closure combinators
+  , bindCP
+  ) where 
 
 import Prelude hiding (lookup)
 import Data.ByteString.Lazy (ByteString)
@@ -100,6 +106,14 @@ remotable ns = do
 -- | Create a closure
 mkClosure :: Name -> Q Exp
 mkClosure = varE . closureName 
+
+--------------------------------------------------------------------------------
+-- Closure combinators                                                        --
+--------------------------------------------------------------------------------
+
+bindCP :: Closure (Process a) -> Closure (a -> Process b) -> Closure (Process b)
+bindCP (Closure (Static x) envx) (Closure (Static f) (envf)) =
+  Closure (Static "$bind") (encode ((x, envx), (f, envf)))
 
 --------------------------------------------------------------------------------
 -- Internal (Template Haskell)                                                --

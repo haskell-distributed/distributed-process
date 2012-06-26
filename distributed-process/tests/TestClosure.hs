@@ -1,5 +1,6 @@
 module Main where
 
+import Control.Monad (join)
 import Control.Monad.IO.Class (liftIO) 
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, readMVar, takeMVar, putMVar)
@@ -139,6 +140,19 @@ testCall transport rtable = do
 
   takeMVar clientDone
 
+testBind :: Transport -> RemoteTable -> IO ()
+testBind transport rtable = do
+  node <- newLocalNode transport rtable
+  runProcess node $ do
+    us <- getSelfPid
+    let fac5 :: Closure (Process Int)
+        fac5 = $(mkClosure 'factorial) 5
+        sendVal :: Closure (Int -> Process ())
+        sendVal = $(mkClosure 'sendInt) us
+        go :: Closure (Process ())
+        go = fac5 `bindCP` sendVal 
+    join (unClosure go) 
+
 main :: IO ()
 main = do
   Right transport <- createTransport "127.0.0.1" "8080" defaultTCPParameters
@@ -149,4 +163,5 @@ main = do
     , ("SendProcClosure", testSendProcClosure transport rtable)
     , ("Spawn",           testSpawn           transport rtable)
     , ("Call",            testCall            transport rtable)
+    , ("Bind",            testBind            transport rtable)
     ]

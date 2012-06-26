@@ -86,7 +86,7 @@ import Control.Concurrent.STM (TChan, TVar)
 import qualified Network.Transport as NT (EndPoint, EndPointAddress, Connection)
 import Control.Applicative (Applicative, (<$>), (<*>))
 import Control.Monad.Reader (MonadReader(..), ReaderT, runReaderT)
-import Control.Monad.IO.Class (MonadIO)
+import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.State (MonadState, StateT, evalStateT)
 import Control.Distributed.Process.Serializable 
   ( Fingerprint
@@ -265,7 +265,11 @@ resolveClosure rtable "$call" = Just (toDyn aux)
           Just bound  = dynBind tyConProcess bindProcess proc' enc' 
           Just proc'' = fromDynamic bound
       proc''
-
+resolveClosure rtable "$bind" = Just (toDyn aux)
+  where
+    -- TODO: error handling
+    aux :: ByteString -> Process ()
+    aux _ = liftIO $ putStrLn "bind not yet supported"
 resolveClosure rtable label = rtable ^. remoteTableLabel label 
 
 tyConProcess :: TyCon
