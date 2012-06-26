@@ -179,6 +179,16 @@ testCallBind transport rtable = do
 
   takeMVar clientDone
 
+testSeq :: Transport -> RemoteTable -> IO ()
+testSeq transport rtable = do
+  node <- newLocalNode transport rtable
+  runProcess node $ do
+    us <- getSelfPid
+    join . unClosure $ sendFac 5 us `seqCP` sendFac 6 us
+    120 :: Int <- expect
+    720 :: Int <- expect
+    return ()
+
 main :: IO ()
 main = do
   Right transport <- createTransport "127.0.0.1" "8080" defaultTCPParameters
@@ -191,4 +201,5 @@ main = do
     , ("Call",            testCall            transport rtable)
     , ("Bind",            testBind            transport rtable)
     , ("CallBind",        testCallBind        transport rtable)
+    , ("Seq",             testSeq             transport rtable)
     ]

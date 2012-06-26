@@ -269,9 +269,9 @@ resolveClosure rtable "$applyClosure" env = do
   where
     (labelf, envf, labelx, envx) = decode env 
 resolveClosure _rtable "$liftedBind" env = 
-    return $ Dynamic typ (unsafeCoerce# bindProcess)
-  where
-    typ = decode env 
+  return $ Dynamic (decode env) (unsafeCoerce# bindProcess)
+resolveClosure _rtable "$liftedConst" env = 
+  return $ Dynamic (decode env) (unsafeCoerce# const)
 resolveClosure rtable label env = do
   val <- rtable ^. remoteTableLabel label 
   dynApply val (toDyn env)

@@ -44,13 +44,18 @@ module Control.Distributed.Process.Closure
     remotable
   , mkClosure
     -- * Closure combinators
+  , applyClosure
+  , liftedBind
+  , liftedConst
   , bindCP
+  , weakenCP
+  , seqCP
   ) where 
 
 import Prelude hiding (lookup)
 import Data.ByteString.Lazy (ByteString)
 import Data.Binary (encode, decode)
-import Data.Typeable (typeOf, TypeRep, Typeable)
+import Data.Typeable (typeOf, Typeable)
 import Control.Applicative ((<$>))
 import Language.Haskell.TH 
   ( -- Q monad and operations
@@ -119,12 +124,24 @@ liftedBind :: forall a b. (Typeable a, Typeable b)
            => Closure (Process a -> (a -> Process b) -> Process b)
 liftedBind = Closure (Static "$liftedBind") (encode typ)
   where 
-    typ :: TypeRep
     typ = typeOf (undefined :: Process a -> (a -> Process b) -> Process b)
+
+liftedConst :: forall a b. (Typeable a, Typeable b) 
+            => Closure (a -> b -> a)
+liftedConst = Closure (Static "$liftedConst") (encode typ)
+  where
+    typ = typeOf (undefined :: a -> b -> a)
 
 bindCP :: (Typeable a, Typeable b)
        => Closure (Process a) -> Closure (a -> Process b) -> Closure (Process b)
 bindCP x f = liftedBind `applyClosure` x `applyClosure` f 
+
+weakenCP :: (Typeable a, Typeable b)
+         => Closure (Process b) -> Closure (a -> Process b)
+weakenCP = applyClosure liftedConst 
+
+seqCP :: Closure (Process ()) -> Closure (Process ()) -> Closure (Process ())
+seqCP p q = bindCP p (weakenCP q) 
 
 --------------------------------------------------------------------------------
 -- Internal (Template Haskell)                                                --
