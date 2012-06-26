@@ -1,5 +1,6 @@
 -- | We collect all types used internally in a single module to avoid using
 -- mutually recursive modules
+{-# LANGUAGE MagicHash #-}
 module Control.Distributed.Process.Internal.Types
   ( -- * Node and process identifiers 
     NodeId(..)
@@ -98,13 +99,15 @@ import Control.Distributed.Process.Serializable
   )
 import Control.Distributed.Process.Internal.CQueue (CQueue)
 import Control.Distributed.Process.Internal.Dynamic 
-  ( Dynamic
+  ( Dynamic(..)
   , toDyn
   , dynTypeRep
   , dynApp
   , dynBind
   , dynApply
+  , unsafeCoerce#
   )
+import Control.Distributed.Process.Internal.TypeRep ()
 
 --------------------------------------------------------------------------------
 -- Node and process identifiers                                               --
@@ -259,13 +262,16 @@ resolveClosure rtable "$call" env = do
   where
     (label, env', pid) = decode env
     bind = dynBind tyConProcess bindProcess
-resolveClosure rtable "$bind" env = do
-    x <- resolveClosure rtable xlabel envx
-    f <- resolveClosure rtable flabel envf
-    x `bind` f
+resolveClosure rtable "$applyClosure" env = do
+    f <- resolveClosure rtable labelf envf
+    x <- resolveClosure rtable labelx envx
+    f `dynApply` x
   where
-    ((xlabel, envx), (flabel, envf)) = decode env
-    bind = dynBind tyConProcess bindProcess
+    (labelf, envf, labelx, envx) = decode env 
+resolveClosure _rtable "$liftedBind" env = 
+    return $ Dynamic typ (unsafeCoerce# bindProcess)
+  where
+    typ = decode env 
 resolveClosure rtable label env = do
   val <- rtable ^. remoteTableLabel label 
   dynApply val (toDyn env)

@@ -50,7 +50,7 @@ module Control.Distributed.Process.Closure
 import Prelude hiding (lookup)
 import Data.ByteString.Lazy (ByteString)
 import Data.Binary (encode, decode)
-import Data.Typeable (typeOf)
+import Data.Typeable (typeOf, TypeRep, Typeable)
 import Control.Applicative ((<$>))
 import Language.Haskell.TH 
   ( -- Q monad and operations
@@ -111,9 +111,20 @@ mkClosure = varE . closureName
 -- Closure combinators                                                        --
 --------------------------------------------------------------------------------
 
-bindCP :: Closure (Process a) -> Closure (a -> Process b) -> Closure (Process b)
-bindCP (Closure (Static x) envx) (Closure (Static f) (envf)) =
-  Closure (Static "$bind") (encode ((x, envx), (f, envf)))
+applyClosure :: Closure (a -> b) -> Closure a -> Closure b
+applyClosure (Closure (Static labelf) envf) (Closure (Static labelx) envx) = 
+  Closure (Static "$applyClosure") $ encode (labelf, envf, labelx, envx)
+
+liftedBind :: forall a b. (Typeable a, Typeable b) 
+           => Closure (Process a -> (a -> Process b) -> Process b)
+liftedBind = Closure (Static "$liftedBind") (encode typ)
+  where 
+    typ :: TypeRep
+    typ = typeOf (undefined :: Process a -> (a -> Process b) -> Process b)
+
+bindCP :: (Typeable a, Typeable b)
+       => Closure (Process a) -> Closure (a -> Process b) -> Closure (Process b)
+bindCP x f = liftedBind `applyClosure` x `applyClosure` f 
 
 --------------------------------------------------------------------------------
 -- Internal (Template Haskell)                                                --

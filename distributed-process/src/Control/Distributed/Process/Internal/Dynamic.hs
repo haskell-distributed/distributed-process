@@ -6,7 +6,7 @@
 -- Dynamic is not important.
 {-# LANGUAGE MagicHash #-}
 module Control.Distributed.Process.Internal.Dynamic 
-  ( Dynamic
+  ( Dynamic(..)
   , toDyn
   , fromDyn
   , fromDynamic
@@ -15,6 +15,7 @@ module Control.Distributed.Process.Internal.Dynamic
   , dynBind'
   , dynApply
   , dynApp
+  , GHC.unsafeCoerce#
   ) where
 
 import Data.Typeable 
