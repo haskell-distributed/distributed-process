@@ -493,11 +493,9 @@ isLocal nid pid = processNodeId pid == localNodeId nid
 unClosure :: Typeable a => Closure a -> NC (Maybe a)
 unClosure (Closure (Static label) env) = do
   rtable <- remoteTable <$> lift getLocalNode
-  case resolveClosure rtable label of
+  case resolveClosure rtable label env of
     Nothing  -> return Nothing
-    Just dyn -> case fromDynamic dyn of
-      Nothing  -> return Nothing
-      Just dec -> return (Just $ dec env)
+    Just dyn -> return (fromDynamic dyn)
 
 --------------------------------------------------------------------------------
 -- Messages to local processes                                                --

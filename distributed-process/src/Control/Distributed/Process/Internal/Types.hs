@@ -100,10 +100,10 @@ import Control.Distributed.Process.Internal.CQueue (CQueue)
 import Control.Distributed.Process.Internal.Dynamic 
   ( Dynamic
   , toDyn
-  , fromDynamic
   , dynTypeRep
   , dynApp
   , dynBind
+  , dynApply
   )
 
 --------------------------------------------------------------------------------
@@ -251,26 +251,19 @@ registerLabel label dyn = remoteTableLabel label ^= Just dyn
 registerSender :: TypeRep -> Dynamic -> RemoteTable -> RemoteTable
 registerSender typ dyn = remoteTableSender typ ^= Just dyn
 
-resolveClosure :: RemoteTable -> String -> Maybe Dynamic
-resolveClosure rtable "$call" = Just (toDyn aux)
+resolveClosure :: RemoteTable -> String -> ByteString -> Maybe Dynamic
+resolveClosure rtable "$call" env = do 
+    proc   <- resolveClosure rtable label env' 
+    sender <- rtable ^. remoteTableSender (dynTypeRep proc)
+    proc `bind` (sender `dynApp` toDyn pid)
   where
-    -- TODO: error handling
-    aux :: ByteString -> Process ()
-    aux env = do
-      let (label, env', pid) = decode env :: (String, ByteString, ProcessId) 
-          Just proc   = resolveClosure rtable label 
-          proc'       = dynApp proc (toDyn env')
-          Just enc    = rtable ^. remoteTableSender (dynTypeRep proc')
-          enc'        = dynApp enc (toDyn pid)
-          Just bound  = dynBind tyConProcess bindProcess proc' enc' 
-          Just proc'' = fromDynamic bound
-      proc''
-resolveClosure rtable "$bind" = Just (toDyn aux)
-  where
-    -- TODO: error handling
-    aux :: ByteString -> Process ()
-    aux _ = liftIO $ putStrLn "bind not yet supported"
-resolveClosure rtable label = rtable ^. remoteTableLabel label 
+    (label, env', pid) = decode env :: (String, ByteString, ProcessId) 
+    bind = dynBind tyConProcess bindProcess
+resolveClosure rtable "$bind" env = 
+  return $ toDyn ((liftIO $ putStrLn "bind not yet supported") :: Process ())
+resolveClosure rtable label env = do
+  val <- rtable ^. remoteTableLabel label 
+  dynApply val (toDyn env)
 
 tyConProcess :: TyCon
 tyConProcess = typeRepTyCon (typeOf (undefined :: Process ()))

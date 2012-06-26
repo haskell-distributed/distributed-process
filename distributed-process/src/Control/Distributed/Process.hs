@@ -61,7 +61,6 @@ module Control.Distributed.Process
   ) where
 
 import Prelude hiding (catch)
-import Data.Maybe (fromJust)
 import Data.Binary (decode, encode)
 import Data.Typeable (Typeable, typeOf)
 import Control.Monad.Reader (ask)
@@ -370,13 +369,12 @@ unmonitor = sendCtrlMsg Nothing . Unmonitor
 unClosure :: forall a. Typeable a => Closure a -> Process a
 unClosure (Closure (Static label) env) = do
     rtable <- remoteTable <$> lift getLocalNode 
-    let dyn = fromJust (resolveClosure rtable label)
-        dec = fromDyn dyn (throw (typeError dyn))
-    return (dec env)
+    let Just dyn = resolveClosure rtable label env
+    return $ fromDyn dyn (throw (typeError dyn))
   where
-    typeError proc = userError $ "lookupStatic type error: " 
-                  ++ "cannot match " ++ show (dynTypeRep proc) 
-                  ++ "against " ++ show (typeOf (undefined :: a))
+    typeError dyn = userError $ "lookupStatic type error: " 
+                 ++ "cannot match " ++ show (dynTypeRep dyn) 
+                 ++ " against " ++ show (typeOf (undefined :: a))
 
 --------------------------------------------------------------------------------
 -- Auxiliary API                                                              --
