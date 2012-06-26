@@ -44,9 +44,8 @@ module Control.Distributed.Process.Closure (remotable, mkClosure) where
 import Prelude hiding (lookup)
 import Data.ByteString.Lazy (ByteString)
 import Data.Binary (encode, decode)
-import qualified Data.Map as Map (insert)
+import Data.Typeable (typeOf)
 import Control.Applicative ((<$>))
-import Control.Monad (join)
 import Language.Haskell.TH 
   ( -- Q monad and operations
     Q
@@ -80,8 +79,10 @@ import Control.Distributed.Process.Internal.Types
   , Process
   , ProcessId
   , CallReply(..)
+  , registerLabel
+  , registerSender
   )
-import Control.Distributed.Process (send, unClosure)
+import Control.Distributed.Process (send)
 import Control.Distributed.Process.Internal.Dynamic (toDyn)
 
 --------------------------------------------------------------------------------
@@ -115,11 +116,10 @@ createMetaData is =
 --
 -- Given an (f :: a -> b) in module M, create: 
 --  1. f__closure :: a -> Closure b,
---  2. Map.insert "M.f" (toDyn ((f . enc) :: ByteString -> b))
+--  2. registerLabel "M.f" (toDyn ((f . enc) :: ByteString -> b))
 -- 
 -- Moreover, if b is of the form Process c, then additionally create
---  3. Map.insert "M.f__call" (... :: ByteString -> Process ())
--- (see 'generateCallClosure') 
+--  3. registerSender (Process c) (send :: ProcessId -> c -> Process ())
 generateDefs :: Name -> Q ([Dec], [Q Exp])
 generateDefs n = do
   mType <- getType n
@@ -127,18 +127,17 @@ generateDefs n = do
     Just (origName, ArrowT `AppT` arg `AppT` res) -> do
       (closure, label) <- generateClosure origName (return arg) (return res)
       let decoder = generateDecoder origName (return res)
-          insert  = [| Map.insert $(stringE label) (toDyn $decoder) |]
- 
+          insert  = [| registerLabel $(stringE label) (toDyn $decoder) |]
+
       -- Generate special closure to support 'call'
       mResult <- processResult res
       insert' <- case mResult of
         Nothing -> 
           return [] 
         Just result -> do 
-          let encoder = generateCallClosure origName (return result)
-              label'  = label ++ "__call" 
+          let sender = generateSender result 
           return . return $ 
-            [| Map.insert $(stringE label') (toDyn $encoder) |]
+            [| registerSender $(typeToTypeRep res) (toDyn $sender) |]
 
       return (closure, insert : insert')
     _ -> 
@@ -157,37 +156,32 @@ generateClosure n arg res = do
     label = show $ n
 
 -- | If 't' is of the form 'Process b', return 'Just b'
-processResult :: Type -> Q (Maybe Type)
+processResult :: Type -> Q (Maybe (Q Type))
 processResult t = do
   process <- [t| Process |]
   case t of
-    p `AppT` a | p == process -> return $ Just a
+    p `AppT` a | p == process -> return . Just . return $ a
     _                         -> return Nothing
 
 -- | Generate the decoder (see 'generateDefs')
 generateDecoder :: Name -> Q Type -> Q Exp 
 generateDecoder n res = [| $(varE n) . decode :: ByteString -> $res |]
 
--- | Generate the call-closure. This is necessary to support 'call' 
-generateCallClosure :: Name -> Q Type -> Q Exp
-generateCallClosure n t = 
-  [| (\env -> do
-       let (cl, them) = decode env :: (Closure (Process $t), ProcessId) 
-       join (unClosure cl) >>= send them . CallReply
-     ) :: ByteString -> Process () 
-   |] 
+-- | Generate the sender. This is necessary to support 'call'
+generateSender :: Q Type -> Q Exp
+generateSender tp = 
+  [| (\pid -> send pid . CallReply) :: ProcessId -> $tp -> Process () |]
 
 -- | The name for the function that generates the closure
 closureName :: Name -> Name
 closureName n = mkName $ nameBase n ++ "__closure"
 
--- | The name for the decoder
-decoderName :: Name -> Name
-decoderName n = mkName $ nameBase n ++ "__dec"
-
 --------------------------------------------------------------------------------
 -- Generic Template Haskell auxiliary functions                               --
 --------------------------------------------------------------------------------
+
+typeToTypeRep :: Type -> Q Exp
+typeToTypeRep tp = [| typeOf (undefined :: $(return tp)) |]
 
 -- | Compose a set of expressions
 compose :: [Q Exp] -> Q Exp

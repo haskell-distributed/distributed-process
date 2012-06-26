@@ -61,9 +61,9 @@ module Control.Distributed.Process
   ) where
 
 import Prelude hiding (catch)
+import Data.Maybe (fromJust)
 import Data.Binary (decode, encode)
-import Data.Typeable (Typeable)
-import qualified Data.Map as Map ((!))
+import Data.Typeable (Typeable, typeOf)
 import Control.Monad.Reader (ask)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import qualified Control.Monad.Trans.Class as Trans (lift)
@@ -118,13 +118,14 @@ import Control.Distributed.Process.Internal.Types
   , TypedChannel(..)
   , ChannelId(..)
   , Identifier(..)
+  , resolveClosure
   )
 import Control.Distributed.Process.Internal.MessageT 
   ( sendMessage
   , sendBinary
   , getLocalNode
   )  
-import Control.Distributed.Process.Internal.Dynamic (fromDyn)
+import Control.Distributed.Process.Internal.Dynamic (fromDyn, dynTypeRep)
 
 -- INTERNAL NOTES
 -- 
@@ -314,9 +315,9 @@ spawn nid proc = do
 
 -- | Run a process remotely and wait for it to reply
 call :: Serializable a => NodeId -> Closure (Process a) -> Process a
-call nid proc@(Closure (Static label) _) = do
+call nid (Closure (Static label) env) = do
   us <- getSelfPid
-  spawn nid (Closure (Static (label ++ "__call")) (encode (proc, us)))
+  spawn nid (Closure (Static "$call") (encode (label, env, us)))
   CallReply a <- expect
   return a
 
@@ -366,10 +367,16 @@ unmonitor = sendCtrlMsg Nothing . Unmonitor
 --------------------------------------------------------------------------------
 
 -- | Deserialize a closure
-unClosure :: Typeable a => Closure a -> Process a
+unClosure :: forall a. Typeable a => Closure a -> Process a
 unClosure (Closure (Static label) env) = do
-  dec <- lookupStatic label 
-  return (dec env)
+    rtable <- remoteTable <$> lift getLocalNode 
+    let dyn = fromJust (resolveClosure rtable label)
+        dec = fromDyn dyn (throw (typeError dyn))
+    return (dec env)
+  where
+    typeError proc = userError $ "lookupStatic type error: " 
+                  ++ "cannot match " ++ show (dynTypeRep proc) 
+                  ++ "against " ++ show (typeOf (undefined :: a))
 
 --------------------------------------------------------------------------------
 -- Auxiliary API                                                              --
@@ -434,13 +441,6 @@ sendCtrlMsg mNid signal = do
       liftIO $ writeChan ctrlChan msg 
     Just nid ->
       lift $ sendBinary (NodeIdentifier nid) msg
-
-lookupStatic :: Typeable a => String -> Process a
-lookupStatic label = do
-    rtable <- remoteTable <$> lift getLocalNode 
-    return $ fromDyn (rtable Map.! label) (throw typeError)
-  where
-    typeError = userError "lookupStatic type error"
 
 lift :: MessageT IO a -> Process a
 lift = Process . Trans.lift 

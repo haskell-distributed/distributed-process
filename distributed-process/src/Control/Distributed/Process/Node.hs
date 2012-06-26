@@ -91,6 +91,7 @@ import Control.Distributed.Process.Internal.Types
   , Identifier(..)
   , ChannelId(..)
   , typedChannelWithId
+  , resolveClosure
   )
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Internal.MessageT 
@@ -429,11 +430,15 @@ ncEffectProcessDied pid reason = do
 ncEffectSpawn :: ProcessId -> Closure (Process ()) -> SpawnRef -> NC ()
 ncEffectSpawn pid cProc ref = do
   mProc <- unClosure cProc
-  -- TODO: what should we do when unClosure returns Nothing?
-  forM_ mProc $ \proc -> do
-    node <- lift getLocalNode
-    pid' <- liftIO $ forkProcess node proc
-    lift $ sendMessage (ProcessIdentifier pid) (DidSpawn ref pid') 
+  case mProc of
+    Just proc -> do
+      node <- lift getLocalNode
+      pid' <- liftIO $ forkProcess node proc
+      lift $ sendMessage (ProcessIdentifier pid) (DidSpawn ref pid') 
+    Nothing -> 
+      -- TODO: what should we do when unClosure returns Nothing?
+      liftIO . putStrLn $ "Error: closure " ++ show cProc ++ " not found" 
+      
 
 --------------------------------------------------------------------------------
 -- Auxiliary                                                                  --
@@ -488,7 +493,7 @@ isLocal nid pid = processNodeId pid == localNodeId nid
 unClosure :: Typeable a => Closure a -> NC (Maybe a)
 unClosure (Closure (Static label) env) = do
   rtable <- remoteTable <$> lift getLocalNode
-  case Map.lookup label rtable of
+  case resolveClosure rtable label of
     Nothing  -> return Nothing
     Just dyn -> case fromDynamic dyn of
       Nothing  -> return Nothing

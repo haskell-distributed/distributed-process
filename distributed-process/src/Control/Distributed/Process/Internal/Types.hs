@@ -1,10 +1,7 @@
 -- | We collect all types used internally in a single module to avoid using
 -- mutually recursive modules
 module Control.Distributed.Process.Internal.Types
-  ( -- * Global CH state
-    RemoteTable
-  , initRemoteTable
-  , -- * Node and process identifiers 
+  ( -- * Node and process identifiers 
     NodeId(..)
   , LocalProcessId(..)
   , ProcessId(..)
@@ -26,6 +23,11 @@ module Control.Distributed.Process.Internal.Types
   , Static(..) 
   , Closure(..)
   , CallReply(..)
+  , RemoteTable
+  , initRemoteTable
+  , registerLabel
+  , registerSender
+  , resolveClosure
     -- * Messages 
   , Message(..)
     -- * Node controller user-visible data types 
@@ -63,12 +65,17 @@ module Control.Distributed.Process.Internal.Types
 import Data.Map (Map)
 import qualified Data.Map as Map (empty)
 import Data.Int (Int32)
-import Data.Typeable (Typeable)
-import Data.Binary (Binary, encode, put, get, putWord8, getWord8)
+import Data.Typeable (Typeable, TypeRep, TyCon, typeRepTyCon, typeOf)
+import Data.Binary (Binary, encode, decode, put, get, putWord8, getWord8)
 import Data.ByteString.Lazy (ByteString)
-import Data.Accessor (Accessor, accessor)
+import Data.Accessor (Accessor, accessor, (^=), (^.))
 import qualified Data.Accessor.Container as DAC (mapMaybe)
-import qualified Data.ByteString.Lazy as BSL (ByteString, toChunks, fromChunks, splitAt)
+import qualified Data.ByteString.Lazy as BSL 
+  ( ByteString
+  , toChunks
+  , fromChunks
+  , splitAt
+  )
 import qualified Data.ByteString as BSS (ByteString, concat)
 import Control.Category ((>>>))
 import Control.Exception (Exception)
@@ -81,26 +88,23 @@ import Control.Applicative (Applicative, (<$>), (<*>))
 import Control.Monad.Reader (MonadReader(..), ReaderT, runReaderT)
 import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.State (MonadState, StateT, evalStateT)
-import Control.Distributed.Process.Serializable ( Fingerprint
-                                                , Serializable
-                                                , encodeFingerprint
-                                                , decodeFingerprint
-                                                , fingerprint
-                                                , sizeOfFingerprint
-                                                )
+import Control.Distributed.Process.Serializable 
+  ( Fingerprint
+  , Serializable
+  , encodeFingerprint
+  , decodeFingerprint
+  , fingerprint
+  , sizeOfFingerprint
+  )
 import Control.Distributed.Process.Internal.CQueue (CQueue)
-import Control.Distributed.Process.Internal.Dynamic (Dynamic) 
-
---------------------------------------------------------------------------------
--- Global state                                                               --
---------------------------------------------------------------------------------
-
--- | Used to fake 'static' (see paper)
-type RemoteTable = Map String Dynamic 
-
--- | Initial (empty) remote-call meta data
-initRemoteTable :: RemoteTable
-initRemoteTable = Map.empty
+import Control.Distributed.Process.Internal.Dynamic 
+  ( Dynamic
+  , toDyn
+  , fromDynamic
+  , dynTypeRep
+  , dynApp
+  , dynBind
+  )
 
 --------------------------------------------------------------------------------
 -- Node and process identifiers                                               --
@@ -230,6 +234,45 @@ data Closure a = Closure (Static (ByteString -> a)) ByteString
 -- | Used for the implementation of 'call'
 newtype CallReply a = CallReply a
   deriving (Typeable, Binary)
+
+-- | Used to fake 'static' (see paper)
+data RemoteTable = RemoteTable {
+    _remoteTableLabels  :: Map String Dynamic 
+  , _remoteTableSenders :: Map TypeRep Dynamic
+  }
+
+-- | Initial (empty) remote-call meta data
+initRemoteTable :: RemoteTable
+initRemoteTable = RemoteTable Map.empty Map.empty 
+
+registerLabel :: String -> Dynamic -> RemoteTable -> RemoteTable
+registerLabel label dyn = remoteTableLabel label ^= Just dyn 
+
+registerSender :: TypeRep -> Dynamic -> RemoteTable -> RemoteTable
+registerSender typ dyn = remoteTableSender typ ^= Just dyn
+
+resolveClosure :: RemoteTable -> String -> Maybe Dynamic
+resolveClosure rtable "$call" = Just (toDyn aux)
+  where
+    -- TODO: error handling
+    aux :: ByteString -> Process ()
+    aux env = do
+      let (label, env', pid) = decode env :: (String, ByteString, ProcessId) 
+          Just proc   = resolveClosure rtable label 
+          proc'       = dynApp proc (toDyn env')
+          Just enc    = rtable ^. remoteTableSender (dynTypeRep proc')
+          enc'        = dynApp enc (toDyn pid)
+          Just bound  = dynBind tyConProcess bindProcess proc' enc' 
+          Just proc'' = fromDynamic bound
+      proc''
+
+resolveClosure rtable label = rtable ^. remoteTableLabel label 
+
+tyConProcess :: TyCon
+tyConProcess = typeRepTyCon (typeOf (undefined :: Process ()))
+
+bindProcess :: Process a -> (a -> Process b) -> Process b
+bindProcess = (>>=)
 
 --------------------------------------------------------------------------------
 -- Messages                                                                   --
@@ -448,6 +491,18 @@ typedChannels = accessor _typedChannels (\cs st -> st { _typedChannels = cs })
 
 typedChannelWithId :: LocalChannelId -> Accessor LocalProcessState (Maybe TypedChannel)
 typedChannelWithId cid = typedChannels >>> DAC.mapMaybe cid
+
+remoteTableLabels :: Accessor RemoteTable (Map String Dynamic)
+remoteTableLabels = accessor _remoteTableLabels (\ls tbl -> tbl { _remoteTableLabels = ls })
+
+remoteTableSenders :: Accessor RemoteTable (Map TypeRep Dynamic)
+remoteTableSenders = accessor _remoteTableSenders (\es tbl -> tbl { _remoteTableSenders = es })
+
+remoteTableLabel :: String -> Accessor RemoteTable (Maybe Dynamic)
+remoteTableLabel label = remoteTableLabels >>> DAC.mapMaybe label
+
+remoteTableSender :: TypeRep -> Accessor RemoteTable (Maybe Dynamic)
+remoteTableSender typ = remoteTableSenders >>> DAC.mapMaybe typ
 
 --------------------------------------------------------------------------------
 -- MessageT monad                                                             --
