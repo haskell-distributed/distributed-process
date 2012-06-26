@@ -63,7 +63,6 @@ module Control.Distributed.Process
 import Prelude hiding (catch)
 import Data.Binary (decode, encode)
 import Data.Typeable (Typeable)
-import Data.Dynamic (fromDyn)
 import qualified Data.Map as Map ((!))
 import Control.Monad.Reader (ask)
 import Control.Monad.IO.Class (MonadIO, liftIO)
@@ -125,6 +124,7 @@ import Control.Distributed.Process.Internal.MessageT
   , sendBinary
   , getLocalNode
   )  
+import Control.Distributed.Process.Internal.Dynamic (fromDyn)
 
 -- INTERNAL NOTES
 -- 

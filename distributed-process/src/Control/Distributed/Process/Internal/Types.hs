@@ -64,7 +64,6 @@ import Data.Map (Map)
 import qualified Data.Map as Map (empty)
 import Data.Int (Int32)
 import Data.Typeable (Typeable)
-import Data.Dynamic (Dynamic) 
 import Data.Binary (Binary, encode, put, get, putWord8, getWord8)
 import Data.ByteString.Lazy (ByteString)
 import Data.Accessor (Accessor, accessor)
@@ -90,6 +89,7 @@ import Control.Distributed.Process.Serializable ( Fingerprint
                                                 , sizeOfFingerprint
                                                 )
 import Control.Distributed.Process.Internal.CQueue (CQueue)
+import Control.Distributed.Process.Internal.Dynamic (Dynamic) 
 
 --------------------------------------------------------------------------------
 -- Global state                                                               --

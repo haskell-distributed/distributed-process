@@ -45,7 +45,6 @@ import Prelude hiding (lookup)
 import Data.ByteString.Lazy (ByteString)
 import Data.Binary (encode, decode)
 import qualified Data.Map as Map (insert)
-import Data.Dynamic (toDyn)
 import Control.Applicative ((<$>))
 import Control.Monad (join)
 import Language.Haskell.TH 
@@ -83,6 +82,7 @@ import Control.Distributed.Process.Internal.Types
   , CallReply(..)
   )
 import Control.Distributed.Process (send, unClosure)
+import Control.Distributed.Process.Internal.Dynamic (toDyn)
 
 --------------------------------------------------------------------------------
 -- Top-level API                                                              --

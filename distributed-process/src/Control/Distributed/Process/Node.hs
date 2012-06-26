@@ -20,7 +20,6 @@ import qualified Data.Set as Set (empty, insert, delete, member)
 import Data.Foldable (forM_)
 import Data.Maybe (isJust)
 import Data.Typeable (Typeable)
-import Data.Dynamic (fromDynamic)
 import Control.Category ((>>>))
 import Control.Applicative ((<$>))
 import Control.Monad (void, when, forever)
@@ -99,6 +98,7 @@ import Control.Distributed.Process.Internal.MessageT
   , sendMessage
   , getLocalNode
   )
+import Control.Distributed.Process.Internal.Dynamic (fromDynamic)
 
 --------------------------------------------------------------------------------
 -- Initialization                                                             --
