@@ -30,7 +30,13 @@ factorial :: Int -> Process Int
 factorial 0 = return 1
 factorial n = (n *) <$> factorial (n - 1) 
 
-$(remotable ['addInt, 'putInt, 'sendInt, 'sendPid, 'factorial])
+factorialOf :: () -> Int -> Process Int
+factorialOf () = factorial
+
+returnInt :: Int -> Process Int
+returnInt = return 
+
+$(remotable ['addInt, 'putInt, 'sendInt, 'sendPid, 'factorial, 'factorialOf, 'returnInt])
 
 testSendPureClosure :: Transport -> RemoteTable -> IO ()
 testSendPureClosure transport rtable = do
@@ -140,18 +146,38 @@ testCall transport rtable = do
 
   takeMVar clientDone
 
+sendFac :: Int -> ProcessId -> Closure (Process ())
+sendFac n pid = $(mkClosure 'factorial) n `bindCP` $(mkClosure 'sendInt) pid
+
+factorial' :: Int -> Closure (Process Int)
+factorial' n = $(mkClosure 'returnInt) n `bindCP` $(mkClosure 'factorialOf) ()
+
 testBind :: Transport -> RemoteTable -> IO ()
 testBind transport rtable = do
   node <- newLocalNode transport rtable
   runProcess node $ do
     us <- getSelfPid
-    let fac5 :: Closure (Process Int)
-        fac5 = $(mkClosure 'factorial) 5
-        sendVal :: Closure (Int -> Process ())
-        sendVal = $(mkClosure 'sendInt) us
-        go :: Closure (Process ())
-        go = fac5 `bindCP` sendVal 
-    join (unClosure go) 
+    join . unClosure $ sendFac 6 us 
+    (720 :: Int) <- expect 
+    return ()
+
+testCallBind :: Transport -> RemoteTable -> IO ()
+testCallBind transport rtable = do
+  serverNodeAddr <- newEmptyMVar
+  clientDone <- newEmptyMVar
+
+  forkIO $ do
+    node <- newLocalNode transport rtable
+    putMVar serverNodeAddr (localNodeId node)
+
+  forkIO $ do
+    node <- newLocalNode transport rtable
+    nid <- readMVar serverNodeAddr
+    runProcess node $ do
+      (120 :: Int) <- call nid (factorial' 5)
+      liftIO $ putMVar clientDone ()
+
+  takeMVar clientDone
 
 main :: IO ()
 main = do
@@ -164,4 +190,5 @@ main = do
     , ("Spawn",           testSpawn           transport rtable)
     , ("Call",            testCall            transport rtable)
     , ("Bind",            testBind            transport rtable)
+    , ("CallBind",        testCallBind        transport rtable)
     ]

@@ -86,7 +86,7 @@ import Control.Concurrent.STM (TChan, TVar)
 import qualified Network.Transport as NT (EndPoint, EndPointAddress, Connection)
 import Control.Applicative (Applicative, (<$>), (<*>))
 import Control.Monad.Reader (MonadReader(..), ReaderT, runReaderT)
-import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.State (MonadState, StateT, evalStateT)
 import Control.Distributed.Process.Serializable 
   ( Fingerprint
@@ -255,12 +255,17 @@ resolveClosure :: RemoteTable -> String -> ByteString -> Maybe Dynamic
 resolveClosure rtable "$call" env = do 
     proc   <- resolveClosure rtable label env' 
     sender <- rtable ^. remoteTableSender (dynTypeRep proc)
-    proc `bind` (sender `dynApp` toDyn pid)
+    proc `bind` (sender `dynApp` toDyn (pid :: ProcessId))
   where
-    (label, env', pid) = decode env :: (String, ByteString, ProcessId) 
+    (label, env', pid) = decode env
     bind = dynBind tyConProcess bindProcess
-resolveClosure rtable "$bind" env = 
-  return $ toDyn ((liftIO $ putStrLn "bind not yet supported") :: Process ())
+resolveClosure rtable "$bind" env = do
+    x <- resolveClosure rtable xlabel envx
+    f <- resolveClosure rtable flabel envf
+    x `bind` f
+  where
+    ((xlabel, envx), (flabel, envf)) = decode env
+    bind = dynBind tyConProcess bindProcess
 resolveClosure rtable label env = do
   val <- rtable ^. remoteTableLabel label 
   dynApply val (toDyn env)
