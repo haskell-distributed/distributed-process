@@ -311,37 +311,49 @@ resolveClosure _rtable CpFirst env =
     return $ Dynamic (decode env) (unsafeCoerce# cpFirst)
   where
     cpFirst :: forall a b c. (a -> Process b) -> (a, c) -> Process (b, c)
-    cpFirst = undefined
+    cpFirst p (a, c) = do b <- p a ; return (b, c) 
 resolveClosure _rtable CpSwap env =
     return $ Dynamic (decode env) (unsafeCoerce# cpSwap) 
   where
     cpSwap :: forall a b. (a, b) -> Process (b, a)
-    cpSwap = undefined
+    cpSwap (a, b) = return (b, a) 
 resolveClosure _rtable CpCopy env =
     return $ Dynamic (decode env) (unsafeCoerce# cpCopy)
   where
     cpCopy :: forall a. a -> Process (a, a)
-    cpCopy = undefined
+    cpCopy a = return (a, a) 
 resolveClosure _rtable CpLeft env =
     return $ Dynamic (decode env) (unsafeCoerce# cpLeft)
   where
     cpLeft :: forall a b c. (a -> Process b) -> Either a c -> Process (Either b c)
-    cpLeft = undefined
+    cpLeft p (Left a)  = do b <- p a ; return (Left b) 
+    cpLeft _ (Right c) = return (Right c) 
 resolveClosure _rtable CpMirror env =
     return $ Dynamic (decode env) (unsafeCoerce# cpMirror)
   where
     cpMirror :: forall a b. Either a b -> Process (Either b a)
-    cpMirror = undefined
+    cpMirror (Left a)  = return (Right a) 
+    cpMirror (Right b) = return (Left b)
 resolveClosure _rtable CpUntag env =
     return $ Dynamic (decode env) (unsafeCoerce# cpUntag)
   where
     cpUntag :: forall a. Either a a -> Process a
-    cpUntag = undefined
-resolveClosure _rtable CpApply env =
-    return $ Dynamic (decode env) (unsafeCoerce# cpApply)
+    cpUntag (Left a)  = return a
+    cpUntag (Right a) = return a
+resolveClosure rtable CpApply env =
+    return $ Dynamic typApply (unsafeCoerce# cpApply)
   where
-    cpApply :: forall a b. Closure (Process (a -> Process b), a) -> Process b
-    cpApply = undefined
+    cpApply :: forall a b. (Closure (a -> Process b), a) -> Process b 
+    cpApply (Closure (Static flabel) fenv, x) = do
+      let Just f = resolveClosure rtable flabel fenv
+          Dynamic typResult val = f `dynApp` Dynamic typA (unsafeCoerce# x) 
+      if typResult == typProcB 
+        then unsafeCoerce# val
+        else error $ "Type error in cpApply: "
+                  ++ "mismatch between " ++ show typResult 
+                  ++ " and " ++ show typProcB
+
+    (typApply, typA, typProcB) = decode env
 
 -- User defined closures
 resolveClosure rtable (UserStatic label) env = do

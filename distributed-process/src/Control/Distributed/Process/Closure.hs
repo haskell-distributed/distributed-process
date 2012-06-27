@@ -255,7 +255,10 @@ cpFanIn f g = (f `cpEither` g) `cpComp` cpUntag
 
 cpApply :: forall a b. (Typeable a, Typeable b)
         => CP (CP a b, a) b
-cpApply = Closure (Static CpApply) (encode $ typeOf aux)
+cpApply = Closure (Static CpApply) $ encode ( typeOf aux
+                                            , typeOf (undefined :: a) 
+                                            , typeOf (undefined :: Process b)
+                                            )
   where
     aux :: (Closure (a -> Process b), a) -> Process b
     aux = undefined

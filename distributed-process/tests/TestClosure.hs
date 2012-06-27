@@ -36,7 +36,10 @@ factorialOf () = factorial
 returnInt :: Int -> Process Int
 returnInt = return 
 
-$(remotable ['addInt, 'putInt, 'sendInt, 'sendPid, 'factorial, 'factorialOf, 'returnInt])
+returnForTestApply :: (Closure (Int -> Process Int), Int) -> (Closure (Int -> Process Int), Int)
+returnForTestApply = id 
+
+$(remotable ['addInt, 'putInt, 'sendInt, 'sendPid, 'factorial, 'factorialOf, 'returnInt, 'returnForTestApply])
 
 testSendPureClosure :: Transport -> RemoteTable -> IO ()
 testSendPureClosure transport rtable = do
@@ -189,6 +192,19 @@ testSeq transport rtable = do
     720 :: Int <- expect
     return ()
 
+testApply :: Transport -> RemoteTable -> IO ()
+testApply transport rtable = do
+    node <- newLocalNode transport rtable
+    runProcess node $ do
+      (120 :: Int) <- join (unClosure bar)
+      return ()
+  where
+    bar :: Closure (Process Int)
+    bar = closureApply cpApply foo
+
+    foo :: Closure (Closure (Int -> Process Int), Int)
+    foo = $(mkClosure 'returnForTestApply) ($(mkClosure 'factorialOf) (), 5) 
+
 main :: IO ()
 main = do
   Right transport <- createTransport "127.0.0.1" "8080" defaultTCPParameters
@@ -202,4 +218,5 @@ main = do
     , ("Bind",            testBind            transport rtable)
     , ("CallBind",        testCallBind        transport rtable)
     , ("Seq",             testSeq             transport rtable)
+    , ("Apply",           testApply           transport rtable)
     ]
