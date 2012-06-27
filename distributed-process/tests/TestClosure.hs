@@ -147,10 +147,10 @@ testCall transport rtable = do
   takeMVar clientDone
 
 sendFac :: Int -> ProcessId -> Closure (Process ())
-sendFac n pid = $(mkClosure 'factorial) n `bindCP` $(mkClosure 'sendInt) pid
+sendFac n pid = $(mkClosure 'factorial) n `cpBind` $(mkClosure 'sendInt) pid
 
 factorial' :: Int -> Closure (Process Int)
-factorial' n = $(mkClosure 'returnInt) n `bindCP` $(mkClosure 'factorialOf) ()
+factorial' n = $(mkClosure 'returnInt) n `cpBind` $(mkClosure 'factorialOf) ()
 
 testBind :: Transport -> RemoteTable -> IO ()
 testBind transport rtable = do
@@ -184,7 +184,7 @@ testSeq transport rtable = do
   node <- newLocalNode transport rtable
   runProcess node $ do
     us <- getSelfPid
-    join . unClosure $ sendFac 5 us `seqCP` sendFac 6 us
+    join . unClosure $ sendFac 5 us `cpSeq` sendFac 6 us
     120 :: Int <- expect
     720 :: Int <- expect
     return ()

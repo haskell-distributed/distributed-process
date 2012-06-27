@@ -93,6 +93,7 @@ import Control.Distributed.Process.Internal.Types
   , Process(..)
   , runLocalProcess
   , Closure(..)
+  , StaticLabel(Call)
   , Static(..)
   , Message(..)
   , MonitorRef(..)
@@ -316,7 +317,7 @@ spawn nid proc = do
 call :: Serializable a => NodeId -> Closure (Process a) -> Process a
 call nid (Closure (Static label) env) = do
   us <- getSelfPid
-  spawn nid (Closure (Static "$call") (encode (label, env, us)))
+  spawn nid (Closure (Static Call) (encode (label, env, us)))
   CallReply a <- expect
   return a
 

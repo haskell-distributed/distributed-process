@@ -21,6 +21,7 @@ module Control.Distributed.Process.Internal.Types
   , SendPort(..)
   , ReceivePort(..)
     -- * Closures
+  , StaticLabel(..)
   , Static(..) 
   , Closure(..)
   , CallReply(..)
@@ -225,9 +226,28 @@ data ReceivePort a =
 -- Closures                                                                   --
 --------------------------------------------------------------------------------
 
+data StaticLabel = 
+    UserStatic String
+  -- Special support for 'call'
+  | Call
+  -- Generic closure combinators
+  | ClosureApply
+  | ClosureConst
+  | ClosureUnit
+  -- Arrow combinators for processes
+  | CpId
+  | CpComp 
+  | CpFirst
+  | CpSwap
+  | CpCopy
+  | CpLeft
+  | CpMirror
+  | CpUntag
+  | CpApply
+  deriving (Typeable, Show)
+
 -- | A static value is one that is bound at top-level.
--- We represent it simply by a string
-newtype Static a = Static String
+newtype Static a = Static StaticLabel 
   deriving (Typeable, Show)
 
 -- | A closure is a static value and an encoded environment
@@ -254,33 +274,82 @@ registerLabel label dyn = remoteTableLabel label ^= Just dyn
 registerSender :: TypeRep -> Dynamic -> RemoteTable -> RemoteTable
 registerSender typ dyn = remoteTableSender typ ^= Just dyn
 
-resolveClosure :: RemoteTable -> String -> ByteString -> Maybe Dynamic
-resolveClosure rtable "$call" env = do 
+resolveClosure :: RemoteTable -> StaticLabel -> ByteString -> Maybe Dynamic
+-- Special support for call
+resolveClosure rtable Call env = do 
     proc   <- resolveClosure rtable label env' 
     sender <- rtable ^. remoteTableSender (dynTypeRep proc)
     proc `bind` (sender `dynApp` toDyn (pid :: ProcessId))
   where
     (label, env', pid) = decode env
-    bind = dynBind tyConProcess bindProcess
-resolveClosure rtable "$applyClosure" env = do
+    bind = dynBind tyConProcess bindProcess 
+    bindProcess :: Process a -> (a -> Process b) -> Process b
+    bindProcess = (>>=)
+-- Generic closure combinators
+resolveClosure rtable ClosureApply env = do 
     f <- resolveClosure rtable labelf envf
     x <- resolveClosure rtable labelx envx
     f `dynApply` x
   where
     (labelf, envf, labelx, envx) = decode env 
-resolveClosure _rtable "$liftedBind" env = 
-  return $ Dynamic (decode env) (unsafeCoerce# bindProcess)
-resolveClosure _rtable "$liftedConst" env = 
+resolveClosure _rtable ClosureConst env = 
   return $ Dynamic (decode env) (unsafeCoerce# const)
-resolveClosure rtable label env = do
+resolveClosure _rtable ClosureUnit _env =
+  return $ toDyn ()
+-- Arrow combinators
+resolveClosure _rtable CpId env =
+    return $ Dynamic (decode env) (unsafeCoerce# cpId)
+  where
+    cpId :: forall a. a -> Process a
+    cpId = return
+resolveClosure _rtable CpComp  env =
+    return $ Dynamic (decode env) (unsafeCoerce# cpComp)
+  where
+    cpComp :: forall a b c. (a -> Process b) -> (b -> Process c) -> a -> Process c
+    cpComp p q a = p a >>= q 
+resolveClosure _rtable CpFirst env =
+    return $ Dynamic (decode env) (unsafeCoerce# cpFirst)
+  where
+    cpFirst :: forall a b c. (a -> Process b) -> (a, c) -> Process (b, c)
+    cpFirst = undefined
+resolveClosure _rtable CpSwap env =
+    return $ Dynamic (decode env) (unsafeCoerce# cpSwap) 
+  where
+    cpSwap :: forall a b. (a, b) -> Process (b, a)
+    cpSwap = undefined
+resolveClosure _rtable CpCopy env =
+    return $ Dynamic (decode env) (unsafeCoerce# cpCopy)
+  where
+    cpCopy :: forall a. a -> Process (a, a)
+    cpCopy = undefined
+resolveClosure _rtable CpLeft env =
+    return $ Dynamic (decode env) (unsafeCoerce# cpLeft)
+  where
+    cpLeft :: forall a b c. (a -> Process b) -> Either a c -> Process (Either b c)
+    cpLeft = undefined
+resolveClosure _rtable CpMirror env =
+    return $ Dynamic (decode env) (unsafeCoerce# cpMirror)
+  where
+    cpMirror :: forall a b. Either a b -> Process (Either b a)
+    cpMirror = undefined
+resolveClosure _rtable CpUntag env =
+    return $ Dynamic (decode env) (unsafeCoerce# cpUntag)
+  where
+    cpUntag :: forall a. Either a a -> Process a
+    cpUntag = undefined
+resolveClosure _rtable CpApply env =
+    return $ Dynamic (decode env) (unsafeCoerce# cpApply)
+  where
+    cpApply :: forall a b. Closure (Process (a -> Process b), a) -> Process b
+    cpApply = undefined
+
+-- User defined closures
+resolveClosure rtable (UserStatic label) env = do
   val <- rtable ^. remoteTableLabel label 
   dynApply val (toDyn env)
 
 tyConProcess :: TyCon
 tyConProcess = typeRepTyCon (typeOf (undefined :: Process ()))
-
-bindProcess :: Process a -> (a -> Process b) -> Process b
-bindProcess = (>>=)
 
 --------------------------------------------------------------------------------
 -- Messages                                                                   --
@@ -468,6 +537,42 @@ instance Binary Identifier where
       1 -> NodeIdentifier <$> get
       2 -> ChannelIdentifier <$> get
       _ -> fail "Identifier.get: invalid"
+
+instance Binary StaticLabel where
+  put (UserStatic string) = putWord8 0 >> put string
+  put Call         = putWord8 1
+  put ClosureApply = putWord8 2
+  put ClosureConst = putWord8 3
+  put ClosureUnit  = putWord8 4
+  put CpId         = putWord8 5
+  put CpComp       = putWord8 6
+  put CpFirst      = putWord8 7
+  put CpSwap       = putWord8 8
+  put CpCopy       = putWord8 9
+  put CpLeft       = putWord8 10
+  put CpMirror     = putWord8 11
+  put CpUntag      = putWord8 12
+  put CpApply      = putWord8 13
+  get = do
+    header <- getWord8
+    case header of
+      0  -> UserStatic <$> get
+      1  -> return Call
+      2  -> return ClosureApply
+      3  -> return ClosureConst
+      4  -> return ClosureUnit
+      5  -> return CpId
+      6  -> return CpComp 
+      7  -> return CpFirst
+      8  -> return CpSwap
+      9  -> return CpCopy
+      10 -> return CpLeft
+      11 -> return CpMirror
+      12 -> return CpUntag
+      13 -> return CpApply
+      _  -> fail "StaticLabel.get: invalid"
+
+  
 
 --------------------------------------------------------------------------------
 -- Accessors                                                                  --
