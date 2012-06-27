@@ -38,7 +38,6 @@
 -- >            $ initRemoteTable 
 --
 -- See Section 6, /Faking It/, of /Towards Haskell in the Cloud/ for more info. 
-{-# LANGUAGE TemplateHaskell #-}
 module Control.Distributed.Process.Closure 
   ( -- * Primitive closures
     remotable
@@ -72,65 +71,16 @@ module Control.Distributed.Process.Closure
   ) where 
 
 import Prelude hiding (lookup)
-import Data.ByteString.Lazy (ByteString, empty)
-import Data.Binary (encode, decode)
+import qualified Data.ByteString.Lazy as BS (empty)
+import Data.Binary (encode)
 import Data.Typeable (typeOf, Typeable)
-import Control.Applicative ((<$>))
-import Language.Haskell.TH 
-  ( -- Q monad and operations
-    Q
-  , reify
-    -- Names
-  , Name
-  , mkName
-  , nameBase
-    -- Algebraic data types
-  , Dec
-  , Exp
-  , Type(AppT, ArrowT)
-  , Info(VarI)
-    -- Lifted constructors
-    -- .. Literals
-  , stringL
-    -- .. Patterns
-  , normalB
-  , clause
-    -- .. Expressions
-  , varE
-  , litE
-   -- .. Top-level declarations
-  , funD
-  , sigD
-  )
 import Control.Distributed.Process.Internal.Types
-  ( RemoteTable
-  , Closure(..)
+  ( Closure(..)
   , Static(..)
   , StaticLabel(..)
   , Process
-  , ProcessId
-  , CallReply(..)
-  , registerLabel
-  , registerSender
   )
-import Control.Distributed.Process (send)
-import Control.Distributed.Process.Internal.Dynamic (toDyn)
-
---------------------------------------------------------------------------------
--- Top-level API                                                              --
---------------------------------------------------------------------------------
-
--- | Create the closure, decoder, and metadata definitions for the given list
--- of functions
-remotable :: [Name] -> Q [Dec] 
-remotable ns = do
-  (closures, inserts) <- unzip <$> mapM generateDefs ns
-  rtable <- createMetaData (concat inserts)
-  return $ concat closures ++ rtable 
-
--- | Create a closure
-mkClosure :: Name -> Q Exp
-mkClosure = varE . closureName 
+import Control.Distributed.Process.Internal.Closure.TH (remotable, mkClosure)
 
 --------------------------------------------------------------------------------
 -- Generic closure combinators                                                -- 
@@ -148,7 +98,7 @@ closureConst = Closure (Static ClosureConst) (encode $ typeOf aux)
     aux = undefined
 
 closureUnit :: Closure ()
-closureUnit = Closure (Static ClosureUnit) empty
+closureUnit = Closure (Static ClosureUnit) BS.empty
 
 --------------------------------------------------------------------------------
 -- Arrow combinators for processes                                            -- 
@@ -175,10 +125,10 @@ cpComp :: forall a b c. (Typeable a, Typeable b, Typeable c)
        => CP a b -> CP b c -> CP a c
 cpComp f g = comp `closureApply` f `closureApply` g 
   where
-    comp :: Closure ((a -> Process b) -> (b -> Process c) -> (a -> Process c))
+    comp :: Closure ((a -> Process b) -> (b -> Process c) -> a -> Process c)
     comp = Closure (Static CpComp) (encode $ typeOf aux)
     
-    aux :: (a -> Process b) -> (b -> Process c) -> (a -> Process c)
+    aux :: (a -> Process b) -> (b -> Process c) -> a -> Process c
     aux = undefined
 
 cpFirst :: forall a b c. (Typeable a, Typeable b, Typeable c)
@@ -273,107 +223,3 @@ cpBind x f = cpElim $ cpIntro x `cpComp` f
 
 cpSeq :: Closure (Process ()) -> Closure (Process ()) -> Closure (Process ())
 cpSeq p q = p `cpBind` cpIntro q
-
---------------------------------------------------------------------------------
--- Internal (Template Haskell)                                                --
---------------------------------------------------------------------------------
-
--- | Generate the code to add the metadata to the CH runtime
-createMetaData :: [Q Exp] -> Q [Dec]
-createMetaData is = 
-  [d| __remoteTable :: RemoteTable -> RemoteTable ;
-      __remoteTable = $(compose is)
-    |]
-
--- | Generate the necessary definitions for one function 
---
--- Given an (f :: a -> b) in module M, create: 
---  1. f__closure :: a -> Closure b,
---  2. registerLabel "M.f" (toDyn ((f . enc) :: ByteString -> b))
--- 
--- Moreover, if b is of the form Process c, then additionally create
---  3. registerSender (Process c) (send :: ProcessId -> c -> Process ())
-generateDefs :: Name -> Q ([Dec], [Q Exp])
-generateDefs n = do
-  mType <- getType n
-  case mType of
-    Just (origName, ArrowT `AppT` arg `AppT` res) -> do
-      (closure, label) <- generateClosure origName (return arg) (return res)
-      let decoder = generateDecoder origName (return res)
-          insert  = [| registerLabel $(stringE label) (toDyn $decoder) |]
-
-      -- Generate special closure to support 'call'
-      mResult <- processResult res
-      insert' <- case mResult of
-        Nothing -> 
-          return [] 
-        Just result -> do 
-          let sender = generateSender result 
-          return . return $ 
-            [| registerSender $(typeToTypeRep res) (toDyn $sender) |]
-
-      return (closure, insert : insert')
-    _ -> 
-      fail $ "remotable: " ++ show n ++ " is not a function"
-   
--- | Generate the closure creator (see 'generateDefs')
-generateClosure :: Name -> Q Type -> Q Type -> Q ([Dec], String)
-generateClosure n arg res = do
-    closure <- sequence 
-      [ sigD (closureName n) [t| $arg -> Closure $res |]
-      , sfnD (closureName n) [| Closure (Static (UserStatic ($(stringE label)))) . encode |]  
-      ]
-    return (closure, label)
-  where
-    label :: String 
-    label = show $ n
-
--- | If 't' is of the form 'Process b', return 'Just b'
-processResult :: Type -> Q (Maybe (Q Type))
-processResult t = do
-  process <- [t| Process |]
-  case t of
-    p `AppT` a | p == process -> return . Just . return $ a
-    _                         -> return Nothing
-
--- | Generate the decoder (see 'generateDefs')
-generateDecoder :: Name -> Q Type -> Q Exp 
-generateDecoder n res = [| $(varE n) . decode :: ByteString -> $res |]
-
--- | Generate the sender. This is necessary to support 'call'
-generateSender :: Q Type -> Q Exp
-generateSender tp = 
-  [| (\pid -> send pid . CallReply) :: ProcessId -> $tp -> Process () |]
-
--- | The name for the function that generates the closure
-closureName :: Name -> Name
-closureName n = mkName $ nameBase n ++ "__closure"
-
---------------------------------------------------------------------------------
--- Generic Template Haskell auxiliary functions                               --
---------------------------------------------------------------------------------
-
-typeToTypeRep :: Type -> Q Exp
-typeToTypeRep tp = [| typeOf (undefined :: $(return tp)) |]
-
--- | Compose a set of expressions
-compose :: [Q Exp] -> Q Exp
-compose []     = [| id |]
-compose [e]    = e 
-compose (e:es) = [| $e . $(compose es) |]
-
--- | Literal string as an expression
-stringE :: String -> Q Exp
-stringE = litE . stringL
-
--- | Look up the "original name" (module:name) and type of a top-level function
-getType :: Name -> Q (Maybe (Name, Type))
-getType name = do 
-  info <- reify name
-  case info of 
-    VarI origName typ _ _ -> return $ Just (origName, typ)
-    _                     -> return Nothing
-
--- | Variation on 'funD' which takes a single expression to define the function
-sfnD :: Name -> Q Exp -> Q Dec
-sfnD n e = funD n [clause [] (normalB e) []] 

@@ -91,7 +91,6 @@ import Control.Distributed.Process.Internal.Types
   , LocalNode(..)
   , LocalProcess(..)
   , Process(..)
-  , runLocalProcess
   , Closure(..)
   , StaticLabel(Call)
   , Static(..)
@@ -118,7 +117,6 @@ import Control.Distributed.Process.Internal.Types
   , TypedChannel(..)
   , ChannelId(..)
   , Identifier(..)
-  , resolveClosure
   )
 import Control.Distributed.Process.Internal.MessageT 
   ( sendMessage
@@ -126,6 +124,8 @@ import Control.Distributed.Process.Internal.MessageT
   , getLocalNode
   )  
 import Control.Distributed.Process.Internal.Dynamic (fromDyn, dynTypeRep)
+import Control.Distributed.Process.Internal.Closure (resolveClosure)
+import Control.Distributed.Process.Internal.Node (runLocalProcess)
 
 -- INTERNAL NOTES
 -- 

@@ -66,15 +66,12 @@ import Control.Distributed.Process.Internal.Types
   , LocalProcess(..)
   , LocalProcessState(..)
   , Process(..)
-  , runLocalProcess
   , DiedReason(..)
   , NCMsg(..)
   , ProcessSignal(..)
-  , payloadToMessage
   , localPidCounter
   , localPidUnique
   , localProcessWithId
-  , initRemoteTable
   , MonitorRef(..)
   , MonitorNotification(..)
   , LinkException(..)
@@ -84,22 +81,27 @@ import Control.Distributed.Process.Internal.Types
   , DidSpawn(..)
   , Closure(..)
   , Static(..)
-  , createMessage
   , MessageT
-  , runMessageT
   , TypedChannel(..)
   , Identifier(..)
   , ChannelId(..)
   , typedChannelWithId
-  , resolveClosure
   )
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Internal.MessageT 
   ( sendBinary
   , sendMessage
   , getLocalNode
+  , runMessageT
+  , payloadToMessage
+  , createMessage
   )
 import Control.Distributed.Process.Internal.Dynamic (fromDynamic)
+import Control.Distributed.Process.Internal.Closure 
+  ( initRemoteTable
+  , resolveClosure
+  )
+import Control.Distributed.Process.Internal.Node (runLocalProcess)
 
 --------------------------------------------------------------------------------
 -- Initialization                                                             --
