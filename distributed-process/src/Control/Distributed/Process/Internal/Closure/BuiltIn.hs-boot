@@ -5,8 +5,11 @@ import Control.Distributed.Process.Internal.Types
   , Closure
   , Process
   , RemoteTable
+  , SerializableDict
   )
 
 remoteTable :: RemoteTable -> RemoteTable
 
-linkClosure :: ProcessId -> Closure (Process ())
+linkClosure   :: ProcessId -> Closure (Process ())
+sendClosure   :: SerializableDict a -> ProcessId -> Closure (a -> Process ())
+returnClosure :: SerializableDict a -> a -> Closure (Process a)

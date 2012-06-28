@@ -7,25 +7,23 @@ module Control.Distributed.Process.Internal.Closure
 
 import qualified Data.Map as Map (empty)
 import Data.Accessor ((^.))
-import Data.Typeable (TyCon, typeRepTyCon, typeOf)
 import Data.ByteString.Lazy (ByteString)
 import Data.Binary (decode)
 import Control.Distributed.Process.Internal.Types
   ( RemoteTable(RemoteTable)
   , remoteTableLabel
-  , remoteTableSender
+  , remoteTableDict
   , StaticLabel(..)
   , ProcessId
   , Process
   , Closure(Closure)
   , Static(Static)
+  , RuntimeSerializableSupport(..)
   )
 import Control.Distributed.Process.Internal.Dynamic
   ( Dynamic(Dynamic)
-  , dynTypeRep
   , toDyn
   , dynApp
-  , dynBind
   , dynApply
   , unsafeCoerce#
   )
@@ -42,16 +40,17 @@ initRemoteTable :: RemoteTable
 initRemoteTable = BuiltIn.remoteTable (RemoteTable Map.empty Map.empty)
 
 resolveClosure :: RemoteTable -> StaticLabel -> ByteString -> Maybe Dynamic
--- Special support for call
-resolveClosure rtable Call env = do 
-    proc   <- resolveClosure rtable label env' 
-    sender <- rtable ^. remoteTableSender (dynTypeRep proc)
-    proc `bind` (sender `dynApp` toDyn (pid :: ProcessId))
+-- Built-in closures
+resolveClosure rtable ClosureSend env = do
+    rss <- rtable ^. remoteTableDict label
+    rssSend rss `dynApply` toDyn pid 
   where
-    (label, env', pid) = decode env
-    bind = dynBind tyConProcess bindProcess 
-    bindProcess :: Process a -> (a -> Process b) -> Process b
-    bindProcess = (>>=)
+    (label, pid) = decode env :: (String, ProcessId)
+resolveClosure rtable ClosureReturn env = do
+    rss <- rtable ^. remoteTableDict label
+    rssReturn rss `dynApply` toDyn arg 
+  where
+    (label, arg) = decode env :: (String, ByteString)
 -- Generic closure combinators
 resolveClosure rtable ClosureApply env = do 
     f <- resolveClosure rtable labelf envf
@@ -126,7 +125,3 @@ resolveClosure rtable CpApply env =
 resolveClosure rtable (UserStatic label) env = do
   val <- rtable ^. remoteTableLabel label 
   dynApply val (toDyn env)
-
-tyConProcess :: TyCon
-tyConProcess = typeRepTyCon (typeOf (undefined :: Process ()))
-

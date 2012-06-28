@@ -13,6 +13,9 @@ import Control.Distributed.Process.Closure
 import Control.Distributed.Process.Node
 import TestAuxiliary
 
+serializableDictInt :: SerializableDict Int
+serializableDictInt = SerializableDict "serializableDictInt"
+
 addInt :: Int -> Int -> Int
 addInt x y = x + y
 
@@ -34,16 +37,13 @@ factorial n = (n *) <$> factorial (n - 1)
 factorialOf :: () -> Int -> Process Int
 factorialOf () = factorial
 
-returnInt :: Int -> Process Int
-returnInt = return 
-
 returnForTestApply :: (Closure (Int -> Process Int), Int) -> (Closure (Int -> Process Int), Int)
 returnForTestApply = id 
 
 wait :: Int -> Process ()
 wait = liftIO . threadDelay
 
-$(remotable ['addInt, 'putInt, 'sendInt, 'sendPid, 'factorial, 'factorialOf, 'returnInt, 'returnForTestApply, 'wait])
+$(remotable ['addInt, 'putInt, 'sendInt, 'sendPid, 'factorial, 'factorialOf, 'returnForTestApply, 'wait, 'serializableDictInt])
 
 testSendPureClosure :: Transport -> RemoteTable -> IO ()
 testSendPureClosure transport rtable = do
@@ -148,7 +148,7 @@ testCall transport rtable = do
     node <- newLocalNode transport rtable
     nid <- readMVar serverNodeAddr
     runProcess node $ do
-      (120 :: Int) <- call nid ($(mkClosure 'factorial) 5)
+      (120 :: Int) <- call serializableDictInt nid ($(mkClosure 'factorial) 5)
       liftIO $ putMVar clientDone ()
 
   takeMVar clientDone
@@ -157,7 +157,7 @@ sendFac :: Int -> ProcessId -> Closure (Process ())
 sendFac n pid = $(mkClosure 'factorial) n `cpBind` $(mkClosure 'sendInt) pid
 
 factorial' :: Int -> Closure (Process Int)
-factorial' n = $(mkClosure 'returnInt) n `cpBind` $(mkClosure 'factorialOf) ()
+factorial' n = returnClosure serializableDictInt n `cpBind` $(mkClosure 'factorialOf) ()
 
 testBind :: Transport -> RemoteTable -> IO ()
 testBind transport rtable = do
@@ -181,7 +181,7 @@ testCallBind transport rtable = do
     node <- newLocalNode transport rtable
     nid <- readMVar serverNodeAddr
     runProcess node $ do
-      (120 :: Int) <- call nid (factorial' 5)
+      (120 :: Int) <- call serializableDictInt nid (factorial' 5)
       liftIO $ putMVar clientDone ()
 
   takeMVar clientDone

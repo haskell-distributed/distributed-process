@@ -10,7 +10,6 @@ module Control.Distributed.Process.Internal.Closure.TH
 import Prelude hiding (lookup)
 import Data.ByteString.Lazy (ByteString)
 import Data.Binary (encode, decode)
-import Data.Typeable (typeOf, Typeable, TypeRep)
 import Data.Accessor ((^=))
 import Control.Applicative ((<$>))
 import Language.Haskell.TH 
@@ -46,11 +45,12 @@ import Control.Distributed.Process.Internal.Types
   , StaticLabel(..)
   , Process
   , ProcessId
-  , CallReply(..)
   , procMsg
   , Identifier(ProcessIdentifier)
   , remoteTableLabel
-  , remoteTableSender
+  , remoteTableDict
+  , SerializableDict(..)
+  , RuntimeSerializableSupport(..)
   )
 import Control.Distributed.Process.Internal.Dynamic (Dynamic, toDyn)
 import Control.Distributed.Process.Internal.MessageT (sendMessage)
@@ -64,10 +64,13 @@ import Control.Distributed.Process.Internal.MessageT (sendMessage)
 remotable :: [Name] -> Q [Dec] 
 remotable ns = do
   (closures, inserts) <- unzip <$> mapM generateDefs ns
-  rtable <- createMetaData (concat inserts)
+  rtable <- createMetaData inserts 
   return $ concat closures ++ rtable 
 
 -- | Create a closure
+-- 
+-- If @f :: a -> b@ then @mkClosure :: a -> Closure b@. Make sure to pass 'f'
+-- as an argument to 'remotable' too.
 mkClosure :: Name -> Q Exp
 mkClosure = varE . closureName 
 
@@ -90,26 +93,18 @@ createMetaData is =
 -- 
 -- Moreover, if b is of the form Process c, then additionally create
 --  3. registerSender (Process c) (send :: ProcessId -> c -> Process ())
-generateDefs :: Name -> Q ([Dec], [Q Exp])
+generateDefs :: Name -> Q ([Dec], Q Exp)
 generateDefs n = do
+  serializableDict <- [t| SerializableDict |]
   mType <- getType n
   case mType of
     Just (origName, ArrowT `AppT` arg `AppT` res) -> do
       (closure, label) <- generateClosure origName (return arg) (return res)
       let decoder = generateDecoder origName (return res)
           insert  = [| registerLabel $(stringE label) (toDyn $decoder) |]
-
-      -- Generate special closure to support 'call'
-      mResult <- processResult res
-      insert' <- case mResult of
-        Nothing -> 
-          return [] 
-        Just result -> do 
-          let sender = generateSender result 
-          return . return $ 
-            [| registerSender $(typeToTypeRep res) (toDyn $sender) |]
-
-      return (closure, insert : insert')
+      return (closure, insert)
+    Just (origName, sdict `AppT` a) | sdict == serializableDict -> 
+      return ([], [| registerSerializableDict $(varE n) |])  
     _ -> 
       fail $ "remotable: " ++ show n ++ " is not a function"
    
@@ -125,24 +120,9 @@ generateClosure n arg res = do
     label :: String 
     label = show $ n
 
--- | If 't' is of the form 'Process b', return 'Just b'
-processResult :: Type -> Q (Maybe (Q Type))
-processResult t = do
-  process <- [t| Process |]
-  case t of
-    p `AppT` a | p == process -> return . Just . return $ a
-    _                         -> return Nothing
-
 -- | Generate the decoder (see 'generateDefs')
 generateDecoder :: Name -> Q Type -> Q Exp 
 generateDecoder n res = [| $(varE n) . decode :: ByteString -> $res |]
-
--- | Generate the sender. This is necessary to support 'call'
-generateSender :: Q Type -> Q Exp
-generateSender tp = 
-  -- This duplicates the functionality of 'Process.send', but gets the TH out
-  -- of the mutually recursive module cycle
-  [| (\pid msg -> procMsg $ sendMessage (ProcessIdentifier pid) (CallReply msg)) :: ProcessId -> $tp -> Process () |]
 
 -- | The name for the function that generates the closure
 closureName :: Name -> Name
@@ -151,15 +131,24 @@ closureName n = mkName $ nameBase n ++ "__closure"
 registerLabel :: String -> Dynamic -> RemoteTable -> RemoteTable
 registerLabel label dyn = remoteTableLabel label ^= Just dyn 
 
-registerSender :: TypeRep -> Dynamic -> RemoteTable -> RemoteTable
-registerSender typ dyn = remoteTableSender typ ^= Just dyn
+registerSerializableDict :: forall a. SerializableDict a -> RemoteTable -> RemoteTable
+registerSerializableDict (SerializableDict label) = 
+  -- TODO: Code duplication with Process
+  let send :: ProcessId -> a -> Process ()
+      send pid a = procMsg $ sendMessage (ProcessIdentifier pid) a
+
+      ret :: ByteString -> Process a
+      ret = return . decode
+
+      rss = RuntimeSerializableSupport {
+                rssSend   = toDyn send 
+              , rssReturn = toDyn ret
+              }
+  in remoteTableDict label ^= Just rss 
 
 --------------------------------------------------------------------------------
 -- Generic Template Haskell auxiliary functions                               --
 --------------------------------------------------------------------------------
-
-typeToTypeRep :: Type -> Q Exp
-typeToTypeRep tp = [| typeOf (undefined :: $(return tp)) |]
 
 -- | Compose a set of expressions
 compose :: [Q Exp] -> Q Exp

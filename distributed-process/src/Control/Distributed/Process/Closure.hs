@@ -56,12 +56,27 @@
 -- >            $ initRemoteTable 
 --
 -- See Section 6, /Faking It/, of /Towards Haskell in the Cloud/ for more info. 
+--
+-- [Serializable Dictionaries]
+--
+-- Some functions (such as 'sendClosure' or 'returnClosure') require an
+-- explicit (reified) serializable dictionary. To create such a dictionary do
+--
+-- > serializableDictInt :: SerializableDict Int
+-- > serializableDictInt = SerializableDict "serializableDictInt"
+-- 
+-- and then pass @'serialiableDictInt@ to 'remotable'. This will fail if the
+-- type is not serializable. Make sure that the string argument to provide
+-- in the definition of your dictionary matches the function name.
 module Control.Distributed.Process.Closure 
   ( -- * User-defined closures
     remotable
   , mkClosure
+  , SerializableDict(..)
     -- * Built-in closures
   , linkClosure
+  , sendClosure
+  , returnClosure
     -- * Generic closure combinators
   , closureApply
   , closureConst
@@ -90,8 +105,13 @@ module Control.Distributed.Process.Closure
   , cpSeq
   ) where 
 
+import Control.Distributed.Process.Internal.Types (SerializableDict(..))
 import Control.Distributed.Process.Internal.Closure.TH (remotable, mkClosure)
-import Control.Distributed.Process.Internal.Closure.BuiltIn (linkClosure)
+import Control.Distributed.Process.Internal.Closure.BuiltIn 
+  ( linkClosure
+  , sendClosure
+  , returnClosure
+  )
 import Control.Distributed.Process.Internal.Closure.Combinators 
   ( -- Generic combinators
     closureApply

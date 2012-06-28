@@ -27,8 +27,9 @@ module Control.Distributed.Process.Internal.Types
   , StaticLabel(..)
   , Static(..) 
   , Closure(..)
-  , CallReply(..)
   , RemoteTable(..)
+  , SerializableDict(..)
+  , RuntimeSerializableSupport(..)
     -- * Messages 
   , Message(..)
     -- * Node controller user-visible data types 
@@ -57,14 +58,14 @@ module Control.Distributed.Process.Internal.Types
   , typedChannels
   , typedChannelWithId
   , remoteTableLabels
-  , remoteTableSenders
+  , remoteTableDicts
   , remoteTableLabel
-  , remoteTableSender
+  , remoteTableDict
   ) where
 
 import Data.Map (Map)
 import Data.Int (Int32)
-import Data.Typeable (Typeable, TypeRep)
+import Data.Typeable (Typeable)
 import Data.Binary (Binary(put, get), putWord8, getWord8)
 import Data.ByteString.Lazy (ByteString)
 import Data.Accessor (Accessor, accessor)
@@ -208,8 +209,9 @@ data ReceivePort a =
 
 data StaticLabel = 
     UserStatic String
-  -- Special support for 'call'
-  | Call
+  -- Built-in closures 
+  | ClosureReturn
+  | ClosureSend 
   -- Generic closure combinators
   | ClosureApply
   | ClosureConst
@@ -234,15 +236,27 @@ newtype Static a = Static StaticLabel
 data Closure a = Closure (Static (ByteString -> a)) ByteString
   deriving (Typeable, Show)
 
--- | Used for the implementation of 'call'
-newtype CallReply a = CallReply a
-  deriving (Typeable, Binary)
-
 -- | Used to fake 'static' (see paper)
 data RemoteTable = RemoteTable {
+    -- | If the user creates a closure of type @a -> Closure b@ from a function
+    -- @f : a -> b@, then '_remoteTableLabels' should have an entry for "f"
+    -- of type @ByteString -> b@ (basically, @f . encode@)
     _remoteTableLabels  :: Map String Dynamic 
-  , _remoteTableSenders :: Map TypeRep Dynamic
+    -- | Runtime counterpart to SerializableDict 
+  , _remoteTableDicts   :: Map String RuntimeSerializableSupport 
   }
+
+-- | Reification of 'Serializable' (see "Control.Distributed.Process.Closure")
+data SerializableDict a where
+    SerializableDict :: Serializable a => String -> SerializableDict a
+  deriving (Typeable)
+
+-- | Runtime support for implementing "polymorphic" functions with a 
+-- Serializable qualifier (sendClosure, returnClosure, ..). 
+data RuntimeSerializableSupport = RuntimeSerializableSupport {
+   rssSend   :: Dynamic
+ , rssReturn :: Dynamic
+ }
 
 --------------------------------------------------------------------------------
 -- Messages                                                                   --
@@ -413,36 +427,38 @@ instance Binary Identifier where
 
 instance Binary StaticLabel where
   put (UserStatic string) = putWord8 0 >> put string
-  put Call         = putWord8 1
-  put ClosureApply = putWord8 2
-  put ClosureConst = putWord8 3
-  put ClosureUnit  = putWord8 4
-  put CpId         = putWord8 5
-  put CpComp       = putWord8 6
-  put CpFirst      = putWord8 7
-  put CpSwap       = putWord8 8
-  put CpCopy       = putWord8 9
-  put CpLeft       = putWord8 10
-  put CpMirror     = putWord8 11
-  put CpUntag      = putWord8 12
-  put CpApply      = putWord8 13
+  put ClosureReturn = putWord8 1
+  put ClosureSend   = putWord8 2
+  put ClosureApply  = putWord8 3
+  put ClosureConst  = putWord8 4
+  put ClosureUnit   = putWord8 5
+  put CpId          = putWord8 6
+  put CpComp        = putWord8 7
+  put CpFirst       = putWord8 8
+  put CpSwap        = putWord8 9
+  put CpCopy        = putWord8 10 
+  put CpLeft        = putWord8 11
+  put CpMirror      = putWord8 12
+  put CpUntag       = putWord8 13
+  put CpApply       = putWord8 14
   get = do
     header <- getWord8
     case header of
       0  -> UserStatic <$> get
-      1  -> return Call
-      2  -> return ClosureApply
-      3  -> return ClosureConst
-      4  -> return ClosureUnit
-      5  -> return CpId
-      6  -> return CpComp 
-      7  -> return CpFirst
-      8  -> return CpSwap
-      9  -> return CpCopy
-      10 -> return CpLeft
-      11 -> return CpMirror
-      12 -> return CpUntag
-      13 -> return CpApply
+      1  -> return ClosureReturn
+      2  -> return ClosureSend 
+      3  -> return ClosureApply
+      4  -> return ClosureConst
+      5  -> return ClosureUnit
+      6  -> return CpId
+      7  -> return CpComp 
+      8  -> return CpFirst
+      9  -> return CpSwap
+      10  -> return CpCopy
+      11 -> return CpLeft
+      12 -> return CpMirror
+      13 -> return CpUntag
+      14 -> return CpApply
       _  -> fail "StaticLabel.get: invalid"
 
   
@@ -481,14 +497,14 @@ typedChannelWithId cid = typedChannels >>> DAC.mapMaybe cid
 remoteTableLabels :: Accessor RemoteTable (Map String Dynamic)
 remoteTableLabels = accessor _remoteTableLabels (\ls tbl -> tbl { _remoteTableLabels = ls })
 
-remoteTableSenders :: Accessor RemoteTable (Map TypeRep Dynamic)
-remoteTableSenders = accessor _remoteTableSenders (\es tbl -> tbl { _remoteTableSenders = es })
+remoteTableDicts :: Accessor RemoteTable (Map String RuntimeSerializableSupport)
+remoteTableDicts = accessor _remoteTableDicts (\ds tbl -> tbl { _remoteTableDicts = ds })
 
 remoteTableLabel :: String -> Accessor RemoteTable (Maybe Dynamic)
 remoteTableLabel label = remoteTableLabels >>> DAC.mapMaybe label
 
-remoteTableSender :: TypeRep -> Accessor RemoteTable (Maybe Dynamic)
-remoteTableSender typ = remoteTableSenders >>> DAC.mapMaybe typ
+remoteTableDict :: String -> Accessor RemoteTable (Maybe RuntimeSerializableSupport)
+remoteTableDict label = remoteTableDicts >>> DAC.mapMaybe label
 
 --------------------------------------------------------------------------------
 -- MessageT monad                                                             --

@@ -62,7 +62,7 @@ module Control.Distributed.Process
   ) where
 
 import Prelude hiding (catch)
-import Data.Binary (decode, encode)
+import Data.Binary (decode)
 import Data.Typeable (Typeable, typeOf)
 import Control.Monad.Reader (ask)
 import Control.Monad.IO.Class (MonadIO, liftIO)
@@ -92,7 +92,6 @@ import Control.Distributed.Process.Internal.Types
   , LocalProcess(..)
   , Process(..)
   , Closure(..)
-  , StaticLabel(Call)
   , Static(..)
   , Message(..)
   , MonitorRef(..)
@@ -108,7 +107,6 @@ import Control.Distributed.Process.Internal.Types
   , monitorCounter 
   , spawnCounter
   , Closure(..)
-  , CallReply(..)
   , SendPort(..)
   , ReceivePort(..)
   , channelCounter
@@ -117,6 +115,7 @@ import Control.Distributed.Process.Internal.Types
   , ChannelId(..)
   , Identifier(..)
   , procMsg
+  , SerializableDict(..)
   )
 import Control.Distributed.Process.Internal.MessageT 
   ( sendMessage
@@ -126,8 +125,11 @@ import Control.Distributed.Process.Internal.MessageT
 import Control.Distributed.Process.Internal.Dynamic (fromDyn, dynTypeRep)
 import Control.Distributed.Process.Internal.Closure (resolveClosure)
 import Control.Distributed.Process.Internal.Node (runLocalProcess)
-import {-# SOURCE #-} Control.Distributed.Process.Internal.Closure.BuiltIn (linkClosure)
-import Control.Distributed.Process.Internal.Closure.Combinators (cpSeq)
+import {-# SOURCE #-} Control.Distributed.Process.Internal.Closure.BuiltIn 
+  ( linkClosure
+  , sendClosure
+  )
+import Control.Distributed.Process.Internal.Closure.Combinators (cpSeq, cpBind)
 
 -- INTERNAL NOTES
 -- 
@@ -318,12 +320,11 @@ spawn nid proc = do
               ]
 
 -- | Run a process remotely and wait for it to reply
-call :: Serializable a => NodeId -> Closure (Process a) -> Process a
-call nid (Closure (Static label) env) = do
+call :: SerializableDict a -> NodeId -> Closure (Process a) -> Process a
+call sdict@(SerializableDict _) nid proc = do 
   us <- getSelfPid
-  spawn nid (Closure (Static Call) (encode (label, env, us)))
-  CallReply a <- expect
-  return a
+  spawn nid (proc `cpBind` sendClosure sdict us)
+  expect
 
 -- | Thrown by 'terminate'
 data ProcessTerminationException = ProcessTerminationException
