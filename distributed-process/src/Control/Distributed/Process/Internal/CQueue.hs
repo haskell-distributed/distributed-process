@@ -37,6 +37,8 @@ data BlockSpec =
   | Blocking
   | Timeout Int
 
+-- TODO: Timeout only on checking incoming messages, not arrived 
+-- (otherwise we might easily get into an infinite loop)
 dequeue :: forall a b. 
            CQueue a          -- ^ Queue
         -> BlockSpec         -- ^ Blocking behaviour 
