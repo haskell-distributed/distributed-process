@@ -14,7 +14,7 @@ import Control.Distributed.Process.Node
 import TestAuxiliary
 
 serializableDictInt :: SerializableDict Int
-serializableDictInt = SerializableDict "serializableDictInt"
+serializableDictInt = SerializableDict
 
 addInt :: Int -> Int -> Int
 addInt x y = x + y

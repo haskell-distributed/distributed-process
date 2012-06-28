@@ -65,7 +65,7 @@ module Control.Distributed.Process.Internal.Types
 
 import Data.Map (Map)
 import Data.Int (Int32)
-import Data.Typeable (Typeable)
+import Data.Typeable (Typeable, TypeRep)
 import Data.Binary (Binary(put, get), putWord8, getWord8)
 import Data.ByteString.Lazy (ByteString)
 import Data.Accessor (Accessor, accessor)
@@ -243,12 +243,12 @@ data RemoteTable = RemoteTable {
     -- of type @ByteString -> b@ (basically, @f . encode@)
     _remoteTableLabels  :: Map String Dynamic 
     -- | Runtime counterpart to SerializableDict 
-  , _remoteTableDicts   :: Map String RuntimeSerializableSupport 
+  , _remoteTableDicts   :: Map TypeRep RuntimeSerializableSupport 
   }
 
 -- | Reification of 'Serializable' (see "Control.Distributed.Process.Closure")
 data SerializableDict a where
-    SerializableDict :: Serializable a => String -> SerializableDict a
+    SerializableDict :: Serializable a => SerializableDict a
   deriving (Typeable)
 
 -- | Runtime support for implementing "polymorphic" functions with a 
@@ -497,13 +497,13 @@ typedChannelWithId cid = typedChannels >>> DAC.mapMaybe cid
 remoteTableLabels :: Accessor RemoteTable (Map String Dynamic)
 remoteTableLabels = accessor _remoteTableLabels (\ls tbl -> tbl { _remoteTableLabels = ls })
 
-remoteTableDicts :: Accessor RemoteTable (Map String RuntimeSerializableSupport)
+remoteTableDicts :: Accessor RemoteTable (Map TypeRep RuntimeSerializableSupport)
 remoteTableDicts = accessor _remoteTableDicts (\ds tbl -> tbl { _remoteTableDicts = ds })
 
 remoteTableLabel :: String -> Accessor RemoteTable (Maybe Dynamic)
 remoteTableLabel label = remoteTableLabels >>> DAC.mapMaybe label
 
-remoteTableDict :: String -> Accessor RemoteTable (Maybe RuntimeSerializableSupport)
+remoteTableDict :: TypeRep -> Accessor RemoteTable (Maybe RuntimeSerializableSupport)
 remoteTableDict label = remoteTableDicts >>> DAC.mapMaybe label
 
 --------------------------------------------------------------------------------

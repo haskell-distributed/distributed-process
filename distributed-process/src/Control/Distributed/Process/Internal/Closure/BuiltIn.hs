@@ -7,6 +7,7 @@ module Control.Distributed.Process.Internal.Closure.BuiltIn
   ) where
 
 import Data.Binary (encode)
+import Data.Typeable (typeOf)
 import Control.Distributed.Process (link)
 import Control.Distributed.Process.Internal.Types 
   ( ProcessId
@@ -30,11 +31,11 @@ linkClosure :: ProcessId -> Closure (Process ())
 linkClosure = $(mkClosure 'link)
 
 -- | Closure version of 'send'
-sendClosure :: SerializableDict a -> ProcessId -> Closure (a -> Process ())
-sendClosure (SerializableDict label) pid =
-  Closure (Static ClosureSend) (encode (label, pid)) 
+sendClosure :: forall a. SerializableDict a -> ProcessId -> Closure (a -> Process ())
+sendClosure SerializableDict pid =
+  Closure (Static ClosureSend) (encode (typeOf (undefined :: a), pid)) 
 
 -- | Return any value
-returnClosure :: SerializableDict a -> a -> Closure (Process a)
-returnClosure (SerializableDict label) val =
-  Closure (Static ClosureReturn) (encode (label, encode val))
+returnClosure :: forall a. SerializableDict a -> a -> Closure (Process a)
+returnClosure SerializableDict val =
+  Closure (Static ClosureReturn) (encode (typeOf (undefined :: a), encode val))

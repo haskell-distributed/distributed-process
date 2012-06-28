@@ -63,11 +63,10 @@
 -- explicit (reified) serializable dictionary. To create such a dictionary do
 --
 -- > serializableDictInt :: SerializableDict Int
--- > serializableDictInt = SerializableDict "serializableDictInt"
+-- > serializableDictInt = SerializableDict 
 -- 
 -- and then pass @'serialiableDictInt@ to 'remotable'. This will fail if the
--- type is not serializable. Make sure that the string argument to provide
--- in the definition of your dictionary matches the function name.
+-- type is not serializable.
 module Control.Distributed.Process.Closure 
   ( -- * User-defined closures
     remotable

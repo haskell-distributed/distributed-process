@@ -321,7 +321,7 @@ spawn nid proc = do
 
 -- | Run a process remotely and wait for it to reply
 call :: SerializableDict a -> NodeId -> Closure (Process a) -> Process a
-call sdict@(SerializableDict _) nid proc = do 
+call sdict@SerializableDict nid proc = do 
   us <- getSelfPid
   spawn nid (proc `cpBind` sendClosure sdict us)
   expect

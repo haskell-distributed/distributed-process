@@ -9,6 +9,7 @@ import qualified Data.Map as Map (empty)
 import Data.Accessor ((^.))
 import Data.ByteString.Lazy (ByteString)
 import Data.Binary (decode)
+import Data.Typeable (TypeRep)
 import Control.Distributed.Process.Internal.Types
   ( RemoteTable(RemoteTable)
   , remoteTableLabel
@@ -42,15 +43,15 @@ initRemoteTable = BuiltIn.remoteTable (RemoteTable Map.empty Map.empty)
 resolveClosure :: RemoteTable -> StaticLabel -> ByteString -> Maybe Dynamic
 -- Built-in closures
 resolveClosure rtable ClosureSend env = do
-    rss <- rtable ^. remoteTableDict label
+    rss <- rtable ^. remoteTableDict typ 
     rssSend rss `dynApply` toDyn pid 
   where
-    (label, pid) = decode env :: (String, ProcessId)
+    (typ, pid) = decode env :: (TypeRep, ProcessId)
 resolveClosure rtable ClosureReturn env = do
-    rss <- rtable ^. remoteTableDict label
+    rss <- rtable ^. remoteTableDict typ 
     rssReturn rss `dynApply` toDyn arg 
   where
-    (label, arg) = decode env :: (String, ByteString)
+    (typ, arg) = decode env :: (TypeRep, ByteString)
 -- Generic closure combinators
 resolveClosure rtable ClosureApply env = do 
     f <- resolveClosure rtable labelf envf

@@ -11,6 +11,7 @@ import Prelude hiding (lookup)
 import Data.ByteString.Lazy (ByteString)
 import Data.Binary (encode, decode)
 import Data.Accessor ((^=))
+import Data.Typeable (typeOf)
 import Control.Applicative ((<$>))
 import Language.Haskell.TH 
   ( -- Q monad and operations
@@ -132,7 +133,7 @@ registerLabel :: String -> Dynamic -> RemoteTable -> RemoteTable
 registerLabel label dyn = remoteTableLabel label ^= Just dyn 
 
 registerSerializableDict :: forall a. SerializableDict a -> RemoteTable -> RemoteTable
-registerSerializableDict (SerializableDict label) = 
+registerSerializableDict SerializableDict = 
   -- TODO: Code duplication with Process
   let send :: ProcessId -> a -> Process ()
       send pid a = procMsg $ sendMessage (ProcessIdentifier pid) a
@@ -144,7 +145,7 @@ registerSerializableDict (SerializableDict label) =
                 rssSend   = toDyn send 
               , rssReturn = toDyn ret
               }
-  in remoteTableDict label ^= Just rss 
+  in remoteTableDict (typeOf (undefined :: a)) ^= Just rss 
 
 --------------------------------------------------------------------------------
 -- Generic Template Haskell auxiliary functions                               --
