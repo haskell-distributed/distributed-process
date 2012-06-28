@@ -1,3 +1,4 @@
+-- | 'Binary' instances for 'TypeRep'
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Control.Distributed.Process.Internal.TypeRep () where
 

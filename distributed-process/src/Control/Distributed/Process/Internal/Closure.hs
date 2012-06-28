@@ -2,14 +2,12 @@
 module Control.Distributed.Process.Internal.Closure 
   ( -- * Runtime support
     initRemoteTable
-  , registerLabel
-  , registerSender
   , resolveClosure
   ) where
 
 import qualified Data.Map as Map (empty)
-import Data.Accessor ((^=), (^.))
-import Data.Typeable (TypeRep, TyCon, typeRepTyCon, typeOf)
+import Data.Accessor ((^.))
+import Data.Typeable (TyCon, typeRepTyCon, typeOf)
 import Data.ByteString.Lazy (ByteString)
 import Data.Binary (decode)
 import Control.Distributed.Process.Internal.Types
@@ -32,6 +30,8 @@ import Control.Distributed.Process.Internal.Dynamic
   , unsafeCoerce#
   )
 import Control.Distributed.Process.Internal.TypeRep () -- Binary instances  
+import {-# SOURCE #-} qualified Control.Distributed.Process.Internal.Closure.BuiltIn as BuiltIn
+  (remoteTable)
 
 --------------------------------------------------------------------------------
 -- Runtime support for closures                                               --
@@ -39,13 +39,7 @@ import Control.Distributed.Process.Internal.TypeRep () -- Binary instances
 
 -- | Initial (empty) remote-call meta data
 initRemoteTable :: RemoteTable
-initRemoteTable = RemoteTable Map.empty Map.empty 
-
-registerLabel :: String -> Dynamic -> RemoteTable -> RemoteTable
-registerLabel label dyn = remoteTableLabel label ^= Just dyn 
-
-registerSender :: TypeRep -> Dynamic -> RemoteTable -> RemoteTable
-registerSender typ dyn = remoteTableSender typ ^= Just dyn
+initRemoteTable = BuiltIn.remoteTable (RemoteTable Map.empty Map.empty)
 
 resolveClosure :: RemoteTable -> StaticLabel -> ByteString -> Maybe Dynamic
 -- Special support for call

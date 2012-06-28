@@ -1,4 +1,4 @@
--- Add message sending capability to a monad
+-- | Add message sending capability to a monad
 -- 
 -- NOTE: Not thread-safe (you should not do concurrent sends within the same
 -- monad).

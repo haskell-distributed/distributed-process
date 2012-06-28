@@ -10,17 +10,9 @@ module Control.Distributed.Process.Internal.Closure.TH
 import Prelude hiding (lookup)
 import Data.ByteString.Lazy (ByteString)
 import Data.Binary (encode, decode)
-import Data.Typeable (typeOf, Typeable)
+import Data.Typeable (typeOf, Typeable, TypeRep)
+import Data.Accessor ((^=))
 import Control.Applicative ((<$>))
-import Control.Distributed.Process.Internal.Types
-  ( RemoteTable
-  , Closure(..)
-  , Static(..)
-  , StaticLabel(..)
-  , Process
-  , ProcessId
-  , CallReply(..)
-  )
 import Language.Haskell.TH 
   ( -- Q monad and operations
     Q
@@ -47,12 +39,21 @@ import Language.Haskell.TH
   , funD
   , sigD
   )
-import Control.Distributed.Process (send)
-import Control.Distributed.Process.Internal.Dynamic (toDyn)
-import Control.Distributed.Process.Internal.Closure 
-  ( registerLabel
-  , registerSender
+import Control.Distributed.Process.Internal.Types
+  ( RemoteTable
+  , Closure(..)
+  , Static(..)
+  , StaticLabel(..)
+  , Process
+  , ProcessId
+  , CallReply(..)
+  , procMsg
+  , Identifier(ProcessIdentifier)
+  , remoteTableLabel
+  , remoteTableSender
   )
+import Control.Distributed.Process.Internal.Dynamic (Dynamic, toDyn)
+import Control.Distributed.Process.Internal.MessageT (sendMessage)
 
 --------------------------------------------------------------------------------
 -- User-level API                                                             --
@@ -139,11 +140,19 @@ generateDecoder n res = [| $(varE n) . decode :: ByteString -> $res |]
 -- | Generate the sender. This is necessary to support 'call'
 generateSender :: Q Type -> Q Exp
 generateSender tp = 
-  [| (\pid -> send pid . CallReply) :: ProcessId -> $tp -> Process () |]
+  -- This duplicates the functionality of 'Process.send', but gets the TH out
+  -- of the mutually recursive module cycle
+  [| (\pid msg -> procMsg $ sendMessage (ProcessIdentifier pid) (CallReply msg)) :: ProcessId -> $tp -> Process () |]
 
 -- | The name for the function that generates the closure
 closureName :: Name -> Name
 closureName n = mkName $ nameBase n ++ "__closure"
+
+registerLabel :: String -> Dynamic -> RemoteTable -> RemoteTable
+registerLabel label dyn = remoteTableLabel label ^= Just dyn 
+
+registerSender :: TypeRep -> Dynamic -> RemoteTable -> RemoteTable
+registerSender typ dyn = remoteTableSender typ ^= Just dyn
 
 --------------------------------------------------------------------------------
 -- Generic Template Haskell auxiliary functions                               --

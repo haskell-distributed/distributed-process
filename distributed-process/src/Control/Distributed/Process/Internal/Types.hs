@@ -1,5 +1,8 @@
--- | We collect all types used internally in a single module to avoid using
--- mutually recursive modules
+-- | Types used throughout the Cloud Haskell framework
+--
+-- We collect all types used internally in a single module because 
+-- many of these data types are mutually recursive and cannot be split across
+-- modules.
 {-# LANGUAGE MagicHash #-}
 module Control.Distributed.Process.Internal.Types
   ( -- * Node and process identifiers 
@@ -13,6 +16,7 @@ module Control.Distributed.Process.Internal.Types
   , LocalProcess(..)
   , LocalProcessState(..)
   , Process(..)
+  , procMsg
     -- * Typed channels
   , LocalChannelId 
   , ChannelId(..)
@@ -77,6 +81,7 @@ import Control.Applicative (Applicative, (<$>), (<*>))
 import Control.Monad.Reader (MonadReader(..), ReaderT)
 import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.State (MonadState, StateT)
+import qualified Control.Monad.Trans.Class as Trans (lift)
 import Control.Distributed.Process.Serializable (Fingerprint, Serializable)
 import Control.Distributed.Process.Internal.CQueue (CQueue)
 import Control.Distributed.Process.Internal.Dynamic (Dynamic) 
@@ -126,19 +131,24 @@ data Identifier =
 
 -- | Local nodes
 data LocalNode = LocalNode 
-  { localNodeId   :: NodeId
+  { -- | 'NodeId' of the node
+    localNodeId :: NodeId
+    -- | The network endpoint associated with this node 
   , localEndPoint :: NT.EndPoint 
-  , localState    :: MVar LocalNodeState
+    -- | Local node state 
+  , localState :: MVar LocalNodeState
+    -- | Channel for the node controller
   , localCtrlChan :: Chan NCMsg
-  -- TODO: this should be part of the CH state, not the local endpoint state
-  , remoteTable   :: RemoteTable 
+    -- | Runtime lookup table for supporting closures
+    -- TODO: this should be part of the CH state, not the local endpoint state
+  , remoteTable :: RemoteTable 
   }
 
 -- | Local node state
 data LocalNodeState = LocalNodeState 
-  { _localProcesses      :: Map LocalProcessId LocalProcess
-  , _localPidCounter     :: Int32
-  , _localPidUnique      :: Int32
+  { _localProcesses  :: Map LocalProcessId LocalProcess
+  , _localPidCounter :: Int32
+  , _localPidUnique  :: Int32
   }
 
 -- | Processes running on our local node
@@ -162,6 +172,9 @@ newtype Process a = Process {
     unProcess :: ReaderT LocalProcess (MessageT IO) a 
   }
   deriving (Functor, Monad, MonadIO, MonadReader LocalProcess, Typeable, Applicative)
+
+procMsg :: MessageT IO a -> Process a
+procMsg = Process . Trans.lift 
 
 --------------------------------------------------------------------------------
 -- Typed channels                                                             --

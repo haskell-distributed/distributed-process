@@ -1,8 +1,9 @@
 module Main where
 
-import Control.Monad (join)
+import Control.Monad (join, replicateM)
 import Control.Monad.IO.Class (liftIO) 
-import Control.Concurrent (forkIO)
+import Control.Exception (IOException, throw)
+import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, readMVar, takeMVar, putMVar)
 import Control.Applicative ((<$>))
 import Network.Transport (Transport)
@@ -39,7 +40,10 @@ returnInt = return
 returnForTestApply :: (Closure (Int -> Process Int), Int) -> (Closure (Int -> Process Int), Int)
 returnForTestApply = id 
 
-$(remotable ['addInt, 'putInt, 'sendInt, 'sendPid, 'factorial, 'factorialOf, 'returnInt, 'returnForTestApply])
+wait :: Int -> Process ()
+wait = liftIO . threadDelay
+
+$(remotable ['addInt, 'putInt, 'sendInt, 'sendPid, 'factorial, 'factorialOf, 'returnInt, 'returnForTestApply, 'wait])
 
 testSendPureClosure :: Transport -> RemoteTable -> IO ()
 testSendPureClosure transport rtable = do
@@ -205,6 +209,41 @@ testApply transport rtable = do
     foo :: Closure (Closure (Int -> Process Int), Int)
     foo = $(mkClosure 'returnForTestApply) ($(mkClosure 'factorialOf) (), 5) 
 
+-- Test 'spawnSupervised'
+--
+-- Set up a supervisor, spawn a child, then have a third process monitor the
+-- child. The supervisor then throws an exception, the child dies because it
+-- was linked to the supervisor, and the third process notices that the child
+-- dies.
+testSpawnSupervised :: Transport -> RemoteTable -> IO ()
+testSpawnSupervised transport rtable = do
+    [node1, node2]       <- replicateM 2 $ newLocalNode transport rtable
+    [superPid, childPid] <- replicateM 2 $ newEmptyMVar
+    thirdProcessDone     <- newEmptyMVar
+
+    forkProcess node1 $ do
+      us <- getSelfPid
+      liftIO $ putMVar superPid us
+      (child, _ref) <- spawnSupervised (localNodeId node2) ($(mkClosure 'wait) 1000000) 
+      liftIO $ do
+        putMVar childPid child
+        threadDelay 500000 -- Give the child a chance to link to us
+        throw supervisorDeath
+
+    forkProcess node2 $ do
+      [super, child] <- liftIO $ mapM readMVar [superPid, childPid]
+      ref <- monitor child
+      MonitorNotification ref' pid' (DiedException e) <- expect
+      True <- return $ ref' == ref 
+                    && pid' == child 
+                    && e == show (LinkException super (DiedException (show supervisorDeath)))
+      liftIO $ putMVar thirdProcessDone ()
+
+    takeMVar thirdProcessDone
+  where
+    supervisorDeath :: IOException
+    supervisorDeath = userError "Supervisor died"
+
 main :: IO ()
 main = do
   Right transport <- createTransport "127.0.0.1" "8080" defaultTCPParameters
@@ -219,4 +258,5 @@ main = do
     , ("CallBind",        testCallBind        transport rtable)
     , ("Seq",             testSeq             transport rtable)
     , ("Apply",           testApply           transport rtable)
+    , ("SpawnSupervised", testSpawnSupervised transport rtable)
     ]

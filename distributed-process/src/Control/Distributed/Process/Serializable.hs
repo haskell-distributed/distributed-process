@@ -21,6 +21,7 @@ import qualified Data.ByteString.Internal as BSI ( unsafeCreate
 import Foreign.Storable (pokeByteOff, peekByteOff, sizeOf)
 import Foreign.ForeignPtr (withForeignPtr)
 
+-- | Objects that can be sent across the network
 class (Binary a, Typeable a) => Serializable a
 instance (Binary a, Typeable a) => Serializable a
 

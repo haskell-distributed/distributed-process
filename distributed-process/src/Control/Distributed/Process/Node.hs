@@ -306,8 +306,8 @@ data NCState = NCState
 newtype NC a = NC { unNC :: StateT NCState (MessageT IO) a }
   deriving (Functor, Monad, MonadIO, MonadState NCState)
 
-lift :: MessageT IO a -> NC a
-lift = NC . Trans.lift
+ncMsg :: MessageT IO a -> NC a
+ncMsg = NC . Trans.lift
 
 initNCState :: NCState
 initNCState = NCState { _links    = Map.empty
@@ -321,14 +321,14 @@ initNCState = NCState { _links    = Map.empty
 -- [Unified: Table 7]
 nodeController :: NC ()
 nodeController = do
-  node <- lift getLocalNode 
+  node <- ncMsg getLocalNode 
   forever $ do
     msg  <- liftIO $ readChan (localCtrlChan node)
 
     -- [Unified: Table 7, rule nc_forward] 
     case destNid (ctrlMsgSignal msg) of
       Just nid' | nid' /= localNodeId node -> 
-        lift $ sendBinary (NodeIdentifier nid') msg
+        ncMsg $ sendBinary (NodeIdentifier nid') msg
       _ -> 
         return ()
 
@@ -356,7 +356,7 @@ ncEffectMonitor :: ProcessId        -- ^ Who's watching?
                 -> Maybe MonitorRef -- ^ 'Nothing' to link
                 -> NC ()
 ncEffectMonitor from them mRef = do
-  node <- lift getLocalNode 
+  node <- ncMsg getLocalNode 
   shouldLink <- 
     if not (isLocal node them) 
       then return True
@@ -370,7 +370,7 @@ ncEffectMonitor from them mRef = do
     (False, True) -> -- [Unified: second rule]
       notifyDied from them DiedNoProc mRef 
     (False, False) -> -- [Unified: third rule]
-      lift $ sendBinary (NodeIdentifier $ processNodeId from) NCMsg 
+      ncMsg $ sendBinary (NodeIdentifier $ processNodeId from) NCMsg 
         { ctrlMsgSender = NodeIdentifier (localNodeId node)
         , ctrlMsgSignal = Died (ProcessIdentifier them) DiedNoProc
         }
@@ -378,21 +378,21 @@ ncEffectMonitor from them mRef = do
 -- [Unified: Table 11]
 ncEffectUnlink :: ProcessId -> ProcessId -> NC ()
 ncEffectUnlink from them = do
-  node <- lift getLocalNode 
+  node <- ncMsg getLocalNode 
   when (isLocal node from) $ postMessage from $ DidUnlink them 
   modify $ linksForProcess them ^: Set.delete from
 
 -- [Unified: Table 11]
 ncEffectUnmonitor :: ProcessId -> MonitorRef -> NC ()
 ncEffectUnmonitor from ref = do
-  node <- lift getLocalNode 
+  node <- ncMsg getLocalNode 
   when (isLocal node from) $ postMessage from $ DidUnmonitor ref
   modify $ monitorsFor (monitorRefPid ref) from ^: Set.delete ref 
 
 -- [Unified: Table 12, bottom rule]
 ncEffectNodeDied :: NodeId -> DiedReason -> NC ()
 ncEffectNodeDied nid reason = do
-  node <- lift getLocalNode 
+  node <- ncMsg getLocalNode 
   lnks <- gets (^. linksForNode nid)
   mons <- gets (^. monitorsForNode nid)
 
@@ -434,9 +434,9 @@ ncEffectSpawn pid cProc ref = do
   mProc <- unClosure cProc
   case mProc of
     Just proc -> do
-      node <- lift getLocalNode
+      node <- ncMsg getLocalNode
       pid' <- liftIO $ forkProcess node proc
-      lift $ sendMessage (ProcessIdentifier pid) (DidSpawn ref pid') 
+      ncMsg $ sendMessage (ProcessIdentifier pid) (DidSpawn ref pid') 
     Nothing -> 
       -- TODO: what should we do when unClosure returns Nothing?
       liftIO . putStrLn $ "Error: closure " ++ show cProc ++ " not found" 
@@ -452,7 +452,7 @@ notifyDied :: ProcessId         -- ^ Who to notify?
            -> Maybe MonitorRef  -- ^ 'Nothing' for linking
            -> NC ()
 notifyDied dest src reason mRef = do
-  node <- lift getLocalNode 
+  node <- ncMsg getLocalNode 
   case (isLocal node dest, mRef) of
     (True, Just ref) ->
       postMessage dest $ MonitorNotification ref src reason
@@ -461,7 +461,7 @@ notifyDied dest src reason mRef = do
     (False, _) ->
       -- TODO: why the change in sender? How does that affect 'reconnect' semantics?
       -- (see [Unified: Table 10]
-      lift $ sendBinary (NodeIdentifier $ processNodeId dest) NCMsg
+      ncMsg $ sendBinary (NodeIdentifier $ processNodeId dest) NCMsg
         { ctrlMsgSender = NodeIdentifier (localNodeId node) 
         , ctrlMsgSignal = Died (ProcessIdentifier src) reason
         }
@@ -494,7 +494,7 @@ isLocal nid pid = processNodeId pid == localNodeId nid
 -- TODO: Duplication with onClosure in Process
 unClosure :: Typeable a => Closure a -> NC (Maybe a)
 unClosure (Closure (Static label) env) = do
-  rtable <- remoteTable <$> lift getLocalNode
+  rtable <- remoteTable <$> ncMsg getLocalNode
   case resolveClosure rtable label env of
     Nothing  -> return Nothing
     Just dyn -> return (fromDynamic dyn)
@@ -513,7 +513,7 @@ throwException pid e = withLocalProc pid $ \p ->
 
 withLocalProc :: ProcessId -> (LocalProcess -> IO ()) -> NC () 
 withLocalProc pid p = do
-  node <- lift getLocalNode 
+  node <- ncMsg getLocalNode 
   liftIO $ do 
     -- By [Unified: table 6, rule missing_process] messages to dead processes
     -- can silently be dropped

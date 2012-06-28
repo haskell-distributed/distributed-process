@@ -58,6 +58,7 @@ module Control.Distributed.Process
   , catch
   , expectTimeout
   , spawnAsync
+  , spawnSupervised
   ) where
 
 import Prelude hiding (catch)
@@ -65,7 +66,6 @@ import Data.Binary (decode, encode)
 import Data.Typeable (Typeable, typeOf)
 import Control.Monad.Reader (ask)
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import qualified Control.Monad.Trans.Class as Trans (lift)
 import Control.Applicative ((<$>))
 import Control.Exception (Exception, throw)
 import qualified Control.Exception as Exception (catch)
@@ -107,7 +107,6 @@ import Control.Distributed.Process.Internal.Types
   , ProcessSignal(..)
   , monitorCounter 
   , spawnCounter
-  , MessageT
   , Closure(..)
   , CallReply(..)
   , SendPort(..)
@@ -117,6 +116,7 @@ import Control.Distributed.Process.Internal.Types
   , TypedChannel(..)
   , ChannelId(..)
   , Identifier(..)
+  , procMsg
   )
 import Control.Distributed.Process.Internal.MessageT 
   ( sendMessage
@@ -126,6 +126,8 @@ import Control.Distributed.Process.Internal.MessageT
 import Control.Distributed.Process.Internal.Dynamic (fromDyn, dynTypeRep)
 import Control.Distributed.Process.Internal.Closure (resolveClosure)
 import Control.Distributed.Process.Internal.Node (runLocalProcess)
+import {-# SOURCE #-} Control.Distributed.Process.Internal.Closure.BuiltIn (linkClosure)
+import Control.Distributed.Process.Internal.Closure.Combinators (cpSeq)
 
 -- INTERNAL NOTES
 -- 
@@ -194,7 +196,9 @@ import Control.Distributed.Process.Internal.Node (runLocalProcess)
 send :: Serializable a => ProcessId -> a -> Process ()
 -- This requires a lookup on every send. If we want to avoid that we need to
 -- modify serializable to allow for stateful (IO) deserialization
-send them msg = lift $ sendMessage (ProcessIdentifier them) msg 
+-- Warning: if we change how 'send' is implemented, might also want to change
+-- the implementation of 'Internal.Closure.TH.generateSender'
+send them msg = procMsg $ sendMessage (ProcessIdentifier them) msg 
 
 -- | Wait for a message of a specific type
 expect :: forall a. Serializable a => Process a
@@ -225,7 +229,7 @@ newChan = do
 
 -- | Send a message on a typed channel
 sendChan :: Serializable a => SendPort a -> a -> Process ()
-sendChan (SendPort them) msg = lift $ sendBinary (ChannelIdentifier them) msg 
+sendChan (SendPort them) msg = procMsg $ sendBinary (ChannelIdentifier them) msg 
 
 -- | Wait for a message on a typed channel
 receiveChan :: Serializable a => ReceivePort a -> Process a
@@ -337,28 +341,30 @@ getSelfPid = processId <$> ask
 
 -- | Get the node ID of our local node
 getSelfNode :: Process NodeId
-getSelfNode = localNodeId <$> lift getLocalNode
+getSelfNode = localNodeId <$> procMsg getLocalNode
 
 --------------------------------------------------------------------------------
 -- Monitoring and linking                                                     --
 --------------------------------------------------------------------------------
 
--- | Link to a remote process
+-- | Link to a remote process (asynchronous)
+--
+-- Note that 'link' provides unidirectional linking (see 'spawnSupervised').
 link :: ProcessId -> Process ()
 link = sendCtrlMsg Nothing . Link
 
--- | Remove a link
+-- | Remove a link (asynchronous)
 unlink :: ProcessId -> Process ()
 unlink = sendCtrlMsg Nothing . Unlink
 
--- | Monitor another process
+-- | Monitor another process (asynchronous)
 monitor :: ProcessId -> Process MonitorRef 
 monitor them = do
   monitorRef <- getMonitorRefFor them
   sendCtrlMsg Nothing $ Monitor them monitorRef
   return monitorRef
 
--- | Remove a monitor
+-- | Remove a monitor (asynchronous)
 unmonitor :: MonitorRef -> Process ()
 unmonitor = sendCtrlMsg Nothing . Unmonitor
 
@@ -369,7 +375,7 @@ unmonitor = sendCtrlMsg Nothing . Unmonitor
 -- | Deserialize a closure
 unClosure :: forall a. Typeable a => Closure a -> Process a
 unClosure (Closure (Static label) env) = do
-    rtable <- remoteTable <$> lift getLocalNode 
+    rtable <- remoteTable <$> procMsg getLocalNode 
     let Just dyn = resolveClosure rtable label env
     return $ fromDyn dyn (throw (typeError dyn))
   where
@@ -384,7 +390,7 @@ unClosure (Closure (Static label) env) = do
 -- | Catch exceptions within a process
 catch :: Exception e => Process a -> (e -> Process a) -> Process a
 catch p h = do
-  node  <- lift getLocalNode
+  node  <- procMsg getLocalNode
   lproc <- ask
   let run :: Process a -> IO a
       run proc = runLocalProcess node proc lproc 
@@ -402,6 +408,17 @@ spawnAsync nid proc = do
   spawnRef <- getSpawnRef
   sendCtrlMsg (Just nid) $ Spawn proc spawnRef
   return spawnRef
+
+-- | Spawn a child process, have the child link to the parent and the parent
+-- monitor the child
+spawnSupervised :: NodeId 
+                -> Closure (Process ()) 
+                -> Process (ProcessId, MonitorRef)
+spawnSupervised nid proc = do
+  us   <- getSelfPid
+  them <- spawn nid (linkClosure us `cpSeq` proc) 
+  ref  <- monitor them
+  return (them, ref)
 
 --------------------------------------------------------------------------------
 -- Auxiliary functions                                                        --
@@ -436,10 +453,7 @@ sendCtrlMsg mNid signal = do
                   }
   case mNid of
     Nothing -> do
-      ctrlChan <- localCtrlChan <$> lift getLocalNode 
+      ctrlChan <- localCtrlChan <$> procMsg getLocalNode 
       liftIO $ writeChan ctrlChan msg 
     Just nid ->
-      lift $ sendBinary (NodeIdentifier nid) msg
-
-lift :: MessageT IO a -> Process a
-lift = Process . Trans.lift 
+      procMsg $ sendBinary (NodeIdentifier nid) msg
