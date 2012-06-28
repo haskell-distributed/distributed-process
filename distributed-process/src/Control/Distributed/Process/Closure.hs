@@ -65,7 +65,7 @@
 -- > serializableDictInt :: SerializableDict Int
 -- > serializableDictInt = SerializableDict 
 -- 
--- and then pass @'serialiableDictInt@ to 'remotable'. This will fail if the
+-- and then pass @'serializableDictInt@ to 'remotable'. This will fail if the
 -- type is not serializable.
 module Control.Distributed.Process.Closure 
   ( -- * User-defined closures
