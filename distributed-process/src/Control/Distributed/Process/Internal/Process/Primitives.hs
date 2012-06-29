@@ -247,6 +247,8 @@ getSelfNode = localNodeId <$> procMsg getLocalNode
 -- | Link to a remote process (asynchronous)
 --
 -- Note that 'link' provides unidirectional linking (see 'spawnSupervised').
+-- Linking makes no distinction between normal and abnormal termination of
+-- the remote process.
 link :: ProcessId -> Process ()
 link = sendCtrlMsg Nothing . Link
 

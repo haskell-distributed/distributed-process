@@ -21,11 +21,14 @@ Library
                      template-haskell,
                      stm,
                      ghc-prim,
+                     network,
+                     network-multicast,
                      network-transport >= 0.1
   Exposed-modules:   Control.Distributed.Process,
                      Control.Distributed.Process.Serializable,
                      Control.Distributed.Process.Closure,
                      Control.Distributed.Process.Node
+                     Control.Distributed.Process.Backend.Local
   Extensions:        ExplicitForAll, ScopedTypeVariables, GeneralizedNewtypeDeriving, FlexibleInstances, UndecidableInstances, MultiParamTypeClasses, DeriveDataTypeable, TemplateHaskell, ExistentialQuantification, RankNTypes, GADTs
   ghc-options:       -Wall
   HS-Source-Dirs:    src

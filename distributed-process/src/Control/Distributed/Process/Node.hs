@@ -197,7 +197,7 @@ forkProcess node proc = modifyMVar (localState node) $ \st -> do
              $ st
              , pid 
              )
-   
+
 handleIncomingMessages :: LocalNode -> IO ()
 handleIncomingMessages node = go [] Map.empty Map.empty Set.empty
   where
@@ -210,6 +210,8 @@ handleIncomingMessages node = go [] Map.empty Map.empty Set.empty
       event <- NT.receive endpoint
       case event of
         NT.ConnectionOpened cid _rel _theirAddr ->
+          -- TODO: Check if _rel is ReliableOrdered, and if not, treat as
+          -- (**) below.
           go (cid : uninitConns) procs chans ctrls 
         NT.Received cid payload -> 
           case ( Map.lookup cid procs 
@@ -240,10 +242,12 @@ handleIncomingMessages node = go [] Map.empty Map.empty Set.empty
                          ctrls
                     Nothing ->
                       -- Request for an unknown process. 
-                      -- TODO: We should close the incoming connection here, but
-                      -- we cannot! Network.Transport does not provide this 
-                      -- functionality. Not sure what the right approach is.
-                      -- For now, we just drop the incoming messages 
+                      --
+                      -- TODO: We should treat this as a fatal error on the
+                      -- part of the remote node. That is, we should report the
+                      -- remote node as having died, and we should close
+                      -- incoming connections (this requires a Transport layer
+                      -- extension). (**)
                       go (List.delete cid uninitConns) procs chans ctrls
                 ChannelIdentifier chId -> do
                   let lcid = channelLocalId chId
@@ -259,8 +263,12 @@ handleIncomingMessages node = go [] Map.empty Map.empty Set.empty
                              (Map.insert cid channel chans)
                              ctrls
                         Nothing ->
+                          -- Unknown typed channel
+                          -- TODO (**) above
                           go (List.delete cid uninitConns) procs chans ctrls
                     Nothing ->
+                      -- Unknown process
+                      -- TODO (**) above
                       go (List.delete cid uninitConns) procs chans ctrls
                 NodeIdentifier _ ->
                   go (List.delete cid uninitConns)
@@ -268,7 +276,8 @@ handleIncomingMessages node = go [] Map.empty Map.empty Set.empty
                      chans
                      (Set.insert cid ctrls)
             _ ->
-              -- Unexpected message. We just drop it.
+              -- Unexpected message
+              -- TODO (**) above 
               go uninitConns procs chans ctrls
         NT.ConnectionClosed cid -> 
           go (List.delete cid uninitConns) 
@@ -283,9 +292,9 @@ handleIncomingMessages node = go [] Map.empty Map.empty Set.empty
             , ctrlMsgSignal = Died nid DiedDisconnect
             }
         NT.ErrorEvent (NT.TransportError (NT.EventConnectionLost Nothing _) _) ->
-          -- We cannot really deal with the case that some (but not all)
-          -- incoming connections from a remote node have failed (what if this
-          -- incoming connection corresponds to a typed channel, for instance?)
+          -- TODO: We should treat an asymetrical connection loss (incoming
+          -- connection broken, but outgoing connection still potentially ok)
+          -- as a fatal error on the part of the remote node (like (**), above)
           fail "handleIncomingMessages: TODO"
         NT.ErrorEvent (NT.TransportError NT.EventEndPointFailed str) ->
           fail $ "Cloud Haskell fatal error: end point failed: " ++ str 

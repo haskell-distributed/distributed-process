@@ -199,10 +199,12 @@ import Control.Distributed.Process.Internal.Closure (resolveClosure)
 --------------------------------------------------------------------------------
 
 -- | Run a process remotely and wait for it to reply
+-- 
+-- We link to the remote process, so that if it dies, we die too.
 call :: SerializableDict a -> NodeId -> Closure (Process a) -> Process a
 call sdict@SerializableDict nid proc = do 
   us <- getSelfPid
-  spawn nid (proc `cpBind` sendClosure sdict us)
+  spawnLink nid (proc `cpBind` sendClosure sdict us)
   expect
 
 -- | Spawn a child process, have the child link to the parent and the parent
