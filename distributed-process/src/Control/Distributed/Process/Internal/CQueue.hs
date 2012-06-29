@@ -7,7 +7,6 @@ module Control.Distributed.Process.Internal.CQueue
   , dequeue
   ) where
 
-import Control.Monad (join)
 import Control.Concurrent.MVar (MVar, newMVar, takeMVar, putMVar)
 import Control.Concurrent.STM 
   ( atomically
@@ -21,8 +20,7 @@ import Control.Applicative ((<$>), (<*>))
 import Control.Exception (mask, onException)
 import System.Timeout (timeout)
 
--- TODO: The only reason for TChan rather than Chan here is to that we have
--- a non-blocking read
+-- We use a TCHan rather than a Chan so that we have a non-blocking read
 data CQueue a = CQueue (MVar [a]) -- Arrived
                        (TChan a)  -- Incoming
 
@@ -37,23 +35,22 @@ data BlockSpec =
   | Blocking
   | Timeout Int
 
--- TODO: Timeout only on checking incoming messages, not arrived 
--- (otherwise we might easily get into an infinite loop)
+-- | Dequeue an element
+--
+-- The timeout (if any) is applied only to waiting for incoming messages, not
+-- to checking messages that have already arrived
 dequeue :: forall a b. 
            CQueue a          -- ^ Queue
         -> BlockSpec         -- ^ Blocking behaviour 
         -> [a -> Maybe b]    -- ^ List of matches
         -> IO (Maybe b)      -- ^ 'Nothing' only on timeout
-dequeue (CQueue arrived incoming) blockSpec matches = 
-  case blockSpec of
-    Timeout t -> join <$> timeout t go
-    _         -> go
+dequeue (CQueue arrived incoming) blockSpec matches = go 
   where    
     go :: IO (Maybe b)
     go = mask $ \restore -> do
       arr <- takeMVar arrived 
-      -- We first check the arrived messages. If we timeout during this search,
-      -- we just put the MVar back (since we haven't touched the Chan yet)
+      -- We first check the arrived messages. If we get interrupted during this
+      -- search, we just put the MVar back (we haven't read from the Chan yet)
       (arr', mb) <- onException (restore (checkArrived [] arr))
                                 (putMVar arrived arr) 
       case (mb, blockSpec) of
@@ -62,8 +59,10 @@ dequeue (CQueue arrived incoming) blockSpec matches =
           return (Just b)
         (Nothing, NonBlocking) ->
           checkNonBlocking arr'
-        (Nothing, _) ->
+        (Nothing, Blocking) ->
           Just <$> checkBlocking arr' 
+        (Nothing, Timeout n) ->
+          timeout n $ checkBlocking arr'
 
     -- We reverse the accumulator on return only if we find a match
     checkArrived :: [a] -> [a] -> IO ([a], Maybe b)

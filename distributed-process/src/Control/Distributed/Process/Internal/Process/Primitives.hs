@@ -181,7 +181,9 @@ receiveWait ms = do
 
 -- | Like 'receiveWait' but with a timeout.
 -- 
--- If the timeout is zero do a non-blocking check for matching messages.
+-- If the timeout is zero do a non-blocking check for matching messages. A
+-- non-zero timeout is applied only when waiting for incoming messages (that is,
+-- /after/ we have checked the messages that are already in the mailbox).
 receiveTimeout :: Int -> [Match b] -> Process (Maybe b)
 receiveTimeout t ms = do
   queue <- processQueue <$> ask
