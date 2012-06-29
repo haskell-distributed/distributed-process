@@ -8,7 +8,7 @@ module Control.Distributed.Process.Internal.Closure.BuiltIn
 
 import Data.Binary (encode)
 import Data.Typeable (typeOf)
-import Control.Distributed.Process (link)
+import Control.Distributed.Process.Internal.Process.Primitives (link)
 import Control.Distributed.Process.Internal.Types 
   ( ProcessId
   , Closure
@@ -20,6 +20,7 @@ import Control.Distributed.Process.Internal.Types
   , StaticLabel(..)
   )
 import Control.Distributed.Process.Internal.Closure.TH (remotable, mkClosure)
+import Control.Distributed.Process.Internal.TypeRep () -- Binary instances
 
 remotable ['link]
 

@@ -29,7 +29,7 @@ import Control.Distributed.Process.Internal.Dynamic
   , unsafeCoerce#
   )
 import Control.Distributed.Process.Internal.TypeRep () -- Binary instances  
-import {-# SOURCE #-} qualified Control.Distributed.Process.Internal.Closure.BuiltIn as BuiltIn
+import qualified Control.Distributed.Process.Internal.Closure.BuiltIn as BuiltIn
   (remoteTable)
 
 --------------------------------------------------------------------------------

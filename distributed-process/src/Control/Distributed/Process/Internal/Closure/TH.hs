@@ -46,15 +46,13 @@ import Control.Distributed.Process.Internal.Types
   , StaticLabel(..)
   , Process
   , ProcessId
-  , procMsg
-  , Identifier(ProcessIdentifier)
   , remoteTableLabel
   , remoteTableDict
   , SerializableDict(..)
   , RuntimeSerializableSupport(..)
   )
 import Control.Distributed.Process.Internal.Dynamic (Dynamic, toDyn)
-import Control.Distributed.Process.Internal.MessageT (sendMessage)
+import Control.Distributed.Process.Internal.Process.Primitives (send)
 
 --------------------------------------------------------------------------------
 -- User-level API                                                             --
@@ -134,16 +132,9 @@ registerLabel label dyn = remoteTableLabel label ^= Just dyn
 
 registerSerializableDict :: forall a. SerializableDict a -> RemoteTable -> RemoteTable
 registerSerializableDict SerializableDict = 
-  -- TODO: Code duplication with Process
-  let send :: ProcessId -> a -> Process ()
-      send pid a = procMsg $ sendMessage (ProcessIdentifier pid) a
-
-      ret :: ByteString -> Process a
-      ret = return . decode
-
-      rss = RuntimeSerializableSupport {
-                rssSend   = toDyn send 
-              , rssReturn = toDyn ret
+  let rss = RuntimeSerializableSupport {
+                rssSend   = toDyn (send :: ProcessId -> a -> Process ()) 
+              , rssReturn = toDyn (return . decode :: ByteString -> Process a)  
               }
   in remoteTableDict (typeOf (undefined :: a)) ^= Just rss 
 
