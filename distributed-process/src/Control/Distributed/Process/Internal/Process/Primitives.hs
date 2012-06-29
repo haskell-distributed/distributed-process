@@ -99,8 +99,6 @@ import Control.Distributed.Process.Internal.Node (runLocalProcess)
 send :: Serializable a => ProcessId -> a -> Process ()
 -- This requires a lookup on every send. If we want to avoid that we need to
 -- modify serializable to allow for stateful (IO) deserialization
--- Warning: if we change how 'send' is implemented, might also want to change
--- the implementation of 'Internal.Closure.TH.generateSender'
 send them msg = procMsg $ sendMessage (ProcessIdentifier them) msg 
 
 -- | Wait for a message of a specific type

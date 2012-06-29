@@ -282,12 +282,21 @@ handleIncomingMessages node = go [] Map.empty Map.empty Set.empty
             { ctrlMsgSender = nid
             , ctrlMsgSignal = Died nid DiedDisconnect
             }
-        NT.ErrorEvent _ ->
-          fail "handleIncomingMessages: TODO 3"
+        NT.ErrorEvent (NT.TransportError (NT.EventConnectionLost Nothing _) _) ->
+          -- We cannot really deal with the case that some (but not all)
+          -- incoming connections from a remote node have failed (what if this
+          -- incoming connection corresponds to a typed channel, for instance?)
+          fail "handleIncomingMessages: TODO"
+        NT.ErrorEvent (NT.TransportError NT.EventEndPointFailed str) ->
+          fail $ "Cloud Haskell fatal error: end point failed: " ++ str 
+        NT.ErrorEvent (NT.TransportError NT.EventTransportFailed str) ->
+          fail $ "Cloud Haskell fatal error: transport failed: " ++ str 
         NT.EndPointClosed ->
           return ()
         NT.ReceivedMulticast _ _ ->
-          fail "handleIncomingMessages: TODO 4"
+          -- If we received a multicast message, something went horribly wrong
+          -- and we just give up
+          fail "Cloud Haskell fatal error: received unexpected multicast"
     
     state    = localState node
     endpoint = localEndPoint node
