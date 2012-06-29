@@ -490,14 +490,10 @@ isLocal :: LocalNode -> ProcessId -> Bool
 isLocal nid pid = processNodeId pid == localNodeId nid 
 
 -- | Lookup a local closure 
---
--- TODO: Duplication with onClosure in Process
 unClosure :: Typeable a => Closure a -> NC (Maybe a)
 unClosure (Closure (Static label) env) = do
   rtable <- remoteTable <$> ncMsg getLocalNode
-  case resolveClosure rtable label env of
-    Nothing  -> return Nothing
-    Just dyn -> return (fromDynamic dyn)
+  return (resolveClosure rtable label env >>= fromDynamic)
 
 --------------------------------------------------------------------------------
 -- Messages to local processes                                                --

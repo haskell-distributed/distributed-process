@@ -216,10 +216,10 @@ spawnSupervised nid proc = do
 unClosure :: forall a. Typeable a => Closure a -> Process a
 unClosure (Closure (Static label) env) = do
     rtable <- remoteTable <$> procMsg getLocalNode 
-    let Just dyn = resolveClosure rtable label env
-    return $ fromDyn dyn (throw (typeError dyn))
+    case resolveClosure rtable label env of
+      Nothing  -> throw . userError $ "Unregistered closure " ++ show label
+      Just dyn -> return $ fromDyn dyn (throw (typeError dyn))
   where
     typeError dyn = userError $ "lookupStatic type error: " 
                  ++ "cannot match " ++ show (dynTypeRep dyn) 
                  ++ " against " ++ show (typeOf (undefined :: a))
-
