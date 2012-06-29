@@ -11,21 +11,12 @@ module Control.Distributed.Process.Internal.Dynamic
   , fromDyn
   , fromDynamic
   , dynTypeRep
-  , dynBind
-  , dynBind'
   , dynApply
   , dynApp
   , GHC.unsafeCoerce#
   ) where
 
-import Data.Typeable 
-  ( Typeable
-  , TypeRep
-  , typeOf
-  , TyCon
-  , splitTyConApp
-  , funResultTy
-  )
+import Data.Typeable (Typeable, TypeRep, typeOf, funResultTy)
 import qualified GHC.Prim as GHC (Any, unsafeCoerce#)
 import Data.Maybe (fromMaybe)
 
@@ -51,20 +42,6 @@ dynTypeRep (Dynamic t _) = t
 
 instance Show Dynamic where
   show = show . dynTypeRep
-
-dynBind :: TyCon -> (forall a b. m a -> (a -> m b) -> m b) -> Dynamic -> Dynamic -> Maybe Dynamic
-dynBind m bind (Dynamic t1 x) (Dynamic t2 f) = 
-  case splitTyConApp t1 of
-    (m', [a]) | m' == m ->
-      case funResultTy t2 a of
-        Just mb -> Just (Dynamic mb (GHC.unsafeCoerce# bind x f))
-        _  -> Nothing
-    _ -> Nothing 
-
-dynBind' :: TyCon -> (forall a b. m a -> (a -> m b) -> m b) -> Dynamic -> Dynamic -> Dynamic
-dynBind' m bind x f = fromMaybe (error typeError) (dynBind m bind x f)
-  where
-    typeError = "Type error in dynamic bind.\nCan't bind " ++ show x ++ " to " ++ show f
 
 dynApply :: Dynamic -> Dynamic -> Maybe Dynamic
 dynApply (Dynamic t1 f) (Dynamic t2 x) =
