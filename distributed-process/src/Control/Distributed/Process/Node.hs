@@ -182,12 +182,21 @@ forkProcess node proc = modifyMVar (localState node) $ \st -> do
         }
     return (tid', lproc)
 
-  -- TODO: if the counter overflows we should pick a new unique                           
-  return ( (localProcessWithId lpid ^= Just lproc)
-         . (localPidCounter ^: (+ 1))
-         $ st
-         , pid 
-         )
+  if lpidCounter lpid == maxBound
+    then do
+      newUnique <- randomIO
+      return ( (localProcessWithId lpid ^= Just lproc)
+             . (localPidCounter ^= 0)
+             . (localPidUnique ^= newUnique)
+             $ st
+             , pid
+             )
+    else
+      return ( (localProcessWithId lpid ^= Just lproc)
+             . (localPidCounter ^: (+ 1))
+             $ st
+             , pid 
+             )
    
 handleIncomingMessages :: LocalNode -> IO ()
 handleIncomingMessages node = go [] Map.empty Map.empty Set.empty
