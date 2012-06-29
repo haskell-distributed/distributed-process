@@ -18,7 +18,7 @@ import qualified Data.List as List (delete)
 import Data.Set (Set)
 import qualified Data.Set as Set (empty, insert, delete, member)
 import Data.Foldable (forM_)
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, fromMaybe)
 import Data.Typeable (Typeable)
 import Control.Category ((>>>))
 import Control.Applicative ((<$>))
@@ -450,15 +450,12 @@ ncEffectProcessDied pid reason = do
 ncEffectSpawn :: ProcessId -> Closure (Process ()) -> SpawnRef -> NC ()
 ncEffectSpawn pid cProc ref = do
   mProc <- unClosure cProc
-  case mProc of
-    Just proc -> do
-      node <- ncMsg getLocalNode
-      pid' <- liftIO $ forkProcess node proc
-      ncMsg $ sendMessage (ProcessIdentifier pid) (DidSpawn ref pid') 
-    Nothing -> 
-      -- TODO: what should we do when unClosure returns Nothing?
-      liftIO . putStrLn $ "Error: closure " ++ show cProc ++ " not found" 
-      
+  -- If the closure does not exist, we spawn a process that throws an exception
+  -- This allows the remote node to find out what's happening
+  let proc = fromMaybe (fail $ "Error: unknown closure " ++ show cProc) mProc
+  node <- ncMsg getLocalNode
+  pid' <- liftIO $ forkProcess node proc
+  ncMsg $ sendMessage (ProcessIdentifier pid) (DidSpawn ref pid') 
 
 --------------------------------------------------------------------------------
 -- Auxiliary                                                                  --
@@ -494,12 +491,11 @@ destNid (Monitor pid _) =
   Just . processNodeId $ pid 
 destNid (Unmonitor ref) = 
   Just . processNodeId . monitorRefPid $ ref 
-destNid (Died (NodeIdentifier _) _) = 
-  Nothing
-destNid (Died (ProcessIdentifier _pid) _) = 
-  fail "destNid: TODO"
-destNid (Died (ChannelIdentifier _cid) _) = 
-  fail "destNid: TODO"
+-- We don't need to forward 'Died' signals; if monitoring/linking is setup,
+-- then when a local process dies the monitoring/linking machinery will take
+-- care of notifying remote nodes
+destNid (Died _ _) =
+  Nothing 
 destNid (Spawn _ _) = 
   Nothing
 

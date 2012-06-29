@@ -1,5 +1,6 @@
 module Main where
 
+import qualified Data.ByteString.Lazy as BSL (empty)
 import Control.Monad (join, replicateM)
 import Control.Monad.IO.Class (liftIO) 
 import Control.Exception (IOException, throw)
@@ -11,6 +12,7 @@ import Network.Transport.TCP (createTransport, defaultTCPParameters)
 import Control.Distributed.Process
 import Control.Distributed.Process.Closure
 import Control.Distributed.Process.Node
+import Control.Distributed.Process.Internal.Types (Closure(..), Static(..), StaticLabel(..))
 import TestAuxiliary
 
 serializableDictInt :: SerializableDict Int
@@ -244,6 +246,16 @@ testSpawnSupervised transport rtable = do
     supervisorDeath :: IOException
     supervisorDeath = userError "Supervisor died"
 
+testSpawnInvalid :: Transport -> RemoteTable -> IO ()
+testSpawnInvalid transport rtable = do
+  node <- newLocalNode transport rtable
+  runProcess node $ do
+    (pid, ref) <- spawnMonitor (localNodeId node) (Closure (Static (UserStatic "ThisDoesNotExist")) BSL.empty)
+    MonitorNotification ref' pid' _reason <- expect 
+    -- Depending on the exact interleaving, reason might be NoProc or the exception thrown by the absence of the static closure
+    True <- return $ ref' == ref && pid == pid'  
+    return ()
+
 main :: IO ()
 main = do
   Right transport <- createTransport "127.0.0.1" "8080" defaultTCPParameters
@@ -259,4 +271,5 @@ main = do
     , ("Seq",             testSeq             transport rtable)
     , ("Apply",           testApply           transport rtable)
     , ("SpawnSupervised", testSpawnSupervised transport rtable)
+    , ("SpawnInvalid",    testSpawnInvalid    transport rtable)
     ]

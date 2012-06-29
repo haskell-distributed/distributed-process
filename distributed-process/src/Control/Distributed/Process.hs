@@ -59,6 +59,8 @@ module Control.Distributed.Process
   , expectTimeout
   , spawnAsync
   , spawnSupervised
+  , spawnLink
+  , spawnMonitor
   , DidSpawn(..)
   ) where
 
@@ -127,6 +129,8 @@ import Control.Distributed.Process.Internal.Process.Primitives
   , catch
   , expectTimeout
   , spawnAsync
+  , spawnLink
+  , spawnMonitor
   )
 import Control.Distributed.Process.Internal.Closure (resolveClosure)
 

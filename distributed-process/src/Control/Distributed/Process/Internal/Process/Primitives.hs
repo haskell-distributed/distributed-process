@@ -34,6 +34,8 @@ module Control.Distributed.Process.Internal.Process.Primitives
   , catch
   , expectTimeout
   , spawnAsync
+  , spawnLink
+  , spawnMonitor
   ) where
 
 import Prelude hiding (catch)
@@ -288,6 +290,24 @@ spawnAsync nid proc = do
   spawnRef <- getSpawnRef
   sendCtrlMsg (Just nid) $ Spawn proc spawnRef
   return spawnRef
+
+-- | Spawn a process and link to it
+--
+-- Note that this is just the sequential composition of 'spawn' and 'link'. 
+-- (The "Unified" semantics that underlies Cloud Haskell does not even support
+-- a synchronous link operation)
+spawnLink :: NodeId -> Closure (Process ()) -> Process ProcessId
+spawnLink nid proc = do
+  pid <- spawn nid proc
+  link pid
+  return pid
+
+-- | Like 'spawnLink', but monitor the spawned process
+spawnMonitor :: NodeId -> Closure (Process ()) -> Process (ProcessId, MonitorRef)
+spawnMonitor nid proc = do
+  pid <- spawn nid proc
+  ref <- monitor pid
+  return (pid, ref)
 
 --------------------------------------------------------------------------------
 -- Auxiliary functions                                                        --
