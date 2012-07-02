@@ -30,8 +30,12 @@
 
 \lstset{basicstyle=\ttfamily\small}
 
-\title{Reconnect Semantics}
-\author{Well-Typed \texttt{<edsko@well-typed.com>}}
+\title{An Explicit $\semRecon$ Primitive for Cloud Haskell \\ (or a Future Erlang)}
+\author{\small \begin{tabular}{ll}
+Edsko de Vries & Duncan Coutts \\
+Well-Typed LLP & Well-Typed LLP \\
+\texttt{edsko@well-typed.com} & \texttt{duncan@well-typed.com}
+\end{tabular}}
 \maketitle
 
 \section*{Introduction}
@@ -381,6 +385,11 @@ monitor remote nodes, programmers might get a false sense of security and rely
 on non-existing ordering guarantees). On the other hand, requiring an explicit
 reconnect to a remote node before a spawn (or similar primitive) might be
 confusing. 
+
+\item Another hybrid solution is to have an implicit reconnect when sending a
+monitor notification. So, if $P$ monitors $Q$, and gets a monitor notification,
+then it must expect potential message loss. If $P$ does not monitor $Q$ then
+disconnects are permanent.
 
 \item Since Cloud Haskell supports typed channels as well as sending messages
 directly to processes, we could decide not to offer any reliability guarantees
