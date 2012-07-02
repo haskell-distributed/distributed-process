@@ -1,0 +1,400 @@
+\documentclass[10pt]{article}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{listings}
+\usepackage{amsmath,amssymb,stmaryrd}
+\usepackage{mathpazo,times}
+
+\begin{document}
+
+\newcommand{\semNs}{\mathit{ns}}
+\newcommand{\semEth}{\mathit{eth}}
+\newcommand{\semPg}{\mathit{pg}}
+\newcommand{\semNid}{\mathit{nid}}
+\newcommand{\semNc}{\mathit{nc}}
+\newcommand{\semRecon}{\mathrm{reconnect}}
+\newcommand{\semDisconnect}{\mathrm{disconnect}}
+\newcommand{\semDropped}{\mathrm{dropped}}
+\newcommand{\semMessage}{\mathrm{message}}
+\newcommand{\semPid}{\mathit{pid}}
+
+\newcommand{\semSystem}[2]{\llbracket #1, #2 \rrbracket}
+\newcommand{\semNode}[3]{[ #1, #2, #3 ]}
+\newcommand{\semStdNode}[1]{\semNode{\semPg_{#1}}{\semNid_{#1}}{\semNc_{#1}}}
+\newcommand{\semProc}[3]{\langle #1, #2, #3 \rangle}
+\newcommand{\semStdProc}[1]{\semProc{e}{\semPid}{q}}
+
+\newcommand{\semDied}[2]{\mathrm{died}(#1, #2)}
+\newcommand{\semParN}{\mathrel{{\parallel}_N}}
+\newcommand{\semParP}{\mathrel{{\parallel}_P}}
+\newcommand{\semEthMatch}[3]{\mathrm{ethMatch}(#1, #2, #3)}
+
+\lstset{basicstyle=\ttfamily\small}
+
+\title{Reconnect Semantics}
+\author{Well-Typed \texttt{<edsko@well-typed.com>}}
+\maketitle
+
+\section*{Introduction}
+
+The original Cloud Haskell paper stipulates that messages are ``asynchronous,
+reliable, and buffered'', but does not describe how this can be achieved.
+Understanding ``reliable'' to mean ``reliable ordered'' (or ``TCP-like''), 
+the reliability of message delivery comes from the reliability of the
+underlying network protocol---up to a point. 
+
+The problem is that the underlying network protocol is connection-oriented, but
+Cloud Haskell is not. Intuitively, when $P$ sends a message to $Q$, we open a
+reliable-ordered connection from $P$ to $Q$. Reliability of message delivery
+now follows from reliability of the network protocol, until $P$ somehow gets
+disconnected from $Q$. If $P$ now sends another message to $Q$, the
+implementation cannot simply reconnect: after all, some messages that were sent
+on the first connection might not have been delivered. This means that $P$
+might send $m_1, m_2, m_3$ to $Q$, but $Q$ will receive $m_1, m_3$. 
+
+One (non-)solution is for $P$ to buffer all messages it sends to $Q$, and
+remove messages from this buffer only when $Q$ acknowledges that it received
+them. On a reconnect $P$ must ask which message $Q$ last received, and
+retransmit the rest. This means that when $P$ gets disconnected from $Q$, it
+must infinitely buffer all messages sent to $Q$ (until a connection is
+reestablished). However, infinite buffering is too strong a requirement;
+moreover, this is unsatisfactory because it means implementing a reliable
+protocol on top of the underlying reliable network protocol. We would like a
+different solution.
+
+But even more important than the exact solution we adopt is a precise
+semantics of Cloud Haskell message delivery. A good starting point (one that
+has been used in the new implementation of Cloud Haskell) is \textit{A
+Unified Semantics for Future Erlang} by Hans Svensson, Lars-\AA{}ke Fredlund
+and Clara Benac Earle (Erlang '10)---although this semantics leaves the issue
+of reconnect open.
+
+Here we give an overview of the relevant aspects of the Unified semantics,
+discuss where reconnect comes into the picture, and then propose a new
+primitive for Cloud Haskell called $\semRecon$, which essentially gives the
+programmer the ability to explicitly accept message loss.
+
+\section*{Overview of the original semantics}
+
+The top-level semantics is a labelled transition relation between
+\textit{systems}
+%
+\begin{equation}
+\semSystem{\semNs}{\semEth} \xrightarrow{\tilde{\mu}} \semSystem{\semNs'}{\semEth'}
+\end{equation}
+%
+A system $\semSystem{\semNs}{\semEth}$ consists of a bunch of nodes $\semNs$
+and an ``ether'' or system message queue $\semEth$. The ether models, globally,
+all messages that have been sent but not yet delivered. The label $\tilde{\mu}$
+is a list of actions, and is only used in the semantics to define fairness (see
+below). 
+
+A node is a triplet $\semStdNode{}$ consisting of a bunch of processes
+$\semPg$, a node ID $\semNid$ and a node controller $\semNc$. The node
+controller is responsible for all administrative actions on a node (spawning
+new processes, establishing links, etc.). 
+A process $\semStdProc{}$ consists of an expression $e$, process ID $\semPid$
+and message queue (mailbox) $q$. Finally, $(\semParN)$ is used for the parallel
+composition of nodes, and $(\semParP)$ is used for the parallel composition of
+processes. 
+
+\subsubsection*{Ordering}
+
+The ether contains messages of the form
+%
+\begin{equation*}
+(\mathit{recipient}, \mathit{sender}, \mathit{message})
+\end{equation*}
+%
+where $\mathit{recipient}$ and $\mathit{sender}$ are process IDs or node IDs
+(for messages to or from node controllers).  Ordering of message delivery in
+the semantics is embodied by a function 
+%
+\begin{equation*}
+\semEthMatch{\semEth}{\mathit{to}}{\mathit{from}}
+\end{equation*}
+%
+(Def.~11, p.~25) which selects the \emph{first} message in $\semEth$ from
+$\mathit{from}$ to $\mathit{to}$. Many of the semantic rules look like
+%
+\begin{equation*}
+\frac{%
+\semEthMatch{\semEth}{\mathit{to}}{\mathit{from}} = \mathit{sig}
+}{%
+\semSystem{\semNs}{\semEth} \rightarrow \text{(do something with $\mathit{sig}$)} 
+}
+\end{equation*}
+
+where $\mathit{to}$ and $\mathit{from}$ are universally quantified over the
+rule. This means that messages between pairs of processes (or nodes) are
+ordered, but there is no global ordering guarantee. 
+
+\subsubsection*{Disconnects}
+
+Although the semantics is not connection oriented, it includes a
+non-deterministic rule $\mathit{node}_\mathit{disconnect}$ which models
+arbitrary disconnects (Table 9, p.~28):
+%
+{\small
+\begin{equation*}
+\frac{}{%
+  \begin{array}{l}
+  \semSystem{\semStdNode{1} \semParN \semStdNode{2} \semParN \semNs}{\semEth} 
+\xrightarrow{\semDisconnect(nid_1, nid_2)} \\[0.5em] 
+  \semSystem{\semStdNode{1} \semParN \semStdNode{2} \semParN \semNs}
+    {\semEth \cdot (nid_1, nid_2, \semDied{nid_2}{\semDisconnect})
+             \cdot (nid_2, nid_1, \semDied{nid_1}{\semDisconnect})
+    }
+  \end{array}
+} 
+\end{equation*}
+}
+%
+So at any one point a node controller may receive a message that it got
+disconnected from another node controller. These messages are handled by the
+bottom rule in Table 12 (p.~30): local processes that link to (or monitor)
+processes on the disconnected remote node are killed (or notified). 
+
+\subsubsection*{Node or process failure}
+
+When a process dies (throws an exception) a message is sent to its local node
+controller (rule $\mathit{exiting}$, Table~4, p.~27). Failure of an entire
+node is handled by a non-deterministic rule like the one above (rule
+$\mathit{node}_\mathit{failure}$, Table~9, p.~28). The resulting message is
+handled in a similar way to a disconnect (Table~12, p.~30).
+
+When a process or a node \emph{dies} (but \emph{not} when it gets disconnected)
+messages to that process (or node) can be removed from the ether (rules
+$\mathit{missing}_\mathit{process}$ and $\mathit{missing}_\mathit{node}$,
+Table~6, p.~28).
+
+\subsubsection*{Fairness}
+
+Since the semantic rules pick an (more or less) arbitrary message from the
+ether to process, the rules do not guarantee that all messages are eventually
+delivered. In the paper this is added ``on top'' of the semantic rules by Def.~20
+(p.~29), which essentially states that all messages that have been sent must be
+delivered (or explicitly removed by rules $\mathit{missing}_\mathit{process}$
+and $\mathit{missing}_\mathit{node}$).
+
+\section*{Reconnect}
+
+\subsubsection*{In the Unified semantics}
+
+The original semantics state that
+
+\begin{enumerate}
+\item all messages sent must eventually be delivered or explicitly removed from the ether (fairness)
+\item only messages to died (not disconnected) processes or nodes can be removed from the ether
+\end{enumerate}
+
+From a practical perspective this means that messages sent from process $P$ to
+process $Q$ must be infinitely buffered when $P$ gets disconnected to $Q$, and
+the system should keep retrying to connect to $Q$ until it receives evidence
+(for instance, from $Q$'s node controller) that $Q$ has died.
+
+For messages sent to node controllers (such as attempts to spawn new processes)
+this is even more problematic: when process $P$ gets disconnected from node
+$N$, all messages from $P$ to $N$ must be infinitely buffered until a
+reconnection is established, or dropped when $P$ learns $N$ has died. However,
+process $P$ might never be able to distinguish a (temporary) disconnect from
+$N$ from a crash of $N$. 
+
+\subsubsection*{Permanent disconnects}
+
+The simplest solution to avoid infinite buffering is to drop the fairness
+requirement from the semantics.  Now the implementation is free to attempt to
+reconnect only a finite number of times---or indeed never---and then simply
+drop all subsequent messages and never reconnect again.  This is a correct
+implementation of the semantics, because without the fairness requirement
+messages sent from $P$ to $Q$ can be left in the ether forever.\footnote{From a
+purely formal perspective, the semantics without the fairness guarantee is too
+permissive: it would allow a message never to be sent even when no disconnect
+occurs. If we wanted to fix this, we would have to remove messages from the
+ether on a disconnect, so that fairness can be satisfied, and keep an explicit
+history of disconnects.} 
+
+\subsubsection*{Implicit reconnect with potential message loss (Erlang-style)}
+
+The solution adopted by Erlang is an implicit reconnect but without
+buffering. As described in the introduction, this means that it is possible for
+$P$ to send messages $m_1, m_2, m_3$ to $Q$ and for $Q$ to receive messages
+$m_1$ and $m_3$, but not $m_2$.  We could model this in the semantics by
+modifying the rule for disconnect so that it removes messages from the ether.
+
+\subsubsection*{Explicit Reconnects}
+
+Erlang-style implicit reconnects are not very satisfying semantically because
+it means we cannot really make any claims about the reliability of message
+delivery. Permanent disconnects are nicer semantically, but might be too
+limiting (some musings on that below). The solution we propose is to introduce
+a new primitive called $\semRecon$. Here's the rule:
+%
+\begin{equation*}
+\frac{%
+e \xrightarrow{\semRecon(i)} e' \qquad
+(\semEth_0, \semEth_1) = \mathrm{partition} \; (\lambda (\mathit{to}, \mathit{from}, \_) \rightarrow \mathit{to} = i \wedge \mathit{from} = \semPid) \; \semEth
+}{%
+  \semSystem{\semNode{\semProc{e}{\semPid}{q} \semParP \semPg}{\semNid}{\semNc} \semParN \semNs}{\semEth}
+\xrightarrow{\semDropped(\semEth_0)}
+  \semSystem{\semNode{\semProc{e'}{\semPid}{q} \semParP \semPg}{\semNid}{\semNc} \semParN \semNs}{\semEth_1}
+}
+\end{equation*}
+%
+Semantically, when process $P$ calls $\semRecon(Q)$ it explicitly accepts that
+some the messages it sent to $Q$ might be lost. Note that this is the only
+change we need to make the Unified semantics. In particular, the fairness
+requirement stays: since the rule explicitly records that some messages have
+been dropped, fairness now means:
+
+\begin{quote}
+All messages sent must eventually be delivered, removed from the ether because
+a process or a node died, or removed from the ether by an explicit $\semRecon$. 
+\end{quote}
+
+From an implementation point of view, once $P$'s connection to $Q$ breaks we do
+not implicitly reconnect (because doing so would mean losing the reliability
+guarantee). When $P$ calls $\semRecon(Q)$, however, the implementation is 
+free to reestablish a connection from $P$ to $Q$, either immediately or when
+$P$ sends its next message to $Q$. 
+
+\section*{Example}
+
+Suppose we start with two nodes, both of which run a single process. The system
+ether and both process queues are empty ($\epsilon$): 
+%
+\begin{equation*}
+\semSystem
+  {\semNode{\semProc{p_1}{\semPid_1}{\epsilon}}{\semNid_1}{\semNc_1} 
+  \semParN 
+   \underbrace{\semNode{\semProc{p_2}{\semPid_2}{\epsilon}}{\semNid_2}{\semNc_2}}_{N_2}
+  }
+  {\epsilon}
+\end{equation*}
+%
+Now $p_1$ sends a message to $p_2$ (Rule $\mathit{output}$, Table~5, p.~28):
+%
+\begin{equation*}
+\frac{%
+  p_1 \xrightarrow{\semPid_2 \; {!_{\semPid_1}} \; \semMessage(v)} p_1'
+}{%
+\semSystem
+  {\semNode{\semProc{p_1}{\semPid_1}{\epsilon}}{\semNid_1}{\semNc_1} 
+  \semParN 
+   N_2 
+  }
+  {\epsilon}
+\xrightarrow{\semPid_2 \; {!_{\semPid_1}} \; \semMessage(v)} 
+\semSystem
+  {\underbrace{\semNode{\semProc{p_1}{\semPid_1}{\epsilon}}{\semNid_1}{\semNc_1}}_{N_1'} 
+  \semParN 
+   N_2 
+  }
+  {\underbrace{(\semPid_2, \semPid_1, \semMessage(v))}_{M_1}}
+}
+\end{equation*}
+%
+Note that the message has been sent but not yet delivered (i.e., it is in the
+ether, not in $p_2$'s queue). Now suppose that node $\semNid_1$ gets
+disconnected from node $\semNid_2$ (Table~9, p.~28):
+%
+\begin{equation*}
+\frac{%
+}{%
+\begin{array}{l}
+\semSystem{N_1' \semParN N_2}{M_1} 
+\xrightarrow{\semDisconnect(\semNid_1, \semNid_2)} \\
+\semSystem{N_1' \semParN N_2}{M_1 \cdot (nid_1, nid_2, \semDied{nid_2}{\semDisconnect})
+                                  \cdot (nid_2, nid_1, \semDied{nid_1}{\semDisconnect})}
+\end{array}                                  
+}
+\end{equation*}
+%
+Assume that $p_1$ had previously set up monitoring for $p_2$. It gets notified of the disconnect (Table 12), and it receives the monitor message; at this point we're in a state
+%
+\begin{equation*}
+\semSystem{N_1'' \semParN N_2}{M_1}
+\end{equation*}
+%
+where the original message $M_1$ is still in the ether. If at this point $p_1$ sends another message to $p_2$ we end up with an ether
+%
+\begin{equation*}
+M_1 \cdot \underbrace{(\semPid_2, \semPid_1, \semMessage(v_2))}_{M_2}
+\end{equation*}
+%
+which implies that we must deliver $M_1$ before $M_2$. This is of course
+precisely the ``ordered'' reliability guarantee. If however, $p_1$ calls
+$\semRecon$ when it receives the monitor message, we remove $M_1$ from the ether;
+when $p_1$ then sends the next message we can establish a new connection.
+
+\section*{The Need for Reconnect}
+
+Ordering guarantees are between pairs of processes/nodes. Thus, when $P$ gets
+disconnected from $Q$, the easiest way to reestablish a connection is for $P$
+to restart to become a new process $P'$. This will happen naturally when $P$
+links to $Q$ and can be restarted by some supervisor process. 
+
+However, if there are many processes connected to $P$, then $P$ might not want
+to restart (breaking all connections with its own clients) simply in order to
+be able to reconnect to Q. For instance, maybe $P$ is a webserver and $Q$ is a
+domain name server; if $P$ gets temporarily disconnected from $Q$, it does not
+make much sense to require $P$ to restart (and get a new process ID) before it
+can send new domain name requests (indeed, in this particular example, lost
+messages to a domain name server may not matter at all).
+
+The situation is even more severe for messages sent from processes to
+\emph{nodes}. For instance, suppose process $P$ does
+%
+\begin{lstlisting}[mathescape,keywords={do}]
+do spawnAsync nid p1 ; spawnAsync nid p2 ; spawnAsync nid p3
+\end{lstlisting}
+%
+and receives a confirmation that $p_3$ was spawned successfully.\footnote{In
+the unified paper spawn is asynchronous, which is why the new implementation of
+Cloud Haskell offers \texttt{spawnAsync}; \texttt{spawn} is then implemented in
+terms of \texttt{spawnAsync} and \texttt{expect}.} Intuitively this seems to
+suggest that \emph{all} of $p_1$, $p_2$ and $p_3$ should have been spawned, and
+this is guaranteed by the reliable-ordered guarantee for messages:
+\texttt{spawnAsync} is nothing more than a message from the process to the node
+controller of the node $\mathit{nid}$.
+
+But the same problem with reconnect occurs here, too. If the connection from
+the process to the remote node controller is lost, we cannot guarantee ordered
+delivery. Permanent disconnect would mean that the process would have to
+restart before it can spawn new processes on this remote node; if the process
+is some sort of supervisor process, then this might not be what we want to do.
+Implicit reconnects means we lose the reliability guarantee; an explicit
+reconnect (probably after a monitor notification about the disconnect from the
+remote node) allows the process to reestablish a connection to the remote node
+controller, and forces the programmer of the process to think about how to
+handle the potential loss of messages. 
+
+\section*{Alternative Solutions}
+
+\begin{itemize}
+
+\item A hybrid solution is possible, too. For instance, we might guarantee
+reliable-ordered message passing for messages sent from process-to-process, but
+not for process-to-node. In other words, no explicit call is necessary when
+spawning a new process on a remote node after a disconnect from that remote
+node. This might muddle the semantics (in particular, if processes don't
+monitor remote nodes, programmers might get a false sense of security and rely
+on non-existing ordering guarantees). On the other hand, requiring an explicit
+reconnect to a remote node before a spawn (or similar primitive) might be
+confusing. 
+
+\item Since Cloud Haskell supports typed channels as well as sending messages
+directly to processes, we could decide not to offer any reliability guarantees
+for messages sent directly to processes, but provide reliable-ordered message
+delivery on typed channels. This is an attractive solution, because a typed
+channel could be considered a connection. When $P$ wants to communicate with
+$Q$, it sends a message to $Q$ requesting a send port. It then communicates
+with $Q$ through this send port; when it gets disconnected, it could request a
+\empty{new} typed channel. Importantly, the send port $P$ receives must indeed
+be a \emph{new} channel (at least from $P$s perspective). 
+
+\end{itemize}
+
+
+
+
+\end{document}
