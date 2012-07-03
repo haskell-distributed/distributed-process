@@ -10,6 +10,7 @@ module Control.Distributed.Process.Internal.Types
   , LocalProcessId(..)
   , ProcessId(..)
   , Identifier(..)
+  , nodeOf
     -- * Local nodes and processes
   , LocalNode(..)
   , LocalNodeState(..)
@@ -18,8 +19,8 @@ module Control.Distributed.Process.Internal.Types
   , Process(..)
   , procMsg
     -- * Typed channels
-  , LocalChannelId 
-  , ChannelId(..)
+  , LocalSendPortId 
+  , SendPortId(..)
   , TypedChannel(..)
   , SendPort(..)
   , ReceivePort(..)
@@ -34,11 +35,17 @@ module Control.Distributed.Process.Internal.Types
   , Message(..)
     -- * Node controller user-visible data types 
   , MonitorRef(..)
-  , MonitorNotification(..)
-  , LinkException(..)
+  , ProcessMonitorNotification(..)
+  , NodeMonitorNotification(..)
+  , PortMonitorNotification(..)
+  , ProcessLinkException(..)
+  , NodeLinkException(..)
+  , PortLinkException(..)
   , DiedReason(..)
   , DidUnmonitor(..)
-  , DidUnlink(..)
+  , DidUnlinkProcess(..)
+  , DidUnlinkNode(..)
+  , DidUnlinkPort(..)
   , SpawnRef(..)
   , DidSpawn(..)
     -- * Node controller internal data types 
@@ -121,10 +128,20 @@ instance Show ProcessId where
 
 -- | Union of all kinds of identifiers 
 data Identifier = 
-    ProcessIdentifier ProcessId 
-  | NodeIdentifier NodeId
-  | ChannelIdentifier ChannelId 
-  deriving (Show, Eq, Ord)
+    NodeIdentifier NodeId
+  | ProcessIdentifier ProcessId 
+  | SendPortIdentifier SendPortId
+  deriving (Eq, Ord)
+
+instance Show Identifier where
+  show (NodeIdentifier nid)     = show nid
+  show (ProcessIdentifier pid)  = show pid
+  show (SendPortIdentifier cid) = show cid
+
+nodeOf :: Identifier -> NodeId
+nodeOf (NodeIdentifier nid)     = nid
+nodeOf (ProcessIdentifier pid)  = processNodeId pid
+nodeOf (SendPortIdentifier cid) = processNodeId (sendPortProcessId cid)
 
 --------------------------------------------------------------------------------
 -- Local nodes and processes                                                  --
@@ -165,7 +182,7 @@ data LocalProcessState = LocalProcessState
   { _monitorCounter :: Int32
   , _spawnCounter   :: Int32
   , _channelCounter :: Int32
-  , _typedChannels  :: Map LocalChannelId TypedChannel 
+  , _typedChannels  :: Map LocalSendPortId TypedChannel 
   }
 
 -- | The Cloud Haskell 'Process' type
@@ -181,18 +198,22 @@ procMsg = Process . Trans.lift
 -- Typed channels                                                             --
 --------------------------------------------------------------------------------
 
-type LocalChannelId = Int32
+type LocalSendPortId = Int32
 
-data ChannelId = ChannelId {
-    channelProcessId :: ProcessId
-  , channelLocalId   :: LocalChannelId
+data SendPortId = SendPortId {
+    sendPortProcessId :: ProcessId
+  , sendPortLocalId   :: LocalSendPortId
   }
-  deriving (Show, Eq, Ord)
+  deriving (Eq, Ord)
+
+instance Show SendPortId where
+  show cid = show (sendPortProcessId cid) ++ ":" ++ show (sendPortLocalId cid)
 
 data TypedChannel = forall a. Serializable a => TypedChannel (TChan a)
 
 -- | The send send of a typed channel (serializable)
-newtype SendPort a = SendPort ChannelId deriving (Typeable, Binary)
+newtype SendPort a = SendPort { sendPortId :: SendPortId }
+  deriving (Typeable, Binary, Show, Eq, Ord)
 
 -- | The receive end of a typed channel (not serializable)
 data ReceivePort a = 
@@ -274,22 +295,46 @@ data Message = Message
 
 -- | MonitorRef is opaque for regular Cloud Haskell processes 
 data MonitorRef = MonitorRef 
-  { -- | PID of the process to be monitored (for routing purposes)
-    monitorRefPid     :: ProcessId  
+  { -- | ID of the entity to be monitored
+    monitorRefIdent   :: Identifier
     -- | Unique to distinguish multiple monitor requests by the same process
   , monitorRefCounter :: Int32
   }
   deriving (Eq, Ord, Show)
 
--- | Messages sent by monitors
-data MonitorNotification = MonitorNotification MonitorRef ProcessId DiedReason
+-- | Message sent by process monitors
+data ProcessMonitorNotification = 
+    ProcessMonitorNotification MonitorRef ProcessId DiedReason
+  deriving (Typeable, Show)
+
+-- | Message sent by node monitors
+data NodeMonitorNotification = 
+    NodeMonitorNotification MonitorRef NodeId DiedReason
+  deriving (Typeable, Show)
+
+-- | Message sent by channel (port) monitors
+data PortMonitorNotification = 
+    PortMonitorNotification MonitorRef SendPortId DiedReason
   deriving (Typeable, Show)
 
 -- | Exceptions thrown when a linked process dies
-data LinkException = LinkException ProcessId DiedReason
+data ProcessLinkException = 
+    ProcessLinkException ProcessId DiedReason
   deriving (Typeable, Show)
 
-instance Exception LinkException
+-- | Exception thrown when a linked node dies
+data NodeLinkException = 
+    NodeLinkException NodeId DiedReason
+  deriving (Typeable, Show)
+
+-- | Exception thrown when a linked channel (port) dies
+data PortLinkException = 
+    PortLinkException SendPortId DiedReason
+  deriving (Typeable, Show)
+
+instance Exception ProcessLinkException
+instance Exception NodeLinkException
+instance Exception PortLinkException
 
 -- | Why did a process die?
 data DiedReason = 
@@ -302,8 +347,8 @@ data DiedReason =
   | DiedDisconnect
     -- | The process node died
   | DiedNodeDown
-    -- | Invalid process ID
-  | DiedNoProc
+    -- | Invalid (process/node/channel) identifier 
+  | DiedUnknownId
   deriving (Show, Eq)
 
 -- | (Asynchronous) reply from unmonitor
@@ -311,7 +356,15 @@ newtype DidUnmonitor = DidUnmonitor MonitorRef
   deriving (Typeable, Binary)
 
 -- | (Asynchronous) reply from unlink
-newtype DidUnlink = DidUnlink ProcessId
+newtype DidUnlinkProcess = DidUnlinkProcess ProcessId
+  deriving (Typeable, Binary)
+
+-- | (Asynchronous) reply from unlinkNode
+newtype DidUnlinkNode = DidUnlinkNode NodeId
+  deriving (Typeable, Binary)
+
+-- | (Asynchronous) reply from unlinkPort
+newtype DidUnlinkPort = DidUnlinkPort SendPortId 
   deriving (Typeable, Binary)
 
 -- | 'SpawnRef' are used to return pids of spawned processes
@@ -335,9 +388,9 @@ data NCMsg = NCMsg
 
 -- | Signals to the node controller (see 'NCMsg')
 data ProcessSignal =
-    Link ProcessId
-  | Unlink ProcessId
-  | Monitor ProcessId MonitorRef
+    Link Identifier 
+  | Unlink Identifier 
+  | Monitor MonitorRef
   | Unmonitor MonitorRef
   | Died Identifier DiedReason
   | Spawn (Closure (Process ())) SpawnRef 
@@ -355,22 +408,30 @@ instance Binary ProcessId where
   put pid = put (processNodeId pid) >> put (processLocalId pid)
   get     = ProcessId <$> get <*> get
 
-instance Binary MonitorNotification where
-  put (MonitorNotification ref pid reason) = put ref >> put pid >> put reason
-  get = MonitorNotification <$> get <*> get <*> get
+instance Binary ProcessMonitorNotification where
+  put (ProcessMonitorNotification ref pid reason) = put ref >> put pid >> put reason
+  get = ProcessMonitorNotification <$> get <*> get <*> get
+
+instance Binary NodeMonitorNotification where
+  put (NodeMonitorNotification ref pid reason) = put ref >> put pid >> put reason
+  get = NodeMonitorNotification <$> get <*> get <*> get
+
+instance Binary PortMonitorNotification where
+  put (PortMonitorNotification ref pid reason) = put ref >> put pid >> put reason
+  get = PortMonitorNotification <$> get <*> get <*> get
 
 instance Binary NCMsg where
   put msg = put (ctrlMsgSender msg) >> put (ctrlMsgSignal msg)
   get     = NCMsg <$> get <*> get
 
 instance Binary MonitorRef where
-  put ref = put (monitorRefPid ref) >> put (monitorRefCounter ref)
+  put ref = put (monitorRefIdent ref) >> put (monitorRefCounter ref)
   get     = MonitorRef <$> get <*> get
 
 instance Binary ProcessSignal where
   put (Link pid)        = putWord8 0 >> put pid
   put (Unlink pid)      = putWord8 1 >> put pid
-  put (Monitor pid ref) = putWord8 2 >> put pid >> put ref
+  put (Monitor ref)     = putWord8 2 >> put ref
   put (Unmonitor ref)   = putWord8 3 >> put ref 
   put (Died who reason) = putWord8 4 >> put who >> put reason
   put (Spawn proc ref)  = putWord8 5 >> put proc >> put ref
@@ -379,7 +440,7 @@ instance Binary ProcessSignal where
     case header of
       0 -> Link <$> get
       1 -> Unlink <$> get
-      2 -> Monitor <$> get <*> get
+      2 -> Monitor <$> get
       3 -> Unmonitor <$> get
       4 -> Died <$> get <*> get
       5 -> Spawn <$> get <*> get
@@ -390,7 +451,7 @@ instance Binary DiedReason where
   put (DiedException e) = putWord8 1 >> put e 
   put DiedDisconnect    = putWord8 2
   put DiedNodeDown      = putWord8 3
-  put DiedNoProc        = putWord8 4
+  put DiedUnknownId     = putWord8 4
   get = do
     header <- getWord8
     case header of
@@ -398,7 +459,7 @@ instance Binary DiedReason where
       1 -> DiedException <$> get
       2 -> return DiedDisconnect
       3 -> return DiedNodeDown
-      4 -> return DiedNoProc
+      4 -> return DiedUnknownId 
       _ -> fail "DiedReason.get: invalid"
 
 instance Binary (Closure a) where
@@ -409,20 +470,20 @@ instance Binary DidSpawn where
   put (DidSpawn ref pid) = put ref >> put pid
   get = DidSpawn <$> get <*> get
 
-instance Binary ChannelId where
-  put cid = put (channelProcessId cid) >> put (channelLocalId cid)
-  get = ChannelId <$> get <*> get 
+instance Binary SendPortId where
+  put cid = put (sendPortProcessId cid) >> put (sendPortLocalId cid)
+  get = SendPortId <$> get <*> get 
 
 instance Binary Identifier where
-  put (ProcessIdentifier pid) = putWord8 0 >> put pid
-  put (NodeIdentifier nid)    = putWord8 1 >> put nid
-  put (ChannelIdentifier cid) = putWord8 2 >> put cid
+  put (ProcessIdentifier pid)  = putWord8 0 >> put pid
+  put (NodeIdentifier nid)     = putWord8 1 >> put nid
+  put (SendPortIdentifier cid) = putWord8 2 >> put cid
   get = do
     header <- getWord8 
     case header of
       0 -> ProcessIdentifier <$> get
       1 -> NodeIdentifier <$> get
-      2 -> ChannelIdentifier <$> get
+      2 -> SendPortIdentifier <$> get 
       _ -> fail "Identifier.get: invalid"
 
 instance Binary StaticLabel where
@@ -485,13 +546,13 @@ monitorCounter = accessor _monitorCounter (\cnt st -> st { _monitorCounter = cnt
 spawnCounter :: Accessor LocalProcessState Int32
 spawnCounter = accessor _spawnCounter (\cnt st -> st { _spawnCounter = cnt })
 
-channelCounter :: Accessor LocalProcessState LocalChannelId
+channelCounter :: Accessor LocalProcessState LocalSendPortId
 channelCounter = accessor _channelCounter (\cnt st -> st { _channelCounter = cnt })
 
-typedChannels :: Accessor LocalProcessState (Map LocalChannelId TypedChannel)
+typedChannels :: Accessor LocalProcessState (Map LocalSendPortId TypedChannel)
 typedChannels = accessor _typedChannels (\cs st -> st { _typedChannels = cs })
 
-typedChannelWithId :: LocalChannelId -> Accessor LocalProcessState (Maybe TypedChannel)
+typedChannelWithId :: LocalSendPortId -> Accessor LocalProcessState (Maybe TypedChannel)
 typedChannelWithId cid = typedChannels >>> DAC.mapMaybe cid
 
 remoteTableLabels :: Accessor RemoteTable (Map String Dynamic)

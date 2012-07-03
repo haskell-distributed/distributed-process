@@ -18,6 +18,7 @@ module Control.Distributed.Process
     -- * Channels
   , ReceivePort
   , SendPort
+  , sendPortId
   , newChan
   , sendChan
   , receiveChan
@@ -40,15 +41,23 @@ module Control.Distributed.Process
   , getSelfNode
     -- * Monitoring and linking
   , link
+  , linkNode
+  , linkPort
   , unlink
+  , unlinkNode
+  , unlinkPort
   , monitor
+  , monitorNode
+  , monitorPort
   , unmonitor
-  , LinkException(..)
+  , ProcessLinkException(..)
+  , NodeLinkException(..)
+  , PortLinkException(..)
   , MonitorRef -- opaque
-  , MonitorNotification(..)
+  , ProcessMonitorNotification(..)
+  , NodeMonitorNotification(..)
+  , PortMonitorNotification(..)
   , DiedReason(..)
-  , DidUnmonitor(..)
-  , DidUnlink(..)
     -- * Closures
   , Closure
   , Static
@@ -78,10 +87,12 @@ import Control.Distributed.Process.Internal.Types
   , Closure(..)
   , Static(..)
   , MonitorRef(..)
-  , MonitorNotification(..)
-  , LinkException(..)
-  , DidUnmonitor(..)
-  , DidUnlink(..)
+  , ProcessMonitorNotification(..)
+  , NodeMonitorNotification(..)
+  , PortMonitorNotification(..)
+  , ProcessLinkException(..)
+  , NodeLinkException(..)
+  , PortLinkException(..)
   , DiedReason(..)
   , SpawnRef(..)
   , DidSpawn(..)
@@ -122,8 +133,14 @@ import Control.Distributed.Process.Internal.Process.Primitives
   , getSelfNode
     -- Monitoring and linking
   , link
+  , linkNode
+  , linkPort
   , unlink
+  , unlinkNode
+  , unlinkPort
   , monitor
+  , monitorNode
+  , monitorPort
   , unmonitor
     -- Auxiliary API
   , catch

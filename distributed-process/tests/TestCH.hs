@@ -94,26 +94,22 @@ monitorTestProcess theirAddr mOrL un reason monitorSetup done =
             case (un, mRef) of
               (True, Nothing) -> do
                 unlink theirAddr
-                DidUnlink pid <- expect
-                True <- return $ pid == theirAddr
                 liftIO $ putMVar done ()
               (True, Just ref) -> do
                 unmonitor ref
-                DidUnmonitor ref' <- expect
-                True <- return $ ref == ref'
                 liftIO $ putMVar done ()
               (False, ref) -> do
-                MonitorNotification ref' pid reason' <- expect
+                ProcessMonitorNotification ref' pid reason' <- expect
                 True <- return $ Just ref' == ref && pid == theirAddr && mOrL && reason == reason'
                 liftIO $ putMVar done ()
         )
-        (\(LinkException pid reason') -> do
+        (\(ProcessLinkException pid reason') -> do
             True <- return $ pid == theirAddr && not mOrL && not un && reason == reason'
             liftIO $ putMVar done ()
         )
   
 
--- | Monitor an unreachable node 
+-- | Monitor a process on an unreachable node 
 testMonitorUnreachable :: NT.Transport -> Bool -> Bool -> IO ()
 testMonitorUnreachable transport mOrL un = do
   deadProcess <- newEmptyMVar
@@ -194,7 +190,7 @@ testMonitorLocalDeadProcess transport mOrL un = do
     theirAddr <- readMVar processAddr
     readMVar processDead
     runProcess localNode $ do
-      monitorTestProcess theirAddr mOrL un DiedNoProc Nothing done
+      monitorTestProcess theirAddr mOrL un DiedUnknownId Nothing done
 
   takeMVar done
 
@@ -215,7 +211,7 @@ testMonitorRemoteDeadProcess transport mOrL un = do
     theirAddr <- readMVar processAddr
     readMVar processDead
     runProcess localNode $ do
-      monitorTestProcess theirAddr mOrL un DiedNoProc Nothing done
+      monitorTestProcess theirAddr mOrL un DiedUnknownId Nothing done
 
   takeMVar done
 
@@ -493,9 +489,40 @@ testTerminate transport = do
 
   runProcess localNode $ do
     ref <- monitor pid
-    MonitorNotification ref' pid' (DiedException ex) <- expect
+    ProcessMonitorNotification ref' pid' (DiedException ex) <- expect
     True <- return $ ref == ref' && pid == pid' && ex == show ProcessTerminationException 
     return ()
+
+testMonitorNode :: NT.Transport -> IO ()
+testMonitorNode transport = do
+  [node1, node2] <- replicateM 2 $ newLocalNode transport initRemoteTable
+
+  closeLocalNode node1
+
+  runProcess node2 $ do
+    ref <- monitorNode (localNodeId node1)
+    NodeMonitorNotification ref' nid DiedDisconnect <- expect
+    True <- return $ ref == ref' && nid == localNodeId node1
+    return ()
+
+testMonitorChannel :: NT.Transport -> IO ()
+testMonitorChannel transport = do
+    [node1, node2] <- replicateM 2 $ newLocalNode transport initRemoteTable
+    gotNotification <- newEmptyMVar
+
+    pid <- forkProcess node1 $ do
+      sport <- expect :: Process (SendPort ())
+      ref <- monitorPort sport
+      PortMonitorNotification ref' port' DiedNormal <- expect
+      return $ ref' == ref && port' == sendPortId sport 
+      liftIO $ putMVar gotNotification ()
+
+    runProcess node2 $ do
+      (sport, _) <- newChan :: Process (SendPort (), ReceivePort ())
+      send pid sport
+      liftIO $ threadDelay 100000
+
+    takeMVar gotNotification
 
 main :: IO ()
 main = do
@@ -509,6 +536,8 @@ main = do
     , ("TypedChannnels",   testTypedChannels    transport)
     , ("MergeChannels",    testMergeChannels    transport)
     , ("TestTerminate",    testTerminate        transport)
+      -- Monitoring processes
+      --
       -- The "missing" combinations in the list below don't make much sense, as
       -- we cannot guarantee that the monitor reply or link exception will not 
       -- happen before the unmonitor or unlink
@@ -530,4 +559,7 @@ main = do
     , ("UnlinkNormalTermination",      testMonitorNormalTermination   transport False True)
     , ("UnlinkAbnormalTermination",    testMonitorAbnormalTermination transport False True)
     , ("UnlinkDisconnect",             testMonitorDisconnect          transport False True)
+      -- Monitoring nodes and channels
+    , ("MonitorNode",                  testMonitorNode                transport)
+    , ("MonitorChannel",               testMonitorChannel             transport)
     ]

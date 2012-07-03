@@ -235,10 +235,10 @@ testSpawnSupervised transport rtable = do
     forkProcess node2 $ do
       [super, child] <- liftIO $ mapM readMVar [superPid, childPid]
       ref <- monitor child
-      MonitorNotification ref' pid' (DiedException e) <- expect
+      ProcessMonitorNotification ref' pid' (DiedException e) <- expect
       True <- return $ ref' == ref 
                     && pid' == child 
-                    && e == show (LinkException super (DiedException (show supervisorDeath)))
+                    && e == show (ProcessLinkException super (DiedException (show supervisorDeath)))
       liftIO $ putMVar thirdProcessDone ()
 
     takeMVar thirdProcessDone
@@ -251,7 +251,7 @@ testSpawnInvalid transport rtable = do
   node <- newLocalNode transport rtable
   runProcess node $ do
     (pid, ref) <- spawnMonitor (localNodeId node) (Closure (Static (UserStatic "ThisDoesNotExist")) BSL.empty)
-    MonitorNotification ref' pid' _reason <- expect 
+    ProcessMonitorNotification ref' pid' _reason <- expect 
     -- Depending on the exact interleaving, reason might be NoProc or the exception thrown by the absence of the static closure
     True <- return $ ref' == ref && pid == pid'  
     return ()

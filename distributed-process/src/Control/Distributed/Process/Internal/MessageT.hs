@@ -27,9 +27,8 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Concurrent.Chan (writeChan)
 import Control.Distributed.Process.Internal.Types
   ( Identifier(..)
+  , nodeOf
   , NodeId(nodeAddress) 
-  , ProcessId(processNodeId)
-  , ChannelId(channelProcessId)
   , LocalNode(localCtrlChan, localEndPoint)
   , NCMsg(NCMsg, ctrlMsgSender, ctrlMsgSignal)
   , DiedReason(DiedDisconnect)
@@ -122,7 +121,7 @@ setupConnTo :: MonadIO m => Identifier -> MessageT m (Maybe NT.Connection)
 setupConnTo them = do
     endPoint <- localEndPoint `liftM` getLocalNode 
     mConn    <- liftIO $ NT.connect endPoint 
-                                    (nodeAddress . identifierNode $ them) 
+                                    (nodeAddress . nodeOf $ them) 
                                     NT.ReliableOrdered 
                                     NT.defaultConnectHints
     case mConn of 
@@ -143,11 +142,6 @@ connTo them = do
   case mConn of
     Just conn -> return $ Just conn
     Nothing   -> setupConnTo them
-
-identifierNode :: Identifier -> NodeId
-identifierNode (NodeIdentifier nid)    = nid
-identifierNode (ProcessIdentifier pid) = processNodeId pid
-identifierNode (ChannelIdentifier cid) = processNodeId (channelProcessId cid)
 
 --------------------------------------------------------------------------------
 -- Accessors                                                                  --

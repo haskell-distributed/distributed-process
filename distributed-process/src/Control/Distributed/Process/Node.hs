@@ -13,7 +13,14 @@ import System.IO (fixIO)
 import qualified Data.ByteString.Lazy as BSL (fromChunks)
 import Data.Binary (decode)
 import Data.Map (Map)
-import qualified Data.Map as Map (empty, lookup, insert, delete, toList)
+import qualified Data.Map as Map 
+  ( empty
+  , lookup
+  , insert
+  , delete
+  , toList
+  , partitionWithKey
+  )
 import qualified Data.List as List (delete)
 import Data.Set (Set)
 import qualified Data.Set as Set (empty, insert, delete, member)
@@ -73,18 +80,26 @@ import Control.Distributed.Process.Internal.Types
   , localPidUnique
   , localProcessWithId
   , MonitorRef(..)
-  , MonitorNotification(..)
-  , LinkException(..)
+  , ProcessMonitorNotification(..)
+  , NodeMonitorNotification(..)
+  , PortMonitorNotification(..)
+  , ProcessLinkException(..)
+  , NodeLinkException(..)
+  , PortLinkException(..)
   , DidUnmonitor(..)
-  , DidUnlink(..)
+  , DidUnlinkProcess(..)
+  , DidUnlinkNode(..)
+  , DidUnlinkPort(..)
   , SpawnRef
   , DidSpawn(..)
   , Closure(..)
   , Static(..)
+  , Message
   , MessageT
   , TypedChannel(..)
   , Identifier(..)
-  , ChannelId(..)
+  , nodeOf
+  , SendPortId(..)
   , typedChannelWithId
   )
 import Control.Distributed.Process.Serializable (Serializable)
@@ -249,9 +264,9 @@ handleIncomingMessages node = go [] Map.empty Map.empty Set.empty
                       -- incoming connections (this requires a Transport layer
                       -- extension). (**)
                       go (List.delete cid uninitConns) procs chans ctrls
-                ChannelIdentifier chId -> do
-                  let lcid = channelLocalId chId
-                      lpid = processLocalId (channelProcessId chId)
+                SendPortIdentifier chId -> do
+                  let lcid = sendPortLocalId chId
+                      lpid = processLocalId (sendPortProcessId chId)
                   mProc <- withMVar state $ return . (^. localProcessWithId lpid)
                   case mProc of
                     Just proc -> do
@@ -325,9 +340,9 @@ runNodeController node =
 
 data NCState = NCState 
   {  -- Mapping from remote processes to linked local processes 
-    _links    :: Map NodeId (Map LocalProcessId (Set ProcessId))
+    _links    :: Map Identifier (Set ProcessId) 
      -- Mapping from remote processes to monitoring local processes
-  , _monitors :: Map NodeId (Map LocalProcessId (Map ProcessId (Set MonitorRef)))
+  , _monitors :: Map Identifier (Set (ProcessId, MonitorRef))
   }
 
 newtype NC a = NC { unNC :: StateT NCState (MessageT IO) a }
@@ -362,24 +377,22 @@ nodeController = do
     case msg of
       NCMsg (ProcessIdentifier from) (Link them) ->
         ncEffectMonitor from them Nothing
-      NCMsg (ProcessIdentifier from) (Monitor them ref) ->
-        ncEffectMonitor from them (Just ref)
+      NCMsg (ProcessIdentifier from) (Monitor ref) ->
+        ncEffectMonitor from (monitorRefIdent ref) (Just ref)
       NCMsg (ProcessIdentifier from) (Unlink them) ->
         ncEffectUnlink from them 
       NCMsg (ProcessIdentifier from) (Unmonitor ref) ->
         ncEffectUnmonitor from ref
-      NCMsg _from (Died (NodeIdentifier nid) reason) ->
-        ncEffectNodeDied nid reason
-      NCMsg _from (Died (ProcessIdentifier pid) reason) ->
-        ncEffectProcessDied pid reason
+      NCMsg _from (Died ident reason) ->
+        ncEffectDied ident reason
       NCMsg (ProcessIdentifier from) (Spawn proc ref) ->
         ncEffectSpawn from proc ref
       unexpected ->
-        error $ "Unexpected message " ++ show unexpected
+        error $ "nodeController: unexpected message " ++ show unexpected
 
 -- [Unified: Table 10]
 ncEffectMonitor :: ProcessId        -- ^ Who's watching? 
-                -> ProcessId        -- ^ Who's being watched?
+                -> Identifier       -- ^ Who's being watched?
                 -> Maybe MonitorRef -- ^ 'Nothing' to link
                 -> NC ()
 ncEffectMonitor from them mRef = do
@@ -387,73 +400,62 @@ ncEffectMonitor from them mRef = do
   shouldLink <- 
     if not (isLocal node them) 
       then return True
-      else liftIO . withMVar (localState node) $ 
-        return . isJust . (^. localProcessWithId (processLocalId them))
-  case (shouldLink, isLocal node from) of
+      else isValidLocalIdentifier them
+  case (shouldLink, isLocal node (ProcessIdentifier from)) of
     (True, _) ->  -- [Unified: first rule]
       case mRef of
-        Just ref -> modify $ monitorsFor them from ^: Set.insert ref
-        Nothing  -> modify $ linksForProcess them ^: Set.insert from 
+        Just ref -> modify $ monitorsFor them ^: Set.insert (from, ref)
+        Nothing  -> modify $ linksFor them ^: Set.insert from 
     (False, True) -> -- [Unified: second rule]
-      notifyDied from them DiedNoProc mRef 
+      notifyDied from them DiedUnknownId mRef 
     (False, False) -> -- [Unified: third rule]
       ncMsg $ sendBinary (NodeIdentifier $ processNodeId from) NCMsg 
         { ctrlMsgSender = NodeIdentifier (localNodeId node)
-        , ctrlMsgSignal = Died (ProcessIdentifier them) DiedNoProc
+        , ctrlMsgSignal = Died them DiedUnknownId
         }
 
 -- [Unified: Table 11]
-ncEffectUnlink :: ProcessId -> ProcessId -> NC ()
+ncEffectUnlink :: ProcessId -> Identifier -> NC ()
 ncEffectUnlink from them = do
   node <- ncMsg getLocalNode 
-  when (isLocal node from) $ postMessage from $ DidUnlink them 
-  modify $ linksForProcess them ^: Set.delete from
+  when (isLocal node (ProcessIdentifier from)) $ 
+    case them of
+      ProcessIdentifier pid -> 
+        postAsMessage from $ DidUnlinkProcess pid 
+      NodeIdentifier nid -> 
+        postAsMessage from $ DidUnlinkNode nid
+      SendPortIdentifier cid -> 
+        postAsMessage from $ DidUnlinkPort cid 
+  modify $ linksFor them ^: Set.delete from
 
 -- [Unified: Table 11]
 ncEffectUnmonitor :: ProcessId -> MonitorRef -> NC ()
 ncEffectUnmonitor from ref = do
   node <- ncMsg getLocalNode 
-  when (isLocal node from) $ postMessage from $ DidUnmonitor ref
-  modify $ monitorsFor (monitorRefPid ref) from ^: Set.delete ref 
+  when (isLocal node (ProcessIdentifier from)) $ 
+    postAsMessage from $ DidUnmonitor ref
+  modify $ monitorsFor (monitorRefIdent ref) ^: Set.delete (from, ref)
 
--- [Unified: Table 12, bottom rule]
-ncEffectNodeDied :: NodeId -> DiedReason -> NC ()
-ncEffectNodeDied nid reason = do
-  node <- ncMsg getLocalNode 
-  lnks <- gets (^. linksForNode nid)
-  mons <- gets (^. monitorsForNode nid)
+-- [Unified: Table 12]
+ncEffectDied :: Identifier -> DiedReason -> NC ()
+ncEffectDied ident reason = do
+  node <- ncMsg getLocalNode
+  (affectedLinks, unaffectedLinks) <- gets (splitNotif ident . (^. links))
+  (affectedMons,  unaffectedMons)  <- gets (splitNotif ident . (^. monitors))
 
-  -- We only need to notify local processes
-  forM_ (Map.toList lnks) $ \(them, uss) -> do
-    let pid = ProcessId nid them
+  let localOnly = case ident of NodeIdentifier _ -> True ; _ -> False
+
+  forM_ (Map.toList affectedLinks) $ \(them, uss) -> 
     forM_ uss $ \us ->
-      when (isLocal node us) $ 
-        notifyDied us pid reason Nothing
+      when (localOnly <= isLocal node (ProcessIdentifier us)) $ 
+        notifyDied us them reason Nothing
 
-  forM_ (Map.toList mons) $ \(them, uss) -> do
-    let pid = ProcessId nid them 
-    forM_ (Map.toList uss) $ \(us, refs) -> 
-      when (isLocal node us) $
-        forM_ refs $ notifyDied us pid reason . Just
+  forM_ (Map.toList affectedMons) $ \(them, refs) ->
+    forM_ refs $ \(us, ref) ->
+      when (localOnly <= isLocal node (ProcessIdentifier us)) $
+        notifyDied us them reason (Just ref)
 
-  modify $ (linksForNode nid ^= Map.empty)
-         . (monitorsForNode nid ^= Map.empty)
-
--- [Unified: Table 12, top rule]
-ncEffectProcessDied :: ProcessId -> DiedReason -> NC ()
-ncEffectProcessDied pid reason = do
-  lnks <- gets (^. linksForProcess pid)
-  mons <- gets (^. monitorsForProcess pid)
-
-  forM_ lnks $ \us ->
-    notifyDied us pid reason Nothing 
-
-  forM_ (Map.toList mons) $ \(us, refs) ->
-    forM_ refs $ 
-      notifyDied us pid reason . Just
-
-  modify $ (linksForProcess pid ^= Set.empty)
-         . (monitorsForProcess pid ^= Map.empty)
+  modify $ (links ^= unaffectedLinks) . (monitors ^= unaffectedMons)
 
 -- [Unified: Table 13]
 ncEffectSpawn :: ProcessId -> Closure (Process ()) -> SpawnRef -> NC ()
@@ -471,46 +473,48 @@ ncEffectSpawn pid cProc ref = do
 --------------------------------------------------------------------------------
 
 notifyDied :: ProcessId         -- ^ Who to notify?
-           -> ProcessId         -- ^ Who died?
+           -> Identifier        -- ^ Who died?
            -> DiedReason        -- ^ How did they die?
            -> Maybe MonitorRef  -- ^ 'Nothing' for linking
            -> NC ()
 notifyDied dest src reason mRef = do
   node <- ncMsg getLocalNode 
-  case (isLocal node dest, mRef) of
-    (True, Just ref) ->
-      postMessage dest $ MonitorNotification ref src reason
-    (True, Nothing) ->
-      throwException dest $ LinkException src reason 
-    (False, _) ->
+  case (isLocal node (ProcessIdentifier dest), mRef, src) of
+    (True, Just ref, ProcessIdentifier pid) ->
+      postAsMessage dest $ ProcessMonitorNotification ref pid reason 
+    (True, Just ref, NodeIdentifier nid) ->
+      postAsMessage dest $ NodeMonitorNotification ref nid reason
+    (True, Just ref, SendPortIdentifier cid) ->
+      postAsMessage dest $ PortMonitorNotification ref cid reason
+    (True, Nothing, ProcessIdentifier pid) ->
+      throwException dest $ ProcessLinkException pid reason 
+    (True, Nothing, NodeIdentifier pid) ->
+      throwException dest $ NodeLinkException pid reason 
+    (True, Nothing, SendPortIdentifier pid) ->
+      throwException dest $ PortLinkException pid reason 
+    (False, _, _) ->
       -- TODO: why the change in sender? How does that affect 'reconnect' semantics?
       -- (see [Unified: Table 10]
       ncMsg $ sendBinary (NodeIdentifier $ processNodeId dest) NCMsg
         { ctrlMsgSender = NodeIdentifier (localNodeId node) 
-        , ctrlMsgSignal = Died (ProcessIdentifier src) reason
+        , ctrlMsgSignal = Died src reason
         }
       
 -- | [Unified: Table 8]
 destNid :: ProcessSignal -> Maybe NodeId
-destNid (Link pid) = 
-  Just . processNodeId $ pid
-destNid (Unlink pid) = 
-  Just . processNodeId $ pid
-destNid (Monitor pid _) = 
-  Just . processNodeId $ pid 
-destNid (Unmonitor ref) = 
-  Just . processNodeId . monitorRefPid $ ref 
+destNid (Link ident)    = Just $ nodeOf ident
+destNid (Unlink ident)  = Just $ nodeOf ident
+destNid (Monitor ref)   = Just $ nodeOf (monitorRefIdent ref)
+destNid (Unmonitor ref) = Just $ nodeOf (monitorRefIdent ref)
+destNid (Spawn _ _)     = Nothing 
 -- We don't need to forward 'Died' signals; if monitoring/linking is setup,
 -- then when a local process dies the monitoring/linking machinery will take
 -- care of notifying remote nodes
-destNid (Died _ _) =
-  Nothing 
-destNid (Spawn _ _) = 
-  Nothing
+destNid (Died _ _) = Nothing 
 
 -- | Check if a process is local to our own node
-isLocal :: LocalNode -> ProcessId -> Bool 
-isLocal nid pid = processNodeId pid == localNodeId nid 
+isLocal :: LocalNode -> Identifier -> Bool 
+isLocal nid ident = nodeOf ident == localNodeId nid
 
 -- | Lookup a local closure 
 unClosure :: Typeable a => Closure a -> NC (Maybe a)
@@ -518,13 +522,35 @@ unClosure (Closure (Static label) env) = do
   rtable <- remoteTable <$> ncMsg getLocalNode
   return (resolveClosure rtable label env >>= fromDynamic)
 
+-- | Check if an identifier refers to a valid local object
+isValidLocalIdentifier :: Identifier -> NC Bool
+isValidLocalIdentifier ident = do
+  node <- ncMsg getLocalNode
+  liftIO . withMVar (localState node) $ \nSt -> 
+    case ident of
+      NodeIdentifier nid ->
+        return $ nid == localNodeId node
+      ProcessIdentifier pid -> do
+        let mProc = nSt ^. localProcessWithId (processLocalId pid)
+        return $ isJust mProc 
+      SendPortIdentifier cid -> do
+        let pid   = sendPortProcessId cid
+            mProc = nSt ^. localProcessWithId (processLocalId pid)
+        case mProc of
+          Nothing -> return False
+          Just proc -> withMVar (processState proc) $ \pSt -> do
+            let mCh = pSt ^. typedChannelWithId (sendPortLocalId cid)
+            return $ isJust mCh
+
 --------------------------------------------------------------------------------
 -- Messages to local processes                                                --
 --------------------------------------------------------------------------------
 
-postMessage :: Serializable a => ProcessId -> a -> NC ()
-postMessage pid msg = withLocalProc pid $ \p -> 
-  enqueue (processQueue p) (createMessage msg)
+postAsMessage :: Serializable a => ProcessId -> a -> NC ()
+postAsMessage pid = postMessage pid . createMessage  
+
+postMessage :: ProcessId -> Message -> NC ()
+postMessage pid msg = withLocalProc pid $ \p -> enqueue (processQueue p) msg
 
 throwException :: Exception e => ProcessId -> e -> NC ()
 throwException pid e = withLocalProc pid $ \p -> 
@@ -544,23 +570,57 @@ withLocalProc pid p = do
 -- Accessors                                                                  --
 --------------------------------------------------------------------------------
 
-links :: Accessor NCState (Map NodeId (Map LocalProcessId (Set ProcessId)))
-links = accessor _links (\lnks st -> st { _links = lnks })
+links :: Accessor NCState (Map Identifier (Set ProcessId))
+links = accessor _links (\ls st -> st { _links = ls })
 
-monitors :: Accessor NCState (Map NodeId (Map LocalProcessId (Map ProcessId (Set MonitorRef))))
-monitors = accessor _monitors (\mons st -> st { _monitors = mons })
+monitors :: Accessor NCState (Map Identifier (Set (ProcessId, MonitorRef)))
+monitors = accessor _monitors (\ms st -> st { _monitors = ms })
 
-linksForNode :: NodeId -> Accessor NCState (Map LocalProcessId (Set ProcessId))
-linksForNode nid = links >>> DAC.mapDefault Map.empty nid 
+linksFor :: Identifier -> Accessor NCState (Set ProcessId)
+linksFor ident = links >>> DAC.mapDefault Set.empty ident
 
-monitorsForNode :: NodeId -> Accessor NCState (Map LocalProcessId (Map ProcessId (Set MonitorRef)))
-monitorsForNode nid = monitors >>> DAC.mapDefault Map.empty nid 
+monitorsFor :: Identifier -> Accessor NCState (Set (ProcessId, MonitorRef))
+monitorsFor ident = monitors >>> DAC.mapDefault Set.empty ident
 
-linksForProcess :: ProcessId -> Accessor NCState (Set ProcessId)
-linksForProcess pid = linksForNode (processNodeId pid) >>> DAC.mapDefault Set.empty (processLocalId pid)
-
-monitorsForProcess :: ProcessId -> Accessor NCState (Map ProcessId (Set MonitorRef))
-monitorsForProcess pid = monitorsForNode (processNodeId pid) >>> DAC.mapDefault Map.empty (processLocalId pid) 
-
-monitorsFor :: ProcessId -> ProcessId -> Accessor NCState (Set MonitorRef)
-monitorsFor them us = monitorsForProcess them >>> DAC.mapDefault Set.empty us 
+-- | @splitNotif ident@ splits a notifications map into those
+-- notifications that should trigger when 'ident' fails and those links that
+-- should not.
+--
+-- There is a hierarchy between identifiers: failure of a node implies failure
+-- of all processes on that node, and failure of a process implies failure of
+-- all typed channels to that process. In other words, if 'ident' refers to a
+-- node, then the /should trigger/ set will include 
+--
+-- * the notifications for the node specifically
+-- * the notifications for processes on that node, and 
+-- * the notifications for typed channels to processes on that node. 
+--
+-- Similarly, if 'ident' refers to a process, the /should trigger/ set will
+-- include 
+--
+-- * the notifications for that process specifically and 
+-- * the notifications for typed channels to that process.
+splitNotif :: Identifier
+           -> Map Identifier a
+           -> (Map Identifier a, Map Identifier a)
+splitNotif ident = Map.partitionWithKey (const . impliesDeathOf ident)
+  where
+    -- | Does the death of one entity (node, project, channel) imply the death
+    -- of another?
+    impliesDeathOf :: Identifier -- ^ Who died 
+                   -> Identifier -- ^ Who's being watched 
+                   -> Bool       -- ^ Does this death implies the death of the watchee? 
+    NodeIdentifier nid `impliesDeathOf` NodeIdentifier nid' = 
+      nid' == nid
+    NodeIdentifier nid `impliesDeathOf` ProcessIdentifier pid =
+      processNodeId pid == nid
+    NodeIdentifier nid `impliesDeathOf` SendPortIdentifier cid =
+      processNodeId (sendPortProcessId cid) == nid
+    ProcessIdentifier pid `impliesDeathOf` ProcessIdentifier pid' =
+      pid' == pid
+    ProcessIdentifier pid `impliesDeathOf` SendPortIdentifier cid =
+      sendPortProcessId cid == pid
+    SendPortIdentifier cid `impliesDeathOf` SendPortIdentifier cid' =
+      cid' == cid
+    _ `impliesDeathOf` _ =
+      False

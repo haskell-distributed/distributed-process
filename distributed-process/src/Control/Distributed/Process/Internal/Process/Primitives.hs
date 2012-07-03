@@ -36,6 +36,12 @@ module Control.Distributed.Process.Internal.Process.Primitives
   , spawnAsync
   , spawnLink
   , spawnMonitor
+  , linkNode
+  , linkPort
+  , unlinkNode
+  , unlinkPort
+  , monitorNode
+  , monitorPort
   ) where
 
 import Prelude hiding (catch)
@@ -82,9 +88,13 @@ import Control.Distributed.Process.Internal.Types
   , channelCounter
   , typedChannelWithId
   , TypedChannel(..)
-  , ChannelId(..)
+  , SendPortId(..)
   , Identifier(..)
   , procMsg
+  , DidUnmonitor(..)
+  , DidUnlinkProcess(..)
+  , DidUnlinkNode(..)
+  , DidUnlinkPort(..)
   )
 import Control.Distributed.Process.Internal.MessageT 
   ( sendMessage
@@ -118,9 +128,9 @@ newChan = do
   liftIO . modifyMVar (processState proc) $ \st -> do
     chan <- liftIO . atomically $ newTChan
     let lcid  = st ^. channelCounter
-        cid   = ChannelId { channelProcessId = processId proc
-                          , channelLocalId   = lcid
-                          }
+        cid   = SendPortId { sendPortProcessId = processId proc
+                           , sendPortLocalId   = lcid
+                           }
         sport = SendPort cid 
         rport = ReceivePortSingle chan
         tch   = TypedChannel chan 
@@ -132,7 +142,7 @@ newChan = do
 
 -- | Send a message on a typed channel
 sendChan :: Serializable a => SendPort a -> a -> Process ()
-sendChan (SendPort them) msg = procMsg $ sendBinary (ChannelIdentifier them) msg 
+sendChan (SendPort cid) msg = procMsg $ sendBinary (SendPortIdentifier cid) msg 
 
 -- | Wait for a message on a typed channel
 receiveChan :: Serializable a => ReceivePort a -> Process a
@@ -250,22 +260,43 @@ getSelfNode = localNodeId <$> procMsg getLocalNode
 -- Linking makes no distinction between normal and abnormal termination of
 -- the remote process.
 link :: ProcessId -> Process ()
-link = sendCtrlMsg Nothing . Link
-
--- | Remove a link (asynchronous)
-unlink :: ProcessId -> Process ()
-unlink = sendCtrlMsg Nothing . Unlink
+link = sendCtrlMsg Nothing . Link . ProcessIdentifier
 
 -- | Monitor another process (asynchronous)
 monitor :: ProcessId -> Process MonitorRef 
-monitor them = do
-  monitorRef <- getMonitorRefFor them
-  sendCtrlMsg Nothing $ Monitor them monitorRef
-  return monitorRef
+monitor = monitor' . ProcessIdentifier 
 
--- | Remove a monitor (asynchronous)
+-- | Remove a link (synchronous)
+unlink :: ProcessId -> Process ()
+unlink pid = do
+  unlinkAsync pid
+  receiveWait [ matchIf (\(DidUnlinkProcess pid') -> pid' == pid) 
+                        (\_ -> return ()) 
+              ]
+
+-- | Remove a node link (synchronous)
+unlinkNode :: NodeId -> Process ()
+unlinkNode nid = do
+  unlinkNodeAsync nid
+  receiveWait [ matchIf (\(DidUnlinkNode nid') -> nid' == nid)
+                        (\_ -> return ())
+              ]
+
+-- | Remove a channel (send port) link (synchronous)
+unlinkPort :: SendPort a -> Process ()
+unlinkPort sport = do
+  unlinkPortAsync sport
+  receiveWait [ matchIf (\(DidUnlinkPort cid) -> cid == sendPortId sport)
+                        (\_ -> return ())
+              ]
+
+-- | Remove a monitor (synchronous)
 unmonitor :: MonitorRef -> Process ()
-unmonitor = sendCtrlMsg Nothing . Unmonitor
+unmonitor ref = do
+  unmonitorAsync ref
+  receiveWait [ matchIf (\(DidUnmonitor ref') -> ref' == ref)
+                        (\_ -> return ())
+              ]
 
 --------------------------------------------------------------------------------
 -- Auxiliary API                                                              --
@@ -311,17 +342,56 @@ spawnMonitor nid proc = do
   ref <- monitor pid
   return (pid, ref)
 
+-- | Monitor a node
+monitorNode :: NodeId -> Process MonitorRef
+monitorNode = 
+  monitor' . NodeIdentifier
+
+-- | Monitor a typed channel
+monitorPort :: forall a. Serializable a => SendPort a -> Process MonitorRef
+monitorPort (SendPort cid) = 
+  monitor' (SendPortIdentifier cid) 
+
+-- | Remove a monitor (asynchronous)
+unmonitorAsync :: MonitorRef -> Process ()
+unmonitorAsync = 
+  sendCtrlMsg Nothing . Unmonitor
+
+-- | Link to a node
+linkNode :: NodeId -> Process ()
+linkNode = link' . NodeIdentifier 
+
+-- | Link to a channel (send port)
+linkPort :: SendPort a -> Process ()
+linkPort (SendPort cid) = 
+  link' (SendPortIdentifier cid)
+
+-- | Remove a process link (asynchronous)
+unlinkAsync :: ProcessId -> Process ()
+unlinkAsync = 
+  sendCtrlMsg Nothing . Unlink . ProcessIdentifier
+
+-- | Remove a node link (asynchronous)
+unlinkNodeAsync :: NodeId -> Process ()
+unlinkNodeAsync = 
+  sendCtrlMsg Nothing . Unlink . NodeIdentifier
+
+-- | Remove a channel (send port) link (asynchronous)
+unlinkPortAsync :: SendPort a -> Process ()
+unlinkPortAsync (SendPort cid) = 
+  sendCtrlMsg Nothing . Unlink $ SendPortIdentifier cid
+
 --------------------------------------------------------------------------------
 -- Auxiliary functions                                                        --
 --------------------------------------------------------------------------------
 
-getMonitorRefFor :: ProcessId -> Process MonitorRef
-getMonitorRefFor pid = do
+getMonitorRefFor :: Identifier -> Process MonitorRef
+getMonitorRefFor ident = do
   proc <- ask
   liftIO $ modifyMVar (processState proc) $ \st -> do 
     let counter = st ^. monitorCounter 
     return ( monitorCounter ^: (+ 1) $ st
-           , MonitorRef pid counter 
+           , MonitorRef ident counter 
            )
 
 getSpawnRef :: Process SpawnRef
@@ -332,6 +402,17 @@ getSpawnRef = do
     return ( spawnCounter ^: (+ 1) $ st
            , SpawnRef counter
            )
+
+-- | Monitor a process/node/channel
+monitor' :: Identifier -> Process MonitorRef
+monitor' ident = do
+  monitorRef <- getMonitorRefFor ident 
+  sendCtrlMsg Nothing $ Monitor monitorRef
+  return monitorRef
+
+-- | Link to a process/node/channel
+link' :: Identifier -> Process ()
+link' = sendCtrlMsg Nothing . Link
 
 -- Send a control message
 sendCtrlMsg :: Maybe NodeId  -- ^ Nothing for the local node
