@@ -12,6 +12,7 @@ module Control.Distributed.Process
     ProcessId
   , NodeId
   , Process
+  , SendPortId
     -- * Basic messaging
   , send 
   , expect
@@ -102,6 +103,7 @@ import Control.Distributed.Process.Internal.Types
   , SerializableDict(..)
   , procMsg
   , LocalNode(..)
+  , SendPortId
   )
 import Control.Distributed.Process.Internal.Closure.BuiltIn 
   ( linkClosure
