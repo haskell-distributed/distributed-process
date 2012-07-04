@@ -233,6 +233,7 @@ data StaticLabel =
   -- Built-in closures 
   | ClosureReturn
   | ClosureSend 
+  | ClosureExpect
   -- Generic closure combinators
   | ClosureApply
   | ClosureConst
@@ -274,9 +275,13 @@ data SerializableDict a where
 
 -- | Runtime support for implementing "polymorphic" functions with a 
 -- Serializable qualifier (sendClosure, returnClosure, ..). 
+--
+-- We don't attempt to keep this minimal, but instead just add functions as
+-- convenient. This will be replaced anyway once 'static' has been implemented.
 data RuntimeSerializableSupport = RuntimeSerializableSupport {
    rssSend   :: Dynamic
  , rssReturn :: Dynamic
+ , rssExpect :: Dynamic
  }
 
 --------------------------------------------------------------------------------
@@ -490,36 +495,38 @@ instance Binary StaticLabel where
   put (UserStatic string) = putWord8 0 >> put string
   put ClosureReturn = putWord8 1
   put ClosureSend   = putWord8 2
-  put ClosureApply  = putWord8 3
-  put ClosureConst  = putWord8 4
-  put ClosureUnit   = putWord8 5
-  put CpId          = putWord8 6
-  put CpComp        = putWord8 7
-  put CpFirst       = putWord8 8
-  put CpSwap        = putWord8 9
-  put CpCopy        = putWord8 10 
-  put CpLeft        = putWord8 11
-  put CpMirror      = putWord8 12
-  put CpUntag       = putWord8 13
-  put CpApply       = putWord8 14
+  put ClosureExpect = putWord8 3
+  put ClosureApply  = putWord8 4
+  put ClosureConst  = putWord8 5
+  put ClosureUnit   = putWord8 6
+  put CpId          = putWord8 7
+  put CpComp        = putWord8 8
+  put CpFirst       = putWord8 9
+  put CpSwap        = putWord8 10
+  put CpCopy        = putWord8 11 
+  put CpLeft        = putWord8 12
+  put CpMirror      = putWord8 13
+  put CpUntag       = putWord8 14
+  put CpApply       = putWord8 15
   get = do
     header <- getWord8
     case header of
       0  -> UserStatic <$> get
       1  -> return ClosureReturn
       2  -> return ClosureSend 
-      3  -> return ClosureApply
-      4  -> return ClosureConst
-      5  -> return ClosureUnit
-      6  -> return CpId
-      7  -> return CpComp 
-      8  -> return CpFirst
-      9  -> return CpSwap
-      10  -> return CpCopy
-      11 -> return CpLeft
-      12 -> return CpMirror
-      13 -> return CpUntag
-      14 -> return CpApply
+      3  -> return ClosureExpect 
+      4  -> return ClosureApply
+      5  -> return ClosureConst
+      6  -> return ClosureUnit
+      7  -> return CpId
+      8  -> return CpComp 
+      9  -> return CpFirst
+      10 -> return CpSwap
+      11 -> return CpCopy
+      12 -> return CpLeft
+      13 -> return CpMirror
+      14 -> return CpUntag
+      15 -> return CpApply
       _  -> fail "StaticLabel.get: invalid"
 
   

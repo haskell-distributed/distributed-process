@@ -10,6 +10,7 @@ import Data.Accessor ((^.))
 import Data.ByteString.Lazy (ByteString)
 import Data.Binary (decode)
 import Data.Typeable (TypeRep)
+import Control.Applicative ((<$>))
 import Control.Distributed.Process.Internal.Types
   ( RemoteTable(RemoteTable)
   , remoteTableLabel
@@ -52,6 +53,10 @@ resolveClosure rtable ClosureReturn env = do
     rssReturn rss `dynApply` toDyn arg 
   where
     (typ, arg) = decode env :: (TypeRep, ByteString)
+resolveClosure rtable ClosureExpect env = 
+    rssExpect <$> rtable ^. remoteTableDict typ
+  where
+    typ = decode env :: TypeRep
 -- Generic closure combinators
 resolveClosure rtable ClosureApply env = do 
     f <- resolveClosure rtable labelf envf

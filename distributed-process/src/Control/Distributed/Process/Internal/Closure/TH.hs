@@ -52,7 +52,7 @@ import Control.Distributed.Process.Internal.Types
   , RuntimeSerializableSupport(..)
   )
 import Control.Distributed.Process.Internal.Dynamic (Dynamic, toDyn)
-import Control.Distributed.Process.Internal.Process.Primitives (send)
+import Control.Distributed.Process.Internal.Process.Primitives (send, expect)
 
 --------------------------------------------------------------------------------
 -- User-level API                                                             --
@@ -135,6 +135,7 @@ registerSerializableDict SerializableDict =
   let rss = RuntimeSerializableSupport {
                 rssSend   = toDyn (send :: ProcessId -> a -> Process ()) 
               , rssReturn = toDyn (return . decode :: ByteString -> Process a)  
+              , rssExpect = toDyn (expect :: Process a)
               }
   in remoteTableDict (typeOf (undefined :: a)) ^= Just rss 
 

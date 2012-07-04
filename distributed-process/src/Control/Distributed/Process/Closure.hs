@@ -74,8 +74,10 @@ module Control.Distributed.Process.Closure
   , SerializableDict(..)
     -- * Built-in closures
   , linkClosure
+  , unlinkClosure
   , sendClosure
   , returnClosure
+  , expectClosure
     -- * Generic closure combinators
   , closureApply
   , closureConst
@@ -108,8 +110,10 @@ import Control.Distributed.Process.Internal.Types (SerializableDict(..))
 import Control.Distributed.Process.Internal.Closure.TH (remotable, mkClosure)
 import Control.Distributed.Process.Internal.Closure.BuiltIn 
   ( linkClosure
+  , unlinkClosure
   , sendClosure
   , returnClosure
+  , expectClosure
   )
 import Control.Distributed.Process.Internal.Closure.Combinators 
   ( -- Generic combinators

@@ -256,6 +256,17 @@ testSpawnInvalid transport rtable = do
     True <- return $ ref' == ref && pid == pid'  
     return ()
 
+testClosureExpect :: Transport -> RemoteTable -> IO ()
+testClosureExpect transport rtable = do
+  node <- newLocalNode transport rtable
+  runProcess node $ do
+    nodeId <- getSelfNode
+    us     <- getSelfPid
+    them   <- spawn nodeId $ expectClosure serializableDictInt `cpBind` $(mkClosure 'sendInt) us
+    send them (1234 :: Int)
+    (1234 :: Int) <- expect
+    return ()
+
 main :: IO ()
 main = do
   Right transport <- createTransport "127.0.0.1" "8080" defaultTCPParameters
@@ -272,4 +283,5 @@ main = do
     , ("Apply",           testApply           transport rtable)
     , ("SpawnSupervised", testSpawnSupervised transport rtable)
     , ("SpawnInvalid",    testSpawnInvalid    transport rtable)
+    , ("ClosureExpect",   testClosureExpect   transport rtable)
     ]

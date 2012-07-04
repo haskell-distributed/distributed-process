@@ -107,7 +107,10 @@ import Control.Distributed.Process.Internal.Types
   )
 import Control.Distributed.Process.Internal.Closure.BuiltIn 
   ( linkClosure
+  , unlinkClosure
   , sendClosure
+  , expectClosure
+  , serializableDictUnit
   )
 import Control.Distributed.Process.Internal.Closure.Combinators (cpSeq, cpBind)
 import Control.Distributed.Process.Internal.Process.Primitives
@@ -128,7 +131,6 @@ import Control.Distributed.Process.Internal.Process.Primitives
   , matchIf
   , matchUnknown
     -- Process management
-  , spawn
   , terminate
   , ProcessTerminationException(..)
   , getSelfPid
@@ -148,8 +150,6 @@ import Control.Distributed.Process.Internal.Process.Primitives
   , catch
   , expectTimeout
   , spawnAsync
-  , spawnLink
-  , spawnMonitor
   )
 import Control.Distributed.Process.Internal.Closure (resolveClosure)
 
@@ -217,13 +217,55 @@ import Control.Distributed.Process.Internal.Closure (resolveClosure)
 -- constructs                                                                 --
 --------------------------------------------------------------------------------
 
+-- | Spawn a process
+spawn :: NodeId -> Closure (Process ()) -> Process ProcessId
+spawn nid proc = do
+  us   <- getSelfPid
+  -- Since we throw an exception when the remote node dies, we could use
+  -- linkNode instead. However, we don't have a way of "scoped" linking so if
+  -- we call linkNode here, and unlinkNode after, then we might remove a link
+  -- that was already set up
+  mRef <- monitorNode nid
+  sRef <- spawnAsync nid $ linkClosure us 
+                   `cpSeq` expectClosure serializableDictUnit
+                   `cpSeq` unlinkClosure us
+                   `cpSeq` proc
+  mPid <- receiveWait 
+    [ matchIf (\(DidSpawn ref _) -> ref == sRef)
+              (\(DidSpawn _ pid) -> return $ Just pid)
+    , matchIf (\(NodeMonitorNotification ref _ _) -> ref == mRef)
+              (\_ -> return Nothing)
+    ]
+  unmonitor mRef
+  case mPid of
+    Nothing  -> fail "spawn: remote node failed"
+    Just pid -> send pid () >> return pid
+
+-- | Spawn a process and link to it
+--
+-- Note that this is just the sequential composition of 'spawn' and 'link'. 
+-- (The "Unified" semantics that underlies Cloud Haskell does not even support
+-- a synchronous link operation)
+spawnLink :: NodeId -> Closure (Process ()) -> Process ProcessId
+spawnLink nid proc = do
+  pid <- spawn nid proc
+  link pid
+  return pid
+
+-- | Like 'spawnLink', but monitor the spawned process
+spawnMonitor :: NodeId -> Closure (Process ()) -> Process (ProcessId, MonitorRef)
+spawnMonitor nid proc = do
+  pid <- spawn nid proc
+  ref <- monitor pid
+  return (pid, ref)
+
 -- | Run a process remotely and wait for it to reply
 -- 
 -- We link to the remote process, so that if it dies, we die too.
 call :: SerializableDict a -> NodeId -> Closure (Process a) -> Process a
 call sdict@SerializableDict nid proc = do 
   us <- getSelfPid
-  spawnLink nid (proc `cpBind` sendClosure sdict us)
+  _  <- spawnLink nid (proc `cpBind` sendClosure sdict us)
   expect
 
 -- | Spawn a child process, have the child link to the parent and the parent

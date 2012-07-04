@@ -20,7 +20,6 @@ module Control.Distributed.Process.Internal.Process.Primitives
   , matchIf
   , matchUnknown
     -- * Process management
-  , spawn
   , terminate
   , ProcessTerminationException(..)
   , getSelfPid
@@ -34,8 +33,6 @@ module Control.Distributed.Process.Internal.Process.Primitives
   , catch
   , expectTimeout
   , spawnAsync
-  , spawnLink
-  , spawnMonitor
   , linkNode
   , linkPort
   , unlinkNode
@@ -77,7 +74,6 @@ import Control.Distributed.Process.Internal.Types
   , Message(..)
   , MonitorRef(..)
   , SpawnRef(..)
-  , DidSpawn(..)
   , NCMsg(..)
   , ProcessSignal(..)
   , monitorCounter 
@@ -224,14 +220,6 @@ matchUnknown = Match . const . Just
 -- Process management                                                         --
 --------------------------------------------------------------------------------
 
--- | Spawn a process
-spawn :: NodeId -> Closure (Process ()) -> Process ProcessId
-spawn nid proc = do
-  ref <- spawnAsync nid proc 
-  receiveWait [ matchIf (\(DidSpawn ref' _) -> ref == ref')
-                        (\(DidSpawn _ pid) -> return pid)
-              ]
-
 -- | Thrown by 'terminate'
 data ProcessTerminationException = ProcessTerminationException
   deriving (Show, Typeable)
@@ -323,24 +311,6 @@ spawnAsync nid proc = do
   spawnRef <- getSpawnRef
   sendCtrlMsg (Just nid) $ Spawn proc spawnRef
   return spawnRef
-
--- | Spawn a process and link to it
---
--- Note that this is just the sequential composition of 'spawn' and 'link'. 
--- (The "Unified" semantics that underlies Cloud Haskell does not even support
--- a synchronous link operation)
-spawnLink :: NodeId -> Closure (Process ()) -> Process ProcessId
-spawnLink nid proc = do
-  pid <- spawn nid proc
-  link pid
-  return pid
-
--- | Like 'spawnLink', but monitor the spawned process
-spawnMonitor :: NodeId -> Closure (Process ()) -> Process (ProcessId, MonitorRef)
-spawnMonitor nid proc = do
-  pid <- spawn nid proc
-  ref <- monitor pid
-  return (pid, ref)
 
 -- | Monitor a node
 monitorNode :: NodeId -> Process MonitorRef
