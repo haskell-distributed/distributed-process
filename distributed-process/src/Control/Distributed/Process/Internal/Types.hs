@@ -119,7 +119,7 @@ newtype NodeId = NodeId { nodeAddress :: NT.EndPointAddress }
   deriving (Eq, Ord, Binary)
 
 instance Show NodeId where
-  show = show . nodeAddress
+  show (NodeId addr) = "nid://" ++ show addr 
 
 -- | A local process ID consists of a seed which distinguishes processes from
 -- different instances of the same local node and a counter
@@ -140,7 +140,8 @@ data ProcessId = ProcessId
   deriving (Eq, Ord, Typeable)
 
 instance Show ProcessId where
-  show pid = show (processNodeId pid) ++ ":" ++ show (processLocalId pid)
+  show (ProcessId (NodeId addr) (LocalProcessId _ lid)) 
+    = "pid://" ++ show addr ++ ":" ++ show lid
 
 -- | Union of all kinds of identifiers 
 data Identifier = 
@@ -223,7 +224,8 @@ data SendPortId = SendPortId {
   deriving (Eq, Ord)
 
 instance Show SendPortId where
-  show cid = show (sendPortProcessId cid) ++ ":" ++ show (sendPortLocalId cid)
+  show (SendPortId (ProcessId (NodeId addr) (LocalProcessId _ plid)) clid)  
+    = "cid://" ++ show addr ++ ":" ++ show plid ++ ":" ++ show clid
 
 data TypedChannel = forall a. Serializable a => TypedChannel (TChan a)
 
