@@ -23,6 +23,8 @@ Library
                      ghc-prim,
                      network,
                      network-multicast,
+                     time,
+                     old-locale,
                      network-transport >= 0.1
   Exposed-modules:   Control.Distributed.Process,
                      Control.Distributed.Process.Serializable,
@@ -48,6 +50,8 @@ Test-Suite TestCH
                      template-haskell,
                      stm,
                      ghc-prim,
+                     time,
+                     old-locale,
                      network-transport >= 0.1
   Extensions:        ExplicitForAll, ScopedTypeVariables, GeneralizedNewtypeDeriving, FlexibleInstances, UndecidableInstances, MultiParamTypeClasses, DeriveDataTypeable, TemplateHaskell, ExistentialQuantification, RankNTypes, GADTs, ImpredicativeTypes
   ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind 
@@ -69,6 +73,8 @@ Test-Suite TestClosure
                      ansi-terminal,
                      template-haskell,
                      stm,
+                     time,
+                     old-locale,
                      network-transport >= 0.1
   Extensions:        ExplicitForAll, ScopedTypeVariables, GeneralizedNewtypeDeriving, FlexibleInstances, UndecidableInstances, MultiParamTypeClasses, DeriveDataTypeable, TemplateHaskell, ExistentialQuantification, RankNTypes, GADTs, ImpredicativeTypes
   ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind 
@@ -89,6 +95,7 @@ Test-Suite TestLocalBackend
                      ansi-terminal,
                      template-haskell,
                      stm,
+                     old-locale,
                      network-transport >= 0.1
   Extensions:        ExplicitForAll, ScopedTypeVariables, GeneralizedNewtypeDeriving, FlexibleInstances, UndecidableInstances, MultiParamTypeClasses, DeriveDataTypeable, TemplateHaskell, ExistentialQuantification, RankNTypes, GADTs, ImpredicativeTypes
   ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind 

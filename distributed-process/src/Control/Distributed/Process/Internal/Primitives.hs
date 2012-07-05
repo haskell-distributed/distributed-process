@@ -29,6 +29,8 @@ module Control.Distributed.Process.Internal.Primitives
   , unlink
   , monitor
   , unmonitor
+    -- * Logging
+  , say
     -- * Registry
   , register
   , unregister
@@ -53,6 +55,9 @@ module Control.Distributed.Process.Internal.Primitives
 import Prelude hiding (catch)
 import Data.Binary (decode)
 import Data.Typeable (Typeable,)
+import Data.Time.Clock (getCurrentTime)
+import Data.Time.Format (formatTime)
+import System.Locale (defaultTimeLocale)
 import Control.Monad.Reader (ask)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Applicative ((<$>))
@@ -361,6 +366,22 @@ unlinkNodeAsync =
 unlinkPortAsync :: SendPort a -> Process ()
 unlinkPortAsync (SendPort cid) = 
   sendCtrlMsg Nothing . Unlink $ SendPortIdentifier cid
+
+--------------------------------------------------------------------------------
+-- Logging                                                                    --
+--------------------------------------------------------------------------------
+
+-- | Log a string
+--
+-- @say message@ sends a message (time, pid of the current process, message)
+-- to the process registered as 'logger'.  By default, this process simply
+-- sends the string to 'stderr'. Individual Cloud Haskell backends might
+-- replace this with a different logger process, however.
+say :: String -> Process ()
+say string = do
+  now <- liftIO getCurrentTime
+  us  <- getSelfPid
+  nsend "logger" (formatTime defaultTimeLocale "%c" now, us, string)
 
 --------------------------------------------------------------------------------
 -- Registry                                                                   --

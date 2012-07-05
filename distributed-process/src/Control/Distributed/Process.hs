@@ -64,6 +64,8 @@ module Control.Distributed.Process
   , Static
   , unClosure
   , RemoteTable
+    -- * Logging
+  , say
     -- * Registry
   , register
   , unregister
@@ -155,6 +157,8 @@ import Control.Distributed.Process.Internal.Primitives
   , monitorNode
   , monitorPort
   , unmonitor
+    -- Logging
+  , say
     -- Registry
   , register
   , unregister

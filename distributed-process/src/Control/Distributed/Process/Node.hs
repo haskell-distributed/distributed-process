@@ -9,7 +9,7 @@ module Control.Distributed.Process.Node
   ) where
 
 import Prelude hiding (catch)
-import System.IO (fixIO)
+import System.IO (fixIO, hPutStrLn, stderr)
 import qualified Data.ByteString.Lazy as BSL (fromChunks)
 import Data.Binary (decode)
 import Data.Map (Map)
@@ -120,6 +120,7 @@ import Control.Distributed.Process.Internal.Closure
   , resolveClosure
   )
 import Control.Distributed.Process.Internal.Node (runLocalProcess)
+import Control.Distributed.Process.Internal.Primitives (expect, register)
 
 --------------------------------------------------------------------------------
 -- Initialization                                                             --
@@ -131,26 +132,42 @@ import Control.Distributed.Process.Internal.Node (runLocalProcess)
 -- to do.
 newLocalNode :: NT.Transport -> RemoteTable -> IO LocalNode
 newLocalNode transport rtable = do
-  mEndPoint <- NT.newEndPoint transport
-  case mEndPoint of
-    Left ex -> throwIO ex
-    Right endPoint -> do
-      unq <- randomIO
-      state <- newMVar LocalNodeState 
-        { _localProcesses      = Map.empty
-        , _localPidCounter     = 0 
-        , _localPidUnique      = unq 
-        }
-      ctrlChan <- newChan
-      let node = LocalNode { localNodeId   = NodeId $ NT.address endPoint
-                           , localEndPoint = endPoint
-                           , localState    = state
-                           , localCtrlChan = ctrlChan
-                           , remoteTable   = rtable
-                           }
-      void . forkIO $ runNodeController node 
-      void . forkIO $ handleIncomingMessages node
-      return node
+    mEndPoint <- NT.newEndPoint transport
+    case mEndPoint of
+      Left ex -> throwIO ex
+      Right endPoint -> do
+        localNode <- createBareLocalNode endPoint rtable 
+        startServiceProcesses localNode
+        return localNode
+    
+-- | Create a new local node (without any service processes running)
+createBareLocalNode :: NT.EndPoint -> RemoteTable -> IO LocalNode
+createBareLocalNode endPoint rtable = do
+  unq <- randomIO
+  state <- newMVar LocalNodeState 
+    { _localProcesses      = Map.empty
+    , _localPidCounter     = 0 
+    , _localPidUnique      = unq 
+    }
+  ctrlChan <- newChan
+  let node = LocalNode { localNodeId   = NodeId $ NT.address endPoint
+                       , localEndPoint = endPoint
+                       , localState    = state
+                       , localCtrlChan = ctrlChan
+                       , remoteTable   = rtable
+                       }
+  void . forkIO $ runNodeController node 
+  void . forkIO $ handleIncomingMessages node
+  return node
+
+-- | Start and register the service processes on a node 
+-- (for now, this is only the logger)
+startServiceProcesses :: LocalNode -> IO ()
+startServiceProcesses node = do
+  logger <- forkProcess node . forever $ do
+    (time, pid, string) <- expect :: Process (String, ProcessId, String)
+    liftIO . hPutStrLn stderr $ time ++ " " ++ show pid ++ ": " ++ string 
+  runProcess node $ register "logger" logger
 
 -- | Force-close a local node
 --
