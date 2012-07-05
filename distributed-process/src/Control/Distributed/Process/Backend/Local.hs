@@ -1,18 +1,20 @@
 -- | Simple backend based on the TCP transport which offers node discovery
 -- based on UDP multicast
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 module Control.Distributed.Process.Backend.Local 
   ( LocalBackend(..)
   , initializeBackend
   ) where
 
-import Data.Binary (encode)
-import qualified Data.ByteString as BSS (concat, append)
-import qualified Data.ByteString.Lazy as BSL (toChunks, length) 
+import Data.Binary (Binary(get, put), getWord8, putWord8)
+import Data.Accessor (Accessor, accessor, (^:), (^.))
+import Data.Set (Set)
+import qualified Data.Set as Set (insert, empty, toList)
 import Control.Applicative ((<$>))
 import Control.Exception (throw)
-import Control.Monad (forM_)
-import Control.Concurrent (forkIO)
-import Control.Concurrent.MVar (MVar, newMVar, readMVar)
+import Control.Monad (forM_, forever)
+import Control.Concurrent (forkIO, threadDelay)
+import Control.Concurrent.MVar (MVar, newMVar, readMVar, modifyMVar_)
 import Control.Distributed.Process.Internal.Types 
   ( LocalNode
   , RemoteTable
@@ -26,55 +28,97 @@ import qualified Network.Transport.TCP as NT
   ( createTransport
   , defaultTCPParameters
   )
-import Network.Transport.Internal (encodeInt32, decodeInt32)
-import qualified Network.Transport as NT ()
-import qualified Network.Socket as N (HostName, ServiceName, Socket, SockAddr)
-import qualified Network.Socket.ByteString as NBS (recvFrom, sendTo)
-import qualified Network.Multicast as NM (multicastSender, multicastReceiver)
+import qualified Network.Transport as NT (Transport)
+import qualified Network.Socket as N (HostName, ServiceName, SockAddr)
+import Control.Distributed.Process.Internal.Multicast (initMulticast)
 
+-- | Local backend 
 data LocalBackend = LocalBackend {
+    -- | Create a new local node
     newLocalNode :: IO LocalNode
-  , findPeers    :: IO [NodeId]
+    -- | @findPeers t@ sends out a /who's there?/ request, waits 't' msec,
+    -- and then collects and returns the answers
+  , findPeers :: Int -> IO [NodeId]
   }
 
 data LocalBackendState = LocalBackendState {
-   localNodes :: [LocalNode]
+   _localNodes :: [LocalNode]
+ , _peers      :: Set NodeId
  }
 
 -- | Initialize the backend
 initializeBackend :: N.HostName -> N.ServiceName -> RemoteTable -> IO LocalBackend
 initializeBackend host port rtable = do
-  mTransport    <- NT.createTransport host port NT.defaultTCPParameters 
-  mcastSender   <- NM.multicastSender "224.0.0.99" 9999
-  mcastReceiver <- NM.multicastReceiver "224.0.0.99" 9999
-  backendState  <- newMVar LocalBackendState { localNodes = [] }
-  forkIO $ peerDiscoveryDaemon backendState mcastReceiver mcastSender
+  mTransport   <- NT.createTransport host port NT.defaultTCPParameters 
+  (recv, send) <- initMulticast  "224.0.0.99" 9999 1024
+  backendState <- newMVar LocalBackendState 
+                    { _localNodes = [] 
+                    , _peers      = Set.empty
+                    }
+  forkIO $ peerDiscoveryDaemon backendState recv send 
   case mTransport of
     Left err -> throw err
     Right transport -> return LocalBackend {
-        newLocalNode = Node.newLocalNode transport rtable 
-      , findPeers    = apiFindPeers mcastSender
+        newLocalNode = apiNewLocalNode transport rtable backendState 
+      , findPeers    = apiFindPeers send backendState
       }
 
+-- | Create a new local node
+apiNewLocalNode :: NT.Transport 
+                -> RemoteTable 
+                -> MVar LocalBackendState
+                -> IO LocalNode
+apiNewLocalNode transport rtable backendState = do
+  localNode <- Node.newLocalNode transport rtable 
+  modifyMVar_ backendState $ return . (localNodes ^: (localNode :))
+  return localNode
+
 -- | Peer discovery
-apiFindPeers :: (N.Socket, N.SockAddr) -> IO [NodeId]
-apiFindPeers (sock, addr) = do
-  NBS.sendTo sock (encodeInt32 (0xCDAECDAE :: Int)) addr 
-  return []
+apiFindPeers :: (PeerDiscoveryMsg -> IO ()) 
+             -> MVar LocalBackendState 
+             -> Int
+             -> IO [NodeId]
+apiFindPeers send backendState delay = do
+  send PeerDiscoveryRequest 
+  threadDelay delay 
+  Set.toList . (^. peers) <$> readMVar backendState  
+
+data PeerDiscoveryMsg = 
+    PeerDiscoveryRequest 
+  | PeerDiscoveryReply NodeId
+
+instance Binary PeerDiscoveryMsg where
+  put PeerDiscoveryRequest     = putWord8 0
+  put (PeerDiscoveryReply nid) = putWord8 1 >> put nid
+  get = do
+    header <- getWord8 
+    case header of
+      0 -> return PeerDiscoveryRequest
+      1 -> PeerDiscoveryReply <$> get
+      _ -> fail "PeerDiscoveryMsg.get: invalid"
 
 -- | Respond to peer discovery requests sent by other nodes
 peerDiscoveryDaemon :: MVar LocalBackendState 
-                    -> N.Socket 
-                    -> (N.Socket, N.SockAddr) 
+                    -> IO (PeerDiscoveryMsg, N.SockAddr)
+                    -> (PeerDiscoveryMsg -> IO ()) 
                     -> IO ()
-peerDiscoveryDaemon backendState readSock (writeSock, addr) = do
-  (msgLen, _remoteAddr) <- NBS.recvFrom readSock 4
+peerDiscoveryDaemon backendState recv send = forever go
+  where
+    go = do
+      (msg, _) <- recv
+      case msg of
+        PeerDiscoveryRequest -> do
+          nodes <- (^. localNodes) <$> readMVar backendState
+          forM_ nodes $ send . PeerDiscoveryReply . Node.localNodeId 
+        PeerDiscoveryReply nid ->
+          modifyMVar_ backendState $ return . (peers ^: Set.insert nid)
 
-  case decodeInt32 msgLen of
-    (0xCDAECDAE :: Int) -> do
-      nodes <- localNodes <$> readMVar backendState
-      forM_ nodes $ \node -> do
-        let nodeAddr = encode (Node.localNodeId node)
-            msg      = encodeInt32 (BSL.length nodeAddr) `BSS.append`
-                       (BSS.concat . BSL.toChunks $ nodeAddr) 
-        NBS.sendTo writeSock msg addr
+--------------------------------------------------------------------------------
+-- Accessors                                                                  --
+--------------------------------------------------------------------------------
+
+localNodes :: Accessor LocalBackendState [LocalNode]
+localNodes = accessor _localNodes (\ns st -> st { _localNodes = ns })
+
+peers :: Accessor LocalBackendState (Set NodeId)
+peers = accessor _peers (\ps st -> st { _peers = ps })
