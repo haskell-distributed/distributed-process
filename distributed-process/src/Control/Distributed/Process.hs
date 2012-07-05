@@ -113,7 +113,7 @@ import Control.Distributed.Process.Internal.Closure.BuiltIn
   , serializableDictUnit
   )
 import Control.Distributed.Process.Internal.Closure.Combinators (cpSeq, cpBind)
-import Control.Distributed.Process.Internal.Process.Primitives
+import Control.Distributed.Process.Internal.Primitives
   ( -- Basic messaging
     send 
   , expect

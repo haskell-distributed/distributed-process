@@ -2,7 +2,7 @@
 --
 -- We define these in a separate module so that we don't have to rely on 
 -- the closure combinators
-module Control.Distributed.Process.Internal.Process.Primitives 
+module Control.Distributed.Process.Internal.Primitives 
   ( -- * Basic messaging
     send 
   , expect

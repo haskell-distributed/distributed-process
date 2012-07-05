@@ -14,7 +14,7 @@ module Control.Distributed.Process.Internal.Closure.BuiltIn
 
 import Data.Binary (encode)
 import Data.Typeable (typeOf)
-import Control.Distributed.Process.Internal.Process.Primitives (link, unlink)
+import Control.Distributed.Process.Internal.Primitives (link, unlink)
 import Control.Distributed.Process.Internal.Types 
   ( ProcessId
   , Closure

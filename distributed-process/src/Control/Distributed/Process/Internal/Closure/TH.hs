@@ -52,7 +52,7 @@ import Control.Distributed.Process.Internal.Types
   , RuntimeSerializableSupport(..)
   )
 import Control.Distributed.Process.Internal.Dynamic (Dynamic, toDyn)
-import Control.Distributed.Process.Internal.Process.Primitives (send, expect)
+import Control.Distributed.Process.Internal.Primitives (send, expect)
 
 --------------------------------------------------------------------------------
 -- User-level API                                                             --
