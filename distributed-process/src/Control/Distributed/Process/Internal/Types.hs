@@ -33,6 +33,9 @@ module Control.Distributed.Process.Internal.Types
   , RuntimeSerializableSupport(..)
     -- * Messages 
   , Message(..)
+  , createMessage
+  , messageToPayload
+  , payloadToMessage
     -- * Node controller user-visible data types 
   , MonitorRef(..)
   , ProcessMonitorNotification(..)
@@ -48,6 +51,7 @@ module Control.Distributed.Process.Internal.Types
   , DidUnlinkPort(..)
   , SpawnRef(..)
   , DidSpawn(..)
+  , WhereIsReply(..)
     -- * Node controller internal data types 
   , NCMsg(..)
   , ProcessSignal(..)
@@ -73,11 +77,16 @@ module Control.Distributed.Process.Internal.Types
 import Data.Map (Map)
 import Data.Int (Int32)
 import Data.Typeable (Typeable, TypeRep)
-import Data.Binary (Binary(put, get), putWord8, getWord8)
-import Data.ByteString.Lazy (ByteString)
+import Data.Binary (Binary(put, get), putWord8, getWord8, encode)
+import qualified Data.ByteString as BSS (ByteString, concat)
+import qualified Data.ByteString.Lazy as BSL 
+  ( ByteString
+  , toChunks
+  , splitAt
+  , fromChunks
+  )
 import Data.Accessor (Accessor, accessor)
 import qualified Data.Accessor.Container as DAC (mapMaybe)
-import qualified Data.ByteString.Lazy as BSL (ByteString)
 import Control.Category ((>>>))
 import Control.Exception (Exception)
 import Control.Concurrent (ThreadId)
@@ -90,7 +99,14 @@ import Control.Monad.Reader (MonadReader(..), ReaderT)
 import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.State (MonadState, StateT)
 import qualified Control.Monad.Trans.Class as Trans (lift)
-import Control.Distributed.Process.Serializable (Fingerprint, Serializable)
+import Control.Distributed.Process.Serializable 
+  ( Fingerprint
+  , Serializable
+  , fingerprint
+  , encodeFingerprint
+  , sizeOfFingerprint
+  , decodeFingerprint
+  )
 import Control.Distributed.Process.Internal.CQueue (CQueue)
 import Control.Distributed.Process.Internal.Dynamic (Dynamic) 
 
@@ -255,7 +271,7 @@ newtype Static a = Static StaticLabel
   deriving (Typeable, Show)
 
 -- | A closure is a static value and an encoded environment
-data Closure a = Closure (Static (ByteString -> a)) ByteString
+data Closure a = Closure (Static (BSL.ByteString -> a)) BSL.ByteString
   deriving (Typeable, Show)
 
 -- | Used to fake 'static' (see paper)
@@ -293,6 +309,25 @@ data Message = Message
   { messageFingerprint :: Fingerprint 
   , messageEncoding    :: BSL.ByteString
   }
+
+instance Show Message where
+  show = show . messageEncoding
+
+-- | Turn any serialiable term into a message
+createMessage :: Serializable a => a -> Message
+createMessage a = Message (fingerprint a) (encode a)
+
+-- | Serialize a message
+messageToPayload :: Message -> [BSS.ByteString]
+messageToPayload (Message fp enc) = encodeFingerprint fp : BSL.toChunks enc
+
+-- | Deserialize a message
+payloadToMessage :: [BSS.ByteString] -> Message
+payloadToMessage payload = Message fp msg
+  where
+    (encFp, msg) = BSL.splitAt (fromIntegral sizeOfFingerprint) 
+                 $ BSL.fromChunks payload 
+    fp = decodeFingerprint . BSS.concat . BSL.toChunks $ encFp
 
 --------------------------------------------------------------------------------
 -- Node controller user-visible data types                                    --
@@ -376,8 +411,12 @@ newtype DidUnlinkPort = DidUnlinkPort SendPortId
 newtype SpawnRef = SpawnRef Int32
   deriving (Show, Binary, Typeable, Eq)
 
--- | (Asynchronius) reply from spawn
+-- | (Asynchronius) reply from 'spawn'
 data DidSpawn = DidSpawn SpawnRef ProcessId
+  deriving (Show, Typeable)
+
+-- | (Asynchronous) reply from 'whereis'
+data WhereIsReply = WhereIsReply String (Maybe ProcessId)
   deriving (Show, Typeable)
 
 --------------------------------------------------------------------------------
@@ -399,6 +438,9 @@ data ProcessSignal =
   | Unmonitor MonitorRef
   | Died Identifier DiedReason
   | Spawn (Closure (Process ())) SpawnRef 
+  | WhereIs String
+  | Register String (Maybe ProcessId) -- Nothing to unregister
+  | NamedSend String Message
   deriving Show
 
 --------------------------------------------------------------------------------
@@ -434,12 +476,15 @@ instance Binary MonitorRef where
   get     = MonitorRef <$> get <*> get
 
 instance Binary ProcessSignal where
-  put (Link pid)        = putWord8 0 >> put pid
-  put (Unlink pid)      = putWord8 1 >> put pid
-  put (Monitor ref)     = putWord8 2 >> put ref
-  put (Unmonitor ref)   = putWord8 3 >> put ref 
-  put (Died who reason) = putWord8 4 >> put who >> put reason
-  put (Spawn proc ref)  = putWord8 5 >> put proc >> put ref
+  put (Link pid)            = putWord8 0 >> put pid
+  put (Unlink pid)          = putWord8 1 >> put pid
+  put (Monitor ref)         = putWord8 2 >> put ref
+  put (Unmonitor ref)       = putWord8 3 >> put ref 
+  put (Died who reason)     = putWord8 4 >> put who >> put reason
+  put (Spawn proc ref)      = putWord8 5 >> put proc >> put ref
+  put (WhereIs label)       = putWord8 6 >> put label
+  put (Register label pid)  = putWord8 7 >> put label >> put pid
+  put (NamedSend label msg) = putWord8 8 >> put label >> put (messageToPayload msg) 
   get = do
     header <- getWord8
     case header of
@@ -449,6 +494,9 @@ instance Binary ProcessSignal where
       3 -> Unmonitor <$> get
       4 -> Died <$> get <*> get
       5 -> Spawn <$> get <*> get
+      6 -> WhereIs <$> get
+      7 -> Register <$> get <*> get
+      8 -> NamedSend <$> get <*> (payloadToMessage <$> get)
       _ -> fail "ProcessSignal.get: invalid"
 
 instance Binary DiedReason where
@@ -529,7 +577,9 @@ instance Binary StaticLabel where
       15 -> return CpApply
       _  -> fail "StaticLabel.get: invalid"
 
-  
+instance Binary WhereIsReply where
+  put (WhereIsReply label mPid) = put label >> put mPid
+  get = WhereIsReply <$> get <*> get
 
 --------------------------------------------------------------------------------
 -- Accessors                                                                  --

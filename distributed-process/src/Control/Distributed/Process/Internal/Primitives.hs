@@ -29,6 +29,15 @@ module Control.Distributed.Process.Internal.Primitives
   , unlink
   , monitor
   , unmonitor
+    -- * Registry
+  , register
+  , unregister
+  , whereis
+  , nsend
+  , registerRemote
+  , unregisterRemote
+  , whereisRemote
+  , nsendRemote
     -- * Auxiliary API
   , catch
   , expectTimeout
@@ -91,6 +100,8 @@ import Control.Distributed.Process.Internal.Types
   , DidUnlinkProcess(..)
   , DidUnlinkNode(..)
   , DidUnlinkPort(..)
+  , WhereIsReply(..)
+  , createMessage
   )
 import Control.Distributed.Process.Internal.MessageT 
   ( sendMessage
@@ -352,6 +363,60 @@ unlinkPortAsync (SendPort cid) =
   sendCtrlMsg Nothing . Unlink $ SendPortIdentifier cid
 
 --------------------------------------------------------------------------------
+-- Registry                                                                   --
+--------------------------------------------------------------------------------
+
+-- | Register a process with the local registry (asynchronous).
+--
+-- The process to be registered does not have to be local itself.
+register :: String -> ProcessId -> Process ()
+register label pid = 
+  sendCtrlMsg Nothing (Register label (Just pid))
+
+-- | Register a process with a remote registry (asynchronous).
+--
+-- The process to be registered does not have to live on the same remote node.
+registerRemote :: NodeId -> String -> ProcessId -> Process ()
+registerRemote nid label pid = 
+  sendCtrlMsg (Just nid) (Register label (Just pid)) 
+
+-- | Remove a process from the local registry (asynchronous).
+unregister :: String -> Process ()
+unregister label = 
+  sendCtrlMsg Nothing (Register label Nothing)
+
+-- | Remove a process from a remote registry (asynchronous).
+unregisterRemote :: NodeId -> String -> Process ()
+unregisterRemote nid label =
+  sendCtrlMsg (Just nid) (Register label Nothing)
+
+-- | Query the local process registry (synchronous).
+whereis :: String -> Process (Maybe ProcessId)
+whereis label = do
+  sendCtrlMsg Nothing (WhereIs label)
+  receiveWait [ matchIf (\(WhereIsReply label' _) -> label == label')
+                        (\(WhereIsReply _ mPid) -> return mPid)
+              ]
+
+-- | Query a remote process registry (synchronous)
+whereisRemote :: NodeId -> String -> Process (Maybe ProcessId)
+whereisRemote nid label = do
+  sendCtrlMsg (Just nid) (WhereIs label)
+  receiveWait [ matchIf (\(WhereIsReply label' _) -> label == label')
+                        (\(WhereIsReply _ mPid) -> return mPid)
+              ]
+
+-- | Named send to a process in the local registry (asynchronous) 
+nsend :: Serializable a => String -> a -> Process ()
+nsend label msg = 
+  sendCtrlMsg Nothing (NamedSend label (createMessage msg))
+
+-- | Named send to a process in a remote registry (asynchronous)
+nsendRemote :: Serializable a => NodeId -> String -> a -> Process ()
+nsendRemote nid label msg =
+  sendCtrlMsg (Just nid) (NamedSend label (createMessage msg))
+
+--------------------------------------------------------------------------------
 -- Auxiliary functions                                                        --
 --------------------------------------------------------------------------------
 
@@ -399,3 +464,4 @@ sendCtrlMsg mNid signal = do
       liftIO $ writeChan ctrlChan msg 
     Just nid ->
       procMsg $ sendBinary (NodeIdentifier nid) msg
+

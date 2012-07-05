@@ -524,6 +524,23 @@ testMonitorChannel transport = do
 
     takeMVar gotNotification
 
+testRegistry :: NT.Transport -> IO ()
+testRegistry transport = do
+  node <- newLocalNode transport initRemoteTable
+
+  pingServer <- forkProcess node ping 
+
+  runProcess node $ do
+    register "ping" pingServer
+    Just pid <- whereis "ping"
+    True <- return $ pingServer == pid 
+    us <- getSelfPid
+    nsend "ping" (Pong us)
+    Ping pid' <- expect 
+    True <- return $ pingServer == pid'
+    return ()
+    
+
 main :: IO ()
 main = do
   Right transport <- createTransport "127.0.0.1" "8080" defaultTCPParameters
@@ -535,7 +552,8 @@ main = do
     , ("SendToTerminated", testSendToTerminated transport) 
     , ("TypedChannnels",   testTypedChannels    transport)
     , ("MergeChannels",    testMergeChannels    transport)
-    , ("TestTerminate",    testTerminate        transport)
+    , ("Terminate",        testTerminate        transport)
+    , ("Registry",         testRegistry         transport)
       -- Monitoring processes
       --
       -- The "missing" combinations in the list below don't make much sense, as

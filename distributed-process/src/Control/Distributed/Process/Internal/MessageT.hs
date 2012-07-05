@@ -14,8 +14,8 @@ module Control.Distributed.Process.Internal.MessageT
   ) where
 
 import Data.Binary (Binary, encode)
-import qualified Data.ByteString as BSS (ByteString, concat)
-import qualified Data.ByteString.Lazy as BSL (toChunks, fromChunks, splitAt)
+import qualified Data.ByteString as BSS (ByteString)
+import qualified Data.ByteString.Lazy as BSL (toChunks)
 import Data.Map (Map)
 import qualified Data.Map as Map (empty)
 import Data.Accessor (Accessor, accessor, (^=), (^.))
@@ -33,17 +33,13 @@ import Control.Distributed.Process.Internal.Types
   , NCMsg(NCMsg, ctrlMsgSender, ctrlMsgSignal)
   , DiedReason(DiedDisconnect)
   , ProcessSignal(Died)
-  , Message(..)
   , MessageT(..)
   , MessageState(..)
+  , createMessage
+  , messageToPayload
+  , payloadToMessage
   )
-import Control.Distributed.Process.Serializable 
-  ( Serializable
-  , fingerprint
-  , encodeFingerprint
-  , decodeFingerprint
-  , sizeOfFingerprint
-  )  
+import Control.Distributed.Process.Serializable (Serializable)  
 import qualified Network.Transport as NT 
   ( EndPoint 
   , Connection
@@ -86,26 +82,6 @@ sendBinary them = sendPayload them . BSL.toChunks . encode
 
 sendMessage :: (MonadIO m, Serializable a) => Identifier -> a -> MessageT m ()
 sendMessage them = sendPayload them . messageToPayload . createMessage
-
---------------------------------------------------------------------------------
--- Serialization/deserialization                                              --
---------------------------------------------------------------------------------
-
--- | Turn any serialiable term into a message
-createMessage :: Serializable a => a -> Message
-createMessage a = Message (fingerprint a) (encode a)
-
--- | Serialize a message
-messageToPayload :: Message -> [BSS.ByteString]
-messageToPayload (Message fp enc) = encodeFingerprint fp : BSL.toChunks enc
-
--- | Deserialize a message
-payloadToMessage :: [BSS.ByteString] -> Message
-payloadToMessage payload = Message fp msg
-  where
-    (encFp, msg) = BSL.splitAt (fromIntegral sizeOfFingerprint) 
-                 $ BSL.fromChunks payload 
-    fp = decodeFingerprint . BSS.concat . BSL.toChunks $ encFp
 
 --------------------------------------------------------------------------------
 -- Internal                                                                   --

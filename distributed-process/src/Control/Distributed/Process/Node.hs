@@ -61,7 +61,7 @@ import qualified Network.Transport as NT
   , ConnectionId
   )
 import Data.Accessor (Accessor, accessor, (^.), (^=), (^:))
-import qualified Data.Accessor.Container as DAC (mapDefault)
+import qualified Data.Accessor.Container as DAC (mapDefault, mapMaybe)
 import System.Random (randomIO)
 import Control.Distributed.Process.Internal.Types 
   ( RemoteTable
@@ -101,11 +101,14 @@ import Control.Distributed.Process.Internal.Types
   , nodeOf
   , SendPortId(..)
   , typedChannelWithId
+  , WhereIsReply(..)
+  , messageToPayload
   )
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Internal.MessageT 
   ( sendBinary
   , sendMessage
+  , sendPayload
   , getLocalNode
   , runMessageT
   , payloadToMessage
@@ -343,6 +346,8 @@ data NCState = NCState
     _links    :: Map Identifier (Set ProcessId) 
      -- Mapping from remote processes to monitoring local processes
   , _monitors :: Map Identifier (Set (ProcessId, MonitorRef))
+     -- Process registry
+  , _registry :: Map String ProcessId
   }
 
 newtype NC a = NC { unNC :: StateT NCState (MessageT IO) a }
@@ -354,6 +359,7 @@ ncMsg = NC . Trans.lift
 initNCState :: NCState
 initNCState = NCState { _links    = Map.empty
                       , _monitors = Map.empty
+                      , _registry = Map.empty
                       }
 
 --------------------------------------------------------------------------------
@@ -387,6 +393,12 @@ nodeController = do
         ncEffectDied ident reason
       NCMsg (ProcessIdentifier from) (Spawn proc ref) ->
         ncEffectSpawn from proc ref
+      NCMsg _from (Register label pid) ->
+        ncEffectRegister label pid
+      NCMsg (ProcessIdentifier from) (WhereIs label) ->
+        ncEffectWhereIs from label
+      NCMsg from (NamedSend label msg') ->
+        ncEffectNamedSend from label msg'
       unexpected ->
         error $ "nodeController: unexpected message " ++ show unexpected
 
@@ -468,6 +480,31 @@ ncEffectSpawn pid cProc ref = do
   pid' <- liftIO $ forkProcess node proc
   ncMsg $ sendMessage (ProcessIdentifier pid) (DidSpawn ref pid') 
 
+-- Unified semantics does not explicitly describe how to implement 'register',
+-- but mentions it's "very similar to nsend" (Table 14)
+ncEffectRegister :: String -> Maybe ProcessId -> NC ()
+ncEffectRegister label mPid = 
+  modify $ registryFor label ^= mPid
+  -- An acknowledgement is not necessary. If we want a synchronous register,
+  -- it suffices to send a whereis requiry immediately after the register
+  -- (that may not suffice if we do decide for unreliable messaging instead)
+
+-- Unified semantics does not explicitly describe 'whereis'
+ncEffectWhereIs :: ProcessId -> String -> NC ()
+ncEffectWhereIs from label = do
+  mPid <- gets (^. registryFor label)
+  ncMsg $ sendMessage (ProcessIdentifier from) (WhereIsReply label mPid)
+
+-- [Unified: Table 14]
+ncEffectNamedSend :: Identifier -> String -> Message -> NC ()
+ncEffectNamedSend _from label msg = do
+  mPid <- gets (^. registryFor label)
+  -- If mPid is Nothing, we just ignore the named send (as per Table 14)
+  -- TODO: messages don't carry a "from", but if they do, we should set it
+  -- to be the 'from' of the original named send, not this node controller
+  forM_ mPid $ \pid -> 
+    ncMsg $ sendPayload (ProcessIdentifier pid) (messageToPayload msg) 
+
 --------------------------------------------------------------------------------
 -- Auxiliary                                                                  --
 --------------------------------------------------------------------------------
@@ -507,6 +544,9 @@ destNid (Unlink ident)  = Just $ nodeOf ident
 destNid (Monitor ref)   = Just $ nodeOf (monitorRefIdent ref)
 destNid (Unmonitor ref) = Just $ nodeOf (monitorRefIdent ref)
 destNid (Spawn _ _)     = Nothing 
+destNid (Register _ _)  = Nothing
+destNid (WhereIs _)     = Nothing
+destNid (NamedSend _ _) = Nothing
 -- We don't need to forward 'Died' signals; if monitoring/linking is setup,
 -- then when a local process dies the monitoring/linking machinery will take
 -- care of notifying remote nodes
@@ -576,11 +616,17 @@ links = accessor _links (\ls st -> st { _links = ls })
 monitors :: Accessor NCState (Map Identifier (Set (ProcessId, MonitorRef)))
 monitors = accessor _monitors (\ms st -> st { _monitors = ms })
 
+registry :: Accessor NCState (Map String ProcessId)
+registry = accessor _registry (\ry st -> st { _registry = ry })
+
 linksFor :: Identifier -> Accessor NCState (Set ProcessId)
 linksFor ident = links >>> DAC.mapDefault Set.empty ident
 
 monitorsFor :: Identifier -> Accessor NCState (Set (ProcessId, MonitorRef))
 monitorsFor ident = monitors >>> DAC.mapDefault Set.empty ident
+
+registryFor :: String -> Accessor NCState (Maybe ProcessId)
+registryFor ident = registry >>> DAC.mapMaybe ident
 
 -- | @splitNotif ident@ splits a notifications map into those
 -- notifications that should trigger when 'ident' fails and those links that

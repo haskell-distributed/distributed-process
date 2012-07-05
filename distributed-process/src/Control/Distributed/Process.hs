@@ -64,6 +64,15 @@ module Control.Distributed.Process
   , Static
   , unClosure
   , RemoteTable
+    -- * Registry
+  , register
+  , unregister
+  , whereis
+  , nsend
+  , registerRemote
+  , unregisterRemote
+  , whereisRemote
+  , nsendRemote
     -- * Auxiliary API
   , catch
   , expectTimeout
@@ -146,6 +155,15 @@ import Control.Distributed.Process.Internal.Primitives
   , monitorNode
   , monitorPort
   , unmonitor
+    -- Registry
+  , register
+  , unregister
+  , whereis
+  , nsend
+  , registerRemote
+  , unregisterRemote
+  , whereisRemote
+  , nsendRemote
     -- Auxiliary API
   , catch
   , expectTimeout
