@@ -10,15 +10,18 @@ import Data.Binary (Binary(get, put), getWord8, putWord8)
 import Data.Accessor (Accessor, accessor, (^:), (^.))
 import Data.Set (Set)
 import qualified Data.Set as Set (insert, empty, toList)
+import Data.Foldable (forM_)
 import Control.Applicative ((<$>))
 import Control.Exception (throw)
-import Control.Monad (forM_, forever)
+import Control.Monad (forever)
+import Control.Monad.IO.Class (liftIO)
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar (MVar, newMVar, readMVar, modifyMVar_)
 import Control.Distributed.Process.Internal.Types 
   ( LocalNode
   , RemoteTable
   , NodeId
+  , Process
   )
 import qualified Control.Distributed.Process.Node as Node 
   ( newLocalNode
@@ -31,6 +34,7 @@ import qualified Network.Transport.TCP as NT
 import qualified Network.Transport as NT (Transport)
 import qualified Network.Socket as N (HostName, ServiceName, SockAddr)
 import Control.Distributed.Process.Internal.Multicast (initMulticast)
+import Control.Distributed.Process.Internal.Primitives (whereis, registerRemote)
 
 -- | Local backend 
 data LocalBackend = LocalBackend {
@@ -39,6 +43,9 @@ data LocalBackend = LocalBackend {
     -- | @findPeers t@ sends out a /who's there?/ request, waits 't' msec,
     -- and then collects and returns the answers
   , findPeers :: Int -> IO [NodeId]
+    -- | Make sure that all log messages are printed by the logger on the
+    -- current node
+  , redirectLogsHere :: Process ()
   }
 
 data LocalBackendState = LocalBackendState {
@@ -58,10 +65,13 @@ initializeBackend host port rtable = do
   forkIO $ peerDiscoveryDaemon backendState recv send 
   case mTransport of
     Left err -> throw err
-    Right transport -> return LocalBackend {
-        newLocalNode = apiNewLocalNode transport rtable backendState 
-      , findPeers    = apiFindPeers send backendState
-      }
+    Right transport -> 
+      let backend = LocalBackend {
+          newLocalNode     = apiNewLocalNode transport rtable backendState 
+        , findPeers        = apiFindPeers send backendState
+        , redirectLogsHere = apiRedirectLogsHere backend 
+        }
+      in return backend
 
 -- | Create a new local node
 apiNewLocalNode :: NT.Transport 
@@ -112,6 +122,18 @@ peerDiscoveryDaemon backendState recv send = forever go
           forM_ nodes $ send . PeerDiscoveryReply . Node.localNodeId 
         PeerDiscoveryReply nid ->
           modifyMVar_ backendState $ return . (peers ^: Set.insert nid)
+
+--------------------------------------------------------------------------------
+-- Back-end specific primitives                                               --
+--------------------------------------------------------------------------------
+
+-- | Make sure that all log messages are printed by the logger on this node
+apiRedirectLogsHere :: LocalBackend -> Process ()
+apiRedirectLogsHere backend = do
+  mLogger <- whereis "logger"
+  forM_ mLogger $ \logger -> do
+    nids <- liftIO $ findPeers backend 1000000 
+    forM_ nids $ \nid -> registerRemote nid "logger" logger
 
 --------------------------------------------------------------------------------
 -- Accessors                                                                  --

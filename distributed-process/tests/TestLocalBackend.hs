@@ -13,20 +13,17 @@ import Control.Monad.IO.Class (liftIO)
 server :: LocalBackend -> IO ()
 server backend = do
   node <- newLocalNode backend
-  runProcess node $ 
+  runProcess node $ do 
+    redirectLogsHere backend
     say "this is the server"
-  {-
-  nodes <- findPeers backend 1000000
-  print nodes
-  -}
   threadDelay 30000000 
 
 client :: LocalBackend -> IO ()
 client backend = do
   node <- newLocalNode backend
   forkProcess node . forever $ do
-    say "this is a client node1" 
-    liftIO $ threadDelay 5000000
+    say "this is a client" 
+    liftIO $ threadDelay 2000000
   threadDelay 30000000 
 
 main :: IO ()
