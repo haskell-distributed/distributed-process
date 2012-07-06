@@ -130,13 +130,13 @@ instance Show MulticastAddress where
 -- placeholders only.                                                         --
 --------------------------------------------------------------------------------
 
--- Hints used by 'connect'
+-- | Hints used by 'connect'
 data ConnectHints = ConnectHints {
     -- Timeout
     connectTimeout :: Maybe Int
   }
 
--- Default hints for connecting
+-- | Default hints for connecting
 defaultConnectHints :: ConnectHints
 defaultConnectHints = ConnectHints {
     connectTimeout = Nothing

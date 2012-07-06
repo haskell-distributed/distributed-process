@@ -36,7 +36,7 @@ import Network.Transport.Internal ( encodeInt32
                                   , tryIO
                                   , void
                                   )
-import Network.Transport.Internal.TCP (recvInt32, forkServer, recvWithLength)
+import Network.Transport.TCP.Internal (recvInt32, forkServer, recvWithLength)
 import qualified Network.Socket as N ( sClose
                                      , ServiceName
                                      , Socket

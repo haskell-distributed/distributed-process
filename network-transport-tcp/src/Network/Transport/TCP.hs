@@ -30,7 +30,7 @@ module Network.Transport.TCP ( -- * Main API
 
 import Prelude hiding (catch, mapM_)
 import Network.Transport
-import Network.Transport.Internal.TCP ( forkServer
+import Network.Transport.TCP.Internal ( forkServer
                                       , recvWithLength
                                       , recvInt32
                                       , tryCloseSocket
@@ -364,8 +364,16 @@ data ValidRemoteEndPointState = ValidRemoteEndPointState
   , _nextCtrlRequestId   :: !ControlRequestId 
   }
 
+-- | Local identifier for an endpoint within this transport
 type EndPointId       = Int32
+
+-- | Control request ID
+-- 
+-- Control requests are asynchronous; the request ID makes it possible to match
+-- requests and replies
 type ControlRequestId = Int32
+
+-- | Pair of local and a remote endpoint (for conciseness in signatures)
 type EndPointPair     = (LocalEndPoint, RemoteEndPoint)
 
 -- | Control headers 
@@ -380,7 +388,7 @@ data ControlHeader =
   | CloseSocket         
   deriving (Enum, Bounded, Show)
 
--- Response sent by /B/ to /A/ when /A/ tries to connect
+-- | Response sent by /B/ to /A/ when /A/ tries to connect
 data ConnectionRequestResponse =
     -- | /B/ accepts the connection
     ConnectionRequestAccepted        
@@ -390,7 +398,7 @@ data ConnectionRequestResponse =
   | ConnectionRequestCrossed         
   deriving (Enum, Bounded, Show)
 
--- Parameters for setting up the TCP transport
+-- | Parameters for setting up the TCP transport
 data TCPParameters = TCPParameters {
     -- | Backlog for 'listen'.
     -- Defaults to SOMAXCONN.
@@ -403,7 +411,7 @@ data TCPParameters = TCPParameters {
   , tcpReuseClientAddr :: Bool
   }
 
--- Internal functionality we expose for unit testing
+-- | Internal functionality we expose for unit testing
 data TransportInternals = TransportInternals 
   { -- | The ID of the thread that listens for new incoming connections
     transportThread :: ThreadId

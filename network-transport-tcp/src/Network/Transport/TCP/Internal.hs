@@ -1,5 +1,5 @@
 -- | Utility functions for TCP sockets 
-module Network.Transport.Internal.TCP ( forkServer
+module Network.Transport.TCP.Internal ( forkServer
                                       , recvWithLength
                                       , recvExact 
                                       , recvInt32
