@@ -1,0 +1,49 @@
+Name:          network-transport-tcp
+Version:       0.2.0
+Cabal-Version: >=1.8
+Build-Type:    Simple
+License:       BSD3 
+License-file:  LICENSE
+Copyright:     Well-Typed LLP
+Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
+Maintainer:    edsko@well-typed.com, dcoutts@well-typed.com
+Stability:     experimental
+Homepage:      http://github.com/haskell-distributed/distributed-process
+Bug-Reports:   mailto:edsko@well-typed.com
+Synopsis:      TCP instantation of Network.Transport
+Description:   TCP instantation of Network.Transport  
+Tested-With:   GHC==7.0.4 GHC==7.2.2 GHC==7.4.1 GHC==7.4.2
+Category:      Network  
+
+Library
+  Build-Depends:   base >= 4.3 && < 5,
+                   network-transport >= 0.2 && < 0.3,
+                   data-accessor >= 0.2 && < 0.3,
+                   containers >= 0.4 && < 0.5,
+                   bytestring >= 0.9 && < 0.10,
+                   network >= 2.3 && < 2.4
+  Exposed-modules: Network.Transport.TCP,
+                   Network.Transport.TCP.Internal
+  ghc-options:     -Wall -fno-warn-unused-do-bind
+  HS-Source-Dirs:  src
+
+Test-Suite TestTCP 
+  Type:            exitcode-stdio-1.0
+  Main-Is:         TestTCP.hs
+  Build-Depends:   base >= 4.3 && < 5,
+                   network-transport >= 0.2 && < 0.3,
+                   data-accessor >= 0.2 && < 0.3,
+                   containers >= 0.4 && < 0.5,
+                   bytestring >= 0.9 && < 0.10,
+                   network >= 2.3 && < 2.4,
+                   random >= 1.0 && < 1.1,
+                   ansi-terminal >= 0.5 && < 0.6,
+                   mtl >= 2.0 && < 2.2
+  ghc-options:     -Wall -fno-warn-unused-do-bind -threaded -rtsopts -with-rtsopts=-N
+  Extensions:      ExistentialQuantification,
+                   FlexibleInstances,
+                   DeriveDataTypeable,
+                   RankNTypes,
+                   OverlappingInstances,
+                   OverloadedStrings
+  HS-Source-Dirs:  tests src
