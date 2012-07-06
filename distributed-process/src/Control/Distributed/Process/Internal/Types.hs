@@ -135,7 +135,9 @@ instance Show LocalProcessId where
 
 -- | Process identifier
 data ProcessId = ProcessId 
-  { processNodeId  :: NodeId
+  { -- | The ID of the node the process is running on
+    processNodeId  :: NodeId
+    -- | Node-local identifier for the process
   , processLocalId :: LocalProcessId 
   }
   deriving (Eq, Ord, Typeable)
@@ -218,8 +220,14 @@ procMsg = Process . Trans.lift
 
 type LocalSendPortId = Int32
 
+-- | A send port is identified by a SendPortId.
+--
+-- You cannot send directly to a SendPortId; instead, use 'newChan'
+-- to create a SendPort.
 data SendPortId = SendPortId {
+    -- | The ID of the process that will receive messages sent on this port
     sendPortProcessId :: ProcessId
+    -- | Process-local ID of the channel
   , sendPortLocalId   :: LocalSendPortId
   }
   deriving (Eq, Ord)
@@ -231,7 +239,10 @@ instance Show SendPortId where
 data TypedChannel = forall a. Serializable a => TypedChannel (TChan a)
 
 -- | The send send of a typed channel (serializable)
-newtype SendPort a = SendPort { sendPortId :: SendPortId }
+newtype SendPort a = SendPort { 
+    -- | The (unique) ID of this send port
+    sendPortId :: SendPortId 
+  }
   deriving (Typeable, Binary, Show, Eq, Ord)
 
 -- | The receive end of a typed channel (not serializable)
