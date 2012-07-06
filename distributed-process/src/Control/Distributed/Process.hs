@@ -291,12 +291,23 @@ spawnMonitor nid proc = do
 
 -- | Run a process remotely and wait for it to reply
 -- 
--- We link to the remote process, so that if it dies, we die too.
+-- We monitor the remote process; if it dies before it can send a reply, we die
+-- too
 call :: SerializableDict a -> NodeId -> Closure (Process a) -> Process a
 call sdict@SerializableDict nid proc = do 
   us <- getSelfPid
-  _  <- spawnLink nid (proc `cpBind` sendClosure sdict us)
-  expect
+  (_, mRef) <- spawnMonitor nid (proc `cpBind` sendClosure sdict us)
+  -- We are guaranteed to receive the reply before the monitor notification
+  -- (if a reply is sent at all)
+  -- NOTE: This might not be true if we switch to unreliable delivery.
+  mResult <- receiveWait
+    [ match (return . Right)
+    , matchIf (\(ProcessMonitorNotification ref _ _) -> ref == mRef)
+              (\(ProcessMonitorNotification _ _ reason) -> return (Left reason))
+    ]
+  case mResult of
+    Right a  -> unmonitor mRef >> return a
+    Left err -> fail $ "call: remote process died: " ++ show err 
 
 -- | Spawn a child process, have the child link to the parent and the parent
 -- monitor the child
