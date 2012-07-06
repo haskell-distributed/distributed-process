@@ -1,9 +1,9 @@
 import System.Environment (getArgs, getProgName)
 import Control.Distributed.Process (NodeId, Process, liftIO)
 import Control.Distributed.Process.Node (initRemoteTable)
-import Control.Distributed.Process.Backend.Local 
+import Control.Distributed.Process.Backend.SimpleLocalnet
 
-master :: LocalBackend -> [NodeId] -> Process ()
+master :: Backend -> [NodeId] -> Process ()
 master backend slaves = do
   liftIO . putStrLn $ "Slaves: " ++ show slaves
   terminateAllSlaves backend

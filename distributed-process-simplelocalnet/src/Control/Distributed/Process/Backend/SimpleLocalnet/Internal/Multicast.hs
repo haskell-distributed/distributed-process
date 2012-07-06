@@ -1,6 +1,6 @@
 -- | Multicast utilities
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-module Control.Distributed.Process.Internal.Multicast (initMulticast) where
+module Control.Distributed.Process.Backend.SimpleLocalnet.Internal.Multicast (initMulticast) where
 
 import Data.Function (on)
 import Data.Map (Map)
@@ -35,12 +35,14 @@ import Network.Multicast (multicastSender, multicastReceiver)
 -- message size; if you do, all subsequent communication will probably fail.
 --
 -- Returns a reader and a writer.
-initMulticast :: HostName    -- ^ Multicast IP
+--
+-- NOTE: By rights the two functions should be "locally" polymorphic in 'a',
+-- but this requires impredicative types.
+initMulticast :: forall a. Binary a 
+              => HostName    -- ^ Multicast IP
               -> PortNumber  -- ^ Port number
               -> Int         -- ^ Maximum message size 
-              -> IO ( forall a. Binary a => IO (a, SockAddr)
-                    , forall a. Binary a => a -> IO ()
-                    )
+              -> IO (IO (a, SockAddr), a -> IO ())
 initMulticast host port bufferSize = do
     (sendSock, sendAddr) <- multicastSender host port
     readSock <- multicastReceiver host port

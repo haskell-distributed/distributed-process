@@ -15,7 +15,7 @@
 -- > import Control.Distributed.Process.Node (initRemoteTable)
 -- > import Control.Distributed.Process.Backend.Local 
 -- > 
--- > master :: LocalBackend -> [NodeId] -> Process ()
+-- > master :: Backend -> [NodeId] -> Process ()
 -- > master backend slaves = do
 -- >   -- Do something interesting with the slaves
 -- >   liftIO . putStrLn $ "Slaves: " ++ show slaves
@@ -34,9 +34,9 @@
 -- >       backend <- initializeBackend host port initRemoteTable 
 -- >       startSlave backend
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-module Control.Distributed.Process.Backend.Local 
+module Control.Distributed.Process.Backend.SimpleLocalnet
   ( -- * Initialization 
-    LocalBackend(..)
+    Backend(..)
   , initializeBackend
     -- * Slave nodes
   , startSlave
@@ -89,10 +89,10 @@ import qualified Network.Transport.TCP as NT
   )
 import qualified Network.Transport as NT (Transport)
 import qualified Network.Socket as N (HostName, ServiceName, SockAddr)
-import Control.Distributed.Process.Internal.Multicast (initMulticast)
+import Control.Distributed.Process.Backend.SimpleLocalnet.Internal.Multicast (initMulticast)
 
 -- | Local backend 
-data LocalBackend = LocalBackend {
+data Backend = Backend {
     -- | Create a new local node
     newLocalNode :: IO Node.LocalNode
     -- | @findPeers t@ sends out a /who's there?/ request, waits 't' msec,
@@ -103,19 +103,19 @@ data LocalBackend = LocalBackend {
   , redirectLogsHere :: Process ()
   }
 
-data LocalBackendState = LocalBackendState {
+data BackendState = BackendState {
    _localNodes      :: [Node.LocalNode]
  , _peers           :: Set NodeId
  ,  discoveryDaemon :: ThreadId
  }
 
 -- | Initialize the backend
-initializeBackend :: N.HostName -> N.ServiceName -> RemoteTable -> IO LocalBackend
+initializeBackend :: N.HostName -> N.ServiceName -> RemoteTable -> IO Backend
 initializeBackend host port rtable = do
   mTransport   <- NT.createTransport host port NT.defaultTCPParameters 
   (recv, send) <- initMulticast  "224.0.0.99" 9999 1024
   (_, backendState) <- fixIO $ \ ~(tid, _) -> do
-    backendState <- newMVar LocalBackendState 
+    backendState <- newMVar BackendState 
                       { _localNodes      = [] 
                       , _peers           = Set.empty
                       ,  discoveryDaemon = tid
@@ -125,7 +125,7 @@ initializeBackend host port rtable = do
   case mTransport of
     Left err -> throw err
     Right transport -> 
-      let backend = LocalBackend {
+      let backend = Backend {
           newLocalNode       = apiNewLocalNode transport rtable backendState 
         , findPeers          = apiFindPeers send backendState
         , redirectLogsHere   = apiRedirectLogsHere backend 
@@ -135,7 +135,7 @@ initializeBackend host port rtable = do
 -- | Create a new local node
 apiNewLocalNode :: NT.Transport 
                 -> RemoteTable 
-                -> MVar LocalBackendState
+                -> MVar BackendState
                 -> IO Node.LocalNode
 apiNewLocalNode transport rtable backendState = do
   localNode <- Node.newLocalNode transport rtable 
@@ -144,7 +144,7 @@ apiNewLocalNode transport rtable backendState = do
 
 -- | Peer discovery
 apiFindPeers :: (PeerDiscoveryMsg -> IO ()) 
-             -> MVar LocalBackendState 
+             -> MVar BackendState 
              -> Int
              -> IO [NodeId]
 apiFindPeers send backendState delay = do
@@ -167,7 +167,7 @@ instance Binary PeerDiscoveryMsg where
       _ -> fail "PeerDiscoveryMsg.get: invalid"
 
 -- | Respond to peer discovery requests sent by other nodes
-peerDiscoveryDaemon :: MVar LocalBackendState 
+peerDiscoveryDaemon :: MVar BackendState 
                     -> IO (PeerDiscoveryMsg, N.SockAddr)
                     -> (PeerDiscoveryMsg -> IO ()) 
                     -> IO ()
@@ -187,7 +187,7 @@ peerDiscoveryDaemon backendState recv send = forever go
 --------------------------------------------------------------------------------
 
 -- | Make sure that all log messages are printed by the logger on this node
-apiRedirectLogsHere :: LocalBackend -> Process ()
+apiRedirectLogsHere :: Backend -> Process ()
 apiRedirectLogsHere backend = do
   mLogger <- whereis "logger"
   forM_ mLogger $ \logger -> do
@@ -219,7 +219,7 @@ instance Binary SlaveControllerMsg where
 --
 -- This function does not return. The only way to exit the slave is to CTRL-C
 -- the process or call terminateSlave from another node.
-startSlave :: LocalBackend -> IO ()
+startSlave :: Backend -> IO ()
 startSlave backend = do
   node <- newLocalNode backend 
   Node.runProcess node slaveController 
@@ -241,7 +241,7 @@ terminateSlave :: NodeId -> Process ()
 terminateSlave nid = nsendRemote nid "slaveController" SlaveTerminate
 
 -- | Find slave nodes
-findSlaves :: LocalBackend -> Process [NodeId]
+findSlaves :: Backend -> Process [NodeId]
 findSlaves backend = do
   nodes <- liftIO $ findPeers backend 1000000   
   -- Fire of asynchronous requests for the slave controller
@@ -254,7 +254,7 @@ findSlaves backend = do
       ])
 
 -- | Terminate all slaves
-terminateAllSlaves :: LocalBackend -> Process ()
+terminateAllSlaves :: Backend -> Process ()
 terminateAllSlaves backend = do
   slaves <- findSlaves backend
   forM_ slaves terminateSlave
@@ -272,7 +272,7 @@ terminateAllSlaves backend = do
 -- Terminates when the specified process terminates. If you want to terminate
 -- the slaves when the master terminates, you should manually call 
 -- 'terminateAllSlaves'.
-startMaster :: LocalBackend -> ([NodeId] -> Process ()) -> IO ()
+startMaster :: Backend -> ([NodeId] -> Process ()) -> IO ()
 startMaster backend proc = do
   node <- newLocalNode backend
   Node.runProcess node $ do
@@ -284,8 +284,8 @@ startMaster backend proc = do
 -- Accessors                                                                  --
 --------------------------------------------------------------------------------
 
-localNodes :: Accessor LocalBackendState [Node.LocalNode]
+localNodes :: Accessor BackendState [Node.LocalNode]
 localNodes = accessor _localNodes (\ns st -> st { _localNodes = ns })
 
-peers :: Accessor LocalBackendState (Set NodeId)
+peers :: Accessor BackendState (Set NodeId)
 peers = accessor _peers (\ps st -> st { _peers = ps })

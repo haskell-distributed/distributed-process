@@ -1,102 +1,130 @@
-Name:                distributed-process
-Version:             0.1.0
-Description:         Distributed processes for message based concurrency.
-License:             BSD3
-License-file:        LICENSE
-Author:              Duncan Coutts, Nicolas Wu, Edsko de Vries
-Maintainer:          duncan@well-typed.com
-Homepage:            http://github.com/haskell-distributed/
-Build-Type:          Simple
-Cabal-Version:       >=1.2
+Name:          distributed-process 
+Version:       0.2.0
+Cabal-Version: >=1.8
+Build-Type:    Simple
+License:       BSD3 
+License-File:  LICENSE
+Copyright:     Well-Typed LLP
+Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
+Maintainer:    edsko@well-typed.com, dcoutts@well-typed.com
+Stability:     experimental
+Homepage:      http://github.com/haskell-distributed/distributed-process
+Bug-Reports:   mailto:edsko@well-typed.com
+Synopsis:      Cloud Haskell: Erlang-style concurrency in Haskell 
+Description:   This is an implementation of Cloud Haskell, as described in
+               /Towards Haskell in the Cloud/ by Jeff Epstein, Andrew Black,
+               and Simon Peyton Jones
+               (<http://research.microsoft.com/en-us/um/people/simonpj/papers/parallel/>),
+               although some of the details are different. The precise message
+               passing semantics are based on /A unified semantics for future
+               Erlang/ by	Hans Svensson, Lars-Åke Fredlund and Clara Benac
+               Earle.
+
+               You will probably also want to install a Cloud Haskell backend such
+               as distributed-process-simplelocalnet.
+Tested-With:   GHC==7.2.2 GHC==7.4.1 GHC==7.4.2
+Category:      Control 
 
 Library
-  Build-Depends:     base >= 3 && < 5,
-                     bytestring >= 0.9,
-                     containers >= 0.4,
-                     mtl >= 2.0,
-                     binary,
-                     transformers,
-                     data-accessor,
-                     random,
-                     template-haskell,
-                     stm,
-                     ghc-prim,
-                     network,
-                     network-multicast,
-                     time,
-                     old-locale,
-                     network-transport >= 0.1
+  Build-Depends:     base >= 4.4 && < 5,
+                     binary >= 0.5 && < 0.6,
+                     network-transport >= 0.2 && < 0.3,
+                     stm >= 2.4 && < 2.5,
+                     transformers >= 0.2 && < 0.4,
+                     mtl >= 2.0 && < 2.2,
+                     data-accessor >= 0.2 && < 0.3,
+                     bytestring >= 0.9 && < 0.10,
+                     containers >= 0.4 && < 0.5,
+                     old-locale >= 1.0 && < 1.1,
+                     time >= 1.2 && < 1.3,
+                     template-haskell >= 2.6 && < 2.7,
+                     random >= 1.0 && < 1.1,
+                     ghc-prim >= 0.2 && < 0.3
   Exposed-modules:   Control.Distributed.Process,
                      Control.Distributed.Process.Serializable,
                      Control.Distributed.Process.Closure,
-                     Control.Distributed.Process.Node
-                     Control.Distributed.Process.Backend.Local
-  Extensions:        ExplicitForAll, ScopedTypeVariables, GeneralizedNewtypeDeriving, FlexibleInstances, UndecidableInstances, MultiParamTypeClasses, DeriveDataTypeable, TemplateHaskell, ExistentialQuantification, RankNTypes, GADTs, ImpredicativeTypes
+                     Control.Distributed.Process.Node,
+                     Control.Distributed.Process.Internal.Primitives,
+                     Control.Distributed.Process.Internal.CQueue,
+                     Control.Distributed.Process.Internal.Dynamic,
+                     Control.Distributed.Process.Internal.Closure,
+                     Control.Distributed.Process.Internal.TypeRep,
+                     Control.Distributed.Process.Internal.MessageT,
+                     Control.Distributed.Process.Internal.Types,
+                     Control.Distributed.Process.Internal.Closure.BuiltIn,
+                     Control.Distributed.Process.Internal.Closure.Combinators,
+                     Control.Distributed.Process.Internal.Closure.TH,
+                     Control.Distributed.Process.Internal.Node
+  Extensions:        RankNTypes,
+                     ScopedTypeVariables,
+                     FlexibleInstances,
+                     UndecidableInstances,
+                     ExistentialQuantification,
+                     GADTs,
+                     GeneralizedNewtypeDeriving,
+                     DeriveDataTypeable,
+                     TemplateHaskell
   ghc-options:       -Wall
   HS-Source-Dirs:    src
 
 Test-Suite TestCH
   Type:              exitcode-stdio-1.0
   Main-Is:           TestCH.hs
-  Build-Depends:     base,
-                     bytestring,
-                     containers,
-                     mtl,
-                     binary,
-                     transformers,
-                     data-accessor,
-                     random,
-                     ansi-terminal,
-                     template-haskell,
-                     stm,
-                     ghc-prim,
-                     time,
-                     old-locale,
-                     network-transport >= 0.1
-  Extensions:        ExplicitForAll, ScopedTypeVariables, GeneralizedNewtypeDeriving, FlexibleInstances, UndecidableInstances, MultiParamTypeClasses, DeriveDataTypeable, TemplateHaskell, ExistentialQuantification, RankNTypes, GADTs, ImpredicativeTypes
+  Build-Depends:     base >= 4.4 && < 5,
+                     binary >= 0.5 && < 0.6,
+                     network-transport >= 0.2 && < 0.3,
+                     network-transport-tcp >= 0.2 && < 0.3,
+                     stm >= 2.4 && < 2.5,
+                     transformers >= 0.2 && < 0.4,
+                     mtl >= 2.0 && < 2.2,
+                     data-accessor >= 0.2 && < 0.3,
+                     bytestring >= 0.9 && < 0.10,
+                     containers >= 0.4 && < 0.5,
+                     old-locale >= 1.0 && < 1.1,
+                     time >= 1.2 && < 1.3,
+                     template-haskell >= 2.6 && < 2.7,
+                     random >= 1.0 && < 1.1,
+                     ghc-prim >= 0.2 && < 0.3,
+                     ansi-terminal >= 0.5 && < 0.6
+  Extensions:        RankNTypes,
+                     ScopedTypeVariables,
+                     FlexibleInstances,
+                     UndecidableInstances,
+                     ExistentialQuantification,
+                     GADTs,
+                     GeneralizedNewtypeDeriving,
+                     DeriveDataTypeable,
+                     TemplateHaskell
   ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind 
   HS-Source-Dirs:    tests src
 
--- Separate test suite for tests that involve closures, as this will be replaced
--- once we have proper support for 'static'
 Test-Suite TestClosure
   Type:              exitcode-stdio-1.0
   Main-Is:           TestClosure.hs
-  Build-Depends:     base,
-                     bytestring,
-                     containers,
-                     mtl,
-                     binary,
-                     transformers,
-                     data-accessor,
-                     random,
-                     ansi-terminal,
-                     template-haskell,
-                     stm,
-                     time,
-                     old-locale,
-                     network-transport >= 0.1
-  Extensions:        ExplicitForAll, ScopedTypeVariables, GeneralizedNewtypeDeriving, FlexibleInstances, UndecidableInstances, MultiParamTypeClasses, DeriveDataTypeable, TemplateHaskell, ExistentialQuantification, RankNTypes, GADTs, ImpredicativeTypes
-  ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind 
-  HS-Source-Dirs:    tests src
-
--- Not a proper test, but we want to use cabal to compile it
-Test-Suite TestLocalBackend
-  Type:              exitcode-stdio-1.0
-  Main-Is:           TestLocalBackend.hs
-  Build-Depends:     base,
-                     bytestring,
-                     containers,
-                     mtl,
-                     binary,
-                     transformers,
-                     data-accessor,
-                     random,
-                     ansi-terminal,
-                     template-haskell,
-                     stm,
-                     old-locale,
-                     network-transport >= 0.1
-  Extensions:        ExplicitForAll, ScopedTypeVariables, GeneralizedNewtypeDeriving, FlexibleInstances, UndecidableInstances, MultiParamTypeClasses, DeriveDataTypeable, TemplateHaskell, ExistentialQuantification, RankNTypes, GADTs, ImpredicativeTypes
+  Build-Depends:     base >= 4.4 && < 5,
+                     binary >= 0.5 && < 0.6,
+                     network-transport >= 0.2 && < 0.3,
+                     network-transport-tcp >= 0.2 && < 0.3,
+                     stm >= 2.4 && < 2.5,
+                     transformers >= 0.2 && < 0.4,
+                     mtl >= 2.0 && < 2.2,
+                     data-accessor >= 0.2 && < 0.3,
+                     bytestring >= 0.9 && < 0.10,
+                     containers >= 0.4 && < 0.5,
+                     old-locale >= 1.0 && < 1.1,
+                     time >= 1.2 && < 1.3,
+                     template-haskell >= 2.6 && < 2.7,
+                     random >= 1.0 && < 1.1,
+                     ghc-prim >= 0.2 && < 0.3,
+                     ansi-terminal >= 0.5 && < 0.6
+  Extensions:        RankNTypes,
+                     ScopedTypeVariables,
+                     FlexibleInstances,
+                     UndecidableInstances,
+                     ExistentialQuantification,
+                     GADTs,
+                     GeneralizedNewtypeDeriving,
+                     DeriveDataTypeable,
+                     TemplateHaskell
   ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind 
   HS-Source-Dirs:    tests src

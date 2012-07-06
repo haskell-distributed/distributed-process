@@ -1,0 +1,58 @@
+Name:          distributed-process-simplelocalnet
+Version:       0.2.0
+Cabal-Version: >=1.8
+Build-Type:    Simple
+License:       BSD3 
+License-File:  LICENSE
+Copyright:     Well-Typed LLP
+Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
+Maintainer:    edsko@well-typed.com, dcoutts@well-typed.com
+Stability:     experimental
+Homepage:      http://github.com/haskell-distributed/distributed-process
+Bug-Reports:   mailto:edsko@well-typed.com
+Synopsis:      Simple zero-configuration backend for Cloud Haskell 
+Description:   Simple backend based on the TCP transport which offers node
+               discovery based on UDP multicast. This is a zero-configuration
+               backend designed to get you going with Cloud Haskell quickly
+               without imposing any structure on your application.
+Tested-With:   GHC==7.2.2 GHC==7.4.1 GHC==7.4.2
+Category:      Control 
+
+Library
+  Build-Depends:     base >= 4.4 && < 5,
+                     bytestring >= 0.9 && < 0.10,
+                     network >= 2.3 && < 2.4,
+                     network-multicast >= 0.0 && < 0.1,
+                     data-accessor >= 0.2 && < 0.3,
+                     binary >= 0.5 && < 0.6,
+                     containers >= 0.4 && < 0.5,
+                     transformers >= 0.2 && < 0.4,
+                     network-transport >= 0.2 && < 0.3,
+                     network-transport-tcp >= 0.2 && < 0.3,
+                     distributed-process >= 0.2 && < 0.3
+  Exposed-modules:   Control.Distributed.Process.Backend.SimpleLocalnet,
+                     Control.Distributed.Process.Backend.SimpleLocalnet.Internal.Multicast
+  Extensions:        RankNTypes,
+                     DeriveDataTypeable
+  ghc-options:       -Wall
+  HS-Source-Dirs:    src
+
+-- Not a proper test, but we want to use cabal to compile it
+Test-Suite TestSimpleLocalnet
+  Type:              exitcode-stdio-1.0
+  Main-Is:           TestSimpleLocalnet.hs
+  Build-Depends:     base >= 4.4 && < 5,
+                     bytestring >= 0.9 && < 0.10,
+                     network >= 2.3 && < 2.4,
+                     network-multicast >= 0.0 && < 0.1,
+                     data-accessor >= 0.2 && < 0.3,
+                     binary >= 0.5 && < 0.6,
+                     containers >= 0.4 && < 0.5,
+                     transformers >= 0.2 && < 0.4,
+                     network-transport >= 0.2 && < 0.3,
+                     network-transport-tcp >= 0.2 && < 0.3,
+                     distributed-process >= 0.2 && < 0.3
+  Extensions:        RankNTypes,
+                     DeriveDataTypeable
+  ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind 
+  HS-Source-Dirs:    tests src
