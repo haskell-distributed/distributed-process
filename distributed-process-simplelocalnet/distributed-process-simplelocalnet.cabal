@@ -18,6 +18,11 @@ Description:   Simple backend based on the TCP transport which offers node
 Tested-With:   GHC==7.2.2 GHC==7.4.1 GHC==7.4.2
 Category:      Control 
 
+Source-Repository head
+  Type:     git
+  Location: https://github.com/haskell-distributed/distributed-process
+  SubDir:   distributed-process-simplelocalnet
+
 Library
   Build-Depends:     base >= 4.4 && < 5,
                      bytestring >= 0.9 && < 0.10,
