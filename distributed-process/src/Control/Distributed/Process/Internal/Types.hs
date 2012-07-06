@@ -106,6 +106,7 @@ import Control.Distributed.Process.Serializable
   , encodeFingerprint
   , sizeOfFingerprint
   , decodeFingerprint
+  , showFingerprint
   )
 import Control.Distributed.Process.Internal.CQueue (CQueue)
 import Control.Distributed.Process.Internal.Dynamic (Dynamic) 
@@ -313,7 +314,7 @@ data Message = Message
   }
 
 instance Show Message where
-  show = show . messageEncoding
+  show (Message fp enc) = show enc ++ " :: " ++ showFingerprint fp [] 
 
 -- | Turn any serialiable term into a message
 createMessage :: Serializable a => a -> Message

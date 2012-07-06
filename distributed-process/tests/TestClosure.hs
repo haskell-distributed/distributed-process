@@ -2,7 +2,6 @@ module Main where
 
 import qualified Data.ByteString.Lazy as BSL (empty)
 import Control.Monad (join, replicateM)
-import Control.Monad.IO.Class (liftIO) 
 import Control.Exception (IOException, throw)
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, readMVar, takeMVar, putMVar)

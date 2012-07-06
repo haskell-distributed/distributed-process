@@ -13,7 +13,6 @@ import Control.Concurrent.MVar
   , readMVar
   )
 import Control.Monad (replicateM_, replicateM)
-import Control.Monad.IO.Class (liftIO)
 import Control.Exception (throwIO)
 import Control.Applicative ((<$>), (<*>))
 import qualified Network.Transport as NT (Transport, closeEndPoint)
@@ -540,6 +539,23 @@ testRegistry transport = do
     True <- return $ pingServer == pid'
     return ()
     
+testRemoteRegistry :: NT.Transport -> IO ()
+testRemoteRegistry transport = do
+  node1 <- newLocalNode transport initRemoteTable
+  node2 <- newLocalNode transport initRemoteTable
+
+  pingServer <- forkProcess node1 ping 
+
+  runProcess node2 $ do
+    let nid1 = localNodeId node1
+    registerRemote nid1 "ping" pingServer
+    Just pid <- whereisRemote nid1 "ping"
+    True <- return $ pingServer == pid 
+    us <- getSelfPid
+    nsendRemote nid1 "ping" (Pong us)
+    Ping pid' <- expect 
+    True <- return $ pingServer == pid'
+    return ()
 
 main :: IO ()
 main = do
@@ -554,6 +570,7 @@ main = do
     , ("MergeChannels",    testMergeChannels    transport)
     , ("Terminate",        testTerminate        transport)
     , ("Registry",         testRegistry         transport)
+    , ("RemoteRegistry",   testRemoteRegistry   transport)
       -- Monitoring processes
       --
       -- The "missing" combinations in the list below don't make much sense, as

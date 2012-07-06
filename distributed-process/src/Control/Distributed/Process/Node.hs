@@ -1,6 +1,7 @@
 -- | Local nodes
 module Control.Distributed.Process.Node 
-  ( newLocalNode
+  ( LocalNode
+  , newLocalNode
   , closeLocalNode
   , forkProcess
   , runProcess
@@ -262,7 +263,8 @@ handleIncomingMessages node = go [] Map.empty Map.empty Set.empty
               atomically $ writeTChan chan . decode . BSL.fromChunks $ payload
               go uninitConns procs chans ctrls 
             (_, _, True, _) -> do
-              writeChan ctrlChan (decode . BSL.fromChunks $ payload)
+              let ctrlMsg = decode . BSL.fromChunks $ payload
+              writeChan ctrlChan ctrlMsg
               go uninitConns procs chans ctrls 
             (_, _, _, True) -> 
               case decode (BSL.fromChunks payload) of

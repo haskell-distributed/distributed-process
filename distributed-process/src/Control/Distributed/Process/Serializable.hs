@@ -5,13 +5,15 @@ module Control.Distributed.Process.Serializable
   , fingerprint
   , sizeOfFingerprint
   , Fingerprint
+  , showFingerprint
   ) where
 
 import Data.Binary (Binary)
 import Data.Typeable (Typeable(..))
 import Data.Typeable.Internal (TypeRep(TypeRep))
+import Numeric (showHex)
 import Control.Exception (throw)
-import GHC.Fingerprint.Type (Fingerprint)
+import GHC.Fingerprint.Type (Fingerprint(..))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BSI ( unsafeCreate
@@ -38,8 +40,8 @@ decodeFingerprint bs
   | BS.length bs /= sizeOfFingerprint = 
       throw $ userError "decodeFingerprint: Invalid length"
   | otherwise = BSI.inlinePerformIO $ do
-      let (fp, _, _) = BSI.toForeignPtr bs
-      withForeignPtr fp $ \p -> peekByteOff p 0 
+      let (fp, offset, _) = BSI.toForeignPtr bs
+      withForeignPtr fp $ \p -> peekByteOff p offset 
 
 -- | Size of a fingerprint
 sizeOfFingerprint :: Int
@@ -48,3 +50,8 @@ sizeOfFingerprint = sizeOf (undefined :: Fingerprint)
 -- | The fingerprint of the typeRep of the argument 
 fingerprint :: Typeable a => a -> Fingerprint
 fingerprint a = let TypeRep fp _ _ = typeOf a in fp
+
+-- | Show fingerprint (for debugging purposes)
+showFingerprint :: Fingerprint -> ShowS
+showFingerprint (Fingerprint hi lo) = 
+  showString "(" . showHex hi . showString "," . showHex lo . showString ")"

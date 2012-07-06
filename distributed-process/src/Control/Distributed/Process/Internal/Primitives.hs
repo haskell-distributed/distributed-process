@@ -39,6 +39,7 @@ module Control.Distributed.Process.Internal.Primitives
   , registerRemote
   , unregisterRemote
   , whereisRemote
+  , whereisRemoteAsync
   , nsendRemote
     -- * Auxiliary API
   , catch
@@ -54,7 +55,7 @@ module Control.Distributed.Process.Internal.Primitives
 
 import Prelude hiding (catch)
 import Data.Binary (decode)
-import Data.Typeable (Typeable,)
+import Data.Typeable (Typeable)
 import Data.Time.Clock (getCurrentTime)
 import Data.Time.Format (formatTime)
 import System.Locale (defaultTimeLocale)
@@ -422,10 +423,17 @@ whereis label = do
 -- | Query a remote process registry (synchronous)
 whereisRemote :: NodeId -> String -> Process (Maybe ProcessId)
 whereisRemote nid label = do
-  sendCtrlMsg (Just nid) (WhereIs label)
+  whereisRemoteAsync nid label
   receiveWait [ matchIf (\(WhereIsReply label' _) -> label == label')
                         (\(WhereIsReply _ mPid) -> return mPid)
               ]
+
+-- | Query a remote process registry (asynchronous)
+--
+-- Reply will come in the form of a 'WhereIsReply' message
+whereisRemoteAsync :: NodeId -> String -> Process ()
+whereisRemoteAsync nid label = 
+  sendCtrlMsg (Just nid) (WhereIs label)
 
 -- | Named send to a process in the local registry (asynchronous) 
 nsend :: Serializable a => String -> a -> Process ()
@@ -434,7 +442,7 @@ nsend label msg =
 
 -- | Named send to a process in a remote registry (asynchronous)
 nsendRemote :: Serializable a => NodeId -> String -> a -> Process ()
-nsendRemote nid label msg =
+nsendRemote nid label msg = 
   sendCtrlMsg (Just nid) (NamedSend label (createMessage msg))
 
 --------------------------------------------------------------------------------

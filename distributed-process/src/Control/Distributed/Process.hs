@@ -13,6 +13,9 @@ module Control.Distributed.Process
   , NodeId
   , Process
   , SendPortId
+  , processNodeId
+  , sendPortProcessId
+  , liftIO -- Reexported for convenience
     -- * Basic messaging
   , send 
   , expect
@@ -74,7 +77,9 @@ module Control.Distributed.Process
   , registerRemote
   , unregisterRemote
   , whereisRemote
+  , whereisRemoteAsync
   , nsendRemote
+  , WhereIsReply(..)
     -- * Auxiliary API
   , catch
   , expectTimeout
@@ -89,6 +94,7 @@ import Prelude hiding (catch)
 import Data.Typeable (Typeable, typeOf)
 import Control.Applicative ((<$>))
 import Control.Exception (throw)
+import Control.Monad.IO.Class (liftIO)
 import Control.Distributed.Process.Internal.MessageT (getLocalNode)
 import Control.Distributed.Process.Internal.Dynamic (fromDyn, dynTypeRep)
 import Control.Distributed.Process.Internal.Types 
@@ -114,7 +120,8 @@ import Control.Distributed.Process.Internal.Types
   , SerializableDict(..)
   , procMsg
   , LocalNode(..)
-  , SendPortId
+  , SendPortId(..)
+  , WhereIsReply(..)
   )
 import Control.Distributed.Process.Internal.Closure.BuiltIn 
   ( linkClosure
@@ -167,6 +174,7 @@ import Control.Distributed.Process.Internal.Primitives
   , registerRemote
   , unregisterRemote
   , whereisRemote
+  , whereisRemoteAsync
   , nsendRemote
     -- Auxiliary API
   , catch
