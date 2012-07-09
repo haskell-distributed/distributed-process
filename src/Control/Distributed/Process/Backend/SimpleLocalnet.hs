@@ -13,7 +13,7 @@
 -- > import System.Environment (getArgs)
 -- > import Control.Distributed.Process
 -- > import Control.Distributed.Process.Node (initRemoteTable)
--- > import Control.Distributed.Process.Backend.Local 
+-- > import Control.Distributed.Process.Backend.SimpleLocalnet
 -- > 
 -- > master :: Backend -> [NodeId] -> Process ()
 -- > master backend slaves = do
