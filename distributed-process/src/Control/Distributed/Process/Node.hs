@@ -21,10 +21,11 @@ import qualified Data.Map as Map
   , delete
   , toList
   , partitionWithKey
+  , filterWithKey
   )
-import qualified Data.List as List (delete)
+import qualified Data.List as List (delete, (\\))
 import Data.Set (Set)
-import qualified Data.Set as Set (empty, insert, delete, member)
+import qualified Data.Set as Set (empty, insert, delete, member, (\\), fromList)
 import Data.Foldable (forM_)
 import Data.Maybe (isJust, fromMaybe)
 import Data.Typeable (Typeable)
@@ -321,13 +322,17 @@ handleIncomingMessages node = go [] Map.empty Map.empty Set.empty
              (Map.delete cid procs)
              (Map.delete cid chans)
              (Set.delete cid ctrls)
-        NT.ErrorEvent (NT.TransportError (NT.EventConnectionLost (Just theirAddr) _) _) -> do 
+        NT.ErrorEvent (NT.TransportError (NT.EventConnectionLost (Just theirAddr) cids) _) -> do 
           -- [Unified table 9, rule node_disconnect]
           let nid = NodeIdentifier $ NodeId theirAddr
           writeChan ctrlChan NCMsg 
             { ctrlMsgSender = nid
             , ctrlMsgSignal = Died nid DiedDisconnect
             }
+          go (uninitConns List.\\ cids)
+             (Map.filterWithKey (\k _ -> k `notElem` cids) procs)
+             (Map.filterWithKey (\k _ -> k `notElem` cids) chans)
+             (ctrls Set.\\ Set.fromList cids)
         NT.ErrorEvent (NT.TransportError (NT.EventConnectionLost Nothing _) _) ->
           -- TODO: We should treat an asymetrical connection loss (incoming
           -- connection broken, but outgoing connection still potentially ok)
@@ -669,23 +674,23 @@ splitNotif :: Identifier
            -> Map Identifier a
            -> (Map Identifier a, Map Identifier a)
 splitNotif ident = Map.partitionWithKey (const . impliesDeathOf ident)
-  where
-    -- | Does the death of one entity (node, project, channel) imply the death
-    -- of another?
-    impliesDeathOf :: Identifier -- ^ Who died 
-                   -> Identifier -- ^ Who's being watched 
-                   -> Bool       -- ^ Does this death implies the death of the watchee? 
-    NodeIdentifier nid `impliesDeathOf` NodeIdentifier nid' = 
-      nid' == nid
-    NodeIdentifier nid `impliesDeathOf` ProcessIdentifier pid =
-      processNodeId pid == nid
-    NodeIdentifier nid `impliesDeathOf` SendPortIdentifier cid =
-      processNodeId (sendPortProcessId cid) == nid
-    ProcessIdentifier pid `impliesDeathOf` ProcessIdentifier pid' =
-      pid' == pid
-    ProcessIdentifier pid `impliesDeathOf` SendPortIdentifier cid =
-      sendPortProcessId cid == pid
-    SendPortIdentifier cid `impliesDeathOf` SendPortIdentifier cid' =
-      cid' == cid
-    _ `impliesDeathOf` _ =
-      False
+
+-- | Does the death of one entity (node, project, channel) imply the death
+-- of another?
+impliesDeathOf :: Identifier -- ^ Who died 
+               -> Identifier -- ^ Who's being watched 
+               -> Bool       -- ^ Does this death implies the death of the watchee? 
+NodeIdentifier nid `impliesDeathOf` NodeIdentifier nid' = 
+  nid' == nid
+NodeIdentifier nid `impliesDeathOf` ProcessIdentifier pid =
+  processNodeId pid == nid
+NodeIdentifier nid `impliesDeathOf` SendPortIdentifier cid =
+  processNodeId (sendPortProcessId cid) == nid
+ProcessIdentifier pid `impliesDeathOf` ProcessIdentifier pid' =
+  pid' == pid
+ProcessIdentifier pid `impliesDeathOf` SendPortIdentifier cid =
+  sendPortProcessId cid == pid
+SendPortIdentifier cid `impliesDeathOf` SendPortIdentifier cid' =
+  cid' == cid
+_ `impliesDeathOf` _ =
+  False
