@@ -1,5 +1,5 @@
 Name:          distributed-process-simplelocalnet
-Version:       0.2.0
+Version:       0.2.0.1
 Cabal-Version: >=1.8
 Build-Type:    Simple
 License:       BSD3 
