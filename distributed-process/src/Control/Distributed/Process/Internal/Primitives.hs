@@ -41,6 +41,8 @@ module Control.Distributed.Process.Internal.Primitives
   , whereisRemote
   , whereisRemoteAsync
   , nsendRemote
+    -- * Closures
+  , unClosure
     -- * Auxiliary API
   , catch
   , expectTimeout
@@ -55,7 +57,7 @@ module Control.Distributed.Process.Internal.Primitives
 
 import Prelude hiding (catch)
 import Data.Binary (decode)
-import Data.Typeable (Typeable)
+import Data.Typeable (Typeable, typeOf)
 import Data.Time.Clock (getCurrentTime)
 import Data.Time.Format (formatTime)
 import System.Locale (defaultTimeLocale)
@@ -108,6 +110,7 @@ import Control.Distributed.Process.Internal.Types
   , DidUnlinkPort(..)
   , WhereIsReply(..)
   , createMessage
+  , Static(..)
   )
 import Control.Distributed.Process.Internal.MessageT 
   ( sendMessage
@@ -115,6 +118,8 @@ import Control.Distributed.Process.Internal.MessageT
   , getLocalNode
   )  
 import Control.Distributed.Process.Internal.Node (runLocalProcess)
+import Control.Distributed.Process.Internal.Closure (resolveClosure)
+import Control.Distributed.Process.Internal.Dynamic (fromDyn, dynTypeRep)
 
 --------------------------------------------------------------------------------
 -- Basic messaging                                                            --
@@ -444,6 +449,22 @@ nsend label msg =
 nsendRemote :: Serializable a => NodeId -> String -> a -> Process ()
 nsendRemote nid label msg = 
   sendCtrlMsg (Just nid) (NamedSend label (createMessage msg))
+
+--------------------------------------------------------------------------------
+-- Closures                                                                   --
+--------------------------------------------------------------------------------
+
+-- | Deserialize a closure
+unClosure :: forall a. Typeable a => Closure a -> Process a
+unClosure (Closure (Static label) env) = do
+    rtable <- remoteTable <$> procMsg getLocalNode 
+    case resolveClosure rtable label env of
+      Nothing  -> throw . userError $ "Unregistered closure " ++ show label
+      Just dyn -> return $ fromDyn dyn (throw (typeError dyn))
+  where
+    typeError dyn = userError $ "lookupStatic type error: " 
+                 ++ "cannot match " ++ show (dynTypeRep dyn) 
+                 ++ " against " ++ show (typeOf (undefined :: a))
 
 --------------------------------------------------------------------------------
 -- Auxiliary functions                                                        --

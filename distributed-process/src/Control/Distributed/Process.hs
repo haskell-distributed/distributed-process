@@ -91,12 +91,7 @@ module Control.Distributed.Process
   ) where
 
 import Prelude hiding (catch)
-import Data.Typeable (Typeable, typeOf)
-import Control.Applicative ((<$>))
-import Control.Exception (throw)
 import Control.Monad.IO.Class (liftIO)
-import Control.Distributed.Process.Internal.MessageT (getLocalNode)
-import Control.Distributed.Process.Internal.Dynamic (fromDyn, dynTypeRep)
 import Control.Distributed.Process.Internal.Types 
   ( RemoteTable
   , NodeId(..)
@@ -118,8 +113,6 @@ import Control.Distributed.Process.Internal.Types
   , SendPort(..)
   , ReceivePort(..)
   , SerializableDict(..)
-  , procMsg
-  , LocalNode(..)
   , SendPortId(..)
   , WhereIsReply(..)
   )
@@ -130,7 +123,10 @@ import Control.Distributed.Process.Internal.Closure.BuiltIn
   , expectClosure
   , serializableDictUnit
   )
-import Control.Distributed.Process.Internal.Closure.Combinators (cpSeq, cpBind)
+import Control.Distributed.Process.Internal.Closure.Combinators 
+  ( cpSeq
+  , cpBind
+  )
 import Control.Distributed.Process.Internal.Primitives
   ( -- Basic messaging
     send 
@@ -176,12 +172,13 @@ import Control.Distributed.Process.Internal.Primitives
   , whereisRemote
   , whereisRemoteAsync
   , nsendRemote
+    -- Closures
+  , unClosure
     -- Auxiliary API
   , catch
   , expectTimeout
   , spawnAsync
   )
-import Control.Distributed.Process.Internal.Closure (resolveClosure)
 
 -- INTERNAL NOTES
 -- 
@@ -320,14 +317,16 @@ spawnSupervised nid proc = do
   ref  <- monitor them
   return (them, ref)
 
--- | Deserialize a closure
-unClosure :: forall a. Typeable a => Closure a -> Process a
-unClosure (Closure (Static label) env) = do
-    rtable <- remoteTable <$> procMsg getLocalNode 
-    case resolveClosure rtable label env of
-      Nothing  -> throw . userError $ "Unregistered closure " ++ show label
-      Just dyn -> return $ fromDyn dyn (throw (typeError dyn))
+{-
+spawnChannel :: forall a. Typeable a
+             => NodeId
+             -> Closure (ReceivePort a -> Process ()) 
+             -> Process (SendPort a)
+spawnChannel nid proc = do
+    us <- getSelfPid
+    undefined
   where
-    typeError dyn = userError $ "lookupStatic type error: " 
-                 ++ "cannot match " ++ show (dynTypeRep dyn) 
-                 ++ " against " ++ show (typeOf (undefined :: a))
+    rproc :: ProcessId -> Closure (Process ((), ReceivePort a)) 
+    rproc pid = newChanClosure
+       `cpBind` cpFirst (sendClosure undefined pid)
+-}  

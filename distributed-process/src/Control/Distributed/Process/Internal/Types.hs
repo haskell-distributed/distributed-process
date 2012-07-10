@@ -253,6 +253,7 @@ data ReceivePort a =
   | ReceivePortBiased [ReceivePort a] 
     -- | A round-robin combination of receive ports
   | ReceivePortRR (TVar [ReceivePort a]) 
+  deriving Typeable
 
 --------------------------------------------------------------------------------
 -- Closures                                                                   --
@@ -260,23 +261,13 @@ data ReceivePort a =
 
 data StaticLabel = 
     UserStatic String
+  | PolyStatic String
   -- Built-in closures 
   | ClosureReturn
   | ClosureSend 
   | ClosureExpect
   -- Generic closure combinators
   | ClosureApply
-  | ClosureConst
-  | ClosureUnit
-  -- Arrow combinators for processes
-  | CpId
-  | CpComp 
-  | CpFirst
-  | CpSwap
-  | CpCopy
-  | CpLeft
-  | CpMirror
-  | CpUntag
   | CpApply
   deriving (Typeable, Show)
 
@@ -555,40 +546,22 @@ instance Binary Identifier where
 
 instance Binary StaticLabel where
   put (UserStatic string) = putWord8 0 >> put string
-  put ClosureReturn = putWord8 1
-  put ClosureSend   = putWord8 2
-  put ClosureExpect = putWord8 3
-  put ClosureApply  = putWord8 4
-  put ClosureConst  = putWord8 5
-  put ClosureUnit   = putWord8 6
-  put CpId          = putWord8 7
-  put CpComp        = putWord8 8
-  put CpFirst       = putWord8 9
-  put CpSwap        = putWord8 10
-  put CpCopy        = putWord8 11 
-  put CpLeft        = putWord8 12
-  put CpMirror      = putWord8 13
-  put CpUntag       = putWord8 14
-  put CpApply       = putWord8 15
+  put (PolyStatic string) = putWord8 1 >> put string
+  put ClosureReturn  = putWord8 2
+  put ClosureSend    = putWord8 3
+  put ClosureExpect  = putWord8 4
+  put ClosureApply   = putWord8 6
+  put CpApply        = putWord8 17
   get = do
     header <- getWord8
     case header of
       0  -> UserStatic <$> get
-      1  -> return ClosureReturn
-      2  -> return ClosureSend 
-      3  -> return ClosureExpect 
-      4  -> return ClosureApply
-      5  -> return ClosureConst
-      6  -> return ClosureUnit
-      7  -> return CpId
-      8  -> return CpComp 
-      9  -> return CpFirst
-      10 -> return CpSwap
-      11 -> return CpCopy
-      12 -> return CpLeft
-      13 -> return CpMirror
-      14 -> return CpUntag
-      15 -> return CpApply
+      1  -> PolyStatic <$> get
+      2  -> return ClosureReturn
+      3  -> return ClosureSend 
+      4  -> return ClosureExpect 
+      6  -> return ClosureApply
+      17 -> return CpApply
       _  -> fail "StaticLabel.get: invalid"
 
 instance Binary WhereIsReply where

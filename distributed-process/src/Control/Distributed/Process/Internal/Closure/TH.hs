@@ -1,6 +1,7 @@
 -- | Template Haskell support
 --
 -- (In a separate file for convenience)
+{-# LANGUAGE MagicHash #-}
 module Control.Distributed.Process.Internal.Closure.TH 
   ( -- * User-level API
     remotable
@@ -24,8 +25,10 @@ import Language.Haskell.TH
     -- Algebraic data types
   , Dec
   , Exp
-  , Type(AppT, ArrowT)
+  , Type(AppT, ArrowT, ForallT, VarT)
   , Info(VarI)
+  , TyVarBndr(PlainTV, KindedTV)
+  , Pred(ClassP)
     -- Lifted constructors
     -- .. Literals
   , stringL
@@ -51,7 +54,11 @@ import Control.Distributed.Process.Internal.Types
   , SerializableDict(..)
   , RuntimeSerializableSupport(..)
   )
-import Control.Distributed.Process.Internal.Dynamic (Dynamic, toDyn)
+import Control.Distributed.Process.Internal.Dynamic 
+  ( Dynamic(..)
+  , toDyn
+  , unsafeCoerce#
+  )
 import Control.Distributed.Process.Internal.Primitives (send, expect)
 
 --------------------------------------------------------------------------------
@@ -104,6 +111,9 @@ generateDefs n = do
       return (closure, insert)
     Just (origName, sdict `AppT` a) | sdict == serializableDict -> 
       return ([], [| registerSerializableDict $(varE n) |])  
+    Just (origName, ForallT vars [] tp) -> do
+      (closure, label) <- generatePolyClosure origName vars tp
+      return (closure, [| registerLabel $(stringE label) (Dynamic (error "Polymorphic closure") (unsafeCoerce# $(varE origName))) |])
     _ -> 
       fail $ "remotable: " ++ show n ++ " is not a function"
    
@@ -117,7 +127,24 @@ generateClosure n arg res = do
     return (closure, label)
   where
     label :: String 
-    label = show $ n
+    label = show n
+
+-- | Generate a polymorphic closure
+generatePolyClosure :: Name -> [TyVarBndr] -> Type -> Q ([Dec], String)
+generatePolyClosure n xs typ = do
+    closureTyp <- [t| Closure |]
+    closure <- sequence
+      [ sigD (closureName n) (return (ForallT xs (map typeable xs) (closureTyp `AppT` typ)) )
+      , sfnD (closureName n) [| Closure (Static (PolyStatic ($(stringE label)))) (encode (typeOf (undefined :: $(return typ)))) |]
+      ]
+    return (closure, label)
+  where
+    label :: String
+    label = show n
+
+    typeable :: TyVarBndr -> Pred
+    typeable (PlainTV v)    = ClassP (mkName "Typeable") [VarT v] 
+    typeable (KindedTV v _) = ClassP (mkName "Typeable") [VarT v]
 
 -- | Generate the decoder (see 'generateDefs')
 generateDecoder :: Name -> Q Type -> Q Exp 

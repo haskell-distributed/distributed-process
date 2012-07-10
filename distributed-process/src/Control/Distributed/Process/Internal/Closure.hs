@@ -1,18 +1,16 @@
 {-# LANGUAGE MagicHash #-}
 module Control.Distributed.Process.Internal.Closure 
   ( -- * Runtime support
-    initRemoteTable
-  , resolveClosure
+    resolveClosure
   ) where
 
-import qualified Data.Map as Map (empty)
 import Data.Accessor ((^.))
 import Data.ByteString.Lazy (ByteString)
 import Data.Binary (decode)
 import Data.Typeable (TypeRep)
 import Control.Applicative ((<$>))
 import Control.Distributed.Process.Internal.Types
-  ( RemoteTable(RemoteTable)
+  ( RemoteTable
   , remoteTableLabel
   , remoteTableDict
   , StaticLabel(..)
@@ -30,16 +28,23 @@ import Control.Distributed.Process.Internal.Dynamic
   , unsafeCoerce#
   )
 import Control.Distributed.Process.Internal.TypeRep () -- Binary instances  
+
+{-
 import qualified Control.Distributed.Process.Internal.Closure.BuiltIn as BuiltIn
   (remoteTable)
+import qualified Control.Distributed.Process.Internal.Closure.Combinators as Combinators
+  (remoteTable)
+
+-- | Initial (empty) remote-call meta data
+initRemoteTable :: RemoteTable
+initRemoteTable = BuiltIn.remoteTable
+                . Combinators.remoteTable
+                $ RemoteTable Map.empty Map.empty
+-}
 
 --------------------------------------------------------------------------------
 -- Runtime support for closures                                               --
 --------------------------------------------------------------------------------
-
--- | Initial (empty) remote-call meta data
-initRemoteTable :: RemoteTable
-initRemoteTable = BuiltIn.remoteTable (RemoteTable Map.empty Map.empty)
 
 resolveClosure :: RemoteTable -> StaticLabel -> ByteString -> Maybe Dynamic
 -- Built-in closures
@@ -64,54 +69,6 @@ resolveClosure rtable ClosureApply env = do
     f `dynApply` x
   where
     (labelf, envf, labelx, envx) = decode env 
-resolveClosure _rtable ClosureConst env = 
-  return $ Dynamic (decode env) (unsafeCoerce# const)
-resolveClosure _rtable ClosureUnit _env =
-  return $ toDyn ()
--- Arrow combinators
-resolveClosure _rtable CpId env =
-    return $ Dynamic (decode env) (unsafeCoerce# cpId)
-  where
-    cpId :: forall a. a -> Process a
-    cpId = return
-resolveClosure _rtable CpComp  env =
-    return $ Dynamic (decode env) (unsafeCoerce# cpComp)
-  where
-    cpComp :: forall a b c. (a -> Process b) -> (b -> Process c) -> a -> Process c
-    cpComp p q a = p a >>= q 
-resolveClosure _rtable CpFirst env =
-    return $ Dynamic (decode env) (unsafeCoerce# cpFirst)
-  where
-    cpFirst :: forall a b c. (a -> Process b) -> (a, c) -> Process (b, c)
-    cpFirst p (a, c) = do b <- p a ; return (b, c) 
-resolveClosure _rtable CpSwap env =
-    return $ Dynamic (decode env) (unsafeCoerce# cpSwap) 
-  where
-    cpSwap :: forall a b. (a, b) -> Process (b, a)
-    cpSwap (a, b) = return (b, a) 
-resolveClosure _rtable CpCopy env =
-    return $ Dynamic (decode env) (unsafeCoerce# cpCopy)
-  where
-    cpCopy :: forall a. a -> Process (a, a)
-    cpCopy a = return (a, a) 
-resolveClosure _rtable CpLeft env =
-    return $ Dynamic (decode env) (unsafeCoerce# cpLeft)
-  where
-    cpLeft :: forall a b c. (a -> Process b) -> Either a c -> Process (Either b c)
-    cpLeft p (Left a)  = do b <- p a ; return (Left b) 
-    cpLeft _ (Right c) = return (Right c) 
-resolveClosure _rtable CpMirror env =
-    return $ Dynamic (decode env) (unsafeCoerce# cpMirror)
-  where
-    cpMirror :: forall a b. Either a b -> Process (Either b a)
-    cpMirror (Left a)  = return (Right a) 
-    cpMirror (Right b) = return (Left b)
-resolveClosure _rtable CpUntag env =
-    return $ Dynamic (decode env) (unsafeCoerce# cpUntag)
-  where
-    cpUntag :: forall a. Either a a -> Process a
-    cpUntag (Left a)  = return a
-    cpUntag (Right a) = return a
 resolveClosure rtable CpApply env =
     return $ Dynamic typApply (unsafeCoerce# cpApply)
   where
@@ -131,3 +88,8 @@ resolveClosure rtable CpApply env =
 resolveClosure rtable (UserStatic label) env = do
   val <- rtable ^. remoteTableLabel label 
   dynApply val (toDyn env)
+
+-- User-defined polymorphic closures
+resolveClosure rtable (PolyStatic label) env = do
+  Dynamic _ val <- rtable ^. remoteTableLabel label
+  return (Dynamic (decode env) val)

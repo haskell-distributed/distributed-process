@@ -1,6 +1,7 @@
 module Main where
 
 import qualified Data.ByteString.Lazy as BSL (empty)
+import Data.Typeable (Typeable)
 import Control.Monad (join, replicateM)
 import Control.Exception (IOException, throw)
 import Control.Concurrent (forkIO, threadDelay)
@@ -44,7 +45,21 @@ returnForTestApply = id
 wait :: Int -> Process ()
 wait = liftIO . threadDelay
 
-$(remotable ['addInt, 'putInt, 'sendInt, 'sendPid, 'factorial, 'factorialOf, 'returnForTestApply, 'wait, 'serializableDictInt])
+first :: (a, b) -> a
+first (x, _) = x
+
+$(remotable 
+  [ 'addInt
+  , 'putInt
+  , 'sendInt
+  , 'sendPid
+  , 'factorial
+  , 'factorialOf
+  , 'returnForTestApply
+  , 'wait
+  , 'serializableDictInt
+  , 'first
+  ])
 
 testSendPureClosure :: Transport -> RemoteTable -> IO ()
 testSendPureClosure transport rtable = do
