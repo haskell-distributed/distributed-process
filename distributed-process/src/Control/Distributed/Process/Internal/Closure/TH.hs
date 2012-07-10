@@ -75,8 +75,8 @@ remotable ns = do
 
 -- | Create a closure
 -- 
--- If @f :: a -> b@ then @mkClosure :: a -> Closure b@. Make sure to pass 'f'
--- as an argument to 'remotable' too.
+-- See module documentation header for "Control.Distributed.Process.Closure"
+-- for a detailed explanation and examples.
 mkClosure :: Name -> Q Exp
 mkClosure = varE . closureName 
 

@@ -1,6 +1,9 @@
 -- | Derived (TH generated) closures
 module Control.Distributed.Process.Internal.Closure.Derived
   ( remoteTable
+    -- * Process primitives
+  , linkClosure
+  , unlinkClosure
     -- * Generic combinators
   , closureApply
   , closureConst
@@ -23,28 +26,32 @@ module Control.Distributed.Process.Internal.Closure.Derived
   , cpEither
   , cpUntag
   , cpFanIn
-  , cpApply
     -- * Derived process operators
   , cpBind
   , cpSeq
+    -- * Serialization dictionaries
+  , serializableDictUnit
   ) where
 
 import Prelude hiding (lookup)
-import Data.Binary (encode)
-import Data.Typeable (typeOf, Typeable)
+import Data.Typeable (Typeable)
 import Data.Tuple (swap)
 import Control.Applicative ((<$>))
 import Control.Monad ((>=>))
 import Control.Distributed.Process.Internal.Types
   ( Closure(..)
-  , Static(..)
-  , StaticLabel(..)
   , Process
   , RemoteTable
+  , SerializableDict(..)
+  , ProcessId
   )
 import Control.Distributed.Process.Internal.TypeRep () -- Binary instances
 import Control.Distributed.Process.Internal.Closure.TH (remotable, mkClosure)
-import Control.Distributed.Process.Internal.Primitives (unClosure)
+import Control.Distributed.Process.Internal.Primitives 
+  ( link
+  , unlink
+  )
+import Control.Distributed.Process.Internal.Closure.BuiltIn (closureApply)
 
 --------------------------------------------------------------------------------
 -- TH stuff                                                                   --
@@ -80,10 +87,8 @@ untagProcess :: Either a a -> Process a
 untagProcess (Left x)  = return x
 untagProcess (Right y) = return y
 
-applyClosureProcess :: (Typeable a, Typeable b) => (Closure (a -> Process b), a) -> Process b
-applyClosureProcess (procClosure, a) = do
-  proc <- unClosure procClosure
-  proc a
+serializableDictUnit :: SerializableDict ()
+serializableDictUnit = SerializableDict
 
 remotable [ 'const
           , 'idUnit
@@ -95,18 +100,29 @@ remotable [ 'const
           , 'leftProcess
           , 'mirrorProcess
           , 'untagProcess
+          , 'link
+          , 'unlink
+          , 'serializableDictUnit
           ]
 
 remoteTable :: RemoteTable -> RemoteTable
 remoteTable = __remoteTable
 
 --------------------------------------------------------------------------------
--- Generic closure combinators                                                -- 
+-- Process primitives                                                         --
 --------------------------------------------------------------------------------
 
-closureApply :: Closure (a -> b) -> Closure a -> Closure b
-closureApply (Closure (Static labelf) envf) (Closure (Static labelx) envx) = 
-  Closure (Static ClosureApply) $ encode (labelf, envf, labelx, envx)
+-- | Closure version of 'link'
+linkClosure :: ProcessId -> Closure (Process ())
+linkClosure = $(mkClosure 'link)
+
+-- | Closure version of 'unlink'
+unlinkClosure :: ProcessId -> Closure (Process ())
+unlinkClosure = $(mkClosure 'unlink)
+
+--------------------------------------------------------------------------------
+-- Generic closure combinators                                                -- 
+--------------------------------------------------------------------------------
 
 closureConst :: (Typeable a, Typeable b) => Closure (a -> b -> a)
 closureConst = $(mkClosure 'const) 
@@ -128,47 +144,40 @@ cpElim :: Typeable a
        => CP () a -> Closure (Process a)
 cpElim = flip closureApply closureUnit 
 
-cpId :: forall a. Typeable a 
-     => CP a a 
+cpId :: Typeable a => CP a a 
 cpId = $(mkClosure 'returnProcess) 
 
-cpComp :: forall a b c. (Typeable a, Typeable b, Typeable c) 
-       => CP a b -> CP b c -> CP a c
+cpComp :: (Typeable a, Typeable b, Typeable c) => CP a b -> CP b c -> CP a c
 cpComp f g = $(mkClosure 'kleisliComposeProcess) `closureApply` f `closureApply` g 
 
-cpFirst :: forall a b c. (Typeable a, Typeable b, Typeable c)
-        => CP a b -> CP (a, c) (b, c)
+cpFirst :: (Typeable a, Typeable b, Typeable c) => CP a b -> CP (a, c) (b, c)
 cpFirst = closureApply $(mkClosure 'firstProcess) 
 
-cpSwap :: forall a b. (Typeable a, Typeable b)
-       => CP (a, b) (b, a)
+cpSwap :: (Typeable a, Typeable b) => CP (a, b) (b, a)
 cpSwap = $(mkClosure 'swapProcess) 
 
-cpSecond :: (Typeable a, Typeable b, Typeable c)
-         => CP a b -> CP (c, a) (c, b)
+cpSecond :: (Typeable a, Typeable b, Typeable c) => CP a b -> CP (c, a) (c, b)
 cpSecond f = cpSwap `cpComp` cpFirst f `cpComp` cpSwap
 
 cpPair :: (Typeable a, Typeable a', Typeable b, Typeable b')
-        => CP a b -> CP a' b' -> CP (a, a') (b, b')
+       => CP a b -> CP a' b' -> CP (a, a') (b, b')
 cpPair f g = cpFirst f `cpComp` cpSecond g
 
-cpCopy :: forall a. Typeable a 
-       => CP a (a, a)
+cpCopy :: Typeable a => CP a (a, a)
 cpCopy = $(mkClosure 'copyProcess)
 
-cpFanOut :: (Typeable a, Typeable b, Typeable c)
+cpFanOut :: (Typeable a, Typeable b, Typeable c) 
          => CP a b -> CP a c -> CP a (b, c)
 cpFanOut f g = cpCopy `cpComp` (f `cpPair` g)         
 
-cpLeft :: forall a b c. (Typeable a, Typeable b, Typeable c)
+cpLeft :: (Typeable a, Typeable b, Typeable c) 
        => CP a b -> CP (Either a c) (Either b c)
 cpLeft = closureApply $(mkClosure 'leftProcess) 
 
-cpMirror :: forall a b. (Typeable a, Typeable b)
-         => CP (Either a b) (Either b a)
+cpMirror :: (Typeable a, Typeable b) => CP (Either a b) (Either b a)
 cpMirror = $(mkClosure 'mirrorProcess) 
 
-cpRight :: forall a b c. (Typeable a, Typeable b, Typeable c)
+cpRight :: (Typeable a, Typeable b, Typeable c) 
         => CP a b -> CP (Either c a) (Either c b)
 cpRight f = cpMirror `cpComp` cpLeft f `cpComp` cpMirror 
 
@@ -176,23 +185,12 @@ cpEither :: (Typeable a, Typeable a', Typeable b, Typeable b')
          => CP a b -> CP a' b' -> CP (Either a a') (Either b b')
 cpEither f g = cpLeft f `cpComp` cpRight g
 
-cpUntag :: forall a. Typeable a
-        => CP (Either a a) a
+cpUntag :: Typeable a => CP (Either a a) a
 cpUntag = $(mkClosure 'untagProcess) 
 
 cpFanIn :: (Typeable a, Typeable b, Typeable c) 
         => CP a c -> CP b c -> CP (Either a b) c
 cpFanIn f g = (f `cpEither` g) `cpComp` cpUntag 
-
-cpApply :: forall a b. (Typeable a, Typeable b)
-        => CP (CP a b, a) b
-cpApply = Closure (Static CpApply) $ encode ( typeOf aux
-                                            , typeOf (undefined :: a) 
-                                            , typeOf (undefined :: Process b)
-                                            )
-  where
-    aux :: (Closure (a -> Process b), a) -> Process b
-    aux = undefined
 
 --------------------------------------------------------------------------------
 -- Some derived operators for processes                                       -- 

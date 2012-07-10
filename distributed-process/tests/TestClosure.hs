@@ -212,19 +212,6 @@ testSeq transport rtable = do
     720 :: Int <- expect
     return ()
 
-testApply :: Transport -> RemoteTable -> IO ()
-testApply transport rtable = do
-    node <- newLocalNode transport rtable
-    runProcess node $ do
-      (120 :: Int) <- join (unClosure bar)
-      return ()
-  where
-    bar :: Closure (Process Int)
-    bar = closureApply cpApply foo
-
-    foo :: Closure (Closure (Int -> Process Int), Int)
-    foo = $(mkClosure 'returnForTestApply) ($(mkClosure 'factorialOf) (), 5) 
-
 -- Test 'spawnSupervised'
 --
 -- Set up a supervisor, spawn a child, then have a third process monitor the
@@ -294,7 +281,6 @@ main = do
     , ("Bind",            testBind            transport rtable)
     , ("CallBind",        testCallBind        transport rtable)
     , ("Seq",             testSeq             transport rtable)
-    , ("Apply",           testApply           transport rtable)
     , ("SpawnSupervised", testSpawnSupervised transport rtable)
     , ("SpawnInvalid",    testSpawnInvalid    transport rtable)
     , ("ClosureExpect",   testClosureExpect   transport rtable)

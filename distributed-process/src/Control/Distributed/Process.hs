@@ -117,15 +117,15 @@ import Control.Distributed.Process.Internal.Types
   , WhereIsReply(..)
   )
 import Control.Distributed.Process.Internal.Closure.BuiltIn 
-  ( linkClosure
-  , unlinkClosure
-  , sendClosure
+  ( sendClosure
   , expectClosure
-  , serializableDictUnit
   )
 import Control.Distributed.Process.Internal.Closure.Derived
   ( cpSeq
   , cpBind
+  , linkClosure
+  , unlinkClosure
+  , serializableDictUnit
   )
 import Control.Distributed.Process.Internal.Primitives
   ( -- Basic messaging

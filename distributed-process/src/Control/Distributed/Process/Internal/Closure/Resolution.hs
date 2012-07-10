@@ -12,21 +12,23 @@ import Control.Distributed.Process.Internal.Types
   , remoteTableDict
   , StaticLabel(..)
   , ProcessId
-  , Process
-  , Closure(Closure)
-  , Static(Static)
   , RuntimeSerializableSupport(..)
   )
 import Control.Distributed.Process.Internal.Dynamic
   ( Dynamic(Dynamic)
   , toDyn
-  , dynApp
   , dynApply
-  , unsafeCoerce#
   )
 import Control.Distributed.Process.Internal.TypeRep () -- Binary instances  
 
 resolveClosure :: RemoteTable -> StaticLabel -> ByteString -> Maybe Dynamic
+-- Generic closure combinators
+resolveClosure rtable ClosureApply env = do 
+    f <- resolveClosure rtable labelf envf
+    x <- resolveClosure rtable labelx envx
+    f `dynApply` x
+  where
+    (labelf, envf, labelx, envx) = decode env 
 -- Built-in closures
 resolveClosure rtable ClosureSend env = do
     rss <- rtable ^. remoteTableDict typ 
@@ -42,28 +44,6 @@ resolveClosure rtable ClosureExpect env =
     rssExpect <$> rtable ^. remoteTableDict typ
   where
     typ = decode env :: TypeRep
--- Generic closure combinators
-resolveClosure rtable ClosureApply env = do 
-    f <- resolveClosure rtable labelf envf
-    x <- resolveClosure rtable labelx envx
-    f `dynApply` x
-  where
-    (labelf, envf, labelx, envx) = decode env 
-resolveClosure rtable CpApply env =
-    return $ Dynamic typApply (unsafeCoerce# cpApply)
-  where
-    cpApply :: forall a b. (Closure (a -> Process b), a) -> Process b 
-    cpApply (Closure (Static flabel) fenv, x) = do
-      let Just f = resolveClosure rtable flabel fenv
-          Dynamic typResult val = f `dynApp` Dynamic typA (unsafeCoerce# x) 
-      if typResult == typProcB 
-        then unsafeCoerce# val
-        else error $ "Type error in cpApply: "
-                  ++ "mismatch between " ++ show typResult 
-                  ++ " and " ++ show typProcB
-
-    (typApply, typA, typProcB) = decode env
-
 -- User defined closures
 resolveClosure rtable (UserStatic label) env = do
   val <- rtable ^. remoteTableLabel label 

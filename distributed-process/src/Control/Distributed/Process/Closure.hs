@@ -1,24 +1,6 @@
 -- | Implementation of 'Closure' that works around the absence of 'static'.
 --
--- [Built-in closures]
---
--- We offer a number of standard commonly useful closures.
---
--- [Closure combinators]
---
--- Closures combinators allow to create closures from other closures. For
--- example, 'spawnSupervised' is defined as follows:
---
--- > spawnSupervised :: NodeId 
--- >                 -> Closure (Process ()) 
--- >                 -> Process (ProcessId, MonitorRef)
--- > spawnSupervised nid proc = do
--- >   us   <- getSelfPid
--- >   them <- spawn nid (linkClosure us `cpSeq` proc) 
--- >   ref  <- monitor them
--- >   return (them, ref)
---
--- [User-defined closures]
+-- [User-defined monomorphic closures]
 --
 -- Suppose we have a monomorphic function
 --
@@ -38,8 +20,8 @@
 --
 -- > unClosure :: Typeable a => Closure a -> Process a
 --
--- In general, given a monomorphic function @f :: a -> b@ the corresponding 
--- function @$(mkClosure 'f)@ will have type @a -> Closure b@.
+-- In general, given a monomorphic function @f :: T1 -> T2@ the corresponding 
+-- function @$(mkClosure 'f)@ will have type @T1 -> Closure T2@.
 --
 -- The call to 'remotable' will also generate a function
 --
@@ -57,6 +39,44 @@
 --
 -- See Section 6, /Faking It/, of /Towards Haskell in the Cloud/ for more info. 
 --
+-- [User-defined polymorphic closures]
+--
+-- Suppose we have a polymorphic function
+--
+-- > first :: forall a b. (a, b) -> a
+-- > first (x, _) = x
+--
+-- Then the Template Haskell splice
+--
+-- > remotable ['first]
+-- 
+-- creates a function
+--
+-- > $(mkClosure 'first) :: forall a b. (Typeable a, Typeable b)
+-- >                     => Closure (a -> b -> a)
+--
+-- In general, given a polymorphic function @f :: forall a1 .. an. T@ the 
+-- corresponding function @$(mkClosure 'f)@ will have type 
+-- @forall a1 .. an. (Typeable a1, .., Typeable an) => Closure T@.
+--
+-- [Built-in closures]
+--
+-- We offer a number of standard commonly useful closures.
+--
+-- [Closure combinators]
+--
+-- Closures combinators allow to create closures from other closures. For
+-- example, 'spawnSupervised' is defined as follows:
+--
+-- > spawnSupervised :: NodeId 
+-- >                 -> Closure (Process ()) 
+-- >                 -> Process (ProcessId, MonitorRef)
+-- > spawnSupervised nid proc = do
+-- >   us   <- getSelfPid
+-- >   them <- spawn nid (linkClosure us `cpSeq` proc) 
+-- >   ref  <- monitor them
+-- >   return (them, ref)
+--
 -- [Serializable Dictionaries]
 --
 -- Some functions (such as 'sendClosure' or 'returnClosure') require an
@@ -71,8 +91,7 @@ module Control.Distributed.Process.Closure
   ( -- * User-defined closures
     remotable
   , mkClosure
-  , SerializableDict(..)
-    -- * Built-in closures
+    -- * Process primitives 
   , linkClosure
   , unlinkClosure
   , sendClosure
@@ -100,24 +119,27 @@ module Control.Distributed.Process.Closure
   , cpEither
   , cpUntag
   , cpFanIn
-  , cpApply
     -- * Derived combinators for processes
   , cpBind
   , cpSeq
+    -- * Serialization dictionaries
+  , SerializableDict(..)
+  , serializableDictUnit
   ) where 
 
 import Control.Distributed.Process.Internal.Types (SerializableDict(..))
 import Control.Distributed.Process.Internal.Closure.TH (remotable, mkClosure)
 import Control.Distributed.Process.Internal.Closure.BuiltIn 
-  ( linkClosure
-  , unlinkClosure
-  , sendClosure
+  ( sendClosure
   , returnClosure
   , expectClosure
   )
 import Control.Distributed.Process.Internal.Closure.Derived
-  ( -- Generic combinators
-    closureApply
+  ( -- Process primitives
+    linkClosure
+  , unlinkClosure
+    -- Generic combinators
+  , closureApply
   , closureConst
   , closureUnit
     -- Arrow combinators for processes
@@ -138,8 +160,9 @@ import Control.Distributed.Process.Internal.Closure.Derived
   , cpEither
   , cpUntag
   , cpFanIn
-  , cpApply
     -- Derived process operators
   , cpBind
   , cpSeq
+    -- Serialization dictionaries
+  , serializableDictUnit
   )

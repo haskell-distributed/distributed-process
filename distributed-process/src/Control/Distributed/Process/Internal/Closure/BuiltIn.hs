@@ -1,12 +1,8 @@
-{-# LANGUAGE TemplateHaskell #-}
+-- | Built-in closures
 module Control.Distributed.Process.Internal.Closure.BuiltIn 
-  ( -- * Runtime support for the builtin closures
-    remoteTable
-    -- * Serialization dictionaries
-  , serializableDictUnit
-    -- * Closures
-  , linkClosure
-  , unlinkClosure
+  ( -- Combinators
+    closureApply 
+    -- TODO
   , sendClosure
   , returnClosure
   , expectClosure
@@ -14,39 +10,24 @@ module Control.Distributed.Process.Internal.Closure.BuiltIn
 
 import Data.Binary (encode)
 import Data.Typeable (Typeable, typeOf)
-import Control.Distributed.Process.Internal.Primitives (link, unlink)
 import Control.Distributed.Process.Internal.Types 
   ( ProcessId
   , Closure
   , Process
-  , RemoteTable
   , SerializableDict(..)
   , Closure(..)
   , Static(..)
   , StaticLabel(..)
   )
-import Control.Distributed.Process.Internal.Closure.TH (remotable, mkClosure)
 import Control.Distributed.Process.Internal.TypeRep () -- Binary instances
 
-serializableDictUnit :: SerializableDict ()
-serializableDictUnit = SerializableDict
-
-remotable ['link, 'unlink, 'serializableDictUnit] 
-
-remoteTable :: RemoteTable -> RemoteTable
-remoteTable = __remoteTable
-
 --------------------------------------------------------------------------------
--- TH generated closures                                                      --
+-- Combinators                                                                --
 --------------------------------------------------------------------------------
 
--- | Closure version of 'link'
-linkClosure :: ProcessId -> Closure (Process ())
-linkClosure = $(mkClosure 'link)
-
--- | Closure version of 'unlink'
-unlinkClosure :: ProcessId -> Closure (Process ())
-unlinkClosure = $(mkClosure 'unlink)
+closureApply :: Closure (a -> b) -> Closure a -> Closure b
+closureApply (Closure (Static labelf) envf) (Closure (Static labelx) envx) = 
+  Closure (Static ClosureApply) $ encode (labelf, envf, labelx, envx)
 
 --------------------------------------------------------------------------------
 -- Polymorphic closures                                                       --

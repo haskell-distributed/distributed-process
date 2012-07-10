@@ -262,13 +262,12 @@ data ReceivePort a =
 data StaticLabel = 
     UserStatic String
   | PolyStatic String
+  -- Closure combinators 
+  | ClosureApply
   -- Built-in closures 
   | ClosureReturn
   | ClosureSend 
   | ClosureExpect
-  -- Generic closure combinators
-  | ClosureApply
-  | CpApply
   deriving (Typeable, Show)
 
 -- | A static value is one that is bound at top-level.
@@ -547,21 +546,19 @@ instance Binary Identifier where
 instance Binary StaticLabel where
   put (UserStatic string) = putWord8 0 >> put string
   put (PolyStatic string) = putWord8 1 >> put string
-  put ClosureReturn  = putWord8 2
-  put ClosureSend    = putWord8 3
-  put ClosureExpect  = putWord8 4
-  put ClosureApply   = putWord8 6
-  put CpApply        = putWord8 17
+  put ClosureApply   = putWord8 2
+  put ClosureReturn  = putWord8 3
+  put ClosureSend    = putWord8 4
+  put ClosureExpect  = putWord8 5
   get = do
     header <- getWord8
     case header of
       0  -> UserStatic <$> get
       1  -> PolyStatic <$> get
-      2  -> return ClosureReturn
-      3  -> return ClosureSend 
-      4  -> return ClosureExpect 
-      6  -> return ClosureApply
-      17 -> return CpApply
+      2  -> return ClosureApply
+      3  -> return ClosureReturn
+      4  -> return ClosureSend 
+      5  -> return ClosureExpect 
       _  -> fail "StaticLabel.get: invalid"
 
 instance Binary WhereIsReply where
