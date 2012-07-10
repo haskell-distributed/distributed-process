@@ -122,7 +122,7 @@ import Control.Distributed.Process.Internal.Closure.Resolution (resolveClosure)
 import Control.Distributed.Process.Internal.Node (runLocalProcess)
 import Control.Distributed.Process.Internal.Primitives (expect, register)
 import qualified Control.Distributed.Process.Internal.Closure.BuiltIn as BuiltIn (remoteTable)
-import qualified Control.Distributed.Process.Internal.Closure.Combinators as Combinators (remoteTable)
+import qualified Control.Distributed.Process.Internal.Closure.Derived as Combinators (remoteTable)
 
 --------------------------------------------------------------------------------
 -- Initialization                                                             --

@@ -1,4 +1,5 @@
-module Control.Distributed.Process.Internal.Closure.Combinators 
+-- | Derived (TH generated) closures
+module Control.Distributed.Process.Internal.Closure.Derived
   ( remoteTable
     -- * Generic combinators
   , closureApply

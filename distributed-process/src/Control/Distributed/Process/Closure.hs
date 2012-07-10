@@ -115,7 +115,7 @@ import Control.Distributed.Process.Internal.Closure.BuiltIn
   , returnClosure
   , expectClosure
   )
-import Control.Distributed.Process.Internal.Closure.Combinators 
+import Control.Distributed.Process.Internal.Closure.Derived
   ( -- Generic combinators
     closureApply
   , closureConst

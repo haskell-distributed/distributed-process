@@ -123,7 +123,7 @@ import Control.Distributed.Process.Internal.Closure.BuiltIn
   , expectClosure
   , serializableDictUnit
   )
-import Control.Distributed.Process.Internal.Closure.Combinators 
+import Control.Distributed.Process.Internal.Closure.Derived
   ( cpSeq
   , cpBind
   )

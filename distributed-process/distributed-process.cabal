@@ -55,7 +55,7 @@ Library
                      Control.Distributed.Process.Internal.MessageT,
                      Control.Distributed.Process.Internal.Types,
                      Control.Distributed.Process.Internal.Closure.BuiltIn,
-                     Control.Distributed.Process.Internal.Closure.Combinators,
+                     Control.Distributed.Process.Internal.Closure.Derived,
                      Control.Distributed.Process.Internal.Closure.TH,
                      Control.Distributed.Process.Internal.Closure.Resolution,
                      Control.Distributed.Process.Internal.Node
