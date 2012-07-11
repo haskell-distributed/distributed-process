@@ -28,6 +28,9 @@ module Control.Distributed.Process.Internal.Types
   , StaticLabel(..)
   , Static(..) 
   , staticApply
+  , staticDuplicate
+  , staticTypeOf
+  , typeOfStaticLabel
   , Closure(..)
   , RemoteTable(..)
   , SerializableDict(..)
@@ -74,7 +77,8 @@ module Control.Distributed.Process.Internal.Types
 
 import Data.Map (Map)
 import Data.Int (Int32)
-import Data.Typeable (Typeable, TypeRep)
+import Data.Maybe (fromJust)
+import Data.Typeable (Typeable, TypeRep, typeOf, funResultTy)
 import Data.Binary (Binary(put, get), putWord8, getWord8, encode)
 import qualified Data.ByteString as BSS (ByteString, concat)
 import qualified Data.ByteString.Lazy as BSL 
@@ -261,6 +265,7 @@ data ReceivePort a =
 data StaticLabel =
     StaticLabel String TypeRep
   | StaticApply StaticLabel StaticLabel
+  | StaticDuplicate StaticLabel TypeRep
   deriving (Typeable, Show)
 
 -- | A static value is top-level bound or the application of two static values
@@ -270,6 +275,22 @@ newtype Static a = Static StaticLabel
 -- | Apply two static values
 staticApply :: Static (a -> b) -> Static a -> Static b
 staticApply (Static f) (Static x) = Static (StaticApply f x)
+
+-- | Co-monadic 'duplicate' for static values
+staticDuplicate :: forall a. Typeable a => Static a -> Static (Static a)
+staticDuplicate (Static x) = 
+  Static (StaticDuplicate x (typeOf (undefined :: Static a)))
+
+staticTypeOf :: forall a. Typeable a => a -> Static a 
+staticTypeOf _ = Static (StaticLabel "undefined" (typeOf (undefined :: a)))
+
+typeOfStaticLabel :: StaticLabel -> TypeRep
+typeOfStaticLabel (StaticLabel _ typ) 
+  = typ 
+typeOfStaticLabel (StaticApply f x) 
+  = fromJust $ funResultTy (typeOfStaticLabel f) (typeOfStaticLabel x)
+typeOfStaticLabel (StaticDuplicate _ typ)
+  = typ
 
 -- | A closure is a static value and an encoded environment
 data Closure a = Closure (Static (BSL.ByteString -> a)) BSL.ByteString
@@ -525,13 +546,15 @@ instance Binary Identifier where
       _ -> fail "Identifier.get: invalid"
 
 instance Binary StaticLabel where
-  put (StaticLabel string typ) = putWord8 0 >> put string >> put typ 
+  put (StaticLabel string typ)    = putWord8 0 >> put string >> put typ 
   put (StaticApply label1 label2) = putWord8 1 >> put label1 >> put label2
+  put (StaticDuplicate label typ) = putWord8 2 >> put label >> put typ
   get = do
     header <- getWord8
     case header of
       0 -> StaticLabel <$> get <*> get
       1 -> StaticApply <$> get <*> get
+      2 -> StaticDuplicate <$> get <*> get
       _ -> fail "StaticLabel.get: invalid" 
 
 instance Binary WhereIsReply where

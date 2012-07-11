@@ -16,7 +16,7 @@ module Control.Distributed.Process.Internal.Closure.Derived
 
 import Data.Binary (encode)
 import Data.ByteString.Lazy (ByteString)
-import Data.Typeable (Typeable, typeOf, TypeRep, typeRepTyCon, TyCon)
+import Data.Typeable (Typeable, typeOf, typeRepTyCon, TyCon)
 import Control.Applicative ((<$>))
 import Control.Monad (join)
 import Control.Distributed.Process.Serializable (Serializable)
@@ -24,9 +24,11 @@ import Control.Distributed.Process.Internal.Types
   ( Closure(Closure)
   , SerializableDict(SerializableDict)
   , Static(Static)
-  , StaticLabel
   , Process
   , staticApply
+  , staticDuplicate
+  , staticTypeOf
+  , typeOfStaticLabel
   , ProcessId
   , LocalNode(remoteTable)
   , procMsg
@@ -45,7 +47,6 @@ import Control.Distributed.Process.Internal.Closure.Static
   , staticDecode
   , staticClosure
   , staticSplit
-  , staticFirst
   , staticConst
   , staticUnit
   , sdictProcessId
@@ -85,28 +86,35 @@ expectDict SerializableDict = expect
 ---- Serialization dictionaries ------------------------------------------------
 
 -- | Specialized serialization dictionary required in 'cpBind'
-sdictBind :: SerializableDict (((StaticLabel, ByteString), (StaticLabel, ByteString)), TypeRep)
+sdictBind :: SerializableDict (ByteString, ByteString)
 sdictBind = SerializableDict
 
 ---- Some specialised processes necessary to implement the combinators ---------
 
-unClosure :: (StaticLabel, ByteString) -> Process Dynamic
-unClosure (label, env) = do
+-- | Resolve a closure
+unClosure :: Static a -> ByteString -> Process Dynamic
+unClosure (Static label) env = do
   rtable <- remoteTable <$> procMsg getLocalNode 
   case resolveClosure rtable label env of
     Nothing  -> fail "Derived.unClosure: resolveClosure failed"
     Just dyn -> return dyn
 
-unDynamic :: (Process Dynamic, TypeRep) -> Process a
-unDynamic (pdyn, typ) = do
-  Dynamic typ' val <- pdyn
-  if typ == typ'
+-- | Remove a 'Dynamic' constructor, provided that the recorded type matches the
+-- type of the first static argument (the value of that argument is not used)
+unDynamic :: Static a -> Process Dynamic -> Process a
+unDynamic (Static label) pdyn = do
+  Dynamic typ val <- pdyn
+  if typ == typeOfStaticLabel label 
     then return (unsafeCoerce# val)
     else fail $ "unDynamic: cannot match " 
-             ++ show typ' 
-             ++ " against expected type " 
              ++ show typ
+             ++ " against expected type " 
+             ++ show (typeOfStaticLabel label)
 
+-- | Dynamic bind
+--
+-- The first argument stops remotable from trying to generate a SerializableDict
+-- for (Process Dynamic, Process Dynamic)
 bindDyn :: () -> (Process Dynamic, Process Dynamic) -> Process Dynamic
 bindDyn () (px, pf) = do
     x <- px
@@ -181,47 +189,36 @@ cpReturn dict x = Closure decoder (encode x)
             `staticCompose`
               staticDecode dict
 
+
+staticUnclosure :: Typeable a 
+                => Static a -> Static (ByteString -> Process Dynamic)
+staticUnclosure s = 
+  $(mkStatic 'unClosure) `staticApply` staticDuplicate s 
+
+staticUndynamic :: Typeable a => Static (Process Dynamic -> Process a)
+staticUndynamic = 
+  $(mkStatic 'unDynamic) `staticApply` staticDuplicate (staticTypeOf (undefined :: a))
+
+staticBindDyn :: Static ((Process Dynamic, Process Dynamic) -> Process Dynamic)
+staticBindDyn = $(mkStatic 'bindDyn) `staticApply` staticUnit 
+
 -- | Not-quite-monadic bind ('>>=')
-cpBind :: forall a b. Typeable b
+cpBind :: forall a b. (Typeable a, Typeable b)
        => Closure (Process a) -> Closure (a -> Process b) -> Closure (Process b)
-cpBind (Closure (Static xlabel) xenv) (Closure (Static flabel) fenv) = 
-    let env :: (((StaticLabel, ByteString), (StaticLabel, ByteString)), TypeRep)
-        env = (((xlabel, xenv), (flabel, fenv)), typeOf (undefined :: Process b))
-    in Closure decoder (encode env)
+cpBind (Closure xstatic xenv) (Closure fstatic fenv) = 
+    Closure decoder (encode (xenv, fenv))
   where
     decoder :: Static (ByteString -> Process b)
-    decoder = aux8
+    decoder = $(mkStatic 'joinProcess)
             `staticCompose`
-              aux7
+              staticUndynamic 
             `staticCompose`
-              aux6
+              staticBindDyn 
             `staticCompose`
-              aux1
+              (staticUnclosure xstatic `staticSplit` staticUnclosure fstatic) 
+            `staticCompose`
+              staticDecode $(mkStatic 'sdictBind)   
 
-    aux1 :: Static (ByteString -> (((StaticLabel, ByteString), (StaticLabel, ByteString)), TypeRep))
-    aux1 = staticDecode $(mkStatic 'sdictBind)
-
-    aux2 :: Static ((StaticLabel, ByteString) -> Process Dynamic)
-    aux2 = $(mkStatic 'unClosure)
-
-    aux3 :: Static (((StaticLabel, ByteString), (StaticLabel, ByteString)) -> (Process Dynamic, Process Dynamic))
-    aux3 = aux2 `staticSplit` aux2
-
-    aux4 :: Static ((Process Dynamic, Process Dynamic) -> Process Dynamic)
-    aux4 = $(mkStatic 'bindDyn) `staticApply` staticUnit 
-
-    aux5 :: Static (((StaticLabel, ByteString), (StaticLabel, ByteString)) -> Process Dynamic)
-    aux5 = aux4 `staticCompose` aux3 
-
-    aux6 :: Static ((((StaticLabel, ByteString), (StaticLabel, ByteString)), TypeRep) -> (Process Dynamic, TypeRep))
-    aux6 = staticFirst `staticApply` aux5 
-
-    aux7 :: Static ((Process Dynamic, TypeRep) -> Process (Process b))
-    aux7 = $(mkStatic 'unDynamic)
-
-    aux8 :: Static (Process (Process b) -> Process b)
-    aux8 = $(mkStatic 'joinProcess)
-  
 cpIntro :: forall a b. (Typeable a, Typeable b)
         => Closure (Process b) -> Closure (a -> Process b)
 cpIntro (Closure static env) = Closure decoder env 

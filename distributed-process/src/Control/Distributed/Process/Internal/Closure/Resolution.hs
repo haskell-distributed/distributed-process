@@ -6,12 +6,14 @@ import Data.ByteString.Lazy (ByteString)
 import Control.Distributed.Process.Internal.Types
   ( RemoteTable
   , remoteTableLabel
+  , Static(Static)
   , StaticLabel(..)
   )
 import Control.Distributed.Process.Internal.Dynamic
   ( Dynamic(Dynamic)
   , toDyn
   , dynApply
+  , unsafeCoerce#
   )
 import Control.Distributed.Process.Internal.TypeRep () -- Binary instances  
 
@@ -23,6 +25,8 @@ resolveStatic rtable (StaticApply static1 static2) = do
   f <- resolveStatic rtable static1
   x <- resolveStatic rtable static2
   f `dynApply` x
+resolveStatic _rtable (StaticDuplicate static typ) = 
+  return $ Dynamic typ (unsafeCoerce# (Static static))
 
 resolveClosure :: RemoteTable -> StaticLabel -> ByteString -> Maybe Dynamic
 resolveClosure rtable static env = do

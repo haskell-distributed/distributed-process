@@ -117,9 +117,14 @@ generateDefs n = do
           -- TODO: we should check if arg is an instance of Serializable, but we cannot
           -- http://hackage.haskell.org/trac/ghc/ticket/7066
           sdict <- generateSDict origName arg
-          let dyn' = [| toDyn (SerializableDict :: SerializableDict $(return arg)) |]
+          let dyn' = [| toDyn (SerializableDict 
+                                 :: SerializableDict $(return arg)
+                              ) 
+                      |]
           return ( sdict
-                 , [ [| registerStatic $(stringE (show (sdictName origName))) $dyn' |] ]
+                 , [ [| registerStatic $(stringE (show (sdictName origName))) 
+                                       $dyn' 
+                      |] ]
                  )
         _ ->
           return ([], [])
@@ -138,14 +143,16 @@ generateStatic :: Name -> [TyVarBndr] -> Type -> Q [Dec]
 generateStatic n xs typ = do
     staticTyp <- [t| Static |]
     sequence
-      [ sigD (staticName n) $ return (ForallT xs 
-                                             (map typeable xs) 
-                                             (staticTyp `AppT` typ)
-                                     )
-      , sfnD (staticName n) [| Static $ StaticLabel 
-                                 $(stringE (show n)) 
-                                 (typeOf (undefined :: $(return typ)))
-                             |]
+      [ sigD (staticName n) $ 
+          return (ForallT xs 
+                  (map typeable xs) 
+                  (staticTyp `AppT` typ)
+          )
+      , sfnD (staticName n) 
+          [| Static $ StaticLabel 
+               $(stringE (show n)) 
+               (typeOf (undefined :: $(return typ)))
+           |]
       ]
   where
     typeable :: TyVarBndr -> Pred
@@ -157,10 +164,11 @@ generateSDict :: Name -> Type -> Q [Dec]
 generateSDict n typ = do
     sequence
       [ sigD (sdictName n) $ [t| Static (SerializableDict $(return typ)) |]
-      , sfnD (sdictName n) [| Static $ StaticLabel 
-                                 $(stringE (show (sdictName n))) 
-                                 (typeOf (undefined :: SerializableDict $(return typ)))
-                             |]
+      , sfnD (sdictName n) 
+         [| Static $ StaticLabel 
+              $(stringE (show (sdictName n))) 
+              (typeOf (undefined :: SerializableDict $(return typ)))
+          |]
       ]
 
 staticName :: Name -> Name
@@ -168,80 +176,6 @@ staticName n = mkName $ nameBase n ++ "__static"
 
 sdictName :: Name -> Name
 sdictName n = mkName $ nameBase n ++ "__sdict"
-
-{-
--- | Generate the necessary definitions for one function 
---
--- Given an (f :: a -> b) in module M, create: 
---  1. f__closure :: a -> Closure b,
---  2. registerLabel "M.f" (toDyn ((f . enc) :: ByteString -> b))
--- 
--- Moreover, if b is of the form Process c, then additionally create
---  3. registerSender (Process c) (send :: ProcessId -> c -> Process ())
-generateDefs :: Name -> Q ([Dec], Q Exp)
-generateDefs n = do
-  serializableDict <- [t| SerializableDict |]
-  mType <- getType n
-  case mType of
-    Just (origName, ArrowT `AppT` arg `AppT` res) -> do
-      (closure, label) <- generateClosure origName (return arg) (return res)
-      let decoder = generateDecoder origName (return res)
-          insert  = [| registerLabel $(stringE label) (toDyn $decoder) |]
-      return (closure, insert)
-    Just (origName, sdict `AppT` a) | sdict == serializableDict -> 
-      return ([], [| registerSerializableDict $(varE n) |])  
-    Just (origName, ForallT vars [] tp) -> do
-      (closure, label) <- generatePolyClosure origName vars tp
-      return (closure, [| registerLabel $(stringE label) (Dynamic (error "Polymorphic closure") (unsafeCoerce# $(varE origName))) |])
-    _ -> 
-      fail $ "remotable: " ++ show n ++ " is not a function"
-   
--- | Generate the closure creator (see 'generateDefs')
-generateClosure :: Name -> Q Type -> Q Type -> Q ([Dec], String)
-generateClosure n arg res = do
-    closure <- sequence 
-      [ sigD (closureName n) [t| $arg -> Closure $res |]
-      , sfnD (closureName n) [| Closure (Static (UserStatic ($(stringE label)))) . encode |]  
-      ]
-    return (closure, label)
-  where
-    label :: String 
-    label = show n
-
--- | Generate a polymorphic closure
-generatePolyClosure :: Name -> [TyVarBndr] -> Type -> Q ([Dec], String)
-generatePolyClosure n xs typ = do
-    closureTyp <- [t| Closure |]
-    closure <- sequence
-      [ sigD (closureName n) (return (ForallT xs (map typeable xs) (closureTyp `AppT` typ)) )
-      , sfnD (closureName n) [| Closure (Static (PolyStatic ($(stringE label)))) (encode (typeOf (undefined :: $(return typ)))) |]
-      ]
-    return (closure, label)
-  where
-    label :: String
-    label = show n
-
-    typeable :: TyVarBndr -> Pred
-    typeable (PlainTV v)    = ClassP (mkName "Typeable") [VarT v] 
-    typeable (KindedTV v _) = ClassP (mkName "Typeable") [VarT v]
-
--- | Generate the decoder (see 'generateDefs')
-generateDecoder :: Name -> Q Type -> Q Exp 
-generateDecoder n res = [| $(varE n) . decode :: ByteString -> $res |]
-
--- | The name for the function that generates the closure
-closureName :: Name -> Name
-closureName n = mkName $ nameBase n ++ "__closure"
-
-registerSerializableDict :: forall a. SerializableDict a -> RemoteTable -> RemoteTable
-registerSerializableDict SerializableDict = 
-  let rss = RuntimeSerializableSupport {
-                rssSend   = toDyn (send :: ProcessId -> a -> Process ()) 
-              , rssReturn = toDyn (return . decode :: ByteString -> Process a)  
-              , rssExpect = toDyn (expect :: Process a)
-              }
-  in remoteTableDict (typeOf (undefined :: a)) ^= Just rss 
--}
 
 --------------------------------------------------------------------------------
 -- Generic Template Haskell auxiliary functions                               --
