@@ -13,14 +13,24 @@ module Control.Distributed.Process.Internal.Dynamic
   , dynTypeRep
   , dynApply
   , dynApp
+  , dynBind
+  , dynBind'
   , GHC.unsafeCoerce#
   ) where
 
-import Data.Typeable (Typeable, TypeRep, typeOf, funResultTy)
+import Data.Typeable 
+  ( Typeable
+  , TypeRep
+  , typeOf
+  , funResultTy
+  , TyCon
+  , splitTyConApp
+  )
 import qualified GHC.Prim as GHC (Any, unsafeCoerce#)
 import Data.Maybe (fromMaybe)
 
 data Dynamic = Dynamic TypeRep GHC.Any
+  deriving Typeable
 
 toDyn :: Typeable a => a -> Dynamic
 toDyn x = Dynamic (typeOf x) (GHC.unsafeCoerce# x)
@@ -55,3 +65,17 @@ dynApp f x = fromMaybe (error typeError) (dynApply f x)
     typeError  = "Type error in dynamic application.\n" 
               ++ "Can't apply function " ++ show f
               ++ " to argument " ++ show x
+
+dynBind :: TyCon -> (forall a b. m a -> (a -> m b) -> m b) -> Dynamic -> Dynamic -> Maybe Dynamic
+dynBind m bind (Dynamic t1 x) (Dynamic t2 f) = 
+  case splitTyConApp t1 of
+    (m', [a]) | m' == m ->
+      case funResultTy t2 a of
+        Just mb -> Just (Dynamic mb (GHC.unsafeCoerce# bind x f))
+        _  -> Nothing
+    _ -> Nothing 
+
+dynBind' :: TyCon -> (forall a b. m a -> (a -> m b) -> m b) -> Dynamic -> Dynamic -> Dynamic
+dynBind' m bind x f = fromMaybe (error typeError) (dynBind m bind x f)
+  where
+    typeError = "Type error in dynamic bind.\nCan't bind " ++ show x ++ " to " ++ show f

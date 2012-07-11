@@ -82,87 +82,71 @@
 -- Some functions (such as 'sendClosure' or 'returnClosure') require an
 -- explicit (reified) serializable dictionary. To create such a dictionary do
 --
--- > serializableDictInt :: SerializableDict Int
--- > serializableDictInt = SerializableDict 
+-- > sdictInt :: SerializableDict Int
+-- > sdictInt = SerializableDict 
 -- 
--- and then pass @'serializableDictInt@ to 'remotable'. This will fail if the
+-- and then pass @'sdictInt@ to 'remotable'. This will fail if the
 -- type is not serializable.
 module Control.Distributed.Process.Closure 
   ( -- * User-defined closures
     remotable
-  , mkClosure
-    -- * Process primitives 
-  , linkClosure
-  , unlinkClosure
-  , sendClosure
-  , returnClosure
-  , expectClosure
-    -- * Generic closure combinators
-  , closureApply
-  , closureConst
-  , closureUnit
-    -- * Arrow combinators for processes
-  , CP
-  , cpIntro
-  , cpElim
-  , cpId
-  , cpComp
-  , cpFirst
-  , cpSwap
-  , cpSecond
-  , cpPair
-  , cpCopy
-  , cpFanOut
-  , cpLeft
-  , cpMirror
-  , cpRight
-  , cpEither
-  , cpUntag
-  , cpFanIn
-    -- * Derived combinators for processes
+  , mkStatic
+    -- * Static functionals
+  , staticConst
+  , staticCompose
+  , staticFirst
+  , staticSecond
+  , staticSplit
+    -- * Creating closures
+  , staticDecode
+  , staticClosure
+  , toClosure
+    -- * Closure versions of CH primitives
+  , cpLink
+  , cpUnlink
+  , cpSend
+  , cpExpect
+    -- * @Closure (Process a)@ as a not-quite-monad
+  , cpReturn 
   , cpBind
   , cpSeq
-    -- * Serialization dictionaries
+    -- * Serialization dictionaries (and their static versions)
   , SerializableDict(..)
-  , serializableDictUnit
+  , staticApply
+  , sdictUnit
+  , sdictUnit__static
+  , sdictProcessId
+  , sdictProcessId__static
   ) where 
 
-import Control.Distributed.Process.Internal.Types (SerializableDict(..))
-import Control.Distributed.Process.Internal.Closure.TH (remotable, mkClosure)
-import Control.Distributed.Process.Internal.Closure.BuiltIn 
-  ( sendClosure
-  , returnClosure
-  , expectClosure
+import Control.Distributed.Process.Internal.Types 
+  ( SerializableDict(..)
+  , staticApply
   )
-import Control.Distributed.Process.Internal.Closure.Derived
-  ( -- Process primitives
-    linkClosure
-  , unlinkClosure
-    -- Generic combinators
-  , closureApply
-  , closureConst
-  , closureUnit
-    -- Arrow combinators for processes
-  , CP
-  , cpIntro
-  , cpElim
-  , cpId
-  , cpComp
-  , cpFirst
-  , cpSwap
-  , cpSecond
-  , cpPair
-  , cpCopy
-  , cpFanOut
-  , cpLeft
-  , cpMirror
-  , cpRight
-  , cpEither
-  , cpUntag
-  , cpFanIn
-    -- Derived process operators
+import Control.Distributed.Process.Internal.Closure.TH (remotable, mkStatic)
+import Control.Distributed.Process.Internal.Closure.Derived 
+  ( -- Static functionals
+    staticConst
+  , staticCompose
+  , staticFirst
+  , staticSecond
+  , staticSplit
+    -- Creating closures
+  , staticDecode
+  , staticClosure
+  , toClosure
+    -- Closure versions of CH primitives
+  , cpLink
+  , cpUnlink
+  , cpSend
+  , cpExpect
+    -- @Closure (Process a)@ as a not-quite-monad
+  , cpReturn 
   , cpBind
   , cpSeq
-    -- Serialization dictionaries
-  , serializableDictUnit
+    -- Serialization dictionaries (and their static versions)
+  , sdictUnit
+  , sdictUnit__static
+  , sdictProcessId
+  , sdictProcessId__static
   )

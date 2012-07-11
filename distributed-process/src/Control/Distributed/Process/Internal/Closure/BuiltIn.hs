@@ -1,5 +1,7 @@
 -- | Built-in closures
-module Control.Distributed.Process.Internal.Closure.BuiltIn 
+module Control.Distributed.Process.Internal.Closure.BuiltIn () where
+
+{-
   ( -- Combinators
     closureApply 
     -- TODO
@@ -20,6 +22,7 @@ import Control.Distributed.Process.Internal.Types
   , StaticLabel(..)
   )
 import Control.Distributed.Process.Internal.TypeRep () -- Binary instances
+import Control.Distributed.Process.Serializable (Serializable)
 
 --------------------------------------------------------------------------------
 -- Combinators                                                                --
@@ -28,6 +31,12 @@ import Control.Distributed.Process.Internal.TypeRep () -- Binary instances
 closureApply :: Closure (a -> b) -> Closure a -> Closure b
 closureApply (Closure (Static labelf) envf) (Closure (Static labelx) envx) = 
   Closure (Static ClosureApply) $ encode (labelf, envf, labelx, envx)
+
+closureReturn :: Serializable a => Static (SerializableDict a) -> a -> Closure a
+closureReturn (Static dict) x = Closure (Static ClosureReturn) (encode (dict, x)) 
+
+closureStatic :: Static a -> Closure a
+closureStatic (Static dict) = Closure (Static ClosureStatic) (encode dict) 
 
 --------------------------------------------------------------------------------
 -- Polymorphic closures                                                       --
@@ -56,3 +65,4 @@ returnClosure SerializableDict val =
 expectClosure :: forall a. SerializableDict a -> Closure (Process a)
 expectClosure SerializableDict =
   Closure (Static ClosureExpect) (encode (typeOf (undefined :: a)))
+-}

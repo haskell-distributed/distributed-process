@@ -121,14 +121,14 @@ import Control.Distributed.Process.Internal.Dynamic (fromDynamic)
 import Control.Distributed.Process.Internal.Closure.Resolution (resolveClosure) 
 import Control.Distributed.Process.Internal.Node (runLocalProcess)
 import Control.Distributed.Process.Internal.Primitives (expect, register)
-import qualified Control.Distributed.Process.Internal.Closure.Derived as Derived (remoteTable)
+import qualified Control.Distributed.Process.Internal.Closure.Derived as Derived (__remoteTable)
 
 --------------------------------------------------------------------------------
 -- Initialization                                                             --
 --------------------------------------------------------------------------------
 
 initRemoteTable :: RemoteTable
-initRemoteTable = Derived.remoteTable $ RemoteTable Map.empty Map.empty 
+initRemoteTable = Derived.__remoteTable $ RemoteTable Map.empty
 
 -- | Initialize a new local node. 
 -- 

@@ -5,12 +5,10 @@
 module Control.Distributed.Process.Internal.Closure.TH 
   ( -- * User-level API
     remotable
-  , mkClosure
+  , mkStatic
   ) where
 
 import Prelude hiding (lookup)
-import Data.ByteString.Lazy (ByteString)
-import Data.Binary (encode, decode)
 import Data.Accessor ((^=))
 import Data.Typeable (typeOf)
 import Control.Applicative ((<$>))
@@ -25,7 +23,7 @@ import Language.Haskell.TH
     -- Algebraic data types
   , Dec
   , Exp
-  , Type(AppT, ArrowT, ForallT, VarT)
+  , Type(AppT, ForallT, VarT)
   , Info(VarI)
   , TyVarBndr(PlainTV, KindedTV)
   , Pred(ClassP)
@@ -44,22 +42,14 @@ import Language.Haskell.TH
   )
 import Control.Distributed.Process.Internal.Types
   ( RemoteTable
-  , Closure(..)
   , Static(..)
   , StaticLabel(..)
-  , Process
-  , ProcessId
   , remoteTableLabel
-  , remoteTableDict
-  , SerializableDict(..)
-  , RuntimeSerializableSupport(..)
   )
 import Control.Distributed.Process.Internal.Dynamic 
   ( Dynamic(..)
-  , toDyn
   , unsafeCoerce#
   )
-import Control.Distributed.Process.Internal.Primitives (send, expect)
 
 --------------------------------------------------------------------------------
 -- User-level API                                                             --
@@ -73,12 +63,18 @@ remotable ns = do
   rtable <- createMetaData inserts 
   return $ concat closures ++ rtable 
 
+-- | Construct a static value
+mkStatic :: Name -> Q Exp
+mkStatic = varE . staticName
+
+{-
 -- | Create a closure
 -- 
 -- See module documentation header for "Control.Distributed.Process.Closure"
 -- for a detailed explanation and examples.
 mkClosure :: Name -> Q Exp
 mkClosure = varE . closureName 
+-}
 
 --------------------------------------------------------------------------------
 -- Internal (Template Haskell)                                                --
@@ -91,6 +87,42 @@ createMetaData is =
       __remoteTable = $(compose is)
     |]
 
+generateDefs :: Name -> Q ([Dec], Q Exp)
+generateDefs n = do
+  mType <- getType n
+  case mType of
+    Just (origName, typ) -> do
+      let (typVars, typ') = case typ of ForallT vars [] mono -> (vars, mono)
+                                        _                    -> ([], typ)
+      (static, label) <- generateStatic origName typVars typ' 
+      return (static, [| registerStatic $(stringE label) (Dynamic (error "Polymorphic value") (unsafeCoerce# $(varE origName))) |])
+    _ -> 
+      fail $ "remotable: " ++ show n ++ " not found"
+   
+registerStatic :: String -> Dynamic -> RemoteTable -> RemoteTable
+registerStatic label dyn = remoteTableLabel label ^= Just dyn 
+
+-- | Generate a static value 
+generateStatic :: Name -> [TyVarBndr] -> Type -> Q ([Dec], String)
+generateStatic n xs typ = do
+    staticTyp <- [t| Static |]
+    closure <- sequence
+      [ sigD (staticName n) (return (ForallT xs (map typeable xs) (staticTyp `AppT` typ)) )
+      , sfnD (staticName n) [| Static (StaticLabel $(stringE label) (typeOf (undefined :: $(return typ)))) |]
+      ]
+    return (closure, label)
+  where
+    label :: String
+    label = show n
+
+    typeable :: TyVarBndr -> Pred
+    typeable (PlainTV v)    = ClassP (mkName "Typeable") [VarT v] 
+    typeable (KindedTV v _) = ClassP (mkName "Typeable") [VarT v]
+
+staticName :: Name -> Name
+staticName n = mkName $ nameBase n ++ "__static"
+
+{-
 -- | Generate the necessary definitions for one function 
 --
 -- Given an (f :: a -> b) in module M, create: 
@@ -154,9 +186,6 @@ generateDecoder n res = [| $(varE n) . decode :: ByteString -> $res |]
 closureName :: Name -> Name
 closureName n = mkName $ nameBase n ++ "__closure"
 
-registerLabel :: String -> Dynamic -> RemoteTable -> RemoteTable
-registerLabel label dyn = remoteTableLabel label ^= Just dyn 
-
 registerSerializableDict :: forall a. SerializableDict a -> RemoteTable -> RemoteTable
 registerSerializableDict SerializableDict = 
   let rss = RuntimeSerializableSupport {
@@ -165,6 +194,7 @@ registerSerializableDict SerializableDict =
               , rssExpect = toDyn (expect :: Process a)
               }
   in remoteTableDict (typeOf (undefined :: a)) ^= Just rss 
+-}
 
 --------------------------------------------------------------------------------
 -- Generic Template Haskell auxiliary functions                               --
@@ -191,4 +221,3 @@ getType name = do
 -- | Variation on 'funD' which takes a single expression to define the function
 sfnD :: Name -> Q Exp -> Q Dec
 sfnD n e = funD n [clause [] (normalB e) []] 
-

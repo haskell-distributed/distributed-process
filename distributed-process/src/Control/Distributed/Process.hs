@@ -7,6 +7,7 @@
 -- although some of the details are different. The precise message passing
 -- semantics are based on /A unified semantics for future Erlang/ by	Hans
 -- Svensson, Lars-Åke Fredlund and Clara Benac Earle.
+{-# LANGUAGE TemplateHaskell #-}
 module Control.Distributed.Process 
   ( -- * Basic types 
     ProcessId
@@ -116,16 +117,15 @@ import Control.Distributed.Process.Internal.Types
   , SendPortId(..)
   , WhereIsReply(..)
   )
-import Control.Distributed.Process.Internal.Closure.BuiltIn 
-  ( sendClosure
-  , expectClosure
-  )
 import Control.Distributed.Process.Internal.Closure.Derived
   ( cpSeq
   , cpBind
-  , linkClosure
-  , unlinkClosure
-  , serializableDictUnit
+  , cpSend 
+  , cpExpect
+  , cpLink
+  , cpUnlink
+  , sdictUnit 
+  , sdictUnit__static
   )
 import Control.Distributed.Process.Internal.Primitives
   ( -- Basic messaging
@@ -179,6 +179,8 @@ import Control.Distributed.Process.Internal.Primitives
   , expectTimeout
   , spawnAsync
   )
+import Control.Distributed.Process.Serializable (Serializable)
+import Control.Distributed.Process.Internal.Closure.TH (mkStatic)
 
 -- INTERNAL NOTES
 -- 
@@ -253,9 +255,9 @@ spawn nid proc = do
   -- we call linkNode here, and unlinkNode after, then we might remove a link
   -- that was already set up
   mRef <- monitorNode nid
-  sRef <- spawnAsync nid $ linkClosure us 
-                   `cpSeq` expectClosure serializableDictUnit
-                   `cpSeq` unlinkClosure us
+  sRef <- spawnAsync nid $ cpLink us 
+                   `cpSeq` cpExpect $(mkStatic 'sdictUnit)
+                   `cpSeq` cpUnlink us
                    `cpSeq` proc
   mPid <- receiveWait 
     [ matchIf (\(DidSpawn ref _) -> ref == sRef)
@@ -290,10 +292,10 @@ spawnMonitor nid proc = do
 -- 
 -- We monitor the remote process; if it dies before it can send a reply, we die
 -- too
-call :: SerializableDict a -> NodeId -> Closure (Process a) -> Process a
-call sdict@SerializableDict nid proc = do 
+call :: Serializable a => Static (SerializableDict a) -> NodeId -> Closure (Process a) -> Process a
+call dict nid proc = do 
   us <- getSelfPid
-  (_, mRef) <- spawnMonitor nid (proc `cpBind` sendClosure sdict us)
+  (_, mRef) <- spawnMonitor nid (proc `cpBind` cpSend dict us)
   -- We are guaranteed to receive the reply before the monitor notification
   -- (if a reply is sent at all)
   -- NOTE: This might not be true if we switch to unreliable delivery.
@@ -313,7 +315,7 @@ spawnSupervised :: NodeId
                 -> Process (ProcessId, MonitorRef)
 spawnSupervised nid proc = do
   us   <- getSelfPid
-  them <- spawn nid (linkClosure us `cpSeq` proc) 
+  them <- spawn nid (cpLink us `cpSeq` proc) 
   ref  <- monitor them
   return (them, ref)
 

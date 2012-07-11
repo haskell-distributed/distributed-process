@@ -1,7 +1,8 @@
 module Main where
 
-import qualified Data.ByteString.Lazy as BSL (empty)
-import Data.Typeable (Typeable)
+import Data.ByteString.Lazy (ByteString, empty)
+import Data.Typeable (Typeable, typeOf)
+import Data.Binary (encode)
 import Control.Monad (join, replicateM)
 import Control.Exception (IOException, throw)
 import Control.Concurrent (forkIO, threadDelay)
@@ -15,8 +16,12 @@ import Control.Distributed.Process.Node
 import Control.Distributed.Process.Internal.Types (Closure(..), Static(..), StaticLabel(..))
 import TestAuxiliary
 
-serializableDictInt :: SerializableDict Int
-serializableDictInt = SerializableDict
+sdictInt :: SerializableDict Int
+sdictInt = SerializableDict
+
+factorial :: Int -> Process Int
+factorial 0 = return 1
+factorial n = (n *) <$> factorial (n - 1) 
 
 addInt :: Int -> Int -> Int
 addInt x y = x + y
@@ -24,42 +29,76 @@ addInt x y = x + y
 putInt :: Int -> MVar Int -> IO ()
 putInt = flip putMVar
 
-sendInt :: ProcessId -> Int -> Process ()
-sendInt = send
-
 sendPid :: ProcessId -> Process ()
 sendPid toPid = do
   fromPid <- getSelfPid
   send toPid fromPid
 
-factorial :: Int -> Process Int
-factorial 0 = return 1
-factorial n = (n *) <$> factorial (n - 1) 
-
-factorialOf :: () -> Int -> Process Int
-factorialOf () = factorial
-
-returnForTestApply :: (Closure (Int -> Process Int), Int) -> (Closure (Int -> Process Int), Int)
-returnForTestApply = id 
-
 wait :: Int -> Process ()
 wait = liftIO . threadDelay
 
-first :: (a, b) -> a
-first (x, _) = x
+remotable [ 'factorial
+          , 'addInt
+          , 'putInt
+          , 'sendPid
+          , 'sdictInt
+          , 'wait
+          ]
 
-$(remotable 
-  [ 'addInt
-  , 'putInt
-  , 'sendInt
-  , 'sendPid
-  , 'factorial
-  , 'factorialOf
-  , 'returnForTestApply
-  , 'wait
-  , 'serializableDictInt
-  , 'first
-  ])
+factorialClosure :: Int -> Closure (Process Int)
+factorialClosure n = Closure decoder (encode n)
+  where
+    decoder :: Static (ByteString -> Process Int)
+    decoder = $(mkStatic 'factorial) `staticCompose` staticDecode $(mkStatic 'sdictInt)
+
+addIntClosure :: Int -> Closure (Int -> Int)
+addIntClosure n = Closure decoder (encode n)
+  where
+    decoder :: Static (ByteString -> Int -> Int)
+    decoder = $(mkStatic 'addInt) `staticCompose` staticDecode $(mkStatic 'sdictInt)
+
+putIntClosure :: Int -> Closure (MVar Int -> IO ())
+putIntClosure n = Closure decoder (encode n)
+  where
+    decoder :: Static (ByteString -> MVar Int -> IO ())
+    decoder = $(mkStatic 'putInt) `staticCompose` staticDecode $(mkStatic 'sdictInt)
+
+sendPidClosure :: ProcessId -> Closure (Process ())
+sendPidClosure pid = Closure decoder (encode pid)
+  where
+    decoder :: Static (ByteString -> Process ())
+    decoder = $(mkStatic 'sendPid) `staticCompose` staticDecode $(mkStatic 'sdictProcessId)
+
+sendFac :: Int -> ProcessId -> Closure (Process ())
+sendFac n pid = factorialClosure n `cpBind` cpSend $(mkStatic 'sdictInt) pid 
+
+factorialOf :: Closure (Int -> Process Int)
+factorialOf = staticClosure $(mkStatic 'factorial)
+
+factorial' :: Int -> Closure (Process Int)
+factorial' n = cpReturn $(mkStatic 'sdictInt) n `cpBind` factorialOf 
+
+waitClosure :: Int -> Closure (Process ())
+waitClosure n = Closure decoder (encode n)
+  where
+    decoder :: Static (ByteString -> Process ()) 
+    decoder = $(mkStatic 'wait) `staticCompose` staticDecode $(mkStatic 'sdictInt)
+
+testUnclosure :: Transport -> RemoteTable -> IO ()
+testUnclosure transport rtable = do
+  node <- newLocalNode transport rtable
+  runProcess node $ do
+    120 <- join . unClosure $ factorialClosure 5
+    return ()
+
+testBind :: Transport -> RemoteTable -> IO ()
+testBind transport rtable = do
+  node <- newLocalNode transport rtable
+  runProcess node $ do
+    us <- getSelfPid
+    join . unClosure $ sendFac 6 us 
+    (720 :: Int) <- expect 
+    return ()
 
 testSendPureClosure :: Transport -> RemoteTable -> IO ()
 testSendPureClosure transport rtable = do
@@ -71,14 +110,14 @@ testSendPureClosure transport rtable = do
     addr <- forkProcess node $ do
       cl <- expect
       fn <- unClosure cl :: Process (Int -> Int)
-      11 <- return $ fn 6
+      13 <- return $ fn 6
       liftIO $ putMVar serverDone () 
     putMVar serverAddr addr 
 
   forkIO $ do
     node <- newLocalNode transport rtable 
     theirAddr <- readMVar serverAddr
-    runProcess node $ send theirAddr ($(mkClosure 'addInt) 5) 
+    runProcess node $ send theirAddr (addIntClosure 7)
 
   takeMVar serverDone
 
@@ -102,7 +141,7 @@ testSendIOClosure transport rtable = do
   forkIO $ do
     node <- newLocalNode transport rtable 
     theirAddr <- readMVar serverAddr
-    runProcess node $ send theirAddr ($(mkClosure 'putInt) 5) 
+    runProcess node $ send theirAddr (putIntClosure 5) 
 
   takeMVar serverDone
 
@@ -124,7 +163,7 @@ testSendProcClosure transport rtable = do
     theirAddr <- readMVar serverAddr
     runProcess node $ do
       pid <- getSelfPid
-      send theirAddr ($(mkClosure 'sendInt) pid) 
+      send theirAddr (cpSend $(mkStatic 'sdictInt) pid) 
       5 <- expect :: Process Int
       liftIO $ putMVar clientDone ()
 
@@ -144,7 +183,7 @@ testSpawn transport rtable = do
     nid <- readMVar serverNodeAddr
     runProcess node $ do
       pid   <- getSelfPid
-      pid'  <- spawn nid ($(mkClosure 'sendPid) pid)
+      pid'  <- spawn nid (sendPidClosure pid)
       pid'' <- expect
       True <- return $ pid' == pid''
       liftIO $ putMVar clientDone ()
@@ -164,25 +203,10 @@ testCall transport rtable = do
     node <- newLocalNode transport rtable
     nid <- readMVar serverNodeAddr
     runProcess node $ do
-      (120 :: Int) <- call serializableDictInt nid ($(mkClosure 'factorial) 5)
+      (120 :: Int) <- call $(mkStatic 'sdictInt) nid (factorialClosure 5)
       liftIO $ putMVar clientDone ()
 
   takeMVar clientDone
-
-sendFac :: Int -> ProcessId -> Closure (Process ())
-sendFac n pid = $(mkClosure 'factorial) n `cpBind` $(mkClosure 'sendInt) pid
-
-factorial' :: Int -> Closure (Process Int)
-factorial' n = returnClosure serializableDictInt n `cpBind` $(mkClosure 'factorialOf) ()
-
-testBind :: Transport -> RemoteTable -> IO ()
-testBind transport rtable = do
-  node <- newLocalNode transport rtable
-  runProcess node $ do
-    us <- getSelfPid
-    join . unClosure $ sendFac 6 us 
-    (720 :: Int) <- expect 
-    return ()
 
 testCallBind :: Transport -> RemoteTable -> IO ()
 testCallBind transport rtable = do
@@ -197,7 +221,7 @@ testCallBind transport rtable = do
     node <- newLocalNode transport rtable
     nid <- readMVar serverNodeAddr
     runProcess node $ do
-      (120 :: Int) <- call serializableDictInt nid (factorial' 5)
+      (120 :: Int) <- call $(mkStatic 'sdictInt) nid (factorial' 5)
       liftIO $ putMVar clientDone ()
 
   takeMVar clientDone
@@ -227,7 +251,7 @@ testSpawnSupervised transport rtable = do
     forkProcess node1 $ do
       us <- getSelfPid
       liftIO $ putMVar superPid us
-      (child, _ref) <- spawnSupervised (localNodeId node2) ($(mkClosure 'wait) 1000000) 
+      (child, _ref) <- spawnSupervised (localNodeId node2) (waitClosure 1000000) 
       liftIO $ do
         putMVar childPid child
         threadDelay 500000 -- Give the child a chance to link to us
@@ -251,7 +275,7 @@ testSpawnInvalid :: Transport -> RemoteTable -> IO ()
 testSpawnInvalid transport rtable = do
   node <- newLocalNode transport rtable
   runProcess node $ do
-    (pid, ref) <- spawnMonitor (localNodeId node) (Closure (Static (UserStatic "ThisDoesNotExist")) BSL.empty)
+    (pid, ref) <- spawnMonitor (localNodeId node) (Closure (Static (StaticLabel "ThisDoesNotExist" (typeOf ()))) empty)
     ProcessMonitorNotification ref' pid' _reason <- expect 
     -- Depending on the exact interleaving, reason might be NoProc or the exception thrown by the absence of the static closure
     True <- return $ ref' == ref && pid == pid'  
@@ -263,7 +287,7 @@ testClosureExpect transport rtable = do
   runProcess node $ do
     nodeId <- getSelfNode
     us     <- getSelfPid
-    them   <- spawn nodeId $ expectClosure serializableDictInt `cpBind` $(mkClosure 'sendInt) us
+    them   <- spawn nodeId $ cpExpect $(mkStatic 'sdictInt) `cpBind` cpSend $(mkStatic 'sdictInt) us
     send them (1234 :: Int)
     (1234 :: Int) <- expect
     return ()
@@ -273,12 +297,13 @@ main = do
   Right transport <- createTransport "127.0.0.1" "8080" defaultTCPParameters
   let rtable = __remoteTable initRemoteTable 
   runTests 
-    [ ("SendPureClosure", testSendPureClosure transport rtable)
+    [ ("Unclosure",       testUnclosure       transport rtable)
+    , ("Bind",            testBind            transport rtable)
+    , ("SendPureClosure", testSendPureClosure transport rtable)
     , ("SendIOClosure",   testSendIOClosure   transport rtable)
     , ("SendProcClosure", testSendProcClosure transport rtable)
     , ("Spawn",           testSpawn           transport rtable)
     , ("Call",            testCall            transport rtable)
-    , ("Bind",            testBind            transport rtable)
     , ("CallBind",        testCallBind        transport rtable)
     , ("Seq",             testSeq             transport rtable)
     , ("SpawnSupervised", testSpawnSupervised transport rtable)

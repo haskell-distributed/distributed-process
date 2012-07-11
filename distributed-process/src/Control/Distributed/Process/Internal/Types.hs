@@ -27,10 +27,10 @@ module Control.Distributed.Process.Internal.Types
     -- * Closures
   , StaticLabel(..)
   , Static(..) 
+  , staticApply
   , Closure(..)
   , RemoteTable(..)
   , SerializableDict(..)
-  , RuntimeSerializableSupport(..)
     -- * Messages 
   , Message(..)
   , createMessage
@@ -69,9 +69,7 @@ module Control.Distributed.Process.Internal.Types
   , typedChannels
   , typedChannelWithId
   , remoteTableLabels
-  , remoteTableDicts
   , remoteTableLabel
-  , remoteTableDict
   ) where
 
 import Data.Map (Map)
@@ -110,6 +108,7 @@ import Control.Distributed.Process.Serializable
   )
 import Control.Distributed.Process.Internal.CQueue (CQueue)
 import Control.Distributed.Process.Internal.Dynamic (Dynamic) 
+import Control.Distributed.Process.Internal.TypeRep () -- Binary instances
 
 --------------------------------------------------------------------------------
 -- Node and process identifiers                                               --
@@ -259,50 +258,32 @@ data ReceivePort a =
 -- Closures                                                                   --
 --------------------------------------------------------------------------------
 
-data StaticLabel = 
-    UserStatic String
-  | PolyStatic String
-  -- Closure combinators 
-  | ClosureApply
-  -- Built-in closures 
-  | ClosureReturn
-  | ClosureSend 
-  | ClosureExpect
+data StaticLabel =
+    StaticLabel String TypeRep
+  | StaticApply StaticLabel StaticLabel
   deriving (Typeable, Show)
 
--- | A static value is one that is bound at top-level.
+-- | A static value is top-level bound or the application of two static values
 newtype Static a = Static StaticLabel 
   deriving (Typeable, Show)
+
+-- | Apply two static values
+staticApply :: Static (a -> b) -> Static a -> Static b
+staticApply (Static f) (Static x) = Static (StaticApply f x)
 
 -- | A closure is a static value and an encoded environment
 data Closure a = Closure (Static (BSL.ByteString -> a)) BSL.ByteString
   deriving (Typeable, Show)
 
--- | Used to fake 'static' (see paper)
+-- | Runtime dictionary for 'unstatic' lookups 
 data RemoteTable = RemoteTable {
-    -- | If the user creates a closure of type @a -> Closure b@ from a function
-    -- @f : a -> b@, then '_remoteTableLabels' should have an entry for "f"
-    -- of type @ByteString -> b@ (basically, @f . encode@)
-    _remoteTableLabels  :: Map String Dynamic 
-    -- | Runtime counterpart to SerializableDict 
-  , _remoteTableDicts   :: Map TypeRep RuntimeSerializableSupport 
+    _remoteTableLabels :: Map String Dynamic 
   }
 
 -- | Reification of 'Serializable' (see "Control.Distributed.Process.Closure")
 data SerializableDict a where
     SerializableDict :: Serializable a => SerializableDict a
   deriving (Typeable)
-
--- | Runtime support for implementing "polymorphic" functions with a 
--- Serializable qualifier (sendClosure, returnClosure, ..). 
---
--- We don't attempt to keep this minimal, but instead just add functions as
--- convenient. This will be replaced anyway once 'static' has been implemented.
-data RuntimeSerializableSupport = RuntimeSerializableSupport {
-   rssSend   :: Dynamic
- , rssReturn :: Dynamic
- , rssExpect :: Dynamic
- }
 
 --------------------------------------------------------------------------------
 -- Messages                                                                   --
@@ -544,22 +525,14 @@ instance Binary Identifier where
       _ -> fail "Identifier.get: invalid"
 
 instance Binary StaticLabel where
-  put (UserStatic string) = putWord8 0 >> put string
-  put (PolyStatic string) = putWord8 1 >> put string
-  put ClosureApply   = putWord8 2
-  put ClosureReturn  = putWord8 3
-  put ClosureSend    = putWord8 4
-  put ClosureExpect  = putWord8 5
+  put (StaticLabel string typ) = putWord8 0 >> put string >> put typ 
+  put (StaticApply label1 label2) = putWord8 1 >> put label1 >> put label2
   get = do
     header <- getWord8
     case header of
-      0  -> UserStatic <$> get
-      1  -> PolyStatic <$> get
-      2  -> return ClosureApply
-      3  -> return ClosureReturn
-      4  -> return ClosureSend 
-      5  -> return ClosureExpect 
-      _  -> fail "StaticLabel.get: invalid"
+      0 -> StaticLabel <$> get <*> get
+      1 -> StaticApply <$> get <*> get
+      _ -> fail "StaticLabel.get: invalid" 
 
 instance Binary WhereIsReply where
   put (WhereIsReply label mPid) = put label >> put mPid
@@ -599,14 +572,8 @@ typedChannelWithId cid = typedChannels >>> DAC.mapMaybe cid
 remoteTableLabels :: Accessor RemoteTable (Map String Dynamic)
 remoteTableLabels = accessor _remoteTableLabels (\ls tbl -> tbl { _remoteTableLabels = ls })
 
-remoteTableDicts :: Accessor RemoteTable (Map TypeRep RuntimeSerializableSupport)
-remoteTableDicts = accessor _remoteTableDicts (\ds tbl -> tbl { _remoteTableDicts = ds })
-
 remoteTableLabel :: String -> Accessor RemoteTable (Maybe Dynamic)
 remoteTableLabel label = remoteTableLabels >>> DAC.mapMaybe label
-
-remoteTableDict :: TypeRep -> Accessor RemoteTable (Maybe RuntimeSerializableSupport)
-remoteTableDict label = remoteTableDicts >>> DAC.mapMaybe label
 
 --------------------------------------------------------------------------------
 -- MessageT monad                                                             --
