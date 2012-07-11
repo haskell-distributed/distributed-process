@@ -54,7 +54,6 @@ Library
                      Control.Distributed.Process.Internal.TypeRep,
                      Control.Distributed.Process.Internal.MessageT,
                      Control.Distributed.Process.Internal.Types,
-                     Control.Distributed.Process.Internal.Closure.BuiltIn,
                      Control.Distributed.Process.Internal.Closure.Derived,
                      Control.Distributed.Process.Internal.Closure.TH,
                      Control.Distributed.Process.Internal.Closure.Resolution,
