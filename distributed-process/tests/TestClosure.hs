@@ -1,8 +1,7 @@
 module Main where
 
-import Data.ByteString.Lazy (ByteString, empty)
+import Data.ByteString.Lazy (empty)
 import Data.Typeable (Typeable, typeOf)
-import Data.Binary (encode)
 import Control.Monad (join, replicateM)
 import Control.Exception (IOException, throw)
 import Control.Concurrent (forkIO, threadDelay)
@@ -46,28 +45,16 @@ remotable [ 'factorial
           ]
 
 factorialClosure :: Int -> Closure (Process Int)
-factorialClosure n = Closure decoder (encode n)
-  where
-    decoder :: Static (ByteString -> Process Int)
-    decoder = $(mkStatic 'factorial) `staticCompose` staticDecode $(mkStatic 'sdictInt)
+factorialClosure = $(mkClosure 'factorial) 
 
 addIntClosure :: Int -> Closure (Int -> Int)
-addIntClosure n = Closure decoder (encode n)
-  where
-    decoder :: Static (ByteString -> Int -> Int)
-    decoder = $(mkStatic 'addInt) `staticCompose` staticDecode $(mkStatic 'sdictInt)
+addIntClosure = $(mkClosure 'addInt) 
 
 putIntClosure :: Int -> Closure (MVar Int -> IO ())
-putIntClosure n = Closure decoder (encode n)
-  where
-    decoder :: Static (ByteString -> MVar Int -> IO ())
-    decoder = $(mkStatic 'putInt) `staticCompose` staticDecode $(mkStatic 'sdictInt)
+putIntClosure = $(mkClosure 'putInt) 
 
 sendPidClosure :: ProcessId -> Closure (Process ())
-sendPidClosure pid = Closure decoder (encode pid)
-  where
-    decoder :: Static (ByteString -> Process ())
-    decoder = $(mkStatic 'sendPid) `staticCompose` staticDecode $(mkStatic 'sdictProcessId)
+sendPidClosure = $(mkClosure 'sendPid) 
 
 sendFac :: Int -> ProcessId -> Closure (Process ())
 sendFac n pid = factorialClosure n `cpBind` cpSend $(mkStatic 'sdictInt) pid 
@@ -79,10 +66,7 @@ factorial' :: Int -> Closure (Process Int)
 factorial' n = cpReturn $(mkStatic 'sdictInt) n `cpBind` factorialOf 
 
 waitClosure :: Int -> Closure (Process ())
-waitClosure n = Closure decoder (encode n)
-  where
-    decoder :: Static (ByteString -> Process ()) 
-    decoder = $(mkStatic 'wait) `staticCompose` staticDecode $(mkStatic 'sdictInt)
+waitClosure = $(mkClosure 'wait) 
 
 testUnclosure :: Transport -> RemoteTable -> IO ()
 testUnclosure transport rtable = do

@@ -124,7 +124,9 @@ import Control.Distributed.Process.Internal.Closure.Derived
   , cpExpect
   , cpLink
   , cpUnlink
-  , sdictUnit 
+  )
+import Control.Distributed.Process.Internal.Closure.Static
+  ( sdictUnit 
   , sdictUnit__static
   )
 import Control.Distributed.Process.Internal.Primitives

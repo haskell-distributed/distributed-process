@@ -1,18 +1,8 @@
 -- | Derived (TH generated) closures
 {-# LANGUAGE MagicHash #-}
 module Control.Distributed.Process.Internal.Closure.Derived 
-  ( -- * Static functionals
-    staticConst
-  , staticCompose
-  , staticFirst
-  , staticSecond
-  , staticSplit
-    -- * Creating closures
-  , staticDecode
-  , staticClosure
-  , toClosure
-    -- * Closure versions of CH primitives
-  , cpLink
+  ( -- * Closure versions of CH primitives
+    cpLink
   , cpUnlink
   , cpSend
   , cpExpect
@@ -20,17 +10,12 @@ module Control.Distributed.Process.Internal.Closure.Derived
   , cpReturn 
   , cpBind
   , cpSeq
-    -- * Serialization dictionaries (and their static versions)
-  , sdictUnit
-  , sdictUnit__static
-  , sdictProcessId
-  , sdictProcessId__static
     -- * Runtime support
   , __remoteTable
   ) where
 
-import Data.Binary (encode, decode)
-import Data.ByteString.Lazy (ByteString, empty)
+import Data.Binary (encode)
+import Data.ByteString.Lazy (ByteString)
 import Data.Typeable (Typeable, typeOf, TypeRep, typeRepTyCon, TyCon)
 import Control.Applicative ((<$>))
 import Control.Monad (join)
@@ -55,13 +40,24 @@ import Control.Distributed.Process.Internal.Primitives
 import Control.Distributed.Process.Internal.Closure.TH (remotable, mkStatic)
 import Control.Distributed.Process.Internal.MessageT (getLocalNode)
 import Control.Distributed.Process.Internal.Closure.Resolution (resolveClosure)
+import Control.Distributed.Process.Internal.Closure.Static 
+  ( staticCompose
+  , staticDecode
+  , staticClosure
+  , staticSplit
+  , staticFirst
+  , staticConst
+  , staticUnit
+  , sdictProcessId
+  , sdictProcessId__static
+  )
+import Control.Distributed.Process.Internal.Closure.MkClosure (mkClosure)
 import Control.Distributed.Process.Internal.Dynamic 
   ( Dynamic(Dynamic)
   , dynBind
   , unsafeCoerce#
   , dynTypeRep
   )
-import qualified Control.Arrow as Arrow (first, second, (***))
 
 --------------------------------------------------------------------------------
 -- Setup: A number of functions that we will pass to 'remotable'              --
@@ -78,24 +74,7 @@ bindProcess = (>>=)
 joinProcess :: Process (Process a) -> Process a
 joinProcess = join
 
----- Functionals ---------------------------------------------------------------
-
-compose :: (b -> c) -> (a -> b) -> a -> c
-compose = (.)
-
-first :: (a -> b) -> (a, c) -> (b, c)
-first = Arrow.first 
-
-second :: (a -> b) -> (c, a) -> (c, b)
-second = Arrow.second
-
-split :: (a -> b) -> (a' -> b') -> (a, a') -> (b, b')
-split = (Arrow.***)
-
 ---- Variations on standard or CH functions with an explicit dictionary arg ----
-
-decodeDict :: SerializableDict a -> ByteString -> a
-decodeDict SerializableDict = decode
 
 sendDict :: SerializableDict a -> ProcessId -> a -> Process ()
 sendDict SerializableDict = send
@@ -104,20 +83,6 @@ expectDict :: SerializableDict a -> Process a
 expectDict SerializableDict = expect
 
 ---- Serialization dictionaries ------------------------------------------------
-
--- | Serialization dictionary for '()' 
---
--- Use @$(mkStatic sdictUnit)@ (instead of 'sdictUnit__static') 
--- to refer to the static dictionary.
-sdictUnit :: SerializableDict ()
-sdictUnit = SerializableDict
-
--- | Serialization dictionary for 'ProcessId' 
---
--- Use @$(mkStatic sdictProcessId)@ (instead of 'sdictProcessId__static') 
--- to refer to the static dictionary.
-sdictProcessId :: SerializableDict ProcessId
-sdictProcessId = SerializableDict
 
 -- | Specialized serialization dictionary required in 'cpBind'
 sdictBind :: SerializableDict (((StaticLabel, ByteString), (StaticLabel, ByteString)), TypeRep)
@@ -142,8 +107,8 @@ unDynamic (pdyn, typ) = do
              ++ " against expected type " 
              ++ show typ
 
-bindDyn :: (Process Dynamic, Process Dynamic) -> Process Dynamic
-bindDyn (px, pf) = do
+bindDyn :: () -> (Process Dynamic, Process Dynamic) -> Process Dynamic
+bindDyn () (px, pf) = do
     x <- px
     f <- pf
     case dynBind tyConProcess bindProcess x f of
@@ -162,23 +127,13 @@ remotable [ -- Monadic operations
             'returnProcess
           , 'bindProcess
           , 'joinProcess
-            -- Functionals (predefined)
-          , 'const
-            -- Functionals (defined above)
-          , 'compose
-          , 'first
-          , 'second
-          , 'split
             -- CH primitives 
           , 'link
           , 'unlink
-             -- Explicit dictionaries
-          , 'decodeDict
+            -- Explicit dictionaries
           , 'sendDict
           , 'expectDict
             -- Serialization dictionaries
-          , 'sdictUnit
-          , 'sdictProcessId
           , 'sdictBind
             -- Specialized processes
           , 'unClosure
@@ -187,75 +142,16 @@ remotable [ -- Monadic operations
           ]
 
 --------------------------------------------------------------------------------
--- Static versions of the functionals                                         -- 
--- (We give these explicit names because they are useful outside this module) --
---------------------------------------------------------------------------------
-
--- | Static version of 'const'
-staticConst :: (Typeable a, Typeable b) => Static (a -> b -> a)
-staticConst = $(mkStatic 'const)
-
--- | Static version of ('Prelude..')
-staticCompose :: (Typeable a, Typeable b, Typeable c) 
-              => Static (b -> c) -> Static (a -> b) -> Static (a -> c)
-staticCompose f x = $(mkStatic 'compose) `staticApply` f `staticApply` x 
-
--- | Static version of 'Control.Arrow.first'
-staticFirst :: (Typeable a, Typeable b, Typeable c)
-            => Static ((a -> b) -> (a, c) -> (b, c))
-staticFirst = $(mkStatic 'first)
-
--- | Static version of 'Control.Arrow.second'
-staticSecond :: (Typeable a, Typeable b, Typeable c)
-             => Static ((a -> b) -> (c, a) -> (c, b))
-staticSecond = $(mkStatic 'second)
-
--- | Static version of ('Control.Arrow.***')
-staticSplit :: (Typeable a, Typeable b, Typeable c, Typeable d) 
-            => Static (a -> c) -> Static (b -> d) -> Static ((a, b) -> (c, d))
-staticSplit f g = $(mkStatic 'split) `staticApply` f `staticApply` g 
-
---------------------------------------------------------------------------------
--- Creating closures                                                          --
---------------------------------------------------------------------------------
-
-staticDecode :: Typeable a => Static (SerializableDict a) -> Static (ByteString -> a)
-staticDecode dict = $(mkStatic 'decodeDict) `staticApply` dict 
-
-staticClosure :: forall a. Typeable a => Static a -> Closure a
-staticClosure static = Closure decoder empty
-  where
-    decoder :: Static (ByteString -> a)
-    decoder = staticConst `staticApply` static 
-
-toClosure :: forall a. Serializable a 
-          => Static (SerializableDict a) -> a -> Closure a
-toClosure dict x = Closure decoder (encode x) 
-  where
-    decoder :: Static (ByteString -> a)
-    decoder = $(mkStatic 'decodeDict) `staticApply` dict
-
---------------------------------------------------------------------------------
 -- Closure versions of CH primitives                                          --
 --------------------------------------------------------------------------------
 
 -- | Closure version of 'link'
 cpLink :: ProcessId -> Closure (Process ())
-cpLink pid = Closure decoder (encode pid)
-  where
-    decoder :: Static (ByteString -> Process ())
-    decoder = $(mkStatic 'link)
-            `staticCompose`
-              ($(mkStatic 'decodeDict) `staticApply` $(mkStatic 'sdictProcessId))
+cpLink = $(mkClosure 'link)
 
 -- | Closure version of 'unlink'
 cpUnlink :: ProcessId -> Closure (Process ())
-cpUnlink pid = Closure decoder (encode pid)
-  where
-    decoder :: Static (ByteString -> Process ())
-    decoder = $(mkStatic 'unlink)
-            `staticCompose`
-              ($(mkStatic 'decodeDict) `staticApply` $(mkStatic 'sdictProcessId))
+cpUnlink = $(mkClosure 'unlink)
 
 -- | Closure version of 'send'
 cpSend :: forall a. Typeable a 
@@ -265,7 +161,7 @@ cpSend dict pid = Closure decoder (encode pid)
     decoder :: Static (ByteString -> a -> Process ())
     decoder = ($(mkStatic 'sendDict) `staticApply` dict)
             `staticCompose` 
-              ($(mkStatic 'decodeDict) `staticApply` $(mkStatic 'sdictProcessId)) 
+              staticDecode $(mkStatic 'sdictProcessId)
 
 -- | Closure version of 'expect'
 cpExpect :: Typeable a => Static (SerializableDict a) -> Closure (Process a)
@@ -283,7 +179,7 @@ cpReturn dict x = Closure decoder (encode x)
     decoder :: Static (ByteString -> Process a)
     decoder = $(mkStatic 'returnProcess) 
             `staticCompose`
-              ($(mkStatic 'decodeDict) `staticApply` dict)
+              staticDecode dict
 
 -- | Not-quite-monadic bind ('>>=')
 cpBind :: forall a b. Typeable b
@@ -303,7 +199,7 @@ cpBind (Closure (Static xlabel) xenv) (Closure (Static flabel) fenv) =
               aux1
 
     aux1 :: Static (ByteString -> (((StaticLabel, ByteString), (StaticLabel, ByteString)), TypeRep))
-    aux1 = $(mkStatic 'decodeDict) `staticApply` $(mkStatic 'sdictBind)
+    aux1 = staticDecode $(mkStatic 'sdictBind)
 
     aux2 :: Static ((StaticLabel, ByteString) -> Process Dynamic)
     aux2 = $(mkStatic 'unClosure)
@@ -312,7 +208,7 @@ cpBind (Closure (Static xlabel) xenv) (Closure (Static flabel) fenv) =
     aux3 = aux2 `staticSplit` aux2
 
     aux4 :: Static ((Process Dynamic, Process Dynamic) -> Process Dynamic)
-    aux4 = $(mkStatic 'bindDyn) 
+    aux4 = $(mkStatic 'bindDyn) `staticApply` staticUnit 
 
     aux5 :: Static (((StaticLabel, ByteString), (StaticLabel, ByteString)) -> Process Dynamic)
     aux5 = aux4 `staticCompose` aux3 

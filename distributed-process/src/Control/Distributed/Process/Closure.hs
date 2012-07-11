@@ -91,6 +91,8 @@ module Control.Distributed.Process.Closure
   ( -- * User-defined closures
     remotable
   , mkStatic
+  , mkClosure
+  , functionSDict
     -- * Static functionals
   , staticConst
   , staticCompose
@@ -123,8 +125,12 @@ import Control.Distributed.Process.Internal.Types
   ( SerializableDict(..)
   , staticApply
   )
-import Control.Distributed.Process.Internal.Closure.TH (remotable, mkStatic)
-import Control.Distributed.Process.Internal.Closure.Derived 
+import Control.Distributed.Process.Internal.Closure.TH 
+  ( remotable
+  , mkStatic
+  , functionSDict
+  )
+import Control.Distributed.Process.Internal.Closure.Static
   ( -- Static functionals
     staticConst
   , staticCompose
@@ -135,8 +141,16 @@ import Control.Distributed.Process.Internal.Closure.Derived
   , staticDecode
   , staticClosure
   , toClosure
-    -- Closure versions of CH primitives
-  , cpLink
+    -- Serialization dictionaries (and their static versions)
+  , sdictUnit
+  , sdictUnit__static
+  , sdictProcessId
+  , sdictProcessId__static
+  )
+import Control.Distributed.Process.Internal.Closure.MkClosure (mkClosure)
+import Control.Distributed.Process.Internal.Closure.Derived 
+  ( -- Closure versions of CH primitives
+    cpLink
   , cpUnlink
   , cpSend
   , cpExpect
@@ -144,9 +158,4 @@ import Control.Distributed.Process.Internal.Closure.Derived
   , cpReturn 
   , cpBind
   , cpSeq
-    -- Serialization dictionaries (and their static versions)
-  , sdictUnit
-  , sdictUnit__static
-  , sdictProcessId
-  , sdictProcessId__static
   )
