@@ -122,7 +122,7 @@ import Control.Distributed.Process.Internal.Closure.Resolution (resolveClosure)
 import Control.Distributed.Process.Internal.Node (runLocalProcess)
 import Control.Distributed.Process.Internal.Primitives (expect, register)
 import qualified Control.Distributed.Process.Internal.Closure.Static as Static (__remoteTable)
-import qualified Control.Distributed.Process.Internal.Closure.Derived as Derived (__remoteTable)
+import qualified Control.Distributed.Process.Internal.Closure.CP as CP (__remoteTable)
 
 --------------------------------------------------------------------------------
 -- Initialization                                                             --
@@ -130,7 +130,7 @@ import qualified Control.Distributed.Process.Internal.Closure.Derived as Derived
 
 initRemoteTable :: RemoteTable
 initRemoteTable = Static.__remoteTable
-                . Derived.__remoteTable 
+                . CP.__remoteTable 
                 $ RemoteTable Map.empty
 
 -- | Initialize a new local node. 

@@ -148,7 +148,7 @@ import Control.Distributed.Process.Internal.Closure.Static
   , sdictProcessId__static
   )
 import Control.Distributed.Process.Internal.Closure.MkClosure (mkClosure)
-import Control.Distributed.Process.Internal.Closure.Derived 
+import Control.Distributed.Process.Internal.Closure.CP
   ( -- Closure versions of CH primitives
     cpLink
   , cpUnlink

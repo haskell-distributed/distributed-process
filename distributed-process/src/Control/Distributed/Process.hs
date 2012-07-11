@@ -117,7 +117,7 @@ import Control.Distributed.Process.Internal.Types
   , SendPortId(..)
   , WhereIsReply(..)
   )
-import Control.Distributed.Process.Internal.Closure.Derived
+import Control.Distributed.Process.Internal.Closure.CP
   ( cpSeq
   , cpBind
   , cpSend 

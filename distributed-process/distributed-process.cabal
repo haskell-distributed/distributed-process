@@ -56,7 +56,7 @@ Library
                      Control.Distributed.Process.Internal.Types,
                      Control.Distributed.Process.Internal.Closure.Static,
                      Control.Distributed.Process.Internal.Closure.MkClosure,
-                     Control.Distributed.Process.Internal.Closure.Derived,
+                     Control.Distributed.Process.Internal.Closure.CP,
                      Control.Distributed.Process.Internal.Closure.TH,
                      Control.Distributed.Process.Internal.Closure.Resolution,
                      Control.Distributed.Process.Internal.Node

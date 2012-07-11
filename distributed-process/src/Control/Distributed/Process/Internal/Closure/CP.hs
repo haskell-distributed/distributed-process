@@ -1,6 +1,6 @@
--- | Derived (TH generated) closures
+-- | Combinator for process closures 
 {-# LANGUAGE MagicHash #-}
-module Control.Distributed.Process.Internal.Closure.Derived 
+module Control.Distributed.Process.Internal.Closure.CP
   ( -- * Closure versions of CH primitives
     cpLink
   , cpUnlink
