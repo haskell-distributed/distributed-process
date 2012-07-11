@@ -108,6 +108,7 @@ module Control.Distributed.Process.Closure
   , cpUnlink
   , cpSend
   , cpExpect
+  , cpNewChan
     -- * @Closure (Process a)@ as a not-quite-monad
   , cpReturn 
   , cpBind
@@ -154,6 +155,7 @@ import Control.Distributed.Process.Internal.Closure.CP
   , cpUnlink
   , cpSend
   , cpExpect
+  , cpNewChan
     -- @Closure (Process a)@ as a not-quite-monad
   , cpReturn 
   , cpBind

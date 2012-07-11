@@ -6,6 +6,7 @@ module Control.Distributed.Process.Internal.Closure.CP
   , cpUnlink
   , cpSend
   , cpExpect
+  , cpNewChan
     -- * @Closure (Process a)@ as a not-quite-monad
   , cpReturn 
   , cpBind
@@ -32,12 +33,15 @@ import Control.Distributed.Process.Internal.Types
   , ProcessId
   , LocalNode(remoteTable)
   , procMsg
+  , SendPort
+  , ReceivePort
   )
 import Control.Distributed.Process.Internal.Primitives 
   ( link
   , unlink
   , send
   , expect
+  , newChan
   )
 import Control.Distributed.Process.Internal.Closure.TH (remotable, mkStatic)
 import Control.Distributed.Process.Internal.MessageT (getLocalNode)
@@ -82,6 +86,9 @@ sendDict SerializableDict = send
 
 expectDict :: SerializableDict a -> Process a
 expectDict SerializableDict = expect
+
+newChanDict :: SerializableDict a -> Process (SendPort a, ReceivePort a)
+newChanDict SerializableDict = newChan
 
 ---- Serialization dictionaries ------------------------------------------------
 
@@ -141,6 +148,7 @@ remotable [ -- Monadic operations
             -- Explicit dictionaries
           , 'sendDict
           , 'expectDict
+          , 'newChanDict
             -- Serialization dictionaries
           , 'sdictBind
             -- Specialized processes
@@ -174,6 +182,12 @@ cpSend dict pid = Closure decoder (encode pid)
 -- | Closure version of 'expect'
 cpExpect :: Typeable a => Static (SerializableDict a) -> Closure (Process a)
 cpExpect dict = staticClosure ($(mkStatic 'expectDict) `staticApply` dict)
+
+-- | Closure version of 'newChan'
+cpNewChan :: Typeable a 
+          => Static (SerializableDict a) 
+          -> Closure (Process (SendPort a, ReceivePort a))
+cpNewChan dict = staticClosure ($(mkStatic 'newChanDict) `staticApply` dict)
 
 --------------------------------------------------------------------------------
 -- (Closure . Process) as a not-quite-monad                                   --
