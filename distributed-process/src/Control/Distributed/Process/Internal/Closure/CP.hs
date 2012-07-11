@@ -54,7 +54,6 @@ import Control.Distributed.Process.Internal.Closure.Static
   , staticConst
   , staticUnit
   , sdictProcessId
-  , sdictProcessId__static
   )
 import Control.Distributed.Process.Internal.Closure.MkClosure (mkClosure)
 import Control.Distributed.Process.Internal.Dynamic 
@@ -177,7 +176,7 @@ cpSend dict pid = Closure decoder (encode pid)
     decoder :: Static (ByteString -> a -> Process ())
     decoder = ($(mkStatic 'sendDict) `staticApply` dict)
             `staticCompose` 
-              staticDecode $(mkStatic 'sdictProcessId)
+              staticDecode sdictProcessId 
 
 -- | Closure version of 'expect'
 cpExpect :: Typeable a => Static (SerializableDict a) -> Closure (Process a)

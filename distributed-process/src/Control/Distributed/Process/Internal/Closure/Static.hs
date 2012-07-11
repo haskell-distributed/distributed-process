@@ -15,9 +15,7 @@ module Control.Distributed.Process.Internal.Closure.Static
   , toClosure
     -- * Serialization dictionaries (and their static versions)
   , sdictUnit
-  , sdictUnit__static
   , sdictProcessId
-  , sdictProcessId__static
     -- * Runtime support
   , __remoteTable
   ) where
@@ -66,19 +64,11 @@ decodeDict SerializableDict = decode
 
 ---- Serialization dictionaries ------------------------------------------------
 
--- | Serialization dictionary for '()' 
---
--- Use @$(mkStatic sdictUnit)@ (instead of 'sdictUnit__static') 
--- to refer to the static dictionary.
-sdictUnit :: SerializableDict ()
-sdictUnit = SerializableDict
+sdictUnit_ :: SerializableDict ()
+sdictUnit_ = SerializableDict
 
--- | Serialization dictionary for 'ProcessId' 
---
--- Use @$(mkStatic sdictProcessId)@ (instead of 'sdictProcessId__static') 
--- to refer to the static dictionary.
-sdictProcessId :: SerializableDict ProcessId
-sdictProcessId = SerializableDict
+sdictProcessId_ :: SerializableDict ProcessId
+sdictProcessId_ = SerializableDict
 
 ---- Finally, the call to remotable --------------------------------------------
 
@@ -94,8 +84,8 @@ remotable [ -- Functionals (predefined)
             -- Explicit dictionaries
           , 'decodeDict
             -- Serialization dictionaries
-          , 'sdictUnit
-          , 'sdictProcessId
+          , 'sdictUnit_
+          , 'sdictProcessId_
           ]
 
 --------------------------------------------------------------------------------
@@ -134,6 +124,18 @@ staticSplit f g = $(mkStatic 'split) `staticApply` f `staticApply` g
 -- | Static version of '()'
 staticUnit :: Static ()
 staticUnit = $(mkStatic 'unit)
+
+--------------------------------------------------------------------------------
+-- Dictionaries                                                               --
+--------------------------------------------------------------------------------
+
+-- | Serialization dictionary for '()' 
+sdictUnit :: Static (SerializableDict ())
+sdictUnit = $(mkStatic 'sdictUnit_)
+
+-- | Serialization dictionary for 'ProcessId' 
+sdictProcessId :: Static (SerializableDict ProcessId)
+sdictProcessId = $(mkStatic 'sdictProcessId_)
 
 --------------------------------------------------------------------------------
 -- Creating closures                                                          --

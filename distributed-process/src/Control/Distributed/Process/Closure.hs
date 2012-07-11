@@ -93,6 +93,9 @@ module Control.Distributed.Process.Closure
   , mkStatic
   , mkClosure
   , functionSDict
+    -- * Primitive operations on static values
+  , staticApply
+  , staticDuplicate
     -- * Static functionals
   , staticConst
   , staticCompose
@@ -113,18 +116,16 @@ module Control.Distributed.Process.Closure
   , cpReturn 
   , cpBind
   , cpSeq
-    -- * Serialization dictionaries (and their static versions)
+    -- * Serialization dictionaries
   , SerializableDict(..)
-  , staticApply
   , sdictUnit
-  , sdictUnit__static
   , sdictProcessId
-  , sdictProcessId__static
   ) where 
 
 import Control.Distributed.Process.Internal.Types 
   ( SerializableDict(..)
   , staticApply
+  , staticDuplicate
   )
 import Control.Distributed.Process.Internal.Closure.TH 
   ( remotable
@@ -144,9 +145,7 @@ import Control.Distributed.Process.Internal.Closure.Static
   , toClosure
     -- Serialization dictionaries (and their static versions)
   , sdictUnit
-  , sdictUnit__static
   , sdictProcessId
-  , sdictProcessId__static
   )
 import Control.Distributed.Process.Internal.Closure.MkClosure (mkClosure)
 import Control.Distributed.Process.Internal.Closure.CP

@@ -7,7 +7,6 @@
 -- although some of the details are different. The precise message passing
 -- semantics are based on /A unified semantics for future Erlang/ by	Hans
 -- Svensson, Lars-Åke Fredlund and Clara Benac Earle.
-{-# LANGUAGE TemplateHaskell #-}
 module Control.Distributed.Process 
   ( -- * Basic types 
     ProcessId
@@ -125,10 +124,7 @@ import Control.Distributed.Process.Internal.Closure.CP
   , cpLink
   , cpUnlink
   )
-import Control.Distributed.Process.Internal.Closure.Static
-  ( sdictUnit 
-  , sdictUnit__static
-  )
+import Control.Distributed.Process.Internal.Closure.Static (sdictUnit)
 import Control.Distributed.Process.Internal.Primitives
   ( -- Basic messaging
     send 
@@ -182,7 +178,6 @@ import Control.Distributed.Process.Internal.Primitives
   , spawnAsync
   )
 import Control.Distributed.Process.Serializable (Serializable)
-import Control.Distributed.Process.Internal.Closure.TH (mkStatic)
 
 -- INTERNAL NOTES
 -- 
@@ -258,7 +253,7 @@ spawn nid proc = do
   -- that was already set up
   mRef <- monitorNode nid
   sRef <- spawnAsync nid $ cpLink us 
-                   `cpSeq` cpExpect $(mkStatic 'sdictUnit)
+                   `cpSeq` cpExpect sdictUnit 
                    `cpSeq` cpUnlink us
                    `cpSeq` proc
   mPid <- receiveWait 
