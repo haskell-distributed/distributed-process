@@ -66,7 +66,11 @@ remotable ns = do
   rtable <- createMetaData (concat inserts)
   return $ concat closures ++ rtable 
 
--- | Construct a static value
+-- | Construct a static value.
+--
+-- If @f : forall a1 .. an. T@ 
+-- then @$(mkStatic 'f) :: forall a1 .. an. Static T@. 
+-- Be sure to pass 'f' to 'remotable'. 
 mkStatic :: Name -> Q Exp
 mkStatic = varE . staticName
 

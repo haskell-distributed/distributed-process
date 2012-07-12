@@ -173,15 +173,18 @@ sdictSendPort = staticApply $(mkStatic 'sdictSendPort_)
 -- Creating closures                                                          --
 --------------------------------------------------------------------------------
 
+-- | Static decoder, given a static serialization dictionary.
+--
+-- See module documentation of "Control.Distributed.Process.Closure" for an
+-- example.
 staticDecode :: Typeable a => Static (SerializableDict a) -> Static (ByteString -> a)
 staticDecode dict = $(mkStatic 'decodeDict) `staticApply` dict 
 
+-- | Convert a static value into a closure.
 staticClosure :: forall a. Typeable a => Static a -> Closure a
-staticClosure static = Closure decoder empty
-  where
-    decoder :: Static (ByteString -> a)
-    decoder = staticConst `staticApply` static 
+staticClosure static = Closure (staticConst `staticApply` static) empty
 
+-- | Convert a serializable value into a closure.
 toClosure :: forall a. Serializable a 
           => Static (SerializableDict a) -> a -> Closure a
 toClosure dict x = Closure (staticDecode dict) (encode x) 

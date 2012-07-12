@@ -1,29 +1,26 @@
--- | Implementation of 'Closure' that works around the absence of 'static'.
+-- | Static values and Closures
 --
--- [User-defined monomorphic closures]
+-- [Static values]
 --
--- Suppose we have a monomorphic function
+-- /Towards Haskell in the Cloud/ (Epstein et al., Haskell Symposium 2011) 
+-- proposes a new type construct called 'static' that characterizes values that
+-- are known statically. There is no support for 'static' in ghc yet, however,
+-- so we emulate it using Template Haskell. Given a top-level definition
 --
--- > addInt :: Int -> Int -> Int
--- > addInt x y = x + y
+-- > f :: forall a1 .. an. T
+-- > f = ...
 --
--- Then the Template Haskell splice
---
--- > remotable ['addInt]
+-- you can use a Template Haskell splice to create a static version of 'f':
 -- 
--- creates a function 
---
--- > $(mkClosure 'addInt) :: Int -> Closure (Int -> Int)
+-- > $(mkStatic 'f) :: forall a1 .. an. Static T
 -- 
--- which can be used to partially apply 'addInt' and turn it into a 'Closure',
--- which can be sent across the network. Closures can be deserialized with 
+-- Every module that you write that contains calls to 'mkStatic' needs to
+-- have a call to 'remotable':
 --
--- > unClosure :: Typeable a => Closure a -> Process a
+-- > remotable [ 'f, 'g, ... ]
 --
--- In general, given a monomorphic function @f :: T1 -> T2@ the corresponding 
--- function @$(mkClosure 'f)@ will have type @T1 -> Closure T2@.
---
--- The call to 'remotable' will also generate a function
+-- where you must pass every function (or other value) that you pass as an 
+-- argument to 'mkStatic'. The call to 'remotable' will create a definition
 --
 -- > __remoteTable :: RemoteTable -> RemoteTable
 --
@@ -31,62 +28,124 @@
 -- Cloud Haskell. You should have (at most) one call to 'remotable' per module,
 -- and compose all created functions when initializing Cloud Haskell:
 --
--- > let rtable = M1.__remoteTable
+-- > let rtable :: RemoteTable 
+-- >     rtable = M1.__remoteTable
 -- >            . M2.__remoteTable
 -- >            . ...
 -- >            . Mn.__remoteTable
 -- >            $ initRemoteTable 
 --
--- See Section 6, /Faking It/, of /Towards Haskell in the Cloud/ for more info. 
+-- [Composing static values]
 --
--- [User-defined polymorphic closures]
+-- We generalize the notion of 'static' as described in the paper, and also
+-- provide
 --
--- Suppose we have a polymorphic function
+-- > staticApply :: Static (a -> b) -> Static a -> Static b
 --
--- > first :: forall a b. (a, b) -> a
--- > first (x, _) = x
+-- This makes it possible to define a rich set of combinators on 'static'
+-- values, a number of which are provided in this module.
 --
--- Then the Template Haskell splice
+-- [Closures]
 --
--- > remotable ['first]
+-- Suppose you have a process
+--
+-- > factorial :: Int -> Process Int
+--
+-- Then you can use the supplied Template Haskell function 'mkClosure' to define
+--
+-- > factorialClosure :: Int -> Closure (Process Int)
+-- > factorialClosure = $(mkClosure 'factorial)
+--
+-- You can then pass 'factorialClosure n' to 'spawn', for example, to have a
+-- remote node compute a factorial number.
+--
+-- In general, if you have a /monomorphic/ function
+--
+-- > f :: T1 -> T2
 -- 
--- creates a function
+-- then
 --
--- > $(mkClosure 'first) :: forall a b. (Typeable a, Typeable b)
--- >                     => Closure (a -> b -> a)
+-- > $(mkClosure 'f) :: T1 -> Closure T2
 --
--- In general, given a polymorphic function @f :: forall a1 .. an. T@ the 
--- corresponding function @$(mkClosure 'f)@ will have type 
--- @forall a1 .. an. (Typeable a1, .., Typeable an) => Closure T@.
+-- provided that 'T1' is serializable (*).
 --
--- [Built-in closures]
+-- [Creating closures manually]
 --
--- We offer a number of standard commonly useful closures.
---
--- [Closure combinators]
---
--- Closures combinators allow to create closures from other closures. For
--- example, 'spawnSupervised' is defined as follows:
---
--- > spawnSupervised :: NodeId 
--- >                 -> Closure (Process ()) 
--- >                 -> Process (ProcessId, MonitorRef)
--- > spawnSupervised nid proc = do
--- >   us   <- getSelfPid
--- >   them <- spawn nid (linkClosure us `cpSeq` proc) 
--- >   ref  <- monitor them
--- >   return (them, ref)
---
--- [Serializable Dictionaries]
---
--- Some functions (such as 'sendClosure' or 'returnClosure') require an
--- explicit (reified) serializable dictionary. To create such a dictionary do
---
--- > sdictInt :: SerializableDict Int
--- > sdictInt = SerializableDict 
+-- You don't /need/ to use 'mkClosure', however.  Closures are defined exactly
+-- as described in /Towards Haskell in the Cloud/:
 -- 
--- and then pass @'sdictInt@ to 'remotable'. This will fail if the
--- type is not serializable.
+-- > data Closure a = Closure (Static (ByteString -> a)) ByteString
+--
+-- The splice @$(mkClosure 'factorial)@ above expands to (prettified a bit): 
+-- 
+-- > factorialClosure :: Int -> Closure (Process Int)
+-- > factorialClosure n = Closure decoder (encode n)
+-- >   where
+-- >     decoder :: Static (ByteString -> Process Int)
+-- >     decoder = $(mkStatic 'factorial) 
+-- >             `staticCompose`  
+-- >               staticDecode $(functionSDict 'factorial)
+--
+-- 'mkStatic' we have already seen:
+--
+-- > $(mkStatic 'factorial) :: Static (Int -> Process Int)
+--
+-- 'staticCompose' is function composition on static functions. 'staticDecode'
+-- has type (**)
+--
+-- > staticDecode :: Typeable a 
+-- >              => Static (SerializableDict a) -> Static (ByteString -> a)
+--
+-- and gives you a static decoder, given a static Serializable dictionary.
+-- 'SerializableDict' is a reified type class dictionary, and defined simply as
+-- 
+-- > data SerializableDict a where
+-- >   SerializableDict :: Serializable a => SerializableDict a
+--
+-- That means that for any serialziable type 'T', you can define
+--
+-- > sdictForMyType :: SerializableDict T
+-- > sdictForMyType = SerializableDict
+--
+-- and then use
+--
+-- > $(mkStatic 'sdictForMyType) :: Static (SerializableDict T)
+--
+-- to obtain a static serializable dictionary for 'T' (make sure to pass
+-- 'sdictForMyType' to 'remotable'). 
+-- 
+-- However, since these serialization dictionaries are so frequently required,
+-- when you call 'remotable' on a monomorphic function @f : T1 -> T2@
+-- 
+-- > remotable ['f]
+--
+-- then a serialization dictionary is automatically created for you, which you
+-- can access with
+--
+-- > $(functionDict 'f) :: Static (SerializableDict T1)
+--
+-- This is the dictionary that 'mkClosure' uses.
+--
+-- [Combinators on Closures]
+--
+-- Support for 'staticApply' (described above) also means that we can define
+-- combinators on Closures, and we provide a number of them in this module,
+-- the most important of which is 'cpBind'. Have a look at the implementation
+-- of 'Control.Distributed.Process.call' for an example use.
+--
+-- [Notes]
+--
+-- (*) If 'T1' is not serializable you will get a type error in the generated
+--     code. Unfortunately, the Template Haskell infrastructure cannot check
+--     a priori if 'T1' is serializable or not due to a bug in the Template
+--     Haskell libraries (<http://hackage.haskell.org/trac/ghc/ticket/7066>)
+--
+-- (**) Even though 'staticDecode' is passed an explicit serialization 
+--      dictionary, we still need the 'Typeable' constraint because 
+--      'Static' is not the /true/ static. If it was, we could 'unstatic'
+--      the dictionary and pattern match on it to bring the 'Typeable'
+--      instance into scope, but unless proper 'static' support is added to
+--      ghc we need both the type class argument and the explicit dictionary. 
 module Control.Distributed.Process.Closure 
   ( -- * User-defined closures
     remotable
@@ -98,6 +157,9 @@ module Control.Distributed.Process.Closure
   , staticDuplicate
     -- * Static functionals
   , staticConst
+  , staticFlip
+  , staticFst
+  , staticSnd
   , staticCompose
   , staticFirst
   , staticSecond
@@ -108,6 +170,22 @@ module Control.Distributed.Process.Closure
   , staticDecode
   , staticClosure
   , toClosure
+    -- * Serialization dictionaries (and their static versions)
+  , SerializableDict(..)
+  , sdictUnit
+  , sdictProcessId
+  , sdictSendPort
+    -- * Definition of CP and the generalized arrow combinators
+  , CP
+  , cpIntro
+  , cpElim
+  , cpId
+  , cpComp
+  , cpFirst
+  , cpSecond
+  , cpSplit
+  , cpCancelL
+  , cpCancelR
     -- * Closure versions of CH primitives
   , cpLink
   , cpUnlink
@@ -118,11 +196,6 @@ module Control.Distributed.Process.Closure
   , cpReturn 
   , cpBind
   , cpSeq
-    -- * Serialization dictionaries
-  , SerializableDict(..)
-  , sdictUnit
-  , sdictProcessId
-  , sdictSendPort
   ) where 
 
 import Control.Distributed.Process.Internal.Types 
@@ -138,11 +211,14 @@ import Control.Distributed.Process.Internal.Closure.TH
 import Control.Distributed.Process.Internal.Closure.Static
   ( -- Static functionals
     staticConst
+  , staticFlip
+  , staticFst
+  , staticSnd
   , staticCompose
   , staticFirst
   , staticSecond
   , staticSplit
-    -- Constants
+    -- Static constants
   , staticUnit
     -- Creating closures
   , staticDecode
@@ -155,8 +231,19 @@ import Control.Distributed.Process.Internal.Closure.Static
   )
 import Control.Distributed.Process.Internal.Closure.MkClosure (mkClosure)
 import Control.Distributed.Process.Internal.Closure.CP
-  ( -- Closure versions of CH primitives
-    cpLink
+  ( -- Definition of CP and the generalized arrow combinators
+    CP
+  , cpIntro
+  , cpElim
+  , cpId
+  , cpComp
+  , cpFirst
+  , cpSecond
+  , cpSplit
+  , cpCancelL
+  , cpCancelR
+    -- Closure versions of CH primitives
+  , cpLink
   , cpUnlink
   , cpSend
   , cpExpect

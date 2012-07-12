@@ -324,6 +324,8 @@ spawnSupervised nid proc = do
   ref  <- monitor them
   return (them, ref)
 
+-- | Spawn a new process, supplying it with a new 'ReceivePort' and return
+-- the corresponding 'SendPort'.
 spawnChannel :: forall a. Typeable a => Static (SerializableDict a)
              -> NodeId
              -> Closure (ReceivePort a -> Process ()) 
