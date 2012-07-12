@@ -87,10 +87,12 @@ module Control.Distributed.Process
   , spawnSupervised
   , spawnLink
   , spawnMonitor
+  , spawnChannel
   , DidSpawn(..)
   ) where
 
 import Prelude hiding (catch)
+import Data.Typeable (Typeable)
 import Control.Monad.IO.Class (liftIO)
 import Control.Distributed.Process.Internal.Types 
   ( RemoteTable
@@ -123,8 +125,14 @@ import Control.Distributed.Process.Internal.Closure.CP
   , cpExpect
   , cpLink
   , cpUnlink
+  , cpNewChan
+  , cpCancelL
+  , cpSplit
   )
-import Control.Distributed.Process.Internal.Closure.Static (sdictUnit)
+import Control.Distributed.Process.Internal.Closure.Static 
+  ( sdictUnit
+  , sdictSendPort
+  )
 import Control.Distributed.Process.Internal.Primitives
   ( -- Basic messaging
     send 
@@ -316,16 +324,18 @@ spawnSupervised nid proc = do
   ref  <- monitor them
   return (them, ref)
 
-{-
-spawnChannel :: forall a. Typeable a
-             => NodeId
+spawnChannel :: forall a. Typeable a => Static (SerializableDict a)
+             -> NodeId
              -> Closure (ReceivePort a -> Process ()) 
              -> Process (SendPort a)
-spawnChannel nid proc = do
+spawnChannel dict nid proc = do
     us <- getSelfPid
-    undefined
+    spawn nid (go us) 
+    expect
   where
-    rproc :: ProcessId -> Closure (Process ((), ReceivePort a)) 
-    rproc pid = newChanClosure
-       `cpBind` cpFirst (sendClosure undefined pid)
--}  
+    go :: ProcessId -> Closure (Process ())
+    go pid = cpNewChan dict 
+           `cpBind` 
+             (cpSend (sdictSendPort dict) pid `cpSplit` proc)
+           `cpBind`
+             cpCancelL

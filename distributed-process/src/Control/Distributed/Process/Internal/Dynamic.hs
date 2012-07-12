@@ -15,6 +15,7 @@ module Control.Distributed.Process.Internal.Dynamic
   , dynApp
   , dynBind
   , dynBind'
+  , dynKleisli
   , GHC.unsafeCoerce#
   ) where
 
@@ -25,7 +26,9 @@ import Data.Typeable
   , funResultTy
   , TyCon
   , splitTyConApp
+  , mkFunTy
   )
+import Data.Typeable.Internal (funTc)
 import qualified GHC.Prim as GHC (Any, unsafeCoerce#)
 import Data.Maybe (fromMaybe)
 
@@ -79,3 +82,31 @@ dynBind' :: TyCon -> (forall a b. m a -> (a -> m b) -> m b) -> Dynamic -> Dynami
 dynBind' m bind x f = fromMaybe (error typeError) (dynBind m bind x f)
   where
     typeError = "Type error in dynamic bind.\nCan't bind " ++ show x ++ " to " ++ show f
+
+
+
+
+-- | Dynamically typed Kleisli composition
+dynKleisli :: TyCon  
+           -> (forall a b c. (a -> m b) -> (b -> m c) -> a -> m c) 
+           -> Dynamic 
+           -> Dynamic 
+           -> Maybe Dynamic
+dynKleisli m comp (Dynamic tf f) (Dynamic tg g) = 
+  case splitTyConApp tf of
+    (arr1, [a, mb]) | arr1 == funTc -> 
+      case splitTyConApp tg of
+        (arr2, [b, mc]) | arr2 == funTc ->
+          case splitTyConApp mb of
+            (m', [b']) | m' == m && b' == b ->
+              case splitTyConApp mc of
+                (m'', [_c]) | m'' == m ->
+                  Just (Dynamic (mkFunTy a mc) (GHC.unsafeCoerce# comp f g))  
+                _ -> 
+                  Nothing
+            _ ->
+              Nothing
+        _ ->
+          Nothing
+    _ ->
+      Nothing

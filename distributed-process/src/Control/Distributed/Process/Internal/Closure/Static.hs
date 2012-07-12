@@ -3,6 +3,9 @@
 module Control.Distributed.Process.Internal.Closure.Static
   ( -- * Static functionals
     staticConst
+  , staticFlip
+  , staticFst
+  , staticSnd
   , staticCompose
   , staticFirst
   , staticSecond
@@ -16,6 +19,7 @@ module Control.Distributed.Process.Internal.Closure.Static
     -- * Serialization dictionaries (and their static versions)
   , sdictUnit
   , sdictProcessId
+  , sdictSendPort
     -- * Runtime support
   , __remoteTable
   ) where
@@ -30,6 +34,7 @@ import Control.Distributed.Process.Internal.Types
   , Static
   , staticApply
   , ProcessId
+  , SendPort
   )
 import Control.Distributed.Process.Internal.Closure.TH (remotable, mkStatic)
 import qualified Control.Arrow as Arrow (first, second, (***))
@@ -70,10 +75,16 @@ sdictUnit_ = SerializableDict
 sdictProcessId_ :: SerializableDict ProcessId
 sdictProcessId_ = SerializableDict
 
+sdictSendPort_ :: SerializableDict a -> SerializableDict (SendPort a)
+sdictSendPort_ SerializableDict = SerializableDict
+
 ---- Finally, the call to remotable --------------------------------------------
 
 remotable [ -- Functionals (predefined)
             'const
+          , 'flip
+          , 'fst
+          , 'snd
             -- Functionals (defined above)
           , 'compose
           , 'first
@@ -86,6 +97,7 @@ remotable [ -- Functionals (predefined)
             -- Serialization dictionaries
           , 'sdictUnit_
           , 'sdictProcessId_
+          , 'sdictSendPort_
           ]
 
 --------------------------------------------------------------------------------
@@ -96,6 +108,21 @@ remotable [ -- Functionals (predefined)
 -- | Static version of 'const'
 staticConst :: (Typeable a, Typeable b) => Static (a -> b -> a)
 staticConst = $(mkStatic 'const)
+
+-- | Static version of 'flip'
+staticFlip :: (Typeable a, Typeable b, Typeable c) 
+           => Static (a -> b -> c) -> Static (b -> a -> c)
+staticFlip f = $(mkStatic 'flip) `staticApply` f           
+
+-- | Static version of 'fst'
+staticFst :: (Typeable a, Typeable b)
+          => Static ((a, b) -> a)
+staticFst = $(mkStatic 'fst)
+
+-- | Static version of 'snd'
+staticSnd :: (Typeable a, Typeable b)
+          => Static ((a, b) -> b)
+staticSnd = $(mkStatic 'snd)
 
 -- | Static version of ('Prelude..')
 staticCompose :: (Typeable a, Typeable b, Typeable c) 
@@ -136,6 +163,11 @@ sdictUnit = $(mkStatic 'sdictUnit_)
 -- | Serialization dictionary for 'ProcessId' 
 sdictProcessId :: Static (SerializableDict ProcessId)
 sdictProcessId = $(mkStatic 'sdictProcessId_)
+
+-- | Serialization dictionary for 'SendPort'
+sdictSendPort :: Typeable a 
+              => Static (SerializableDict a) -> Static (SerializableDict (SendPort a))
+sdictSendPort = staticApply $(mkStatic 'sdictSendPort_) 
 
 --------------------------------------------------------------------------------
 -- Creating closures                                                          --

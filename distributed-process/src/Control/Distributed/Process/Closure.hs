@@ -102,6 +102,8 @@ module Control.Distributed.Process.Closure
   , staticFirst
   , staticSecond
   , staticSplit
+    -- * Static constants
+  , staticUnit
     -- * Creating closures
   , staticDecode
   , staticClosure
@@ -120,6 +122,7 @@ module Control.Distributed.Process.Closure
   , SerializableDict(..)
   , sdictUnit
   , sdictProcessId
+  , sdictSendPort
   ) where 
 
 import Control.Distributed.Process.Internal.Types 
@@ -139,6 +142,8 @@ import Control.Distributed.Process.Internal.Closure.Static
   , staticFirst
   , staticSecond
   , staticSplit
+    -- Constants
+  , staticUnit
     -- Creating closures
   , staticDecode
   , staticClosure
@@ -146,6 +151,7 @@ import Control.Distributed.Process.Internal.Closure.Static
     -- Serialization dictionaries (and their static versions)
   , sdictUnit
   , sdictProcessId
+  , sdictSendPort
   )
 import Control.Distributed.Process.Internal.Closure.MkClosure (mkClosure)
 import Control.Distributed.Process.Internal.Closure.CP

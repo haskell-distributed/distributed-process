@@ -2,7 +2,7 @@ module Main where
 
 import Data.ByteString.Lazy (empty)
 import Data.Typeable (Typeable, typeOf)
-import Control.Monad (join, replicateM)
+import Control.Monad (join, replicateM, forever)
 import Control.Exception (IOException, throw)
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, readMVar, takeMVar, putMVar)
@@ -36,12 +36,22 @@ sendPid toPid = do
 wait :: Int -> Process ()
 wait = liftIO . threadDelay
 
+-- | First argument indicates empty closure environment
+typedPingServer :: () -> ReceivePort (SendPort ()) -> Process ()
+typedPingServer () rport = forever $ do
+  us <- getSelfPid
+  liftIO . putStrLn $ "Ping server " ++ show us ++ " waiting"
+  sport <- receiveChan rport
+  liftIO . putStrLn $ "Ping server " ++ show us ++ " replying on " ++ show (sendPortId sport)
+  sendChan sport ()
+
 remotable [ 'factorial
           , 'addInt
           , 'putInt
           , 'sendPid
           , 'sdictInt
           , 'wait
+          , 'typedPingServer
           ]
 
 factorialClosure :: Int -> Closure (Process Int)
@@ -276,6 +286,23 @@ testClosureExpect transport rtable = do
     (1234 :: Int) <- expect
     return ()
 
+testSpawnChannel :: Transport -> RemoteTable -> IO ()
+testSpawnChannel transport rtable = do
+  [node1, node2] <- replicateM 2 $ newLocalNode transport rtable
+
+  runProcess node1 $ do
+    pingServer <- spawnChannel 
+                    (sdictSendPort sdictUnit)
+                    (localNodeId node2)  
+                    ($(mkClosure 'typedPingServer) ())
+    (sendReply, receiveReply) <- newChan
+    sendChan pingServer sendReply
+    sendChan pingServer sendReply
+    liftIO . putStrLn $ "client waiting for ping server to reply on " ++ show (sendPortId sendReply)
+    () <- receiveChan receiveReply
+    liftIO . putStrLn $ "client got reply" 
+    return ()
+
 main :: IO ()
 main = do
   Right transport <- createTransport "127.0.0.1" "8080" defaultTCPParameters
@@ -293,4 +320,5 @@ main = do
     , ("SpawnSupervised", testSpawnSupervised transport rtable)
     , ("SpawnInvalid",    testSpawnInvalid    transport rtable)
     , ("ClosureExpect",   testClosureExpect   transport rtable)
+    , ("SpawnChannel",    testSpawnChannel    transport rtable)
     ]
