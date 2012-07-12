@@ -39,10 +39,7 @@ wait = liftIO . threadDelay
 -- | First argument indicates empty closure environment
 typedPingServer :: () -> ReceivePort (SendPort ()) -> Process ()
 typedPingServer () rport = forever $ do
-  us <- getSelfPid
-  liftIO . putStrLn $ "Ping server " ++ show us ++ " waiting"
   sport <- receiveChan rport
-  liftIO . putStrLn $ "Ping server " ++ show us ++ " replying on " ++ show (sendPortId sport)
   sendChan sport ()
 
 remotable [ 'factorial
@@ -297,11 +294,7 @@ testSpawnChannel transport rtable = do
                     ($(mkClosure 'typedPingServer) ())
     (sendReply, receiveReply) <- newChan
     sendChan pingServer sendReply
-    sendChan pingServer sendReply
-    liftIO . putStrLn $ "client waiting for ping server to reply on " ++ show (sendPortId sendReply)
-    () <- receiveChan receiveReply
-    liftIO . putStrLn $ "client got reply" 
-    return ()
+    receiveChan receiveReply
 
 main :: IO ()
 main = do

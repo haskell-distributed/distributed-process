@@ -104,7 +104,7 @@ tryCloseSocket sock = void . tryIO $
 recvExact :: N.Socket                -- ^ Socket to read from 
           -> Int32                   -- ^ Number of bytes to read
           -> IO [ByteString]
-recvExact _ len | len <= 0 = throwIO (userError "recvExact: Negative length") 
+recvExact _ len | len < 0 = throwIO (userError "recvExact: Negative length") 
 recvExact sock len = go [] len
   where
     go :: [ByteString] -> Int32 -> IO [ByteString] 
