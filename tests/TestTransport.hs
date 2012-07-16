@@ -947,8 +947,8 @@ testTransport newTransport = do
     , ("CloseOneDirection",     testCloseOneDirection transport numPings)
     , ("CloseReopen",           testCloseReopen transport numPings)
     , ("ParallelConnects",      testParallelConnects transport numPings)
-    , ("SendAfterClose",        testSendAfterClose transport 1000)
-    , ("Crossing",              testCrossing transport 100)
+    , ("SendAfterClose",        testSendAfterClose transport 100)
+    , ("Crossing",              testCrossing transport 10)
     , ("CloseTwice",            testCloseTwice transport 100)
     , ("ConnectToSelf",         testConnectToSelf transport numPings) 
     , ("ConnectToSelfTwice",    testConnectToSelfTwice transport numPings)
@@ -958,7 +958,7 @@ testTransport newTransport = do
     , ("ConnectClosedEndPoint", testConnectClosedEndPoint transport)
     , ("ExceptionOnReceive",    testExceptionOnReceive newTransport)
     , ("SendException",         testSendException newTransport) 
-    , ("Kill",                  testKill newTransport 10000)
+    , ("Kill",                  testKill newTransport 1000)
     ]
   where
     numPings = 10000 :: Int
