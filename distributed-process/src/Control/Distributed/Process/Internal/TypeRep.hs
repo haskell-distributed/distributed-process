@@ -23,7 +23,7 @@ instance Binary TyCon where
 --
 -- For base >= 4.6 this compares fingerprints, but older versions of base
 -- have a bug in the fingerprint construction 
--- (<http://hackage.haskell.org/trac/ghc/ticket/5692>)
+-- (<http://hackage.haskell.org/trac/ghc/ticket/5962>)
 compareTypeRep :: TypeRep -> TypeRep -> Bool
 #if ! MIN_VERSION_base(4,6,0)
 compareTypeRep (TypeRep _ con ts) (TypeRep _ con' ts') 
