@@ -2,7 +2,15 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Main where
 
-import Prelude hiding (catch, (>>=), (>>), return, fail)
+import Prelude hiding 
+  ( (>>=)
+  , return
+  , fail
+  , (>>)
+#if ! MIN_VERSION_base(4,6,0)
+  , catch
+#endif
+  )
 import TestTransport (testTransport) 
 import TestAuxiliary (forkTry, runTests)
 import Network.Transport

@@ -6,7 +6,10 @@ module Network.Transport.TCP.Internal ( forkServer
                                       , tryCloseSocket
                                       ) where
 
+#if ! MIN_VERSION_base(4,6,0)
 import Prelude hiding (catch)
+#endif
+
 import Network.Transport.Internal (decodeInt32, void, tryIO, forkIOWithUnmask)
 import qualified Network.Socket as N ( HostName
                                      , ServiceName

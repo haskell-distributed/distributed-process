@@ -28,7 +28,13 @@ module Network.Transport.TCP ( -- * Main API
                                -- $design
                              ) where
 
-import Prelude hiding (catch, mapM_)
+import Prelude hiding 
+  ( mapM_
+#if ! MIN_VERSION_base(4,6,0)
+  , catch
+#endif
+  )
+ 
 import Network.Transport
 import Network.Transport.TCP.Internal ( forkServer
                                       , recvWithLength

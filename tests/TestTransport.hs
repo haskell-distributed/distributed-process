@@ -1,7 +1,15 @@
 {-# LANGUAGE RebindableSyntax #-}
 module TestTransport where
 
-import Prelude hiding (catch, (>>=), (>>), return, fail)
+import Prelude hiding 
+  ( (>>=)
+  , return
+  , fail
+  , (>>)
+#if ! MIN_VERSION_base(4,6,0)
+  , catch
+#endif
+  )
 import TestAuxiliary (forkTry, runTests, trySome, randomThreadDelay)
 import Control.Concurrent (forkIO, killThread, yield)
 import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar, readMVar, tryTakeMVar, modifyMVar_, newMVar)
