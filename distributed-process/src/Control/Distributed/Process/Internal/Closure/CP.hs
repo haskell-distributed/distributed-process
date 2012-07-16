@@ -29,7 +29,6 @@ module Control.Distributed.Process.Internal.Closure.CP
 import Data.Binary (encode)
 import Data.ByteString.Lazy (ByteString)
 import Data.Typeable (Typeable, typeOf, typeRepTyCon, TyCon)
-import Data.Typeable.Internal (TypeRep(..))
 import Control.Applicative ((<$>))
 import Control.Monad ((>=>))
 import Control.Distributed.Process.Serializable (Serializable)
@@ -77,6 +76,7 @@ import Control.Distributed.Process.Internal.Dynamic
   , dynTypeRep
   , dynKleisli
   )
+import Control.Distributed.Process.Internal.TypeRep (compareTypeRep)
 
 --------------------------------------------------------------------------------
 -- Setup: A number of functions that we will pass to 'remotable'              --
@@ -123,18 +123,12 @@ unClosure (Static label) env = do
     Nothing  -> fail "Derived.unClosure: resolveClosure failed"
     Just dyn -> return dyn
 
--- | Work around a bug in Typeable
--- (http://hackage.haskell.org/trac/ghc/ticket/5692)
-compareWithoutFingerprint :: TypeRep -> TypeRep -> Bool
-compareWithoutFingerprint (TypeRep _ con ts) (TypeRep _ con' ts') 
-  = con == con' && all (uncurry compareWithoutFingerprint) (zip ts ts')
-
 -- | Remove a 'Dynamic' constructor, provided that the recorded type matches the
 -- type of the first static argument (the value of that argument is not used)
 unDynamic :: Static a -> Process Dynamic -> Process a
 unDynamic (Static label) pdyn = do
   Dynamic typ val <- pdyn
-  if compareWithoutFingerprint typ (typeOfStaticLabel label) -- typ == typeOfStaticLabel label 
+  if typ `compareTypeRep` typeOfStaticLabel label 
     then return (unsafeCoerce# val)
     else fail $ "unDynamic: cannot match " 
              ++ show typ
