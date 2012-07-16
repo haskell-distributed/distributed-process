@@ -1,3 +1,8 @@
+2012-07-16  Edsko de Vries  <edsko@well-typed.com>  0.2.0.2
+
+* Base 4.6 compatible test suites
+* Relax package constraints for bytestring
+
 2012-07-16  Edsko de Vries  <edsko@well-typed.com>  0.2.0.1
 
 * Hide catch only for base < 4.6
