@@ -91,7 +91,11 @@ module Control.Distributed.Process
   , DidSpawn(..)
   ) where
 
+
+#if ! MIN_VERSION_base(4,6,0)
 import Prelude hiding (catch)
+#endif
+
 import Data.Typeable (Typeable)
 import Control.Monad.IO.Class (liftIO)
 import Control.Distributed.Process.Internal.Types 

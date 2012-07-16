@@ -1,6 +1,9 @@
 module Main where 
 
+#if ! MIN_VERSION_base(4,6,0)
 import Prelude hiding (catch)
+#endif
+
 import Data.Binary (Binary(..))
 import Data.Typeable (Typeable)
 import Data.Foldable (forM_)

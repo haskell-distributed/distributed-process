@@ -1,5 +1,5 @@
 Name:          network-transport-tcp
-Version:       0.2.0.1
+Version:       0.2.0.2
 Cabal-Version: >=1.8
 Build-Type:    Simple
 License:       BSD3 
@@ -24,11 +24,12 @@ Library
   Build-Depends:   base >= 4.3 && < 5,
                    network-transport >= 0.2 && < 0.3,
                    data-accessor >= 0.2 && < 0.3,
-                   containers >= 0.4 && < 0.5,
-                   bytestring >= 0.9 && < 0.10,
+                   containers >= 0.4 && < 0.6,
+                   bytestring >= 0.9 && < 0.11,
                    network >= 2.3 && < 2.4
   Exposed-modules: Network.Transport.TCP,
                    Network.Transport.TCP.Internal
+  Extensions:      CPP
   ghc-options:     -Wall -fno-warn-unused-do-bind
   HS-Source-Dirs:  src
 
@@ -38,8 +39,8 @@ Test-Suite TestTCP
   Build-Depends:   base >= 4.3 && < 5,
                    network-transport >= 0.2 && < 0.3,
                    data-accessor >= 0.2 && < 0.3,
-                   containers >= 0.4 && < 0.5,
-                   bytestring >= 0.9 && < 0.10,
+                   containers >= 0.4 && < 0.6,
+                   bytestring >= 0.9 && < 0.11,
                    network >= 2.3 && < 2.4,
                    random >= 1.0 && < 1.1,
                    ansi-terminal >= 0.5 && < 0.6,
@@ -50,5 +51,6 @@ Test-Suite TestTCP
                    DeriveDataTypeable,
                    RankNTypes,
                    OverlappingInstances,
-                   OverloadedStrings
+                   OverloadedStrings,
+                   CPP
   HS-Source-Dirs:  tests src

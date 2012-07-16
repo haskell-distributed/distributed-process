@@ -55,7 +55,10 @@ module Control.Distributed.Process.Internal.Primitives
   , monitorPort
   ) where
 
+#if ! MIN_VERSION_base(4,6,0)
 import Prelude hiding (catch)
+#endif
+
 import Data.Binary (decode)
 import Data.Typeable (Typeable, typeOf)
 import Data.Time.Clock (getCurrentTime)

@@ -1,3 +1,8 @@
+2012-07-16  Edsko de Vries  <edsko@well-typed.com>  0.2.0.2
+
+* Base 4.6 compatibility
+* Relax package contraints on bytestring and containers
+
 2012-07-12  Edsko de Vries  <edsko@well-typed.com>  0.2.0.1
 
 * Fix bug in recvExact

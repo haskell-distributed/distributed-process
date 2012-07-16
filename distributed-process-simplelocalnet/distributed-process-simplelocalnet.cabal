@@ -1,5 +1,5 @@
 Name:          distributed-process-simplelocalnet
-Version:       0.2.0.1
+Version:       0.2.0.2
 Cabal-Version: >=1.8
 Build-Type:    Simple
 License:       BSD3 
@@ -25,12 +25,12 @@ Source-Repository head
 
 Library
   Build-Depends:     base >= 4.4 && < 5,
-                     bytestring >= 0.9 && < 0.10,
+                     bytestring >= 0.9 && < 0.11,
                      network >= 2.3 && < 2.4,
                      network-multicast >= 0.0 && < 0.1,
                      data-accessor >= 0.2 && < 0.3,
                      binary >= 0.5 && < 0.6,
-                     containers >= 0.4 && < 0.5,
+                     containers >= 0.4 && < 0.6,
                      transformers >= 0.2 && < 0.4,
                      network-transport >= 0.2 && < 0.3,
                      network-transport-tcp >= 0.2 && < 0.3,
@@ -47,12 +47,12 @@ Test-Suite TestSimpleLocalnet
   Type:              exitcode-stdio-1.0
   Main-Is:           TestSimpleLocalnet.hs
   Build-Depends:     base >= 4.4 && < 5,
-                     bytestring >= 0.9 && < 0.10,
+                     bytestring >= 0.9 && < 0.11,
                      network >= 2.3 && < 2.4,
                      network-multicast >= 0.0 && < 0.1,
                      data-accessor >= 0.2 && < 0.3,
                      binary >= 0.5 && < 0.6,
-                     containers >= 0.4 && < 0.5,
+                     containers >= 0.4 && < 0.6,
                      transformers >= 0.2 && < 0.4,
                      network-transport >= 0.2 && < 0.3,
                      network-transport-tcp >= 0.2 && < 0.3,

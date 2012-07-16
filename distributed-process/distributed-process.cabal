@@ -1,5 +1,5 @@
 Name:          distributed-process 
-Version:       0.2.1.1
+Version:       0.2.1.2
 Cabal-Version: >=1.8
 Build-Type:    Simple
 License:       BSD3 
@@ -37,8 +37,8 @@ Library
                      transformers >= 0.2 && < 0.4,
                      mtl >= 2.0 && < 2.2,
                      data-accessor >= 0.2 && < 0.3,
-                     bytestring >= 0.9 && < 0.10,
-                     containers >= 0.4 && < 0.5,
+                     bytestring >= 0.9 && < 0.11,
+                     containers >= 0.4 && < 0.6,
                      old-locale >= 1.0 && < 1.1,
                      time >= 1.2 && < 1.5,
                      template-haskell >= 2.6 && < 2.8,
@@ -68,7 +68,8 @@ Library
                      GADTs,
                      GeneralizedNewtypeDeriving,
                      DeriveDataTypeable,
-                     TemplateHaskell
+                     TemplateHaskell,
+                     CPP
   ghc-options:       -Wall
   HS-Source-Dirs:    src
 
@@ -83,8 +84,8 @@ Test-Suite TestCH
                      transformers >= 0.2 && < 0.4,
                      mtl >= 2.0 && < 2.2,
                      data-accessor >= 0.2 && < 0.3,
-                     bytestring >= 0.9 && < 0.10,
-                     containers >= 0.4 && < 0.5,
+                     bytestring >= 0.9 && < 0.11,
+                     containers >= 0.4 && < 0.6,
                      old-locale >= 1.0 && < 1.1,
                      time >= 1.2 && < 1.5,
                      template-haskell >= 2.6 && < 2.8,
@@ -99,7 +100,8 @@ Test-Suite TestCH
                      GADTs,
                      GeneralizedNewtypeDeriving,
                      DeriveDataTypeable,
-                     TemplateHaskell
+                     TemplateHaskell,
+                     CPP
   ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind 
   HS-Source-Dirs:    tests src
 
@@ -114,8 +116,8 @@ Test-Suite TestClosure
                      transformers >= 0.2 && < 0.4,
                      mtl >= 2.0 && < 2.2,
                      data-accessor >= 0.2 && < 0.3,
-                     bytestring >= 0.9 && < 0.10,
-                     containers >= 0.4 && < 0.5,
+                     bytestring >= 0.9 && < 0.11,
+                     containers >= 0.4 && < 0.6,
                      old-locale >= 1.0 && < 1.1,
                      time >= 1.2 && < 1.5,
                      template-haskell >= 2.6 && < 2.8,
@@ -130,6 +132,7 @@ Test-Suite TestClosure
                      GADTs,
                      GeneralizedNewtypeDeriving,
                      DeriveDataTypeable,
-                     TemplateHaskell
+                     TemplateHaskell,
+                     CPP
   ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind 
   HS-Source-Dirs:    tests src

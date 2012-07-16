@@ -9,7 +9,11 @@ module Control.Distributed.Process.Node
   , localNodeId
   ) where
 
+
+#if ! MIN_VERSION_base(4,6,0)
 import Prelude hiding (catch)
+#endif
+
 import System.IO (fixIO, hPutStrLn, stderr)
 import qualified Data.ByteString.Lazy as BSL (fromChunks)
 import Data.Binary (decode)

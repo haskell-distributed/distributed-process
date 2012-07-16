@@ -50,7 +50,15 @@ module Traced ( MonadS(..)
               , traceShow
               ) where
 
-import Prelude hiding ((>>=), return, fail, catch, (>>))
+import Prelude hiding 
+  ( (>>=)
+  , return
+  , fail
+  , (>>)
+#if ! MIN_VERSION_base(4,6,0)
+  , catch
+#endif
+  )
 import qualified Prelude
 import Control.Exception (catches, Handler(..), SomeException, throwIO, Exception(..), IOException)
 import Control.Applicative ((<$>))
