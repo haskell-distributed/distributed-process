@@ -1,3 +1,7 @@
+2012-07-16  Edsko de Vries  <edsko@well-typed.com>  0.2.0.2
+
+* Relax contraints on bytestring and containers
+
 2012-07-09  Edsko de Vries  <edsko@well-typed.com>  0.2.0.1
 
 * Bugfix: Documentation referred to old module name 
