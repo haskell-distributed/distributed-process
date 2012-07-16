@@ -1,5 +1,5 @@
 Name:          network-transport
-Version:       0.2.0
+Version:       0.2.0.1
 Cabal-Version: >=1.6
 Build-Type:    Simple
 License:       BSD3 
@@ -75,6 +75,7 @@ Library
                    RankNTypes, 
                    ScopedTypeVariables,
                    DeriveDataTypeable,
-                   GeneralizedNewtypeDeriving
+                   GeneralizedNewtypeDeriving,
+                   CPP
   GHC-Options:     -Wall -fno-warn-unused-do-bind
   HS-Source-Dirs:  src

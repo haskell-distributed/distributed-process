@@ -1,3 +1,7 @@
+2012-07-16  Edsko de Vries  <edsko@well-typed.com>  0.2.0.1
+
+* Hide catch only for base < 4.6
+
 2012-07-07  Edsko de Vries  <edsko@well-typed.com>  0.2.0
 
 * Initial release.
