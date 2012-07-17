@@ -16,6 +16,13 @@ Build-Type:          Simple
 Cabal-Version:       >=1.8
 
 Library
-  exposed-modules:     Network.Azure.ServiceManagement 
-  Build-Depends:       base ==4.5.*
+  Exposed-Modules:     Network.Azure.ServiceManagement 
+  Build-Depends:       base ==4.5.*,
+                       tls,
+                       tls-extra
   HS-Source-Dirs:      src
+
+Executable hs-azure-service-api
+  Main-Is:             src/Network/Azure/ServiceManagement/CommandLine.hs
+  Build-Depends:       base ==4.5.*,
+                       azure-service-api
