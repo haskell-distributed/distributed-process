@@ -33,6 +33,46 @@
 -- >     ["slave", host, port] -> do
 -- >       backend <- initializeBackend host port initRemoteTable 
 -- >       startSlave backend
+-- 
+-- [Compiling and Running]
+--
+-- Save to @example.hs@ and compile using
+-- 
+-- > ghc -threaded example.hs
+--
+-- Fire up some slave nodes (for the example, we run them on a single machine):
+--
+-- > ./example slave localhost 8080 &
+-- > ./example slave localhost 8081 &
+-- > ./example slave localhost 8082 &
+-- > ./example slave localhost 8083 &
+--
+-- And start the master node:
+--
+-- > ./example master localhost 8084
+--
+-- which should then output:
+--
+-- > Slaves: [nid://localhost:8083:0,nid://localhost:8082:0,nid://localhost:8081:0,nid://localhost:8080:0]
+--
+-- at which point the slaves should exit.
+--
+-- To run the example on multiple machines, you could run
+--
+-- > ./example slave 198.51.100.1 8080 &
+-- > ./example slave 198.51.100.2 8080 &
+-- > ./example slave 198.51.100.3 8080 &
+-- > ./example slave 198.51.100.4 8080 &
+--
+-- on four different machines (with IP addresses 198.51.100.1..4), and run the
+-- master on a fifth node (or on any of the four machines that run the slave
+-- nodes).
+--
+-- It is important that every node has a unique (hostname, port number) pair, 
+-- and that the hostname you use to initialize the node can be resolved by
+-- peer nodes. In other words, if you start a node and pass hostname @localhost@
+-- then peer nodes won't be able to reach it because @localhost@ will resolve
+-- to a different IP address for them.
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Control.Distributed.Process.Backend.SimpleLocalnet
   ( -- * Initialization 
