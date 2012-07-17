@@ -1,3 +1,7 @@
+2012-07-17  Edsko de Vries  <edsko@well-typed.com>  0.2.0.3
+
+* Improve documentation
+
 2012-07-16  Edsko de Vries  <edsko@well-typed.com>  0.2.0.2
 
 * Relax contraints on bytestring and containers
