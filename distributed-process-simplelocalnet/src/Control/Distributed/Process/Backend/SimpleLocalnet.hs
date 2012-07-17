@@ -135,8 +135,9 @@ import Control.Distributed.Process.Backend.SimpleLocalnet.Internal.Multicast (in
 data Backend = Backend {
     -- | Create a new local node
     newLocalNode :: IO Node.LocalNode
-    -- | @findPeers t@ sends out a /who's there?/ request, waits 't' msec,
-    -- and then collects and returns the answers
+    -- | @findPeers t@ broadcasts a /who's there?/ message on the local
+    -- network, waits 't' msec, and then collects and returns the answers.
+    -- You can use this to dynamically discover peer nodes.
   , findPeers :: Int -> IO [NodeId]
     -- | Make sure that all log messages are printed by the logger on the
     -- current node
