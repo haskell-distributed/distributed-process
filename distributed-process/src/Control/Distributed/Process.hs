@@ -256,6 +256,11 @@ import Control.Distributed.Process.Serializable (Serializable)
 --------------------------------------------------------------------------------
 
 -- | Spawn a process
+--
+-- For more information about 'Closure', see
+-- "Control.Distributed.Process.Closure". 
+--
+-- See also 'call'. 
 spawn :: NodeId -> Closure (Process ()) -> Process ProcessId
 spawn nid proc = do
   us   <- getSelfPid
@@ -299,8 +304,13 @@ spawnMonitor nid proc = do
 
 -- | Run a process remotely and wait for it to reply
 -- 
--- We monitor the remote process; if it dies before it can send a reply, we die
--- too
+-- We monitor the remote process: if it dies before it can send a reply, we die
+-- too.
+--
+-- For more information about 'Static', 'SerializableDict', and 'Closure', see
+-- "Control.Distributed.Process.Closure". 
+--
+-- See also 'spawn'. 
 call :: Serializable a => Static (SerializableDict a) -> NodeId -> Closure (Process a) -> Process a
 call dict nid proc = do 
   us <- getSelfPid
