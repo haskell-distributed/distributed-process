@@ -58,7 +58,7 @@ import Data.Certificate.X509 (X509)
 
 main :: IO ()
 main = do
-  [pathToCert, pathToKey] <- getArgs
+  [subscriptionId, pathToCert, pathToKey] <- getArgs
   cert <- fileReadCertificate pathToCert
   key  <- fileReadPrivateKey pathToKey
   sessionState <- newIORef undefined
@@ -67,7 +67,7 @@ main = do
   runTLS (getDefaultParams sessionState [(cert, Just key)]) hostname port $ \ctx -> do
     handshake ctx
     sendData ctx $ BSLC.pack $ concat 
-      [ "GET /aea2f42e-eb22-495a-9e4f-6d07326523f2/services/hostedservices HTTP/1.1\r\n"
+      [ "GET /" ++ subscriptionId ++ "/services/hostedservices HTTP/1.1\r\n"
       , "host: " ++ hostname ++ "\r\n" 
       , "content-type: application/xml\r\n"
       , "x-ms-version: 2010-10-28\r\n"
