@@ -32,6 +32,9 @@ Executable hs-azure-service-api
                        cprng-aes,
                        network,
                        certificate,
-                       bytestring
+                       bytestring,
+                       filepath,
+                       libssh2,
+                       utf8-string
   Extensions:          ScopedTypeVariables                       
-  ghc-options:         -Wall
+  ghc-options:         -Wall -rtsopts

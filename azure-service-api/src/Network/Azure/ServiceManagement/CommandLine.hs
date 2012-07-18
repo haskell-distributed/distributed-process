@@ -1,9 +1,13 @@
+-- Base
 import Prelude hiding (catch)
-import System.Environment (getArgs)
+import System.Environment (getArgs, getEnv)
 import System.IO (IOMode(ReadWriteMode), hClose)
+import System.FilePath ((</>), takeFileName)
 import Data.IORef (IORef, writeIORef, readIORef, newIORef)
 import qualified Data.ByteString.Lazy.Char8 as BSLC (pack, putStrLn)
 import Control.Exception (SomeException, catch)
+
+-- SSL
 import qualified Crypto.Random.AESCtr as RNG (makeSystem)
 import Network.Azure.ServiceManagement
   ( fileReadCertificate
@@ -56,9 +60,96 @@ import Network.TLS.Extra
   )
 import Data.Certificate.X509 (X509)
 
+-- SSH
+import Network.SSH.Client.LibSSH2 
+  ( withSSH2
+  , scpReceiveFile
+  , scpSendFile
+  , checkHost
+  , withSession
+  , readAllChannel
+  )
+import Network.SSH.Client.LibSSH2.Foreign 
+  ( initialize
+  , exit
+  , publicKeyAuthFile
+  , channelExecute
+  )
+import Codec.Binary.UTF8.String (decodeString)
+
 main :: IO ()
 main = do
-  [subscriptionId, pathToCert, pathToKey] <- getArgs
+  args <- getArgs
+  case args of
+    ["azure", subscriptionId, pathToCert, pathToKey] ->
+      tryConnectToAzure subscriptionId pathToCert pathToKey
+    ["command", user, host, port, cmd] -> 
+      runCommand user host (read port) cmd
+    ["send", user, host, port, path] -> 
+      sendFile user host (read port) path
+    ["receive", user, host, port, path] -> 
+      receiveFile user host (read port) path
+    _ ->
+      putStrLn "Invalid command line arguments"
+
+--------------------------------------------------------------------------------
+-- Taken from libssh2/ssh-client                                              --
+--------------------------------------------------------------------------------
+
+runCommand login host port command =
+  ssh login host port $ \ch -> do
+      channelExecute ch command
+      result <- readAllChannel ch
+      let r = decodeString result
+      print (length result)
+      print (length r)
+      putStrLn r
+
+sendFile login host port path = do
+  initialize True
+  home <- getEnv "HOME"
+  let known_hosts = home </> ".ssh" </> "known_hosts"
+      public = home </> ".ssh" </> "id_rsa.pub"
+      private = home </> ".ssh" </> "id_rsa"
+
+  withSession host port $ \_ s -> do
+      r <- checkHost s host port known_hosts
+      print r
+      publicKeyAuthFile s login public private ""
+      sz <- scpSendFile s 0o644 path (takeFileName path)
+      putStrLn $ "Sent: " ++ show sz ++ " bytes."
+  exit
+
+receiveFile login host port path = do
+  initialize True
+  home <- getEnv "HOME"
+  let known_hosts = home </> ".ssh" </> "known_hosts"
+      public = home </> ".ssh" </> "id_rsa.pub"
+      private = home </> ".ssh" </> "id_rsa"
+
+  withSession host port $ \_ s -> do
+      r <- checkHost s host port known_hosts
+      print r
+      publicKeyAuthFile s login public private ""
+      sz <- scpReceiveFile s (takeFileName path) path
+      putStrLn $ "Received: " ++ show sz ++ " bytes."
+  exit
+
+ssh login host port actions = do
+  initialize True
+  home <- getEnv "HOME"
+  let known_hosts = home </> ".ssh" </> "known_hosts"
+      public = home </> ".ssh" </> "id_rsa.pub"
+      private = home </> ".ssh" </> "id_rsa"
+  withSSH2 known_hosts public private login host port $ actions
+  exit
+
+--------------------------------------------------------------------------------
+-- Taken from tls-debug/src/SimpleClient.hs                                   --
+--------------------------------------------------------------------------------
+
+tryConnectToAzure :: String -> String -> String -> IO ()
+tryConnectToAzure subscriptionId pathToCert pathToKey = do
   cert <- fileReadCertificate pathToCert
   key  <- fileReadPrivateKey pathToKey
   sessionState <- newIORef undefined
@@ -76,10 +167,6 @@ main = do
     d <- recvData' ctx
     bye ctx
     BSLC.putStrLn d
-
---------------------------------------------------------------------------------
--- Taken from tls-debug/src/SimpleClient.hs                                   --
---------------------------------------------------------------------------------
 
 runTLS :: Params -> HostName -> PortNumber -> (Context -> IO a) -> IO ()
 runTLS params hostname portNumber f = do
