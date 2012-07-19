@@ -122,7 +122,7 @@
 -- then a serialization dictionary is automatically created for you, which you
 -- can access with
 --
--- > $(functionDict 'f) :: Static (SerializableDict T1)
+-- > $(functionSDict 'f) :: Static (SerializableDict T1)
 --
 -- This is the dictionary that 'mkClosure' uses.
 --
