@@ -560,6 +560,24 @@ testRemoteRegistry transport = do
     True <- return $ pingServer == pid'
     return ()
 
+testSpawnLocal :: NT.Transport -> IO ()
+testSpawnLocal transport = do
+  node <- newLocalNode transport initRemoteTable
+
+  runProcess node $ do
+    us <- getSelfPid
+
+    pid <- spawnLocal $ do
+      sport <- expect
+      sendChan sport (1234 :: Int)
+
+    sport <- spawnChannelLocal $ \rport -> do
+      (1234 :: Int) <- receiveChan rport
+      send us ()
+
+    send pid sport
+    expect
+
 main :: IO ()
 main = do
   Right transport <- createTransport "127.0.0.1" "8080" defaultTCPParameters
@@ -574,6 +592,7 @@ main = do
     , ("Terminate",        testTerminate        transport)
     , ("Registry",         testRegistry         transport)
     , ("RemoteRegistry",   testRemoteRegistry   transport)
+    , ("SpawnLocal",       testSpawnLocal       transport)
       -- Monitoring processes
       --
       -- The "missing" combinations in the list below don't make much sense, as
