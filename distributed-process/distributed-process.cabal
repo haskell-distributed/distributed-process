@@ -52,7 +52,6 @@ Library
                      Control.Distributed.Process.Internal.CQueue,
                      Control.Distributed.Process.Internal.Dynamic,
                      Control.Distributed.Process.Internal.TypeRep,
-                     Control.Distributed.Process.Internal.MessageT,
                      Control.Distributed.Process.Internal.Types,
                      Control.Distributed.Process.Internal.Closure.Static,
                      Control.Distributed.Process.Internal.Closure.MkClosure,

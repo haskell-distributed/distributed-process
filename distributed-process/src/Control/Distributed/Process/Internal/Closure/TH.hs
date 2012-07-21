@@ -7,6 +7,7 @@ module Control.Distributed.Process.Internal.Closure.TH
     remotable
   , mkStatic
   , functionSDict
+  , functionTDict
   ) where
 
 import Prelude hiding (lookup)
@@ -47,6 +48,7 @@ import Control.Distributed.Process.Internal.Types
   , StaticLabel(StaticLabel)
   , remoteTableLabel
   , SerializableDict(SerializableDict)
+  , Process
   )
 import Control.Distributed.Process.Internal.Dynamic 
   ( Dynamic(..)
@@ -74,18 +76,19 @@ remotable ns = do
 mkStatic :: Name -> Q Exp
 mkStatic = varE . staticName
 
--- | Serialization dictionary for a function argument (see module header)
+-- | If @f : T1 -> T2@ is a monomorphic function 
+-- then @$(functionSDict 'f) :: Static (SerializableDict T1)@.
+-- 
+-- Be sure to pass 'f' to 'remotable'.
 functionSDict :: Name -> Q Exp
 functionSDict = varE . sdictName
 
-{-
--- | Create a closure
--- 
--- See module documentation header for "Control.Distributed.Process.Closure"
--- for a detailed explanation and examples.
-mkClosure :: Name -> Q Exp
-mkClosure = varE . closureName 
--}
+-- | If @f : T1 -> Process T2@ is a monomorphic function
+-- then @$(functionTDict 'f) :: Static (SerializableDict T2)@.
+--
+-- Be sure to pass 'f' to 'remotable'.
+functionTDict :: Name -> Q Exp
+functionTDict = varE . tdictName
 
 --------------------------------------------------------------------------------
 -- Internal (Template Haskell)                                                --
@@ -100,44 +103,59 @@ createMetaData is =
 
 generateDefs :: Name -> Q ([Dec], [Q Exp])
 generateDefs n = do
-  mType <- getType n
-  case mType of
-    Just (origName, typ) -> do
-      let (typVars, typ') = case typ of ForallT vars [] mono -> (vars, mono)
-                                        _                    -> ([], typ)
-      (static, register) <- do
-        static <- generateStatic origName typVars typ' 
-        let dyn = case typVars of 
-                    [] -> [| toDyn $(varE origName) |]
-                    _  -> [| Dynamic (error "Polymorphic value") 
-                                     (unsafeCoerce# $(varE origName)) 
-                           |]
-        return ( static
-               , [ [| registerStatic $(stringE (show origName)) $dyn |] ]
-               )
+    proc <- [t| Process |]
+    mType <- getType n
+    case mType of
+      Just (origName, typ) -> do
+        let (typVars, typ') = case typ of ForallT vars [] mono -> (vars, mono)
+                                          _                    -> ([], typ)
 
-      (sdict, registerSDict) <- case (typVars, typ') of
-        ([], ArrowT `AppT` arg `AppT` _res) -> do
-          -- TODO: we should check if arg is an instance of Serializable, but we cannot
-          -- http://hackage.haskell.org/trac/ghc/ticket/7066
-          sdict <- generateSDict origName arg
-          let dyn' = [| toDyn (SerializableDict 
-                                 :: SerializableDict $(return arg)
-                              ) 
-                      |]
-          return ( sdict
-                 , [ [| registerStatic $(stringE (show (sdictName origName))) 
-                                       $dyn' 
-                      |] ]
-                 )
-        _ ->
-          return ([], [])
-      
-      return ( static ++ sdict
-             , register ++ registerSDict
+        -- The main "static" entry                                  
+        (static, register) <- makeStatic origName typVars typ' 
+         
+        -- If n :: T1 -> T2, static serializable dictionary for T1 
+        -- TODO: we should check if arg is an instance of Serializable, but we cannot
+        -- http://hackage.haskell.org/trac/ghc/ticket/7066
+        (sdict, registerSDict) <- case (typVars, typ') of
+          ([], ArrowT `AppT` arg `AppT` _res) -> 
+            makeDict (sdictName origName) arg
+          _ -> 
+            return ([], [])
+        
+        -- If n :: T1 -> Process T2, static serializable dictionary for T2
+        -- TODO: check if T2 is serializable (same as above)
+        (tdict, registerTDict) <- case (typVars, typ') of
+          ([], ArrowT `AppT` _arg `AppT` (proc' `AppT` res)) | proc' == proc -> 
+            makeDict (tdictName origName) res 
+          _ ->
+            return ([], [])
+        
+        return ( concat [static, sdict, tdict]
+               , concat [register, registerSDict, registerTDict]
+               )
+      _ -> 
+        fail $ "remotable: " ++ show n ++ " not found"
+  where
+    makeStatic :: Name -> [TyVarBndr] -> Type -> Q ([Dec], [Q Exp])
+    makeStatic origName typVars typ = do 
+      static <- generateStatic origName typVars typ
+      let dyn = case typVars of 
+                  [] -> [| toDyn $(varE origName) |]
+                  _  -> [| Dynamic (error "Polymorphic value") 
+                                   (unsafeCoerce# $(varE origName)) 
+                         |]
+      return ( static
+             , [ [| registerStatic $(stringE (show origName)) $dyn |] ]
              )
-    _ -> 
-      fail $ "remotable: " ++ show n ++ " not found"
+
+    makeDict :: Name -> Type -> Q ([Dec], [Q Exp]) 
+    makeDict dictName typ = do
+      sdict <- generateDict dictName typ 
+      let dyn = [| toDyn (SerializableDict :: SerializableDict $(return typ)) |]
+      return ( sdict
+             , [ [| registerStatic $(stringE (show dictName)) $dyn |] ] 
+             )
+      
 
 registerStatic :: String -> Dynamic -> RemoteTable -> RemoteTable
 registerStatic label dyn = remoteTableLabel label ^= Just dyn 
@@ -163,14 +181,14 @@ generateStatic n xs typ = do
     typeable (PlainTV v)    = ClassP (mkName "Typeable") [VarT v] 
     typeable (KindedTV v _) = ClassP (mkName "Typeable") [VarT v]
 
--- | Generate a function serialization dictionary
-generateSDict :: Name -> Type -> Q [Dec]
-generateSDict n typ = do
+-- | Generate a serialization dictionary with name 'n' for type 'typ' 
+generateDict :: Name -> Type -> Q [Dec]
+generateDict n typ = do
     sequence
-      [ sigD (sdictName n) $ [t| Static (SerializableDict $(return typ)) |]
-      , sfnD (sdictName n) 
+      [ sigD n $ [t| Static (SerializableDict $(return typ)) |]
+      , sfnD n 
          [| Static $ StaticLabel 
-              $(stringE (show (sdictName n))) 
+              $(stringE (show n)) 
               (typeOf (undefined :: SerializableDict $(return typ)))
           |]
       ]
@@ -180,6 +198,9 @@ staticName n = mkName $ nameBase n ++ "__static"
 
 sdictName :: Name -> Name
 sdictName n = mkName $ nameBase n ++ "__sdict"
+
+tdictName :: Name -> Name
+tdictName n = mkName $ nameBase n ++ "__tdict"
 
 --------------------------------------------------------------------------------
 -- Generic Template Haskell auxiliary functions                               --

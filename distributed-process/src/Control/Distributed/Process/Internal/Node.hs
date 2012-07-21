@@ -1,16 +1,91 @@
 module Control.Distributed.Process.Internal.Node 
-  ( runLocalProcess
+  ( -- * Message sending
+    sendPayload
+  , sendBinary
+  , sendMessage
   ) where
 
-import Control.Monad.Reader (runReaderT)
-import Control.Distributed.Process.Internal.Types 
-  ( LocalNode
-  , LocalProcess
-  , Process(unProcess)
+import Data.Accessor ((^.), (^=))
+import Data.Binary (Binary, encode)
+import qualified Data.ByteString.Lazy as BSL (toChunks)
+import qualified Data.ByteString as BSS (ByteString)
+import Control.Concurrent.MVar (withMVar, modifyMVar_)
+import Control.Concurrent.Chan (writeChan)
+import Control.Monad (unless)
+import qualified Network.Transport as NT 
+  ( Connection
+  , send
+  , defaultConnectHints
+  , connect
+  , Reliability(ReliableOrdered)
   )
-import Control.Distributed.Process.Internal.MessageT (runMessageT)  
+import Control.Distributed.Process.Internal.Types 
+  ( LocalNode(localState, localEndPoint, localCtrlChan)
+  , Identifier
+  , localConnectionBetween
+  , nodeAddress
+  , nodeOf
+  , messageToPayload
+  , createMessage
+  , NCMsg(..)
+  , ProcessSignal(Died)
+  , DiedReason(DiedDisconnect)
+  )
+import Control.Distributed.Process.Serializable (Serializable)
 
--- | Deconstructor for 'Process' (not exported to the public API) 
-runLocalProcess :: LocalNode -> Process a -> LocalProcess -> IO a
-runLocalProcess node proc = runMessageT node . runReaderT (unProcess proc) 
+--------------------------------------------------------------------------------
+-- Message sending                                                            -- 
+--------------------------------------------------------------------------------
 
+sendPayload :: LocalNode -> Identifier -> Identifier -> [BSS.ByteString] -> IO ()
+sendPayload node from to payload = do
+  mConn <- connBetween node from to
+  didSend <- case mConn of
+    Just conn -> do
+      didSend <- NT.send conn payload
+      case didSend of
+        Left _  -> return False
+        Right _ -> return True 
+    Nothing -> return False
+  unless didSend $ do
+    writeChan (localCtrlChan node) $ NCMsg
+      { ctrlMsgSender = to 
+      , ctrlMsgSignal = Died to DiedDisconnect
+      }
+
+sendBinary :: Binary a => LocalNode -> Identifier -> Identifier -> a -> IO ()
+sendBinary node from to = sendPayload node from to . BSL.toChunks . encode
+
+sendMessage :: Serializable a => LocalNode -> Identifier -> Identifier -> a -> IO ()
+sendMessage node from to = sendPayload node from to . messageToPayload . createMessage
+
+setupConnBetween :: LocalNode -> Identifier -> Identifier -> IO (Maybe NT.Connection)
+setupConnBetween node from to = do
+    mConn    <- NT.connect endPoint 
+                           (nodeAddress . nodeOf $ to) 
+                           NT.ReliableOrdered 
+                           NT.defaultConnectHints
+    case mConn of 
+      Right conn -> do
+        didSend <- NT.send conn (BSL.toChunks . encode $ to)
+        case didSend of
+          Left _ ->
+            return Nothing
+          Right () -> do
+            modifyMVar_ nodeState $ return . 
+              (localConnectionBetween from to ^= Just conn)
+            return $ Just conn
+      Left _ ->
+        return Nothing
+  where
+    endPoint  = localEndPoint node
+    nodeState = localState node
+
+connBetween :: LocalNode -> Identifier -> Identifier -> IO (Maybe NT.Connection)
+connBetween node from to = do
+    mConn <- withMVar nodeState $ return . (^. localConnectionBetween from to)
+    case mConn of
+      Just conn -> return $ Just conn
+      Nothing   -> setupConnBetween node from to 
+  where
+    nodeState = localState node

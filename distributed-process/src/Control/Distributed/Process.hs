@@ -89,7 +89,7 @@ module Control.Distributed.Process
   , spawnMonitor
   , spawnChannel
   , DidSpawn(..)
-    -- * Local versions of spawn
+    -- * Local versions of 'spawn' 
   , spawnLocal
   , spawnChannelLocal
   ) where
@@ -101,6 +101,8 @@ import Prelude hiding (catch)
 
 import Data.Typeable (Typeable)
 import Control.Monad.IO.Class (liftIO)
+import Control.Applicative ((<$>))
+import Control.Monad.Reader (ask)
 import Control.Distributed.Process.Internal.Types 
   ( RemoteTable
   , NodeId(..)
@@ -124,7 +126,7 @@ import Control.Distributed.Process.Internal.Types
   , SerializableDict(..)
   , SendPortId(..)
   , WhereIsReply(..)
-  , procMsg
+  , LocalProcess(processNode)
   )
 import Control.Distributed.Process.Internal.Closure.CP
   ( cpSeq
@@ -194,7 +196,6 @@ import Control.Distributed.Process.Internal.Primitives
   , spawnAsync
   )
 import Control.Distributed.Process.Serializable (Serializable)
-import Control.Distributed.Process.Internal.MessageT (getLocalNode)
 import Control.Distributed.Process.Node (forkProcess)
 
 -- INTERNAL NOTES
@@ -369,7 +370,7 @@ spawnChannel dict nid proc = do
 -- | Spawn a process on the local node
 spawnLocal :: Process () -> Process ProcessId
 spawnLocal proc = do
-  node <- procMsg $ getLocalNode
+  node <- processNode <$> ask 
   liftIO $ forkProcess node proc
 
 -- | Create a new typed channel, spawn a process on the local node, passing it
@@ -378,7 +379,7 @@ spawnChannelLocal :: Serializable a
                   => (ReceivePort a -> Process ()) 
                   -> Process (SendPort a)
 spawnChannelLocal proc = do 
-  node <- procMsg $ getLocalNode
+  node <- processNode <$> ask 
   (sport, rport) <- newChan
   _ <- liftIO $ forkProcess node (proc rport)
   return sport
