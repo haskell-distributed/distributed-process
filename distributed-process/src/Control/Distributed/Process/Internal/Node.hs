@@ -47,8 +47,8 @@ sendPayload node from to payload = do
         Left _  -> return False
         Right _ -> return True 
     Nothing -> return False
-  unless didSend $ do
-    writeChan (localCtrlChan node) $ NCMsg
+  unless didSend $
+    writeChan (localCtrlChan node) NCMsg
       { ctrlMsgSender = to 
       , ctrlMsgSignal = Died to DiedDisconnect
       }

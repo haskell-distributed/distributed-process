@@ -458,7 +458,7 @@ ncEffectMonitor from them mRef = do
       -- (see also: notifyDied)
       liftIO $ sendBinary node
                           (NodeIdentifier $ localNodeId node)
-                          (NodeIdentifier $ processNodeId from) $ 
+                          (NodeIdentifier $ processNodeId from)
         NCMsg  
           { ctrlMsgSender = NodeIdentifier (localNodeId node)
           , ctrlMsgSignal = Died them DiedUnknownId
@@ -581,7 +581,7 @@ notifyDied dest src reason mRef = do
       -- (see [Unified: Table 10]
       liftIO $ sendBinary node
                           (NodeIdentifier $ localNodeId node)
-                          (NodeIdentifier $ processNodeId dest) $
+                          (NodeIdentifier $ processNodeId dest)
         NCMsg
           { ctrlMsgSender = NodeIdentifier (localNodeId node) 
           , ctrlMsgSignal = Died src reason
