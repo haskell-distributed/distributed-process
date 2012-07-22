@@ -45,6 +45,9 @@ Test-Suite TestTCP
                    random >= 1.0 && < 1.1,
                    ansi-terminal >= 0.5 && < 0.6,
                    mtl >= 2.0 && < 2.2
+  Other-modules:   TestAuxiliary,
+                   TestTransport,
+                   Traced
   ghc-options:     -Wall -fno-warn-unused-do-bind -threaded -rtsopts -with-rtsopts=-N
   Extensions:      ExistentialQuantification,
                    FlexibleInstances,
