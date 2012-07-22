@@ -19,7 +19,7 @@ distributed-process and possibly distributed-process-simplelocalnet and refer
 to the corresponding Haddock documentation ([Control.Distributed.Process][3],
 [Control.Distributed.Process.Closure][4],
 [Control.Distributed.Process.Node][5], and
-[Control.Distributed.Process.Backend.SimpleLocalnet[6]).
+[Control.Distributed.Process.Backend.SimpleLocalnet][6]).
 
 [1]: http://research.microsoft.com/en-us/um/people/simonpj/papers/parallel/remote.pdf
 [2]: https://github.com/haskell-distributed/distributed-process/wiki
