@@ -123,6 +123,7 @@ Test-Suite TestClosure
                      random >= 1.0 && < 1.1,
                      ghc-prim >= 0.2 && < 0.3,
                      ansi-terminal >= 0.5 && < 0.6
+  Other-modules:     TestAuxiliary
   Extensions:        RankNTypes,
                      ScopedTypeVariables,
                      FlexibleInstances,
