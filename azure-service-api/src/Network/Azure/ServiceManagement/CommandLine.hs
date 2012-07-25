@@ -2,7 +2,8 @@
 import Prelude hiding (catch)
 import System.Environment (getArgs, getEnv)
 import System.IO (IOMode(ReadWriteMode), hClose)
-import System.FilePath ((</>), takeFileName)
+import System.FilePath ((</>))
+import System.Posix.Types (Fd)
 import Data.IORef (IORef, writeIORef, readIORef, newIORef)
 import qualified Data.ByteString.Lazy.Char8 as BSLC (pack, putStrLn)
 import Control.Exception (SomeException, catch)
@@ -63,16 +64,14 @@ import Data.Certificate.X509 (X509)
 -- SSH
 import Network.SSH.Client.LibSSH2 
   ( withSSH2
-  , scpReceiveFile
-  , scpSendFile
-  , checkHost
-  , withSession
   , readAllChannel
+  , retryIfNeeded
+  , Session
+  , Channel
   )
 import Network.SSH.Client.LibSSH2.Foreign 
   ( initialize
   , exit
-  , publicKeyAuthFile
   , channelExecute
   )
 import Codec.Binary.UTF8.String (decodeString)
@@ -85,10 +84,6 @@ main = do
       tryConnectToAzure subscriptionId pathToCert pathToKey
     ["command", user, host, port, cmd] -> 
       runCommand user host (read port) cmd
-    ["send", user, host, port, path] -> 
-      sendFile user host (read port) path
-    ["receive", user, host, port, path] -> 
-      receiveFile user host (read port) path
     _ ->
       putStrLn "Invalid command line arguments"
 
@@ -96,52 +91,24 @@ main = do
 -- Taken from libssh2/ssh-client                                              --
 --------------------------------------------------------------------------------
 
+runCommand :: String -> String -> Int -> String -> IO ()
 runCommand login host port command =
-  ssh login host port $ \ch -> do
-      channelExecute ch command
-      result <- readAllChannel ch
+  ssh login host port $ \fd s ch -> do
+      _ <- retryIfNeeded fd s $ channelExecute ch command
+      result <- readAllChannel fd ch
       let r = decodeString result
       print (length result)
       print (length r)
       putStrLn r
 
-sendFile login host port path = do
-  initialize True
-  home <- getEnv "HOME"
-  let known_hosts = home </> ".ssh" </> "known_hosts"
-      public = home </> ".ssh" </> "id_rsa.pub"
-      private = home </> ".ssh" </> "id_rsa"
-
-  withSession host port $ \_ s -> do
-      r <- checkHost s host port known_hosts
-      print r
-      publicKeyAuthFile s login public private ""
-      sz <- scpSendFile s 0o644 path (takeFileName path)
-      putStrLn $ "Sent: " ++ show sz ++ " bytes."
-  exit
-
-receiveFile login host port path = do
-  initialize True
-  home <- getEnv "HOME"
-  let known_hosts = home </> ".ssh" </> "known_hosts"
-      public = home </> ".ssh" </> "id_rsa.pub"
-      private = home </> ".ssh" </> "id_rsa"
-
-  withSession host port $ \_ s -> do
-      r <- checkHost s host port known_hosts
-      print r
-      publicKeyAuthFile s login public private ""
-      sz <- scpReceiveFile s (takeFileName path) path
-      putStrLn $ "Received: " ++ show sz ++ " bytes."
-  exit
-
+ssh :: String -> String -> Int -> (Fd -> Session -> Channel -> IO a) -> IO ()
 ssh login host port actions = do
-  initialize True
+  _ <- initialize True
   home <- getEnv "HOME"
   let known_hosts = home </> ".ssh" </> "known_hosts"
       public = home </> ".ssh" </> "id_rsa.pub"
       private = home </> ".ssh" </> "id_rsa"
-  withSSH2 known_hosts public private login host port $ actions
+  _ <- withSSH2 known_hosts public private login host port $ actions
   exit
 
 --------------------------------------------------------------------------------
