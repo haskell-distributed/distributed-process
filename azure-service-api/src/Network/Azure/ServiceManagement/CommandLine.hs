@@ -1,15 +1,12 @@
 -- Base
-import Prelude hiding (catch)
 import System.Environment (getArgs, getEnv)
 import System.FilePath ((</>))
 import System.Posix.Types (Fd)
-import qualified Data.ByteString.Lazy.Char8 as BSLC (putStrLn)
 
 -- SSL
 import Network.Azure.ServiceManagement 
-  ( azureRequest
-  , fileReadCertificate
-  , fileReadPrivateKey
+  ( azureSetup
+  , hostedServices
   )
 
 -- SSH
@@ -68,7 +65,7 @@ ssh login host port actions = do
 
 tryConnectToAzure :: String -> String -> String -> IO ()
 tryConnectToAzure sid pathToCert pathToKey = do
-  cert <- fileReadCertificate pathToCert
-  key  <- fileReadPrivateKey pathToKey
-  outp <- azureRequest sid cert key "/services/hostedservices" "2012-03-01"
-  BSLC.putStrLn outp
+  setup <- azureSetup sid pathToCert pathToKey
+  services <- hostedServices setup
+  mapM_ print services 
+
