@@ -1,0 +1,255 @@
+\documentclass{article}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath, amssymb}
+\usepackage{mathpazo, times}
+
+\newcommand{\sLam}[2]{\lambda {#1} \cdot {#2}}
+\newcommand{\sApp}[2]{{#1} {#2}}
+\newcommand{\sBind}[2]{{#1} \mathrel{\texttt{>}\!\!\texttt{>}\!\texttt{=}} {#2}}
+\newcommand{\sReturn}{\mathtt{return}}
+
+\newcommand{\sExpect}{\mathtt{expect}}
+\newcommand{\sSend}{\mathtt{send}}
+\newcommand{\sSpawn}{\mathtt{spawn}}
+\newcommand{\sLink}{\mathtt{link}}
+\newcommand{\sThrow}{\mathtt{throw}}
+\newcommand{\sReconnect}{\mathtt{reconnect}}
+
+\newcommand{\sParP}{\mathrel{{\parallel}_P}}
+\newcommand{\sParN}{\mathrel{{\parallel}_N}}
+\newcommand{\sProc}[2]{{#1}_{#2}}
+\newcommand{\sPid}{\ensuremath{\mathit{pid}}}
+\newcommand{\sNid}{\ensuremath{\mathit{nid}}}
+\newcommand{\sLinks}{\ensuremath{\mathit{links}}}
+\newcommand{\sNode}[3]{\left[{#1} ; {#2}\right]_{#3}} 
+\newcommand{\sSystem}[3]{\left\langle #1 ; #2 ; #3 \right\rangle}
+\newcommand{\sNodes}{\mathcal{N}}
+\newcommand{\sQueue}{\mathcal{Q}}
+\newcommand{\sProcesses}{\mathcal{P}}
+\newcommand{\sBlacklist}{\mathcal{B}}
+
+\newcommand{\sJust}[1]{\mathtt{Just} \; {#1}}
+\newcommand{\sNothing}{\mathtt{Nothing}}
+
+\newcommand{\sCtxt}[1]{\mathbb{#1}}
+
+\newcommand{\sSenders}{\mathit{senders}}
+
+\newcommand{\OR}{\mathrel{|}}
+
+
+\begin{document}
+
+\title{Cloud Haskell Semantics}
+\author{Edsko de Vries, Well-Typed LLP}
+\date{\today}
+
+\maketitle
+
+\section{Syntax}
+
+\subsection{Terms}
+
+\begin{equation*}
+\begin{array}{ll@{\;::=\;}l}
+\text{value} & V    & \sLam{x}{M} \OR
+                      \sExpect \OR
+                      \sSend \; \sPid \; V \OR
+                      \sSpawn \; \sNid \; V \OR 
+                      \sReturn \; M
+\\
+\text{term}  & M, N & \sApp{M}{N} \OR
+                      \sBind{M}{N}
+\end{array}
+\end{equation*}
+
+\subsection{Processes, Nodes, Systems}
+
+A \emph{process} $\sProc{M}{\sPid}$ is a pair of a term $M$ and a process ID $\sPid$.
+A \emph{node}
+  $$\sNode{\sProcesses}
+          {\sLinks}
+          {\sNid}$$
+is a tuple consisting of a set of
+processes $\sProcesses$, sometimes written as
+  $$\sProc{M}{\sPid} \sParP \cdots \sParP \sProc{N}{\sPid'}$$
+together with a set \sLinks{} of pairs of process IDs and a node ID \sNid. 
+A \emph{system} 
+  $\sSystem{\sNodes}{\sQueue}{\sBlacklist}$ 
+finally is a tuple containing a set $\sNodes$ of nodes, sometimes written
+  $$\sNode{\sProcesses}{\sLinks}{\sNid} 
+    \sParN
+       \cdots
+    \sParN
+    \sNode{\sProcesses'}{\sLinks'}{\sNid'}
+  $$
+a \emph{system queue} $\sQueue$, and a \emph{blacklist} $\sBlacklist$. The
+system queue is a set of triples $(\mathit{to}, \mathit{from},
+\mathit{message})$ of messages that have been sent but not yet processed. The
+blacklist is a set of pairs $(\mathit{to}, \mathit{from})$. Once a pair
+$(\mathit{to}, \mathit{from})$ has been blacklisted messages from
+$\mathit{from}$ to $\mathit{to}$ will never be delivered ($\mathit{to}$ and
+$\mathit{from}$ are node or process identifiers). 
+
+\section{Semantics}
+
+\subsection{Contexts}
+
+We define an evaluation context as usual (TODO: catch?)
+
+\begin{equation*}
+\sCtxt{E} ::= [] \OR \sBind{\sCtxt{E}}{M}
+\end{equation*}
+
+A process context, parametrized by a \sPid, identifies a process within a set
+of nodes. 
+
+\begin{equation*}
+\sCtxt{P}_\sPid ::= \sNode{\sProc{\sCtxt{E}}{pid} \sParP \sProcesses}{\sLinks}{\sNid} \sParN \sNodes 
+\end{equation*}
+
+We also find it useful to have a process context with two holes, one for a
+process identified by \sPid{} and one for the set of processes on node \sNid.
+This set of processes may or may not live on the same node as \sPid. 
+
+\begin{equation*}
+\begin{array}{rl}
+\sCtxt{P}_{\sPid,\sNid} ::= & 
+  \sNode{\sProc{\sCtxt{E}}{pid} \sParP []}{\sLinks}{\sNid} \sParN \sNodes \\[1em]
+\OR & 
+  \sNode{\sProc{\sCtxt{E}}{pid} \sParP \sProcesses}{\sLinks}{\sNid'} \sParN \sNode{[]}{\sLinks}{\sNid} \sParN \sNodes 
+    \qquad
+  (\sNid \neq \sNid')
+\end{array}
+\end{equation*}
+
+\subsection{System Rules}
+
+\begin{equation*}
+\frac{
+}{
+  \sSystem{\sNodes}{\sQueue}{\sBlacklist}
+\rightarrow
+  \sSystem{\sNodes}{\sQueue}{\sBlacklist, (\mathit{to}, \mathit{from})}
+} \textsc{Disconnect}
+\end{equation*}
+
+\subsection{Process rules}
+
+\subsubsection{Sending}
+
+If the communication is blacklisted the send is a no-op.
+
+\begin{equation*}
+\frac{
+(\mathit{to}, \mathit{from}) \notin \sBlacklist
+}{
+  \sSystem{\sCtxt{P}[ \sSend \; \mathit{to} \; V ]_\mathit{from}}
+          {\sQueue}
+          {\sBlacklist}
+\rightarrow 
+  \sSystem{\sCtxt{P}[ \sReturn \; () ]_\mathit{from}}
+          {\sQueue, (\mathit{to}, \mathit{from}, V)}
+          {\sBlacklist}
+} \textsc{Send-Ok}
+\end{equation*}
+
+\begin{equation*}
+\frac{
+(\mathit{to}, \mathit{from}) \in \sBlacklist
+}{
+  \sSystem{\sCtxt{P}[ \sSend \; \mathit{to} \; V ]_\mathit{from}}
+          {\sQueue}
+          {\sBlacklist}
+\rightarrow 
+  \sSystem{\sCtxt{P}[ \sReturn \; () ]_\mathit{from}}
+          {\sQueue}
+          {\sBlacklist}
+} \textsc{Send-No}
+\end{equation*}
+
+TODO: this allows to send functions
+
+\subsubsection{Receiving}
+
+We return the \emph{first} message of a randomly chosen sender.
+
+\begin{equation*}
+\frac{
+  \mathit{from} \notin \sSenders(\sQueue)
+}{
+  \sSystem{\sCtxt{P}[ \sExpect ]_\mathit{from}}
+          {\sQueue, (\mathit{to}, \mathit{from}, V), \sQueue'}
+          {\sBlacklist}
+\rightarrow
+  \sSystem{\sCtxt{P}[ \sReturn \; V ]_\mathit{from}}
+          {\sQueue, \sQueue'}
+          {\sBlacklist}
+} \textsc{Expect}
+\end{equation*}
+
+\subsubsection{Spawning}
+
+\begin{equation*}
+\frac{
+  \sPid' \text{ fresh} \qquad
+  (\sNid, \sPid) \notin \sBlacklist
+}{
+  \sSystem{\sCtxt{P}[ \sSpawn \; \sNid \; M ]_\sPid[\sProcesses]_\sNid}
+          {\sQueue}
+          {\sBlacklist}
+\rightarrow          
+  \sSystem{\sCtxt{P}[ \sReturn \; (\sJust{\sPid'}) ]_\sPid[\sProcesses \sParP M_{\sPid'}]_\sNid}
+          {\sQueue}
+          {\sBlacklist}
+} \textsc{Spawn-Ok}
+\end{equation*}
+
+\begin{equation*}
+\frac{
+  (\sNid, \sPid) \in \sBlacklist
+}{
+  \sSystem{\sCtxt{P}[ \sSpawn \; \sNid \; M ]_\sPid}
+          {\sQueue}
+          {\sBlacklist}
+\rightarrow          
+  \sSystem{\sCtxt{P}[ \sReturn \; \sNothing ]_\sPid}
+          {\sQueue}
+          {\sBlacklist}
+} \textsc{Spawn-No}
+\end{equation*}
+
+\subsubsection{Reconnect}
+
+\begin{equation*}
+\frac{
+}{
+  \sSystem{\sCtxt{P}[ \sReconnect \; \mathit{id} ]_\sPid}
+          {\sQueue}
+          {\sBlacklist, (\mathit{id}, \sPid), \sBlacklist'}
+\rightarrow
+  \sSystem{\sCtxt{P}[ \sReturn \; () ]_\sPid}
+          {\sQueue}
+          {\sBlacklist, \sBlacklist'}
+} \textsc{Reconnect-Ok}
+\end{equation*}
+
+\begin{equation*}
+\frac{
+  (\mathit{id}, \sPid) \notin \sBlacklist
+}{
+  \sSystem{\sCtxt{P}[ \sReconnect \; \mathit{id} ]_\sPid}
+          {\sQueue}
+          {\sBlacklist}
+\rightarrow
+  \sSystem{\sCtxt{P}[ \sReturn \; () ]_\sPid}
+          {\sQueue}
+          {\sBlacklist}
+} \textsc{Reconnect-No}
+\end{equation*}
+
+\subsubsection{Administration}
+
+TODO: bind, pure evaluation, maybe exception handling
+
+\end{document}
