@@ -7,8 +7,7 @@ import qualified Data.ByteString.Lazy.Char8 as BSLC (putStrLn)
 
 -- SSL
 import Network.Azure.ServiceManagement 
-  ( SubscriptionId(SubscriptionId)
-  , azureRequest
+  ( azureRequest
   , fileReadCertificate
   , fileReadPrivateKey
   )
@@ -71,5 +70,5 @@ tryConnectToAzure :: String -> String -> String -> IO ()
 tryConnectToAzure sid pathToCert pathToKey = do
   cert <- fileReadCertificate pathToCert
   key  <- fileReadPrivateKey pathToKey
-  outp <- azureRequest (SubscriptionId sid) cert key "/services/hostedservices"
+  outp <- azureRequest sid cert key "/services/hostedservices" "2012-03-01"
   BSLC.putStrLn outp

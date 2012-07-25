@@ -1,8 +1,6 @@
 module Network.Azure.ServiceManagement 
-  (
-    -- * Submitting requests
-    SubscriptionId(SubscriptionId)
-  , azureRequest
+  ( -- * Submitting requests
+    azureRequest
     -- * Re-export functionality from TLS
   , fileReadCertificate
   , fileReadPrivateKey
@@ -23,18 +21,19 @@ import Network.HTTP.Conduit
   )
 import Data.CaseInsensitive as CI (mk)
 
-newtype SubscriptionId = SubscriptionId { unSubscriptionId :: String }
-
-azureRequest :: SubscriptionId -> X509 -> PrivateKey -> String -> IO ByteString
-azureRequest sid cert pkey subURL = do
-  req <- parseUrl ( "https://management.core.windows.net/" 
-                 ++ unSubscriptionId sid
-                 ++ subURL
-                  )
+-- ^ Execute an Azure request
+azureRequest :: String      -- ^ Subscription ID
+             -> X509        -- ^ X509 certificate
+             -> PrivateKey  -- ^ Private key
+             -> String      -- ^ Relative path
+             -> String      -- ^ Version
+             -> IO ByteString
+azureRequest sid cert pkey subURL version = do
+  req <- parseUrl $ "https://management.core.windows.net/" ++ sid++ subURL
   withManager $ \manager -> do
     let req' = req {
         clientCertificates = [ (cert, Just pkey) ]
-      , requestHeaders     = [ (CI.mk $ BSC.pack "x-ms-version", BSC.pack "2010-10-28")
+      , requestHeaders     = [ (CI.mk $ BSC.pack "x-ms-version", BSC.pack version)
                              , (CI.mk $ BSC.pack "content-type", BSC.pack "application/xml")
                              ]
       }
