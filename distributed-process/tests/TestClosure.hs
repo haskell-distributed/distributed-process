@@ -36,6 +36,12 @@ sendPid toPid = do
 wait :: Int -> Process ()
 wait = liftIO . threadDelay
 
+isPrime :: Integer -> Process Bool
+isPrime n = return . (n `elem`) . takeWhile (<= n) . sieve $ [2..]
+  where
+    sieve :: [Integer] -> [Integer]
+    sieve (p : xs) = p : sieve [x | x <- xs, x `mod` p > 0]
+
 -- | First argument indicates empty closure environment
 typedPingServer :: () -> ReceivePort (SendPort ()) -> Process ()
 typedPingServer () rport = forever $ do
@@ -49,6 +55,7 @@ remotable [ 'factorial
           , 'sdictInt
           , 'wait
           , 'typedPingServer
+          , 'isPrime
           ]
 
 factorialClosure :: Int -> Closure (Process Int)
@@ -296,6 +303,13 @@ testSpawnChannel transport rtable = do
     sendChan pingServer sendReply
     receiveChan receiveReply
 
+testTDict :: Transport -> RemoteTable -> IO ()
+testTDict transport rtable = do
+  [node1, node2] <- replicateM 2 $ newLocalNode transport rtable
+  runProcess node1 $ do
+    True <- call $(functionTDict 'isPrime) (localNodeId node2) ($(mkClosure 'isPrime) (79 :: Integer))
+    return ()
+
 main :: IO ()
 main = do
   Right transport <- createTransport "127.0.0.1" "8080" defaultTCPParameters
@@ -314,4 +328,5 @@ main = do
     , ("SpawnInvalid",    testSpawnInvalid    transport rtable)
     , ("ClosureExpect",   testClosureExpect   transport rtable)
     , ("SpawnChannel",    testSpawnChannel    transport rtable)
+    , ("TDict",           testTDict           transport rtable)
     ]

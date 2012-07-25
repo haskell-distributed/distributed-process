@@ -31,6 +31,7 @@ import Data.ByteString.Lazy (ByteString)
 import Data.Typeable (Typeable, typeOf, typeRepTyCon, TyCon)
 import Control.Applicative ((<$>))
 import Control.Monad ((>=>))
+import Control.Monad.Reader (ask)
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Internal.Types
   ( Closure(Closure)
@@ -43,7 +44,7 @@ import Control.Distributed.Process.Internal.Types
   , typeOfStaticLabel
   , ProcessId
   , LocalNode(remoteTable)
-  , procMsg
+  , LocalProcess(processNode)
   , SendPort
   , ReceivePort
   )
@@ -55,7 +56,6 @@ import Control.Distributed.Process.Internal.Primitives
   , newChan
   )
 import Control.Distributed.Process.Internal.Closure.TH (remotable, mkStatic)
-import Control.Distributed.Process.Internal.MessageT (getLocalNode)
 import Control.Distributed.Process.Internal.Closure.Resolution (resolveClosure)
 import Control.Distributed.Process.Internal.Closure.Static 
   ( staticCompose
@@ -118,7 +118,7 @@ sdictComp = SerializableDict
 -- | Resolve a closure
 unClosure :: Static a -> ByteString -> Process Dynamic
 unClosure (Static label) env = do
-  rtable <- remoteTable <$> procMsg getLocalNode 
+  rtable <- remoteTable . processNode <$> ask 
   case resolveClosure rtable label env of
     Nothing  -> fail "Derived.unClosure: resolveClosure failed"
     Just dyn -> return dyn

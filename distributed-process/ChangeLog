@@ -1,3 +1,15 @@
+2012-07-21  Edsko de Vries  <edsko@well-typed.com>  0.2.1.4
+
+* Bugfix in the node controller
+(one way this bug materialized: when using the SimpleLocalnet backend,
+slave nodes could not be reused)
+* Improved documentation in Control.Distributed.Process.Closure
+
+2012-07-20  Edsko de Vries  <edsko@well-typed.com>  0.2.1.3
+
+* Improve docs
+* Local versions of spawn
+
 2012-07-16  Edsko de Vries  <edsko@well-typed.com>  0.2.1.2
 
 * Base 4.6 compatibility

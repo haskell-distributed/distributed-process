@@ -17,7 +17,7 @@ module Control.Distributed.Process.Internal.Types
   , LocalProcess(..)
   , LocalProcessState(..)
   , Process(..)
-  , procMsg
+  , runLocalProcess
     -- * Typed channels
   , LocalSendPortId 
   , SendPortId(..)
@@ -58,14 +58,13 @@ module Control.Distributed.Process.Internal.Types
     -- * Node controller internal data types 
   , NCMsg(..)
   , ProcessSignal(..)
-    -- * MessageT monad
-  , MessageT(..)
-  , MessageState(..)
     -- * Accessors
   , localProcesses
   , localPidCounter
   , localPidUnique
+  , localConnections
   , localProcessWithId
+  , localConnectionBetween
   , monitorCounter
   , spawnCounter
   , channelCounter
@@ -97,10 +96,8 @@ import Control.Concurrent.Chan (Chan)
 import Control.Concurrent.STM (TChan, TVar)
 import qualified Network.Transport as NT (EndPoint, EndPointAddress, Connection)
 import Control.Applicative (Applicative, (<$>), (<*>))
-import Control.Monad.Reader (MonadReader(..), ReaderT)
+import Control.Monad.Reader (MonadReader(..), ReaderT, runReaderT)
 import Control.Monad.IO.Class (MonadIO)
-import Control.Monad.State (MonadState, StateT)
-import qualified Control.Monad.Trans.Class as Trans (lift)
 import Control.Distributed.Process.Serializable 
   ( Fingerprint
   , Serializable
@@ -131,10 +128,7 @@ data LocalProcessId = LocalProcessId
   { lpidUnique  :: Int32
   , lpidCounter :: Int32
   }
-  deriving (Eq, Ord, Typeable)
-
-instance Show LocalProcessId where
-  show = show . lpidCounter 
+  deriving (Eq, Ord, Typeable, Show)
 
 -- | Process identifier
 data ProcessId = ProcessId 
@@ -187,9 +181,10 @@ data LocalNode = LocalNode
 
 -- | Local node state
 data LocalNodeState = LocalNodeState 
-  { _localProcesses  :: Map LocalProcessId LocalProcess
-  , _localPidCounter :: Int32
-  , _localPidUnique  :: Int32
+  { _localProcesses   :: Map LocalProcessId LocalProcess
+  , _localPidCounter  :: Int32
+  , _localPidUnique   :: Int32
+  , _localConnections :: Map (Identifier, Identifier) NT.Connection
   }
 
 -- | Processes running on our local node
@@ -198,7 +193,12 @@ data LocalProcess = LocalProcess
   , processId     :: ProcessId
   , processState  :: MVar LocalProcessState
   , processThread :: ThreadId
+  , processNode   :: LocalNode
   }
+
+-- | Deconstructor for 'Process' (not exported to the public API) 
+runLocalProcess :: LocalProcess -> Process a -> IO a
+runLocalProcess lproc proc = runReaderT (unProcess proc) lproc
 
 -- | Local process state
 data LocalProcessState = LocalProcessState
@@ -210,12 +210,9 @@ data LocalProcessState = LocalProcessState
 
 -- | The Cloud Haskell 'Process' type
 newtype Process a = Process { 
-    unProcess :: ReaderT LocalProcess (MessageT IO) a 
+    unProcess :: ReaderT LocalProcess IO a 
   }
   deriving (Functor, Monad, MonadIO, MonadReader LocalProcess, Typeable, Applicative)
-
-procMsg :: MessageT IO a -> Process a
-procMsg = Process . Trans.lift 
 
 --------------------------------------------------------------------------------
 -- Typed channels                                                             --
@@ -574,8 +571,14 @@ localPidCounter = accessor _localPidCounter (\ctr st -> st { _localPidCounter = 
 localPidUnique :: Accessor LocalNodeState Int32
 localPidUnique = accessor _localPidUnique (\unq st -> st { _localPidUnique = unq })
 
+localConnections :: Accessor LocalNodeState (Map (Identifier, Identifier) NT.Connection)
+localConnections = accessor _localConnections (\conns st -> st { _localConnections = conns })
+
 localProcessWithId :: LocalProcessId -> Accessor LocalNodeState (Maybe LocalProcess)
 localProcessWithId lpid = localProcesses >>> DAC.mapMaybe lpid
+
+localConnectionBetween :: Identifier -> Identifier -> Accessor LocalNodeState (Maybe NT.Connection)
+localConnectionBetween from to = localConnections >>> DAC.mapMaybe (from, to)
 
 monitorCounter :: Accessor LocalProcessState Int32
 monitorCounter = accessor _monitorCounter (\cnt st -> st { _monitorCounter = cnt })
@@ -597,15 +600,3 @@ remoteTableLabels = accessor _remoteTableLabels (\ls tbl -> tbl { _remoteTableLa
 
 remoteTableLabel :: String -> Accessor RemoteTable (Maybe Dynamic)
 remoteTableLabel label = remoteTableLabels >>> DAC.mapMaybe label
-
---------------------------------------------------------------------------------
--- MessageT monad                                                             --
---------------------------------------------------------------------------------
-
-newtype MessageT m a = MessageT { unMessageT :: StateT MessageState m a }
-  deriving (Functor, Monad, MonadIO, MonadState MessageState, Applicative)
-
-data MessageState = MessageState { 
-     messageLocalNode   :: LocalNode
-  , _messageConnections :: Map Identifier NT.Connection 
-  }

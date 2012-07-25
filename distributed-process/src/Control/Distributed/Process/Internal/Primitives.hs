@@ -68,7 +68,7 @@ import Control.Monad.Reader (ask)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Applicative ((<$>))
 import Control.Exception (Exception, throw)
-import qualified Control.Exception as Exception (catch)
+import qualified Control.Exception as Ex (catch)
 import Control.Concurrent.MVar (modifyMVar)
 import Control.Concurrent.Chan (writeChan)
 import Control.Concurrent.STM 
@@ -106,7 +106,6 @@ import Control.Distributed.Process.Internal.Types
   , TypedChannel(..)
   , SendPortId(..)
   , Identifier(..)
-  , procMsg
   , DidUnmonitor(..)
   , DidUnlinkProcess(..)
   , DidUnlinkNode(..)
@@ -114,13 +113,9 @@ import Control.Distributed.Process.Internal.Types
   , WhereIsReply(..)
   , createMessage
   , Static(..)
+  , runLocalProcess
   )
-import Control.Distributed.Process.Internal.MessageT 
-  ( sendMessage
-  , sendBinary
-  , getLocalNode
-  )  
-import Control.Distributed.Process.Internal.Node (runLocalProcess)
+import Control.Distributed.Process.Internal.Node (sendMessage, sendBinary) 
 import Control.Distributed.Process.Internal.Closure.Resolution (resolveClosure)
 import Control.Distributed.Process.Internal.Dynamic (fromDyn, dynTypeRep)
 
@@ -132,7 +127,12 @@ import Control.Distributed.Process.Internal.Dynamic (fromDyn, dynTypeRep)
 send :: Serializable a => ProcessId -> a -> Process ()
 -- This requires a lookup on every send. If we want to avoid that we need to
 -- modify serializable to allow for stateful (IO) deserialization
-send them msg = procMsg $ sendMessage (ProcessIdentifier them) msg 
+send them msg = do
+  proc <- ask 
+  liftIO $ sendMessage (processNode proc) 
+                       (ProcessIdentifier (processId proc)) 
+                       (ProcessIdentifier them)
+                       msg
 
 -- | Wait for a message of a specific type
 expect :: forall a. Serializable a => Process a
@@ -163,7 +163,12 @@ newChan = do
 
 -- | Send a message on a typed channel
 sendChan :: Serializable a => SendPort a -> a -> Process ()
-sendChan (SendPort cid) msg = procMsg $ sendBinary (SendPortIdentifier cid) msg 
+sendChan (SendPort cid) msg = do
+  proc <- ask
+  liftIO $ sendBinary (processNode proc)
+                      (ProcessIdentifier (processId proc))
+                      (SendPortIdentifier cid) 
+                      msg 
 
 -- | Wait for a message on a typed channel
 receiveChan :: Serializable a => ReceivePort a -> Process a
@@ -261,7 +266,7 @@ getSelfPid = processId <$> ask
 
 -- | Get the node ID of our local node
 getSelfNode :: Process NodeId
-getSelfNode = localNodeId <$> procMsg getLocalNode
+getSelfNode = localNodeId . processNode <$> ask 
 
 --------------------------------------------------------------------------------
 -- Monitoring and linking                                                     --
@@ -318,11 +323,8 @@ unmonitor ref = do
 -- | Catch exceptions within a process
 catch :: Exception e => Process a -> (e -> Process a) -> Process a
 catch p h = do
-  node  <- procMsg getLocalNode
   lproc <- ask
-  let run :: Process a -> IO a
-      run proc = runLocalProcess node proc lproc 
-  liftIO $ Exception.catch (run p) (run . h) 
+  liftIO $ Ex.catch (runLocalProcess lproc p) (runLocalProcess lproc . h) 
 
 -- | Like 'expect' but with a timeout
 expectTimeout :: forall a. Serializable a => Int -> Process (Maybe a)
@@ -460,7 +462,7 @@ nsendRemote nid label msg =
 -- | Deserialize a closure
 unClosure :: forall a. Typeable a => Closure a -> Process a
 unClosure (Closure (Static label) env) = do
-    rtable <- remoteTable <$> procMsg getLocalNode 
+    rtable <- remoteTable . processNode <$> ask 
     case resolveClosure rtable label env of
       Nothing  -> throw . userError $ "Unregistered closure " ++ show label
       Just dyn -> return $ fromDyn dyn (throw (typeError dyn))
@@ -507,14 +509,16 @@ sendCtrlMsg :: Maybe NodeId  -- ^ Nothing for the local node
             -> ProcessSignal -- ^ Message to send 
             -> Process ()
 sendCtrlMsg mNid signal = do            
-  us <- getSelfPid
-  let msg = NCMsg { ctrlMsgSender = ProcessIdentifier us
+  proc <- ask
+  let msg = NCMsg { ctrlMsgSender = ProcessIdentifier (processId proc) 
                   , ctrlMsgSignal = signal
                   }
   case mNid of
     Nothing -> do
-      ctrlChan <- localCtrlChan <$> procMsg getLocalNode 
+      ctrlChan <- localCtrlChan . processNode <$> ask 
       liftIO $ writeChan ctrlChan msg 
     Just nid ->
-      procMsg $ sendBinary (NodeIdentifier nid) msg
-
+      liftIO $ sendBinary (processNode proc)
+                          (ProcessIdentifier (processId proc))
+                          (NodeIdentifier nid)
+                          msg
