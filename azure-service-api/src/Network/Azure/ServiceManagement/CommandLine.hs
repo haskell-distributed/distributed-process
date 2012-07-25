@@ -1,4 +1,5 @@
 -- Base
+import Control.Monad (forM_)
 import System.Environment (getArgs, getEnv)
 import System.FilePath ((</>))
 import System.Posix.Types (Fd)
@@ -7,6 +8,7 @@ import System.Posix.Types (Fd)
 import Network.Azure.ServiceManagement 
   ( azureSetup
   , hostedServices
+  , hostedServiceProperties
   )
 
 -- SSH
@@ -68,4 +70,7 @@ tryConnectToAzure sid pathToCert pathToKey = do
   setup <- azureSetup sid pathToCert pathToKey
   services <- hostedServices setup
   mapM_ print services 
+  forM_ services $ \service -> do
+    props <- hostedServiceProperties setup service
+    print props
 

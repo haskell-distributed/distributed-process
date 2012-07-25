@@ -1,10 +1,13 @@
 {-# LANGUAGE Arrows #-}
 module Network.Azure.ServiceManagement 
-  ( -- * Setup
-    AzureSetup(..)
+  ( -- * Data types
+    HostedService
+    -- * Setup
+  , AzureSetup(..)
   , azureSetup
     -- * High-level API
   , hostedServices
+  , hostedServiceProperties
     -- * Low-level API 
   , azureRequest
   , azureRawRequest
@@ -12,6 +15,7 @@ module Network.Azure.ServiceManagement
 
 import Prelude hiding (id)
 import Control.Category (id, (>>>))
+import Control.Arrow (arr)
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Char8 as BSC (pack)
 import Data.ByteString.Lazy.Char8 as BSLC (unpack)
@@ -34,12 +38,24 @@ import Text.XML.HXT.Core
   , no
   , XmlTree
   , IOSArrow
-  , XNode
   , ArrowXml
   , deep
   , hasName
   , getText
+  -- FOR DEBUGGING ONLY
+  , writeDocument
+  , withIndent
+  , yes
   )
+
+--------------------------------------------------------------------------------
+-- Data types                                                                 --
+--------------------------------------------------------------------------------
+
+newtype HostedService = HostedService { unHostedService :: String }
+
+instance Show HostedService where
+  show = unHostedService
 
 --------------------------------------------------------------------------------
 -- Setup                                                                      --
@@ -72,13 +88,25 @@ azureSetup sid certPath pkeyPath = do
 -- High-level API                                                             --
 --------------------------------------------------------------------------------
 
-hostedServices :: AzureSetup -> IO [(String, String)]
+-- | Get list of available hosted services
+hostedServices :: AzureSetup -> IO [HostedService] 
 hostedServices setup =
-  azureRequest setup "/services/hostedservices" "2012-03-01" $ proc xml -> do 
-    hostedService <- deep (hasName "HostedService") -< xml 
-    url           <- getTextNode "Url"         -< hostedService
-    serviceName   <- getTextNode "ServiceName" -< hostedService
-    id -< (url, serviceName)
+    azureRequest setup subURL "2012-03-01" $ proc xml -> do 
+      writeDocument [withIndent yes] "hostedservices.xml" -< xml
+      hostedService <- deep (hasName "HostedService") -< xml 
+      name <- getTextNode "ServiceName" -< hostedService
+      arr HostedService -< name
+  where
+    subURL = "/services/hostedservices"
+
+-- | Get properties of the given hosted service
+hostedServiceProperties :: AzureSetup -> HostedService -> IO [()]
+hostedServiceProperties setup (HostedService service) = do
+    azureRequest setup subURL "2012-03-01" $ proc xml -> do
+      writeDocument [withIndent yes] "properties.xml" -< xml
+      id -< ()
+  where
+    subURL = "/services/hostedservices/" ++ service ++ "?embed-detail=true"
 
 --------------------------------------------------------------------------------
 -- Low-level API                                                              --
