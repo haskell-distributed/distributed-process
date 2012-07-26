@@ -1,27 +1,29 @@
 {-# LANGUAGE Arrows #-}
 module Network.Azure.ServiceManagement 
   ( -- * Data types
-    HostedService
+    HostedService(..)
+  , Role(..)
+  , Endpoint(..)
     -- * Setup
   , AzureSetup(..)
   , azureSetup
     -- * High-level API
   , hostedServices
-  , hostedServiceProperties
-    -- * Low-level API 
-  , azureRequest
-  , azureRawRequest
+  , virtualMachines
   ) where
 
-import Prelude hiding (id)
-import Control.Category (id, (>>>))
+import Prelude hiding (id, (.))
+import Control.Category (id, (>>>), (.))
 import Control.Arrow (arr)
-import Data.ByteString.Lazy (ByteString)
+import Control.Monad (forM)
 import Data.ByteString.Char8 as BSC (pack)
 import Data.ByteString.Lazy.Char8 as BSLC (unpack)
 import Network.TLS (PrivateKey)
 import Network.TLS.Extra (fileReadCertificate, fileReadPrivateKey)
 import Data.Certificate.X509 (X509)
+import Control.Monad.Trans.Resource (ResourceT)
+import Control.Monad.IO.Class (liftIO)
+import Control.Arrow.ArrowList (listA)
 import Network.HTTP.Conduit 
   ( parseUrl
   , clientCertificates
@@ -29,6 +31,7 @@ import Network.HTTP.Conduit
   , withManager
   , Response(Response)
   , httpLbs
+  , Manager
   )
 import Data.CaseInsensitive as CI (mk)
 import Text.XML.HXT.Core 
@@ -39,23 +42,34 @@ import Text.XML.HXT.Core
   , XmlTree
   , IOSArrow
   , ArrowXml
-  , deep
-  , hasName
   , getText
-  -- FOR DEBUGGING ONLY
-  , writeDocument
-  , withIndent
-  , yes
   )
+import Text.XML.HXT.XPath (getXPathTrees)
 
 --------------------------------------------------------------------------------
 -- Data types                                                                 --
 --------------------------------------------------------------------------------
 
-newtype HostedService = HostedService { unHostedService :: String }
+data HostedService = HostedService { 
+    hostedServiceName :: String 
+  }
 
 instance Show HostedService where
-  show = unHostedService
+  show = hostedServiceName 
+
+data Role = Role { 
+    roleName :: String
+  }
+
+instance Show Role where
+  show = roleName
+
+data Endpoint = Endpoint {
+   endpointName :: String
+ , endpointPort :: String 
+ , endpointVip  :: String
+ }
+ deriving Show
 
 --------------------------------------------------------------------------------
 -- Setup                                                                      --
@@ -66,7 +80,7 @@ data AzureSetup = AzureSetup
   { subscriptionId :: String
   , certificate    :: X509
   , privateKey     :: PrivateKey
-  , baseURL        :: String
+  , baseUrl        :: String
   }
 
 -- | Initialize Azure
@@ -81,67 +95,73 @@ azureSetup sid certPath pkeyPath = do
       subscriptionId = sid
     , certificate    = cert
     , privateKey     = pkey
-    , baseURL        = "https://management.core.windows.net"
+    , baseUrl        = "https://management.core.windows.net"
     }
 
 --------------------------------------------------------------------------------
 -- High-level API                                                             --
 --------------------------------------------------------------------------------
 
+-- | Get a list of virtual machines
+virtualMachines :: AzureSetup -> IO [(HostedService, [(Role, [Endpoint])])]
+virtualMachines setup = azureExecute setup $ \exec -> do
+  services <- exec hostedServicesRequest
+  forM services $ \service -> do
+    roles <- exec AzureRequest {
+        relativeUrl = "/services/hostedservices/" ++ hostedServiceName service 
+                   ++ "?embed-detail=true"
+      , apiVersion  = "2012-03-01"
+      , parser      = proc xml -> do
+          role      <- getXPathTrees "//Role[@type='PersistentVMRole']" -< xml
+          name      <- getText . getXPathTrees "/Role/RoleName/text()" -< role
+          endpoints <- listA (parseEndpoint . getXPathTrees "//InputEndpoint") -< role
+          id -< (Role name, endpoints)
+      }
+    return (service, roles) 
+
 -- | Get list of available hosted services
 hostedServices :: AzureSetup -> IO [HostedService] 
-hostedServices setup =
-    azureRequest setup subURL "2012-03-01" $ proc xml -> do 
-      writeDocument [withIndent yes] "hostedservices.xml" -< xml
-      hostedService <- deep (hasName "HostedService") -< xml 
-      name <- getTextNode "ServiceName" -< hostedService
-      arr HostedService -< name
-  where
-    subURL = "/services/hostedservices"
+hostedServices setup = azureExecute setup (\exec -> exec hostedServicesRequest) 
 
--- | Get properties of the given hosted service
-hostedServiceProperties :: AzureSetup -> HostedService -> IO [()]
-hostedServiceProperties setup (HostedService service) = do
-    azureRequest setup subURL "2012-03-01" $ proc xml -> do
-      writeDocument [withIndent yes] "properties.xml" -< xml
-      id -< ()
-  where
-    subURL = "/services/hostedservices/" ++ service ++ "?embed-detail=true"
+hostedServicesRequest :: AzureRequest HostedService
+hostedServicesRequest = AzureRequest 
+  { relativeUrl = "/services/hostedservices"
+  , apiVersion  = "2012-03-01"
+  , parser      = arr HostedService 
+                . getText 
+                . getXPathTrees "//ServiceName/text()"
+  }
+
+parseEndpoint :: ArrowXml t => t XmlTree Endpoint 
+parseEndpoint = proc endpoint -> do
+  name <- getText . getXPathTrees "//Name/text()" -< endpoint
+  port <- getText . getXPathTrees "//Port/text()" -< endpoint
+  vip  <- getText . getXPathTrees "//Vip/text()" -< endpoint
+  id -< Endpoint name port vip
 
 --------------------------------------------------------------------------------
 -- Low-level API                                                              --
 --------------------------------------------------------------------------------
 
--- | Execute an Azure request and parse the XML data 
-azureRequest :: AzureSetup
-             -> String
-             -> String
-             -> IOSArrow XmlTree c
-             -> IO [c]
-azureRequest setup subURL version f = do
-  raw <- azureRawRequest setup subURL version
-  runX $ readString [withValidate no] (BSLC.unpack raw) >>> f
+data AzureRequest c = AzureRequest {
+    relativeUrl :: String
+  , apiVersion  :: String
+  , parser      :: IOSArrow XmlTree c
+  }
 
--- | Execute an Azure request and return the raw data
-azureRawRequest :: AzureSetup 
-                -> String      -- ^ Relative path
-                -> String      -- ^ Version
-                -> IO ByteString
-azureRawRequest setup subURL version = do
-  req <- parseUrl $ baseURL setup ++ "/" ++ subscriptionId setup ++ "/" ++ subURL 
-  withManager $ \manager -> do
-    let req' = req {
-        clientCertificates = [ (certificate setup, Just $ privateKey setup) ]
-      , requestHeaders     = [ (CI.mk $ BSC.pack "x-ms-version", BSC.pack version)
-                             , (CI.mk $ BSC.pack "content-type", BSC.pack "application/xml")
-                             ]
-      }
-    Response _ _ _ lbs <- httpLbs req' manager 
-    return lbs
-
---------------------------------------------------------------------------------
--- XML convenience functions                                                  --
---------------------------------------------------------------------------------
-
-getTextNode :: ArrowXml a => String -> a XmlTree String
-getTextNode node = deep (hasName node) >>> deep getText
+azureExecute :: AzureSetup -> ((forall b. AzureRequest b -> ResourceT IO [b]) -> ResourceT IO a) -> IO a
+azureExecute setup f = withManager (\manager -> f (go manager)) 
+  where
+    go :: Manager -> forall b. AzureRequest b -> ResourceT IO [b]
+    go manager request = do
+      req <- parseUrl $ baseUrl setup 
+                     ++ "/" ++ subscriptionId setup 
+                     ++ "/" ++ relativeUrl request
+      let req' = req {
+          clientCertificates = [ (certificate setup, Just $ privateKey setup) ]
+        , requestHeaders     = [ (CI.mk $ BSC.pack "x-ms-version", BSC.pack $ apiVersion request)
+                               , (CI.mk $ BSC.pack "content-type", BSC.pack "application/xml")
+                               ]
+        }
+      Response _ _ _ lbs <- httpLbs req' manager 
+      liftIO . runX $ readString [withValidate no] (BSLC.unpack lbs) >>> parser request

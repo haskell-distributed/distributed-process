@@ -1,5 +1,4 @@
 -- Base
-import Control.Monad (forM_)
 import System.Environment (getArgs, getEnv)
 import System.FilePath ((</>))
 import System.Posix.Types (Fd)
@@ -7,8 +6,7 @@ import System.Posix.Types (Fd)
 -- SSL
 import Network.Azure.ServiceManagement 
   ( azureSetup
-  , hostedServices
-  , hostedServiceProperties
+  , virtualMachines
   )
 
 -- SSH
@@ -62,15 +60,11 @@ ssh login host port actions = do
   exit
 
 --------------------------------------------------------------------------------
--- Taken from tls-debug/src/SimpleClient.hs                                   --
+-- Azure tests                                                                -- 
 --------------------------------------------------------------------------------
 
 tryConnectToAzure :: String -> String -> String -> IO ()
 tryConnectToAzure sid pathToCert pathToKey = do
   setup <- azureSetup sid pathToCert pathToKey
-  services <- hostedServices setup
-  mapM_ print services 
-  forM_ services $ \service -> do
-    props <- hostedServiceProperties setup service
-    print props
-
+  vms <- virtualMachines setup
+  mapM_ print vms 
