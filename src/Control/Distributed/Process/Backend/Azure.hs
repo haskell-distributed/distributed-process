@@ -5,20 +5,24 @@ module Control.Distributed.Process.Backend.Azure
   , defaultAzureParameters
   , initializeBackend
     -- * Re-exports from Azure Service Management
-  , VirtualMachine(..)
+  , CloudService(..)
   ) where
 
 import System.Environment (getEnv)
 import System.FilePath ((</>))
+import System.Environment.Executable (getExecutablePath)
 import Network.Azure.ServiceManagement 
-  ( VirtualMachine 
-  , virtualMachines
+  ( CloudService )
+import qualified Network.Azure.ServiceManagement as Azure
+  ( cloudServices 
+  , AzureSetup
   , azureSetup
-  )
+  ) 
 
 -- | Azure backend
 data Backend = Backend {
-    findVMs :: IO [VirtualMachine]
+    -- | Find virtual machines
+    cloudServices :: IO [CloudService]
   }
 
 data AzureParameters = AzureParameters {
@@ -31,7 +35,7 @@ data AzureParameters = AzureParameters {
   }
 
 -- | Create default azure parameters
-defaultAzureParameters :: String  -- ^ Azure subscription ID
+defaultAzureParameters :: String    -- ^ Azure subscription ID
                        -> FilePath  -- ^ Path to X509 certificate
                        -> FilePath  -- ^ Path to private key
                        -> IO AzureParameters
@@ -49,10 +53,11 @@ defaultAzureParameters sid x509 pkey = do
 -- | Initialize the backend
 initializeBackend :: AzureParameters -> IO Backend
 initializeBackend params = do
-  setup <- azureSetup (azureSubscriptionId params)
-                      (azureAuthCertificate params)
-                      (azureAuthPrivateKey params)
+  setup <- Azure.azureSetup (azureSubscriptionId params)
+                            (azureAuthCertificate params)
+                            (azureAuthPrivateKey params)
+  exe <- getExecutablePath
+  print exe
   return Backend {
-      findVMs = virtualMachines setup
+      cloudServices = Azure.cloudServices setup
     }
-   

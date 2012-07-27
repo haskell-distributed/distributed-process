@@ -4,7 +4,7 @@ import System.Posix.Types (Fd)
 import Control.Distributed.Process.Backend.Azure 
   ( defaultAzureParameters
   , initializeBackend 
-  , findVMs
+  , cloudServices 
   )
 
 -- SSH
@@ -65,5 +65,5 @@ tryConnectToAzure :: String -> String -> String -> IO ()
 tryConnectToAzure sid pathToCert pathToKey = do
   params  <- defaultAzureParameters sid pathToCert pathToKey
   backend <- initializeBackend params
-  vms     <- findVMs backend 
-  mapM_ print vms 
+  css     <- cloudServices backend 
+  mapM_ print css 
