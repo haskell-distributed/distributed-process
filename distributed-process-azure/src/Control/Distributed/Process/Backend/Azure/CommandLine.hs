@@ -1,13 +1,10 @@
--- Base
 import System.Environment (getArgs, getEnv)
 import System.FilePath ((</>))
 import System.Posix.Types (Fd)
-
--- SSL
-import Network.Azure.ServiceManagement 
-  ( azureSetup
-  , virtualMachines
-  , vmSshEndpoints
+import Control.Distributed.Process.Backend.Azure 
+  ( defaultAzureParameters
+  , initializeBackend 
+  , findVMs
   )
 
 -- SSH
@@ -66,6 +63,7 @@ ssh login host port actions = do
 
 tryConnectToAzure :: String -> String -> String -> IO ()
 tryConnectToAzure sid pathToCert pathToKey = do
-  setup <- azureSetup sid pathToCert pathToKey
-  vms <- virtualMachines setup
-  mapM_ print (map vmSshEndpoints vms) 
+  params  <- defaultAzureParameters sid pathToCert pathToKey
+  backend <- initializeBackend params
+  vms     <- findVMs backend 
+  mapM_ print vms 
