@@ -1,0 +1,26 @@
+Name:          distributed-process-azure
+Version:       0.1.0
+Cabal-Version: >=1.8
+Build-Type:    Simple
+License:       BSD3 
+License-File:  LICENSE
+Copyright:     Well-Typed LLP
+Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
+Maintainer:    edsko@well-typed.com, dcoutts@well-typed.com
+Stability:     experimental
+Homepage:      http://github.com/haskell-distributed/distributed-process
+Bug-Reports:   mailto:edsko@well-typed.com
+Synopsis:      Microsoft Azure backend for Cloud Haskell 
+Category:      Control 
+
+Source-Repository head
+  Type:     git
+  Location: https://github.com/haskell-distributed/distributed-process
+  SubDir:   distributed-process-azure
+
+Library
+  Build-Depends:     base >= 4.4 && < 5,
+                     azure-service-api
+  Exposed-modules:   Control.Distributed.Process.Backend.Azure
+  ghc-options:       -Wall
+  HS-Source-Dirs:    src
