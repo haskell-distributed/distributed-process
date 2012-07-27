@@ -87,13 +87,11 @@ apiStartOnVM :: AzureParameters -> VirtualMachine -> IO ()
 apiStartOnVM params vm = do
   _ <- SSH.initialize True
   let ep = Azure.vmSshEndpoint vm
-  SSH.withSSH2 (azureSshKnownHosts params)
+  _ <- SSH.withSSH2 (azureSshKnownHosts params)
                (azureSshPublicKey params)
                (azureSshPrivateKey params)
                (azureSshUserName params)
                (endpointVip ep)
                (read $ endpointPort ep) $ \fd s ch -> do
-      _ <- SSH.retryIfNeeded fd s $ SSH.channelExecute ch "/home/edsko/testservice"
-      threadDelay $ 10 * 1000000 -- 10 seconds
-      return ()
+      SSH.retryIfNeeded fd s $ SSH.channelExecute ch "nohup /home/edsko/testservice >/dev/null 2>&1 &"
   SSH.exit
