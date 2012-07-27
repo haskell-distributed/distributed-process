@@ -4,6 +4,9 @@ module Network.Azure.ServiceManagement
     HostedService(..)
   , Role(..)
   , Endpoint(..)
+  , VirtualMachine(..)
+    -- * Pure functions
+  , vmSshEndpoints
     -- * Setup
   , AzureSetup(..)
   , azureSetup
@@ -58,11 +61,10 @@ instance Show HostedService where
   show = hostedServiceName 
 
 data Role = Role { 
-    roleName :: String
+    roleName           :: String
+  , roleInputEndpoints :: [Endpoint]
   }
-
-instance Show Role where
-  show = roleName
+  deriving Show
 
 data Endpoint = Endpoint {
    endpointName :: String
@@ -70,6 +72,23 @@ data Endpoint = Endpoint {
  , endpointVip  :: String
  }
  deriving Show
+
+data VirtualMachine = VirtualMachine {
+    vmService :: HostedService
+  , vmRoles   :: [Role]
+  }
+  deriving Show
+
+--------------------------------------------------------------------------------
+-- Pure operations                                                            --
+--------------------------------------------------------------------------------
+
+vmSshEndpoints :: VirtualMachine -> [Endpoint] 
+vmSshEndpoints vm =
+  [ ep 
+  | ep <- concatMap roleInputEndpoints (vmRoles vm)
+  , endpointName ep == "SSH"
+  ]
 
 --------------------------------------------------------------------------------
 -- Setup                                                                      --
@@ -103,7 +122,7 @@ azureSetup sid certPath pkeyPath = do
 --------------------------------------------------------------------------------
 
 -- | Get a list of virtual machines
-virtualMachines :: AzureSetup -> IO [(HostedService, [(Role, [Endpoint])])]
+virtualMachines :: AzureSetup -> IO [VirtualMachine]
 virtualMachines setup = azureExecute setup $ \exec -> do
   services <- exec hostedServicesRequest
   forM services $ \service -> do
@@ -115,9 +134,9 @@ virtualMachines setup = azureExecute setup $ \exec -> do
           role      <- getXPathTrees "//Role[@type='PersistentVMRole']" -< xml
           name      <- getText . getXPathTrees "/Role/RoleName/text()" -< role
           endpoints <- listA (parseEndpoint . getXPathTrees "//InputEndpoint") -< role
-          id -< (Role name, endpoints)
+          id -< Role name endpoints
       }
-    return (service, roles) 
+    return $ VirtualMachine service roles
 
 -- | Get list of available hosted services
 hostedServices :: AzureSetup -> IO [HostedService] 
