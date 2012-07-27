@@ -2,17 +2,17 @@
 module Network.Azure.ServiceManagement 
   ( -- * Data types
     HostedService(..)
-  , Role(..)
-  , Endpoint(..)
+  , CloudService(..)
   , VirtualMachine(..)
+  , Endpoint(..)
     -- * Pure functions
-  , vmSshEndpoints
+  , cloudServiceSshEndpoints 
     -- * Setup
   , AzureSetup(..)
   , azureSetup
     -- * High-level API
   , hostedServices
-  , virtualMachines
+  , cloudServices 
   ) where
 
 import Prelude hiding (id, (.))
@@ -56,13 +56,17 @@ import Text.XML.HXT.XPath (getXPathTrees)
 data HostedService = HostedService { 
     hostedServiceName :: String 
   }
+  deriving Show
 
-instance Show HostedService where
-  show = hostedServiceName 
+data CloudService = CloudService {
+    cloudServiceName :: String 
+  , cloudServiceVMs  :: [VirtualMachine]
+  }
+  deriving Show
 
-data Role = Role { 
-    roleName           :: String
-  , roleInputEndpoints :: [Endpoint]
+data VirtualMachine = VirtualMachine { 
+    vmName           :: String
+  , vmInputEndpoints :: [Endpoint]
   }
   deriving Show
 
@@ -73,20 +77,14 @@ data Endpoint = Endpoint {
  }
  deriving Show
 
-data VirtualMachine = VirtualMachine {
-    vmService :: HostedService
-  , vmRoles   :: [Role]
-  }
-  deriving Show
-
 --------------------------------------------------------------------------------
 -- Pure operations                                                            --
 --------------------------------------------------------------------------------
 
-vmSshEndpoints :: VirtualMachine -> [Endpoint] 
-vmSshEndpoints vm =
+cloudServiceSshEndpoints :: CloudService -> [Endpoint] 
+cloudServiceSshEndpoints cs =
   [ ep 
-  | ep <- concatMap roleInputEndpoints (vmRoles vm)
+  | ep <- concatMap vmInputEndpoints (cloudServiceVMs cs)
   , endpointName ep == "SSH"
   ]
 
@@ -122,8 +120,8 @@ azureSetup sid certPath pkeyPath = do
 --------------------------------------------------------------------------------
 
 -- | Get a list of virtual machines
-virtualMachines :: AzureSetup -> IO [VirtualMachine]
-virtualMachines setup = azureExecute setup $ \exec -> do
+cloudServices :: AzureSetup -> IO [CloudService]
+cloudServices setup = azureExecute setup $ \exec -> do
   services <- exec hostedServicesRequest
   forM services $ \service -> do
     roles <- exec AzureRequest {
@@ -134,9 +132,9 @@ virtualMachines setup = azureExecute setup $ \exec -> do
           role      <- getXPathTrees "//Role[@type='PersistentVMRole']" -< xml
           name      <- getText . getXPathTrees "/Role/RoleName/text()" -< role
           endpoints <- listA (parseEndpoint . getXPathTrees "//InputEndpoint") -< role
-          id -< Role name endpoints
+          id -< VirtualMachine name endpoints
       }
-    return $ VirtualMachine service roles
+    return $ CloudService (hostedServiceName service) roles
 
 -- | Get list of available hosted services
 hostedServices :: AzureSetup -> IO [HostedService] 
