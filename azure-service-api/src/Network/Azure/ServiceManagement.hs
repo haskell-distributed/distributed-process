@@ -6,7 +6,7 @@ module Network.Azure.ServiceManagement
   , VirtualMachine(..)
   , Endpoint(..)
     -- * Pure functions
-  , cloudServiceSshEndpoints 
+  , vmSshEndpoint 
     -- * Setup
   , AzureSetup(..)
   , azureSetup
@@ -81,10 +81,10 @@ data Endpoint = Endpoint {
 -- Pure operations                                                            --
 --------------------------------------------------------------------------------
 
-cloudServiceSshEndpoints :: CloudService -> [Endpoint] 
-cloudServiceSshEndpoints cs =
-  [ ep 
-  | ep <- concatMap vmInputEndpoints (cloudServiceVMs cs)
+vmSshEndpoint :: VirtualMachine -> Endpoint
+vmSshEndpoint vm = head 
+  [ ep
+  | ep <- vmInputEndpoints vm
   , endpointName ep == "SSH"
   ]
 
