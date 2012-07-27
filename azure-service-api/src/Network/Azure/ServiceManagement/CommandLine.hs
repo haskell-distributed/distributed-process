@@ -7,6 +7,7 @@ import System.Posix.Types (Fd)
 import Network.Azure.ServiceManagement 
   ( azureSetup
   , virtualMachines
+  , vmSshEndpoints
   )
 
 -- SSH
@@ -67,4 +68,4 @@ tryConnectToAzure :: String -> String -> String -> IO ()
 tryConnectToAzure sid pathToCert pathToKey = do
   setup <- azureSetup sid pathToCert pathToKey
   vms <- virtualMachines setup
-  mapM_ print vms 
+  mapM_ print (map vmSshEndpoints vms) 
