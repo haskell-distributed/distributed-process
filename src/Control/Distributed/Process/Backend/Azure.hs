@@ -25,6 +25,7 @@ import qualified Network.Azure.ServiceManagement as Azure
 import qualified Network.SSH.Client.LibSSH2 as SSH
   ( withSSH2
   , execCommands
+  , scpSendFile
   )
 import qualified Network.SSH.Client.LibSSH2.Foreign as SSH
   ( initialize 
@@ -68,7 +69,7 @@ defaultAzureParameters sid x509 pkey = do
     , azureSshPrivateKey   = home </> ".ssh" </> "id_rsa"
     , azureSshPassphrase   = ""
     , azureSshKnownHosts   = home </> ".ssh" </> "known_hosts"
-    , azureSshRemotePath   = "/home" </> user </> takeFileName self
+    , azureSshRemotePath   = takeFileName self
     }
 
 -- | Initialize the backend
@@ -85,6 +86,7 @@ initializeBackend params = do
 -- | Start a CH node on the given virtual machine
 apiStartOnVM :: AzureParameters -> VirtualMachine -> IO ()
 apiStartOnVM params (Azure.vmSshEndpoint -> Just ep) = do
+  self <- getExecutablePath
   _ <- SSH.initialize True
   _ <- SSH.withSSH2 (azureSshKnownHosts params)
                     (azureSshPublicKey params)
@@ -93,7 +95,8 @@ apiStartOnVM params (Azure.vmSshEndpoint -> Just ep) = do
                     (azureSshUserName params)
                     (endpointVip ep)
                     (read $ endpointPort ep) $ \fd s -> do
-      SSH.execCommands fd s ["nohup /home/edsko/testservice >/dev/null 2>&1 &"]
+      SSH.scpSendFile fd s 0o700 self (azureSshRemotePath params)
+      -- SSH.execCommands fd s ["nohup /home/edsko/testservice >/dev/null 2>&1 &"]
   SSH.exit
 apiStartOnVM _ _ = 
   error "startOnVM: No SSH endpoint"
