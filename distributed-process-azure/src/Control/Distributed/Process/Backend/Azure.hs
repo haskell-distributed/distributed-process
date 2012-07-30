@@ -10,9 +10,8 @@ module Control.Distributed.Process.Backend.Azure
   ) where
 
 import System.Environment (getEnv)
-import System.FilePath ((</>))
+import System.FilePath ((</>), takeFileName)
 import System.Environment.Executable (getExecutablePath)
-import Control.Concurrent (threadDelay)
 import Network.Azure.ServiceManagement 
   ( CloudService(..)
   , VirtualMachine(..)
@@ -20,18 +19,16 @@ import Network.Azure.ServiceManagement
   )
 import qualified Network.Azure.ServiceManagement as Azure
   ( cloudServices 
-  , AzureSetup
   , azureSetup
   , vmSshEndpoint
   ) 
 import qualified Network.SSH.Client.LibSSH2 as SSH
   ( withSSH2
-  , retryIfNeeded
+  , execCommands
   )
 import qualified Network.SSH.Client.LibSSH2.Foreign as SSH
   ( initialize 
   , exit
-  , channelExecute
   )
 
 -- | Azure backend
@@ -48,7 +45,9 @@ data AzureParameters = AzureParameters {
   , azureSshUserName     :: FilePath
   , azureSshPublicKey    :: FilePath
   , azureSshPrivateKey   :: FilePath
+  , azureSshPassphrase   :: String
   , azureSshKnownHosts   :: FilePath
+  , azureSshRemotePath   :: FilePath
   }
 
 -- | Create default azure parameters
@@ -59,6 +58,7 @@ defaultAzureParameters :: String    -- ^ Azure subscription ID
 defaultAzureParameters sid x509 pkey = do
   home <- getEnv "HOME"
   user <- getEnv "USER"
+  self <- getExecutablePath
   return AzureParameters 
     { azureSubscriptionId  = sid
     , azureAuthCertificate = x509
@@ -66,7 +66,9 @@ defaultAzureParameters sid x509 pkey = do
     , azureSshUserName     = user
     , azureSshPublicKey    = home </> ".ssh" </> "id_rsa.pub"
     , azureSshPrivateKey   = home </> ".ssh" </> "id_rsa"
+    , azureSshPassphrase   = ""
     , azureSshKnownHosts   = home </> ".ssh" </> "known_hosts"
+    , azureSshRemotePath   = "/home" </> user </> takeFileName self
     }
 
 -- | Initialize the backend
@@ -75,8 +77,6 @@ initializeBackend params = do
   setup <- Azure.azureSetup (azureSubscriptionId params)
                             (azureAuthCertificate params)
                             (azureAuthPrivateKey params)
-  exe <- getExecutablePath
-  print exe
   return Backend {
       cloudServices = Azure.cloudServices setup
     , startOnVM     = apiStartOnVM params 
@@ -84,14 +84,16 @@ initializeBackend params = do
 
 -- | Start a CH node on the given virtual machine
 apiStartOnVM :: AzureParameters -> VirtualMachine -> IO ()
-apiStartOnVM params vm = do
+apiStartOnVM params (Azure.vmSshEndpoint -> Just ep) = do
   _ <- SSH.initialize True
-  let ep = Azure.vmSshEndpoint vm
   _ <- SSH.withSSH2 (azureSshKnownHosts params)
-               (azureSshPublicKey params)
-               (azureSshPrivateKey params)
-               (azureSshUserName params)
-               (endpointVip ep)
-               (read $ endpointPort ep) $ \fd s ch -> do
-      SSH.retryIfNeeded fd s $ SSH.channelExecute ch "nohup /home/edsko/testservice >/dev/null 2>&1 &"
+                    (azureSshPublicKey params)
+                    (azureSshPrivateKey params)
+                    (azureSshPassphrase params)
+                    (azureSshUserName params)
+                    (endpointVip ep)
+                    (read $ endpointPort ep) $ \fd s -> do
+      SSH.execCommands fd s ["nohup /home/edsko/testservice >/dev/null 2>&1 &"]
   SSH.exit
+apiStartOnVM _ _ = 
+  error "startOnVM: No SSH endpoint"

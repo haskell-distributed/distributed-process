@@ -19,6 +19,7 @@ import Prelude hiding (id, (.))
 import Control.Category (id, (>>>), (.))
 import Control.Arrow (arr)
 import Control.Monad (forM)
+import Data.Maybe (listToMaybe)
 import Data.ByteString.Char8 as BSC (pack)
 import Data.ByteString.Lazy.Char8 as BSLC (unpack)
 import Network.TLS (PrivateKey)
@@ -81,8 +82,8 @@ data Endpoint = Endpoint {
 -- Pure operations                                                            --
 --------------------------------------------------------------------------------
 
-vmSshEndpoint :: VirtualMachine -> Endpoint
-vmSshEndpoint vm = head 
+vmSshEndpoint :: VirtualMachine -> Maybe Endpoint
+vmSshEndpoint vm = listToMaybe 
   [ ep
   | ep <- vmInputEndpoints vm
   , endpointName ep == "SSH"
