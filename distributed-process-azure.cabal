@@ -25,6 +25,7 @@ Library
                      executable-path >= 0.0.3 && < 0.1,
                      libssh2 >= 0.2 && < 0.3
   Exposed-modules:   Control.Distributed.Process.Backend.Azure
+  Extensions:        ViewPatterns
   ghc-options:       -Wall
   HS-Source-Dirs:    src
 
