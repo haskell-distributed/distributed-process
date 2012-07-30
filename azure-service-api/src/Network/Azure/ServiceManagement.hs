@@ -28,6 +28,15 @@ import Data.Certificate.X509 (X509)
 import Control.Monad.Trans.Resource (ResourceT)
 import Control.Monad.IO.Class (liftIO)
 import Control.Arrow.ArrowList (listA)
+import Text.PrettyPrint 
+  ( Doc
+  , text
+  , (<+>)
+  , ($$)
+  , vcat
+  , hang
+  , doubleQuotes
+  )
 import Network.HTTP.Conduit 
   ( parseUrl
   , clientCertificates
@@ -57,26 +66,70 @@ import Text.XML.HXT.XPath (getXPathTrees)
 data HostedService = HostedService { 
     hostedServiceName :: String 
   }
-  deriving Show
 
 data CloudService = CloudService {
     cloudServiceName :: String 
   , cloudServiceVMs  :: [VirtualMachine]
   }
-  deriving Show
 
 data VirtualMachine = VirtualMachine { 
     vmName           :: String
   , vmInputEndpoints :: [Endpoint]
   }
-  deriving Show
 
 data Endpoint = Endpoint {
-   endpointName :: String
- , endpointPort :: String 
- , endpointVip  :: String
- }
- deriving Show
+    endpointName :: String
+  , endpointPort :: String 
+  , endpointVip  :: String
+  }
+
+--------------------------------------------------------------------------------
+-- Pretty-printing                                                            --
+--------------------------------------------------------------------------------
+
+instance Show HostedService where 
+  show = show . ppHostedService
+
+instance Show CloudService where
+  show = show . ppCloudService
+
+instance Show VirtualMachine where
+  show = show . ppVirtualMachine
+
+instance Show Endpoint where
+  show = show . ppEndpoint
+
+ppHostedService :: HostedService -> Doc
+ppHostedService = text . hostedServiceName
+
+ppCloudService :: CloudService -> Doc
+ppCloudService cs =
+    (text "Cloud Service" <+> (doubleQuotes . text . cloudServiceName $ cs)) 
+  `hang2`
+    (   text "VIRTUAL MACHINES"
+      `hang2`
+        (vcat . map ppVirtualMachine . cloudServiceVMs $ cs)
+    )
+
+ppVirtualMachine :: VirtualMachine -> Doc
+ppVirtualMachine vm = 
+    (text "Virtual Machine" <+> (doubleQuotes . text . vmName $ vm))
+  `hang2`
+    (   text "INPUT ENDPOINTS"
+      `hang2`
+        (vcat . map ppEndpoint . vmInputEndpoints $ vm)
+    )
+
+ppEndpoint :: Endpoint -> Doc
+ppEndpoint ep = 
+    (text "Input endpoint" <+> (doubleQuotes . text . endpointName $ ep))
+  `hang2`
+    (    text "Port" <+> text (endpointPort ep)
+      $$ text "IP"   <+> text (endpointVip ep)
+    )
+
+hang2 :: Doc -> Doc -> Doc
+hang2 d1 d2 = hang d1 2 d2
 
 --------------------------------------------------------------------------------
 -- Pure operations                                                            --

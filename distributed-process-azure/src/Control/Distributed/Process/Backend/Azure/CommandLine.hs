@@ -104,7 +104,7 @@ main = do
         params <- azureParameters azureOpts Nothing
         backend <- initializeBackend params 
         css <- cloudServices backend
-        print css
+        mapM_ print css
       Start azureOpts sshOpts name -> do
         params <- azureParameters azureOpts (Just sshOpts)
         backend <- initializeBackend params
