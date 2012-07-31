@@ -1,18 +1,19 @@
 {-# LANGUAGE Arrows #-}
 import System.Environment (getArgs)
 import System.Exit (exitSuccess, exitFailure)
-import Control.Monad (unless)
+import System.IO (hFlush, stdout)
+import Control.Monad (unless, forM, forM_)
 import Control.Distributed.Process.Backend.Azure 
   ( AzureParameters(azureSshUserName)
   , defaultAzureParameters
   , initializeBackend 
   , cloudServices 
-  , CloudService(cloudServiceVMs)
+  , CloudService(cloudServiceName, cloudServiceVMs)
   , VirtualMachine(vmName)
   , Backend(copyToVM, checkMD5)
   )
 import Control.Arrow (returnA)
-import Control.Applicative ((<$>), (<*>))
+import Control.Applicative ((<$>), (<*>), (<|>))
 import Options.Applicative 
   ( Parser
   , strOption
@@ -48,6 +49,11 @@ data SshOptions = SshOptions {
   }
   deriving Show
 
+data Target = 
+    VirtualMachine String 
+  | CloudService String
+  deriving Show
+
 data Command = 
     List { 
         azureOptions   :: AzureOptions 
@@ -55,12 +61,12 @@ data Command =
   | CopyTo { 
         azureOptions   :: AzureOptions 
       , sshOptions     :: SshOptions 
-      , virtualMachine :: String 
+      , target         :: Target 
       }
   | CheckMD5 {
         azureOptions   :: AzureOptions
       , sshOptions     :: SshOptions 
-      , virtualMachine :: String
+      , target         :: Target 
       , status         :: Bool
       } 
   deriving Show
@@ -94,19 +100,27 @@ copyToParser :: Parser Command
 copyToParser = CopyTo 
   <$> azureOptionsParser
   <*> sshOptionsParser
-  <*> strOption ( long "vm"
-                & metavar "VM"
-                & help "Virtual machine name"
-                )
+  <*> targetParser
+
+targetParser :: Parser Target
+targetParser = 
+    ( VirtualMachine <$> strOption ( long "virtual-machine"
+                                   & metavar "VM"
+                                   & help "Virtual machine name"
+                                   )
+    )
+  <|>
+    ( CloudService   <$> strOption ( long "cloud-service"
+                                   & metavar "CS"
+                                   & help "Cloud service name"
+                                   )
+    )
 
 checkMD5Parser :: Parser Command
 checkMD5Parser = CheckMD5 
   <$> azureOptionsParser
   <*> sshOptionsParser
-  <*> strOption ( long "vm"
-                & metavar "VM"
-                & help "Virtual machine name"
-                )
+  <*> targetParser 
   <*> switch ( long "status"
              & help "Don't output anything, status code shows success"
              )
@@ -138,33 +152,35 @@ main = do
         params <- azureParameters (azureOptions cmd) (Just (sshOptions cmd))
         backend <- initializeBackend params
         css <- cloudServices backend
-        let ch = head [ vm | vm <- concatMap cloudServiceVMs css
-                           , vmName vm == virtualMachine cmd 
-                      ]
-        print ch                
-        copyToVM backend ch
+        forM_ (findTarget (target cmd) css) $ \vm -> do
+          putStr (vmName vm ++ ": ") >> hFlush stdout 
+          copyToVM backend vm 
+          putStrLn "Done"
       CheckMD5 {} -> do
         params <- azureParameters (azureOptions cmd) (Just (sshOptions cmd))
         backend <- initializeBackend params
         css <- cloudServices backend
-        let ch = head [ vm | vm <- concatMap cloudServiceVMs css
-                           , vmName vm == virtualMachine cmd 
-                      ]
-        match <- checkMD5 backend ch
-        if match
-          then do
-            unless (status cmd) $ 
-              putStrLn "Local and remote MD5 hash match"
-            exitSuccess
-          else do
-            unless (status cmd) $ 
-              putStrLn "Local and remote MD5 hash do NOT match"
-            exitFailure
+        matches <- forM (findTarget (target cmd) css) $ \vm -> do
+          unless (status cmd) $ putStr (vmName vm ++ ": ") >> hFlush stdout
+          match <- checkMD5 backend vm 
+          unless (status cmd) $ putStrLn $ if match then "OK" else "FAILED"
+          return match
+        if and matches
+          then exitSuccess
+          else exitFailure
   where
     opts = info (helper <*> commandParser)
       ( fullDesc 
       & header "Cloud Haskell backend for Azure"
       )
+
+findTarget :: Target -> [CloudService] -> [VirtualMachine]
+findTarget (CloudService cs) css = 
+  concatMap cloudServiceVMs . filter ((== cs) . cloudServiceName) $ css
+findTarget (VirtualMachine virtualMachine) css =
+  [ vm | vm <- concatMap cloudServiceVMs css
+       , vmName vm == virtualMachine
+  ]
 
 azureParameters :: AzureOptions -> Maybe SshOptions -> IO AzureParameters
 azureParameters opts Nothing = 
