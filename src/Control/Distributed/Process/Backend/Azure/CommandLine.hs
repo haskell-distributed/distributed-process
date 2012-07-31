@@ -1,5 +1,7 @@
 {-# LANGUAGE Arrows #-}
 import System.Environment (getArgs)
+import System.Exit (exitSuccess, exitFailure)
+import Control.Monad (unless)
 import Control.Distributed.Process.Backend.Azure 
   ( AzureParameters(azureSshUserName)
   , defaultAzureParameters
@@ -7,7 +9,7 @@ import Control.Distributed.Process.Backend.Azure
   , cloudServices 
   , CloudService(cloudServiceVMs)
   , VirtualMachine(vmName)
-  , startOnVM
+  , Backend(copyToVM, checkMD5)
   )
 import Control.Arrow (returnA)
 import Control.Applicative ((<$>), (<*>))
@@ -26,6 +28,7 @@ import Options.Applicative
   , helper
   , fullDesc
   , header
+  , switch
   )
 import Options.Applicative.Arrows (runA, asA)
 
@@ -46,8 +49,20 @@ data SshOptions = SshOptions {
   deriving Show
 
 data Command = 
-    List AzureOptions
-  | Start AzureOptions SshOptions String
+    List { 
+        azureOptions   :: AzureOptions 
+      }
+  | CopyTo { 
+        azureOptions   :: AzureOptions 
+      , sshOptions     :: SshOptions 
+      , virtualMachine :: String 
+      }
+  | CheckMD5 {
+        azureOptions   :: AzureOptions
+      , sshOptions     :: SshOptions 
+      , virtualMachine :: String
+      , status         :: Bool
+      } 
   deriving Show
 
 azureOptionsParser :: Parser AzureOptions
@@ -75,8 +90,8 @@ sshOptionsParser = SshOptions
 listParser :: Parser Command
 listParser = List <$> azureOptionsParser
 
-startParser :: Parser Command
-startParser = Start 
+copyToParser :: Parser Command
+copyToParser = CopyTo 
   <$> azureOptionsParser
   <*> sshOptionsParser
   <*> strOption ( long "vm"
@@ -84,12 +99,26 @@ startParser = Start
                 & help "Virtual machine name"
                 )
 
+checkMD5Parser :: Parser Command
+checkMD5Parser = CheckMD5 
+  <$> azureOptionsParser
+  <*> sshOptionsParser
+  <*> strOption ( long "vm"
+                & metavar "VM"
+                & help "Virtual machine name"
+                )
+  <*> switch ( long "status"
+             & help "Don't output anything, status code shows success"
+             )
+
 commandParser :: Parser Command
 commandParser = subparser
   ( command "list"  (info listParser 
       (progDesc "List Azure cloud services"))
-  & command "start" (info startParser
-      (progDesc "Start a new Cloud Haskell node"))
+  & command "install" (info copyToParser
+      (progDesc "Install the executable on a virtual machine"))
+  & command "md5" (info checkMD5Parser 
+      (progDesc "Check if the remote and local MD5 hash match"))
   )
 
 --------------------------------------------------------------------------------
@@ -100,20 +129,37 @@ main :: IO ()
 main = do 
     cmd <- execParser opts
     case cmd of
-      List azureOpts -> do
-        params <- azureParameters azureOpts Nothing
+      List {} -> do
+        params <- azureParameters (azureOptions cmd) Nothing
         backend <- initializeBackend params 
         css <- cloudServices backend
         mapM_ print css
-      Start azureOpts sshOpts name -> do
-        params <- azureParameters azureOpts (Just sshOpts)
+      CopyTo {} -> do
+        params <- azureParameters (azureOptions cmd) (Just (sshOptions cmd))
         backend <- initializeBackend params
         css <- cloudServices backend
         let ch = head [ vm | vm <- concatMap cloudServiceVMs css
-                           , vmName vm == name 
+                           , vmName vm == virtualMachine cmd 
                       ]
         print ch                
-        startOnVM backend ch
+        copyToVM backend ch
+      CheckMD5 {} -> do
+        params <- azureParameters (azureOptions cmd) (Just (sshOptions cmd))
+        backend <- initializeBackend params
+        css <- cloudServices backend
+        let ch = head [ vm | vm <- concatMap cloudServiceVMs css
+                           , vmName vm == virtualMachine cmd 
+                      ]
+        match <- checkMD5 backend ch
+        if match
+          then do
+            unless (status cmd) $ 
+              putStrLn "Local and remote MD5 hash match"
+            exitSuccess
+          else do
+            unless (status cmd) $ 
+              putStrLn "Local and remote MD5 hash do NOT match"
+            exitFailure
   where
     opts = info (helper <*> commandParser)
       ( fullDesc 
