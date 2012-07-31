@@ -135,9 +135,6 @@ initRemoteTable = Static.__remoteTable
                 $ RemoteTable Map.empty
 
 -- | Initialize a new local node. 
--- 
--- Note that proper Cloud Haskell initialization and configuration is still 
--- to do.
 newLocalNode :: NT.Transport -> RemoteTable -> IO LocalNode
 newLocalNode transport rtable = do
     mEndPoint <- NT.newEndPoint transport
