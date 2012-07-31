@@ -12,6 +12,9 @@ module Control.Distributed.Process.Backend.Azure
 import System.Environment (getEnv)
 import System.FilePath ((</>), takeFileName)
 import System.Environment.Executable (getExecutablePath)
+import Data.Digest.Pure.MD5 (md5, MD5Digest)
+import qualified Data.ByteString.Lazy as BSL (readFile)
+import Control.Applicative ((<$>))
 import Network.Azure.ServiceManagement 
   ( CloudService(..)
   , VirtualMachine(..)
@@ -26,17 +29,25 @@ import qualified Network.SSH.Client.LibSSH2 as SSH
   ( withSSH2
   , execCommands
   , scpSendFile
+  , withChannel
+  , readAllChannel
   )
 import qualified Network.SSH.Client.LibSSH2.Foreign as SSH
   ( initialize 
   , exit
+  , openChannelSession
+  , retryIfNeeded
+  , channelExecute
+  , writeChannel
+  , channelSendEOF
   )
 
 -- | Azure backend
 data Backend = Backend {
     -- | Find virtual machines
     cloudServices :: IO [CloudService]
-  , startOnVM     :: VirtualMachine -> IO () 
+  , copyToVM     :: VirtualMachine -> IO () 
+  , checkMD5      :: VirtualMachine -> IO Bool 
   }
 
 data AzureParameters = AzureParameters {
@@ -49,6 +60,7 @@ data AzureParameters = AzureParameters {
   , azureSshPassphrase   :: String
   , azureSshKnownHosts   :: FilePath
   , azureSshRemotePath   :: FilePath
+  , azureSshLocalPath    :: FilePath
   }
 
 -- | Create default azure parameters
@@ -70,6 +82,7 @@ defaultAzureParameters sid x509 pkey = do
     , azureSshPassphrase   = ""
     , azureSshKnownHosts   = home </> ".ssh" </> "known_hosts"
     , azureSshRemotePath   = takeFileName self
+    , azureSshLocalPath    = self
     }
 
 -- | Initialize the backend
@@ -80,13 +93,13 @@ initializeBackend params = do
                             (azureAuthPrivateKey params)
   return Backend {
       cloudServices = Azure.cloudServices setup
-    , startOnVM     = apiStartOnVM params 
+    , copyToVM     = apiCopyToVM params 
+    , checkMD5      = apiCheckMD5 params
     }
 
 -- | Start a CH node on the given virtual machine
-apiStartOnVM :: AzureParameters -> VirtualMachine -> IO ()
-apiStartOnVM params (Azure.vmSshEndpoint -> Just ep) = do
-  self <- getExecutablePath
+apiCopyToVM :: AzureParameters -> VirtualMachine -> IO ()
+apiCopyToVM params (Azure.vmSshEndpoint -> Just ep) = do
   _ <- SSH.initialize True
   _ <- SSH.withSSH2 (azureSshKnownHosts params)
                     (azureSshPublicKey params)
@@ -95,8 +108,33 @@ apiStartOnVM params (Azure.vmSshEndpoint -> Just ep) = do
                     (azureSshUserName params)
                     (endpointVip ep)
                     (read $ endpointPort ep) $ \fd s -> do
-      SSH.scpSendFile fd s 0o700 self (azureSshRemotePath params)
+      SSH.scpSendFile fd s 0o700 (azureSshLocalPath params) (azureSshRemotePath params)
       -- SSH.execCommands fd s ["nohup /home/edsko/testservice >/dev/null 2>&1 &"]
   SSH.exit
-apiStartOnVM _ _ = 
-  error "startOnVM: No SSH endpoint"
+apiCopyToVM _ _ = 
+  error "copyToVM: No SSH endpoint"
+
+apiCheckMD5 :: AzureParameters -> VirtualMachine -> IO Bool 
+apiCheckMD5 params (Azure.vmSshEndpoint -> Just ep) = do
+  hash <- localHash params
+  _ <- SSH.initialize True
+  match <- SSH.withSSH2 (azureSshKnownHosts params)
+                        (azureSshPublicKey params)
+                        (azureSshPrivateKey params)
+                        (azureSshPassphrase params)
+                        (azureSshUserName params)
+                        (endpointVip ep)
+                        (read $ endpointPort ep) $ \fd s -> do
+    (r, _) <- SSH.withChannel (SSH.openChannelSession s) id fd s $ \ch -> do
+      SSH.retryIfNeeded fd s $ SSH.channelExecute ch ("md5sum -c --status")
+      SSH.writeChannel ch $ show hash ++ "  " ++ azureSshRemotePath params 
+      SSH.channelSendEOF ch
+      SSH.readAllChannel fd ch
+    return (r == 0)
+  SSH.exit
+  return match
+apiCheckMD5 _ _ = 
+  error "checkMD5: No SSH endpoint"
+
+localHash :: AzureParameters -> IO MD5Digest 
+localHash params = md5 <$> BSL.readFile (azureSshLocalPath params) 
