@@ -3,6 +3,7 @@ import System.Environment (getArgs)
 import System.Exit (exitSuccess, exitFailure)
 import System.IO (hFlush, stdout)
 import Control.Monad (unless, forM, forM_)
+import Control.Arrow (returnA)
 import Control.Distributed.Process.Backend.Azure 
   ( AzureParameters(azureSshUserName)
   , defaultAzureParameters
@@ -12,7 +13,10 @@ import Control.Distributed.Process.Backend.Azure
   , VirtualMachine(vmName)
   , Backend(copyToVM, checkMD5)
   )
-import Control.Arrow (returnA)
+import qualified Network.SSH.Client.LibSSH2.Foreign as SSH
+  ( initialize 
+  , exit
+  )
 import Control.Applicative ((<$>), (<*>), (<|>))
 import Options.Applicative 
   ( Parser
@@ -141,6 +145,7 @@ commandParser = subparser
 
 main :: IO ()
 main = do 
+    _ <- SSH.initialize True
     cmd <- execParser opts
     case cmd of
       List {} -> do
@@ -168,6 +173,7 @@ main = do
         if and matches
           then exitSuccess
           else exitFailure
+    SSH.exit
   where
     opts = info (helper <*> commandParser)
       ( fullDesc 

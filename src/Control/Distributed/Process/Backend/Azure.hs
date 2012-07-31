@@ -33,9 +33,7 @@ import qualified Network.SSH.Client.LibSSH2 as SSH
   , readAllChannel
   )
 import qualified Network.SSH.Client.LibSSH2.Foreign as SSH
-  ( initialize 
-  , exit
-  , openChannelSession
+  ( openChannelSession
   , retryIfNeeded
   , channelExecute
   , writeChannel
@@ -100,7 +98,6 @@ initializeBackend params = do
 -- | Start a CH node on the given virtual machine
 apiCopyToVM :: AzureParameters -> VirtualMachine -> IO ()
 apiCopyToVM params (Azure.vmSshEndpoint -> Just ep) = do
-  _ <- SSH.initialize True
   _ <- SSH.withSSH2 (azureSshKnownHosts params)
                     (azureSshPublicKey params)
                     (azureSshPrivateKey params)
@@ -110,14 +107,13 @@ apiCopyToVM params (Azure.vmSshEndpoint -> Just ep) = do
                     (read $ endpointPort ep) $ \fd s -> do
       SSH.scpSendFile fd s 0o700 (azureSshLocalPath params) (azureSshRemotePath params)
       -- SSH.execCommands fd s ["nohup /home/edsko/testservice >/dev/null 2>&1 &"]
-  SSH.exit
+  return ()
 apiCopyToVM _ _ = 
   error "copyToVM: No SSH endpoint"
 
 apiCheckMD5 :: AzureParameters -> VirtualMachine -> IO Bool 
 apiCheckMD5 params (Azure.vmSshEndpoint -> Just ep) = do
   hash <- localHash params
-  _ <- SSH.initialize True
   match <- SSH.withSSH2 (azureSshKnownHosts params)
                         (azureSshPublicKey params)
                         (azureSshPrivateKey params)
@@ -131,7 +127,6 @@ apiCheckMD5 params (Azure.vmSshEndpoint -> Just ep) = do
       SSH.channelSendEOF ch
       SSH.readAllChannel fd ch
     return (r == 0)
-  SSH.exit
   return match
 apiCheckMD5 _ _ = 
   error "checkMD5: No SSH endpoint"
