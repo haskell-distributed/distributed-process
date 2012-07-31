@@ -1,3 +1,9 @@
+2012-07-31  Edsko de Vries  <edsko@well-typed.com>  0.2.2.0
+
+* Add exception handling primitives
+* Fix runProcess: if the process threw an exception, a 'waiting indefinitely on
+MVar' exception would be thrown.
+
 2012-07-21  Edsko de Vries  <edsko@well-typed.com>  0.2.1.4
 
 * Bugfix in the node controller

@@ -80,8 +80,14 @@ module Control.Distributed.Process
   , whereisRemoteAsync
   , nsendRemote
   , WhereIsReply(..)
-    -- * Auxiliary API
+    -- * Exception handling
   , catch
+  , mask
+  , onException
+  , bracket
+  , bracket_
+  , finally
+    -- * Auxiliary API
   , expectTimeout
   , spawnAsync
   , spawnSupervised
@@ -190,8 +196,14 @@ import Control.Distributed.Process.Internal.Primitives
   , nsendRemote
     -- Closures
   , unClosure
-    -- Auxiliary API
+    -- Exception handling
   , catch
+  , mask
+  , onException
+  , bracket
+  , bracket_
+  , finally
+    -- Auxiliary API
   , expectTimeout
   , spawnAsync
   )

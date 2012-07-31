@@ -43,8 +43,14 @@ module Control.Distributed.Process.Internal.Primitives
   , nsendRemote
     -- * Closures
   , unClosure
-    -- * Auxiliary API
+    -- * Exception handling
   , catch
+  , mask
+  , onException
+  , bracket
+  , bracket_
+  , finally
+    -- * Auxiliary API
   , expectTimeout
   , spawnAsync
   , linkNode
@@ -67,8 +73,8 @@ import System.Locale (defaultTimeLocale)
 import Control.Monad.Reader (ask)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Applicative ((<$>))
-import Control.Exception (Exception, throw)
-import qualified Control.Exception as Ex (catch)
+import Control.Exception (Exception, throw, throwIO, SomeException)
+import qualified Control.Exception as Ex (catch, mask)
 import Control.Concurrent.MVar (modifyMVar)
 import Control.Concurrent.Chan (writeChan)
 import Control.Concurrent.STM 
@@ -258,7 +264,7 @@ instance Exception ProcessTerminationException
 
 -- | Terminate (throws a ProcessTerminationException)
 terminate :: Process a
-terminate = liftIO $ throw ProcessTerminationException
+terminate = liftIO $ throwIO ProcessTerminationException
 
 -- | Our own process ID
 getSelfPid :: Process ProcessId
@@ -317,14 +323,50 @@ unmonitor ref = do
               ]
 
 --------------------------------------------------------------------------------
--- Auxiliary API                                                              --
+-- Exception handling                                                         --
 --------------------------------------------------------------------------------
 
--- | Catch exceptions within a process
+-- | Lift 'Control.Exception.catch'
 catch :: Exception e => Process a -> (e -> Process a) -> Process a
 catch p h = do
   lproc <- ask
   liftIO $ Ex.catch (runLocalProcess lproc p) (runLocalProcess lproc . h) 
+
+-- | Lift 'Control.Exception.mask' 
+mask :: ((forall a. Process a -> Process a) -> Process b) -> Process b
+mask p = do 
+    lproc <- ask
+    liftIO $ Ex.mask $ \restore ->
+      runLocalProcess lproc (p (liftRestore lproc restore))
+  where
+    liftRestore :: LocalProcess -> (forall a. IO a -> IO a) -> (forall a. Process a -> Process a)
+    liftRestore lproc restoreIO = liftIO . restoreIO . runLocalProcess lproc
+
+-- | Lift 'Control.Exception.onException'
+onException :: Process a -> Process b -> Process a
+onException p what = p `catch` \e -> do _ <- what
+                                        liftIO $ throwIO (e :: SomeException)
+
+-- | Lift 'Control.Exception.bracket'
+bracket :: Process a -> (a -> Process b) -> (a -> Process c) -> Process c
+bracket before after thing = do
+  mask $ \restore -> do
+    a <- before
+    r <- restore (thing a) `onException` after a
+    _ <- after a
+    return r
+
+-- | Lift 'Control.Exception.bracket_'
+bracket_ :: Process a -> Process b -> Process c -> Process c
+bracket_ before after thing = bracket before (const after) (const thing)
+
+-- | Lift 'Control.Exception.finally'
+finally :: Process a -> Process b -> Process a
+finally a sequel = bracket_ (return ()) sequel a 
+
+--------------------------------------------------------------------------------
+-- Auxiliary API                                                              --
+--------------------------------------------------------------------------------
 
 -- | Like 'expect' but with a timeout
 expectTimeout :: forall a. Serializable a => Int -> Process (Maybe a)
@@ -464,7 +506,7 @@ unClosure :: forall a. Typeable a => Closure a -> Process a
 unClosure (Closure (Static label) env) = do
     rtable <- remoteTable . processNode <$> ask 
     case resolveClosure rtable label env of
-      Nothing  -> throw . userError $ "Unregistered closure " ++ show label
+      Nothing  -> error $ "Unregistered closure " ++ show label
       Just dyn -> return $ fromDyn dyn (throw (typeError dyn))
   where
     typeError dyn = userError $ "lookupStatic type error: " 

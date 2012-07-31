@@ -121,7 +121,7 @@ import Control.Distributed.Process.Internal.Node
   , sendMessage
   , sendPayload
   )
-import Control.Distributed.Process.Internal.Primitives (expect, register)
+import Control.Distributed.Process.Internal.Primitives (expect, register, finally)
 import qualified Control.Distributed.Process.Internal.Closure.Static as Static (__remoteTable)
 import qualified Control.Distributed.Process.Internal.Closure.CP as CP (__remoteTable)
 
@@ -189,7 +189,7 @@ closeLocalNode node =
 runProcess :: LocalNode -> Process () -> IO ()
 runProcess node proc = do
   done <- newEmptyMVar
-  void $ forkProcess node (proc >> liftIO (putMVar done ()))
+  void $ forkProcess node (proc `finally` liftIO (putMVar done ()))
   takeMVar done
 
 -- | Spawn a new process on a local node
