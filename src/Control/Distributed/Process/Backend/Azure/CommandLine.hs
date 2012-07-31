@@ -1,4 +1,3 @@
-{-# LANGUAGE Arrows #-}
 import System.Environment (getArgs)
 import System.Exit (exitSuccess, exitFailure)
 import System.IO (hFlush, stdout)
@@ -11,13 +10,13 @@ import Control.Distributed.Process.Backend.Azure
   , cloudServices 
   , CloudService(cloudServiceName, cloudServiceVMs)
   , VirtualMachine(vmName)
-  , Backend(copyToVM, checkMD5)
+  , Backend(copyToVM, checkMD5, runOnVM)
   )
 import qualified Network.SSH.Client.LibSSH2.Foreign as SSH
   ( initialize 
   , exit
   )
-import Control.Applicative ((<$>), (<*>), (<|>))
+import Control.Applicative ((<$>), (<*>), (<|>), pure)
 import Options.Applicative 
   ( Parser
   , strOption
@@ -73,6 +72,18 @@ data Command =
       , target         :: Target 
       , status         :: Bool
       } 
+  | RunOn { 
+        azureOptions   :: AzureOptions 
+      , sshOptions     :: SshOptions 
+      , target         :: Target 
+      }
+  | OnVmCommand {
+        onVmCommand    :: OnVmCommand
+      }
+  deriving Show
+
+data OnVmCommand =
+    OnVmRun
   deriving Show
 
 azureOptionsParser :: Parser AzureOptions
@@ -134,9 +145,28 @@ commandParser = subparser
   ( command "list"  (info listParser 
       (progDesc "List Azure cloud services"))
   & command "install" (info copyToParser
-      (progDesc "Install the executable on a virtual machine"))
+      (progDesc "Install the executable"))
   & command "md5" (info checkMD5Parser 
       (progDesc "Check if the remote and local MD5 hash match"))
+  & command "run" (info runOnParser
+      (progDesc "Run the executable"))
+  & command "onvm" (info onVmCommandParser
+      (progDesc "Commands used when running ON the vm (usually used internally only)"))
+  )
+
+runOnParser :: Parser Command
+runOnParser = RunOn 
+  <$> azureOptionsParser
+  <*> sshOptionsParser
+  <*> targetParser 
+
+onVmRunParser :: Parser OnVmCommand
+onVmRunParser = pure OnVmRun 
+
+onVmCommandParser :: Parser Command
+onVmCommandParser = OnVmCommand <$> subparser
+  ( command "run" (info onVmRunParser
+      (progDesc "Run the executable"))
   )
 
 --------------------------------------------------------------------------------
@@ -173,6 +203,16 @@ main = do
         if and matches
           then exitSuccess
           else exitFailure
+      RunOn {} -> do
+        params <- azureParameters (azureOptions cmd) (Just (sshOptions cmd))
+        backend <- initializeBackend params
+        css <- cloudServices backend
+        forM_ (findTarget (target cmd) css) $ \vm -> do
+          putStr (vmName vm ++ ": ") >> hFlush stdout 
+          runOnVM backend vm 
+          putStrLn "Done"
+      OnVmCommand (vmCmd@OnVmRun {}) -> do
+        putStrLn "Hello" 
     SSH.exit
   where
     opts = info (helper <*> commandParser)
