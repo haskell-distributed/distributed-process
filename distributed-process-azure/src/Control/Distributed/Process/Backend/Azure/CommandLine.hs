@@ -2,7 +2,9 @@ import System.Environment (getArgs)
 import System.Exit (exitSuccess, exitFailure)
 import System.IO (hFlush, stdout)
 import Control.Monad (unless, forM, forM_)
+import Control.Monad.IO.Class (liftIO)
 import Control.Arrow (returnA)
+import Control.Exception (throwIO)
 import Control.Distributed.Process.Backend.Azure 
   ( AzureParameters(azureSshUserName)
   , defaultAzureParameters
@@ -35,6 +37,9 @@ import Options.Applicative
   , switch
   )
 import Options.Applicative.Arrows (runA, asA)
+import Control.Distributed.Process (getSelfPid, RemoteTable)
+import Control.Distributed.Process.Node (newLocalNode, runProcess, initRemoteTable)
+import Network.Transport.TCP (createTransport, defaultTCPParameters)
 
 --------------------------------------------------------------------------------
 -- Command line options                                                       --
@@ -83,7 +88,10 @@ data Command =
   deriving Show
 
 data OnVmCommand =
-    OnVmRun
+    OnVmRun {
+      onVmIP   :: String
+    , onVmPort :: String
+    }
   deriving Show
 
 azureOptionsParser :: Parser AzureOptions
@@ -161,7 +169,15 @@ runOnParser = RunOn
   <*> targetParser 
 
 onVmRunParser :: Parser OnVmCommand
-onVmRunParser = pure OnVmRun 
+onVmRunParser = OnVmRun 
+  <$> strOption ( long "host"
+                & metavar "IP"
+                & help "IP address"
+                )
+  <*> strOption ( long "port"
+                & metavar "PORT"
+                & help "port number"
+                )
 
 onVmCommandParser :: Parser Command
 onVmCommandParser = OnVmCommand <$> subparser
@@ -212,7 +228,8 @@ main = do
           runOnVM backend vm 
           putStrLn "Done"
       OnVmCommand (vmCmd@OnVmRun {}) -> do
-        putStrLn "Hello" 
+        let rtable = initRemoteTable
+        onVmRun rtable (onVmIP vmCmd) (onVmPort vmCmd)
     SSH.exit
   where
     opts = info (helper <*> commandParser)
@@ -240,3 +257,16 @@ azureParameters opts (Just sshOpts) = do
   return params { 
       azureSshUserName = remoteUser sshOpts
     }
+
+onVmRun :: RemoteTable -> String -> String -> IO ()
+onVmRun rtable host port = do
+  mTransport <- createTransport host port defaultTCPParameters 
+  case mTransport of
+    Left err -> throwIO err
+    Right transport -> do
+      node <- newLocalNode transport rtable
+      runProcess node $ do
+        pid <- getSelfPid
+        liftIO . putStrLn $ "Azure controller has pid " ++ show pid
+  
+  

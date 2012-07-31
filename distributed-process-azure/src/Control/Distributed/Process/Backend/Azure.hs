@@ -114,13 +114,15 @@ apiCopyToVM params vm =
 
 -- | Start the executable on the remote machine
 apiRunOnVM :: AzureParameters -> VirtualMachine -> IO ()
-apiRunOnVM params vm =
+apiRunOnVM params vm@(Azure.vmSshEndpoint -> Just ep) =
   void . withSSH2 params vm $ \fd s -> do
-    let exe = "/home/edsko/" ++ azureSshRemotePath params
+    let exe = "/home/edsko/" ++ azureSshRemotePath params 
+           ++ " onvm run "
+           ++ " --host " ++ endpointVip ep
+           ++ " --port 8080 "
+           ++ "2>&1"
     putStrLn $ "Executing " ++ show exe
-    r <- SSH.execCommands fd s [exe ++ " onvm run "
-                                    ++ "2>&1"
-                               ] -- ++ " >/dev/null 2>&1 &"]  /usr/bin/nohup 
+    r <- SSH.execCommands fd s [exe] -- ++ " >/dev/null 2>&1 &"]  /usr/bin/nohup 
     print r
 
 -- | Check the MD5 hash of the executable on the remote machine
