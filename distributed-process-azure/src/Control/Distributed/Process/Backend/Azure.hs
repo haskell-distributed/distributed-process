@@ -13,11 +13,16 @@ import System.Environment (getEnv)
 import System.FilePath ((</>), takeFileName)
 import System.Environment.Executable (getExecutablePath)
 import System.Posix.Types (Fd)
+import Data.Binary (encode)
 import Data.Digest.Pure.MD5 (md5, MD5Digest)
 import qualified Data.ByteString.Lazy as BSL (readFile)
+import qualified Data.ByteString.Lazy.Char8 as BSLC (unpack)
 import Control.Applicative ((<$>))
 import Control.Monad (void)
 import Control.Exception (catches, Handler(Handler))
+import GHC.IO.Encoding (setForeignEncoding, char8)
+
+-- Azure
 import Network.Azure.ServiceManagement 
   ( CloudService(..)
   , VirtualMachine(..)
@@ -28,6 +33,8 @@ import qualified Network.Azure.ServiceManagement as Azure
   , azureSetup
   , vmSshEndpoint
   ) 
+
+-- SSH
 import qualified Network.SSH.Client.LibSSH2 as SSH
   ( withSSH2
   , execCommands
@@ -49,13 +56,22 @@ import qualified Network.SSH.Client.LibSSH2.Errors as SSH
   , getLastError
   )
 
+-- CH
+import Control.Distributed.Process 
+  ( Closure
+  , Process
+  )
+
 -- | Azure backend
 data Backend = Backend {
     -- | Find virtual machines
     cloudServices :: IO [CloudService]
-  , copyToVM      :: VirtualMachine -> IO () 
-  , checkMD5      :: VirtualMachine -> IO Bool 
-  , runOnVM       :: VirtualMachine -> IO ()
+    -- | Copy the executable to a virtual machine
+  , copyToVM :: VirtualMachine -> IO () 
+    -- | Check the MD5 hash of the remote executable
+  , checkMD5 :: VirtualMachine -> IO Bool 
+    -- | @runOnVM vm port p@ starts a CH node on port 'port' and runs 'p'
+  , runOnVM :: VirtualMachine -> String -> Closure (Process ()) -> IO ()
   }
 
 data AzureParameters = AzureParameters {
@@ -113,16 +129,23 @@ apiCopyToVM params vm =
     SSH.scpSendFile fd s 0o700 (azureSshLocalPath params) (azureSshRemotePath params)
 
 -- | Start the executable on the remote machine
-apiRunOnVM :: AzureParameters -> VirtualMachine -> IO ()
-apiRunOnVM params vm@(Azure.vmSshEndpoint -> Just ep) =
+apiRunOnVM :: AzureParameters -> VirtualMachine -> String -> Closure (Process ()) -> IO ()
+apiRunOnVM params vm port proc =
   void . withSSH2 params vm $ \fd s -> do
     let exe = "/home/edsko/" ++ azureSshRemotePath params 
            ++ " onvm run "
-           ++ " --host " ++ endpointVip ep
-           ++ " --port 8080 "
-           ++ "2>&1"
+           ++ " --host " ++ vmIpAddress vm 
+           ++ " --port " ++ port
+           ++ " 2>&1"
     putStrLn $ "Executing " ++ show exe
-    r <- SSH.execCommands fd s [exe] -- ++ " >/dev/null 2>&1 &"]  /usr/bin/nohup 
+    r <- SSH.withChannel (SSH.openChannelSession s) id fd s $ \ch -> do
+      SSH.retryIfNeeded fd s $ SSH.channelExecute ch exe
+      let enc = encode proc
+      putStrLn $ "Sending closure of size " ++ show (length (BSLC.unpack enc))
+      setForeignEncoding char8
+      SSH.writeChannel ch $ BSLC.unpack enc 
+      SSH.channelSendEOF ch
+      SSH.readAllChannel fd ch
     print r
 
 -- | Check the MD5 hash of the executable on the remote machine
