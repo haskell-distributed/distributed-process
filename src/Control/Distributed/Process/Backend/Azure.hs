@@ -133,7 +133,7 @@ apiCopyToVM params vm =
 apiRunOnVM :: AzureParameters -> VirtualMachine -> String -> Closure (Process ()) -> IO ()
 apiRunOnVM params vm port proc =
   void . withSSH2 params vm $ \fd s -> do
-    let exe = "/home/edsko/" ++ azureSshRemotePath params 
+    let exe = "PATH=. " ++ azureSshRemotePath params 
            ++ " onvm run "
            ++ " --host " ++ vmIpAddress vm 
            ++ " --port " ++ port

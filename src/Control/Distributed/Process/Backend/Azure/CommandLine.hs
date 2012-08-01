@@ -139,15 +139,12 @@ onVmRun :: RemoteTable -> String -> String -> IO ()
 onVmRun rtable host port = do
   hSetBinaryMode stdin True
   proc <- BSL.getContents :: IO BSL.ByteString
-  putStrLn $ "Got closure encoding of length " ++ show (BSL.length proc)
   mTransport <- createTransport host port defaultTCPParameters 
   case mTransport of
     Left err -> throwIO err
     Right transport -> do
       node <- newLocalNode transport rtable
-      runProcess node $ do
-        liftIO $ putStrLn "Starting remote node"
-        catch (join . unClosure . decode $ proc) (\e -> liftIO $ print (e :: SomeException))
+      runProcess node $ join . unClosure . decode $ proc
   
 --------------------------------------------------------------------------------
 -- Command line options                                                       --
