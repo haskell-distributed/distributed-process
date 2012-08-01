@@ -15,7 +15,8 @@ import System.Environment.Executable (getExecutablePath)
 import System.Posix.Types (Fd)
 import Data.Binary (encode)
 import Data.Digest.Pure.MD5 (md5, MD5Digest)
-import qualified Data.ByteString.Lazy as BSL (readFile, length)
+import qualified Data.ByteString.Lazy as BSL (readFile)
+import qualified Data.ByteString.Lazy.Char8 as BSLC (putStr)
 import Control.Applicative ((<$>))
 import Control.Monad (void)
 import Control.Exception (catches, Handler(Handler))
@@ -35,7 +36,6 @@ import qualified Network.Azure.ServiceManagement as Azure
 -- SSH
 import qualified Network.SSH.Client.LibSSH2 as SSH
   ( withSSH2
-  , execCommands
   , scpSendFile
   , withChannel
   , Session
@@ -138,13 +138,12 @@ apiRunOnVM params vm port proc =
            ++ " --host " ++ vmIpAddress vm 
            ++ " --port " ++ port
            ++ " 2>&1"
-    putStrLn $ "Executing " ++ show exe
-    r <- SSH.withChannel (SSH.openChannelSession s) id fd s $ \ch -> do
+    (_, r) <- SSH.withChannel (SSH.openChannelSession s) id fd s $ \ch -> do
       SSH.retryIfNeeded fd s $ SSH.channelExecute ch exe
       SSHBS.writeChannel fd ch (encode proc) 
       SSH.channelSendEOF ch
       SSHBS.readAllChannel fd ch
-    print r
+    BSLC.putStr r
 
 -- | Check the MD5 hash of the executable on the remote machine
 apiCheckMD5 :: AzureParameters -> VirtualMachine -> IO Bool 
