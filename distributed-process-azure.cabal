@@ -25,7 +25,9 @@ Library
                      executable-path >= 0.0.3 && < 0.1,
                      libssh2 >= 0.2 && < 0.3,
                      pureMD5 >= 2.1 && < 2.2,
-                     bytestring >= 0.9 && < 0.11
+                     bytestring >= 0.9 && < 0.11,
+                     distributed-process >= 0.2 && < 0.3,
+                     binary >= 0.5 && < 0.6
   Exposed-modules:   Control.Distributed.Process.Backend.Azure
   Extensions:        ViewPatterns
   ghc-options:       -Wall
@@ -41,4 +43,6 @@ Executable cloud-haskell-azure
                      optparse-applicative >= 0.2 && < 0.4,
                      distributed-process >= 0.2 && < 0.3,
                      transformers >= 0.3 && < 0.4,
-                     network-transport-tcp >= 0.2 && < 0.3
+                     network-transport-tcp >= 0.2 && < 0.3,
+                     binary >= 0.5 && < 0.6,
+                     bytestring >= 0.9 && < 0.11
