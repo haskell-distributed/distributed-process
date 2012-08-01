@@ -16,7 +16,7 @@ module Network.Azure.ServiceManagement
   ) where
 
 import Prelude hiding (id, (.))
-import Control.Category (id, (>>>), (.))
+import Control.Category (id, (.))
 import Control.Arrow (arr)
 import Control.Monad (forM)
 import Data.Maybe (listToMaybe)
@@ -27,7 +27,7 @@ import Network.TLS.Extra (fileReadCertificate, fileReadPrivateKey)
 import Data.Certificate.X509 (X509)
 import Control.Monad.Trans.Resource (ResourceT)
 import Control.Monad.IO.Class (liftIO)
-import Control.Arrow.ArrowList (listA)
+import Control.Arrow.ArrowList (listA, arr2A)
 import Text.PrettyPrint 
   ( Doc
   , text
@@ -56,7 +56,11 @@ import Text.XML.HXT.Core
   , IOSArrow
   , ArrowXml
   , getText
+--  , writeDocumentToString
+--  , withIndent
+--  , yes
   )
+-- import Control.Arrow.ArrowIO (arrIO)
 import Text.XML.HXT.XPath (getXPathTrees)
 
 --------------------------------------------------------------------------------
@@ -74,6 +78,7 @@ data CloudService = CloudService {
 
 data VirtualMachine = VirtualMachine { 
     vmName           :: String
+  , vmIpAddress      :: String
   , vmInputEndpoints :: [Endpoint]
   }
 
@@ -115,9 +120,11 @@ ppVirtualMachine :: VirtualMachine -> Doc
 ppVirtualMachine vm = 
     (text "Virtual Machine" <+> (doubleQuotes . text . vmName $ vm))
   `hang2`
-    (   text "INPUT ENDPOINTS"
-      `hang2`
-        (vcat . map ppEndpoint . vmInputEndpoints $ vm)
+    (    text "IP" <+> text (vmIpAddress vm)
+      $$ (    text "INPUT ENDPOINTS"
+           `hang2`
+              (vcat . map ppEndpoint . vmInputEndpoints $ vm)
+         )
     )
 
 ppEndpoint :: Endpoint -> Doc
@@ -125,11 +132,11 @@ ppEndpoint ep =
     (text "Input endpoint" <+> (doubleQuotes . text . endpointName $ ep))
   `hang2`
     (    text "Port" <+> text (endpointPort ep)
-      $$ text "IP"   <+> text (endpointVip ep)
+      $$ text "VIP"  <+> text (endpointVip ep)
     )
 
 hang2 :: Doc -> Doc -> Doc
-hang2 d1 d2 = hang d1 2 d2
+hang2 d1 = hang d1 2
 
 --------------------------------------------------------------------------------
 -- Pure operations                                                            --
@@ -185,8 +192,10 @@ cloudServices setup = azureExecute setup $ \exec -> do
       , parser      = proc xml -> do
           role      <- getXPathTrees "//Role[@type='PersistentVMRole']" -< xml
           name      <- getText . getXPathTrees "/Role/RoleName/text()" -< role
+          roleInst  <- arr2A getXPathTrees -< ("//RoleInstance[RoleName='" ++ name ++ "']", xml)
+          ip        <- getText . getXPathTrees "/RoleInstance/IpAddress/text()" -< roleInst
           endpoints <- listA (parseEndpoint . getXPathTrees "//InputEndpoint") -< role
-          id -< VirtualMachine name endpoints
+          id -< VirtualMachine name ip endpoints
       }
     return $ CloudService (hostedServiceName service) roles
 
@@ -235,4 +244,7 @@ azureExecute setup f = withManager (\manager -> f (go manager))
                                ]
         }
       Response _ _ _ lbs <- httpLbs req' manager 
-      liftIO . runX $ readString [withValidate no] (BSLC.unpack lbs) >>> parser request
+      liftIO . runX $ proc _ -> do
+        xml <- readString [withValidate no] (BSLC.unpack lbs) -< ()
+        -- arrIO putStrLn . writeDocumentToString [withIndent yes] -< xml
+        parser request -< xml
