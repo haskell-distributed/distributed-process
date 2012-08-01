@@ -15,12 +15,10 @@ import System.Environment.Executable (getExecutablePath)
 import System.Posix.Types (Fd)
 import Data.Binary (encode)
 import Data.Digest.Pure.MD5 (md5, MD5Digest)
-import qualified Data.ByteString.Lazy as BSL (readFile)
-import qualified Data.ByteString.Lazy.Char8 as BSLC (unpack)
+import qualified Data.ByteString.Lazy as BSL (readFile, length)
 import Control.Applicative ((<$>))
 import Control.Monad (void)
 import Control.Exception (catches, Handler(Handler))
-import GHC.IO.Encoding (setForeignEncoding, char8)
 
 -- Azure
 import Network.Azure.ServiceManagement 
@@ -40,7 +38,6 @@ import qualified Network.SSH.Client.LibSSH2 as SSH
   , execCommands
   , scpSendFile
   , withChannel
-  , readAllChannel
   , Session
   )
 import qualified Network.SSH.Client.LibSSH2.Foreign as SSH
@@ -54,6 +51,10 @@ import qualified Network.SSH.Client.LibSSH2.Errors as SSH
   ( ErrorCode
   , NULL_POINTER
   , getLastError
+  )
+import qualified Network.SSH.Client.LibSSH2.ByteString.Lazy as SSHBS
+  ( writeChannel
+  , readAllChannel
   )
 
 -- CH
@@ -140,12 +141,9 @@ apiRunOnVM params vm port proc =
     putStrLn $ "Executing " ++ show exe
     r <- SSH.withChannel (SSH.openChannelSession s) id fd s $ \ch -> do
       SSH.retryIfNeeded fd s $ SSH.channelExecute ch exe
-      let enc = encode proc
-      putStrLn $ "Sending closure of size " ++ show (length (BSLC.unpack enc))
-      setForeignEncoding char8
-      SSH.writeChannel ch $ BSLC.unpack enc 
+      SSHBS.writeChannel fd ch (encode proc) 
       SSH.channelSendEOF ch
-      SSH.readAllChannel fd ch
+      SSHBS.readAllChannel fd ch
     print r
 
 -- | Check the MD5 hash of the executable on the remote machine
@@ -157,7 +155,7 @@ apiCheckMD5 params vm = do
       SSH.retryIfNeeded fd s $ SSH.channelExecute ch "md5sum -c --status"
       SSH.writeChannel ch $ show hash ++ "  " ++ azureSshRemotePath params 
       SSH.channelSendEOF ch
-      SSH.readAllChannel fd ch
+      SSHBS.readAllChannel fd ch
     return (r == 0)
 
 withSSH2 :: AzureParameters -> VirtualMachine -> (Fd -> SSH.Session -> IO a) -> IO a 
