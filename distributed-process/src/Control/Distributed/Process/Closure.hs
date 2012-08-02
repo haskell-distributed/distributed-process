@@ -35,6 +35,13 @@
 -- >            . Mn.__remoteTable
 -- >            $ initRemoteTable 
 --
+-- NOTE: If you get a type error from ghc along these lines
+--
+-- >  The exact Name `a_a30k' is not in scope
+-- >       Probable cause: you used a unique name (NameU) in Template Haskell but did not bind it
+--
+-- then you need to enable the @ScopedTypeVariables@ language extension.
+--
 -- [Dealing with type class qualifiers]
 -- 
 -- Although 'mkStatic' supports polymorphic types, it does not support

@@ -63,8 +63,8 @@ module Control.Distributed.Process
   , PortMonitorNotification(..)
   , DiedReason(..)
     -- * Closures
-  , Closure
-  , Static
+  , Closure(..)
+  , Static(..)
   , unClosure
   , RemoteTable
     -- * Logging
