@@ -79,7 +79,7 @@ encodeToStdout = liftIO . BSL.putStr . encode
 encodeToStdoutDict :: SerializableDict a -> a -> Process ()
 encodeToStdoutDict SerializableDict = encodeToStdout
 
-remotable ['encodeToStdoutDict]
+remotable ['encodeToStdout]
 
 -- | Azure backend
 data Backend = Backend {
