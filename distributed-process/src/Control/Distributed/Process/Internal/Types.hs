@@ -78,7 +78,7 @@ import Data.Map (Map)
 import Data.Int (Int32)
 import Data.Maybe (fromJust)
 import Data.Typeable (Typeable, TypeRep, typeOf, funResultTy)
-import Data.Binary (Binary(put, get), putWord8, getWord8, encode)
+import Data.Binary (Binary(put, get), putWord8, getWord8, encode, Put, Get)
 import qualified Data.ByteString as BSS (ByteString, concat)
 import qualified Data.ByteString.Lazy as BSL 
   ( ByteString
@@ -109,7 +109,7 @@ import Control.Distributed.Process.Serializable
   )
 import Control.Distributed.Process.Internal.CQueue (CQueue)
 import Control.Distributed.Process.Internal.Dynamic (Dynamic) 
-import Control.Distributed.Process.Internal.TypeRep () -- Binary instances
+import Control.Distributed.Process.Internal.TypeRep (compareTypeRep) -- and Binary instances
 
 --------------------------------------------------------------------------------
 -- Node and process identifiers                                               --
@@ -265,7 +265,15 @@ data StaticLabel =
   | StaticDuplicate StaticLabel TypeRep
   deriving (Typeable, Show)
 
--- | A static value is top-level bound or the application of two static values
+-- | A static value is top-level bound or the application of two static values.
+--
+-- You construct static values using 'Control.Distributed.Process.Closure.mkStatic'
+-- or 'staticApply'. 'Static' has a serializable instance for all /Typeable/ 'a':
+--
+-- > instance Typeable a => Serializable (Static a) 
+--
+-- The 'Typeable' constraint (not present in the original Cloud Haskell paper)
+-- makes it possible to do a type check during deserialization.
 newtype Static a = Static StaticLabel 
   deriving (Typeable, Show)
 
@@ -518,9 +526,9 @@ instance Binary DiedReason where
       4 -> return DiedUnknownId 
       _ -> fail "DiedReason.get: invalid"
 
-instance Binary (Closure a) where
-  put (Closure (Static label) env) = put label >> put env
-  get = Closure <$> (Static <$> get) <*> get 
+instance Typeable a => Binary (Closure a) where
+  put (Closure static env) = put static >> put env
+  get = Closure <$> get <*> get 
 
 instance Binary DidSpawn where
   put (DidSpawn ref pid) = put ref >> put pid
@@ -542,17 +550,28 @@ instance Binary Identifier where
       2 -> SendPortIdentifier <$> get 
       _ -> fail "Identifier.get: invalid"
 
-instance Binary StaticLabel where
-  put (StaticLabel string typ)    = putWord8 0 >> put string >> put typ 
-  put (StaticApply label1 label2) = putWord8 1 >> put label1 >> put label2
-  put (StaticDuplicate label typ) = putWord8 2 >> put label >> put typ
+-- We don't want StaticLabel to be its own Binary instance
+putStaticLabel :: StaticLabel -> Put
+putStaticLabel (StaticLabel string typ)    = putWord8 0 >> put string >> put typ 
+putStaticLabel (StaticApply label1 label2) = putWord8 1 >> putStaticLabel label1 >> putStaticLabel label2
+putStaticLabel (StaticDuplicate label typ) = putWord8 2 >> putStaticLabel label >> put typ
+
+getStaticLabel :: Get StaticLabel
+getStaticLabel = do
+  header <- getWord8
+  case header of
+    0 -> StaticLabel <$> get <*> get
+    1 -> StaticApply <$> getStaticLabel <*> getStaticLabel
+    2 -> StaticDuplicate <$> getStaticLabel <*> get
+    _ -> fail "StaticLabel.get: invalid" 
+
+instance Typeable a => Binary (Static a) where
+  put (Static label) = putStaticLabel label
   get = do
-    header <- getWord8
-    case header of
-      0 -> StaticLabel <$> get <*> get
-      1 -> StaticApply <$> get <*> get
-      2 -> StaticDuplicate <$> get <*> get
-      _ -> fail "StaticLabel.get: invalid" 
+    label <- getStaticLabel
+    if typeOfStaticLabel label `compareTypeRep` typeOf (undefined :: a)
+      then return $ Static label 
+      else fail "Static.get: type error"
 
 instance Binary WhereIsReply where
   put (WhereIsReply label mPid) = put label >> put mPid

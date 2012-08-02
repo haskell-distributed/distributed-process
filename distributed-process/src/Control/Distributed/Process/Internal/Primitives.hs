@@ -118,7 +118,6 @@ import Control.Distributed.Process.Internal.Types
   , DidUnlinkPort(..)
   , WhereIsReply(..)
   , createMessage
-  , Static(..)
   , runLocalProcess
   )
 import Control.Distributed.Process.Internal.Node (sendMessage, sendBinary) 
@@ -503,10 +502,10 @@ nsendRemote nid label msg =
 
 -- | Deserialize a closure
 unClosure :: forall a. Typeable a => Closure a -> Process a
-unClosure (Closure (Static label) env) = do
+unClosure (Closure static env) = do
     rtable <- remoteTable . processNode <$> ask 
-    case resolveClosure rtable label env of
-      Nothing  -> error $ "Unregistered closure " ++ show label
+    case resolveClosure rtable static env of
+      Nothing  -> error $ "Unregistered closure " ++ show static 
       Just dyn -> return $ fromDyn dyn (throw (typeError dyn))
   where
     typeError dyn = userError $ "lookupStatic type error: " 

@@ -115,7 +115,7 @@ import Control.Distributed.Process.Internal.Types
   , ProcessId(..)
   , Process(..)
   , Closure(..)
-  , Static(..)
+  , Static
   , MonitorRef(..)
   , ProcessMonitorNotification(..)
   , NodeMonitorNotification(..)

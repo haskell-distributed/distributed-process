@@ -12,7 +12,7 @@ import Network.Transport.TCP (createTransport, defaultTCPParameters)
 import Control.Distributed.Process
 import Control.Distributed.Process.Closure
 import Control.Distributed.Process.Node
-import Control.Distributed.Process.Internal.Types (Closure(..), Static(..), StaticLabel(..))
+import Control.Distributed.Process.Internal.Types (Static(Static), StaticLabel(StaticLabel))
 import TestAuxiliary
 
 sdictInt :: SerializableDict Int

@@ -117,9 +117,9 @@ sdictComp = SerializableDict
 
 -- | Resolve a closure
 unClosure :: Static a -> ByteString -> Process Dynamic
-unClosure (Static label) env = do
+unClosure static env = do
   rtable <- remoteTable . processNode <$> ask 
-  case resolveClosure rtable label env of
+  case resolveClosure rtable static env of
     Nothing  -> fail "Derived.unClosure: resolveClosure failed"
     Just dyn -> return dyn
 

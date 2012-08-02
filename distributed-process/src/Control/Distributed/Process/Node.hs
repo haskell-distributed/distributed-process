@@ -99,7 +99,6 @@ import Control.Distributed.Process.Internal.Types
   , SpawnRef
   , DidSpawn(..)
   , Closure(..)
-  , Static(..)
   , Message
   , TypedChannel(..)
   , Identifier(..)
@@ -605,9 +604,9 @@ isLocal nid ident = nodeOf ident == localNodeId nid
 
 -- | Lookup a local closure 
 unClosure :: Typeable a => Closure a -> NC (Maybe a)
-unClosure (Closure (Static label) env) = do
+unClosure (Closure static env) = do
   rtable <- remoteTable <$> ask
-  return (resolveClosure rtable label env >>= fromDynamic)
+  return (resolveClosure rtable static env >>= fromDynamic)
 
 -- | Check if an identifier refers to a valid local object
 isValidLocalIdentifier :: Identifier -> NC Bool

@@ -1,6 +1,8 @@
-2012-08-02  Edsko de Vries  <edsko@well-typed.com>  0.2.2.1
+2012-08-02  Edsko de Vries  <edsko@well-typed.com>  0.2.3.0
 
 * Expose the constructors of Closure
+* Add instance (Typeable a => Serializable (Static a)) and make sure we only
+use the internal representation of Static where really necessary
 * Improved docs
 
 2012-07-31  Edsko de Vries  <edsko@well-typed.com>  0.2.2.0

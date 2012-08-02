@@ -17,18 +17,18 @@ import Control.Distributed.Process.Internal.Dynamic
   )
 import Control.Distributed.Process.Internal.TypeRep () -- Binary instances  
 
-resolveStatic :: RemoteTable -> StaticLabel -> Maybe Dynamic
-resolveStatic rtable (StaticLabel string typ) = do
+resolveStatic :: RemoteTable -> Static a -> Maybe Dynamic
+resolveStatic rtable (Static (StaticLabel string typ)) = do
   Dynamic _ val <- rtable ^. remoteTableLabel string
   return (Dynamic typ val)
-resolveStatic rtable (StaticApply static1 static2) = do
-  f <- resolveStatic rtable static1
-  x <- resolveStatic rtable static2
+resolveStatic rtable (Static (StaticApply static1 static2)) = do
+  f <- resolveStatic rtable (Static static1)
+  x <- resolveStatic rtable (Static static2)
   f `dynApply` x
-resolveStatic _rtable (StaticDuplicate static typ) = 
+resolveStatic _rtable (Static (StaticDuplicate static typ)) = 
   return $ Dynamic typ (unsafeCoerce# (Static static))
 
-resolveClosure :: RemoteTable -> StaticLabel -> ByteString -> Maybe Dynamic
+resolveClosure :: RemoteTable -> Static a -> ByteString -> Maybe Dynamic
 resolveClosure rtable static env = do
   decoder <- resolveStatic rtable static
   decoder `dynApply` toDyn env
