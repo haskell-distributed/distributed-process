@@ -64,7 +64,7 @@ module Control.Distributed.Process
   , DiedReason(..)
     -- * Closures
   , Closure(..)
-  , Static(..)
+  , Static
   , unClosure
   , RemoteTable
     -- * Logging
