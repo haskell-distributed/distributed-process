@@ -1,5 +1,8 @@
 -- | Generic main
-module Control.Distributed.Process.Backend.Azure.GenericMain (genericMain) where
+module Control.Distributed.Process.Backend.Azure.GenericMain 
+  ( genericMain
+  , ProcessPair(..)
+  ) where
 
 import Prelude hiding (catch)
 import System.Exit (exitSuccess, exitFailure)
@@ -20,7 +23,7 @@ import Control.Distributed.Process.Backend.Azure
   , cloudServices 
   , CloudService(cloudServiceName, cloudServiceVMs)
   , VirtualMachine(vmName)
-  , Backend(copyToVM, checkMD5, runOnVM)
+  , Backend(copyToVM, checkMD5, callOnVM)
   )
 import qualified Network.SSH.Client.LibSSH2.Foreign as SSH
   ( initialize 
@@ -49,16 +52,25 @@ import Control.Distributed.Process
   , Closure
   , Process
   , unClosure
+  , Static
   )
 import Control.Distributed.Process.Node (newLocalNode, runProcess, initRemoteTable)
+import Control.Distributed.Process.Serializable (Serializable)
+import Control.Distributed.Process.Closure (SerializableDict)
 import Network.Transport.TCP (createTransport, defaultTCPParameters)
 
 --------------------------------------------------------------------------------
 -- Main                                                                       -- 
 --------------------------------------------------------------------------------
 
-genericMain :: (RemoteTable -> RemoteTable)          -- ^ Standard CH remote table 
-            -> (String -> IO (Closure (Process ()))) -- ^ Closures to support in 'run'
+data ProcessPair b = forall a. Serializable a => ProcessPair {
+    ppairRemote :: Closure (Process a)
+  , ppairLocal  :: a -> IO b 
+  , ppairDict   :: Static (SerializableDict a)
+  }
+
+genericMain :: (RemoteTable -> RemoteTable)    -- ^ Standard CH remote table 
+            -> (String -> IO (ProcessPair ())) -- ^ Closures to support in 'run'
             -> IO ()
 genericMain remoteTable cmds = do 
     _ <- SSH.initialize True
@@ -90,13 +102,15 @@ genericMain remoteTable cmds = do
           then exitSuccess
           else exitFailure
       RunOn {} -> do
-        closure <- cmds (closureId cmd)
-        params  <- azureParameters (azureOptions cmd) (Just (sshOptions cmd))
-        backend <- initializeBackend params
-        css     <- cloudServices backend
+        procPair <- cmds (closureId cmd)
+        params   <- azureParameters (azureOptions cmd) (Just (sshOptions cmd))
+        backend  <- initializeBackend params
+        css      <- cloudServices backend
         forM_ (findTarget (target cmd) css) $ \vm -> do
           putStr (vmName vm ++ ": ") >> hFlush stdout 
-          runOnVM backend vm (remotePort cmd) closure 
+          case procPair of 
+            ProcessPair rProc lProc dict -> 
+              callOnVM backend dict vm (remotePort cmd) rProc >>= lProc
       OnVmCommand (vmCmd@OnVmRun {}) -> do
         onVmRun (remoteTable initRemoteTable) (onVmIP vmCmd) (onVmPort vmCmd)
     SSH.exit

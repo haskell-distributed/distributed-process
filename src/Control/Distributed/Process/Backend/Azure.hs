@@ -1,3 +1,4 @@
+{-# LANGUAGE TemplateHaskell #-}
 module Control.Distributed.Process.Backend.Azure 
   ( -- * Initialization
     Backend(..)
@@ -13,13 +14,14 @@ import System.Environment (getEnv)
 import System.FilePath ((</>), takeFileName)
 import System.Environment.Executable (getExecutablePath)
 import System.Posix.Types (Fd)
-import Data.Binary (encode)
+import Data.Binary (encode, decode)
 import Data.Digest.Pure.MD5 (md5, MD5Digest)
-import qualified Data.ByteString.Lazy as BSL (readFile)
-import qualified Data.ByteString.Lazy.Char8 as BSLC (putStr)
+import qualified Data.ByteString.Lazy as BSL (readFile, putStr)
+import Data.Typeable (Typeable)
 import Control.Applicative ((<$>))
 import Control.Monad (void)
 import Control.Exception (catches, Handler(Handler))
+import Control.Monad.IO.Class (liftIO)
 
 -- Azure
 import Network.Azure.ServiceManagement 
@@ -61,7 +63,23 @@ import qualified Network.SSH.Client.LibSSH2.ByteString.Lazy as SSHBS
 import Control.Distributed.Process 
   ( Closure
   , Process
+  , Static
   )
+import Control.Distributed.Process.Closure 
+  ( remotable
+  , mkClosure
+  , cpBind
+  , SerializableDict(SerializableDict)
+  )
+import Control.Distributed.Process.Serializable (Serializable)
+
+encodeToStdout :: Serializable a => a -> Process ()
+encodeToStdout = liftIO . BSL.putStr . encode
+
+encodeToStdoutDict :: SerializableDict a -> a -> Process ()
+encodeToStdoutDict SerializableDict = encodeToStdout
+
+remotable ['encodeToStdoutDict]
 
 -- | Azure backend
 data Backend = Backend {
@@ -71,8 +89,8 @@ data Backend = Backend {
   , copyToVM :: VirtualMachine -> IO () 
     -- | Check the MD5 hash of the remote executable
   , checkMD5 :: VirtualMachine -> IO Bool 
-    -- | @runOnVM vm port p@ starts a CH node on port 'port' and runs 'p'
-  , runOnVM :: VirtualMachine -> String -> Closure (Process ()) -> IO ()
+    -- | @runOnVM vm port p bg@ starts a CH node on port 'port' and runs 'p'
+  , callOnVM :: forall a. Serializable a => Static (SerializableDict a) -> VirtualMachine -> String -> Closure (Process a) -> IO a 
   }
 
 data AzureParameters = AzureParameters {
@@ -120,7 +138,7 @@ initializeBackend params = do
       cloudServices = Azure.cloudServices setup
     , copyToVM      = apiCopyToVM params 
     , checkMD5      = apiCheckMD5 params
-    , runOnVM       = apiRunOnVM params
+    , callOnVM      = apiCallOnVM params
     }
 
 -- | Start a CH node on the given virtual machine
@@ -129,21 +147,24 @@ apiCopyToVM params vm =
   void . withSSH2 params vm $ \fd s -> catchSshError s $
     SSH.scpSendFile fd s 0o700 (azureSshLocalPath params) (azureSshRemotePath params)
 
--- | Start the executable on the remote machine
-apiRunOnVM :: AzureParameters -> VirtualMachine -> String -> Closure (Process ()) -> IO ()
-apiRunOnVM params vm port proc =
-  void . withSSH2 params vm $ \fd s -> do
-    let exe = "PATH=. " ++ azureSshRemotePath params 
-           ++ " onvm run "
-           ++ " --host " ++ vmIpAddress vm 
-           ++ " --port " ++ port
-           ++ " 2>&1"
-    (_, r) <- SSH.withChannel (SSH.openChannelSession s) id fd s $ \ch -> do
-      SSH.retryIfNeeded fd s $ SSH.channelExecute ch exe
-      SSHBS.writeChannel fd ch (encode proc) 
-      SSH.channelSendEOF ch
-      SSHBS.readAllChannel fd ch
-    BSLC.putStr r
+-- | Call a process on a VM 
+apiCallOnVM :: Serializable a => AzureParameters -> Static (SerializableDict a) -> VirtualMachine -> String -> Closure (Process a) -> IO a
+apiCallOnVM params dict vm port proc =
+    withSSH2 params vm $ \fd s -> do
+      let exe = "PATH=. " ++ azureSshRemotePath params 
+             ++ " onvm run "
+             ++ " --host " ++ vmIpAddress vm 
+             ++ " --port " ++ port
+             ++ " 2>&1"
+      (_, r) <- SSH.withChannel (SSH.openChannelSession s) id fd s $ \ch -> do
+        SSH.retryIfNeeded fd s $ SSH.channelExecute ch exe
+        SSHBS.writeChannel fd ch (encode proc) 
+        SSH.channelSendEOF ch
+        SSHBS.readAllChannel fd ch
+      return (decode r)
+  where
+    proc' :: Closure (Process ())
+    proc' = proc `cpBind` undefined 
 
 -- | Check the MD5 hash of the executable on the remote machine
 apiCheckMD5 :: AzureParameters -> VirtualMachine -> IO Bool 

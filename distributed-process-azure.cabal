@@ -29,10 +29,14 @@ Library
                      distributed-process >= 0.2 && < 0.3,
                      binary >= 0.5 && < 0.6,
                      network-transport-tcp >= 0.2 && < 0.3,
-                     optparse-applicative >= 0.2 && < 0.4
+                     optparse-applicative >= 0.2 && < 0.4,
+                     transformers >= 0.3 && < 0.4
   Exposed-modules:   Control.Distributed.Process.Backend.Azure,
                      Control.Distributed.Process.Backend.Azure.GenericMain
-  Extensions:        ViewPatterns
+  Extensions:        ViewPatterns,
+                     RankNTypes,
+                     ExistentialQuantification,
+                     ScopedTypeVariables
   ghc-options:       -Wall
   HS-Source-Dirs:    src
 
