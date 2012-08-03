@@ -5,6 +5,7 @@ module Control.Distributed.Process.Backend.Azure
   , AzureParameters(..)
   , defaultAzureParameters
   , initializeBackend
+  , remoteTable
     -- * Re-exports from Azure Service Management
   , CloudService(..)
   , VirtualMachine(..)
@@ -16,7 +17,7 @@ import System.Environment.Executable (getExecutablePath)
 import System.Posix.Types (Fd)
 import Data.Binary (encode, decode)
 import Data.Digest.Pure.MD5 (md5, MD5Digest)
-import qualified Data.ByteString.Lazy as BSL (readFile, putStr)
+import qualified Data.ByteString.Lazy as BSL (ByteString, readFile, putStr, length, writeFile)
 import Data.Typeable (Typeable)
 import Control.Applicative ((<$>))
 import Control.Monad (void)
@@ -61,15 +62,18 @@ import qualified Network.SSH.Client.LibSSH2.ByteString.Lazy as SSHBS
 
 -- CH
 import Control.Distributed.Process 
-  ( Closure
+  ( Closure(Closure)
   , Process
   , Static
+  , RemoteTable
   )
 import Control.Distributed.Process.Closure 
   ( remotable
-  , mkClosure
   , cpBind
   , SerializableDict(SerializableDict)
+  , staticConst
+  , staticApply
+  , mkStatic
   )
 import Control.Distributed.Process.Serializable (Serializable)
 
@@ -79,7 +83,17 @@ encodeToStdout = liftIO . BSL.putStr . encode
 encodeToStdoutDict :: SerializableDict a -> a -> Process ()
 encodeToStdoutDict SerializableDict = encodeToStdout
 
-remotable ['encodeToStdout]
+remotable ['encodeToStdoutDict]
+
+-- | Remote table necessary for the Azure backend
+remoteTable :: RemoteTable -> RemoteTable
+remoteTable = __remoteTable
+
+cpEncodeToStdout :: forall a. Typeable a => Static (SerializableDict a) -> Closure (a -> Process ())
+cpEncodeToStdout dict = Closure decoder (encode ())
+  where
+    decoder :: Static (BSL.ByteString -> a -> Process ())
+    decoder = staticConst `staticApply` ($(mkStatic 'encodeToStdoutDict) `staticApply` dict)
 
 -- | Azure backend
 data Backend = Backend {
@@ -89,7 +103,7 @@ data Backend = Backend {
   , copyToVM :: VirtualMachine -> IO () 
     -- | Check the MD5 hash of the remote executable
   , checkMD5 :: VirtualMachine -> IO Bool 
-    -- | @runOnVM vm port p bg@ starts a CH node on port 'port' and runs 'p'
+    -- | @runOnVM dict vm port p@ starts a CH node on port 'port' and runs 'p'
   , callOnVM :: forall a. Serializable a => Static (SerializableDict a) -> VirtualMachine -> String -> Closure (Process a) -> IO a 
   }
 
@@ -158,13 +172,13 @@ apiCallOnVM params dict vm port proc =
              ++ " 2>&1"
       (_, r) <- SSH.withChannel (SSH.openChannelSession s) id fd s $ \ch -> do
         SSH.retryIfNeeded fd s $ SSH.channelExecute ch exe
-        SSHBS.writeChannel fd ch (encode proc) 
+        cnt <- SSHBS.writeChannel fd ch (encode proc') 
         SSH.channelSendEOF ch
         SSHBS.readAllChannel fd ch
       return (decode r)
   where
     proc' :: Closure (Process ())
-    proc' = proc `cpBind` undefined 
+    proc' = proc `cpBind` cpEncodeToStdout dict   
 
 -- | Check the MD5 hash of the executable on the remote machine
 apiCheckMD5 :: AzureParameters -> VirtualMachine -> IO Bool 

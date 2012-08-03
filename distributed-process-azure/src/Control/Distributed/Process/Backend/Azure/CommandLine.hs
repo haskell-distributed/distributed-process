@@ -9,7 +9,9 @@ import Control.Distributed.Process.Backend.Azure.GenericMain
   )
 
 getPid :: () -> Process ProcessId
-getPid () = getSelfPid
+getPid () = do
+  liftIO $ appendFile "Log" "getPid did run" 
+  getSelfPid
 
 remotable ['getPid]
 

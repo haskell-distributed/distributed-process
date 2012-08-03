@@ -13,23 +13,19 @@ import System.IO
   , hSetBinaryMode
   )
 import Data.Binary (decode)  
-import qualified Data.ByteString.Lazy as BSL (ByteString, getContents)
+import qualified Data.ByteString.Lazy as BSL (ByteString, getContents, length)
 import Control.Monad (unless, forM, forM_, join)
-import Control.Exception (throwIO)
-import Control.Distributed.Process.Backend.Azure 
-  ( AzureParameters(azureSshUserName)
-  , defaultAzureParameters
-  , initializeBackend 
-  , cloudServices 
-  , CloudService(cloudServiceName, cloudServiceVMs)
-  , VirtualMachine(vmName)
-  , Backend(copyToVM, checkMD5, callOnVM)
-  )
+import Control.Exception (throwIO, SomeException)
+import Control.Applicative ((<$>), (<*>), (<|>))
+import Control.Monad.IO.Class (liftIO)
+
+-- SSH
 import qualified Network.SSH.Client.LibSSH2.Foreign as SSH
   ( initialize 
   , exit
   )
-import Control.Applicative ((<$>), (<*>), (<|>))
+
+-- Command line options
 import Options.Applicative 
   ( Parser
   , strOption
@@ -47,17 +43,30 @@ import Options.Applicative
   , header
   , switch
   )
+
+-- CH
 import Control.Distributed.Process 
   ( RemoteTable
   , Closure
   , Process
   , unClosure
   , Static
+  , catch
   )
 import Control.Distributed.Process.Node (newLocalNode, runProcess, initRemoteTable)
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Closure (SerializableDict)
 import Network.Transport.TCP (createTransport, defaultTCPParameters)
+import Control.Distributed.Process.Backend.Azure 
+  ( AzureParameters(azureSshUserName)
+  , defaultAzureParameters
+  , initializeBackend 
+  , cloudServices 
+  , CloudService(cloudServiceName, cloudServiceVMs)
+  , VirtualMachine(vmName)
+  , Backend(copyToVM, checkMD5, callOnVM)
+  )
+import qualified Control.Distributed.Process.Backend.Azure as Azure (remoteTable)
 
 --------------------------------------------------------------------------------
 -- Main                                                                       -- 
@@ -112,7 +121,9 @@ genericMain remoteTable cmds = do
             ProcessPair rProc lProc dict -> 
               callOnVM backend dict vm (remotePort cmd) rProc >>= lProc
       OnVmCommand (vmCmd@OnVmRun {}) -> do
-        onVmRun (remoteTable initRemoteTable) (onVmIP vmCmd) (onVmPort vmCmd)
+        onVmRun (remoteTable . Azure.remoteTable $ initRemoteTable) 
+                (onVmIP vmCmd) 
+                (onVmPort vmCmd)
     SSH.exit
   where
     opts = info (helper <*> commandParser)
@@ -144,13 +155,16 @@ azureParameters opts (Just sshOpts) = do
 onVmRun :: RemoteTable -> String -> String -> IO ()
 onVmRun rtable host port = do
   hSetBinaryMode stdin True
+  hSetBinaryMode stdout True
   proc <- BSL.getContents :: IO BSL.ByteString
   mTransport <- createTransport host port defaultTCPParameters 
   case mTransport of
     Left err -> throwIO err
     Right transport -> do
       node <- newLocalNode transport rtable
-      runProcess node $ join . unClosure . decode $ proc
+      runProcess node $ 
+        catch (join . unClosure . decode $ proc)
+              (\e -> liftIO (print (e :: SomeException) >> throwIO e))
   
 --------------------------------------------------------------------------------
 -- Command line options                                                       --
