@@ -13,7 +13,7 @@ import System.IO
   , hSetBinaryMode
   )
 import Data.Binary (decode)  
-import qualified Data.ByteString.Lazy as BSL (ByteString, getContents, length)
+import qualified Data.ByteString.Lazy as BSL (ByteString, getContents)
 import Control.Monad (unless, forM, forM_, join)
 import Control.Exception (throwIO, SomeException)
 import Control.Applicative ((<$>), (<*>), (<|>))
@@ -120,7 +120,7 @@ genericMain remoteTable cmds = do
           case procPair of 
             ProcessPair rProc lProc dict -> 
               callOnVM backend dict vm (remotePort cmd) rProc >>= lProc
-      OnVmCommand (vmCmd@OnVmRun {}) -> do
+      OnVmCommand (vmCmd@OnVmRun {}) ->
         onVmRun (remoteTable . Azure.remoteTable $ initRemoteTable) 
                 (onVmIP vmCmd) 
                 (onVmPort vmCmd)
