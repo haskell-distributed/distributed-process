@@ -14,10 +14,10 @@ module Control.Distributed.Process.Backend.Azure
 import System.Environment (getEnv)
 import System.FilePath ((</>), takeFileName)
 import System.Environment.Executable (getExecutablePath)
-import System.Posix.Types (Fd)
 import Data.Binary (encode, decode)
 import Data.Digest.Pure.MD5 (md5, MD5Digest)
-import qualified Data.ByteString.Lazy as BSL (ByteString, readFile, putStr, length, writeFile)
+import qualified Data.ByteString.Char8 as BSSC (pack)
+import qualified Data.ByteString.Lazy as BSL (ByteString, readFile, putStr)
 import Data.Typeable (Typeable)
 import Control.Applicative ((<$>))
 import Control.Monad (void)
@@ -40,12 +40,13 @@ import qualified Network.Azure.ServiceManagement as Azure
 import qualified Network.SSH.Client.LibSSH2 as SSH
   ( withSSH2
   , scpSendFile
-  , withChannel
+  , withChannelBy
   , Session
+  , readAllChannel
+  , writeAllChannel
   )
 import qualified Network.SSH.Client.LibSSH2.Foreign as SSH
   ( openChannelSession
-  , retryIfNeeded
   , channelExecute
   , writeChannel
   , channelSendEOF
@@ -54,10 +55,6 @@ import qualified Network.SSH.Client.LibSSH2.Errors as SSH
   ( ErrorCode
   , NULL_POINTER
   , getLastError
-  )
-import qualified Network.SSH.Client.LibSSH2.ByteString.Lazy as SSHBS
-  ( writeChannel
-  , readAllChannel
   )
 
 -- CH
@@ -158,23 +155,23 @@ initializeBackend params = do
 -- | Start a CH node on the given virtual machine
 apiCopyToVM :: AzureParameters -> VirtualMachine -> IO ()
 apiCopyToVM params vm = 
-  void . withSSH2 params vm $ \fd s -> catchSshError s $
-    SSH.scpSendFile fd s 0o700 (azureSshLocalPath params) (azureSshRemotePath params)
+  void . withSSH2 params vm $ \s -> catchSshError s $
+    SSH.scpSendFile s 0o700 (azureSshLocalPath params) (azureSshRemotePath params)
 
 -- | Call a process on a VM 
 apiCallOnVM :: Serializable a => AzureParameters -> Static (SerializableDict a) -> VirtualMachine -> String -> Closure (Process a) -> IO a
 apiCallOnVM params dict vm port proc =
-    withSSH2 params vm $ \fd s -> do
+    withSSH2 params vm $ \s -> do
       let exe = "PATH=. " ++ azureSshRemotePath params 
              ++ " onvm run "
              ++ " --host " ++ vmIpAddress vm 
              ++ " --port " ++ port
              ++ " 2>&1"
-      (_, r) <- SSH.withChannel (SSH.openChannelSession s) id fd s $ \ch -> do
-        SSH.retryIfNeeded fd s $ SSH.channelExecute ch exe
-        cnt <- SSHBS.writeChannel fd ch (encode proc') 
+      (_, r) <- SSH.withChannelBy (SSH.openChannelSession s) id $ \ch -> do
+        SSH.channelExecute ch exe
+        _cnt <- SSH.writeAllChannel ch (encode proc') 
         SSH.channelSendEOF ch
-        SSHBS.readAllChannel fd ch
+        SSH.readAllChannel ch
       return (decode r)
   where
     proc' :: Closure (Process ())
@@ -184,15 +181,15 @@ apiCallOnVM params dict vm port proc =
 apiCheckMD5 :: AzureParameters -> VirtualMachine -> IO Bool 
 apiCheckMD5 params vm = do
   hash <- localHash params
-  withSSH2 params vm $ \fd s -> do
-    (r, _) <- SSH.withChannel (SSH.openChannelSession s) id fd s $ \ch -> do
-      SSH.retryIfNeeded fd s $ SSH.channelExecute ch "md5sum -c --status"
-      SSH.writeChannel ch $ show hash ++ "  " ++ azureSshRemotePath params 
+  withSSH2 params vm $ \s -> do
+    (r, _) <- SSH.withChannelBy (SSH.openChannelSession s) id $ \ch -> do
+      SSH.channelExecute ch "md5sum -c --status"
+      SSH.writeChannel ch . BSSC.pack $ show hash ++ "  " ++ azureSshRemotePath params 
       SSH.channelSendEOF ch
-      SSHBS.readAllChannel fd ch
+      SSH.readAllChannel ch
     return (r == 0)
 
-withSSH2 :: AzureParameters -> VirtualMachine -> (Fd -> SSH.Session -> IO a) -> IO a 
+withSSH2 :: AzureParameters -> VirtualMachine -> (SSH.Session -> IO a) -> IO a 
 withSSH2 params (Azure.vmSshEndpoint -> Just ep) = 
   SSH.withSSH2 (azureSshKnownHosts params)
                (azureSshPublicKey params)
