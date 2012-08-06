@@ -24,17 +24,19 @@ import Control.Distributed.Process.Closure
   , SerializableDict(..)
   , mkStatic
   )
+import Control.Distributed.Process.Backend.Azure (Backend)
 import Control.Distributed.Process.Backend.Azure.GenericMain 
   ( genericMain
   , ProcessPair(..)
+  , RemoteProcess
   )
 import qualified Data.ByteString.Lazy as BSL (readFile, writeFile) 
 
 sdictString :: SerializableDict String
 sdictString = SerializableDict
 
-ping :: () -> Process String 
-ping () = do
+ping :: () -> Backend -> Process String 
+ping () _backend = do
   mPingServerEnc <- liftIO $ try (BSL.readFile "pingServer.pid")
   case mPingServerEnc of
     Left err -> 
@@ -52,8 +54,8 @@ ping () = do
         then return $ "Ping server at " ++ show pingServer ++ " ok"
         else return $ "Ping server at " ++ show pingServer ++ " failure"
 
-pingServer :: () -> Process ()
-pingServer () = do
+pingServer :: () -> Backend -> Process ()
+pingServer () _backend = do
   pid <- getSelfPid
   liftIO $ BSL.writeFile "pingServer.pid" (encode pid)
   forever $ do 
@@ -69,6 +71,6 @@ main = genericMain __remoteTable callable spawnable
     callable "ping" = return $ ProcessPair ($(mkClosure 'ping) ()) putStrLn $(mkStatic 'sdictString)
     callable _      = error "spawnable: unknown"
 
-    spawnable :: String -> IO (Closure (Process ()))
+    spawnable :: String -> IO (RemoteProcess ())
     spawnable "pingServer" = return $ $(mkClosure 'pingServer) () 
     spawnable _            = error "callable: unknown"
