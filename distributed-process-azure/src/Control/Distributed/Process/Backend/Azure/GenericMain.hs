@@ -18,7 +18,7 @@ import Data.Binary (decode)
 import qualified Data.ByteString.Lazy as BSL (getContents, length)
 import Control.Monad (unless, forM, forM_, join, void)
 import Control.Exception (throwIO, SomeException, evaluate)
-import Control.Applicative ((<$>), (<*>), (<|>))
+import Control.Applicative ((<$>), (<*>), optional)
 import Control.Monad.IO.Class (liftIO)
 
 -- Posix
@@ -63,13 +63,12 @@ import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Closure (SerializableDict)
 import Network.Transport.TCP (createTransport, defaultTCPParameters)
 import Control.Distributed.Process.Backend.Azure 
-  ( AzureParameters(azureSshUserName)
+  ( AzureParameters(azureSshUserName, azureSetup)
   , defaultAzureParameters
   , initializeBackend 
   , cloudServices 
-  , CloudService(cloudServiceName, cloudServiceVMs)
   , VirtualMachine(vmName)
-  , Backend(copyToVM, checkMD5, callOnVM, spawnOnVM)
+  , Backend(findVMs, copyToVM, checkMD5, callOnVM, spawnOnVM)
   )
 import qualified Control.Distributed.Process.Backend.Azure as Azure (remoteTable)
 
@@ -93,22 +92,21 @@ genericMain remoteTable callable spawnable = do
     case cmd of
       List {} -> do
         params <- azureParameters (azureOptions cmd) Nothing
-        backend <- initializeBackend params 
-        css <- cloudServices backend
+        css <- cloudServices (azureSetup params) 
         mapM_ print css
       CopyTo {} -> do
-        params <- azureParameters (azureOptions cmd) (Just (sshOptions cmd))
-        backend <- initializeBackend params
-        css <- cloudServices backend
-        forM_ (findTarget (target cmd) css) $ \vm -> do
+        params  <- azureParameters (azureOptions cmd) (Just (sshOptions cmd))
+        backend <- initializeBackend params (targetService (target cmd))
+        vms     <- findMatchingVMs backend (targetVM (target cmd))
+        forM_ vms $ \vm -> do
           putStr (vmName vm ++ ": ") >> hFlush stdout 
           copyToVM backend vm 
           putStrLn "Done"
       CheckMD5 {} -> do
-        params <- azureParameters (azureOptions cmd) (Just (sshOptions cmd))
-        backend <- initializeBackend params
-        css <- cloudServices backend
-        matches <- forM (findTarget (target cmd) css) $ \vm -> do
+        params  <- azureParameters (azureOptions cmd) (Just (sshOptions cmd))
+        backend <- initializeBackend params (targetService (target cmd))
+        vms     <- findMatchingVMs backend (targetVM (target cmd))
+        matches <- forM vms $ \vm -> do
           unless (status cmd) $ putStr (vmName vm ++ ": ") >> hFlush stdout
           match <- checkMD5 backend vm 
           unless (status cmd) $ putStrLn $ if match then "OK" else "FAILED"
@@ -117,20 +115,20 @@ genericMain remoteTable callable spawnable = do
           then exitSuccess
           else exitFailure
       RunOn {} | background cmd -> do
-        rProc    <- spawnable (closureId cmd)
-        params   <- azureParameters (azureOptions cmd) (Just (sshOptions cmd))
-        backend  <- initializeBackend params
-        css      <- cloudServices backend
-        forM_ (findTarget (target cmd) css) $ \vm -> do
+        params  <- azureParameters (azureOptions cmd) (Just (sshOptions cmd))
+        backend <- initializeBackend params (targetService (target cmd))
+        vms     <- findMatchingVMs backend (targetVM (target cmd))
+        rProc   <- spawnable (closureId cmd)
+        forM_ vms $ \vm -> do
           putStr (vmName vm ++ ": ") >> hFlush stdout 
           spawnOnVM backend vm (remotePort cmd) rProc
           putStrLn "OK"
       RunOn {} {- not (background cmd) -} -> do 
+        params  <- azureParameters (azureOptions cmd) (Just (sshOptions cmd))
+        backend <- initializeBackend params (targetService (target cmd))
+        vms     <- findMatchingVMs backend (targetVM (target cmd))
         procPair <- callable (closureId cmd)
-        params   <- azureParameters (azureOptions cmd) (Just (sshOptions cmd))
-        backend  <- initializeBackend params
-        css      <- cloudServices backend
-        forM_ (findTarget (target cmd) css) $ \vm -> do
+        forM_ vms $ \vm -> do
           putStr (vmName vm ++ ": ") >> hFlush stdout 
           case procPair of 
             ProcessPair rProc lProc dict -> do
@@ -148,13 +146,9 @@ genericMain remoteTable callable spawnable = do
       & header "Cloud Haskell backend for Azure"
       )
 
-findTarget :: Target -> [CloudService] -> [VirtualMachine]
-findTarget (CloudService cs) css = 
-  concatMap cloudServiceVMs . filter ((== cs) . cloudServiceName) $ css
-findTarget (VirtualMachine virtualMachine) css =
-  [ vm | vm <- concatMap cloudServiceVMs css
-       , vmName vm == virtualMachine
-  ]
+findMatchingVMs :: Backend -> Maybe String -> IO [VirtualMachine]
+findMatchingVMs backend Nothing   = findVMs backend
+findMatchingVMs backend (Just vm) = filter ((== vm) . vmName) `fmap` findVMs backend  
 
 azureParameters :: AzureOptions -> Maybe SshOptions -> IO AzureParameters
 azureParameters opts Nothing = 
@@ -215,9 +209,10 @@ data SshOptions = SshOptions {
   }
   deriving Show
 
-data Target = 
-    VirtualMachine String 
-  | CloudService String
+data Target = Target {
+    targetService :: String
+  , targetVM      :: Maybe String
+  }
   deriving Show
 
 data Command = 
@@ -244,7 +239,7 @@ data Command =
       , background   :: Bool
       }
   | OnVmCommand {
-        onVmCommand  :: OnVmCommand
+       _onVmCommand  :: OnVmCommand
       }
   deriving Show
 
@@ -288,18 +283,15 @@ copyToParser = CopyTo
   <*> targetParser
 
 targetParser :: Parser Target
-targetParser = 
-    ( VirtualMachine <$> strOption ( long "virtual-machine"
-                                   & metavar "VM"
-                                   & help "Virtual machine name"
-                                   )
-    )
-  <|>
-    ( CloudService   <$> strOption ( long "cloud-service"
-                                   & metavar "CS"
-                                   & help "Cloud service name"
-                                   )
-    )
+targetParser = Target 
+  <$> strOption ( long "cloud-service"
+                & metavar "CS"
+                & help "Cloud service name"
+                )
+  <*> optional (strOption ( long "virtual-machine"
+                          & metavar "VM"
+                          & help "Virtual machine name"
+                          ))
 
 checkMD5Parser :: Parser Command
 checkMD5Parser = CheckMD5 

@@ -65,7 +65,8 @@ Executable cloud-haskell-azure-conway
                      distributed-process >= 0.2 && < 0.3,
                      transformers >= 0.3 && < 0.4,
                      bytestring >= 0.9 && < 0.11,
-                     binary >= 0.5 && < 0.6
+                     binary >= 0.5 && < 0.6,
+                     binary-generic >= 0.2 && < 0.3
   else
     buildable: False
   Main-Is:           demos/Conway.hs

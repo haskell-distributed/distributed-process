@@ -9,6 +9,7 @@ module Control.Distributed.Process.Backend.Azure
     -- * Re-exports from Azure Service Management
   , CloudService(..)
   , VirtualMachine(..)
+  , Azure.cloudServices
   ) where
 
 import System.Environment (getEnv)
@@ -30,6 +31,7 @@ import Network.Azure.ServiceManagement
   ( CloudService(..)
   , VirtualMachine(..)
   , Endpoint(..)
+  , AzureSetup
   )
 import qualified Network.Azure.ServiceManagement as Azure
   ( cloudServices 
@@ -96,7 +98,7 @@ cpEncodeToStdout dict = Closure decoder (encode ())
 -- | Azure backend
 data Backend = Backend {
     -- | Find virtual machines
-    cloudServices :: IO [CloudService]
+    findVMs :: IO [VirtualMachine]
     -- | Copy the executable to a virtual machine
   , copyToVM :: VirtualMachine -> IO () 
     -- | Check the MD5 hash of the remote executable
@@ -109,9 +111,7 @@ data Backend = Backend {
   }
 
 data AzureParameters = AzureParameters {
-    azureSubscriptionId  :: String 
-  , azureAuthCertificate :: FilePath 
-  , azureAuthPrivateKey  :: FilePath 
+    azureSetup           :: AzureSetup
   , azureSshUserName     :: FilePath
   , azureSshPublicKey    :: FilePath
   , azureSshPrivateKey   :: FilePath
@@ -127,35 +127,41 @@ defaultAzureParameters :: String    -- ^ Azure subscription ID
                        -> FilePath  -- ^ Path to private key
                        -> IO AzureParameters
 defaultAzureParameters sid x509 pkey = do
-  home <- getEnv "HOME"
-  user <- getEnv "USER"
-  self <- getExecutablePath
+  home  <- getEnv "HOME"
+  user  <- getEnv "USER"
+  self  <- getExecutablePath
+  setup <- Azure.azureSetup sid x509 pkey 
   return AzureParameters 
-    { azureSubscriptionId  = sid
-    , azureAuthCertificate = x509
-    , azureAuthPrivateKey  = pkey
-    , azureSshUserName     = user
-    , azureSshPublicKey    = home </> ".ssh" </> "id_rsa.pub"
-    , azureSshPrivateKey   = home </> ".ssh" </> "id_rsa"
-    , azureSshPassphrase   = ""
-    , azureSshKnownHosts   = home </> ".ssh" </> "known_hosts"
-    , azureSshRemotePath   = takeFileName self
-    , azureSshLocalPath    = self
+    { azureSetup         = setup 
+    , azureSshUserName   = user
+    , azureSshPublicKey  = home </> ".ssh" </> "id_rsa.pub"
+    , azureSshPrivateKey = home </> ".ssh" </> "id_rsa"
+    , azureSshPassphrase = ""
+    , azureSshKnownHosts = home </> ".ssh" </> "known_hosts"
+    , azureSshRemotePath = takeFileName self
+    , azureSshLocalPath  = self
     }
 
 -- | Initialize the backend
-initializeBackend :: AzureParameters -> IO Backend
-initializeBackend params = do
-  setup <- Azure.azureSetup (azureSubscriptionId params)
-                            (azureAuthCertificate params)
-                            (azureAuthPrivateKey params)
+initializeBackend :: AzureParameters -- ^ Connection parameters
+                  -> String          -- ^ Cloud service name
+                  -> IO Backend
+initializeBackend params cloudService = do
   return Backend {
-      cloudServices = Azure.cloudServices setup
-    , copyToVM      = apiCopyToVM params 
-    , checkMD5      = apiCheckMD5 params
-    , callOnVM      = apiCallOnVM params
-    , spawnOnVM     = apiSpawnOnVM params
+      findVMs   = apiFindVMs params cloudService 
+    , copyToVM  = apiCopyToVM params 
+    , checkMD5  = apiCheckMD5 params
+    , callOnVM  = apiCallOnVM params
+    , spawnOnVM = apiSpawnOnVM params
     }
+
+-- | Find virtual machines
+apiFindVMs :: AzureParameters -> String -> IO [VirtualMachine]
+apiFindVMs params cloudService = do
+  css <- Azure.cloudServices (azureSetup params) 
+  case filter ((== cloudService) . cloudServiceName) css of
+    [cs] -> return $ cloudServiceVMs cs
+    _    -> return []
 
 -- | Start a CH node on the given virtual machine
 apiCopyToVM :: AzureParameters -> VirtualMachine -> IO ()
