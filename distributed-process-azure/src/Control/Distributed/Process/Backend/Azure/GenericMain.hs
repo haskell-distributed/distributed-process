@@ -2,6 +2,8 @@
 module Control.Distributed.Process.Backend.Azure.GenericMain 
   ( genericMain
   , ProcessPair(..)
+  , RemoteProcess
+  , LocalProcess
   ) where
 
 import Prelude hiding (catch)
@@ -16,7 +18,7 @@ import System.IO
   )
 import Data.Binary (decode)  
 import qualified Data.ByteString.Lazy as BSL (getContents, length)
-import Control.Monad (unless, forM, forM_, join, void)
+import Control.Monad (unless, forM, forM_, void)
 import Control.Exception (throwIO, SomeException, evaluate)
 import Control.Applicative ((<$>), (<*>), optional)
 import Control.Monad.IO.Class (liftIO)
@@ -76,15 +78,18 @@ import qualified Control.Distributed.Process.Backend.Azure as Azure (remoteTable
 -- Main                                                                       -- 
 --------------------------------------------------------------------------------
 
+type RemoteProcess a = Closure (Backend -> Process a)
+type LocalProcess a  = IO a 
+
 data ProcessPair b = forall a. Serializable a => ProcessPair {
-    ppairRemote :: Closure (Process a)
-  , ppairLocal  :: a -> IO b 
+    ppairRemote :: RemoteProcess a 
+  , ppairLocal  :: a -> LocalProcess b
   , ppairDict   :: Static (SerializableDict a)
   }
 
-genericMain :: (RemoteTable -> RemoteTable)           -- ^ Standard CH remote table 
-            -> (String -> IO (ProcessPair ()))        -- ^ Closures to support in 'run'
-            -> (String -> IO (Closure (Process ())))  -- ^ Closures to support in @run --background@ 
+genericMain :: (RemoteTable -> RemoteTable)       -- ^ Standard CH remote table 
+            -> (String -> IO (ProcessPair ()))    -- ^ Closures to support in 'run'
+            -> (String -> IO (RemoteProcess ()))  -- ^ Closures to support in @run --background@ 
             -> IO ()
 genericMain remoteTable callable spawnable = do 
     _ <- SSH.initialize True
@@ -170,7 +175,7 @@ onVmRun rtable host port bg = do
     procEnc <- BSL.getContents 
     -- Force evaluation (so that we can safely close stdin) 
     _length <- evaluate (BSL.length procEnc)
-    let proc = decode procEnc
+    let proc = decode procEnc :: RemoteProcess ()
     if bg 
       then do
         hClose stdin
@@ -182,15 +187,17 @@ onVmRun rtable host port bg = do
      else 
        startCH proc 
   where
-    startCH :: Closure (Process ()) -> IO ()
-    startCH proc = do
+    startCH :: RemoteProcess () -> IO ()
+    startCH rproc = do
       mTransport <- createTransport host port defaultTCPParameters 
       case mTransport of
         Left err -> throwIO err
         Right transport -> do
           node <- newLocalNode transport rtable
-          runProcess node $ 
-            catch (join . unClosure $ proc)
+          runProcess node $ do 
+            let backend = error "TODO: backend not initialized in onVmRun"
+            proc <- unClosure rproc :: Process (Backend -> Process ())
+            catch (proc backend)
                   (\e -> liftIO (print (e :: SomeException) >> throwIO e))
   
 --------------------------------------------------------------------------------
@@ -290,7 +297,7 @@ targetParser = Target
                 )
   <*> optional (strOption ( long "virtual-machine"
                           & metavar "VM"
-                          & help "Virtual machine name"
+                          & help "Virtual machine name (all VMs if unspecified)"
                           ))
 
 checkMD5Parser :: Parser Command

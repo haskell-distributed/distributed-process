@@ -11,9 +11,11 @@ import Control.Distributed.Process.Closure
   ( remotable
   , mkClosure
   )
+import Control.Distributed.Process.Backend.Azure (Backend)
 import Control.Distributed.Process.Backend.Azure.GenericMain 
   ( genericMain
   , ProcessPair(..)
+  , RemoteProcess
   )
 
 data ControllerMsg = 
@@ -24,8 +26,8 @@ instance Binary ControllerMsg where
   get = getGeneric
   put = putGeneric
 
-conwayController :: () -> Process ()
-conwayController () = go
+conwayController :: () -> Backend -> Process ()
+conwayController () _backend = go
   where
     go = do
       msg <- expect
@@ -41,6 +43,6 @@ main = genericMain __remoteTable callable spawnable
     callable :: String -> IO (ProcessPair ())
     callable _      = error "spawnable: unknown"
 
-    spawnable :: String -> IO (Closure (Process ()))
+    spawnable :: String -> IO (RemoteProcess ())
     spawnable "controller" = return $ $(mkClosure 'conwayController) ()
     spawnable _            = error "callable: unknown"

@@ -18,7 +18,7 @@ import System.Environment.Executable (getExecutablePath)
 import Data.Binary (encode, decode)
 import Data.Digest.Pure.MD5 (md5, MD5Digest)
 import qualified Data.ByteString.Char8 as BSSC (pack)
-import qualified Data.ByteString.Lazy as BSL (ByteString, readFile, putStr, writeFile)
+import qualified Data.ByteString.Lazy as BSL (ByteString, readFile, putStr)
 import qualified Data.ByteString.Lazy.Char8 as BSLC (unpack)
 import Data.Typeable (Typeable)
 import Control.Applicative ((<$>))
@@ -69,7 +69,7 @@ import Control.Distributed.Process
   )
 import Control.Distributed.Process.Closure 
   ( remotable
-  , cpBind
+  , cpComp
   , SerializableDict(SerializableDict)
   , staticConst
   , staticApply
@@ -104,11 +104,19 @@ data Backend = Backend {
     -- | Check the MD5 hash of the remote executable
   , checkMD5 :: VirtualMachine -> IO Bool 
     -- | @runOnVM dict vm port p@ starts a CH node on port 'port' and runs 'p'
-  , callOnVM :: forall a. Serializable a => Static (SerializableDict a) -> VirtualMachine -> String -> Closure (Process a) -> IO a 
+  , callOnVM :: forall a. Serializable a 
+             => Static (SerializableDict a) 
+             -> VirtualMachine 
+             -> String 
+             -> Closure (Backend -> Process a) 
+             -> IO a 
     -- | Create a new CH node and run the specified process in the background.
     -- The CH node will exit when the process exists.
-  , spawnOnVM :: VirtualMachine -> String -> Closure (Process ()) -> IO ()
-  }
+  , spawnOnVM :: VirtualMachine 
+              -> String 
+              -> Closure (Backend -> Process ()) 
+              -> IO ()
+  } deriving (Typeable)
 
 data AzureParameters = AzureParameters {
     azureSetup           :: AzureSetup
@@ -170,24 +178,37 @@ apiCopyToVM params vm =
     SSH.scpSendFile s 0o700 (azureSshLocalPath params) (azureSshRemotePath params)
 
 -- | Call a process on a VM 
-apiCallOnVM :: Serializable a => AzureParameters -> Static (SerializableDict a) -> VirtualMachine -> String -> Closure (Process a) -> IO a
+apiCallOnVM :: Serializable a 
+            => AzureParameters 
+            -> Static (SerializableDict a) 
+            -> VirtualMachine 
+            -> String 
+            -> Closure (Backend -> Process a) 
+            -> IO a
 apiCallOnVM params dict vm port proc =
-  withSSH2 params vm $ \s -> do
-    let exe = "PATH=. " ++ azureSshRemotePath params 
-           ++ " onvm run "
-           ++ " --host " ++ vmIpAddress vm 
-           ++ " --port " ++ port
-           ++ " 2>&1"
-    (status, r) <- SSH.withChannelBy (SSH.openChannelSession s) id $ \ch -> do
-      SSH.channelExecute ch exe
-      _cnt <- SSH.writeAllChannel ch (encode $ proc `cpBind` cpEncodeToStdout dict) 
-      SSH.channelSendEOF ch
-      SSH.readAllChannel ch
-    if status == 0 
-      then return $ decode r
-      else error (BSLC.unpack r)
+    withSSH2 params vm $ \s -> do
+      let exe = "PATH=. " ++ azureSshRemotePath params 
+             ++ " onvm run "
+             ++ " --host " ++ vmIpAddress vm 
+             ++ " --port " ++ port
+             ++ " 2>&1"
+      (status, r) <- SSH.withChannelBy (SSH.openChannelSession s) id $ \ch -> do
+        SSH.channelExecute ch exe
+        _cnt <- SSH.writeAllChannel ch (encode proc') 
+        SSH.channelSendEOF ch
+        SSH.readAllChannel ch
+      if status == 0 
+        then return $ decode r
+        else error (BSLC.unpack r)
+  where
+    proc' :: Closure (Backend -> Process ())
+    proc' = proc `cpComp` cpEncodeToStdout dict
 
-apiSpawnOnVM :: AzureParameters -> VirtualMachine -> String -> Closure (Process ()) -> IO ()
+apiSpawnOnVM :: AzureParameters 
+             -> VirtualMachine 
+             -> String 
+             -> Closure (Backend -> Process ()) 
+             -> IO ()
 apiSpawnOnVM params vm port proc = 
   withSSH2 params vm $ \s -> do
     let exe = "PATH=. " ++ azureSshRemotePath params 
@@ -196,7 +217,6 @@ apiSpawnOnVM params vm port proc =
            ++ " --port " ++ port
            ++ " --background "
            ++ " 2>&1"
-    BSL.writeFile "closure" (encode proc)
     (status, r) <- SSH.withChannelBy (SSH.openChannelSession s) id $ \ch -> do
       SSH.channelExecute ch exe
       _cnt <- SSH.writeAllChannel ch (encode proc) 

@@ -42,7 +42,8 @@ Library
   Extensions:        ViewPatterns,
                      RankNTypes,
                      ExistentialQuantification,
-                     ScopedTypeVariables
+                     ScopedTypeVariables,
+                     DeriveDataTypeable
   ghc-options:       -Wall
   HS-Source-Dirs:    src
 
