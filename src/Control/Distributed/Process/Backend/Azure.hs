@@ -18,6 +18,7 @@ import Data.Binary (encode, decode)
 import Data.Digest.Pure.MD5 (md5, MD5Digest)
 import qualified Data.ByteString.Char8 as BSSC (pack)
 import qualified Data.ByteString.Lazy as BSL (ByteString, readFile, putStr, writeFile)
+import qualified Data.ByteString.Lazy.Char8 as BSLC (unpack)
 import Data.Typeable (Typeable)
 import Control.Applicative ((<$>))
 import Control.Monad (void)
@@ -171,12 +172,14 @@ apiCallOnVM params dict vm port proc =
            ++ " --host " ++ vmIpAddress vm 
            ++ " --port " ++ port
            ++ " 2>&1"
-    (_, r) <- SSH.withChannelBy (SSH.openChannelSession s) id $ \ch -> do
+    (status, r) <- SSH.withChannelBy (SSH.openChannelSession s) id $ \ch -> do
       SSH.channelExecute ch exe
       _cnt <- SSH.writeAllChannel ch (encode $ proc `cpBind` cpEncodeToStdout dict) 
       SSH.channelSendEOF ch
       SSH.readAllChannel ch
-    return (decode r)
+    if status == 0 
+      then return $ decode r
+      else error (BSLC.unpack r)
 
 apiSpawnOnVM :: AzureParameters -> VirtualMachine -> String -> Closure (Process ()) -> IO ()
 apiSpawnOnVM params vm port proc = 
@@ -188,12 +191,14 @@ apiSpawnOnVM params vm port proc =
            ++ " --background "
            ++ " 2>&1"
     BSL.writeFile "closure" (encode proc)
-    r <- SSH.withChannelBy (SSH.openChannelSession s) id $ \ch -> do
+    (status, r) <- SSH.withChannelBy (SSH.openChannelSession s) id $ \ch -> do
       SSH.channelExecute ch exe
       _cnt <- SSH.writeAllChannel ch (encode proc) 
       SSH.channelSendEOF ch
       SSH.readAllChannel ch
-    print r
+    if status == 0
+      then return ()
+      else error (BSLC.unpack r)
 
 -- | Check the MD5 hash of the executable on the remote machine
 apiCheckMD5 :: AzureParameters -> VirtualMachine -> IO Bool 
