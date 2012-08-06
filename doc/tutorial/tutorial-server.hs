@@ -1,5 +1,5 @@
 import Network.Transport
-import Network.Transport.TCP (createTransport)
+import Network.Transport.TCP (createTransport, defaultTCPParameters)
 import Control.Concurrent
 import Data.Map 
 import Control.Exception
@@ -14,9 +14,10 @@ echoServer endpoint serverDone = go empty
       event <- receive endpoint
       case event of
         ConnectionOpened cid rel addr -> do
+          putStrLn$ "  New connection: ID "++show cid++", reliability: "++show rel++", address: "++ show addr
           connMVar <- newEmptyMVar
           forkIO $ do
-            Right conn <- connect endpoint addr rel 
+            Right conn <- connect endpoint addr rel defaultConnectHints
             putMVar connMVar conn 
           go (insert cid connMVar cs) 
         Received cid payload -> do
@@ -26,6 +27,7 @@ echoServer endpoint serverDone = go empty
             return ()
           go cs
         ConnectionClosed cid -> do 
+          putStrLn$ "    Closed connection: ID "++show cid
           forkIO $ do
             conn <- readMVar (cs ! cid)
             close conn 
@@ -45,7 +47,7 @@ main :: IO ()
 main = do
   [host, port]    <- getArgs
   serverDone      <- newEmptyMVar
-  Right transport <- createTransport host port 
+  Right transport <- createTransport host port defaultTCPParameters
   Right endpoint  <- newEndPoint transport
   forkIO $ echoServer endpoint serverDone 
   putStrLn $ "Echo server started at " ++ show (address endpoint)
