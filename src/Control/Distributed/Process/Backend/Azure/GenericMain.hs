@@ -10,14 +10,19 @@ import System.IO
   ( hFlush
   , stdout
   , stdin
+  , stderr
   , hSetBinaryMode
+  , hClose
   )
 import Data.Binary (decode)  
-import qualified Data.ByteString.Lazy as BSL (ByteString, getContents)
-import Control.Monad (unless, forM, forM_, join)
-import Control.Exception (throwIO, SomeException)
+import qualified Data.ByteString.Lazy as BSL (getContents, length)
+import Control.Monad (unless, forM, forM_, join, void)
+import Control.Exception (throwIO, SomeException, evaluate)
 import Control.Applicative ((<$>), (<*>), (<|>))
 import Control.Monad.IO.Class (liftIO)
+
+-- Posix
+import System.Posix.Process (forkProcess, createSession)
 
 -- SSH
 import qualified Network.SSH.Client.LibSSH2.Foreign as SSH
@@ -64,7 +69,7 @@ import Control.Distributed.Process.Backend.Azure
   , cloudServices 
   , CloudService(cloudServiceName, cloudServiceVMs)
   , VirtualMachine(vmName)
-  , Backend(copyToVM, checkMD5, callOnVM)
+  , Backend(copyToVM, checkMD5, callOnVM, spawnOnVM)
   )
 import qualified Control.Distributed.Process.Backend.Azure as Azure (remoteTable)
 
@@ -78,10 +83,11 @@ data ProcessPair b = forall a. Serializable a => ProcessPair {
   , ppairDict   :: Static (SerializableDict a)
   }
 
-genericMain :: (RemoteTable -> RemoteTable)    -- ^ Standard CH remote table 
-            -> (String -> IO (ProcessPair ())) -- ^ Closures to support in 'run'
+genericMain :: (RemoteTable -> RemoteTable)           -- ^ Standard CH remote table 
+            -> (String -> IO (ProcessPair ()))        -- ^ Closures to support in 'run'
+            -> (String -> IO (Closure (Process ())))  -- ^ Closures to support in @run --background@ 
             -> IO ()
-genericMain remoteTable cmds = do 
+genericMain remoteTable callable spawnable = do 
     _ <- SSH.initialize True
     cmd <- execParser opts
     case cmd of
@@ -110,20 +116,31 @@ genericMain remoteTable cmds = do
         if and matches
           then exitSuccess
           else exitFailure
-      RunOn {} -> do
-        procPair <- cmds (closureId cmd)
+      RunOn {} | background cmd -> do
+        rProc    <- spawnable (closureId cmd)
+        params   <- azureParameters (azureOptions cmd) (Just (sshOptions cmd))
+        backend  <- initializeBackend params
+        css      <- cloudServices backend
+        forM_ (findTarget (target cmd) css) $ \vm -> do
+          putStr (vmName vm ++ ": ") >> hFlush stdout 
+          spawnOnVM backend vm (remotePort cmd) rProc
+          putStrLn "OK"
+      RunOn {} {- not (background cmd) -} -> do 
+        procPair <- callable (closureId cmd)
         params   <- azureParameters (azureOptions cmd) (Just (sshOptions cmd))
         backend  <- initializeBackend params
         css      <- cloudServices backend
         forM_ (findTarget (target cmd) css) $ \vm -> do
           putStr (vmName vm ++ ": ") >> hFlush stdout 
           case procPair of 
-            ProcessPair rProc lProc dict -> 
-              callOnVM backend dict vm (remotePort cmd) rProc >>= lProc
+            ProcessPair rProc lProc dict -> do
+              result <- callOnVM backend dict vm (remotePort cmd) rProc 
+              lProc result
       OnVmCommand (vmCmd@OnVmRun {}) ->
         onVmRun (remoteTable . Azure.remoteTable $ initRemoteTable) 
                 (onVmIP vmCmd) 
                 (onVmPort vmCmd)
+                (onVmBackground vmCmd)
     SSH.exit
   where
     opts = info (helper <*> commandParser)
@@ -152,19 +169,35 @@ azureParameters opts (Just sshOpts) = do
       azureSshUserName = remoteUser sshOpts
     }
 
-onVmRun :: RemoteTable -> String -> String -> IO ()
-onVmRun rtable host port = do
-  hSetBinaryMode stdin True
-  hSetBinaryMode stdout True
-  proc <- BSL.getContents :: IO BSL.ByteString
-  mTransport <- createTransport host port defaultTCPParameters 
-  case mTransport of
-    Left err -> throwIO err
-    Right transport -> do
-      node <- newLocalNode transport rtable
-      runProcess node $ 
-        catch (join . unClosure . decode $ proc)
-              (\e -> liftIO (print (e :: SomeException) >> throwIO e))
+onVmRun :: RemoteTable -> String -> String -> Bool -> IO ()
+onVmRun rtable host port bg = do
+    hSetBinaryMode stdin True
+    hSetBinaryMode stdout True
+    procEnc <- BSL.getContents 
+    -- Force evaluation (so that we can safely close stdin) 
+    _length <- evaluate (BSL.length procEnc)
+    let proc = decode procEnc
+    if bg 
+      then do
+        hClose stdin
+        hClose stdout
+        hClose stderr
+        void . forkProcess $ do
+          void createSession  
+          startCH proc
+     else 
+       startCH proc 
+  where
+    startCH :: Closure (Process ()) -> IO ()
+    startCH proc = do
+      mTransport <- createTransport host port defaultTCPParameters 
+      case mTransport of
+        Left err -> throwIO err
+        Right transport -> do
+          node <- newLocalNode transport rtable
+          runProcess node $ 
+            catch (join . unClosure $ proc)
+                  (\e -> liftIO (print (e :: SomeException) >> throwIO e))
   
 --------------------------------------------------------------------------------
 -- Command line options                                                       --
@@ -217,8 +250,9 @@ data Command =
 
 data OnVmCommand =
     OnVmRun {
-      onVmIP   :: String
-    , onVmPort :: String
+      onVmIP         :: String
+    , onVmPort       :: String
+    , onVmBackground :: Bool
     }
   deriving Show
 
@@ -317,6 +351,9 @@ onVmRunParser = OnVmRun
                 & metavar "PORT"
                 & help "port number"
                 )
+  <*> switch ( long "background"
+             & help "Run the process in the background"
+             )
 
 onVmCommandParser :: Parser Command
 onVmCommandParser = OnVmCommand <$> subparser

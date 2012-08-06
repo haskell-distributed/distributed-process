@@ -31,7 +31,8 @@ Library
                      network-transport-tcp >= 0.2 && < 0.3,
                      optparse-applicative >= 0.2 && < 0.4,
                      transformers >= 0.3 && < 0.4,
-                     certificate == 1.2.3
+                     certificate == 1.2.3,
+                     unix >= 2.5 && < 2.6
   Exposed-modules:   Control.Distributed.Process.Backend.Azure,
                      Control.Distributed.Process.Backend.Azure.GenericMain
   Extensions:        ViewPatterns,
