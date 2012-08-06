@@ -18,6 +18,10 @@ Source-Repository head
   Location: https://github.com/haskell-distributed/distributed-process
   SubDir:   distributed-process-azure
 
+Flag build-demos
+  description: Build the demos
+  default:     False
+
 Library
   Build-Depends:     base >= 4.4 && < 5,
                      azure-service-api >= 0.1 && < 0.2,
@@ -42,11 +46,26 @@ Library
   ghc-options:       -Wall
   HS-Source-Dirs:    src
 
-Executable cloud-haskell-azure
-  Main-Is:           src/Control/Distributed/Process/Backend/Azure/CommandLine.hs
-  Build-Depends:     base >= 4.4 && < 5,
+Executable cloud-haskell-azure-ping
+  if flag(build-demos)
+    Build-Depends:   base >= 4.4 && < 5,
                      distributed-process-azure >= 0.1 && < 0.2,
                      distributed-process >= 0.2 && < 0.3,
                      transformers >= 0.3 && < 0.4,
                      bytestring >= 0.9 && < 0.11,
                      binary >= 0.5 && < 0.6
+  else
+    buildable: False
+  Main-Is:           demos/Ping.hs
+
+Executable cloud-haskell-azure-conway
+  if flag(build-demos)
+    Build-Depends:   base >= 4.4 && < 5,
+                     distributed-process-azure >= 0.1 && < 0.2,
+                     distributed-process >= 0.2 && < 0.3,
+                     transformers >= 0.3 && < 0.4,
+                     bytestring >= 0.9 && < 0.11,
+                     binary >= 0.5 && < 0.6
+  else
+    buildable: False
+  Main-Is:           demos/Conway.hs
