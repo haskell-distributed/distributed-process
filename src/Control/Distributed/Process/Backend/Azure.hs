@@ -18,11 +18,16 @@ import System.Environment.Executable (getExecutablePath)
 import Data.Binary (encode, decode)
 import Data.Digest.Pure.MD5 (md5, MD5Digest)
 import qualified Data.ByteString.Char8 as BSSC (pack)
-import qualified Data.ByteString.Lazy as BSL (ByteString, readFile, putStr)
+import qualified Data.ByteString.Lazy as BSL 
+  ( ByteString
+  , readFile
+  , putStr
+  , length
+  )
 import qualified Data.ByteString.Lazy.Char8 as BSLC (unpack)
 import Data.Typeable (Typeable)
 import Control.Applicative ((<$>))
-import Control.Monad (void)
+import Control.Monad (void, unless)
 import Control.Exception (catches, Handler(Handler))
 import Control.Monad.IO.Class (liftIO)
 
@@ -76,6 +81,7 @@ import Control.Distributed.Process.Closure
   , mkStatic
   )
 import Control.Distributed.Process.Serializable (Serializable)
+import Network.Transport.Internal (encodeInt32)
 
 encodeToStdout :: Serializable a => a -> Process ()
 encodeToStdout = liftIO . BSL.putStr . encode
@@ -154,7 +160,7 @@ defaultAzureParameters sid x509 pkey = do
 initializeBackend :: AzureParameters -- ^ Connection parameters
                   -> String          -- ^ Cloud service name
                   -> IO Backend
-initializeBackend params cloudService = do
+initializeBackend params cloudService = 
   return Backend {
       findVMs   = apiFindVMs params cloudService 
     , copyToVM  = apiCopyToVM params 
@@ -194,7 +200,8 @@ apiCallOnVM params dict vm port proc =
              ++ " 2>&1"
       (status, r) <- SSH.withChannelBy (SSH.openChannelSession s) id $ \ch -> do
         SSH.channelExecute ch exe
-        _cnt <- SSH.writeAllChannel ch (encode proc') 
+        _ <- SSH.writeChannel ch (encodeInt32 (BSL.length procEnc))
+        _ <- SSH.writeAllChannel ch procEnc 
         SSH.channelSendEOF ch
         SSH.readAllChannel ch
       if status == 0 
@@ -204,27 +211,32 @@ apiCallOnVM params dict vm port proc =
     proc' :: Closure (Backend -> Process ())
     proc' = proc `cpComp` cpEncodeToStdout dict
 
+    procEnc :: BSL.ByteString
+    procEnc = encode proc'
+
 apiSpawnOnVM :: AzureParameters 
              -> VirtualMachine 
              -> String 
              -> Closure (Backend -> Process ()) 
              -> IO ()
 apiSpawnOnVM params vm port proc = 
-  withSSH2 params vm $ \s -> do
-    let exe = "PATH=. " ++ azureSshRemotePath params 
-           ++ " onvm run "
-           ++ " --host " ++ vmIpAddress vm 
-           ++ " --port " ++ port
-           ++ " --background "
-           ++ " 2>&1"
-    (status, r) <- SSH.withChannelBy (SSH.openChannelSession s) id $ \ch -> do
-      SSH.channelExecute ch exe
-      _cnt <- SSH.writeAllChannel ch (encode proc) 
-      SSH.channelSendEOF ch
-      SSH.readAllChannel ch
-    if status == 0
-      then return ()
-      else error (BSLC.unpack r)
+    withSSH2 params vm $ \s -> do
+      let exe = "PATH=. " ++ azureSshRemotePath params 
+             ++ " onvm run "
+             ++ " --host " ++ vmIpAddress vm 
+             ++ " --port " ++ port
+             ++ " --background "
+             ++ " 2>&1"
+      (status, r) <- SSH.withChannelBy (SSH.openChannelSession s) id $ \ch -> do
+        SSH.channelExecute ch exe
+        _ <- SSH.writeChannel ch (encodeInt32 (BSL.length procEnc))
+        _ <- SSH.writeAllChannel ch procEnc 
+        SSH.channelSendEOF ch
+        SSH.readAllChannel ch
+      unless (status == 0) $ error (BSLC.unpack r)
+  where
+    procEnc :: BSL.ByteString
+    procEnc = encode proc
 
 -- | Check the MD5 hash of the executable on the remote machine
 apiCheckMD5 :: AzureParameters -> VirtualMachine -> IO Bool 

@@ -17,7 +17,8 @@ import System.IO
   , hClose
   )
 import Data.Binary (decode)  
-import qualified Data.ByteString.Lazy as BSL (getContents, length)
+import qualified Data.ByteString.Lazy as BSL (hGet, length)
+import qualified Data.ByteString as BSS (hGet)
 import Control.Monad (unless, forM, forM_, void)
 import Control.Exception (throwIO, SomeException, evaluate)
 import Control.Applicative ((<$>), (<*>), optional)
@@ -73,6 +74,7 @@ import Control.Distributed.Process.Backend.Azure
   , Backend(findVMs, copyToVM, checkMD5, callOnVM, spawnOnVM)
   )
 import qualified Control.Distributed.Process.Backend.Azure as Azure (remoteTable)
+import Network.Transport.Internal (decodeInt32)
 
 --------------------------------------------------------------------------------
 -- Main                                                                       -- 
@@ -172,7 +174,8 @@ onVmRun :: RemoteTable -> String -> String -> Bool -> IO ()
 onVmRun rtable host port bg = do
     hSetBinaryMode stdin True
     hSetBinaryMode stdout True
-    procEnc <- BSL.getContents 
+    procEncLength <- decodeInt32 <$> BSS.hGet stdin 4  
+    procEnc <- BSL.hGet stdin procEncLength
     -- Force evaluation (so that we can safely close stdin) 
     _length <- evaluate (BSL.length procEnc)
     let proc = decode procEnc :: RemoteProcess ()
