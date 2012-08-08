@@ -14,6 +14,8 @@ module Control.Distributed.Process.Backend.Azure
   , LocalProcess
   , localExpect
   , remoteSend
+  , remoteThrow
+  , remoteSend'
   , localSend
   ) where
 
@@ -43,7 +45,7 @@ import Data.Typeable (Typeable)
 import Control.Applicative ((<$>))
 import Control.Monad (void, unless)
 import Control.Monad.Reader (MonadReader, ReaderT, runReaderT, ask)
-import Control.Exception (catches, Handler(Handler))
+import Control.Exception (Exception, catches, Handler(Handler))
 import Control.Monad.IO.Class (MonadIO, liftIO)
 
 -- Azure
@@ -285,8 +287,12 @@ localExpect :: Serializable a => LocalProcess a
 localExpect = LocalProcess $ do
   ch <- ask 
   liftIO $ do
-    len <- decodeInt32 . BSS.concat . BSL.toChunks <$> readSizeChannel ch 4
-    decode <$> readSizeChannel ch len
+    isE <- readIntChannel ch
+    len <- readIntChannel ch 
+    msg <- readSizeChannel ch len
+    if isE /= 0
+      then error (decode msg)
+      else return (decode msg)
 
 localSend :: Serializable a => a -> LocalProcess ()
 localSend x = LocalProcess $ do
@@ -298,8 +304,15 @@ localSend x = LocalProcess $ do
          $ x 
 
 remoteSend :: Serializable a => a -> Process ()
-remoteSend x = liftIO $ do
+remoteSend = liftIO . remoteSend' 0  
+
+remoteThrow :: Exception e => e -> Process ()
+remoteThrow = liftIO . remoteSend' 1 . show 
+
+remoteSend' :: Serializable a => Int -> a -> IO ()
+remoteSend' flags x = do
   let enc = encode x
+  BSS.hPut stdout (encodeInt32 flags)
   BSS.hPut stdout (encodeInt32 (BSL.length enc))
   BSL.hPut stdout enc
   hFlush stdout
@@ -316,3 +329,7 @@ readSizeChannel ch = go []
     go acc size = do
       bs <- SSH.readChannel ch (fromIntegral (0x400 `min` size))
       go (bs : acc) (size - BSS.length bs)
+
+readIntChannel :: SSH.Channel -> IO Int
+readIntChannel ch = 
+  decodeInt32 . BSS.concat . BSL.toChunks <$> readSizeChannel ch 4

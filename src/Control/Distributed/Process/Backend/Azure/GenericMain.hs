@@ -21,7 +21,7 @@ import qualified Data.ByteString.Lazy as BSL (ByteString, hGet, toChunks, length
 import qualified Data.ByteString as BSS (hGet, length)
 import Control.Monad (unless, forM, void)
 import Control.Monad.Reader (ask)
-import Control.Exception (throwIO, SomeException)
+import Control.Exception (SomeException)
 import Control.Applicative ((<$>), (<*>), optional)
 import Control.Monad.IO.Class (liftIO)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, readMVar)
@@ -73,6 +73,9 @@ import Control.Distributed.Process.Internal.Types
   , payloadToMessage
   , Message
   )
+import Control.Distributed.Process.Internal.CQueue (CQueue, enqueue)
+
+-- Azure
 import Control.Distributed.Process.Backend.Azure 
   ( AzureParameters(azureSshUserName, azureSetup)
   , defaultAzureParameters
@@ -82,11 +85,11 @@ import Control.Distributed.Process.Backend.Azure
   , Backend(findVMs, copyToVM, checkMD5, callOnVM, spawnOnVM)
   , ProcessPair(..)
   , RemoteProcess
+  , remoteSend'
+  , remoteThrow
   )
-import Control.Distributed.Process.Internal.CQueue (CQueue, enqueue)
 
 -- Transport
-import Network.Transport (Transport)
 import Network.Transport.Internal (decodeInt32)
 import Network.Transport.TCP (createTransport, defaultTCPParameters)
 
@@ -185,31 +188,28 @@ onVmRun rtable host port bg = do
       let proc = decode procEnc 
       lprocMVar <- newEmptyMVar :: IO (MVar LocalProcess)
       if bg 
-        then detach $ startCH proc lprocMVar runProcess
+        then detach $ startCH proc lprocMVar runProcess (\_ -> return ()) 
         else do
-          _pid <- startCH proc lprocMVar forkProcess
+          startCH proc lprocMVar forkProcess remoteThrow 
           lproc <- readMVar lprocMVar
           queueFromHandle stdin (processQueue lproc)
   where
-    startCH :: RemoteProcess () -> MVar LocalProcess -> (LocalNode -> Process () -> IO a) -> IO a
-    startCH rproc lprocMVar go = do
-      transport <-newTransport
-      node <- newLocalNode transport rtable
-      go node $ do 
-        ask >>= liftIO . putMVar lprocMVar
-        let backend = error "TODO: backend not initialized in onVmRun"
-        proc <- unClosure rproc :: Process (Backend -> Process ())
-        catch (proc backend) exceptionHandler
-
-    newTransport :: IO Transport
-    newTransport = do
+    startCH :: RemoteProcess () 
+            -> MVar LocalProcess 
+            -> (LocalNode -> Process () -> IO a) 
+            -> (SomeException -> Process ())
+            -> IO () 
+    startCH rproc lprocMVar go exceptionHandler = do
       mTransport <- createTransport host port defaultTCPParameters 
       case mTransport of
-        Left err -> throwIO err
-        Right transport -> return transport
-
-    exceptionHandler :: SomeException -> Process () 
-    exceptionHandler e = liftIO $ appendFile "error.log" (show e)
+        Left err -> remoteSend' 1 (show err) 
+        Right transport -> do 
+          node <- newLocalNode transport rtable
+          void . go node $ do 
+            ask >>= liftIO . putMVar lprocMVar
+            let backend = error "TODO: backend not initialized in onVmRun"
+            proc <- unClosure rproc :: Process (Backend -> Process ())
+            catch (proc backend) exceptionHandler
 
 -- | Read a 4-byte length @l@ and then an @l@-byte payload
 --
