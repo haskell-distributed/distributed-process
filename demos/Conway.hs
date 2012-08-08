@@ -4,19 +4,18 @@ import Data.Binary (Binary(get, put))
 import Data.Binary.Generic (getGeneric, putGeneric)
 import Control.Distributed.Process
   ( Process
-  , Closure
   , expect
   )
 import Control.Distributed.Process.Closure
   ( remotable
   , mkClosure
   )
-import Control.Distributed.Process.Backend.Azure (Backend)
-import Control.Distributed.Process.Backend.Azure.GenericMain 
-  ( genericMain
+import Control.Distributed.Process.Backend.Azure 
+  ( Backend
   , ProcessPair(..)
   , RemoteProcess
   )
+import Control.Distributed.Process.Backend.Azure.GenericMain (genericMain) 
 
 data ControllerMsg = 
     ControllerExit
