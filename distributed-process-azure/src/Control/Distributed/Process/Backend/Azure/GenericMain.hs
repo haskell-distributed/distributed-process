@@ -2,8 +2,6 @@
 module Control.Distributed.Process.Backend.Azure.GenericMain 
   ( genericMain
   , ProcessPair(..)
-  , RemoteProcess
-  , LocalProcess
   ) where
 
 import Prelude hiding (catch)
@@ -15,17 +13,21 @@ import System.IO
   , stderr
   , hSetBinaryMode
   , hClose
+  , Handle
   )
+import Data.Foldable (forM_)
 import Data.Binary (decode)  
-import qualified Data.ByteString.Lazy as BSL (hGet, length)
-import qualified Data.ByteString as BSS (hGet)
-import Control.Monad (unless, forM, forM_, void)
-import Control.Exception (throwIO, SomeException, evaluate)
+import qualified Data.ByteString.Lazy as BSL (ByteString, hGet, toChunks, length)
+import qualified Data.ByteString as BSS (hGet, length)
+import Control.Monad (unless, forM, void)
+import Control.Monad.Reader (ask)
+import Control.Exception (throwIO, SomeException)
 import Control.Applicative ((<$>), (<*>), optional)
 import Control.Monad.IO.Class (liftIO)
+import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, readMVar)
 
 -- Posix
-import System.Posix.Process (forkProcess, createSession)
+import qualified System.Posix.Process as Posix (forkProcess, createSession)
 
 -- SSH
 import qualified Network.SSH.Client.LibSSH2.Foreign as SSH
@@ -55,16 +57,22 @@ import Options.Applicative
 -- CH
 import Control.Distributed.Process 
   ( RemoteTable
-  , Closure
   , Process
   , unClosure
-  , Static
   , catch
   )
-import Control.Distributed.Process.Node (newLocalNode, runProcess, initRemoteTable)
-import Control.Distributed.Process.Serializable (Serializable)
-import Control.Distributed.Process.Closure (SerializableDict)
-import Network.Transport.TCP (createTransport, defaultTCPParameters)
+import Control.Distributed.Process.Node 
+  ( newLocalNode
+  , runProcess
+  , forkProcess
+  , initRemoteTable
+  , LocalNode
+  )
+import Control.Distributed.Process.Internal.Types
+  ( LocalProcess(processQueue)
+  , payloadToMessage
+  , Message
+  )
 import Control.Distributed.Process.Backend.Azure 
   ( AzureParameters(azureSshUserName, azureSetup)
   , defaultAzureParameters
@@ -72,22 +80,19 @@ import Control.Distributed.Process.Backend.Azure
   , cloudServices 
   , VirtualMachine(vmName)
   , Backend(findVMs, copyToVM, checkMD5, callOnVM, spawnOnVM)
+  , ProcessPair(..)
+  , RemoteProcess
   )
-import qualified Control.Distributed.Process.Backend.Azure as Azure (remoteTable)
+import Control.Distributed.Process.Internal.CQueue (CQueue, enqueue)
+
+-- Transport
+import Network.Transport (Transport)
 import Network.Transport.Internal (decodeInt32)
+import Network.Transport.TCP (createTransport, defaultTCPParameters)
 
 --------------------------------------------------------------------------------
 -- Main                                                                       -- 
 --------------------------------------------------------------------------------
-
-type RemoteProcess a = Closure (Backend -> Process a)
-type LocalProcess a  = IO a 
-
-data ProcessPair b = forall a. Serializable a => ProcessPair {
-    ppairRemote :: RemoteProcess a 
-  , ppairLocal  :: a -> LocalProcess b
-  , ppairDict   :: Static (SerializableDict a)
-  }
 
 genericMain :: (RemoteTable -> RemoteTable)       -- ^ Standard CH remote table 
             -> (String -> IO (ProcessPair ()))    -- ^ Closures to support in 'run'
@@ -137,12 +142,9 @@ genericMain remoteTable callable spawnable = do
         procPair <- callable (closureId cmd)
         forM_ vms $ \vm -> do
           putStr (vmName vm ++ ": ") >> hFlush stdout 
-          case procPair of 
-            ProcessPair rProc lProc dict -> do
-              result <- callOnVM backend dict vm (remotePort cmd) rProc 
-              lProc result
+          callOnVM backend vm (remotePort cmd) procPair
       OnVmCommand (vmCmd@OnVmRun {}) ->
-        onVmRun (remoteTable . Azure.remoteTable $ initRemoteTable) 
+        onVmRun (remoteTable initRemoteTable) 
                 (onVmIP vmCmd) 
                 (onVmPort vmCmd)
                 (onVmBackground vmCmd)
@@ -170,39 +172,72 @@ azureParameters opts (Just sshOpts) = do
       azureSshUserName = remoteUser sshOpts
     }
 
+--------------------------------------------------------------------------------
+-- Executing a closure on the VM                                              --
+--------------------------------------------------------------------------------
+
 onVmRun :: RemoteTable -> String -> String -> Bool -> IO ()
 onVmRun rtable host port bg = do
     hSetBinaryMode stdin True
     hSetBinaryMode stdout True
-    procEncLength <- decodeInt32 <$> BSS.hGet stdin 4  
-    procEnc <- BSL.hGet stdin procEncLength
-    -- Force evaluation (so that we can safely close stdin) 
-    _length <- evaluate (BSL.length procEnc)
-    let proc = decode procEnc :: RemoteProcess ()
-    if bg 
-      then do
-        hClose stdin
-        hClose stdout
-        hClose stderr
-        void . forkProcess $ do
-          void createSession  
-          startCH proc
-     else 
-       startCH proc 
+    mProcEnc <- getWithLength stdin
+    forM_ mProcEnc $ \procEnc -> do
+      let proc = decode procEnc 
+      lprocMVar <- newEmptyMVar :: IO (MVar LocalProcess)
+      if bg 
+        then detach $ startCH proc lprocMVar runProcess
+        else do
+          _pid <- startCH proc lprocMVar forkProcess
+          lproc <- readMVar lprocMVar
+          queueFromHandle stdin (processQueue lproc)
   where
-    startCH :: RemoteProcess () -> IO ()
-    startCH rproc = do
+    startCH :: RemoteProcess () -> MVar LocalProcess -> (LocalNode -> Process () -> IO a) -> IO a
+    startCH rproc lprocMVar go = do
+      transport <-newTransport
+      node <- newLocalNode transport rtable
+      go node $ do 
+        ask >>= liftIO . putMVar lprocMVar
+        let backend = error "TODO: backend not initialized in onVmRun"
+        proc <- unClosure rproc :: Process (Backend -> Process ())
+        catch (proc backend) exceptionHandler
+
+    newTransport :: IO Transport
+    newTransport = do
       mTransport <- createTransport host port defaultTCPParameters 
       case mTransport of
         Left err -> throwIO err
-        Right transport -> do
-          node <- newLocalNode transport rtable
-          runProcess node $ do 
-            let backend = error "TODO: backend not initialized in onVmRun"
-            proc <- unClosure rproc :: Process (Backend -> Process ())
-            catch (proc backend)
-                  (\e -> liftIO (print (e :: SomeException) >> throwIO e))
-  
+        Right transport -> return transport
+
+    exceptionHandler :: SomeException -> Process () 
+    exceptionHandler e = liftIO $ appendFile "error.log" (show e)
+
+-- | Read a 4-byte length @l@ and then an @l@-byte payload
+--
+-- Returns Nothing on EOF
+getWithLength :: Handle -> IO (Maybe BSL.ByteString)
+getWithLength h = do 
+  lenEnc <- BSS.hGet h 4
+  if BSS.length lenEnc < 4
+    then return Nothing
+    else do
+      let len = decodeInt32 lenEnc
+      bs <- BSL.hGet h len
+      if BSL.length bs < fromIntegral len
+        then return Nothing
+        else return (Just bs)
+
+queueFromHandle :: Handle -> CQueue Message -> IO ()
+queueFromHandle h q = do
+  mPayload <- getWithLength stdin 
+  forM_ mPayload $ \payload -> do
+    enqueue q $ payloadToMessage (BSL.toChunks payload) 
+    queueFromHandle h q
+
+detach :: IO () -> IO ()
+detach io = do 
+  mapM_ hClose [stdin, stdout, stderr]
+  void . Posix.forkProcess $ void Posix.createSession >> io
+
 --------------------------------------------------------------------------------
 -- Command line options                                                       --
 --------------------------------------------------------------------------------

@@ -1,35 +1,50 @@
-{-# LANGUAGE TemplateHaskell #-}
 module Control.Distributed.Process.Backend.Azure 
   ( -- * Initialization
     Backend(..)
   , AzureParameters(..)
   , defaultAzureParameters
   , initializeBackend
-  , remoteTable
     -- * Re-exports from Azure Service Management
   , CloudService(..)
   , VirtualMachine(..)
   , Azure.cloudServices
+    -- * Remote and local processes
+  , ProcessPair(..)
+  , RemoteProcess
+  , LocalProcess
+  , localExpect
+  , remoteSend
+  , localSend
   ) where
 
 import System.Environment (getEnv)
 import System.FilePath ((</>), takeFileName)
 import System.Environment.Executable (getExecutablePath)
+import System.IO (stdout, hFlush)
 import Data.Binary (encode, decode)
 import Data.Digest.Pure.MD5 (md5, MD5Digest)
+import qualified Data.ByteString as BSS 
+  ( ByteString
+  , length
+  , concat
+  , hPut
+  )
 import qualified Data.ByteString.Char8 as BSSC (pack)
 import qualified Data.ByteString.Lazy as BSL 
   ( ByteString
   , readFile
-  , putStr
   , length
+  , fromChunks
+  , toChunks
+  , hPut
   )
 import qualified Data.ByteString.Lazy.Char8 as BSLC (unpack)
 import Data.Typeable (Typeable)
 import Control.Applicative ((<$>))
 import Control.Monad (void, unless)
+import Control.Monad.Reader (MonadReader, ReaderT, runReaderT, ask)
 import Control.Exception (catches, Handler(Handler))
-import Control.Monad.IO.Class (liftIO)
+import Control.Monad.IO.Class (MonadIO, liftIO)
 
 -- Azure
 import Network.Azure.ServiceManagement 
@@ -52,11 +67,13 @@ import qualified Network.SSH.Client.LibSSH2 as SSH
   , Session
   , readAllChannel
   , writeAllChannel
+  , Channel
   )
 import qualified Network.SSH.Client.LibSSH2.Foreign as SSH
   ( openChannelSession
   , channelExecute
   , writeChannel
+  , readChannel
   , channelSendEOF
   )
 import qualified Network.SSH.Client.LibSSH2.Errors as SSH
@@ -66,40 +83,13 @@ import qualified Network.SSH.Client.LibSSH2.Errors as SSH
   )
 
 -- CH
-import Control.Distributed.Process 
-  ( Closure(Closure)
-  , Process
-  , Static
-  , RemoteTable
-  )
-import Control.Distributed.Process.Closure 
-  ( remotable
-  , cpComp
-  , SerializableDict(SerializableDict)
-  , staticConst
-  , staticApply
-  , mkStatic
-  )
+import Control.Distributed.Process (Process, Closure)
 import Control.Distributed.Process.Serializable (Serializable)
-import Network.Transport.Internal (encodeInt32)
-
-encodeToStdout :: Serializable a => a -> Process ()
-encodeToStdout = liftIO . BSL.putStr . encode
-
-encodeToStdoutDict :: SerializableDict a -> a -> Process ()
-encodeToStdoutDict SerializableDict = encodeToStdout
-
-remotable ['encodeToStdoutDict]
-
--- | Remote table necessary for the Azure backend
-remoteTable :: RemoteTable -> RemoteTable
-remoteTable = __remoteTable
-
-cpEncodeToStdout :: forall a. Typeable a => Static (SerializableDict a) -> Closure (a -> Process ())
-cpEncodeToStdout dict = Closure decoder (encode ())
-  where
-    decoder :: Static (BSL.ByteString -> a -> Process ())
-    decoder = staticConst `staticApply` ($(mkStatic 'encodeToStdoutDict) `staticApply` dict)
+import Control.Distributed.Process.Internal.Types 
+  ( messageToPayload
+  , createMessage
+  )
+import Network.Transport.Internal (encodeInt32, decodeInt32, prependLength)
 
 -- | Azure backend
 data Backend = Backend {
@@ -110,11 +100,10 @@ data Backend = Backend {
     -- | Check the MD5 hash of the remote executable
   , checkMD5 :: VirtualMachine -> IO Bool 
     -- | @runOnVM dict vm port p@ starts a CH node on port 'port' and runs 'p'
-  , callOnVM :: forall a. Serializable a 
-             => Static (SerializableDict a) 
-             -> VirtualMachine 
+  , callOnVM :: forall a. 
+                VirtualMachine 
              -> String 
-             -> Closure (Backend -> Process a) 
+             -> ProcessPair a
              -> IO a 
     -- | Create a new CH node and run the specified process in the background.
     -- The CH node will exit when the process exists.
@@ -184,14 +173,12 @@ apiCopyToVM params vm =
     SSH.scpSendFile s 0o700 (azureSshLocalPath params) (azureSshRemotePath params)
 
 -- | Call a process on a VM 
-apiCallOnVM :: Serializable a 
-            => AzureParameters 
-            -> Static (SerializableDict a) 
+apiCallOnVM :: AzureParameters 
             -> VirtualMachine 
             -> String 
-            -> Closure (Backend -> Process a) 
+            -> ProcessPair a
             -> IO a
-apiCallOnVM params dict vm port proc =
+apiCallOnVM params vm port ppair =
     withSSH2 params vm $ \s -> do
       let exe = "PATH=. " ++ azureSshRemotePath params 
              ++ " onvm run "
@@ -200,19 +187,15 @@ apiCallOnVM params dict vm port proc =
              ++ " 2>&1"
       (status, r) <- SSH.withChannelBy (SSH.openChannelSession s) id $ \ch -> do
         SSH.channelExecute ch exe
-        _ <- SSH.writeChannel ch (encodeInt32 (BSL.length procEnc))
-        _ <- SSH.writeAllChannel ch procEnc 
-        SSH.channelSendEOF ch
-        SSH.readAllChannel ch
+        _ <- SSH.writeChannel ch (encodeInt32 (BSL.length rprocEnc))
+        _ <- SSH.writeAllChannel ch rprocEnc 
+        runLocalProcess (ppairLocal ppair) ch
       if status == 0 
-        then return $ decode r
-        else error (BSLC.unpack r)
+        then return r 
+        else error "callOnVM: Non-zero exit status" 
   where
-    proc' :: Closure (Backend -> Process ())
-    proc' = proc `cpComp` cpEncodeToStdout dict
-
-    procEnc :: BSL.ByteString
-    procEnc = encode proc'
+    rprocEnc :: BSL.ByteString
+    rprocEnc = encode (ppairRemote ppair) 
 
 apiSpawnOnVM :: AzureParameters 
              -> VirtualMachine 
@@ -280,3 +263,56 @@ catchSshError s io =
   
 localHash :: AzureParameters -> IO MD5Digest 
 localHash params = md5 <$> BSL.readFile (azureSshLocalPath params) 
+
+--------------------------------------------------------------------------------
+-- Local and remote processes                                                 --
+--------------------------------------------------------------------------------
+
+data ProcessPair a = ProcessPair {
+    ppairRemote :: RemoteProcess () 
+  , ppairLocal  :: LocalProcess a
+  }
+
+type RemoteProcess a = Closure (Backend -> Process a)
+
+newtype LocalProcess a = LocalProcess { unLocalProcess :: ReaderT SSH.Channel IO a } 
+  deriving (Functor, Monad, MonadIO, MonadReader SSH.Channel)
+
+runLocalProcess :: LocalProcess a -> SSH.Channel -> IO a
+runLocalProcess = runReaderT . unLocalProcess
+
+localExpect :: Serializable a => LocalProcess a
+localExpect = LocalProcess $ do
+  ch <- ask 
+  liftIO $ do
+    len <- decodeInt32 . BSS.concat . BSL.toChunks <$> readSizeChannel ch 4
+    decode <$> readSizeChannel ch len
+
+localSend :: Serializable a => a -> LocalProcess ()
+localSend x = LocalProcess $ do
+  ch <- ask
+  liftIO $ mapM_ (SSH.writeChannel ch) 
+         . prependLength
+         . messageToPayload 
+         . createMessage 
+         $ x 
+
+remoteSend :: Serializable a => a -> Process ()
+remoteSend x = liftIO $ do
+  let enc = encode x
+  BSS.hPut stdout (encodeInt32 (BSL.length enc))
+  BSL.hPut stdout enc
+  hFlush stdout
+
+--------------------------------------------------------------------------------
+-- SSH utilities                                                              --
+--------------------------------------------------------------------------------
+
+readSizeChannel :: SSH.Channel -> Int -> IO BSL.ByteString
+readSizeChannel ch = go []
+  where
+    go :: [BSS.ByteString] -> Int -> IO BSL.ByteString
+    go acc 0    = return (BSL.fromChunks $ reverse acc)
+    go acc size = do
+      bs <- SSH.readChannel ch (fromIntegral (0x400 `min` size))
+      go (bs : acc) (size - BSS.length bs)

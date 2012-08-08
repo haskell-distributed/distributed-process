@@ -37,16 +37,29 @@ Library
                      transformers >= 0.3 && < 0.4,
                      certificate >= 1.2.4 && < 1.3,
                      unix >= 2.5 && < 2.6,
-                     network-transport >= 0.2 && < 0.3
+                     network-transport >= 0.2 && < 0.3,
+                     mtl >= 2.1 && < 2.2
   Exposed-modules:   Control.Distributed.Process.Backend.Azure,
                      Control.Distributed.Process.Backend.Azure.GenericMain
   Extensions:        ViewPatterns,
                      RankNTypes,
                      ExistentialQuantification,
                      ScopedTypeVariables,
-                     DeriveDataTypeable
+                     DeriveDataTypeable,
+                     GeneralizedNewtypeDeriving
   ghc-options:       -Wall
   HS-Source-Dirs:    src
+
+Executable cloud-haskell-azure-echo
+  if flag(build-demos)
+    Build-Depends:   base >= 4.4 && < 5,
+                     distributed-process-azure >= 0.1 && < 0.2,
+                     distributed-process >= 0.2 && < 0.3,
+                     transformers >= 0.3 && < 0.4
+  else
+    buildable: False
+  Main-Is:           demos/Echo.hs
+  ghc-options:       -Wall
 
 Executable cloud-haskell-azure-ping
   if flag(build-demos)
@@ -55,10 +68,13 @@ Executable cloud-haskell-azure-ping
                      distributed-process >= 0.2 && < 0.3,
                      transformers >= 0.3 && < 0.4,
                      bytestring >= 0.9 && < 0.11,
-                     binary >= 0.5 && < 0.6
+                     binary >= 0.5 && < 0.6,
+                     mtl,
+                     libssh2
   else
     buildable: False
   Main-Is:           demos/Ping.hs
+  ghc-options:       -Wall
 
 Executable cloud-haskell-azure-conway
   if flag(build-demos)
@@ -72,3 +88,4 @@ Executable cloud-haskell-azure-conway
   else
     buildable: False
   Main-Is:           demos/Conway.hs
+  ghc-options:       -Wall
