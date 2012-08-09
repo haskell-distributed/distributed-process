@@ -3,15 +3,20 @@ module Control.Distributed.Process.Internal.Closure.MkClosure (mkClosure) where
 
 import Data.Binary (encode)
 import Language.Haskell.TH (Q, Exp, Name)
-import Control.Distributed.Process.Internal.Types (Closure(Closure))
 import Control.Distributed.Process.Internal.Closure.TH 
   ( mkStatic
   , functionSDict
   )
+import Control.Distributed.Static (Closure(Closure), staticCompose)
+import Control.Distributed.Process.Internal.Closure.BuiltIn (staticDecode)
+
+{-
+-- import Control.Distributed.Process.Internal.Types (Closure(Closure))
 import Control.Distributed.Process.Internal.Closure.Static 
   ( staticCompose
   , staticDecode
   )
+-}
 
 -- | Create a closure
 --

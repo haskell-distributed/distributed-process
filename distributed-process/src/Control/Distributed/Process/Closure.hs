@@ -228,37 +228,32 @@ module Control.Distributed.Process.Closure
     -- * Primitive operations on static values
   , staticApply
   , staticDuplicate
-    -- * Static functionals
-  , staticConst
-  , staticFlip
-  , staticFst
-  , staticSnd
+    -- * Static values
+  , idStatic 
+  , composeStatic
+  , constStatic 
+  , flipStatic
+  , fstStatic
+  , sndStatic
+  , firstStatic
+  , secondStatic
+  , splitStatic
+  , unitStatic
+    -- * Combinators on static values
   , staticCompose
-  , staticFirst
-  , staticSecond
-  , staticSplit
-    -- * Static constants
-  , staticUnit
-    -- * Creating closures
-  , staticDecode
-  , staticClosure
-  , toClosure
     -- * Serialization dictionaries (and their static versions)
   , SerializableDict(..)
   , sdictUnit
   , sdictProcessId
   , sdictSendPort
+    -- * Creating closures
+  , staticDecode
+  , staticClosure
+--  , toClosure
     -- * Definition of CP and the generalized arrow combinators
   , CP
-  , cpIntro
-  , cpElim
-  , cpId
-  , cpComp
-  , cpFirst
-  , cpSecond
-  , cpSplit
-  , cpCancelL
-  , cpCancelR
+  , idCP 
+  , splitCP
     -- * Closure versions of CH primitives
   , cpLink
   , cpUnlink
@@ -266,22 +261,72 @@ module Control.Distributed.Process.Closure
   , cpExpect
   , cpNewChan
     -- * @Closure (Process a)@ as a not-quite-monad
-  , cpReturn 
-  , cpBind
-  , cpSeq
+  , returnCP 
+  , bindCP 
+  , seqCP 
   ) where 
 
+import Control.Distributed.Process.Serializable (SerializableDict(..))
+
+import Control.Distributed.Static 
+  ( -- Introducing static values
+    staticApply
+  , staticDuplicate
+    -- Static values
+  , idStatic 
+  , composeStatic
+  , constStatic 
+  , flipStatic
+  , fstStatic
+  , sndStatic
+  , firstStatic
+  , secondStatic
+  , splitStatic
+  , unitStatic
+    -- Combinators on static values
+  , staticCompose
+  , staticClosure
+  , closureSplit
+  )
+  
+
+{-
 import Control.Distributed.Process.Internal.Types 
-  ( SerializableDict(..)
-  , staticApply
+  ( staticApply
   , staticDuplicate
   )
+-}
+
 import Control.Distributed.Process.Internal.Closure.TH 
   ( remotable
   , mkStatic
   , functionSDict
   , functionTDict
   )
+import Control.Distributed.Process.Internal.Closure.BuiltIn
+  ( -- Remote table 
+    remoteTable
+    -- Static dictionaries and associated operations
+  , staticDecode
+  , sdictUnit
+  , sdictProcessId
+  , sdictSendPort
+    -- The CP type and associated combinators 
+  , CP
+  , splitCP
+  , idCP
+  , returnCP
+  , seqCP 
+  , bindCP 
+    -- CP versions of Cloud Haskell primitives  
+  , cpLink
+  , cpUnlink
+  , cpSend
+  , cpExpect
+  , cpNewChan
+  )
+
+{-
 import Control.Distributed.Process.Internal.Closure.Static
   ( -- Static functionals
     staticConst
@@ -303,7 +348,11 @@ import Control.Distributed.Process.Internal.Closure.Static
   , sdictProcessId
   , sdictSendPort
   )
+-}
+
 import Control.Distributed.Process.Internal.Closure.MkClosure (mkClosure)
+
+{-
 import Control.Distributed.Process.Internal.Closure.CP
   ( -- Definition of CP and the generalized arrow combinators
     CP
@@ -327,3 +376,4 @@ import Control.Distributed.Process.Internal.Closure.CP
   , cpBind
   , cpSeq
   )
+-}

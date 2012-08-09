@@ -100,7 +100,6 @@ module Control.Distributed.Process
   , spawnChannelLocal
   ) where
 
-
 #if ! MIN_VERSION_base(4,6,0)
 import Prelude hiding (catch)
 #endif
@@ -109,13 +108,15 @@ import Data.Typeable (Typeable)
 import Control.Monad.IO.Class (liftIO)
 import Control.Applicative ((<$>))
 import Control.Monad.Reader (ask)
+import Control.Distributed.Static 
+  ( Closure(..)
+  , Static
+  , RemoteTable
+  )
 import Control.Distributed.Process.Internal.Types 
-  ( RemoteTable
-  , NodeId(..)
+  ( NodeId(..)
   , ProcessId(..)
   , Process(..)
-  , Closure(..)
-  , Static
   , MonitorRef(..)
   , ProcessMonitorNotification(..)
   , NodeMonitorNotification(..)
@@ -126,17 +127,32 @@ import Control.Distributed.Process.Internal.Types
   , DiedReason(..)
   , SpawnRef(..)
   , DidSpawn(..)
-  , Closure(..)
   , SendPort(..)
   , ReceivePort(..)
-  , SerializableDict(..)
   , SendPortId(..)
   , WhereIsReply(..)
   , LocalProcess(processNode)
   )
+import Control.Distributed.Process.Serializable (SerializableDict)
+import Control.Distributed.Process.Internal.Closure.BuiltIn
+  ( sdictUnit 
+  , sdictSendPort
+  , idCP
+  , seqCP 
+  , bindCP 
+  , splitCP
+  , cpLink
+  , cpUnlink
+  , cpExpect
+  , cpSend
+  , cpNewChan
+  )
+import Control.Distributed.Static (closureCompose, sndStatic, staticClosure)
+
+{-
 import Control.Distributed.Process.Internal.Closure.CP
-  ( cpSeq
-  , cpBind
+  (
+  , bindCP
   , cpSend 
   , cpExpect
   , cpLink
@@ -145,10 +161,13 @@ import Control.Distributed.Process.Internal.Closure.CP
   , cpCancelL
   , cpSplit
   )
+-}
+{-
 import Control.Distributed.Process.Internal.Closure.Static 
   ( sdictUnit
   , sdictSendPort
   )
+-}
 import Control.Distributed.Process.Internal.Primitives
   ( -- Basic messaging
     send 
@@ -289,9 +308,9 @@ spawn nid proc = do
   -- that was already set up
   mRef <- monitorNode nid
   sRef <- spawnAsync nid $ cpLink us 
-                   `cpSeq` cpExpect sdictUnit 
-                   `cpSeq` cpUnlink us
-                   `cpSeq` proc
+                   `seqCP` cpExpect sdictUnit 
+                   `seqCP` cpUnlink us
+                   `seqCP` proc
   mPid <- receiveWait 
     [ matchIf (\(DidSpawn ref _) -> ref == sRef)
               (\(DidSpawn _ pid) -> return $ Just pid)
@@ -333,7 +352,7 @@ spawnMonitor nid proc = do
 call :: Serializable a => Static (SerializableDict a) -> NodeId -> Closure (Process a) -> Process a
 call dict nid proc = do 
   us <- getSelfPid
-  (_, mRef) <- spawnMonitor nid (proc `cpBind` cpSend dict us)
+  (_, mRef) <- spawnMonitor nid (proc `bindCP` cpSend dict us)
   -- We are guaranteed to receive the reply before the monitor notification
   -- (if a reply is sent at all)
   -- NOTE: This might not be true if we switch to unreliable delivery.
@@ -353,7 +372,7 @@ spawnSupervised :: NodeId
                 -> Process (ProcessId, MonitorRef)
 spawnSupervised nid proc = do
   us   <- getSelfPid
-  them <- spawn nid (cpLink us `cpSeq` proc) 
+  them <- spawn nid (cpLink us `seqCP` proc) 
   ref  <- monitor them
   return (them, ref)
 
@@ -370,10 +389,10 @@ spawnChannel dict nid proc = do
   where
     go :: ProcessId -> Closure (Process ())
     go pid = cpNewChan dict 
-           `cpBind` 
-             (cpSend (sdictSendPort dict) pid `cpSplit` proc)
-           `cpBind`
-             cpCancelL
+           `bindCP` 
+             (cpSend (sdictSendPort dict) pid `splitCP` proc)
+           `bindCP`
+             (idCP `closureCompose` staticClosure sndStatic) 
 
 --------------------------------------------------------------------------------
 -- Local versions of spawn                                                    --

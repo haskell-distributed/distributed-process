@@ -90,13 +90,18 @@ import Control.Concurrent.STM
 import Control.Distributed.Process.Internal.CQueue (dequeue, BlockSpec(..))
 import Control.Distributed.Process.Serializable (Serializable, fingerprint)
 import Data.Accessor ((^.), (^:), (^=))
+import Control.Distributed.Static
+  ( Closure(Closure)
+  , resolveClosure
+  , fromDyn
+  , dynTypeRep
+  )
 import Control.Distributed.Process.Internal.Types 
   ( NodeId(..)
   , ProcessId(..)
   , LocalNode(..)
   , LocalProcess(..)
   , Process(..)
-  , Closure(..)
   , Message(..)
   , MonitorRef(..)
   , SpawnRef(..)
@@ -104,7 +109,6 @@ import Control.Distributed.Process.Internal.Types
   , ProcessSignal(..)
   , monitorCounter 
   , spawnCounter
-  , Closure(..)
   , SendPort(..)
   , ReceivePort(..)
   , channelCounter
@@ -121,8 +125,9 @@ import Control.Distributed.Process.Internal.Types
   , runLocalProcess
   )
 import Control.Distributed.Process.Internal.Node (sendMessage, sendBinary) 
-import Control.Distributed.Process.Internal.Closure.Resolution (resolveClosure)
-import Control.Distributed.Process.Internal.Dynamic (fromDyn, dynTypeRep)
+
+-- import Control.Distributed.Process.Internal.Closure.Resolution (resolveClosure)
+-- import Control.Distributed.Process.Internal.Dynamic (fromDyn, dynTypeRep)
 
 --------------------------------------------------------------------------------
 -- Basic messaging                                                            --

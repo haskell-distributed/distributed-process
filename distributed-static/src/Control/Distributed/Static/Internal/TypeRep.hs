@@ -1,6 +1,6 @@
 -- | 'Binary' instances for 'TypeRep', and 'TypeRep' equality (bug workaround)
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-module Control.Distributed.Process.Internal.TypeRep (compareTypeRep) where
+module Control.Distributed.Static.Internal.TypeRep (compareTypeRep) where
 
 import Control.Applicative ((<$>), (<*>))
 import Data.Binary (Binary(get, put))

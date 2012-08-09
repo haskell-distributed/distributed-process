@@ -1,7 +1,6 @@
 -- | Template Haskell support
 --
 -- (In a separate file for convenience)
-{-# LANGUAGE MagicHash #-}
 module Control.Distributed.Process.Internal.Closure.TH 
   ( -- * User-level API
     remotable
@@ -11,8 +10,6 @@ module Control.Distributed.Process.Internal.Closure.TH
   ) where
 
 import Prelude hiding (lookup)
-import Data.Accessor ((^=))
-import Data.Typeable (typeOf)
 import Control.Applicative ((<$>))
 import Language.Haskell.TH 
   ( -- Q monad and operations
@@ -42,6 +39,21 @@ import Language.Haskell.TH
   , funD
   , sigD
   )
+
+import Control.Distributed.Process.Internal.Types (Process)
+import Control.Distributed.Process.Serializable 
+  ( SerializableDict(SerializableDict)
+  )
+import Control.Distributed.Static 
+  ( RemoteTable
+  , toDyn
+  , unsafeToDyn
+  , registerStatic
+  , Static
+  , staticLabel
+  )
+
+{-
 import Control.Distributed.Process.Internal.Types
   ( RemoteTable
   , Static(Static)
@@ -50,11 +62,15 @@ import Control.Distributed.Process.Internal.Types
   , SerializableDict(SerializableDict)
   , Process
   )
+-}
+
+{-
 import Control.Distributed.Process.Internal.Dynamic 
   ( Dynamic(..)
   , unsafeCoerce#
   , toDyn
   )
+-}
 
 --------------------------------------------------------------------------------
 -- User-level API                                                             --
@@ -141,9 +157,7 @@ generateDefs n = do
       static <- generateStatic origName typVars typ
       let dyn = case typVars of 
                   [] -> [| toDyn $(varE origName) |]
-                  _  -> [| Dynamic (error "Polymorphic value") 
-                                   (unsafeCoerce# $(varE origName)) 
-                         |]
+                  _  -> [| unsafeToDyn $(varE origName) |]
       return ( static
              , [ [| registerStatic $(stringE (show origName)) $dyn |] ]
              )
@@ -156,10 +170,6 @@ generateDefs n = do
              , [ [| registerStatic $(stringE (show dictName)) $dyn |] ] 
              )
       
-
-registerStatic :: String -> Dynamic -> RemoteTable -> RemoteTable
-registerStatic label dyn = remoteTableLabel label ^= Just dyn 
-
 -- | Generate a static value 
 generateStatic :: Name -> [TyVarBndr] -> Type -> Q [Dec]
 generateStatic n xs typ = do
@@ -170,11 +180,7 @@ generateStatic n xs typ = do
                   (map typeable xs) 
                   (staticTyp `AppT` typ)
           )
-      , sfnD (staticName n) 
-          [| Static $ StaticLabel 
-               $(stringE (show n)) 
-               (typeOf (undefined :: $(return typ)))
-           |]
+      , sfnD (staticName n) [| staticLabel $(stringE (show n)) |]
       ]
   where
     typeable :: TyVarBndr -> Pred
@@ -186,11 +192,7 @@ generateDict :: Name -> Type -> Q [Dec]
 generateDict n typ = do
     sequence
       [ sigD n $ [t| Static (SerializableDict $(return typ)) |]
-      , sfnD n 
-         [| Static $ StaticLabel 
-              $(stringE (show n)) 
-              (typeOf (undefined :: SerializableDict $(return typ)))
-          |]
+      , sfnD n [| staticLabel $(stringE (show n))  |]
       ]
 
 staticName :: Name -> Name

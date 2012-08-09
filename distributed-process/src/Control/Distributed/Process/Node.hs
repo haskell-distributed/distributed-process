@@ -69,9 +69,14 @@ import qualified Network.Transport as NT
 import Data.Accessor (Accessor, accessor, (^.), (^=), (^:))
 import qualified Data.Accessor.Container as DAC (mapDefault, mapMaybe)
 import System.Random (randomIO)
-import Control.Distributed.Process.Internal.Types 
+import Control.Distributed.Static 
   ( RemoteTable
-  , NodeId(..)
+  , Closure(Closure)
+  , resolveClosure
+  , fromDynamic
+  )
+import Control.Distributed.Process.Internal.Types 
+  ( NodeId(..)
   , LocalProcessId(..)
   , ProcessId(..)
   , LocalNode(..)
@@ -98,7 +103,6 @@ import Control.Distributed.Process.Internal.Types
   , DidUnlinkPort(..)
   , SpawnRef
   , DidSpawn(..)
-  , Closure(..)
   , Message
   , TypedChannel(..)
   , Identifier(..)
@@ -107,31 +111,31 @@ import Control.Distributed.Process.Internal.Types
   , typedChannelWithId
   , WhereIsReply(..)
   , messageToPayload
-  , RemoteTable(..)
   , payloadToMessage
   , createMessage
   , runLocalProcess
   )
 import Control.Distributed.Process.Serializable (Serializable)
-import Control.Distributed.Process.Internal.Dynamic (fromDynamic)
-import Control.Distributed.Process.Internal.Closure.Resolution (resolveClosure) 
 import Control.Distributed.Process.Internal.Node 
   ( sendBinary
   , sendMessage
   , sendPayload
   )
 import Control.Distributed.Process.Internal.Primitives (expect, register, finally)
-import qualified Control.Distributed.Process.Internal.Closure.Static as Static (__remoteTable)
-import qualified Control.Distributed.Process.Internal.Closure.CP as CP (__remoteTable)
+import qualified Control.Distributed.Process.Internal.Closure.BuiltIn as BuiltIn (remoteTable)
+import qualified Control.Distributed.Static as Static (initRemoteTable)
+
+-- import Control.Distributed.Process.Internal.Dynamic (fromDynamic)
+-- import Control.Distributed.Process.Internal.Closure.Resolution (resolveClosure) 
+-- import qualified Control.Distributed.Process.Internal.Closure.Static as Static (__remoteTable)
+-- import qualified Control.Distributed.Process.Internal.Closure.CP as CP (__remoteTable)
 
 --------------------------------------------------------------------------------
 -- Initialization                                                             --
 --------------------------------------------------------------------------------
 
 initRemoteTable :: RemoteTable
-initRemoteTable = Static.__remoteTable
-                . CP.__remoteTable 
-                $ RemoteTable Map.empty
+initRemoteTable = BuiltIn.remoteTable Static.initRemoteTable 
 
 -- | Initialize a new local node. 
 newLocalNode :: NT.Transport -> RemoteTable -> IO LocalNode

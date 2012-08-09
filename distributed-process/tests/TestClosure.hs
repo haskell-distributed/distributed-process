@@ -12,7 +12,7 @@ import Network.Transport.TCP (createTransport, defaultTCPParameters)
 import Control.Distributed.Process
 import Control.Distributed.Process.Closure
 import Control.Distributed.Process.Node
-import Control.Distributed.Process.Internal.Types (Static(Static), StaticLabel(StaticLabel))
+import Control.Distributed.Static (staticLabel)
 import TestAuxiliary
 
 sdictInt :: SerializableDict Int
@@ -71,13 +71,13 @@ sendPidClosure :: ProcessId -> Closure (Process ())
 sendPidClosure = $(mkClosure 'sendPid) 
 
 sendFac :: Int -> ProcessId -> Closure (Process ())
-sendFac n pid = factorialClosure n `cpBind` cpSend $(mkStatic 'sdictInt) pid 
+sendFac n pid = factorialClosure n `bindCP` cpSend $(mkStatic 'sdictInt) pid 
 
 factorialOf :: Closure (Int -> Process Int)
 factorialOf = staticClosure $(mkStatic 'factorial)
 
 factorial' :: Int -> Closure (Process Int)
-factorial' n = cpReturn $(mkStatic 'sdictInt) n `cpBind` factorialOf 
+factorial' n = returnCP $(mkStatic 'sdictInt) n `bindCP` factorialOf 
 
 waitClosure :: Int -> Closure (Process ())
 waitClosure = $(mkClosure 'wait) 
@@ -229,7 +229,7 @@ testSeq transport rtable = do
   node <- newLocalNode transport rtable
   runProcess node $ do
     us <- getSelfPid
-    join . unClosure $ sendFac 5 us `cpSeq` sendFac 6 us
+    join . unClosure $ sendFac 5 us `seqCP` sendFac 6 us
     120 :: Int <- expect
     720 :: Int <- expect
     return ()
@@ -273,7 +273,7 @@ testSpawnInvalid :: Transport -> RemoteTable -> IO ()
 testSpawnInvalid transport rtable = do
   node <- newLocalNode transport rtable
   runProcess node $ do
-    (pid, ref) <- spawnMonitor (localNodeId node) (Closure (Static (StaticLabel "ThisDoesNotExist" (typeOf ()))) empty)
+    (pid, ref) <- spawnMonitor (localNodeId node) (Closure (staticLabel "ThisDoesNotExist") empty)
     ProcessMonitorNotification ref' pid' _reason <- expect 
     -- Depending on the exact interleaving, reason might be NoProc or the exception thrown by the absence of the static closure
     True <- return $ ref' == ref && pid == pid'  
@@ -285,7 +285,7 @@ testClosureExpect transport rtable = do
   runProcess node $ do
     nodeId <- getSelfNode
     us     <- getSelfPid
-    them   <- spawn nodeId $ cpExpect $(mkStatic 'sdictInt) `cpBind` cpSend $(mkStatic 'sdictInt) us
+    them   <- spawn nodeId $ cpExpect $(mkStatic 'sdictInt) `bindCP` cpSend $(mkStatic 'sdictInt) us
     send them (1234 :: Int)
     (1234 :: Int) <- expect
     return ()
