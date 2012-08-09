@@ -79,7 +79,7 @@ int client(int pings) {
   printf("starting client\n");
   
   struct addrinfo hints, *res;
-  int error, client_socket;
+  int error, client_socket, i;
 
   memset(&hints, 0, sizeof(hints));
   hints.ai_family   = PF_INET;
@@ -102,7 +102,7 @@ int client(int pings) {
     return -1;
   }
 
-  for(int i = 0; i < pings; i++) {
+  for(i = 0; i < pings; i++) {
     double timestamp_before = timestamp();
     
     send(client_socket, "ping123", 8, 0);
