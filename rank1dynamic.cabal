@@ -1,0 +1,22 @@
+Name:                rank1dynamic
+Version:             0.1.0.0
+Synopsis:            Version of Data.Dynamic with support for rank-1 types
+-- description:         
+Homepage:            http://github.com/haskell-distributed/distributed-process
+License:             BSD3
+License-File:        LICENSE
+Author:              Edsko de Vries
+Maintainer:          edsko@well-typed.com
+Copyright:           Well-Typed LLP
+Category:            Data
+Build-Type:          Simple
+Cabal-Version:       >=1.8
+
+Library
+  Exposed-Modules:     Data.Rank1Dynamic,
+                       Data.Rank1Typeable
+  Build-Depends:       base ==4.5.*
+  HS-Source-Dirs:      src
+  GHC-Options:         -Wall
+  Extensions:          EmptyDataDecls,
+                       DeriveDataTypeable
