@@ -8,7 +8,7 @@ INCLUDES=-i${ROOT}/network-transport/src -i${ROOT}/network-transport-tcp/src
 # PROF_GHC=-prof -fprof-auto
 # PROF_EXE=+RTS -pa -RTS
 
-GCC=gcc -std=c99
+GCC=gcc 
 GHC=ghc -rtsopts -XRankNTypes -XScopedTypeVariables -XDeriveDataTypeable -XCPP -XGeneralizedNewtypeDeriving -optP-include -optPcabal_macros.h
 
 all: NewTransport.ps Indirection.ps Headers.ps
