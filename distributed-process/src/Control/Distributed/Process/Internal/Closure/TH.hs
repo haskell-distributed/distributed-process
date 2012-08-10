@@ -1,18 +1,15 @@
 -- | Template Haskell support
---
--- (In a separate file for convenience)
-{-# LANGUAGE MagicHash #-}
+{-# LANGUAGE TemplateHaskell #-}
 module Control.Distributed.Process.Internal.Closure.TH 
   ( -- * User-level API
     remotable
   , mkStatic
   , functionSDict
   , functionTDict
+  , mkClosure
   ) where
 
-import Prelude hiding (lookup)
-import Data.Accessor ((^=))
-import Data.Typeable (typeOf)
+import Prelude hiding (succ, any)
 import Control.Applicative ((<$>))
 import Language.Haskell.TH 
   ( -- Q monad and operations
@@ -42,19 +39,27 @@ import Language.Haskell.TH
   , funD
   , sigD
   )
-import Control.Distributed.Process.Internal.Types
+import Data.Binary (encode)
+import Data.Generics (everywhereM, mkM, gmapM)
+import Data.Rank1Dynamic (toDynamic)
+import Data.Rank1Typeable
+  ( Zero
+  , Succ
+  , TypVar
+  )
+import Control.Distributed.Static 
   ( RemoteTable
-  , Static(Static)
-  , StaticLabel(StaticLabel)
-  , remoteTableLabel
-  , SerializableDict(SerializableDict)
-  , Process
+  , registerStatic
+  , Static
+  , staticLabel
+  , Closure(Closure)
+  , staticCompose
   )
-import Control.Distributed.Process.Internal.Dynamic 
-  ( Dynamic(..)
-  , unsafeCoerce#
-  , toDyn
+import Control.Distributed.Process.Internal.Types (Process)
+import Control.Distributed.Process.Serializable 
+  ( SerializableDict(SerializableDict)
   )
+import Control.Distributed.Process.Internal.Closure.BuiltIn (staticDecode)
 
 --------------------------------------------------------------------------------
 -- User-level API                                                             --
@@ -89,6 +94,12 @@ functionSDict = varE . sdictName
 -- Be sure to pass 'f' to 'remotable'.
 functionTDict :: Name -> Q Exp
 functionTDict = varE . tdictName
+
+mkClosure :: Name -> Q Exp
+mkClosure n = 
+  [|   Closure ($(mkStatic n) `staticCompose` staticDecode $(functionSDict n)) 
+     . encode
+  |]
 
 --------------------------------------------------------------------------------
 -- Internal (Template Haskell)                                                --
@@ -140,10 +151,8 @@ generateDefs n = do
     makeStatic origName typVars typ = do 
       static <- generateStatic origName typVars typ
       let dyn = case typVars of 
-                  [] -> [| toDyn $(varE origName) |]
-                  _  -> [| Dynamic (error "Polymorphic value") 
-                                   (unsafeCoerce# $(varE origName)) 
-                         |]
+                  [] -> [| toDynamic $(varE origName) |]
+                  _  -> [| toDynamic ($(varE origName) :: $(monomorphize typVars typ)) |]
       return ( static
              , [ [| registerStatic $(stringE (show origName)) $dyn |] ]
              )
@@ -151,14 +160,37 @@ generateDefs n = do
     makeDict :: Name -> Type -> Q ([Dec], [Q Exp]) 
     makeDict dictName typ = do
       sdict <- generateDict dictName typ 
-      let dyn = [| toDyn (SerializableDict :: SerializableDict $(return typ)) |]
+      let dyn = [| toDynamic (SerializableDict :: SerializableDict $(return typ)) |]
       return ( sdict
              , [ [| registerStatic $(stringE (show dictName)) $dyn |] ] 
              )
-      
 
-registerStatic :: String -> Dynamic -> RemoteTable -> RemoteTable
-registerStatic label dyn = remoteTableLabel label ^= Just dyn 
+-- | Turn a polymorphic type into a monomorphic type using ANY and co
+monomorphize :: [TyVarBndr] -> Type -> Q Type
+monomorphize tvs = 
+    let subst = zip (map tyVarBndrName tvs) anys 
+    in everywhereM (mkM (applySubst subst))
+  where
+    anys :: [Q Type]
+    anys = map typVar (iterate succ zero)
+
+    typVar :: Q Type -> Q Type
+    typVar t = [t| TypVar $t |]
+
+    zero :: Q Type
+    zero = [t| Zero |]
+    
+    succ :: Q Type -> Q Type
+    succ t = [t| Succ $t |]
+ 
+    applySubst :: [(Name, Q Type)] -> Type -> Q Type
+    applySubst s (VarT n) = 
+      case lookup n s of  
+        Nothing -> return (VarT n)
+        Just t  -> t
+    applySubst s t = gmapM (mkM (applySubst s)) t
+
+    
 
 -- | Generate a static value 
 generateStatic :: Name -> [TyVarBndr] -> Type -> Q [Dec]
@@ -170,27 +202,18 @@ generateStatic n xs typ = do
                   (map typeable xs) 
                   (staticTyp `AppT` typ)
           )
-      , sfnD (staticName n) 
-          [| Static $ StaticLabel 
-               $(stringE (show n)) 
-               (typeOf (undefined :: $(return typ)))
-           |]
+      , sfnD (staticName n) [| staticLabel $(stringE (show n)) |]
       ]
   where
     typeable :: TyVarBndr -> Pred
-    typeable (PlainTV v)    = ClassP (mkName "Typeable") [VarT v] 
-    typeable (KindedTV v _) = ClassP (mkName "Typeable") [VarT v]
+    typeable tv = ClassP (mkName "Typeable") [VarT (tyVarBndrName tv)] 
 
 -- | Generate a serialization dictionary with name 'n' for type 'typ' 
 generateDict :: Name -> Type -> Q [Dec]
 generateDict n typ = do
     sequence
       [ sigD n $ [t| Static (SerializableDict $(return typ)) |]
-      , sfnD n 
-         [| Static $ StaticLabel 
-              $(stringE (show n)) 
-              (typeOf (undefined :: SerializableDict $(return typ)))
-          |]
+      , sfnD n [| staticLabel $(stringE (show n))  |]
       ]
 
 staticName :: Name -> Name
@@ -227,3 +250,8 @@ getType name = do
 -- | Variation on 'funD' which takes a single expression to define the function
 sfnD :: Name -> Q Exp -> Q Dec
 sfnD n e = funD n [clause [] (normalB e) []] 
+    
+-- | The name of a type variable binding occurrence    
+tyVarBndrName :: TyVarBndr -> Name
+tyVarBndrName (PlainTV n)    = n
+tyVarBndrName (KindedTV n _) = n

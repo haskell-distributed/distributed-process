@@ -3,7 +3,6 @@
 -- We collect all types used internally in a single module because 
 -- many of these data types are mutually recursive and cannot be split across
 -- modules.
-{-# LANGUAGE MagicHash #-}
 module Control.Distributed.Process.Internal.Types
   ( -- * Node and process identifiers 
     NodeId(..)
@@ -24,16 +23,6 @@ module Control.Distributed.Process.Internal.Types
   , TypedChannel(..)
   , SendPort(..)
   , ReceivePort(..)
-    -- * Closures
-  , StaticLabel(..)
-  , Static(..) 
-  , staticApply
-  , staticDuplicate
-  , staticTypeOf
-  , typeOfStaticLabel
-  , Closure(..)
-  , RemoteTable(..)
-  , SerializableDict(..)
     -- * Messages 
   , Message(..)
   , createMessage
@@ -70,15 +59,12 @@ module Control.Distributed.Process.Internal.Types
   , channelCounter
   , typedChannels
   , typedChannelWithId
-  , remoteTableLabels
-  , remoteTableLabel
   ) where
 
 import Data.Map (Map)
 import Data.Int (Int32)
-import Data.Maybe (fromJust)
-import Data.Typeable (Typeable, TypeRep, typeOf, funResultTy)
-import Data.Binary (Binary(put, get), putWord8, getWord8, encode, Put, Get)
+import Data.Typeable (Typeable)
+import Data.Binary (Binary(put, get), putWord8, getWord8, encode)
 import qualified Data.ByteString as BSS (ByteString, concat)
 import qualified Data.ByteString.Lazy as BSL 
   ( ByteString
@@ -108,8 +94,10 @@ import Control.Distributed.Process.Serializable
   , showFingerprint
   )
 import Control.Distributed.Process.Internal.CQueue (CQueue)
-import Control.Distributed.Process.Internal.Dynamic (Dynamic) 
-import Control.Distributed.Process.Internal.TypeRep (compareTypeRep) -- and Binary instances
+import Control.Distributed.Static (RemoteTable, Closure)
+
+-- import Control.Distributed.Process.Internal.Dynamic (Dynamic) 
+-- import Control.Distributed.Process.Internal.TypeRep (compareTypeRep) -- and Binary instances
 
 --------------------------------------------------------------------------------
 -- Node and process identifiers                                               --
@@ -254,62 +242,6 @@ data ReceivePort a =
     -- | A round-robin combination of receive ports
   | ReceivePortRR (TVar [ReceivePort a]) 
   deriving Typeable
-
---------------------------------------------------------------------------------
--- Closures                                                                   --
---------------------------------------------------------------------------------
-
-data StaticLabel =
-    StaticLabel String TypeRep
-  | StaticApply StaticLabel StaticLabel
-  | StaticDuplicate StaticLabel TypeRep
-  deriving (Typeable, Show)
-
--- | A static value is top-level bound or the application of two static values.
---
--- You construct static values using 'Control.Distributed.Process.Closure.mkStatic'
--- or 'staticApply'. 'Static' has a serializable instance for all /Typeable/ 'a':
---
--- > instance Typeable a => Serializable (Static a) 
---
--- The 'Typeable' constraint (not present in the original Cloud Haskell paper)
--- makes it possible to do a type check during deserialization.
-newtype Static a = Static StaticLabel 
-  deriving (Typeable, Show)
-
--- | Apply two static values
-staticApply :: Static (a -> b) -> Static a -> Static b
-staticApply (Static f) (Static x) = Static (StaticApply f x)
-
--- | Co-monadic 'duplicate' for static values
-staticDuplicate :: forall a. Typeable a => Static a -> Static (Static a)
-staticDuplicate (Static x) = 
-  Static (StaticDuplicate x (typeOf (undefined :: Static a)))
-
-staticTypeOf :: forall a. Typeable a => a -> Static a 
-staticTypeOf _ = Static (StaticLabel "undefined" (typeOf (undefined :: a)))
-
-typeOfStaticLabel :: StaticLabel -> TypeRep
-typeOfStaticLabel (StaticLabel _ typ) 
-  = typ 
-typeOfStaticLabel (StaticApply f x) 
-  = fromJust $ funResultTy (typeOfStaticLabel f) (typeOfStaticLabel x)
-typeOfStaticLabel (StaticDuplicate _ typ)
-  = typ
-
--- | A closure is a static value and an encoded environment
-data Closure a = Closure (Static (BSL.ByteString -> a)) BSL.ByteString
-  deriving (Typeable, Show)
-
--- | Runtime dictionary for 'unstatic' lookups 
-data RemoteTable = RemoteTable {
-    _remoteTableLabels :: Map String Dynamic 
-  }
-
--- | Reification of 'Serializable' (see "Control.Distributed.Process.Closure")
-data SerializableDict a where
-    SerializableDict :: Serializable a => SerializableDict a
-  deriving (Typeable)
 
 --------------------------------------------------------------------------------
 -- Messages                                                                   --
@@ -526,10 +458,6 @@ instance Binary DiedReason where
       4 -> return DiedUnknownId 
       _ -> fail "DiedReason.get: invalid"
 
-instance Typeable a => Binary (Closure a) where
-  put (Closure static env) = put static >> put env
-  get = Closure <$> get <*> get 
-
 instance Binary DidSpawn where
   put (DidSpawn ref pid) = put ref >> put pid
   get = DidSpawn <$> get <*> get
@@ -549,29 +477,6 @@ instance Binary Identifier where
       1 -> NodeIdentifier <$> get
       2 -> SendPortIdentifier <$> get 
       _ -> fail "Identifier.get: invalid"
-
--- We don't want StaticLabel to be its own Binary instance
-putStaticLabel :: StaticLabel -> Put
-putStaticLabel (StaticLabel string typ)    = putWord8 0 >> put string >> put typ 
-putStaticLabel (StaticApply label1 label2) = putWord8 1 >> putStaticLabel label1 >> putStaticLabel label2
-putStaticLabel (StaticDuplicate label typ) = putWord8 2 >> putStaticLabel label >> put typ
-
-getStaticLabel :: Get StaticLabel
-getStaticLabel = do
-  header <- getWord8
-  case header of
-    0 -> StaticLabel <$> get <*> get
-    1 -> StaticApply <$> getStaticLabel <*> getStaticLabel
-    2 -> StaticDuplicate <$> getStaticLabel <*> get
-    _ -> fail "StaticLabel.get: invalid" 
-
-instance Typeable a => Binary (Static a) where
-  put (Static label) = putStaticLabel label
-  get = do
-    label <- getStaticLabel
-    if typeOfStaticLabel label `compareTypeRep` typeOf (undefined :: a)
-      then return $ Static label 
-      else fail "Static.get: type error"
 
 instance Binary WhereIsReply where
   put (WhereIsReply label mPid) = put label >> put mPid
@@ -613,9 +518,3 @@ typedChannels = accessor _typedChannels (\cs st -> st { _typedChannels = cs })
 
 typedChannelWithId :: LocalSendPortId -> Accessor LocalProcessState (Maybe TypedChannel)
 typedChannelWithId cid = typedChannels >>> DAC.mapMaybe cid
-
-remoteTableLabels :: Accessor RemoteTable (Map String Dynamic)
-remoteTableLabels = accessor _remoteTableLabels (\ls tbl -> tbl { _remoteTableLabels = ls })
-
-remoteTableLabel :: String -> Accessor RemoteTable (Maybe Dynamic)
-remoteTableLabel label = remoteTableLabels >>> DAC.mapMaybe label

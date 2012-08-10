@@ -66,14 +66,13 @@ import Prelude hiding (catch)
 #endif
 
 import Data.Binary (decode)
-import Data.Typeable (Typeable, typeOf)
 import Data.Time.Clock (getCurrentTime)
 import Data.Time.Format (formatTime)
 import System.Locale (defaultTimeLocale)
 import Control.Monad.Reader (ask)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Applicative ((<$>))
-import Control.Exception (Exception, throw, throwIO, SomeException)
+import Control.Exception (Exception, throwIO, SomeException)
 import qualified Control.Exception as Ex (catch, mask)
 import Control.Concurrent.MVar (modifyMVar)
 import Control.Concurrent.Chan (writeChan)
@@ -90,13 +89,15 @@ import Control.Concurrent.STM
 import Control.Distributed.Process.Internal.CQueue (dequeue, BlockSpec(..))
 import Control.Distributed.Process.Serializable (Serializable, fingerprint)
 import Data.Accessor ((^.), (^:), (^=))
+import Control.Distributed.Static (Closure)
+import Data.Rank1Typeable (Typeable)
+import qualified Control.Distributed.Static as Static (unclosure)
 import Control.Distributed.Process.Internal.Types 
   ( NodeId(..)
   , ProcessId(..)
   , LocalNode(..)
   , LocalProcess(..)
   , Process(..)
-  , Closure(..)
   , Message(..)
   , MonitorRef(..)
   , SpawnRef(..)
@@ -104,7 +105,6 @@ import Control.Distributed.Process.Internal.Types
   , ProcessSignal(..)
   , monitorCounter 
   , spawnCounter
-  , Closure(..)
   , SendPort(..)
   , ReceivePort(..)
   , channelCounter
@@ -121,8 +121,6 @@ import Control.Distributed.Process.Internal.Types
   , runLocalProcess
   )
 import Control.Distributed.Process.Internal.Node (sendMessage, sendBinary) 
-import Control.Distributed.Process.Internal.Closure.Resolution (resolveClosure)
-import Control.Distributed.Process.Internal.Dynamic (fromDyn, dynTypeRep)
 
 --------------------------------------------------------------------------------
 -- Basic messaging                                                            --
@@ -502,15 +500,11 @@ nsendRemote nid label msg =
 
 -- | Deserialize a closure
 unClosure :: forall a. Typeable a => Closure a -> Process a
-unClosure (Closure static env) = do
-    rtable <- remoteTable . processNode <$> ask 
-    case resolveClosure rtable static env of
-      Nothing  -> error $ "Unregistered closure " ++ show static 
-      Just dyn -> return $ fromDyn dyn (throw (typeError dyn))
-  where
-    typeError dyn = userError $ "lookupStatic type error: " 
-                 ++ "cannot match " ++ show (dynTypeRep dyn) 
-                 ++ " against " ++ show (typeOf (undefined :: a))
+unClosure closure = do
+  rtable <- remoteTable . processNode <$> ask 
+  case Static.unclosure rtable closure of
+    Left err -> fail $ "Could not resolve closure: " ++ err 
+    Right x  -> return x
 
 --------------------------------------------------------------------------------
 -- Auxiliary functions                                                        --

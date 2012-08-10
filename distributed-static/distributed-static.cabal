@@ -1,0 +1,37 @@
+Name:                distributed-static
+Version:             0.1.0.0
+Synopsis:            Compositional, type-safe, polymorphic static values and closures 
+Description:         /Towards Haskell in the Cloud/ (Epstein et al, Haskell
+                     Symposium 2011) introduces the concept of /static/ values:
+                     values that are known at compile time. In a distributed
+                     setting where all nodes are running the same executable,
+                     static values can be serialized simply by transmitting a
+                     code pointer to the value. This however requires special
+                     compiler support, which is not yet available in ghc. We
+                     can mimick the behaviour by keeping an explicit mapping
+                     ('RemoteTable') from labels to values (and making sure
+                     that all distributed nodes are using the same
+                     'RemoteTable'). In this module we implement this mimickry
+                     and various extensions: type safety (including for
+                     polymorphic static values) and compositionality.
+Homepage:            http://www.github.com/haskell-distributed/distributed-process
+License:             BSD3
+License-File:        LICENSE
+Author:              Edsko de Vries
+Maintainer:          edsko@well-typed.com
+Copyright:           Well-Typed LLP
+Category:            Control
+Build-Type:          Simple
+Cabal-Version:       >=1.8
+
+Library
+  Exposed-Modules:     Control.Distributed.Static
+  Build-Depends:       base >= 4 && < 5,
+                       rank1dynamic >= 0.1 && < 0.2,
+                       containers >= 0.4 && < 0.5,
+                       bytestring >= 0.9 && < 0.11,
+                       binary >= 0.5 && < 0.6 
+  HS-Source-Dirs:      src
+  Extensions:          DeriveDataTypeable,
+                       ScopedTypeVariables
+  GHC-Options:         -Wall

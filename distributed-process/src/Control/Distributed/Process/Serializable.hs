@@ -6,6 +6,7 @@ module Control.Distributed.Process.Serializable
   , sizeOfFingerprint
   , Fingerprint
   , showFingerprint
+  , SerializableDict(SerializableDict)
   ) where
 
 import Data.Binary (Binary)
@@ -22,6 +23,11 @@ import qualified Data.ByteString.Internal as BSI ( unsafeCreate
                                                  )
 import Foreign.Storable (pokeByteOff, peekByteOff, sizeOf)
 import Foreign.ForeignPtr (withForeignPtr)
+
+-- | Reification of 'Serializable' (see "Control.Distributed.Process.Closure")
+data SerializableDict a where
+    SerializableDict :: Serializable a => SerializableDict a
+  deriving (Typeable)
 
 -- | Objects that can be sent across the network
 class (Binary a, Typeable a) => Serializable a

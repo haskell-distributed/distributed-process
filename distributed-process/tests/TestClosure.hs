@@ -1,7 +1,7 @@
 module Main where
 
 import Data.ByteString.Lazy (empty)
-import Data.Typeable (Typeable, typeOf)
+import Data.Typeable (Typeable)
 import Control.Monad (join, replicateM, forever)
 import Control.Exception (IOException, throw)
 import Control.Concurrent (forkIO, threadDelay)
@@ -12,8 +12,11 @@ import Network.Transport.TCP (createTransport, defaultTCPParameters)
 import Control.Distributed.Process
 import Control.Distributed.Process.Closure
 import Control.Distributed.Process.Node
-import Control.Distributed.Process.Internal.Types (Static(Static), StaticLabel(StaticLabel))
+import Control.Distributed.Static (staticLabel, staticClosure)
 import TestAuxiliary
+
+quintuple :: a -> b -> c -> d -> e -> (a, b, c, d, e)
+quintuple a b c d e = (a, b, c, d, e)
 
 sdictInt :: SerializableDict Int
 sdictInt = SerializableDict
@@ -41,6 +44,7 @@ isPrime n = return . (n `elem`) . takeWhile (<= n) . sieve $ [2..]
   where
     sieve :: [Integer] -> [Integer]
     sieve (p : xs) = p : sieve [x | x <- xs, x `mod` p > 0]
+    sieve [] = error "Uh oh -- we've run out of primes"
 
 -- | First argument indicates empty closure environment
 typedPingServer :: () -> ReceivePort (SendPort ()) -> Process ()
@@ -56,7 +60,13 @@ remotable [ 'factorial
           , 'wait
           , 'typedPingServer
           , 'isPrime
+          , 'quintuple
           ]
+
+-- Just try creating a static polymorphic value
+staticQuintuple :: (Typeable a, Typeable b, Typeable c, Typeable d, Typeable e)
+                => Static (a -> b -> c -> d -> e -> (a, b, c, d, e))
+staticQuintuple = $(mkStatic 'quintuple)
 
 factorialClosure :: Int -> Closure (Process Int)
 factorialClosure = $(mkClosure 'factorial) 
@@ -71,13 +81,13 @@ sendPidClosure :: ProcessId -> Closure (Process ())
 sendPidClosure = $(mkClosure 'sendPid) 
 
 sendFac :: Int -> ProcessId -> Closure (Process ())
-sendFac n pid = factorialClosure n `cpBind` cpSend $(mkStatic 'sdictInt) pid 
+sendFac n pid = factorialClosure n `bindCP` cpSend $(mkStatic 'sdictInt) pid 
 
 factorialOf :: Closure (Int -> Process Int)
 factorialOf = staticClosure $(mkStatic 'factorial)
 
 factorial' :: Int -> Closure (Process Int)
-factorial' n = cpReturn $(mkStatic 'sdictInt) n `cpBind` factorialOf 
+factorial' n = returnCP $(mkStatic 'sdictInt) n `bindCP` factorialOf 
 
 waitClosure :: Int -> Closure (Process ())
 waitClosure = $(mkClosure 'wait) 
@@ -85,18 +95,22 @@ waitClosure = $(mkClosure 'wait)
 testUnclosure :: Transport -> RemoteTable -> IO ()
 testUnclosure transport rtable = do
   node <- newLocalNode transport rtable
-  runProcess node $ do
+  done <- newEmptyMVar
+  forkProcess node $ do
     120 <- join . unClosure $ factorialClosure 5
-    return ()
+    liftIO $ putMVar done ()
+  takeMVar done
 
 testBind :: Transport -> RemoteTable -> IO ()
 testBind transport rtable = do
   node <- newLocalNode transport rtable
+  done <- newEmptyMVar
   runProcess node $ do
     us <- getSelfPid
     join . unClosure $ sendFac 6 us 
     (720 :: Int) <- expect 
-    return ()
+    liftIO $ putMVar done ()
+  takeMVar done
 
 testSendPureClosure :: Transport -> RemoteTable -> IO ()
 testSendPureClosure transport rtable = do
@@ -227,12 +241,14 @@ testCallBind transport rtable = do
 testSeq :: Transport -> RemoteTable -> IO ()
 testSeq transport rtable = do
   node <- newLocalNode transport rtable
+  done <- newEmptyMVar
   runProcess node $ do
     us <- getSelfPid
-    join . unClosure $ sendFac 5 us `cpSeq` sendFac 6 us
+    join . unClosure $ sendFac 5 us `seqCP` sendFac 6 us
     120 :: Int <- expect
     720 :: Int <- expect
-    return ()
+    liftIO $ putMVar done ()
+  takeMVar done
 
 -- Test 'spawnSupervised'
 --
@@ -272,29 +288,34 @@ testSpawnSupervised transport rtable = do
 testSpawnInvalid :: Transport -> RemoteTable -> IO ()
 testSpawnInvalid transport rtable = do
   node <- newLocalNode transport rtable
-  runProcess node $ do
-    (pid, ref) <- spawnMonitor (localNodeId node) (Closure (Static (StaticLabel "ThisDoesNotExist" (typeOf ()))) empty)
+  done <- newEmptyMVar
+  forkProcess node $ do
+    (pid, ref) <- spawnMonitor (localNodeId node) (Closure (staticLabel "ThisDoesNotExist") empty)
     ProcessMonitorNotification ref' pid' _reason <- expect 
     -- Depending on the exact interleaving, reason might be NoProc or the exception thrown by the absence of the static closure
     True <- return $ ref' == ref && pid == pid'  
-    return ()
+    liftIO $ putMVar done ()
+  takeMVar done
 
 testClosureExpect :: Transport -> RemoteTable -> IO ()
 testClosureExpect transport rtable = do
   node <- newLocalNode transport rtable
+  done <- newEmptyMVar
   runProcess node $ do
     nodeId <- getSelfNode
     us     <- getSelfPid
-    them   <- spawn nodeId $ cpExpect $(mkStatic 'sdictInt) `cpBind` cpSend $(mkStatic 'sdictInt) us
+    them   <- spawn nodeId $ cpExpect $(mkStatic 'sdictInt) `bindCP` cpSend $(mkStatic 'sdictInt) us
     send them (1234 :: Int)
     (1234 :: Int) <- expect
-    return ()
+    liftIO $ putMVar done ()
+  takeMVar done
 
 testSpawnChannel :: Transport -> RemoteTable -> IO ()
 testSpawnChannel transport rtable = do
+  done <- newEmptyMVar
   [node1, node2] <- replicateM 2 $ newLocalNode transport rtable
 
-  runProcess node1 $ do
+  forkProcess node1 $ do
     pingServer <- spawnChannel 
                     (sdictSendPort sdictUnit)
                     (localNodeId node2)  
@@ -302,13 +323,18 @@ testSpawnChannel transport rtable = do
     (sendReply, receiveReply) <- newChan
     sendChan pingServer sendReply
     receiveChan receiveReply
+    liftIO $ putMVar done ()
+
+  takeMVar done
 
 testTDict :: Transport -> RemoteTable -> IO ()
 testTDict transport rtable = do
+  done <- newEmptyMVar
   [node1, node2] <- replicateM 2 $ newLocalNode transport rtable
-  runProcess node1 $ do
+  forkProcess node1 $ do
     True <- call $(functionTDict 'isPrime) (localNodeId node2) ($(mkClosure 'isPrime) (79 :: Integer))
-    return ()
+    liftIO $ putMVar done ()
+  takeMVar done
 
 main :: IO ()
 main = do

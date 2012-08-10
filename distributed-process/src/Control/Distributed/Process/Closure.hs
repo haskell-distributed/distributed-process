@@ -1,11 +1,14 @@
--- | Static values and Closures
+-- | /Towards Haskell in the Cloud/ (Epstein et al., Haskell Symposium 2011)
+-- proposes a new type construct called 'static' that characterizes values that
+-- are known statically. Cloud Haskell uses the
+-- 'Control.Distributed.Static.Static' implementation from
+-- "Control.Distributed.Static". That module comes with its own extensive
+-- documentation, which you should read if you want to know the details.  Here
+-- we explain the Template Haskell support only.
 --
 -- [Static values]
 --
--- /Towards Haskell in the Cloud/ (Epstein et al., Haskell Symposium 2011) 
--- proposes a new type construct called 'static' that characterizes values that
--- are known statically. There is no support for 'static' in ghc yet, however,
--- so we emulate it using Template Haskell. Given a top-level definition
+-- Given a top-level (possibly polymorphic, but unqualified) definition
 --
 -- > f :: forall a1 .. an. T
 -- > f = ...
@@ -42,55 +45,13 @@
 --
 -- then you need to enable the @ScopedTypeVariables@ language extension.
 --
--- [Dealing with type class qualifiers]
--- 
--- Although 'mkStatic' supports polymorphic types, it does not support
--- qualified types. For instance, you cannot call 'mkStatic' on
---
--- > decode :: Serializable a => ByteString -> a
---
--- Instead, you will need to reify the type class dictionary. Cloud Haskell
--- comes with a reified version of 'Serializable':
---
--- > data SerializableDict a where
--- >   SerializableDict :: Serializable a => SerializableDict a
---
--- Using the reified dictionary you can define 
--- 
--- > decodeDict :: SerializableDict a -> ByteString -> a
--- > decodeDict SerializableDict = decode
---
--- where 'decodeDict' is a normal (unqualified) polymorphic value and hence
--- can be passed as an argument to remotable:
---
--- > $(mkStatic 'decodeDict) :: Typeable a => Static (SerializableDict a -> ByteString -> a)
---
--- [Composing static values]
---
--- The version of 'static' provided by this implementation of Cloud Haskell is
--- strictly more expressive than the one proposed in the paper, and additionally
--- supports 
---
--- > staticApply :: Static (a -> b) -> Static a -> Static b
---
--- This is extremely useful. For example, Cloud Haskell comes with
--- 'staticDecode' defined as 
---
--- > staticDecode :: Typeable a => Static (SerializableDict a) -> Static (ByteString -> a)
--- > staticDecode dict = $(mkStatic 'decodeDict) `staticApply` dict 
---
--- 'staticDecode' is used when defining closures (see below), and makes
--- essential use of 'staticApply'. 
---
--- Support for 'staticApply' also makes it possible to define a rich set of
--- combinators on 'static' values, a number of which are provided in this
--- module. 
---
 -- [Static serialization dictionaries]
 --
--- Many Cloud Haskell primitives (like 'staticDecode', above) require static
--- serialization dictionaries. In principle these dictionaries require nothing
--- special; for instance, given some serializable type 'T' you can define 
+-- Some Cloud Haskell primitives require static serialization dictionaries (**):
+--
+-- > call :: Serializable a => Static (SerializableDict a) -> NodeId -> Closure (Process a) -> Process a
+--
+-- Given some serializable type 'T' you can define 
 --
 -- > sdictT :: SerializableDict T
 -- > sdictT = SerializableDict
@@ -135,33 +96,10 @@
 --
 -- > $(mkClosure 'f) :: T1 -> Closure T2
 --
--- provided that 'T1' is serializable (*).
+-- provided that 'T1' is serializable (*) (remember to pass 'f' to 'remotable').
 --
--- [Creating closures manually]
---
--- You don't /need/ to use 'mkClosure', however.  Closures are defined exactly
--- as described in /Towards Haskell in the Cloud/:
--- 
--- > data Closure a = Closure (Static (ByteString -> a)) ByteString
---
--- The splice @$(mkClosure 'isPrime)@ above expands to (prettified a bit): 
--- 
--- > let decoder :: Static (ByteString -> Process Bool) 
--- >     decoder = $(mkStatic 'isPrime) 
--- >             `staticCompose`  
--- >               staticDecode $(functionSDict 'isPrime)
--- > in Closure decoder (encode n)
---
--- where 'staticCompose' is composition of static functions. Note that
--- 'mkClosure' makes use of the static serialization dictionary 
--- ('functionSDict') created by 'remotable'.
---
--- [Combinators on Closures]
---
--- Support for 'staticApply' (described above) also means that we can define
--- combinators on Closures, and we provide a number of them in this module,
--- the most important of which is 'cpBind'. Have a look at the implementation
--- of 'Control.Distributed.Process.call' for an example use.
+-- (You can also create closures manually--see the documentation of 
+-- "Control.Distributed.Static" for examples.)
 --
 -- [Example]
 --
@@ -211,119 +149,65 @@
 --     a priori if 'T1' is serializable or not due to a bug in the Template
 --     Haskell libraries (<http://hackage.haskell.org/trac/ghc/ticket/7066>)
 --
--- (**) Even though 'staticDecode' is passed an explicit serialization 
---      dictionary, we still need the 'Typeable' constraint because 
+-- (**) Even though 'call' is passed an explicit serialization 
+--      dictionary, we still need the 'Serializable' constraint because 
 --      'Static' is not the /true/ static. If it was, we could 'unstatic'
 --      the dictionary and pattern match on it to bring the 'Typeable'
 --      instance into scope, but unless proper 'static' support is added to
 --      ghc we need both the type class argument and the explicit dictionary. 
 module Control.Distributed.Process.Closure 
-  ( -- * Creating static values
+  ( -- * Template Haskell support for creating static values and closures 
     remotable
   , mkStatic
-    -- * Template-Haskell support for creating closures
   , mkClosure
   , functionSDict
   , functionTDict
-    -- * Primitive operations on static values
-  , staticApply
-  , staticDuplicate
-    -- * Static functionals
-  , staticConst
-  , staticFlip
-  , staticFst
-  , staticSnd
-  , staticCompose
-  , staticFirst
-  , staticSecond
-  , staticSplit
-    -- * Static constants
-  , staticUnit
-    -- * Creating closures
-  , staticDecode
-  , staticClosure
-  , toClosure
     -- * Serialization dictionaries (and their static versions)
   , SerializableDict(..)
+  , staticDecode
   , sdictUnit
   , sdictProcessId
   , sdictSendPort
-    -- * Definition of CP and the generalized arrow combinators
+    -- * The CP type and associated combinators 
   , CP
-  , cpIntro
-  , cpElim
-  , cpId
-  , cpComp
-  , cpFirst
-  , cpSecond
-  , cpSplit
-  , cpCancelL
-  , cpCancelR
-    -- * Closure versions of CH primitives
+  , idCP
+  , splitCP
+  , returnCP
+  , bindCP 
+  , seqCP 
+    -- * CP versions of Cloud Haskell primitives  
   , cpLink
   , cpUnlink
   , cpSend
   , cpExpect
   , cpNewChan
-    -- * @Closure (Process a)@ as a not-quite-monad
-  , cpReturn 
-  , cpBind
-  , cpSeq
   ) where 
 
-import Control.Distributed.Process.Internal.Types 
-  ( SerializableDict(..)
-  , staticApply
-  , staticDuplicate
-  )
+import Control.Distributed.Process.Serializable (SerializableDict(..))
 import Control.Distributed.Process.Internal.Closure.TH 
   ( remotable
   , mkStatic
   , functionSDict
   , functionTDict
+  , mkClosure
   )
-import Control.Distributed.Process.Internal.Closure.Static
-  ( -- Static functionals
-    staticConst
-  , staticFlip
-  , staticFst
-  , staticSnd
-  , staticCompose
-  , staticFirst
-  , staticSecond
-  , staticSplit
-    -- Static constants
-  , staticUnit
-    -- Creating closures
-  , staticDecode
-  , staticClosure
-  , toClosure
-    -- Serialization dictionaries (and their static versions)
+import Control.Distributed.Process.Internal.Closure.BuiltIn
+  ( -- Static dictionaries and associated operations
+    staticDecode
   , sdictUnit
   , sdictProcessId
   , sdictSendPort
-  )
-import Control.Distributed.Process.Internal.Closure.MkClosure (mkClosure)
-import Control.Distributed.Process.Internal.Closure.CP
-  ( -- Definition of CP and the generalized arrow combinators
-    CP
-  , cpIntro
-  , cpElim
-  , cpId
-  , cpComp
-  , cpFirst
-  , cpSecond
-  , cpSplit
-  , cpCancelL
-  , cpCancelR
-    -- Closure versions of CH primitives
+    -- The CP type and associated combinators 
+  , CP
+  , idCP
+  , splitCP
+  , returnCP
+  , bindCP 
+  , seqCP 
+    -- CP versions of Cloud Haskell primitives  
   , cpLink
   , cpUnlink
   , cpSend
   , cpExpect
   , cpNewChan
-    -- @Closure (Process a)@ as a not-quite-monad
-  , cpReturn 
-  , cpBind
-  , cpSeq
   )

@@ -1,5 +1,5 @@
 Name:          distributed-process 
-Version:       0.2.3.0
+Version:       0.3.0
 Cabal-Version: >=1.8
 Build-Type:    Simple
 License:       BSD3 
@@ -43,21 +43,19 @@ Library
                      time >= 1.2 && < 1.5,
                      template-haskell >= 2.6 && < 2.8,
                      random >= 1.0 && < 1.1,
-                     ghc-prim >= 0.2 && < 0.3
+                     ghc-prim >= 0.2 && < 0.3,
+                     distributed-static >= 0.1 && < 0.2,
+                     rank1dynamic >= 0.1 && < 0.2,
+                     syb >= 0.3 && < 0.4
   Exposed-modules:   Control.Distributed.Process,
                      Control.Distributed.Process.Serializable,
                      Control.Distributed.Process.Closure,
                      Control.Distributed.Process.Node,
                      Control.Distributed.Process.Internal.Primitives,
                      Control.Distributed.Process.Internal.CQueue,
-                     Control.Distributed.Process.Internal.Dynamic,
-                     Control.Distributed.Process.Internal.TypeRep,
                      Control.Distributed.Process.Internal.Types,
-                     Control.Distributed.Process.Internal.Closure.Static,
-                     Control.Distributed.Process.Internal.Closure.MkClosure,
-                     Control.Distributed.Process.Internal.Closure.CP,
                      Control.Distributed.Process.Internal.Closure.TH,
-                     Control.Distributed.Process.Internal.Closure.Resolution,
+                     Control.Distributed.Process.Internal.Closure.BuiltIn,
                      Control.Distributed.Process.Internal.Node
   Extensions:        RankNTypes,
                      ScopedTypeVariables,
@@ -67,7 +65,6 @@ Library
                      GADTs,
                      GeneralizedNewtypeDeriving,
                      DeriveDataTypeable,
-                     TemplateHaskell,
                      CPP
   ghc-options:       -Wall
   HS-Source-Dirs:    src
@@ -90,7 +87,9 @@ Test-Suite TestCH
                      template-haskell >= 2.6 && < 2.8,
                      random >= 1.0 && < 1.1,
                      ghc-prim >= 0.2 && < 0.3,
-                     ansi-terminal >= 0.5 && < 0.6
+                     ansi-terminal >= 0.5 && < 0.6,
+                     distributed-static >= 0.1 && < 0.2,
+                     rank1dynamic >= 0.1 && < 0.2
   Extensions:        RankNTypes,
                      ScopedTypeVariables,
                      FlexibleInstances,
@@ -99,7 +98,6 @@ Test-Suite TestCH
                      GADTs,
                      GeneralizedNewtypeDeriving,
                      DeriveDataTypeable,
-                     TemplateHaskell,
                      CPP
   ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind 
   HS-Source-Dirs:    tests src
@@ -122,7 +120,10 @@ Test-Suite TestClosure
                      template-haskell >= 2.6 && < 2.8,
                      random >= 1.0 && < 1.1,
                      ghc-prim >= 0.2 && < 0.3,
-                     ansi-terminal >= 0.5 && < 0.6
+                     ansi-terminal >= 0.5 && < 0.6,
+                     distributed-static >= 0.1 && < 0.2,
+                     rank1dynamic >= 0.1 && < 0.2,
+                     syb >= 0.3 && < 0.4
   Other-modules:     TestAuxiliary
   Extensions:        RankNTypes,
                      ScopedTypeVariables,
