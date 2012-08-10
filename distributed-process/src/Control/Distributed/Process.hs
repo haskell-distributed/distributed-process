@@ -209,7 +209,6 @@ import Control.Distributed.Process.Internal.Primitives
   )
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Node (forkProcess)
-import Data.Rank1Typeable (ANY, ANY1)
 
 -- INTERNAL NOTES
 -- 

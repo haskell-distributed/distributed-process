@@ -189,8 +189,8 @@ import Control.Distributed.Process.Internal.Closure.TH
   , mkStatic
   , functionSDict
   , functionTDict
+  , mkClosure
   )
-import Control.Distributed.Process.Internal.Closure.MkClosure (mkClosure)
 import Control.Distributed.Process.Internal.Closure.BuiltIn
   ( -- Static dictionaries and associated operations
     staticDecode

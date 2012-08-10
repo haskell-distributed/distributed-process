@@ -1,12 +1,12 @@
 -- | Template Haskell support
---
--- (In a separate file for convenience)
+{-# LANGUAGE TemplateHaskell #-}
 module Control.Distributed.Process.Internal.Closure.TH 
   ( -- * User-level API
     remotable
   , mkStatic
   , functionSDict
   , functionTDict
+  , mkClosure
   ) where
 
 import Prelude hiding (lookup)
@@ -40,17 +40,21 @@ import Language.Haskell.TH
   , sigD
   )
 
-import Control.Distributed.Process.Internal.Types (Process)
-import Control.Distributed.Process.Serializable 
-  ( SerializableDict(SerializableDict)
-  )
+import Data.Binary (encode)
+import Data.Rank1Dynamic (toDynamic)
 import Control.Distributed.Static 
   ( RemoteTable
   , registerStatic
   , Static
   , staticLabel
+  , Closure(Closure)
+  , staticCompose
   )
-import Data.Rank1Dynamic (toDynamic)
+import Control.Distributed.Process.Internal.Types (Process)
+import Control.Distributed.Process.Serializable 
+  ( SerializableDict(SerializableDict)
+  )
+import Control.Distributed.Process.Internal.Closure.BuiltIn (staticDecode)
 
 --------------------------------------------------------------------------------
 -- User-level API                                                             --
@@ -85,6 +89,12 @@ functionSDict = varE . sdictName
 -- Be sure to pass 'f' to 'remotable'.
 functionTDict :: Name -> Q Exp
 functionTDict = varE . tdictName
+
+mkClosure :: Name -> Q Exp
+mkClosure n = 
+  [|   Closure ($(mkStatic n) `staticCompose` staticDecode $(functionSDict n)) 
+     . encode
+  |]
 
 --------------------------------------------------------------------------------
 -- Internal (Template Haskell)                                                --

@@ -53,7 +53,6 @@ Library
                      Control.Distributed.Process.Internal.Primitives,
                      Control.Distributed.Process.Internal.CQueue,
                      Control.Distributed.Process.Internal.Types,
-                     Control.Distributed.Process.Internal.Closure.MkClosure,
                      Control.Distributed.Process.Internal.Closure.TH,
                      Control.Distributed.Process.Internal.Closure.BuiltIn,
                      Control.Distributed.Process.Internal.Node
@@ -65,7 +64,6 @@ Library
                      GADTs,
                      GeneralizedNewtypeDeriving,
                      DeriveDataTypeable,
-                     TemplateHaskell,
                      CPP
   ghc-options:       -Wall
   HS-Source-Dirs:    src
@@ -99,7 +97,6 @@ Test-Suite TestCH
                      GADTs,
                      GeneralizedNewtypeDeriving,
                      DeriveDataTypeable,
-                     TemplateHaskell,
                      CPP
   ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind 
   HS-Source-Dirs:    tests src

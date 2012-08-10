@@ -9,7 +9,6 @@ module Control.Distributed.Process.Node
   , localNodeId
   ) where
 
-
 #if ! MIN_VERSION_base(4,6,0)
 import Prelude hiding (catch)
 #endif
