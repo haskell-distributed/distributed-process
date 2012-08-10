@@ -6,6 +6,8 @@ module Control.Distributed.Process.Internal.Closure.BuiltIn
   , sdictUnit
   , sdictProcessId
   , sdictSendPort
+    -- * Some static values
+  , sndStatic
     -- * The CP type and associated combinators 
   , CP
   , idCP
@@ -21,6 +23,8 @@ module Control.Distributed.Process.Internal.Closure.BuiltIn
   , cpNewChan
   ) where
 
+import Prelude hiding (snd)
+import qualified Prelude (snd)
 import Data.ByteString.Lazy (ByteString)  
 import Data.Binary (decode, encode)
 import Data.Rank1Typeable (Typeable, ANY, ANY1, ANY2, ANY3, ANY4)
@@ -75,6 +79,7 @@ remoteTable =
     . registerStatic "$expectDict"      (toDynamic expectDict)
     . registerStatic "$newChanDict"     (toDynamic newChanDict)
     . registerStatic "$cpSplit"         (toDynamic cpSplit)
+    . registerStatic "$snd"             (toDynamic snd)
   where
     decodeDict :: SerializableDict ANY -> ByteString -> ANY
     decodeDict SerializableDict = decode
@@ -112,6 +117,9 @@ remoteTable =
     cpSplit :: (ANY1 -> Process ANY3) -> (ANY2 -> Process ANY4) -> (ANY1, ANY2) -> Process (ANY3, ANY4)
     cpSplit f g (a, b) = f a >>= \c -> g b >>= \d -> return (c, d)
 
+    snd :: (ANY1, ANY2) -> ANY2
+    snd = Prelude.snd
+
 --------------------------------------------------------------------------------
 -- Static dictionaries and associated operations                              --
 --------------------------------------------------------------------------------
@@ -138,6 +146,13 @@ sdictProcessId = staticLabel "$sdictProcessId"
 sdictSendPort :: Typeable a 
               => Static (SerializableDict a) -> Static (SerializableDict (SendPort a))
 sdictSendPort = staticApply (staticLabel "$sdictSendPort_") 
+
+--------------------------------------------------------------------------------
+-- Static values                                                              --
+--------------------------------------------------------------------------------
+
+sndStatic :: Static ((a, b) -> b)
+sndStatic = staticLabel "$snd"
 
 --------------------------------------------------------------------------------
 -- The CP type and associated combinators                                     --

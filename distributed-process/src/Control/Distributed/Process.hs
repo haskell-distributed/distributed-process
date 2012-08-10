@@ -137,6 +137,7 @@ import Control.Distributed.Process.Serializable (SerializableDict)
 import Control.Distributed.Process.Internal.Closure.BuiltIn
   ( sdictUnit 
   , sdictSendPort
+  , sndStatic
   , idCP
   , seqCP 
   , bindCP 
@@ -147,7 +148,7 @@ import Control.Distributed.Process.Internal.Closure.BuiltIn
   , cpSend
   , cpNewChan
   )
-import Control.Distributed.Static (closureCompose, sndStatic, staticClosure)
+import Control.Distributed.Static (closureCompose, staticClosure)
 
 {-
 import Control.Distributed.Process.Internal.Closure.CP

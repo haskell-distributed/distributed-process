@@ -66,14 +66,13 @@ import Prelude hiding (catch)
 #endif
 
 import Data.Binary (decode)
-import Data.Typeable (Typeable, typeOf)
 import Data.Time.Clock (getCurrentTime)
 import Data.Time.Format (formatTime)
 import System.Locale (defaultTimeLocale)
 import Control.Monad.Reader (ask)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Applicative ((<$>))
-import Control.Exception (Exception, throw, throwIO, SomeException)
+import Control.Exception (Exception, throwIO, SomeException)
 import qualified Control.Exception as Ex (catch, mask)
 import Control.Concurrent.MVar (modifyMVar)
 import Control.Concurrent.Chan (writeChan)
@@ -90,7 +89,7 @@ import Control.Concurrent.STM
 import Control.Distributed.Process.Internal.CQueue (dequeue, BlockSpec(..))
 import Control.Distributed.Process.Serializable (Serializable, fingerprint)
 import Data.Accessor ((^.), (^:), (^=))
-import Control.Distributed.Static (Closure(Closure), fromDynamic, dynTypeRep)
+import Control.Distributed.Static (Typeable, Closure)
 import qualified Control.Distributed.Static as Static (unclosure)
 import Control.Distributed.Process.Internal.Types 
   ( NodeId(..)
@@ -506,8 +505,8 @@ unClosure :: forall a. Typeable a => Closure a -> Process a
 unClosure closure = do
   rtable <- remoteTable . processNode <$> ask 
   case Static.unclosure rtable closure of
-    Nothing -> fail $ "Could not resolve closure " ++ show closure
-    Just x  -> return x
+    Left err -> fail $ "Could not resolve closure: " ++ err 
+    Right x  -> return x
 
 --------------------------------------------------------------------------------
 -- Auxiliary functions                                                        --

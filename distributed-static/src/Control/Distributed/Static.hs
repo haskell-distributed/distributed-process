@@ -17,7 +17,6 @@ module Control.Distributed.Static
   , staticLabel
   , staticApply
   , staticDuplicate
---  , staticTypeOf
     -- * Eliminating static values 
   , RemoteTable
   , initRemoteTable
@@ -27,18 +26,6 @@ module Control.Distributed.Static
   , Closure(Closure)
   , unclosure 
   , staticClosure
-    -- * Static values
-  , idStatic 
-  , composeStatic
-  , constStatic 
-  , flipStatic
-  , fstStatic
-  , sndStatic
-  , firstStatic
-  , secondStatic
-  , splitStatic
-  , unitStatic
-  , appStatic
     -- * Combinators on static values
   , staticCompose
   , staticSplit
@@ -49,14 +36,13 @@ module Control.Distributed.Static
   , closureCompose
   , closureSplit
     -- * Re-exports 
+  , Typeable
   , Dynamic
   , toDynamic
-  , fromDynamic
-  , dynTypeRep
   ) where
 
-import Prelude hiding (id, (.), const, flip, fst, snd)
-import qualified Prelude (const, flip, fst, snd)
+import Prelude hiding (const, fst, snd)
+import qualified Prelude (const, fst, snd)
 import Data.Binary 
   ( Binary(get, put)
   , Put
@@ -70,9 +56,8 @@ import Data.ByteString.Lazy (ByteString, empty)
 import Data.Map (Map)
 import qualified Data.Map as Map (lookup, empty, insert)
 import Control.Applicative ((<$>), (<*>))
-import Control.Category (Category(id, (.)))
-import qualified Control.Arrow as Arrow (first, second, (***), app)
-import Data.Rank1Dynamic (Dynamic, toDynamic, fromDynamic, dynApply, dynTypeRep)
+import qualified Control.Arrow as Arrow ((***), app)
+import Data.Rank1Dynamic (Dynamic, toDynamic, fromDynamic, dynApply)
 import Data.Rank1Typeable 
   ( Typeable
   , typeOf
@@ -141,24 +126,6 @@ staticApply (Static f) (Static x) = Static (StaticApply f x)
 staticDuplicate :: forall a. Static a -> Static (Static a)
 staticDuplicate (Static x) = Static (StaticDuplicate x) 
 
-{-
--- | @staticTypeOf (x :: a)@ mimicks @static (undefined :: a)@ -- even if
--- @x@ is not static, the type of @x@ always is.
-staticTypeOf :: forall a. Typeable a => a -> Static a 
-staticTypeOf _ = Static (StaticLabel "$undefined" (typeOf (undefined :: a)))
-
-typeOfStaticLabel :: StaticLabel -> TypeRep
-typeOfStaticLabel = undefined
-{-
-typeOfStaticLabel (StaticLabel _ typ) 
-  = typ 
-typeOfStaticLabel (StaticApply f x) 
-  = fromJust $ funResultTy (typeOfStaticLabel f) (typeOfStaticLabel x)
-typeOfStaticLabel (StaticDuplicate _ typ)
-  = typ
--}
--}
-
 --------------------------------------------------------------------------------
 -- Eliminating static values                                                  --
 --------------------------------------------------------------------------------
@@ -169,52 +136,27 @@ newtype RemoteTable = RemoteTable (Map String Dynamic)
 -- | Initial remote table
 initRemoteTable :: RemoteTable
 initRemoteTable = 
-      registerStatic "$id"            (toDynamic identity)
-    . registerStatic "$compose"       (toDynamic compose)
+      registerStatic "$compose"       (toDynamic compose)
     . registerStatic "$const"         (toDynamic const)
-    . registerStatic "$flip"          (toDynamic flip)
-    . registerStatic "$fst"           (toDynamic fst)
-    . registerStatic "$snd"           (toDynamic snd)
-    . registerStatic "$first"         (toDynamic first)
-    . registerStatic "$second"        (toDynamic second)
     . registerStatic "$split"         (toDynamic split)
-    . registerStatic "$unit"          (toDynamic ())
     . registerStatic "$app"           (toDynamic app)
     . registerStatic "$decodeEnvPair" (toDynamic decodeEnvPair)
     $ RemoteTable Map.empty
   where
-    identity :: ANY -> ANY
-    identity = id
-
     compose :: (ANY2 -> ANY3) -> (ANY1 -> ANY2) -> ANY1 -> ANY3
     compose = (.)
  
     const :: ANY1 -> ANY2 -> ANY1
     const = Prelude.const
 
-    flip :: (ANY1 -> ANY2 -> ANY3) -> ANY2 -> ANY1 -> ANY3
-    flip = Prelude.flip
-
-    fst :: (ANY1, ANY2) -> ANY1
-    fst = Prelude.fst
-
-    snd :: (ANY1, ANY2) -> ANY2
-    snd = Prelude.snd
-
-    first :: (ANY1 -> ANY2) -> (ANY1, ANY3) -> (ANY2, ANY3)
-    first = Arrow.first
-
-    second :: (ANY1 -> ANY2) -> (ANY3, ANY1) -> (ANY3, ANY2)
-    second = Arrow.second
-
     split :: (ANY1 -> ANY3) -> (ANY2 -> ANY4) -> (ANY1, ANY2) -> (ANY3, ANY4)
     split = (Arrow.***)
 
-    decodeEnvPair :: ByteString -> (ByteString, ByteString)
-    decodeEnvPair = decode
-
     app :: (ANY1 -> ANY2, ANY1) -> ANY2
     app = Arrow.app
+
+    decodeEnvPair :: ByteString -> (ByteString, ByteString)
+    decodeEnvPair = decode
 
 -- | Register a static label
 registerStatic :: String -> Dynamic -> RemoteTable -> RemoteTable
@@ -222,31 +164,26 @@ registerStatic label dyn (RemoteTable rtable)
   = RemoteTable (Map.insert label dyn rtable)
 
 -- Pseudo-type: RemoteTable -> Static a -> a
-resolveStaticLabel :: RemoteTable -> StaticLabel -> Maybe Dynamic
+resolveStaticLabel :: RemoteTable -> StaticLabel -> Either String Dynamic
 resolveStaticLabel (RemoteTable rtable) (StaticLabel label) = 
-    Map.lookup label rtable
+    case Map.lookup label rtable of
+      Nothing -> Left $ "Invalid static label '" ++ label ++ "'"
+      Just d  -> Right d
 resolveStaticLabel rtable (StaticApply label1 label2) = do
     f <- resolveStaticLabel rtable label1 
     x <- resolveStaticLabel rtable label2
-    case f `dynApply` x of
-      Left _err -> Nothing
-      Right y   -> Just y
+    f `dynApply` x
 resolveStaticLabel rtable (StaticDuplicate label) = do
     x <- resolveStaticLabel rtable label -- Resolve only to get type info 
-    case toDynamic mkStatic `dynApply` x of
-      Left _err -> Nothing
-      Right y   -> Just y
+    toDynamic mkStatic `dynApply` x
   where
     mkStatic :: ANY -> Static ANY
     mkStatic _ = Static label
 
-unstatic :: Typeable a => RemoteTable -> Static a -> Maybe a
-unstatic rtable (Static static) = 
-  case resolveStaticLabel rtable static of
-    Nothing  -> Nothing
-    Just dyn -> case fromDynamic dyn of
-      Left _err -> Nothing
-      Right x   -> Just x
+unstatic :: Typeable a => RemoteTable -> Static a -> Either String a
+unstatic rtable (Static static) = do 
+  dyn <- resolveStaticLabel rtable static 
+  fromDynamic dyn
 
 --------------------------------------------------------------------------------
 -- Closures                                                                   -- 
@@ -261,7 +198,7 @@ instance Typeable a => Binary (Closure a) where
   get = Closure <$> get <*> get 
 
 -- | Resolve a closure
-unclosure :: Typeable a => RemoteTable -> Closure a -> Maybe a
+unclosure :: Typeable a => RemoteTable -> Closure a -> Either String a
 unclosure rtable (Closure static env) = do 
   f <- unstatic rtable static
   return (f env)
@@ -274,11 +211,6 @@ staticClosure static = Closure (staticConst static) empty
 -- Predefined static values                                                   --
 --------------------------------------------------------------------------------
 
--- | Static version of 'id'
-idStatic :: (Typeable a) 
-         => Static (a -> a)
-idStatic = staticLabel "$id" 
-
 -- | Static version of ('Prelude..')
 composeStatic :: (Typeable a, Typeable b, Typeable c) 
               => Static ((b -> c) -> (a -> b) -> a -> c)
@@ -289,39 +221,10 @@ constStatic :: (Typeable a, Typeable b)
             => Static (a -> b -> a)
 constStatic = staticLabel "$const"           
 
--- | Static version of 'flip'
-flipStatic :: (Typeable a, Typeable b, Typeable c)
-           => Static ((a -> b -> c) -> b -> a -> c)
-flipStatic = staticLabel "$flip"
-
--- | Static version of 'fst'
-fstStatic :: (Typeable a, Typeable b)
-          => Static ((a, b) -> a)
-fstStatic = staticLabel "$fst"
-
--- | Static version of 'snd'
-sndStatic :: (Typeable a, Typeable b)
-          => Static ((a, b) -> b)
-sndStatic = staticLabel "$snd"          
-
--- | Static version of 'Arrow.first'
-firstStatic :: (Typeable a, Typeable b, Typeable c)
-            => Static ((a -> b) -> (a, c) -> (b, c))
-firstStatic = staticLabel "$first" 
-
--- | Static version of 'Arrow.second'
-secondStatic :: (Typeable a, Typeable b, Typeable c)
-             => Static ((a -> b) -> (c, a) -> (c, b))
-secondStatic = staticLabel "$second" 
-
 -- | Static version of ('Arrow.***')
 splitStatic :: (Typeable a, Typeable a', Typeable b, Typeable b') 
             => Static ((a -> b) -> (a' -> b') -> (a, a') -> (b, b')) 
 splitStatic = staticLabel "$split"
-
--- | Static version of @()@
-unitStatic :: Static ()
-unitStatic = staticLabel "$unit"
 
 -- | Static version of 'Arrow.app'
 appStatic :: (Typeable a, Typeable b)

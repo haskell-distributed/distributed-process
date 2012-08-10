@@ -228,17 +228,6 @@ module Control.Distributed.Process.Closure
     -- * Primitive operations on static values
   , staticApply
   , staticDuplicate
-    -- * Static values
-  , idStatic 
-  , composeStatic
-  , constStatic 
-  , flipStatic
-  , fstStatic
-  , sndStatic
-  , firstStatic
-  , secondStatic
-  , splitStatic
-  , unitStatic
     -- * Combinators on static values
   , staticCompose
     -- * Serialization dictionaries (and their static versions)
@@ -272,21 +261,9 @@ import Control.Distributed.Static
   ( -- Introducing static values
     staticApply
   , staticDuplicate
-    -- Static values
-  , idStatic 
-  , composeStatic
-  , constStatic 
-  , flipStatic
-  , fstStatic
-  , sndStatic
-  , firstStatic
-  , secondStatic
-  , splitStatic
-  , unitStatic
     -- Combinators on static values
   , staticCompose
   , staticClosure
-  , closureSplit
   )
   
 
@@ -304,10 +281,9 @@ import Control.Distributed.Process.Internal.Closure.TH
   , functionTDict
   )
 import Control.Distributed.Process.Internal.Closure.BuiltIn
-  ( -- Remote table 
-    remoteTable
+  ( 
     -- Static dictionaries and associated operations
-  , staticDecode
+    staticDecode
   , sdictUnit
   , sdictProcessId
   , sdictSendPort

@@ -31,7 +31,7 @@ import qualified Data.List as List (delete, (\\))
 import Data.Set (Set)
 import qualified Data.Set as Set (empty, insert, delete, member, (\\), fromList)
 import Data.Foldable (forM_)
-import Data.Maybe (isJust, fromMaybe)
+import Data.Maybe (isJust)
 import Data.Typeable (Typeable)
 import Control.Category ((>>>))
 import Control.Applicative ((<$>))
@@ -69,7 +69,7 @@ import qualified Network.Transport as NT
 import Data.Accessor (Accessor, accessor, (^.), (^=), (^:))
 import qualified Data.Accessor.Container as DAC (mapDefault, mapMaybe)
 import System.Random (randomIO)
-import Control.Distributed.Static (RemoteTable, Closure(Closure), fromDynamic)
+import Control.Distributed.Static (RemoteTable, Closure)
 import qualified Control.Distributed.Static as Static (unclosure)
 import Control.Distributed.Process.Internal.Types 
   ( NodeId(..)
@@ -120,11 +120,6 @@ import Control.Distributed.Process.Internal.Node
 import Control.Distributed.Process.Internal.Primitives (expect, register, finally)
 import qualified Control.Distributed.Process.Internal.Closure.BuiltIn as BuiltIn (remoteTable)
 import qualified Control.Distributed.Static as Static (initRemoteTable)
-
--- import Control.Distributed.Process.Internal.Dynamic (fromDynamic)
--- import Control.Distributed.Process.Internal.Closure.Resolution (resolveClosure) 
--- import qualified Control.Distributed.Process.Internal.Closure.Static as Static (__remoteTable)
--- import qualified Control.Distributed.Process.Internal.Closure.CP as CP (__remoteTable)
 
 --------------------------------------------------------------------------------
 -- Initialization                                                             --
@@ -509,7 +504,9 @@ ncEffectSpawn pid cProc ref = do
   mProc <- unClosure cProc
   -- If the closure does not exist, we spawn a process that throws an exception
   -- This allows the remote node to find out what's happening
-  let proc = fromMaybe (fail $ "Error: unknown closure " ++ show cProc) mProc
+  let proc = case mProc of
+               Left err -> fail $ "Error: Could not resolve closure: " ++ err
+               Right p  -> p
   node <- ask
   pid' <- liftIO $ forkProcess node proc
   liftIO $ sendMessage node
@@ -603,7 +600,7 @@ isLocal :: LocalNode -> Identifier -> Bool
 isLocal nid ident = nodeOf ident == localNodeId nid
 
 -- | Lookup a local closure 
-unClosure :: Typeable a => Closure a -> NC (Maybe a)
+unClosure :: Typeable a => Closure a -> NC (Either String a)
 unClosure closure = do
   rtable <- remoteTable <$> ask
   return (Static.unclosure rtable closure)
