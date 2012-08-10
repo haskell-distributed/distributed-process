@@ -23,8 +23,6 @@ module Control.Distributed.Process.Internal.Closure.BuiltIn
   , cpNewChan
   ) where
 
-import Prelude hiding (snd)
-import qualified Prelude (snd)
 import Data.ByteString.Lazy (ByteString)  
 import Data.Binary (decode, encode)
 import Data.Rank1Typeable (Typeable, ANY, ANY1, ANY2, ANY3, ANY4)
@@ -65,60 +63,42 @@ import Control.Distributed.Process.Internal.Primitives
 
 remoteTable :: RemoteTable -> RemoteTable
 remoteTable = 
-      registerStatic "$decodeDict"      (toDynamic decodeDict) 
-    . registerStatic "$sdictUnit"       (toDynamic dictUnit)
-    . registerStatic "$sdictProcessId"  (toDynamic dictProcessId) 
-    . registerStatic "$sdictSendPort_"  (toDynamic sdictSendPort_)
-    . registerStatic "$returnProcess"   (toDynamic returnProcess)
-    . registerStatic "$seqProcess"      (toDynamic seqProcess)
-    . registerStatic "$bindProcess"     (toDynamic bindProcess)
-    . registerStatic "$decodeProcessId" (toDynamic decodeProcessId)
+      registerStatic "$decodeDict"      (toDynamic (decodeDict       :: SerializableDict ANY -> ByteString -> ANY))
+    . registerStatic "$sdictUnit"       (toDynamic (SerializableDict :: SerializableDict ()))
+    . registerStatic "$sdictProcessId"  (toDynamic (SerializableDict :: SerializableDict ProcessId)) 
+    . registerStatic "$sdictSendPort_"  (toDynamic (sdictSendPort_   :: SerializableDict ANY -> SerializableDict (SendPort ANY)))
+    . registerStatic "$returnProcess"   (toDynamic (return           :: ANY -> Process ANY))
+    . registerStatic "$seqProcess"      (toDynamic ((>>)             :: Process ANY1 -> Process ANY2 -> Process ANY2))
+    . registerStatic "$bindProcess"     (toDynamic ((>>=)            :: Process ANY1 -> (ANY1 -> Process ANY2) -> Process ANY2))
+    . registerStatic "$decodeProcessId" (toDynamic (decode           :: ByteString -> ProcessId))
     . registerStatic "$link"            (toDynamic link)
     . registerStatic "$unlink"          (toDynamic unlink)
-    . registerStatic "$sendDict"        (toDynamic sendDict)
-    . registerStatic "$expectDict"      (toDynamic expectDict)
-    . registerStatic "$newChanDict"     (toDynamic newChanDict)
-    . registerStatic "$cpSplit"         (toDynamic cpSplit)
-    . registerStatic "$snd"             (toDynamic snd)
+    . registerStatic "$sendDict"        (toDynamic (sendDict         :: SerializableDict ANY -> ProcessId -> ANY -> Process ()))
+    . registerStatic "$expectDict"      (toDynamic (expectDict       :: SerializableDict ANY -> Process ANY))
+    . registerStatic "$newChanDict"     (toDynamic (newChanDict      :: SerializableDict ANY -> Process (SendPort ANY, ReceivePort ANY)))
+    . registerStatic "$cpSplit"         (toDynamic (cpSplit          :: (ANY1 -> Process ANY3) -> (ANY2 -> Process ANY4) -> (ANY1, ANY2) -> Process (ANY3, ANY4)))
+    . registerStatic "$snd"             (toDynamic (snd              :: (ANY1, ANY2) -> ANY2))
   where
-    decodeDict :: SerializableDict ANY -> ByteString -> ANY
+    decodeDict :: forall a. SerializableDict a -> ByteString -> a
     decodeDict SerializableDict = decode
 
-    dictUnit :: SerializableDict ()
-    dictUnit = SerializableDict
-
-    dictProcessId :: SerializableDict ProcessId
-    dictProcessId = SerializableDict
-
-    sdictSendPort_ :: SerializableDict ANY -> SerializableDict (SendPort ANY)
+    sdictSendPort_ :: forall a. SerializableDict a -> SerializableDict (SendPort a)
     sdictSendPort_ SerializableDict = SerializableDict
 
-    returnProcess :: ANY -> Process ANY
-    returnProcess = return
-
-    seqProcess :: Process ANY1 -> Process ANY2 -> Process ANY2
-    seqProcess = (>>)
-
-    bindProcess :: Process ANY1 -> (ANY1 -> Process ANY2) -> Process ANY2
-    bindProcess = (>>=)
-
-    decodeProcessId :: ByteString -> ProcessId
-    decodeProcessId = decode
-
-    sendDict :: SerializableDict ANY -> ProcessId -> ANY -> Process ()
+    sendDict :: forall a. SerializableDict a -> ProcessId -> a -> Process ()
     sendDict SerializableDict = send
 
-    expectDict :: SerializableDict ANY -> Process ANY
+    expectDict :: forall a. SerializableDict a -> Process a
     expectDict SerializableDict = expect
 
-    newChanDict :: SerializableDict ANY -> Process (SendPort ANY, ReceivePort ANY)
+    newChanDict :: forall a. SerializableDict a -> Process (SendPort a, ReceivePort a)
     newChanDict SerializableDict = newChan
 
-    cpSplit :: (ANY1 -> Process ANY3) -> (ANY2 -> Process ANY4) -> (ANY1, ANY2) -> Process (ANY3, ANY4)
-    cpSplit f g (a, b) = f a >>= \c -> g b >>= \d -> return (c, d)
-
-    snd :: (ANY1, ANY2) -> ANY2
-    snd = Prelude.snd
+    cpSplit :: forall a b c d. (a -> Process c) -> (b -> Process d) -> (a, b) -> Process (c, d)
+    cpSplit f g (a, b) = do
+      c <- f a
+      d <- g b
+      return (c, d)
 
 --------------------------------------------------------------------------------
 -- Static dictionaries and associated operations                              --
@@ -164,13 +144,19 @@ type CP a b = Closure (a -> Process b)
 returnProcessStatic :: Typeable a => Static (a -> Process a)
 returnProcessStatic = staticLabel "$returnProcess"
 
+-- | 'CP' version of 'Control.Category.id' 
 idCP :: Typeable a => CP a a
 idCP = staticClosure returnProcessStatic
 
+-- | 'CP' version of ('Control.Arrow.***')
 splitCP :: (Typeable a, Typeable b, Typeable c, Typeable d) 
         => CP a c -> CP b d -> CP (a, b) (c, d)
-splitCP = undefined
+splitCP p q = cpSplitStatic `closureApplyStatic` p `closureApply` q
+  where
+    cpSplitStatic :: Static ((a -> Process c) -> (b -> Process d) -> (a, b) -> Process (c, d))
+    cpSplitStatic = staticLabel "$cpSplit" 
 
+-- | 'CP' version of 'Control.Monad.return'
 returnCP :: forall a. Serializable a 
          => Static (SerializableDict a) -> a -> Closure (Process a)
 returnCP dict x = Closure decoder (encode x)
@@ -180,6 +166,7 @@ returnCP dict x = Closure decoder (encode x)
             `staticCompose`
               staticDecode dict
 
+-- | 'CP' version of ('Control.Monad.>>')
 seqCP :: (Typeable a, Typeable b)
       => Closure (Process a) -> Closure (Process b) -> Closure (Process b)
 seqCP p q = seqProcessStatic `closureApplyStatic` p `closureApply` q 
@@ -188,8 +175,9 @@ seqCP p q = seqProcessStatic `closureApplyStatic` p `closureApply` q
                      => Static (Process a -> Process b -> Process b)
     seqProcessStatic = staticLabel "$seqProcess"
 
+-- | (Not quite the) 'CP' version of ('Control.Monad.>>=') 
 bindCP :: forall a b. (Typeable a, Typeable b)
-       => Closure (Process a) -> Closure (a -> Process b) -> Closure (Process b)
+       => Closure (Process a) -> CP a b -> Closure (Process b)
 bindCP x f = bindProcessStatic `closureApplyStatic` x `closureApply` f 
   where
     bindProcessStatic :: (Typeable a, Typeable b) 
@@ -203,23 +191,23 @@ bindCP x f = bindProcessStatic `closureApplyStatic` x `closureApply` f
 decodeProcessIdStatic :: Static (ByteString -> ProcessId)
 decodeProcessIdStatic = staticLabel "$decodeProcessId"
 
--- | Closure version of 'link'
+-- | 'CP' version of 'link'
 cpLink :: ProcessId -> Closure (Process ())
 cpLink = Closure (linkStatic `staticCompose` decodeProcessIdStatic) . encode 
   where
     linkStatic :: Static (ProcessId -> Process ())
     linkStatic = staticLabel "$link"
 
--- | Closure version of 'unlink'
+-- | 'CP' version of 'unlink'
 cpUnlink :: ProcessId -> Closure (Process ())
 cpUnlink = Closure (unlinkStatic `staticCompose` decodeProcessIdStatic) . encode
   where
     unlinkStatic :: Static (ProcessId -> Process ())
     unlinkStatic = staticLabel "$unlink"
 
--- | Closure version of 'send'
+-- | 'CP' version of 'send'
 cpSend :: forall a. Typeable a 
-       => Static (SerializableDict a) -> ProcessId -> Closure (a -> Process ())
+       => Static (SerializableDict a) -> ProcessId -> CP a () 
 cpSend dict pid = Closure decoder (encode pid)
   where
     decoder :: Static (ByteString -> a -> Process ())
@@ -231,14 +219,14 @@ cpSend dict pid = Closure decoder (encode pid)
                    => Static (SerializableDict a -> ProcessId -> a -> Process ())
     sendDictStatic = staticLabel "$sendDict" 
 
--- | Closure version of 'expect'
+-- | 'CP' version of 'expect'
 cpExpect :: Typeable a => Static (SerializableDict a) -> Closure (Process a)
 cpExpect dict = staticClosure (expectDictStatic `staticApply` dict)
   where
     expectDictStatic :: Typeable a => Static (SerializableDict a -> Process a)
     expectDictStatic = staticLabel "$expectDict"
 
--- | Closure version of 'newChan'
+-- | 'CP' version of 'newChan'
 cpNewChan :: Typeable a 
           => Static (SerializableDict a) 
           -> Closure (Process (SendPort a, ReceivePort a))

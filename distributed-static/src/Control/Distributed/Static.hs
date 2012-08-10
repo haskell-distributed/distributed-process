@@ -173,6 +173,29 @@
 -- >   where
 -- >     decoder :: Static (ByteString -> a -> Process ())
 -- >     decoder = (sendDictStatic `staticApply` dict) `staticCompose` decodeProcessIdStatic 
+--
+-- [Word of Caution]
+--
+-- You should not /define/ functions on 'ANY' and co. For example, the following
+-- definition of 'rtable' is incorrect:
+-- 
+-- > rtable :: RemoteTable
+-- > rtable = registerStatic "$sdictSendPort" sdictSendPort
+-- >        $ initRemoteTable
+-- >   where
+-- >     sdictSendPort :: SerializableDict ANY -> SerializableDict (SendPort ANY)
+-- >     sdictSendPort SerializableDict = SerializableDict
+--
+-- This definition of 'sdictSendPort' ignores its argument completely, and 
+-- constructs a 'SerializableDict' for the /monomorphic/ type @SendPort ANY@,
+-- which isn't what you want. Instead, you should do
+--
+-- > rtable :: RemoteTable
+-- > rtable = registerStatic "$sdictSendPort" (sdictSendPort :: SerializableDict ANY -> SerializableDict (SendPort ANY))
+-- >        $ initRemoteTable
+-- >   where
+-- >     sdictSendPort :: forall a. SerializableDict a -> SerializableDict (SendPort a)
+-- >     sdictSendPort SerializableDict = SerializableDict
 module Control.Distributed.Static 
   ( -- * Static values 
     Static
@@ -198,8 +221,6 @@ module Control.Distributed.Static
   , unclosure 
   ) where
 
-import Prelude hiding (const, fst, snd)
-import qualified Prelude (const, fst, snd)
 import Data.Binary 
   ( Binary(get, put)
   , Put
@@ -213,7 +234,7 @@ import Data.ByteString.Lazy (ByteString, empty)
 import Data.Map (Map)
 import qualified Data.Map as Map (lookup, empty, insert)
 import Control.Applicative ((<$>), (<*>))
-import qualified Control.Arrow as Arrow ((***), app)
+import Control.Arrow as Arrow ((***), app)
 import Data.Rank1Dynamic (Dynamic, toDynamic, fromDynamic, dynApply)
 import Data.Rank1Typeable 
   ( Typeable
@@ -283,27 +304,12 @@ newtype RemoteTable = RemoteTable (Map String Dynamic)
 -- | Initial remote table
 initRemoteTable :: RemoteTable
 initRemoteTable = 
-      registerStatic "$compose"       (toDynamic compose)
-    . registerStatic "$const"         (toDynamic const)
-    . registerStatic "$split"         (toDynamic split)
-    . registerStatic "$app"           (toDynamic app)
-    . registerStatic "$decodeEnvPair" (toDynamic decodeEnvPair)
+      registerStatic "$compose"       (toDynamic ((.)    :: (ANY2 -> ANY3) -> (ANY1 -> ANY2) -> ANY1 -> ANY3))
+    . registerStatic "$const"         (toDynamic (const  :: ANY1 -> ANY2 -> ANY1))
+    . registerStatic "$split"         (toDynamic ((***)  :: (ANY1 -> ANY3) -> (ANY2 -> ANY4) -> (ANY1, ANY2) -> (ANY3, ANY4)))
+    . registerStatic "$app"           (toDynamic (app    :: (ANY1 -> ANY2, ANY1) -> ANY2))
+    . registerStatic "$decodeEnvPair" (toDynamic (decode :: ByteString -> (ByteString, ByteString)))
     $ RemoteTable Map.empty
-  where
-    compose :: (ANY2 -> ANY3) -> (ANY1 -> ANY2) -> ANY1 -> ANY3
-    compose = (.)
- 
-    const :: ANY1 -> ANY2 -> ANY1
-    const = Prelude.const
-
-    split :: (ANY1 -> ANY3) -> (ANY2 -> ANY4) -> (ANY1, ANY2) -> (ANY3, ANY4)
-    split = (Arrow.***)
-
-    app :: (ANY1 -> ANY2, ANY1) -> ANY2
-    app = Arrow.app
-
-    decodeEnvPair :: ByteString -> (ByteString, ByteString)
-    decodeEnvPair = decode
 
 -- | Register a static label
 registerStatic :: String -> Dynamic -> RemoteTable -> RemoteTable

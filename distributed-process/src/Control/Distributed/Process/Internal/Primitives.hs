@@ -122,9 +122,6 @@ import Control.Distributed.Process.Internal.Types
   )
 import Control.Distributed.Process.Internal.Node (sendMessage, sendBinary) 
 
--- import Control.Distributed.Process.Internal.Closure.Resolution (resolveClosure)
--- import Control.Distributed.Process.Internal.Dynamic (fromDyn, dynTypeRep)
-
 --------------------------------------------------------------------------------
 -- Basic messaging                                                            --
 --------------------------------------------------------------------------------

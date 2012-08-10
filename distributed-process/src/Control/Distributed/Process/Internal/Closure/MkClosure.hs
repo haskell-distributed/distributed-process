@@ -22,7 +22,8 @@ import Control.Distributed.Process.Internal.Closure.Static
 --
 -- If @f : T1 -> T2@ is a /monomorphic/ function 
 -- then @$(mkClosure 'f) :: T1 -> Closure T2@.
--- Be sure to pass 'f' to 'remotable'. 
+-- Be sure to pass 'f' to
+-- 'Control.Distributed.Process.Internal.Closure.TH.remotable'. 
 mkClosure :: Name -> Q Exp
 mkClosure n = 
   [|   Closure ($(mkStatic n) `staticCompose` staticDecode $(functionSDict n)) 

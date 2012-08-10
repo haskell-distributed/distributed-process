@@ -52,25 +52,6 @@ import Control.Distributed.Static
   )
 import Data.Rank1Dynamic (toDynamic)
 
-{-
-import Control.Distributed.Process.Internal.Types
-  ( RemoteTable
-  , Static(Static)
-  , StaticLabel(StaticLabel)
-  , remoteTableLabel
-  , SerializableDict(SerializableDict)
-  , Process
-  )
--}
-
-{-
-import Control.Distributed.Process.Internal.Dynamic 
-  ( Dynamic(..)
-  , unsafeCoerce#
-  , toDyn
-  )
--}
-
 --------------------------------------------------------------------------------
 -- User-level API                                                             --
 --------------------------------------------------------------------------------

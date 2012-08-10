@@ -149,26 +149,6 @@ import Control.Distributed.Process.Internal.Closure.BuiltIn
   , cpNewChan
   )
 import Control.Distributed.Static (closureCompose, staticClosure)
-
-{-
-import Control.Distributed.Process.Internal.Closure.CP
-  (
-  , bindCP
-  , cpSend 
-  , cpExpect
-  , cpLink
-  , cpUnlink
-  , cpNewChan
-  , cpCancelL
-  , cpSplit
-  )
--}
-{-
-import Control.Distributed.Process.Internal.Closure.Static 
-  ( sdictUnit
-  , sdictSendPort
-  )
--}
 import Control.Distributed.Process.Internal.Primitives
   ( -- Basic messaging
     send 
@@ -229,6 +209,7 @@ import Control.Distributed.Process.Internal.Primitives
   )
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Node (forkProcess)
+import Data.Rank1Typeable (ANY, ANY1)
 
 -- INTERNAL NOTES
 -- 
