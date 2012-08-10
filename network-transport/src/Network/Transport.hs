@@ -60,6 +60,11 @@ data EndPoint = EndPoint {
 -- | Lightweight connection to an endpoint.
 data Connection = Connection {
     -- | Send a message on this connection.
+    -- 
+    -- 'send' provides vectored I/O, and allows multiple data segments to be
+    -- sent using a single call (cf. 'Network.Socket.ByteString.sendMany').
+    -- Note that this segment structure is entirely unrelated to the segment
+    -- structure /returned/ by a 'Received' event.
     send :: [ByteString] -> IO (Either (TransportError SendErrorCode) ())
     -- | Close the connection.
   , close :: IO ()
