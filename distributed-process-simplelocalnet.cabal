@@ -1,5 +1,5 @@
 Name:          distributed-process-simplelocalnet
-Version:       0.2.0.3
+Version:       0.2.0.4
 Cabal-Version: >=1.8
 Build-Type:    Simple
 License:       BSD3 
@@ -34,7 +34,7 @@ Library
                      transformers >= 0.2 && < 0.4,
                      network-transport >= 0.2 && < 0.3,
                      network-transport-tcp >= 0.2 && < 0.3,
-                     distributed-process >= 0.2 && < 0.3
+                     distributed-process >= 0.2 && < 0.4
   Exposed-modules:   Control.Distributed.Process.Backend.SimpleLocalnet,
                      Control.Distributed.Process.Backend.SimpleLocalnet.Internal.Multicast
   Extensions:        RankNTypes,
