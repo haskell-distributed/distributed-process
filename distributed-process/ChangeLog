@@ -1,3 +1,8 @@
+2012-08-07  Edsko de Vries  <edsko@well-typed.com>  0.3.0
+
+* Extract 'static' into a separate package (C.D.Static)
+* Use new package rank1dynamic to proper runtime checks for polymorphic values
+
 2012-08-02  Edsko de Vries  <edsko@well-typed.com>  0.2.3.0
 
 * Expose the constructors of Closure
