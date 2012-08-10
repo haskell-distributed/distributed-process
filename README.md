@@ -5,12 +5,15 @@ This repository holds an implementation of [Cloud Haskell][1].
 
 At present, this repository hosts 
 
-* network-transport
-* network-transport-tcp
-* network-transport-inmemory (incomplete) 
-* distributed-process
-* distributed-process-simplelocalnet
-* azure-service-api (skeleton only)
+* network-transport: Generic Network.Transport API
+* network-transport-tcp: TCP instantiation of Network.Transport
+* network-transport-inmemory: In-memory instantiation of Network.Transport (incomplete) 
+* distributed-static: Support for static values
+* distributed-process: The main Cloud Haskell package
+* distributed-process-simplelocalnet: Simple backend for local networks
+* distributed-process-azure: Azure backend for Cloud Haskell (work in progress)
+* azure-service-api: Haskell bindings for the Azure service API (work in progress)
+* rank1dynamic: Like Data.Dynamic and Data.Typeable but with support for polymorphic values
 
 For more detailed information about the interfaces provided by these packages,
 please refer to the [distributed-process repository wiki][2]. People who wish
