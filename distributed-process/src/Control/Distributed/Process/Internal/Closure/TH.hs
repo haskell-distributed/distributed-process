@@ -9,7 +9,7 @@ module Control.Distributed.Process.Internal.Closure.TH
   , mkClosure
   ) where
 
-import Prelude hiding (lookup)
+import Prelude hiding (succ, any)
 import Control.Applicative ((<$>))
 import Language.Haskell.TH 
   ( -- Q monad and operations
@@ -39,9 +39,14 @@ import Language.Haskell.TH
   , funD
   , sigD
   )
-
 import Data.Binary (encode)
+import Data.Generics (everywhereM, mkM, gmapM)
 import Data.Rank1Dynamic (toDynamic)
+import Data.Rank1Typeable
+  ( Zero
+  , Succ
+  , TypVar
+  )
 import Control.Distributed.Static 
   ( RemoteTable
   , registerStatic
@@ -147,7 +152,7 @@ generateDefs n = do
       static <- generateStatic origName typVars typ
       let dyn = case typVars of 
                   [] -> [| toDynamic $(varE origName) |]
-                  _  -> [| toDynamic $(varE origName) |]
+                  _  -> [| toDynamic ($(varE origName) :: $(monomorphize typVars typ)) |]
       return ( static
              , [ [| registerStatic $(stringE (show origName)) $dyn |] ]
              )
@@ -159,7 +164,34 @@ generateDefs n = do
       return ( sdict
              , [ [| registerStatic $(stringE (show dictName)) $dyn |] ] 
              )
-      
+
+-- | Turn a polymorphic type into a monomorphic type using ANY and co
+monomorphize :: [TyVarBndr] -> Type -> Q Type
+monomorphize tvs = 
+    let subst = zip (map tyVarBndrName tvs) anys 
+    in everywhereM (mkM (applySubst subst))
+  where
+    anys :: [Q Type]
+    anys = map typVar (iterate succ zero)
+
+    typVar :: Q Type -> Q Type
+    typVar t = [t| TypVar $t |]
+
+    zero :: Q Type
+    zero = [t| Zero |]
+    
+    succ :: Q Type -> Q Type
+    succ t = [t| Succ $t |]
+ 
+    applySubst :: [(Name, Q Type)] -> Type -> Q Type
+    applySubst s (VarT n) = 
+      case lookup n s of  
+        Nothing -> return (VarT n)
+        Just t  -> t
+    applySubst s t = gmapM (mkM (applySubst s)) t
+
+    
+
 -- | Generate a static value 
 generateStatic :: Name -> [TyVarBndr] -> Type -> Q [Dec]
 generateStatic n xs typ = do
@@ -174,8 +206,7 @@ generateStatic n xs typ = do
       ]
   where
     typeable :: TyVarBndr -> Pred
-    typeable (PlainTV v)    = ClassP (mkName "Typeable") [VarT v] 
-    typeable (KindedTV v _) = ClassP (mkName "Typeable") [VarT v]
+    typeable tv = ClassP (mkName "Typeable") [VarT (tyVarBndrName tv)] 
 
 -- | Generate a serialization dictionary with name 'n' for type 'typ' 
 generateDict :: Name -> Type -> Q [Dec]
@@ -219,3 +250,8 @@ getType name = do
 -- | Variation on 'funD' which takes a single expression to define the function
 sfnD :: Name -> Q Exp -> Q Dec
 sfnD n e = funD n [clause [] (normalB e) []] 
+    
+-- | The name of a type variable binding occurrence    
+tyVarBndrName :: TyVarBndr -> Name
+tyVarBndrName (PlainTV n)    = n
+tyVarBndrName (KindedTV n _) = n

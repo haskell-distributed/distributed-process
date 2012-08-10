@@ -1,7 +1,7 @@
 module Main where
 
 import Data.ByteString.Lazy (empty)
-import Data.Typeable (Typeable, typeOf)
+import Data.Typeable (Typeable)
 import Control.Monad (join, replicateM, forever)
 import Control.Exception (IOException, throw)
 import Control.Concurrent (forkIO, threadDelay)
@@ -14,6 +14,9 @@ import Control.Distributed.Process.Closure
 import Control.Distributed.Process.Node
 import Control.Distributed.Static (staticLabel, staticClosure)
 import TestAuxiliary
+
+quintuple :: a -> b -> c -> d -> e -> (a, b, c, d, e)
+quintuple a b c d e = (a, b, c, d, e)
 
 sdictInt :: SerializableDict Int
 sdictInt = SerializableDict
@@ -41,6 +44,7 @@ isPrime n = return . (n `elem`) . takeWhile (<= n) . sieve $ [2..]
   where
     sieve :: [Integer] -> [Integer]
     sieve (p : xs) = p : sieve [x | x <- xs, x `mod` p > 0]
+    sieve [] = error "Uh oh -- we've run out of primes"
 
 -- | First argument indicates empty closure environment
 typedPingServer :: () -> ReceivePort (SendPort ()) -> Process ()
@@ -56,7 +60,13 @@ remotable [ 'factorial
           , 'wait
           , 'typedPingServer
           , 'isPrime
+          , 'quintuple
           ]
+
+-- Just try creating a static polymorphic value
+staticQuintuple :: (Typeable a, Typeable b, Typeable c, Typeable d, Typeable e)
+                => Static (a -> b -> c -> d -> e -> (a, b, c, d, e))
+staticQuintuple = $(mkStatic 'quintuple)
 
 factorialClosure :: Int -> Closure (Process Int)
 factorialClosure = $(mkClosure 'factorial) 
