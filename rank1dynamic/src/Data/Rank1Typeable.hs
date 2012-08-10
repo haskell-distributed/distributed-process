@@ -101,8 +101,10 @@ import Control.Monad (void)
 import Control.Applicative ((<$>))
 import Data.List (intersperse, isPrefixOf)
 import Data.Maybe (fromMaybe)
-import Data.Typeable (Typeable, TyCon, tyConName, mkTyCon3)
-import Data.Typeable.Internal (listTc, funTc)
+import Data.Typeable (Typeable, tyConName, mkTyCon3)
+import Data.Typeable.Internal (listTc, funTc, TyCon(TyCon))
+import Data.Binary (Binary(get, put))
+import GHC.Fingerprint.Type (Fingerprint(..))
 import qualified Data.Typeable as Typeable 
   ( TypeRep
   , typeOf
@@ -119,7 +121,37 @@ newtype TypeRep = TypeRep {
     -- | Return the underlying standard ("Data.Typeable") type representation
     underlyingTypeRep :: Typeable.TypeRep 
   }
-  deriving Eq
+
+-- | Compare two type representations
+--
+-- For base >= 4.6 this compares fingerprints, but older versions of base
+-- have a bug in the fingerprint construction 
+-- (<http://hackage.haskell.org/trac/ghc/ticket/5962>)
+instance Eq TypeRep where
+#if ! MIN_VERSION_base(4,6,0)
+  (splitTyConApp -> (c1, ts1)) == (splitTyConApp -> (c2, ts2)) =
+    c1 == c2 && all (uncurry (==)) (zip ts1 ts2)
+#else
+  t1 == t2 = underlyingTypeRep t1 == underlyingTypeRep t2
+#endif
+
+-- Binary instance for 'TypeRep', avoiding orphan instances
+instance Binary TypeRep where
+  put (splitTyConApp -> (TyCon (Fingerprint hi lo) package modul name, ts)) = do
+    put hi 
+    put lo
+    put package
+    put modul
+    put name
+    put ts
+  get = do
+    hi      <- get
+    lo      <- get
+    package <- get
+    modul   <- get
+    name    <- get
+    ts      <- get
+    return $ mkTyConApp (TyCon (Fingerprint hi lo) package modul name) ts
 
 -- | The type representation of any 'Typeable' term
 typeOf :: Typeable a => a -> TypeRep

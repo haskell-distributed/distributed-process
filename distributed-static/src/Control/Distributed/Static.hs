@@ -17,16 +17,16 @@ module Control.Distributed.Static
   , staticLabel
   , staticApply
   , staticDuplicate
-  , staticTypeOf
+--  , staticTypeOf
     -- * Eliminating static values 
   , RemoteTable
   , initRemoteTable
   , registerStatic
-  , resolveStatic 
+  , unstatic 
     -- * Closures
   , Closure(Closure)
+  , unclosure 
   , staticClosure
-  , resolveClosure
     -- * Static values
   , idStatic 
   , composeStatic
@@ -50,21 +50,13 @@ module Control.Distributed.Static
   , closureSplit
     -- * Re-exports 
   , Dynamic
-  , toDyn
-  , unsafeToDyn
-  , fromDyn
+  , toDynamic
   , fromDynamic
   , dynTypeRep
   ) where
 
-import Prelude hiding (id, (.))
-import Data.Typeable 
-  ( Typeable
-  , TypeRep
-  , typeOf
-  , funResultTy
-  )
-import Data.Maybe (fromJust)
+import Prelude hiding (id, (.), const, flip, fst, snd)
+import qualified Prelude (const, flip, fst, snd)
 import Data.Binary 
   ( Binary(get, put)
   , Put
@@ -80,26 +72,26 @@ import qualified Data.Map as Map (lookup, empty, insert)
 import Control.Applicative ((<$>), (<*>))
 import Control.Category (Category(id, (.)))
 import qualified Control.Arrow as Arrow (first, second, (***), app)
-import Control.Distributed.Static.Internal.Dynamic 
-  ( Dynamic
-  , dynApply
-  , toDyn
-  , unsafeToDyn
-  , fromDyn
-  , dynTypeRep
-  , fromDynamic
-  , unsafeCastDyn
+import Data.Rank1Dynamic (Dynamic, toDynamic, fromDynamic, dynApply, dynTypeRep)
+import Data.Rank1Typeable 
+  ( Typeable
+  , typeOf
+  , ANY
+  , ANY1
+  , ANY2
+  , ANY3
+  , ANY4
+  , isInstanceOf
   )
-import Control.Distributed.Static.Internal.TypeRep (compareTypeRep)
 
 --------------------------------------------------------------------------------
 -- Introducing static values                                                  --
 --------------------------------------------------------------------------------
 
 data StaticLabel =
-    StaticLabel String TypeRep
+    StaticLabel String
   | StaticApply StaticLabel StaticLabel
-  | StaticDuplicate StaticLabel TypeRep
+  | StaticDuplicate StaticLabel
   deriving (Typeable, Show)
 
 -- | A static value. Static is opaque; see 'staticLabel', 'staticApply',
@@ -108,59 +100,64 @@ newtype Static a = Static StaticLabel
   deriving (Typeable, Show)
 
 instance Typeable a => Binary (Static a) where
-  put (Static label) = putStaticLabel label
+  put (Static label) = putStaticLabel label >> put (typeOf (undefined :: a))
   get = do
-    label <- getStaticLabel
-    if typeOfStaticLabel label `compareTypeRep` typeOf (undefined :: a)
-      then return $ Static label 
-      else fail "Static.get: type error"
+    label   <- getStaticLabel
+    typeRep <- get
+    case typeOf (undefined :: a) `isInstanceOf` typeRep of
+      Left err -> fail $ "Static.get: type error: " ++ err
+      Right () -> return (Static label)
 
 -- We don't want StaticLabel to be its own Binary instance
 putStaticLabel :: StaticLabel -> Put
-putStaticLabel (StaticLabel string typ) = 
-  putWord8 0 >> put string >> put typ 
+putStaticLabel (StaticLabel string) = 
+  putWord8 0 >> put string 
 putStaticLabel (StaticApply label1 label2) = 
   putWord8 1 >> putStaticLabel label1 >> putStaticLabel label2
-putStaticLabel (StaticDuplicate label typ) = 
-  putWord8 2 >> putStaticLabel label >> put typ
+putStaticLabel (StaticDuplicate label) = 
+  putWord8 2 >> putStaticLabel label
 
 getStaticLabel :: Get StaticLabel
 getStaticLabel = do
   header <- getWord8
   case header of
-    0 -> StaticLabel <$> get <*> get
+    0 -> StaticLabel <$> get
     1 -> StaticApply <$> getStaticLabel <*> getStaticLabel
-    2 -> StaticDuplicate <$> getStaticLabel <*> get
+    2 -> StaticDuplicate <$> getStaticLabel
     _ -> fail "StaticLabel.get: invalid" 
-
+ 
 -- | Create a primitive static value.
 -- 
 -- It is the responsibility of the client code to make sure the corresponding
 -- entry in the 'RemoteTable' has the appropriate type.
-staticLabel :: forall a. Typeable a => String -> Static a
-staticLabel label = Static (StaticLabel label (typeOf (undefined :: a)))
+staticLabel :: forall a. String -> Static a
+staticLabel = Static . StaticLabel 
 
 -- | Apply two static values
 staticApply :: Static (a -> b) -> Static a -> Static b
 staticApply (Static f) (Static x) = Static (StaticApply f x)
 
 -- | Co-monadic 'duplicate' for static values
-staticDuplicate :: forall a. Typeable a => Static a -> Static (Static a)
-staticDuplicate (Static x) = 
-  Static (StaticDuplicate x (typeOf (undefined :: Static a)))
+staticDuplicate :: forall a. Static a -> Static (Static a)
+staticDuplicate (Static x) = Static (StaticDuplicate x) 
 
+{-
 -- | @staticTypeOf (x :: a)@ mimicks @static (undefined :: a)@ -- even if
 -- @x@ is not static, the type of @x@ always is.
 staticTypeOf :: forall a. Typeable a => a -> Static a 
 staticTypeOf _ = Static (StaticLabel "$undefined" (typeOf (undefined :: a)))
 
 typeOfStaticLabel :: StaticLabel -> TypeRep
+typeOfStaticLabel = undefined
+{-
 typeOfStaticLabel (StaticLabel _ typ) 
   = typ 
 typeOfStaticLabel (StaticApply f x) 
   = fromJust $ funResultTy (typeOfStaticLabel f) (typeOfStaticLabel x)
 typeOfStaticLabel (StaticDuplicate _ typ)
   = typ
+-}
+-}
 
 --------------------------------------------------------------------------------
 -- Eliminating static values                                                  --
@@ -172,39 +169,51 @@ newtype RemoteTable = RemoteTable (Map String Dynamic)
 -- | Initial remote table
 initRemoteTable :: RemoteTable
 initRemoteTable = 
-      registerStatic "$id"            (unsafeToDyn identity)
-    . registerStatic "$compose"       (unsafeToDyn compose)
-    . registerStatic "$const"         (unsafeToDyn const)
-    . registerStatic "$flip"          (unsafeToDyn flip)
-    . registerStatic "$fst"           (unsafeToDyn fst)
-    . registerStatic "$snd"           (unsafeToDyn snd)
-    . registerStatic "$first"         (unsafeToDyn first)
-    . registerStatic "$second"        (unsafeToDyn second)
-    . registerStatic "$split"         (unsafeToDyn split)
-    . registerStatic "$unit"          (toDyn ())
-    . registerStatic "$app"           (unsafeToDyn app)
-    . registerStatic "$decodeEnvPair" (toDyn decodeEnvPair)
+      registerStatic "$id"            (toDynamic identity)
+    . registerStatic "$compose"       (toDynamic compose)
+    . registerStatic "$const"         (toDynamic const)
+    . registerStatic "$flip"          (toDynamic flip)
+    . registerStatic "$fst"           (toDynamic fst)
+    . registerStatic "$snd"           (toDynamic snd)
+    . registerStatic "$first"         (toDynamic first)
+    . registerStatic "$second"        (toDynamic second)
+    . registerStatic "$split"         (toDynamic split)
+    . registerStatic "$unit"          (toDynamic ())
+    . registerStatic "$app"           (toDynamic app)
+    . registerStatic "$decodeEnvPair" (toDynamic decodeEnvPair)
     $ RemoteTable Map.empty
   where
-    identity :: a -> a
+    identity :: ANY -> ANY
     identity = id
 
-    compose :: (b -> c) -> (a -> b) -> a -> c
+    compose :: (ANY2 -> ANY3) -> (ANY1 -> ANY2) -> ANY1 -> ANY3
     compose = (.)
+ 
+    const :: ANY1 -> ANY2 -> ANY1
+    const = Prelude.const
 
-    first :: (a -> b) -> (a, c) -> (b, c)
+    flip :: (ANY1 -> ANY2 -> ANY3) -> ANY2 -> ANY1 -> ANY3
+    flip = Prelude.flip
+
+    fst :: (ANY1, ANY2) -> ANY1
+    fst = Prelude.fst
+
+    snd :: (ANY1, ANY2) -> ANY2
+    snd = Prelude.snd
+
+    first :: (ANY1 -> ANY2) -> (ANY1, ANY3) -> (ANY2, ANY3)
     first = Arrow.first
 
-    second :: (a -> b) -> (c, a) -> (c, b)
+    second :: (ANY1 -> ANY2) -> (ANY3, ANY1) -> (ANY3, ANY2)
     second = Arrow.second
 
-    split :: (a -> b) -> (a' -> b') -> (a, a') -> (b, b')
+    split :: (ANY1 -> ANY3) -> (ANY2 -> ANY4) -> (ANY1, ANY2) -> (ANY3, ANY4)
     split = (Arrow.***)
 
     decodeEnvPair :: ByteString -> (ByteString, ByteString)
     decodeEnvPair = decode
 
-    app :: (a -> b, a) -> b
+    app :: (ANY1 -> ANY2, ANY1) -> ANY2
     app = Arrow.app
 
 -- | Register a static label
@@ -212,16 +221,32 @@ registerStatic :: String -> Dynamic -> RemoteTable -> RemoteTable
 registerStatic label dyn (RemoteTable rtable)
   = RemoteTable (Map.insert label dyn rtable)
 
--- | Resolve a Static value.
-resolveStatic :: RemoteTable -> Static a -> Maybe Dynamic
-resolveStatic (RemoteTable rtable) (Static (StaticLabel string typ)) = do
-  unsafeCastDyn (const typ) <$> Map.lookup string rtable 
-resolveStatic rtable (Static (StaticApply static1 static2)) = do
-  f <- resolveStatic rtable (Static static1)
-  x <- resolveStatic rtable (Static static2)
-  f `dynApply` x
-resolveStatic _rtable (Static (StaticDuplicate static typ)) = 
-  return . unsafeCastDyn (const typ) $ unsafeToDyn (Static static)
+-- Pseudo-type: RemoteTable -> Static a -> a
+resolveStaticLabel :: RemoteTable -> StaticLabel -> Maybe Dynamic
+resolveStaticLabel (RemoteTable rtable) (StaticLabel label) = 
+    Map.lookup label rtable
+resolveStaticLabel rtable (StaticApply label1 label2) = do
+    f <- resolveStaticLabel rtable label1 
+    x <- resolveStaticLabel rtable label2
+    case f `dynApply` x of
+      Left _err -> Nothing
+      Right y   -> Just y
+resolveStaticLabel rtable (StaticDuplicate label) = do
+    x <- resolveStaticLabel rtable label -- Resolve only to get type info 
+    case toDynamic mkStatic `dynApply` x of
+      Left _err -> Nothing
+      Right y   -> Just y
+  where
+    mkStatic :: ANY -> Static ANY
+    mkStatic _ = Static label
+
+unstatic :: Typeable a => RemoteTable -> Static a -> Maybe a
+unstatic rtable (Static static) = 
+  case resolveStaticLabel rtable static of
+    Nothing  -> Nothing
+    Just dyn -> case fromDynamic dyn of
+      Left _err -> Nothing
+      Right x   -> Just x
 
 --------------------------------------------------------------------------------
 -- Closures                                                                   -- 
@@ -235,15 +260,15 @@ instance Typeable a => Binary (Closure a) where
   put (Closure static env) = put static >> put env
   get = Closure <$> get <*> get 
 
+-- | Resolve a closure
+unclosure :: Typeable a => RemoteTable -> Closure a -> Maybe a
+unclosure rtable (Closure static env) = do 
+  f <- unstatic rtable static
+  return (f env)
+
 -- | Convert a static value into a closure.
 staticClosure :: forall a. Typeable a => Static a -> Closure a
 staticClosure static = Closure (staticConst static) empty
-
--- | Resolve a Closure
-resolveClosure :: RemoteTable -> Static a -> ByteString -> Maybe Dynamic
-resolveClosure rtable static env = do
-  decoder <- resolveStatic rtable static
-  decoder `dynApply` toDyn env
 
 --------------------------------------------------------------------------------
 -- Predefined static values                                                   --
@@ -348,5 +373,5 @@ closureCompose :: (Typeable a, Typeable b, Typeable c)
 closureCompose g f = composeStatic `closureApplyStatic` g `closureApply` f
 
 closureSplit :: (Typeable a, Typeable a', Typeable b, Typeable b') 
-            => Closure (a -> b) -> Closure (a' -> b') -> Closure ((a, a') -> (b, b'))
+             => Closure (a -> b) -> Closure (a' -> b') -> Closure ((a, a') -> (b, b'))
 closureSplit f g = splitStatic `closureApplyStatic` f `closureApply` g 

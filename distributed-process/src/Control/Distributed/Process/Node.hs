@@ -69,12 +69,8 @@ import qualified Network.Transport as NT
 import Data.Accessor (Accessor, accessor, (^.), (^=), (^:))
 import qualified Data.Accessor.Container as DAC (mapDefault, mapMaybe)
 import System.Random (randomIO)
-import Control.Distributed.Static 
-  ( RemoteTable
-  , Closure(Closure)
-  , resolveClosure
-  , fromDynamic
-  )
+import Control.Distributed.Static (RemoteTable, Closure(Closure), fromDynamic)
+import qualified Control.Distributed.Static as Static (unclosure)
 import Control.Distributed.Process.Internal.Types 
   ( NodeId(..)
   , LocalProcessId(..)
@@ -608,9 +604,9 @@ isLocal nid ident = nodeOf ident == localNodeId nid
 
 -- | Lookup a local closure 
 unClosure :: Typeable a => Closure a -> NC (Maybe a)
-unClosure (Closure static env) = do
+unClosure closure = do
   rtable <- remoteTable <$> ask
-  return (resolveClosure rtable static env >>= fromDynamic)
+  return (Static.unclosure rtable closure)
 
 -- | Check if an identifier refers to a valid local object
 isValidLocalIdentifier :: Identifier -> NC Bool

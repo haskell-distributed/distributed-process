@@ -90,12 +90,8 @@ import Control.Concurrent.STM
 import Control.Distributed.Process.Internal.CQueue (dequeue, BlockSpec(..))
 import Control.Distributed.Process.Serializable (Serializable, fingerprint)
 import Data.Accessor ((^.), (^:), (^=))
-import Control.Distributed.Static
-  ( Closure(Closure)
-  , resolveClosure
-  , fromDyn
-  , dynTypeRep
-  )
+import Control.Distributed.Static (Closure(Closure), fromDynamic, dynTypeRep)
+import qualified Control.Distributed.Static as Static (unclosure)
 import Control.Distributed.Process.Internal.Types 
   ( NodeId(..)
   , ProcessId(..)
@@ -507,15 +503,11 @@ nsendRemote nid label msg =
 
 -- | Deserialize a closure
 unClosure :: forall a. Typeable a => Closure a -> Process a
-unClosure (Closure static env) = do
-    rtable <- remoteTable . processNode <$> ask 
-    case resolveClosure rtable static env of
-      Nothing  -> error $ "Unregistered closure " ++ show static 
-      Just dyn -> return $ fromDyn dyn (throw (typeError dyn))
-  where
-    typeError dyn = userError $ "lookupStatic type error: " 
-                 ++ "cannot match " ++ show (dynTypeRep dyn) 
-                 ++ " against " ++ show (typeOf (undefined :: a))
+unClosure closure = do
+  rtable <- remoteTable . processNode <$> ask 
+  case Static.unclosure rtable closure of
+    Nothing -> fail $ "Could not resolve closure " ++ show closure
+    Just x  -> return x
 
 --------------------------------------------------------------------------------
 -- Auxiliary functions                                                        --

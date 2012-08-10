@@ -46,8 +46,7 @@ import Control.Distributed.Process.Serializable
   )
 import Control.Distributed.Static 
   ( RemoteTable
-  , toDyn
-  , unsafeToDyn
+  , toDynamic
   , registerStatic
   , Static
   , staticLabel
@@ -156,8 +155,8 @@ generateDefs n = do
     makeStatic origName typVars typ = do 
       static <- generateStatic origName typVars typ
       let dyn = case typVars of 
-                  [] -> [| toDyn $(varE origName) |]
-                  _  -> [| unsafeToDyn $(varE origName) |]
+                  [] -> [| toDynamic $(varE origName) |]
+                  _  -> [| toDynamic $(varE origName) |]
       return ( static
              , [ [| registerStatic $(stringE (show origName)) $dyn |] ]
              )
@@ -165,7 +164,7 @@ generateDefs n = do
     makeDict :: Name -> Type -> Q ([Dec], [Q Exp]) 
     makeDict dictName typ = do
       sdict <- generateDict dictName typ 
-      let dyn = [| toDyn (SerializableDict :: SerializableDict $(return typ)) |]
+      let dyn = [| toDynamic (SerializableDict :: SerializableDict $(return typ)) |]
       return ( sdict
              , [ [| registerStatic $(stringE (show dictName)) $dyn |] ] 
              )
