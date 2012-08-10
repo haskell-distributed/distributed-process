@@ -1,3 +1,7 @@
+2012-08-09  Edsko de Vries  <edsko@well-typed.com>  0.2.0.4
+
+* Relax version bounds for distributed-process
+
 2012-07-17  Edsko de Vries  <edsko@well-typed.com>  0.2.0.3
 
 * Improve documentation
