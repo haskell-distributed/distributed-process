@@ -1,6 +1,6 @@
 Name:                rank1dynamic
 Version:             0.1.0.0
-Synopsis:            Version of Data.Dynamic with support for rank-1 polymorphic types
+Synopsis:            Like Data.Dynamic/Data.Typeable but with support for rank-1 polymorphic types
 Description:         "Data.Typeable" and "Data.Dynamic" only support monomorphic types. 
                      In this package we provide similar functionality but with
                      support for rank-1 polymorphic types. 
