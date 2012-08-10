@@ -227,7 +227,6 @@ module Control.Distributed.Process.Closure
   , functionTDict
     -- * Primitive operations on static values
   , staticApply
-  , staticDuplicate
     -- * Combinators on static values
   , staticCompose
     -- * Serialization dictionaries (and their static versions)
@@ -260,7 +259,6 @@ import Control.Distributed.Process.Serializable (SerializableDict(..))
 import Control.Distributed.Static 
   ( -- Introducing static values
     staticApply
-  , staticDuplicate
     -- Combinators on static values
   , staticCompose
   , staticClosure

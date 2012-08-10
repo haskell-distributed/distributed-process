@@ -46,11 +46,11 @@ import Control.Distributed.Process.Serializable
   )
 import Control.Distributed.Static 
   ( RemoteTable
-  , toDynamic
   , registerStatic
   , Static
   , staticLabel
   )
+import Data.Rank1Dynamic (toDynamic)
 
 {-
 import Control.Distributed.Process.Internal.Types

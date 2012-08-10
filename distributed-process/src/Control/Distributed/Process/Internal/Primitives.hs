@@ -89,7 +89,8 @@ import Control.Concurrent.STM
 import Control.Distributed.Process.Internal.CQueue (dequeue, BlockSpec(..))
 import Control.Distributed.Process.Serializable (Serializable, fingerprint)
 import Data.Accessor ((^.), (^:), (^=))
-import Control.Distributed.Static (Typeable, Closure)
+import Control.Distributed.Static (Closure)
+import Data.Rank1Typeable (Typeable)
 import qualified Control.Distributed.Static as Static (unclosure)
 import Control.Distributed.Process.Internal.Types 
   ( NodeId(..)

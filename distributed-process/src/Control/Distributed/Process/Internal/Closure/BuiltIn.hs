@@ -28,10 +28,10 @@ import qualified Prelude (snd)
 import Data.ByteString.Lazy (ByteString)  
 import Data.Binary (decode, encode)
 import Data.Rank1Typeable (Typeable, ANY, ANY1, ANY2, ANY3, ANY4)
+import Data.Rank1Dynamic (toDynamic)
 import Control.Distributed.Static 
   ( RemoteTable
   , registerStatic
-  , toDynamic
   , Static
   , staticLabel
   , staticApply
