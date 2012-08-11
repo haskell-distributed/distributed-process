@@ -56,7 +56,7 @@ Test-Suite TestSimpleLocalnet
                      transformers >= 0.2 && < 0.4,
                      network-transport >= 0.2 && < 0.3,
                      network-transport-tcp >= 0.2 && < 0.3,
-                     distributed-process >= 0.2 && < 0.3
+                     distributed-process >= 0.2 && < 0.4
   Extensions:        RankNTypes,
                      DeriveDataTypeable
   ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind 
