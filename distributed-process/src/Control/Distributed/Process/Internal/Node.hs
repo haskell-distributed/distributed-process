@@ -9,7 +9,7 @@ import Data.Accessor ((^.), (^=))
 import Data.Binary (Binary, encode)
 import qualified Data.ByteString.Lazy as BSL (toChunks)
 import qualified Data.ByteString as BSS (ByteString)
-import Control.Concurrent.MVar (withMVar, modifyMVar_)
+import Control.Distributed.Process.Internal.StrictMVar (withMVar, modifyMVar_)
 import Control.Concurrent.Chan (writeChan)
 import Control.Monad (unless)
 import qualified Network.Transport as NT 

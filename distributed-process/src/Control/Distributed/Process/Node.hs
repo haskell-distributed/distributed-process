@@ -36,12 +36,13 @@ import Control.Category ((>>>))
 import Control.Applicative ((<$>))
 import Control.Monad (void, when, forever)
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import Control.Monad.State (MonadState, StateT, evalStateT, gets, modify)
+import Control.Monad.State.Strict (MonadState, StateT, evalStateT, gets)
+import qualified Control.Monad.State.Strict as StateT (get, put)
 import Control.Monad.Reader (MonadReader, ReaderT, runReaderT, ask)
 import Control.Exception (throwIO, SomeException, Exception, throwTo)
 import qualified Control.Exception as Exception (catch)
 import Control.Concurrent (forkIO)
-import Control.Concurrent.MVar 
+import Control.Distributed.Process.Internal.StrictMVar
   ( newMVar 
   , withMVar
   , modifyMVar
@@ -69,7 +70,10 @@ import Data.Accessor (Accessor, accessor, (^.), (^=), (^:))
 import qualified Data.Accessor.Container as DAC (mapDefault, mapMaybe)
 import System.Random (randomIO)
 import Control.Distributed.Static (RemoteTable, Closure)
-import qualified Control.Distributed.Static as Static (unclosure)
+import qualified Control.Distributed.Static as Static 
+  ( unclosure
+  , initRemoteTable
+  )
 import Control.Distributed.Process.Internal.Types 
   ( NodeId(..)
   , LocalProcessId(..)
@@ -118,7 +122,7 @@ import Control.Distributed.Process.Internal.Node
   )
 import Control.Distributed.Process.Internal.Primitives (expect, register, finally)
 import qualified Control.Distributed.Process.Internal.Closure.BuiltIn as BuiltIn (remoteTable)
-import qualified Control.Distributed.Static as Static (initRemoteTable)
+import Control.DeepSeq (force)
 
 --------------------------------------------------------------------------------
 -- Initialization                                                             --
@@ -365,11 +369,11 @@ runNodeController =
 
 data NCState = NCState 
   {  -- Mapping from remote processes to linked local processes 
-    _links    :: Map Identifier (Set ProcessId) 
+    _links    :: !(Map Identifier (Set ProcessId))
      -- Mapping from remote processes to monitoring local processes
-  , _monitors :: Map Identifier (Set (ProcessId, MonitorRef))
+  , _monitors :: !(Map Identifier (Set (ProcessId, MonitorRef)))
      -- Process registry
-  , _registry :: Map String ProcessId
+  , _registry :: !(Map String ProcessId)
   }
 
 newtype NC a = NC { unNC :: StateT NCState (ReaderT LocalNode IO) a }
@@ -438,8 +442,8 @@ ncEffectMonitor from them mRef = do
   case (shouldLink, isLocal node (ProcessIdentifier from)) of
     (True, _) ->  -- [Unified: first rule]
       case mRef of
-        Just ref -> modify $ monitorsFor them ^: Set.insert (from, ref)
-        Nothing  -> modify $ linksFor them ^: Set.insert from 
+        Just ref -> modify' $ monitorsFor them ^: Set.insert (from, ref)
+        Nothing  -> modify' $ linksFor them ^: Set.insert from 
     (False, True) -> -- [Unified: second rule]
       notifyDied from them DiedUnknownId mRef 
     (False, False) -> -- [Unified: third rule]
@@ -466,7 +470,7 @@ ncEffectUnlink from them = do
         postAsMessage from $ DidUnlinkNode nid
       SendPortIdentifier cid -> 
         postAsMessage from $ DidUnlinkPort cid 
-  modify $ linksFor them ^: Set.delete from
+  modify' $ linksFor them ^: Set.delete from
 
 -- [Unified: Table 11]
 ncEffectUnmonitor :: ProcessId -> MonitorRef -> NC ()
@@ -474,7 +478,7 @@ ncEffectUnmonitor from ref = do
   node <- ask 
   when (isLocal node (ProcessIdentifier from)) $ 
     postAsMessage from $ DidUnmonitor ref
-  modify $ monitorsFor (monitorRefIdent ref) ^: Set.delete (from, ref)
+  modify' $ monitorsFor (monitorRefIdent ref) ^: Set.delete (from, ref)
 
 -- [Unified: Table 12]
 ncEffectDied :: Identifier -> DiedReason -> NC ()
@@ -495,7 +499,7 @@ ncEffectDied ident reason = do
       when (localOnly <= isLocal node (ProcessIdentifier us)) $
         notifyDied us them reason (Just ref)
 
-  modify $ (links ^= unaffectedLinks) . (monitors ^= unaffectedMons)
+  modify' $ (links ^= force unaffectedLinks) . (monitors ^= force unaffectedMons)
 
 -- [Unified: Table 13]
 ncEffectSpawn :: ProcessId -> Closure (Process ()) -> SpawnRef -> NC ()
@@ -517,7 +521,7 @@ ncEffectSpawn pid cProc ref = do
 -- but mentions it's "very similar to nsend" (Table 14)
 ncEffectRegister :: String -> Maybe ProcessId -> NC ()
 ncEffectRegister label mPid = 
-  modify $ registryFor label ^= mPid
+  modify' $ registryFor label ^= mPid
   -- An acknowledgement is not necessary. If we want a synchronous register,
   -- it suffices to send a whereis requiry immediately after the register
   -- (that may not suffice if we do decide for unreliable messaging instead)
@@ -691,7 +695,7 @@ registryFor ident = registry >>> DAC.mapMaybe ident
 splitNotif :: Identifier
            -> Map Identifier a
            -> (Map Identifier a, Map Identifier a)
-splitNotif ident = Map.partitionWithKey (const . impliesDeathOf ident)
+splitNotif ident = Map.partitionWithKey (const . impliesDeathOf ident) 
 
 -- | Does the death of one entity (node, project, channel) imply the death
 -- of another?
@@ -712,3 +716,11 @@ SendPortIdentifier cid `impliesDeathOf` SendPortIdentifier cid' =
   cid' == cid
 _ `impliesDeathOf` _ =
   False
+
+--------------------------------------------------------------------------------
+-- Strict evaluation of the state                                             --
+--------------------------------------------------------------------------------
+
+-- | Modify and evaluate the state
+modify' :: MonadState s m => (s -> s) -> m ()
+modify' f = StateT.get >>= \s -> StateT.put $! f s

@@ -74,7 +74,7 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Applicative ((<$>))
 import Control.Exception (Exception, throwIO, SomeException)
 import qualified Control.Exception as Ex (catch, mask)
-import Control.Concurrent.MVar (modifyMVar)
+import Control.Distributed.Process.Internal.StrictMVar (modifyMVar)
 import Control.Concurrent.Chan (writeChan)
 import Control.Concurrent.STM 
   ( STM
@@ -346,7 +346,7 @@ onException p what = p `catch` \e -> do _ <- what
 
 -- | Lift 'Control.Exception.bracket'
 bracket :: Process a -> (a -> Process b) -> (a -> Process c) -> Process c
-bracket before after thing = do
+bracket before after thing =
   mask $ \restore -> do
     a <- before
     r <- restore (thing a) `onException` after a

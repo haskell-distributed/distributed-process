@@ -77,7 +77,6 @@ import qualified Data.Accessor.Container as DAC (mapMaybe)
 import Control.Category ((>>>))
 import Control.Exception (Exception)
 import Control.Concurrent (ThreadId)
-import Control.Concurrent.MVar (MVar)
 import Control.Concurrent.Chan (Chan)
 import Control.Concurrent.STM (TChan, TVar)
 import qualified Network.Transport as NT (EndPoint, EndPointAddress, Connection)
@@ -94,7 +93,9 @@ import Control.Distributed.Process.Serializable
   , showFingerprint
   )
 import Control.Distributed.Process.Internal.CQueue (CQueue)
+import Control.Distributed.Process.Internal.StrictMVar (StrictMVar)
 import Control.Distributed.Static (RemoteTable, Closure)
+import Control.DeepSeq (NFData(rnf))
 
 -- import Control.Distributed.Process.Internal.Dynamic (Dynamic) 
 -- import Control.Distributed.Process.Internal.TypeRep (compareTypeRep) -- and Binary instances
@@ -104,8 +105,14 @@ import Control.Distributed.Static (RemoteTable, Closure)
 --------------------------------------------------------------------------------
 
 -- | Node identifier 
-newtype NodeId = NodeId { nodeAddress :: NT.EndPointAddress }
-  deriving (Eq, Ord, Binary)
+data NodeId = NodeId { nodeAddress :: !(NT.EndPointAddress) }
+  deriving (Eq, Ord)
+
+instance NFData NodeId -- Default implementation is okay 
+
+instance Binary NodeId where
+  put (NodeId nid) = put nid
+  get = NodeId <$> get
 
 instance Show NodeId where
   show (NodeId addr) = "nid://" ++ show addr 
@@ -113,19 +120,23 @@ instance Show NodeId where
 -- | A local process ID consists of a seed which distinguishes processes from
 -- different instances of the same local node and a counter
 data LocalProcessId = LocalProcessId 
-  { lpidUnique  :: Int32
-  , lpidCounter :: Int32
+  { lpidUnique  :: !Int32
+  , lpidCounter :: !Int32
   }
   deriving (Eq, Ord, Typeable, Show)
+
+instance NFData LocalProcessId -- Default implementation is okay
 
 -- | Process identifier
 data ProcessId = ProcessId 
   { -- | The ID of the node the process is running on
-    processNodeId  :: NodeId
+    processNodeId  :: !NodeId
     -- | Node-local identifier for the process
-  , processLocalId :: LocalProcessId 
+  , processLocalId :: !LocalProcessId 
   }
   deriving (Eq, Ord, Typeable)
+
+instance NFData ProcessId -- Default implementation is okay 
 
 instance Show ProcessId where
   show (ProcessId (NodeId addr) (LocalProcessId _ lid)) 
@@ -137,6 +148,11 @@ data Identifier =
   | ProcessIdentifier ProcessId 
   | SendPortIdentifier SendPortId
   deriving (Eq, Ord)
+
+instance NFData Identifier where
+  rnf (NodeIdentifier     nid) = rnf nid
+  rnf (ProcessIdentifier  pid) = rnf pid
+  rnf (SendPortIdentifier sid) = rnf sid
 
 instance Show Identifier where
   show (NodeIdentifier nid)     = show nid
@@ -159,7 +175,7 @@ data LocalNode = LocalNode
     -- | The network endpoint associated with this node 
   , localEndPoint :: NT.EndPoint 
     -- | Local node state 
-  , localState :: MVar LocalNodeState
+  , localState :: StrictMVar LocalNodeState
     -- | Channel for the node controller
   , localCtrlChan :: Chan NCMsg
     -- | Runtime lookup table for supporting closures
@@ -169,17 +185,17 @@ data LocalNode = LocalNode
 
 -- | Local node state
 data LocalNodeState = LocalNodeState 
-  { _localProcesses   :: Map LocalProcessId LocalProcess
-  , _localPidCounter  :: Int32
-  , _localPidUnique   :: Int32
-  , _localConnections :: Map (Identifier, Identifier) NT.Connection
+  { _localProcesses   :: !(Map LocalProcessId LocalProcess)
+  , _localPidCounter  :: !Int32
+  , _localPidUnique   :: !Int32
+  , _localConnections :: !(Map (Identifier, Identifier) NT.Connection)
   }
 
 -- | Processes running on our local node
 data LocalProcess = LocalProcess 
   { processQueue  :: CQueue Message 
   , processId     :: ProcessId
-  , processState  :: MVar LocalProcessState
+  , processState  :: StrictMVar LocalProcessState
   , processThread :: ThreadId
   , processNode   :: LocalNode
   }
@@ -190,10 +206,10 @@ runLocalProcess lproc proc = runReaderT (unProcess proc) lproc
 
 -- | Local process state
 data LocalProcessState = LocalProcessState
-  { _monitorCounter :: Int32
-  , _spawnCounter   :: Int32
-  , _channelCounter :: Int32
-  , _typedChannels  :: Map LocalSendPortId TypedChannel 
+  { _monitorCounter :: !Int32
+  , _spawnCounter   :: !Int32
+  , _channelCounter :: !Int32
+  , _typedChannels  :: !(Map LocalSendPortId TypedChannel)
   }
 
 -- | The Cloud Haskell 'Process' type
@@ -214,11 +230,13 @@ type LocalSendPortId = Int32
 -- to create a SendPort.
 data SendPortId = SendPortId {
     -- | The ID of the process that will receive messages sent on this port
-    sendPortProcessId :: ProcessId
+    sendPortProcessId :: !ProcessId
     -- | Process-local ID of the channel
-  , sendPortLocalId   :: LocalSendPortId
+  , sendPortLocalId   :: !LocalSendPortId
   }
   deriving (Eq, Ord)
+
+instance NFData SendPortId -- Default implementation is okay
 
 instance Show SendPortId where
   show (SendPortId (ProcessId (NodeId addr) (LocalProcessId _ plid)) clid)  
@@ -279,11 +297,13 @@ payloadToMessage payload = Message fp msg
 -- | MonitorRef is opaque for regular Cloud Haskell processes 
 data MonitorRef = MonitorRef 
   { -- | ID of the entity to be monitored
-    monitorRefIdent   :: Identifier
+    monitorRefIdent   :: !Identifier
     -- | Unique to distinguish multiple monitor requests by the same process
-  , monitorRefCounter :: Int32
+  , monitorRefCounter :: !Int32
   }
   deriving (Eq, Ord, Show)
+
+instance NFData MonitorRef -- Default implementation is okay
 
 -- | Message sent by process monitors
 data ProcessMonitorNotification = 
