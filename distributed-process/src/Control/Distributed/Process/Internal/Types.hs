@@ -95,7 +95,6 @@ import Control.Distributed.Process.Serializable
 import Control.Distributed.Process.Internal.CQueue (CQueue)
 import Control.Distributed.Process.Internal.StrictMVar (StrictMVar)
 import Control.Distributed.Static (RemoteTable, Closure)
-import Control.DeepSeq (NFData(rnf))
 
 -- import Control.Distributed.Process.Internal.Dynamic (Dynamic) 
 -- import Control.Distributed.Process.Internal.TypeRep (compareTypeRep) -- and Binary instances
@@ -107,8 +106,6 @@ import Control.DeepSeq (NFData(rnf))
 -- | Node identifier 
 data NodeId = NodeId { nodeAddress :: !(NT.EndPointAddress) }
   deriving (Eq, Ord)
-
-instance NFData NodeId -- Default implementation is okay 
 
 instance Binary NodeId where
   put (NodeId nid) = put nid
@@ -125,8 +122,6 @@ data LocalProcessId = LocalProcessId
   }
   deriving (Eq, Ord, Typeable, Show)
 
-instance NFData LocalProcessId -- Default implementation is okay
-
 -- | Process identifier
 data ProcessId = ProcessId 
   { -- | The ID of the node the process is running on
@@ -135,8 +130,6 @@ data ProcessId = ProcessId
   , processLocalId :: !LocalProcessId 
   }
   deriving (Eq, Ord, Typeable)
-
-instance NFData ProcessId -- Default implementation is okay 
 
 instance Show ProcessId where
   show (ProcessId (NodeId addr) (LocalProcessId _ lid)) 
@@ -148,11 +141,6 @@ data Identifier =
   | ProcessIdentifier ProcessId 
   | SendPortIdentifier SendPortId
   deriving (Eq, Ord)
-
-instance NFData Identifier where
-  rnf (NodeIdentifier     nid) = rnf nid
-  rnf (ProcessIdentifier  pid) = rnf pid
-  rnf (SendPortIdentifier sid) = rnf sid
 
 instance Show Identifier where
   show (NodeIdentifier nid)     = show nid
@@ -236,8 +224,6 @@ data SendPortId = SendPortId {
   }
   deriving (Eq, Ord)
 
-instance NFData SendPortId -- Default implementation is okay
-
 instance Show SendPortId where
   show (SendPortId (ProcessId (NodeId addr) (LocalProcessId _ plid)) clid)  
     = "cid://" ++ show addr ++ ":" ++ show plid ++ ":" ++ show clid
@@ -302,8 +288,6 @@ data MonitorRef = MonitorRef
   , monitorRefCounter :: !Int32
   }
   deriving (Eq, Ord, Show)
-
-instance NFData MonitorRef -- Default implementation is okay
 
 -- | Message sent by process monitors
 data ProcessMonitorNotification = 

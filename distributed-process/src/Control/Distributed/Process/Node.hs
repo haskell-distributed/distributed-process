@@ -122,7 +122,6 @@ import Control.Distributed.Process.Internal.Node
   )
 import Control.Distributed.Process.Internal.Primitives (expect, register, finally)
 import qualified Control.Distributed.Process.Internal.Closure.BuiltIn as BuiltIn (remoteTable)
-import Control.DeepSeq (force)
 
 --------------------------------------------------------------------------------
 -- Initialization                                                             --
@@ -499,7 +498,7 @@ ncEffectDied ident reason = do
       when (localOnly <= isLocal node (ProcessIdentifier us)) $
         notifyDied us them reason (Just ref)
 
-  modify' $ (links ^= force unaffectedLinks) . (monitors ^= force unaffectedMons)
+  modify' $ (links ^= unaffectedLinks) . (monitors ^= unaffectedMons)
 
 -- [Unified: Table 13]
 ncEffectSpawn :: ProcessId -> Closure (Process ()) -> SpawnRef -> NC ()
@@ -695,7 +694,7 @@ registryFor ident = registry >>> DAC.mapMaybe ident
 splitNotif :: Identifier
            -> Map Identifier a
            -> (Map Identifier a, Map Identifier a)
-splitNotif ident = Map.partitionWithKey (const . impliesDeathOf ident) 
+splitNotif ident = Map.partitionWithKey (\k !v -> impliesDeathOf ident k) 
 
 -- | Does the death of one entity (node, project, channel) imply the death
 -- of another?
