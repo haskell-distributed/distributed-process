@@ -29,6 +29,10 @@ Source-Repository head
   Location: https://github.com/haskell-distributed/distributed-process
   SubDir:   distributed-process
 
+flag th
+  description: Build with Template Haskell support
+  default: True
+
 Library
   Build-Depends:     base >= 4.4 && < 5,
                      binary >= 0.5 && < 0.6,
@@ -41,7 +45,6 @@ Library
                      containers >= 0.4 && < 0.6,
                      old-locale >= 1.0 && < 1.1,
                      time >= 1.2 && < 1.5,
-                     template-haskell >= 2.6 && < 2.9,
                      random >= 1.0 && < 1.1,
                      ghc-prim >= 0.2 && < 0.4,
                      distributed-static >= 0.1 && < 0.2,
@@ -54,7 +57,6 @@ Library
                      Control.Distributed.Process.Internal.Primitives,
                      Control.Distributed.Process.Internal.CQueue,
                      Control.Distributed.Process.Internal.Types,
-                     Control.Distributed.Process.Internal.Closure.TH,
                      Control.Distributed.Process.Internal.Closure.BuiltIn,
                      Control.Distributed.Process.Internal.Node
   Extensions:        RankNTypes,
@@ -68,6 +70,9 @@ Library
                      CPP
   ghc-options:       -Wall
   HS-Source-Dirs:    src
+  if flag(th)
+     Build-Depends: template-haskell >= 2.6 && < 2.9
+     Exposed-modules: Control.Distributed.Process.Internal.Closure.TH
 
 Test-Suite TestCH
   Type:              exitcode-stdio-1.0
