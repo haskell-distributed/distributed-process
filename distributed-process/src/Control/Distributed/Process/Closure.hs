@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 -- | /Towards Haskell in the Cloud/ (Epstein et al., Haskell Symposium 2011)
 -- proposes a new type construct called 'static' that characterizes values that
 -- are known statically. Cloud Haskell uses the
@@ -156,14 +157,8 @@
 --      instance into scope, but unless proper 'static' support is added to
 --      ghc we need both the type class argument and the explicit dictionary. 
 module Control.Distributed.Process.Closure 
-  ( -- * Template Haskell support for creating static values and closures 
-    remotable
-  , mkStatic
-  , mkClosure
-  , functionSDict
-  , functionTDict
-    -- * Serialization dictionaries (and their static versions)
-  , SerializableDict(..)
+  ( -- * Serialization dictionaries (and their static versions)
+    SerializableDict(..)
   , staticDecode
   , sdictUnit
   , sdictProcessId
@@ -181,16 +176,17 @@ module Control.Distributed.Process.Closure
   , cpSend
   , cpExpect
   , cpNewChan
+#ifdef TH
+    -- * Template Haskell support for creating static values and closures 
+  , remotable
+  , mkStatic
+  , mkClosure
+  , functionSDict
+  , functionTDict
+#endif
   ) where 
 
 import Control.Distributed.Process.Serializable (SerializableDict(..))
-import Control.Distributed.Process.Internal.Closure.TH 
-  ( remotable
-  , mkStatic
-  , functionSDict
-  , functionTDict
-  , mkClosure
-  )
 import Control.Distributed.Process.Internal.Closure.BuiltIn
   ( -- Static dictionaries and associated operations
     staticDecode
@@ -211,3 +207,12 @@ import Control.Distributed.Process.Internal.Closure.BuiltIn
   , cpExpect
   , cpNewChan
   )
+#ifdef TH
+import Control.Distributed.Process.Internal.Closure.TH 
+  ( remotable
+  , mkStatic
+  , functionSDict
+  , functionTDict
+  , mkClosure
+  )
+#endif
