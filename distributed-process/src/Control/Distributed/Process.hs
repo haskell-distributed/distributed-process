@@ -343,8 +343,15 @@ call dict nid proc = do
               (\(ProcessMonitorNotification _ _ reason) -> return (Left reason))
     ]
   case mResult of
-    Right a  -> unmonitor mRef >> return a
-    Left err -> fail $ "call: remote process died: " ++ show err 
+    Right a  -> do
+      -- Wait for the monitor message so that we the mailbox doesn't grow 
+      receiveWait 
+        [ matchIf (\(ProcessMonitorNotification ref _ _) -> ref == mRef)
+                  (\(ProcessMonitorNotification {}) -> return ())
+        ]
+      return a
+    Left err -> 
+      fail $ "call: remote process died: " ++ show err 
 
 -- | Spawn a child process, have the child link to the parent and the parent
 -- monitor the child
