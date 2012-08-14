@@ -33,7 +33,8 @@ import Control.Distributed.Static
   , Static
   , staticLabel
   , staticApply
-  , Closure(Closure)
+  , Closure
+  , closure
   , closureApplyStatic
   , closureApply
   , staticCompose
@@ -159,7 +160,7 @@ splitCP p q = cpSplitStatic `closureApplyStatic` p `closureApply` q
 -- | 'CP' version of 'Control.Monad.return'
 returnCP :: forall a. Serializable a 
          => Static (SerializableDict a) -> a -> Closure (Process a)
-returnCP dict x = Closure decoder (encode x)
+returnCP dict x = closure decoder (encode x)
   where
     decoder :: Static (ByteString -> Process a)
     decoder = returnProcessStatic
@@ -193,14 +194,14 @@ decodeProcessIdStatic = staticLabel "$decodeProcessId"
 
 -- | 'CP' version of 'link'
 cpLink :: ProcessId -> Closure (Process ())
-cpLink = Closure (linkStatic `staticCompose` decodeProcessIdStatic) . encode 
+cpLink = closure (linkStatic `staticCompose` decodeProcessIdStatic) . encode 
   where
     linkStatic :: Static (ProcessId -> Process ())
     linkStatic = staticLabel "$link"
 
 -- | 'CP' version of 'unlink'
 cpUnlink :: ProcessId -> Closure (Process ())
-cpUnlink = Closure (unlinkStatic `staticCompose` decodeProcessIdStatic) . encode
+cpUnlink = closure (unlinkStatic `staticCompose` decodeProcessIdStatic) . encode
   where
     unlinkStatic :: Static (ProcessId -> Process ())
     unlinkStatic = staticLabel "$unlink"
@@ -208,7 +209,7 @@ cpUnlink = Closure (unlinkStatic `staticCompose` decodeProcessIdStatic) . encode
 -- | 'CP' version of 'send'
 cpSend :: forall a. Typeable a 
        => Static (SerializableDict a) -> ProcessId -> CP a () 
-cpSend dict pid = Closure decoder (encode pid)
+cpSend dict pid = closure decoder (encode pid)
   where
     decoder :: Static (ByteString -> a -> Process ())
     decoder = (sendDictStatic `staticApply` dict)

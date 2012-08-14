@@ -206,7 +206,8 @@ module Control.Distributed.Static
   , staticSplit
   , staticConst
     -- * Closures
-  , Closure(Closure)
+  , Closure
+  , closure
     -- * Derived closure combinators
   , staticClosure
   , closureApplyStatic
@@ -345,6 +346,11 @@ instance Typeable a => Binary (Closure a) where
   put (Closure static env) = put static >> put env
   get = Closure <$> get <*> get 
 
+closure :: Static (ByteString -> a) -- ^ Decoder
+        -> ByteString               -- ^ Encoded closure environment
+        -> Closure a
+closure = Closure        
+
 -- | Resolve a closure
 unclosure :: Typeable a => RemoteTable -> Closure a -> Either String a
 unclosure rtable (Closure static env) = do 
@@ -353,7 +359,7 @@ unclosure rtable (Closure static env) = do
 
 -- | Convert a static value into a closure.
 staticClosure :: Typeable a => Static a -> Closure a
-staticClosure static = Closure (staticConst static) empty
+staticClosure static = closure (staticConst static) empty
 
 --------------------------------------------------------------------------------
 -- Predefined static values                                                   --
@@ -406,7 +412,7 @@ staticConst x = constStatic `staticApply` x
 closureApplyStatic :: (Typeable a, Typeable b)
                    => Static (a -> b) -> Closure a -> Closure b
 closureApplyStatic f (Closure decoder env) = 
-  Closure (f `staticCompose` decoder) env
+  closure (f `staticCompose` decoder) env
 
 decodeEnvPairStatic :: Static (ByteString -> (ByteString, ByteString))
 decodeEnvPairStatic = staticLabel "$decodeEnvPair"
@@ -415,7 +421,7 @@ decodeEnvPairStatic = staticLabel "$decodeEnvPair"
 closureApply :: forall a b. (Typeable a, Typeable b)
              => Closure (a -> b) -> Closure a -> Closure b
 closureApply (Closure fdec fenv) (Closure xdec xenv) = 
-    Closure decoder (encode (fenv, xenv))
+    closure decoder (encode (fenv, xenv))
   where
     decoder :: Static (ByteString -> b)
     decoder = appStatic 
