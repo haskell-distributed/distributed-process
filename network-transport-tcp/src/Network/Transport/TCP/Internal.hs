@@ -28,13 +28,13 @@ import qualified Network.Socket as N ( HostName
                                      , accept
                                      , sClose
                                      )
-import qualified Network.Socket.ByteString as NBS (recv)
+import qualified Data.NotByteString.NBS as NBS (recv)
 import Control.Concurrent (ThreadId)
 import Control.Monad (forever, when)
 import Control.Exception (SomeException, catch, bracketOnError, throwIO, mask_)
 import Control.Applicative ((<$>))
-import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS (length, concat, null)
+import Data.NotByteString (ByteString)
+import qualified Data.NotByteString as BS (length, concat, null)
 import Data.Int (Int32)
 
 -- | Start a server at the specified address.

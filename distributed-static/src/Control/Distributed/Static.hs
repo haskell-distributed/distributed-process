@@ -228,10 +228,9 @@ import Data.Binary
   , Get
   , putWord8
   , getWord8
-  , encode
-  , decode
   )
-import Data.ByteString.Lazy (ByteString, empty)
+import Data.NotByteString.Lazy.Binary (decode, encode)
+import Data.NotByteString.Lazy (ByteString, empty)
 import Data.Map (Map)
 import qualified Data.Map as Map (lookup, empty, insert)
 import Control.Applicative ((<$>), (<*>))

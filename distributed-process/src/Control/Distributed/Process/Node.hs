@@ -14,8 +14,8 @@ import Prelude hiding (catch)
 #endif
 
 import System.IO (fixIO, hPutStrLn, stderr)
-import qualified Data.ByteString.Lazy as BSL (fromChunks)
-import Data.Binary (decode)
+import qualified Data.NotByteString.Lazy as BSL (fromChunks)
+import Data.NotByteString.Lazy.Binary (decode)
 import Data.Map (Map)
 import qualified Data.Map as Map 
   ( empty

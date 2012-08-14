@@ -39,7 +39,7 @@ import Language.Haskell.TH
   , funD
   , sigD
   )
-import Data.Binary (encode)
+import Data.NotByteString.Lazy.Binary (encode)
 import Data.Generics (everywhereM, mkM, gmapM)
 import Data.Rank1Dynamic (toDynamic)
 import Data.Rank1Typeable

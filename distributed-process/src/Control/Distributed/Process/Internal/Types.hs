@@ -64,9 +64,10 @@ module Control.Distributed.Process.Internal.Types
 import Data.Map (Map)
 import Data.Int (Int32)
 import Data.Typeable (Typeable)
-import Data.Binary (Binary(put, get), putWord8, getWord8, encode)
-import qualified Data.ByteString as BSS (ByteString, concat)
-import qualified Data.ByteString.Lazy as BSL 
+import Data.Binary (Binary(put, get), putWord8, getWord8)
+import Data.NotByteString.Lazy.Binary (encode)
+import qualified Data.NotByteString as BSS (ByteString, concat)
+import qualified Data.NotByteString.Lazy as BSL 
   ( ByteString
   , toChunks
   , splitAt

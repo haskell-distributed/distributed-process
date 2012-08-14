@@ -25,11 +25,11 @@ import Prelude hiding (catch)
 import Foreign.Storable (pokeByteOff, peekByteOff)
 import Foreign.C (CInt(..), CShort(..))
 import Foreign.ForeignPtr (withForeignPtr)
-import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS (length)
-import qualified Data.ByteString.Internal as BSI ( unsafeCreate
-                                                 , toForeignPtr
-                                                 , inlinePerformIO)
+import Data.NotByteString (ByteString)
+import qualified Data.NotByteString as BS (length)
+import qualified Data.NotByteString.Internal as BSI ( unsafeCreate
+                                                    , toForeignPtr
+                                                    , inlinePerformIO)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Exception ( IOException
                          , SomeException

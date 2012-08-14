@@ -37,7 +37,6 @@ Library
                      transformers >= 0.2 && < 0.4,
                      mtl >= 2.0 && < 2.2,
                      data-accessor >= 0.2 && < 0.3,
-                     bytestring >= 0.9 && < 0.11,
                      containers >= 0.4 && < 0.6,
                      old-locale >= 1.0 && < 1.1,
                      time >= 1.2 && < 1.5,
@@ -46,7 +45,8 @@ Library
                      ghc-prim >= 0.2 && < 0.4,
                      distributed-static >= 0.1 && < 0.2,
                      rank1dynamic >= 0.1 && < 0.2,
-                     syb >= 0.3 && < 0.4
+                     syb >= 0.3 && < 0.4,
+                     not-bytestring
   Exposed-modules:   Control.Distributed.Process,
                      Control.Distributed.Process.Serializable,
                      Control.Distributed.Process.Closure,
@@ -82,7 +82,6 @@ Test-Suite TestCH
                      transformers >= 0.2 && < 0.4,
                      mtl >= 2.0 && < 2.2,
                      data-accessor >= 0.2 && < 0.3,
-                     bytestring >= 0.9 && < 0.11,
                      containers >= 0.4 && < 0.6,
                      old-locale >= 1.0 && < 1.1,
                      time >= 1.2 && < 1.5,
@@ -91,7 +90,8 @@ Test-Suite TestCH
                      ghc-prim >= 0.2 && < 0.4,
                      ansi-terminal >= 0.5 && < 0.6,
                      distributed-static >= 0.1 && < 0.2,
-                     rank1dynamic >= 0.1 && < 0.2
+                     rank1dynamic >= 0.1 && < 0.2,
+                     not-bytestring
   Extensions:        RankNTypes,
                      ScopedTypeVariables,
                      FlexibleInstances,
@@ -115,7 +115,6 @@ Test-Suite TestClosure
                      transformers >= 0.2 && < 0.4,
                      mtl >= 2.0 && < 2.2,
                      data-accessor >= 0.2 && < 0.3,
-                     bytestring >= 0.9 && < 0.11,
                      containers >= 0.4 && < 0.6,
                      old-locale >= 1.0 && < 1.1,
                      time >= 1.2 && < 1.5,
@@ -125,7 +124,8 @@ Test-Suite TestClosure
                      ansi-terminal >= 0.5 && < 0.6,
                      distributed-static >= 0.1 && < 0.2,
                      rank1dynamic >= 0.1 && < 0.2,
-                     syb >= 0.3 && < 0.4
+                     syb >= 0.3 && < 0.4,
+                     not-bytestring
   Other-modules:     TestAuxiliary
   Extensions:        RankNTypes,
                      ScopedTypeVariables,

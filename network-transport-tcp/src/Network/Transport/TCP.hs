@@ -66,7 +66,7 @@ import qualified Network.Socket as N ( HostName
                                      , sOMAXCONN
                                      , AddrInfo
                                      )
-import Network.Socket.ByteString (sendMany)
+import Data.NotByteString.NBS (sendMany)
 import Control.Concurrent (forkIO, ThreadId, killThread, myThreadId)
 import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
 import Control.Concurrent.MVar ( MVar
@@ -95,9 +95,9 @@ import Control.Exception ( IOException
                          , fromException
                          )
 import Data.IORef (IORef, newIORef, writeIORef, readIORef)
-import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS (concat)
-import qualified Data.ByteString.Char8 as BSC (pack, unpack, split)
+import Data.NotByteString (ByteString)
+import qualified Data.NotByteString as BS (concat)
+import qualified Data.NotByteString.Char8 as BSC (pack, unpack, split)
 import Data.Int (Int32)
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap (empty)
@@ -1155,7 +1155,7 @@ setupRemoteEndPoint params (ourEndPoint, theirEndPoint) hints = do
                     {  remoteSocket        = sock
                     , _remoteOutgoing      = 0 
                     , _remoteIncoming      = IntSet.empty
-                    ,  sendOn              = sendMany sock 
+                    ,  sendOn              = sendMany sock
                     , _pendingCtrlRequests = IntMap.empty
                     , _nextCtrlRequestId   = 0
                     }

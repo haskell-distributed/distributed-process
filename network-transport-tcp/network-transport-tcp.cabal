@@ -25,8 +25,9 @@ Library
                    network-transport >= 0.2 && < 0.3,
                    data-accessor >= 0.2 && < 0.3,
                    containers >= 0.4 && < 0.6,
+                   network >= 2.3 && < 2.4,
                    bytestring >= 0.9 && < 0.11,
-                   network >= 2.3 && < 2.4
+                   not-bytestring
   Exposed-modules: Network.Transport.TCP,
                    Network.Transport.TCP.Internal
   Extensions:      CPP
@@ -40,11 +41,12 @@ Test-Suite TestTCP
                    network-transport >= 0.2 && < 0.3,
                    data-accessor >= 0.2 && < 0.3,
                    containers >= 0.4 && < 0.6,
-                   bytestring >= 0.9 && < 0.11,
                    network >= 2.3 && < 2.4,
                    random >= 1.0 && < 1.1,
                    ansi-terminal >= 0.5 && < 0.6,
-                   mtl >= 2.0 && < 2.2
+                   mtl >= 2.0 && < 2.2,
+                   bytestring >= 0.9 && < 0.11,
+                   not-bytestring
   Other-modules:   TestAuxiliary,
                    TestTransport,
                    Traced

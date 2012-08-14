@@ -22,8 +22,8 @@ module Network.Transport ( -- * Types
                          , EventErrorCode(..)
                          ) where
 
-import Data.ByteString (ByteString)
-import qualified Data.ByteString.Char8 as BSC (unpack)
+import Data.NotByteString (ByteString)
+import qualified Data.NotByteString.Char8 as BSC (unpack)
 import Control.Exception (Exception)
 import Data.Typeable (Typeable)
 import Data.Binary (Binary)

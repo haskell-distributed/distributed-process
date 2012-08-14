@@ -23,8 +23,8 @@ module Control.Distributed.Process.Internal.Closure.BuiltIn
   , cpNewChan
   ) where
 
-import Data.ByteString.Lazy (ByteString)  
-import Data.Binary (decode, encode)
+import Data.NotByteString.Lazy (ByteString)  
+import Data.NotByteString.Lazy.Binary (decode, encode)
 import Data.Rank1Typeable (Typeable, ANY, ANY1, ANY2, ANY3, ANY4)
 import Data.Rank1Dynamic (toDynamic)
 import Control.Distributed.Static 

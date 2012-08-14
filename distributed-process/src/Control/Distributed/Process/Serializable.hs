@@ -15,12 +15,12 @@ import Data.Typeable.Internal (TypeRep(TypeRep))
 import Numeric (showHex)
 import Control.Exception (throw)
 import GHC.Fingerprint.Type (Fingerprint(..))
-import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Internal as BSI ( unsafeCreate
-                                                 , inlinePerformIO
-                                                 , toForeignPtr
-                                                 )
+import Data.NotByteString (ByteString)
+import qualified Data.NotByteString as BS
+import qualified Data.NotByteString.Internal as BSI ( unsafeCreate
+                                                    , inlinePerformIO
+                                                    , toForeignPtr
+                                                    )
 import Foreign.Storable (pokeByteOff, peekByteOff, sizeOf)
 import Foreign.ForeignPtr (withForeignPtr)
 

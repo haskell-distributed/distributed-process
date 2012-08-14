@@ -6,9 +6,10 @@ module Control.Distributed.Process.Internal.Node
   ) where
 
 import Data.Accessor ((^.), (^=))
-import Data.Binary (Binary, encode)
-import qualified Data.ByteString.Lazy as BSL (toChunks)
-import qualified Data.ByteString as BSS (ByteString)
+import Data.Binary (Binary)
+import Data.NotByteString.Lazy.Binary (encode)
+import qualified Data.NotByteString.Lazy as BSL (toChunks)
+import qualified Data.NotByteString as BSS (ByteString)
 import Control.Distributed.Process.Internal.StrictMVar (withMVar, modifyMVar_)
 import Control.Concurrent.Chan (writeChan)
 import Control.Monad (unless)

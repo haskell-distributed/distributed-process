@@ -65,7 +65,7 @@ module Control.Distributed.Process.Internal.Primitives
 import Prelude hiding (catch)
 #endif
 
-import Data.Binary (decode)
+import Data.NotByteString.Lazy.Binary (decode)
 import Data.Time.Clock (getCurrentTime)
 import Data.Time.Format (formatTime)
 import System.Locale (defaultTimeLocale)
