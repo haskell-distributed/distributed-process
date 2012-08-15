@@ -104,12 +104,8 @@ import Control.Distributed.Static (RemoteTable, Closure)
 --------------------------------------------------------------------------------
 
 -- | Node identifier 
-data NodeId = NodeId { nodeAddress :: !(NT.EndPointAddress) }
-  deriving (Eq, Ord)
-
-instance Binary NodeId where
-  put (NodeId nid) = put nid
-  get = NodeId <$> get
+newtype NodeId = NodeId { nodeAddress :: NT.EndPointAddress }
+  deriving (Eq, Ord, Binary)
 
 instance Show NodeId where
   show (NodeId addr) = "nid://" ++ show addr 
@@ -117,8 +113,8 @@ instance Show NodeId where
 -- | A local process ID consists of a seed which distinguishes processes from
 -- different instances of the same local node and a counter
 data LocalProcessId = LocalProcessId 
-  { lpidUnique  :: !Int32
-  , lpidCounter :: !Int32
+  { lpidUnique  :: {-# UNPACK #-} !Int32
+  , lpidCounter :: {-# UNPACK #-} !Int32
   }
   deriving (Eq, Ord, Typeable, Show)
 
@@ -127,7 +123,7 @@ data ProcessId = ProcessId
   { -- | The ID of the node the process is running on
     processNodeId  :: !NodeId
     -- | Node-local identifier for the process
-  , processLocalId :: !LocalProcessId 
+  , processLocalId :: {-# UNPACK #-} !LocalProcessId 
   }
   deriving (Eq, Ord, Typeable)
 
@@ -218,9 +214,9 @@ type LocalSendPortId = Int32
 -- to create a SendPort.
 data SendPortId = SendPortId {
     -- | The ID of the process that will receive messages sent on this port
-    sendPortProcessId :: !ProcessId
+    sendPortProcessId :: {-# UNPACK #-} !ProcessId
     -- | Process-local ID of the channel
-  , sendPortLocalId   :: !LocalSendPortId
+  , sendPortLocalId   :: {-# UNPACK #-} !LocalSendPortId
   }
   deriving (Eq, Ord)
 
