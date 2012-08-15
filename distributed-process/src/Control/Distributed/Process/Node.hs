@@ -65,6 +65,7 @@ import qualified Network.Transport as NT
   , address
   , closeEndPoint
   , ConnectionId
+  , Connection
   )
 import Data.Accessor (Accessor, accessor, (^.), (^=), (^:))
 import qualified Data.Accessor.Container as DAC (mapDefault, mapMaybe)
@@ -89,6 +90,7 @@ import Control.Distributed.Process.Internal.Types
   , localPidCounter
   , localPidUnique
   , localProcessWithId
+  , localConnections
   , MonitorRef(..)
   , ProcessMonitorNotification(..)
   , NodeMonitorNotification(..)
@@ -214,6 +216,7 @@ forkProcess node proc = modifyMVar (localState node) $ \st -> do
       -- [Unified: Table 4, rules termination and exiting]
       modifyMVar_ (localState node) $ 
         return . (localProcessWithId lpid ^= Nothing)
+               . (localConnections ^: removeConnectionsFrom (ProcessIdentifier pid))
       writeChan (localCtrlChan node) NCMsg 
         { ctrlMsgSender = ProcessIdentifier pid 
         , ctrlMsgSignal = Died (ProcessIdentifier pid) reason 
@@ -235,6 +238,13 @@ forkProcess node proc = modifyMVar (localState node) $ \st -> do
              $ st
              , pid 
              )
+
+-- | Remove connections from 'ident' (typically because 'ident' has terminated)
+removeConnectionsFrom :: Identifier 
+                      -> Map (Identifier, Identifier) NT.Connection
+                      -> Map (Identifier, Identifier) NT.Connection
+removeConnectionsFrom ident = 
+  Map.filterWithKey $ \(fr, _to) _conn -> fr /= ident 
 
 handleIncomingMessages :: LocalNode -> IO ()
 handleIncomingMessages node = go [] Map.empty Map.empty Set.empty
