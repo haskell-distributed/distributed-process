@@ -296,14 +296,14 @@ spawn nid proc = do
                    `seqCP` proc
   mPid <- receiveWait 
     [ matchIf (\(DidSpawn ref _) -> ref == sRef)
-              (\(DidSpawn _ pid) -> return $ Just pid)
+              (\(DidSpawn _ pid) -> return $ Right pid)
     , matchIf (\(NodeMonitorNotification ref _ _) -> ref == mRef)
-              (\_ -> return Nothing)
+              (\(NodeMonitorNotification _ _ err) -> return $ Left err)
     ]
   unmonitor mRef
   case mPid of
-    Nothing  -> fail "spawn: remote node failed"
-    Just pid -> send pid () >> return pid
+    Left err  -> fail $ "spawn: remote node failed: " ++ show err
+    Right pid -> send pid () >> return pid
 
 -- | Spawn a process and link to it
 --
