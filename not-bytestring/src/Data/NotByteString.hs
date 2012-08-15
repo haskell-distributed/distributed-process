@@ -22,7 +22,7 @@ import qualified Data.ByteString as BS (ByteString)
 import qualified Data.ByteString.Char8 as BSC (pack, foldr)
 import Control.Applicative ((<$>))
 
-data ByteString = Nil | Cons !Char !ByteString 
+data ByteString = Nil | Cons {-# UNPACK #-} !Char !ByteString 
   deriving (Typeable, Eq, Ord)
 
 instance Show ByteString where

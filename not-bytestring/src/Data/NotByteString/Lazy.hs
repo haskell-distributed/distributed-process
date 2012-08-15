@@ -25,7 +25,7 @@ import qualified Data.ByteString.Lazy.Char8 as BSLC (pack, foldr)
 import qualified Data.NotByteString as Strict (ByteString(Nil, Cons), foldr)
 import Control.Applicative ((<$>))
 
-data ByteString = Nil | Cons !Char ByteString 
+data ByteString = Nil | Cons {-# UNPACK #-} !Char ByteString 
   deriving (Typeable, Eq, Ord)
 
 instance Show ByteString where
