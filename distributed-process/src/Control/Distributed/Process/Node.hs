@@ -25,6 +25,7 @@ import qualified Data.Map as Map
   , toList
   , partitionWithKey
   , filterWithKey
+  , elems
   )
 import Data.Set (Set)
 import qualified Data.Set as Set (empty, insert, delete, member, filter)
@@ -64,6 +65,8 @@ import qualified Network.Transport as NT
   , address
   , closeEndPoint
   , ConnectionId
+  , Connection
+  , close
   )
 import Data.Accessor (Accessor, accessor, (^.), (^=), (^:))
 import qualified Data.Accessor.Container as DAC (mapDefault, mapMaybe)
@@ -88,6 +91,7 @@ import Control.Distributed.Process.Internal.Types
   , localPidCounter
   , localPidUnique
   , localProcessWithId
+  , localConnections
   , MonitorRef(..)
   , ProcessMonitorNotification(..)
   , NodeMonitorNotification(..)
@@ -187,54 +191,65 @@ runProcess node proc = do
 
 -- | Spawn a new process on a local node
 forkProcess :: LocalNode -> Process () -> IO ProcessId
-forkProcess node proc = modifyMVar (localState node) $ \st -> do
-  let lpid  = LocalProcessId { lpidCounter = st ^. localPidCounter
-                             , lpidUnique  = st ^. localPidUnique
-                             }
-  let pid   = ProcessId { processNodeId  = localNodeId node 
-                        , processLocalId = lpid
-                        }
-  pst <- newMVar LocalProcessState { _monitorCounter = 0
-                                   , _spawnCounter   = 0
-                                   , _channelCounter = 0
-                                   , _typedChannels  = Map.empty
-                                   }
-  queue <- newCQueue
-  (_, lproc) <- fixIO $ \ ~(tid, _) -> do
-    let lproc = LocalProcess { processQueue  = queue
-                             , processId     = pid
-                             , processState  = pst 
-                             , processThread = tid
-                             , processNode   = node
-                             }
-    tid' <- forkIO $ do
-      reason <- Exception.catch 
-        (runLocalProcess lproc proc >> return DiedNormal)
-        (return . DiedException . (show :: SomeException -> String))
-      -- [Unified: Table 4, rules termination and exiting]
-      modifyMVar_ (localState node) $ 
-        return . (localProcessWithId lpid ^= Nothing)
-      writeChan (localCtrlChan node) NCMsg 
-        { ctrlMsgSender = ProcessIdentifier pid 
-        , ctrlMsgSignal = Died (ProcessIdentifier pid) reason 
-        }
-    return (tid', lproc)
+forkProcess node proc = modifyMVar (localState node) startProcess
+  where
+    startProcess :: LocalNodeState -> IO (LocalNodeState, ProcessId)
+    startProcess st = do
+      let lpid  = LocalProcessId { lpidCounter = st ^. localPidCounter
+                                 , lpidUnique  = st ^. localPidUnique
+                                 }
+      let pid   = ProcessId { processNodeId  = localNodeId node 
+                            , processLocalId = lpid
+                            }
+      pst <- newMVar LocalProcessState { _monitorCounter = 0
+                                       , _spawnCounter   = 0
+                                       , _channelCounter = 0
+                                       , _typedChannels  = Map.empty
+                                       }
+      queue <- newCQueue
+      (_, lproc) <- fixIO $ \ ~(tid, _) -> do
+        let lproc = LocalProcess { processQueue  = queue
+                                 , processId     = pid
+                                 , processState  = pst 
+                                 , processThread = tid
+                                 , processNode   = node
+                                 }
+        tid' <- forkIO $ do
+          reason <- Exception.catch 
+            (runLocalProcess lproc proc >> return DiedNormal)
+            (return . DiedException . (show :: SomeException -> String))
+          -- [Unified: Table 4, rules termination and exiting]
+          modifyMVar_ (localState node) (cleanupProcess pid)
+          writeChan (localCtrlChan node) NCMsg 
+            { ctrlMsgSender = ProcessIdentifier pid 
+            , ctrlMsgSignal = Died (ProcessIdentifier pid) reason 
+            }
+        return (tid', lproc)
 
-  if lpidCounter lpid == maxBound
-    then do
-      newUnique <- randomIO
-      return ( (localProcessWithId lpid ^= Just lproc)
-             . (localPidCounter ^= 0)
-             . (localPidUnique ^= newUnique)
+      if lpidCounter lpid == maxBound
+        then do
+          newUnique <- randomIO
+          return ( (localProcessWithId lpid ^= Just lproc)
+                 . (localPidCounter ^= 0)
+                 . (localPidUnique ^= newUnique)
+                 $ st
+                 , pid
+                 )
+        else
+          return ( (localProcessWithId lpid ^= Just lproc)
+                 . (localPidCounter ^: (+ 1))
+                 $ st
+                 , pid 
+                 )
+
+    cleanupProcess :: ProcessId -> LocalNodeState -> IO LocalNodeState
+    cleanupProcess pid st = do
+      let pid' = ProcessIdentifier pid 
+      let (affected, unaffected) = Map.partitionWithKey (\(fr, _to) !_v -> impliesDeathOf pid' fr) (st ^. localConnections)
+      mapM_ NT.close (Map.elems affected)
+      return $ (localProcessWithId (processLocalId pid) ^= Nothing)
+             . (localConnections ^= unaffected)
              $ st
-             , pid
-             )
-    else
-      return ( (localProcessWithId lpid ^= Just lproc)
-             . (localPidCounter ^: (+ 1))
-             $ st
-             , pid 
-             )
 
 handleIncomingMessages :: LocalNode -> IO ()
 handleIncomingMessages node = go Set.empty Map.empty Map.empty Set.empty
