@@ -1,5 +1,24 @@
 module Data.NotByteString.Lazy.Char8 
-  ( module Data.NotByteString.Char8 
+  ( pack
+  , unpack
+  , split
   ) where
 
-import Data.NotByteString.Char8
+import Data.NotByteString.Lazy
+  ( ByteString
+  , fromString
+  , toString
+  , fromByteString
+  , toByteString
+  )
+import qualified Data.ByteString.Lazy.Char8 as BSC (split)
+
+pack :: String -> ByteString
+pack = fromString 
+
+unpack :: ByteString -> String
+unpack = toString 
+
+-- TODO: Avoid roundtrip
+split :: Char -> ByteString -> [ByteString]
+split c = map fromByteString . BSC.split c . toByteString 
