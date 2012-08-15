@@ -44,8 +44,8 @@ sendPayload node from to payload = do
     Just conn -> do
       didSend <- NT.send conn payload
       case didSend of
-        Left _  -> return False
-        Right _ -> return True 
+        Left _err -> return False 
+        Right ()  -> return True 
     Nothing -> return False
   unless didSend $
     writeChan (localCtrlChan node) NCMsg
