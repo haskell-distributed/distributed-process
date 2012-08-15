@@ -25,6 +25,7 @@ import qualified Data.Map as Map
   , toList
   , partitionWithKey
   , filterWithKey
+  , elems
   )
 import Data.Set (Set)
 import qualified Data.Set as Set (empty, insert, delete, member, filter)
@@ -65,6 +66,7 @@ import qualified Network.Transport as NT
   , closeEndPoint
   , ConnectionId
   , Connection
+  , close
   )
 import Data.Accessor (Accessor, accessor, (^.), (^=), (^:))
 import qualified Data.Accessor.Container as DAC (mapDefault, mapMaybe)
@@ -214,9 +216,13 @@ forkProcess node proc = modifyMVar (localState node) $ \st -> do
         (runLocalProcess lproc proc >> return DiedNormal)
         (return . DiedException . (show :: SomeException -> String))
       -- [Unified: Table 4, rules termination and exiting]
-      modifyMVar_ (localState node) $ 
-        return . (localProcessWithId lpid ^= Nothing)
-               . (localConnections ^: removeConnectionsFrom (ProcessIdentifier pid))
+      modifyMVar_ (localState node) $ \st -> do
+        let pid' = ProcessIdentifier pid 
+        let (affected, unaffected) = Map.partitionWithKey (\(fr, _to) !_v -> impliesDeathOf pid' fr) (st ^. localConnections)
+        mapM_ NT.close (Map.elems affected)
+        return $ (localProcessWithId lpid ^= Nothing)
+               . (localConnections ^= unaffected)
+               $ st
       writeChan (localCtrlChan node) NCMsg 
         { ctrlMsgSender = ProcessIdentifier pid 
         , ctrlMsgSignal = Died (ProcessIdentifier pid) reason 
@@ -238,13 +244,6 @@ forkProcess node proc = modifyMVar (localState node) $ \st -> do
              $ st
              , pid 
              )
-
--- | Remove connections from 'ident' (typically because 'ident' has terminated)
-removeConnectionsFrom :: Identifier 
-                      -> Map (Identifier, Identifier) NT.Connection
-                      -> Map (Identifier, Identifier) NT.Connection
-removeConnectionsFrom ident = 
-  Map.filterWithKey $ \(fr, _to) _conn -> fr /= ident 
 
 handleIncomingMessages :: LocalNode -> IO ()
 handleIncomingMessages node = go Set.empty Map.empty Map.empty Set.empty
