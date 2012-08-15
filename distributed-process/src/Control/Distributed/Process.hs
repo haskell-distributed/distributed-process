@@ -99,6 +99,10 @@ module Control.Distributed.Process
     -- * Local versions of 'spawn' 
   , spawnLocal
   , spawnChannelLocal
+    -- * Reconnecting
+  , reconnect
+  , reconnectNode
+  , reconnectPort
   ) where
 
 #if ! MIN_VERSION_base(4,6,0)
@@ -208,6 +212,10 @@ import Control.Distributed.Process.Internal.Primitives
     -- Auxiliary API
   , expectTimeout
   , spawnAsync
+    -- Reconnecting
+  , reconnect
+  , reconnectNode
+  , reconnectPort
   )
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Node (forkProcess)
@@ -335,7 +343,7 @@ spawnMonitor nid proc = do
 call :: Serializable a => Static (SerializableDict a) -> NodeId -> Closure (Process a) -> Process a
 call dict nid proc = do 
   us <- getSelfPid
-  (_, mRef) <- spawnMonitor nid (proc `bindCP` cpSend dict us)
+  (pid, mRef) <- spawnMonitor nid (proc `bindCP` cpSend dict us)
   -- We are guaranteed to receive the reply before the monitor notification
   -- (if a reply is sent at all)
   -- NOTE: This might not be true if we switch to unreliable delivery.
@@ -351,6 +359,8 @@ call dict nid proc = do
         [ matchIf (\(ProcessMonitorNotification ref _ _) -> ref == mRef)
                   (\(ProcessMonitorNotification {}) -> return ())
         ]
+      -- Clean up connection to pid
+      reconnect pid
       return a
     Left err -> 
       fail $ "call: remote process died: " ++ show err 

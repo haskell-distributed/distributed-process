@@ -119,6 +119,7 @@ import Control.Distributed.Process.Internal.Node
   ( sendBinary
   , sendMessage
   , sendPayload
+  , reconnect
   )
 import Control.Distributed.Process.Internal.Primitives (expect, register, finally)
 import qualified Control.Distributed.Process.Internal.Closure.BuiltIn as BuiltIn (remoteTable)
@@ -424,6 +425,8 @@ nodeController = do
         ncEffectWhereIs from label
       NCMsg from (NamedSend label msg') ->
         ncEffectNamedSend from label msg'
+      NCMsg from (Reconnect to) ->
+        ncEffectReconnect from to
       unexpected ->
         error $ "nodeController: unexpected message " ++ show unexpected
 
@@ -547,6 +550,12 @@ ncEffectNamedSend from label msg = do
                          (ProcessIdentifier pid) 
                          (messageToPayload msg) 
 
+-- Reconnecting
+ncEffectReconnect :: Identifier -> Identifier -> NC ()
+ncEffectReconnect from to = do
+  node <- ask
+  liftIO $ reconnect node from to
+
 --------------------------------------------------------------------------------
 -- Auxiliary                                                                  --
 --------------------------------------------------------------------------------
@@ -592,6 +601,7 @@ destNid (Spawn _ _)     = Nothing
 destNid (Register _ _)  = Nothing
 destNid (WhereIs _)     = Nothing
 destNid (NamedSend _ _) = Nothing
+destNid (Reconnect _)   = Nothing
 -- We don't need to forward 'Died' signals; if monitoring/linking is setup,
 -- then when a local process dies the monitoring/linking machinery will take
 -- care of notifying remote nodes

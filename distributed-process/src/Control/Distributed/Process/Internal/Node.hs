@@ -3,6 +3,7 @@ module Control.Distributed.Process.Internal.Node
     sendPayload
   , sendBinary
   , sendMessage
+  , reconnect
   ) where
 
 import Data.Accessor ((^.), (^=))
@@ -89,3 +90,8 @@ connBetween node from to = do
       Nothing   -> setupConnBetween node from to 
   where
     nodeState = localState node
+
+reconnect :: LocalNode -> Identifier -> Identifier -> IO ()
+reconnect node from to =
+  modifyMVar_ (localState node) $ return .
+    (localConnectionBetween from to ^= Nothing)

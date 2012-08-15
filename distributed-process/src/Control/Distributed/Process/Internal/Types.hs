@@ -384,6 +384,7 @@ data ProcessSignal =
   | WhereIs String
   | Register String (Maybe ProcessId) -- Nothing to unregister
   | NamedSend String Message
+  | Reconnect Identifier
   deriving Show
 
 --------------------------------------------------------------------------------
@@ -428,6 +429,7 @@ instance Binary ProcessSignal where
   put (WhereIs label)       = putWord8 6 >> put label
   put (Register label pid)  = putWord8 7 >> put label >> put pid
   put (NamedSend label msg) = putWord8 8 >> put label >> put (messageToPayload msg) 
+  put (Reconnect dest)      = putWord8 9 >> put dest
   get = do
     header <- getWord8
     case header of
@@ -440,6 +442,7 @@ instance Binary ProcessSignal where
       6 -> WhereIs <$> get
       7 -> Register <$> get <*> get
       8 -> NamedSend <$> get <*> (payloadToMessage <$> get)
+      9 -> Reconnect <$> get
       _ -> fail "ProcessSignal.get: invalid"
 
 instance Binary DiedReason where
