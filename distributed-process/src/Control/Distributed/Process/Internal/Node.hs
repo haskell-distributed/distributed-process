@@ -20,6 +20,7 @@ import qualified Network.Transport as NT
   , defaultConnectHints
   , connect
   , Reliability(ReliableOrdered)
+  , close
   )
 import Control.Distributed.Process.Internal.Types 
   ( LocalNode(localState, localEndPoint, localCtrlChan)
@@ -94,5 +95,10 @@ connBetween node from to = do
 
 reconnect :: LocalNode -> Identifier -> Identifier -> IO ()
 reconnect node from to =
-  modifyMVar_ (localState node) $ return .
-    (localConnectionBetween from to ^= Nothing)
+  modifyMVar_ (localState node) $ \st -> 
+    case st ^. localConnectionBetween from to of
+      Nothing -> 
+        return st
+      Just conn -> do
+        NT.close conn 
+        return (localConnectionBetween from to ^= Nothing $ st)
