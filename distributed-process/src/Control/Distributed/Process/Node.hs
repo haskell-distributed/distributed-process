@@ -26,9 +26,8 @@ import qualified Data.Map as Map
   , partitionWithKey
   , filterWithKey
   )
-import qualified Data.List as List (delete, (\\))
 import Data.Set (Set)
-import qualified Data.Set as Set (empty, insert, delete, member, (\\), fromList)
+import qualified Data.Set as Set (empty, insert, delete, member, filter)
 import Data.Foldable (forM_)
 import Data.Maybe (isJust)
 import Data.Typeable (Typeable)
@@ -248,25 +247,25 @@ removeConnectionsFrom ident =
   Map.filterWithKey $ \(fr, _to) _conn -> fr /= ident 
 
 handleIncomingMessages :: LocalNode -> IO ()
-handleIncomingMessages node = go [] Map.empty Map.empty Set.empty
+handleIncomingMessages node = go Set.empty Map.empty Map.empty Set.empty
   where
-    go :: [NT.ConnectionId] -- ^ Connections whose purpose we don't yet know 
+    go :: Set NT.ConnectionId -- ^ Connections whose purpose we don't yet know 
        -> Map NT.ConnectionId LocalProcess -- ^ Connections to local processes
        -> Map NT.ConnectionId TypedChannel -- ^ Connections to typed channels
        -> Set NT.ConnectionId              -- ^ Connections to our controller
        -> IO () 
-    go uninitConns procs chans ctrls = do
+    go !uninitConns !procs !chans !ctrls = do
       event <- NT.receive endpoint
       case event of
         NT.ConnectionOpened cid _rel _theirAddr ->
           -- TODO: Check if _rel is ReliableOrdered, and if not, treat as
           -- (**) below.
-          go (cid : uninitConns) procs chans ctrls 
+          go (Set.insert cid uninitConns) procs chans ctrls 
         NT.Received cid payload -> 
           case ( Map.lookup cid procs 
                , Map.lookup cid chans
                , cid `Set.member` ctrls
-               , cid `elem` uninitConns
+               , cid `Set.member` uninitConns
                ) of
             (Just proc, _, _, _) -> do
               let msg = payloadToMessage payload
@@ -286,7 +285,7 @@ handleIncomingMessages node = go [] Map.empty Map.empty Set.empty
                   mProc <- withMVar state $ return . (^. localProcessWithId lpid) 
                   case mProc of
                     Just proc -> 
-                      go (List.delete cid uninitConns) 
+                      go (Set.delete cid uninitConns) 
                          (Map.insert cid proc procs)
                          chans
                          ctrls
@@ -298,7 +297,7 @@ handleIncomingMessages node = go [] Map.empty Map.empty Set.empty
                       -- remote node as having died, and we should close
                       -- incoming connections (this requires a Transport layer
                       -- extension). (**)
-                      go (List.delete cid uninitConns) procs chans ctrls
+                      go (Set.delete cid uninitConns) procs chans ctrls
                 SendPortIdentifier chId -> do
                   let lcid = sendPortLocalId chId
                       lpid = processLocalId (sendPortProcessId chId)
@@ -308,20 +307,20 @@ handleIncomingMessages node = go [] Map.empty Map.empty Set.empty
                       mChannel <- withMVar (processState proc) $ return . (^. typedChannelWithId lcid)
                       case mChannel of
                         Just channel ->
-                          go (List.delete cid uninitConns)
+                          go (Set.delete cid uninitConns)
                              procs
                              (Map.insert cid channel chans)
                              ctrls
                         Nothing ->
                           -- Unknown typed channel
                           -- TODO (**) above
-                          go (List.delete cid uninitConns) procs chans ctrls
+                          go (Set.delete cid uninitConns) procs chans ctrls
                     Nothing ->
                       -- Unknown process
                       -- TODO (**) above
-                      go (List.delete cid uninitConns) procs chans ctrls
+                      go (Set.delete cid uninitConns) procs chans ctrls
                 NodeIdentifier _ ->
-                  go (List.delete cid uninitConns)
+                  go (Set.delete cid uninitConns)
                      procs
                      chans
                      (Set.insert cid ctrls)
@@ -330,7 +329,7 @@ handleIncomingMessages node = go [] Map.empty Map.empty Set.empty
               -- TODO (**) above 
               go uninitConns procs chans ctrls
         NT.ConnectionClosed cid -> 
-          go (List.delete cid uninitConns) 
+          go (Set.delete cid uninitConns) 
              (Map.delete cid procs)
              (Map.delete cid chans)
              (Set.delete cid ctrls)
@@ -341,10 +340,11 @@ handleIncomingMessages node = go [] Map.empty Map.empty Set.empty
             { ctrlMsgSender = nid
             , ctrlMsgSignal = Died nid DiedDisconnect
             }
-          go (uninitConns List.\\ cids)
-             (Map.filterWithKey (\k _ -> k `notElem` cids) procs)
-             (Map.filterWithKey (\k _ -> k `notElem` cids) chans)
-             (ctrls Set.\\ Set.fromList cids)
+          let notRemoved k = k `notElem` cids
+          go (Set.filter notRemoved uninitConns)
+             (Map.filterWithKey (const . notRemoved) procs)
+             (Map.filterWithKey (const . notRemoved) chans)
+             (Set.filter notRemoved ctrls)
         NT.ErrorEvent (NT.TransportError (NT.EventConnectionLost Nothing _) _) ->
           -- TODO: We should treat an asymetrical connection loss (incoming
           -- connection broken, but outgoing connection still potentially ok)
