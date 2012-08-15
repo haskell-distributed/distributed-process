@@ -59,6 +59,10 @@ module Control.Distributed.Process.Internal.Primitives
   , unlinkPort
   , monitorNode
   , monitorPort
+    -- * Reconnecting
+  , reconnect
+  , reconnectNode
+  , reconnectPort
   ) where
 
 #if ! MIN_VERSION_base(4,6,0)
@@ -505,6 +509,44 @@ unClosure closure = do
   case Static.unclosure rtable closure of
     Left err -> fail $ "Could not resolve closure: " ++ err 
     Right x  -> return x
+
+--------------------------------------------------------------------------------
+-- Reconnecting                                                               --
+--------------------------------------------------------------------------------
+
+-- | Cloud Haskell provides the illusion of connection-less, reliable, ordered
+-- message passing. However, when network connections get disrupted this
+-- illusion cannot always be maintained. Once a network connection breaks (even
+-- temporarily) no further communication on that connection will be possible.
+-- For example, if process A sends a message to process B, and A is then 
+-- notified (by monitor notification) that it got disconnected from B, A will
+-- not be able to send any further messages to B, /unless/ A explicitly 
+-- indicates that it is acceptable to attempt to reconnect to B using the
+-- Cloud Haskell 'reconnect' primitive. 
+--
+-- Importantly, when A calls 'reconnect' it acknowledges that some messages to
+-- B might have been lost. For instance, if A sends messages m1 and m2 to B,
+-- then receives a monitor notification that its connection to B has been lost,
+-- calls 'reconnect' and then sends m3, it is possible that B will receive m1
+-- and m3 but not m2.
+--
+-- Note that 'reconnect' does not mean /reconnect now/ but rather /it is okay
+-- to attempt to reconnect on the next send/. In particular, if no further
+-- communication attempts are made to B then A can use reconnect to clean up
+-- its connection to B.
+reconnect :: ProcessId -> Process ()
+reconnect = 
+  sendCtrlMsg Nothing . Reconnect . ProcessIdentifier 
+
+-- | Reconnect to a node. See 'reconnect' for more information.
+reconnectNode :: NodeId -> Process ()
+reconnectNode = 
+  sendCtrlMsg Nothing . Reconnect . NodeIdentifier 
+
+-- | Reconnect to a sendport. See 'reconnect' for more information.
+reconnectPort :: SendPort a -> Process ()
+reconnectPort = 
+  sendCtrlMsg Nothing . Reconnect . SendPortIdentifier . sendPortId
 
 --------------------------------------------------------------------------------
 -- Auxiliary functions                                                        --
