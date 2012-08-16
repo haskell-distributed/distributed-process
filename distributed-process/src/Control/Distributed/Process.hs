@@ -63,7 +63,8 @@ module Control.Distributed.Process
   , PortMonitorNotification(..)
   , DiedReason(..)
     -- * Closures
-  , Closure(..)
+  , Closure
+  , closure
   , Static
   , unClosure
   , RemoteTable
@@ -109,7 +110,8 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Applicative ((<$>))
 import Control.Monad.Reader (ask)
 import Control.Distributed.Static 
-  ( Closure(..)
+  ( Closure
+  , closure
   , Static
   , RemoteTable
   )

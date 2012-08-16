@@ -52,7 +52,6 @@ import Control.Distributed.Static
   , registerStatic
   , Static
   , staticLabel
-  , Closure
   , closure
   , staticCompose
   )
