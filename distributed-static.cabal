@@ -1,5 +1,5 @@
 Name:                distributed-static
-Version:             0.1.0.0
+Version:             0.2.0.0
 Synopsis:            Compositional, type-safe, polymorphic static values and closures 
 Description:         /Towards Haskell in the Cloud/ (Epstein et al, Haskell
                      Symposium 2011) introduces the concept of /static/ values:
