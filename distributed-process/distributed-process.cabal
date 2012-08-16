@@ -73,74 +73,41 @@ Library
   ghc-options:       -Wall
   HS-Source-Dirs:    src
   if flag(th)
-     Build-Depends: template-haskell >= 2.6 && < 2.9
+     Build-Depends:   template-haskell >= 2.6 && < 2.9
      Exposed-modules: Control.Distributed.Process.Internal.Closure.TH
+     CPP-Options:     -DTemplateHaskellSupport
 
 Test-Suite TestCH
   Type:              exitcode-stdio-1.0
   Main-Is:           TestCH.hs
   Build-Depends:     base >= 4.4 && < 5,
-                     binary >= 0.5 && < 0.6,
+                     random >= 1.0 && < 1.1,
+                     ansi-terminal >= 0.5 && < 0.6,
+                     distributed-process >= 0.3 && < 0.4,
                      network-transport >= 0.2 && < 0.3,
                      network-transport-tcp >= 0.2 && < 0.3,
-                     stm >= 2.3 && < 2.5,
-                     transformers >= 0.2 && < 0.4,
-                     mtl >= 2.0 && < 2.2,
-                     data-accessor >= 0.2 && < 0.3,
-                     bytestring >= 0.9 && < 0.11,
-                     containers >= 0.4 && < 0.6,
-                     old-locale >= 1.0 && < 1.1,
-                     time >= 1.2 && < 1.5,
-                     template-haskell >= 2.6 && < 2.9,
-                     random >= 1.0 && < 1.1,
-                     ghc-prim >= 0.2 && < 0.4,
-                     ansi-terminal >= 0.5 && < 0.6,
-                     distributed-static >= 0.2 && < 0.3,
-                     rank1dynamic >= 0.1 && < 0.2
-  Extensions:        RankNTypes,
+                     binary >= 0.5 && < 0.6
+  Other-modules:     TestAuxiliary
+  Extensions:        CPP,
                      ScopedTypeVariables,
-                     FlexibleInstances,
-                     UndecidableInstances,
-                     ExistentialQuantification,
-                     GADTs,
-                     GeneralizedNewtypeDeriving,
                      DeriveDataTypeable,
-                     CPP
+                     GeneralizedNewtypeDeriving
   ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind 
-  HS-Source-Dirs:    tests src
+  HS-Source-Dirs:    tests 
 
 Test-Suite TestClosure
   Type:              exitcode-stdio-1.0
   Main-Is:           TestClosure.hs
   Build-Depends:     base >= 4.4 && < 5,
-                     binary >= 0.5 && < 0.6,
-                     network-transport >= 0.2 && < 0.3,
-                     network-transport-tcp >= 0.2 && < 0.3,
-                     stm >= 2.3 && < 2.5,
-                     transformers >= 0.2 && < 0.4,
-                     mtl >= 2.0 && < 2.2,
-                     data-accessor >= 0.2 && < 0.3,
-                     bytestring >= 0.9 && < 0.11,
-                     containers >= 0.4 && < 0.6,
-                     old-locale >= 1.0 && < 1.1,
-                     time >= 1.2 && < 1.5,
-                     template-haskell >= 2.6 && < 2.9,
                      random >= 1.0 && < 1.1,
-                     ghc-prim >= 0.2 && < 0.4,
                      ansi-terminal >= 0.5 && < 0.6,
                      distributed-static >= 0.2 && < 0.3,
-                     rank1dynamic >= 0.1 && < 0.2,
-                     syb >= 0.3 && < 0.4
+                     distributed-process >= 0.3 && < 0.4,
+                     network-transport >= 0.2 && < 0.3,
+                     network-transport-tcp >= 0.2 && < 0.3,
+                     bytestring >= 0.9 && < 0.11
   Other-modules:     TestAuxiliary
-  Extensions:        RankNTypes,
-                     ScopedTypeVariables,
-                     FlexibleInstances,
-                     UndecidableInstances,
-                     ExistentialQuantification,
-                     GADTs,
-                     GeneralizedNewtypeDeriving,
-                     DeriveDataTypeable,
-                     TemplateHaskell,
-                     CPP
+  Extensions:        CPP, 
+                     ScopedTypeVariables
   ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind 
-  HS-Source-Dirs:    tests src
+  HS-Source-Dirs:    tests 

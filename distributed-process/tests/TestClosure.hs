@@ -1,3 +1,4 @@
+{-# LANGUAGE TemplateHaskell #-}
 module Main where
 
 import Data.ByteString.Lazy (empty)
@@ -290,7 +291,7 @@ testSpawnInvalid transport rtable = do
   node <- newLocalNode transport rtable
   done <- newEmptyMVar
   forkProcess node $ do
-    (pid, ref) <- spawnMonitor (localNodeId node) (Closure (staticLabel "ThisDoesNotExist") empty)
+    (pid, ref) <- spawnMonitor (localNodeId node) (closure (staticLabel "ThisDoesNotExist") empty)
     ProcessMonitorNotification ref' pid' _reason <- expect 
     -- Depending on the exact interleaving, reason might be NoProc or the exception thrown by the absence of the static closure
     True <- return $ ref' == ref && pid == pid'  
