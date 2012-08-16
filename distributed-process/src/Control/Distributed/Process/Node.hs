@@ -34,7 +34,7 @@ import Data.Maybe (isJust)
 import Data.Typeable (Typeable)
 import Control.Category ((>>>))
 import Control.Applicative ((<$>))
-import Control.Monad (void, when, forever)
+import Control.Monad (void, when)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.State.Strict (MonadState, StateT, evalStateT, gets)
 import qualified Control.Monad.State.Strict as StateT (get, put)
@@ -166,11 +166,17 @@ createBareLocalNode endPoint rtable = do
   void . forkIO $ handleIncomingMessages node
   return node
 
+-- Like 'Control.Monad.forever' but sans space leak
+{-# INLINE forever' #-}
+forever' :: Monad m => m a -> m b
+-- forever' a = let a' = a >> a' in a'
+forever' a = a >> forever' a
+
 -- | Start and register the service processes on a node 
 -- (for now, this is only the logger)
 startServiceProcesses :: LocalNode -> IO ()
 startServiceProcesses node = do
-  logger <- forkProcess node . forever $ do
+  logger <- forkProcess node . forever' $ do
     (time, pid, string) <- expect :: Process (String, ProcessId, String)
     liftIO . hPutStrLn stderr $ time ++ " " ++ show pid ++ ": " ++ string 
   runProcess node $ register "logger" logger
@@ -402,7 +408,7 @@ initNCState = NCState { _links    = Map.empty
 nodeController :: NC ()
 nodeController = do
   node <- ask 
-  forever $ do
+  forever' $ do
     msg  <- liftIO $ readChan (localCtrlChan node)
 
     -- [Unified: Table 7, rule nc_forward] 
