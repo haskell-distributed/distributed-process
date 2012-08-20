@@ -7,16 +7,17 @@ module Control.Distributed.Process.Backend.Azure
     -- * Re-exports from Azure Service Management
   , CloudService(..)
   , VirtualMachine(..)
+  , Endpoint(..)
+  , AzureSetup
   , Azure.cloudServices
     -- * Remote and local processes
   , ProcessPair(..)
   , RemoteProcess
   , LocalProcess
+  , localSend
   , localExpect
   , remoteSend
   , remoteThrow
-  , remoteSend'
-  , localSend
   ) where
 
 import System.Environment (getEnv)
@@ -45,7 +46,7 @@ import Data.Typeable (Typeable)
 import Control.Applicative ((<$>))
 import Control.Monad (void, unless)
 import Control.Monad.Reader (MonadReader, ReaderT, runReaderT, ask)
-import Control.Exception (Exception, catches, Handler(Handler))
+import Control.Exception (Exception, catches, Handler(Handler), throwIO)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 
 -- Azure
@@ -101,20 +102,18 @@ data Backend = Backend {
   , copyToVM :: VirtualMachine -> IO () 
     -- | Check the MD5 hash of the remote executable
   , checkMD5 :: VirtualMachine -> IO Bool 
-    -- | @runOnVM dict vm port p@ starts a CH node on port 'port' and runs 'p'
-  , callOnVM :: forall a. 
-                VirtualMachine 
-             -> String 
-             -> ProcessPair a
-             -> IO a 
-    -- | Create a new CH node and run the specified process in the background.
-    -- The CH node will exit when the process exists.
-  , spawnOnVM :: VirtualMachine 
-              -> String 
-              -> Closure (Backend -> Process ()) 
-              -> IO ()
+    -- | @runOnVM vm port pp@ starts a new CH node on machine @vm@ and then
+    -- runs the specified process pair. The CH node will shut down when the
+    -- /local/ process exists. @callOnVM@ returns the returned by the local
+    -- process on exit.
+  , callOnVM :: forall a. VirtualMachine -> String -> ProcessPair a -> IO a 
+    -- | Create a new CH node and run the specified process.
+    -- The CH node will shut down when the /remote/ process exists. @spawnOnVM@
+    -- returns as soon as the process has been spawned.
+  , spawnOnVM :: VirtualMachine -> String -> RemoteProcess () -> IO ()
   } deriving (Typeable)
 
+-- | Azure connection parameters
 data AzureParameters = AzureParameters {
     azureSetup           :: AzureSetup
   , azureSshUserName     :: FilePath
@@ -270,19 +269,42 @@ localHash params = md5 <$> BSL.readFile (azureSshLocalPath params)
 -- Local and remote processes                                                 --
 --------------------------------------------------------------------------------
 
+-- | A process pair consists of a remote process and a local process. The local
+-- process can send messages to the remote process using 'localSend' and wait
+-- for messages from the remote process using 'localExpect'. The remote process
+-- can send messages to the local process using 'remoteSend', and wait for
+-- messages from the local process using the standard Cloud Haskell primitives.
+-- 
+-- See also 'callOnVM'.
 data ProcessPair a = ProcessPair {
     ppairRemote :: RemoteProcess () 
   , ppairLocal  :: LocalProcess a
   }
 
+-- | The process to run on the remote node (see 'ProcessPair' and 'callOnVM').
 type RemoteProcess a = Closure (Backend -> Process a)
 
+-- | The process to run on the local node (see 'ProcessPair' and 'callOnVM').
 newtype LocalProcess a = LocalProcess { unLocalProcess :: ReaderT SSH.Channel IO a } 
   deriving (Functor, Monad, MonadIO, MonadReader SSH.Channel)
 
 runLocalProcess :: LocalProcess a -> SSH.Channel -> IO a
 runLocalProcess = runReaderT . unLocalProcess
 
+-- | Send a messages from the local process to the remote process 
+-- (see 'ProcessPair')
+localSend :: Serializable a => a -> LocalProcess ()
+localSend x = LocalProcess $ do
+  ch <- ask
+  liftIO $ mapM_ (SSH.writeChannel ch) 
+         . prependLength
+         . messageToPayload 
+         . createMessage 
+         $ x 
+
+-- | Wait for a message from the remote process (see 'ProcessPair').
+-- Note that unlike for the standard Cloud Haskell 'expect' it will result in a
+-- runtime error if the remote process sends a message of type other than @a@.
 localExpect :: Serializable a => LocalProcess a
 localExpect = LocalProcess $ do
   ch <- ask 
@@ -294,20 +316,17 @@ localExpect = LocalProcess $ do
       then error (decode msg)
       else return (decode msg)
 
-localSend :: Serializable a => a -> LocalProcess ()
-localSend x = LocalProcess $ do
-  ch <- ask
-  liftIO $ mapM_ (SSH.writeChannel ch) 
-         . prependLength
-         . messageToPayload 
-         . createMessage 
-         $ x 
-
+-- | Send a message from the remote process to the local process (see
+-- 'ProcessPair'). Note that the remote process can use the standard Cloud
+-- Haskell primitives to /receive/ messages from the local process.
 remoteSend :: Serializable a => a -> Process ()
 remoteSend = liftIO . remoteSend' 0  
 
-remoteThrow :: Exception e => e -> Process ()
-remoteThrow = liftIO . remoteSend' 1 . show 
+-- | If the remote process encounters an error it can use 'remoteThrow'. This
+-- will cause the exception to be raised (as a user-exception, not as the
+-- original type) in the local process (as well as in the remote process).
+remoteThrow :: Exception e => e -> IO ()
+remoteThrow e = remoteSend' 1 (show e) >> throwIO e
 
 remoteSend' :: Serializable a => Int -> a -> IO ()
 remoteSend' flags x = do

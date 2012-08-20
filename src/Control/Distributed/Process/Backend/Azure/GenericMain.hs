@@ -85,7 +85,6 @@ import Control.Distributed.Process.Backend.Azure
   , Backend(findVMs, copyToVM, checkMD5, callOnVM, spawnOnVM)
   , ProcessPair(..)
   , RemoteProcess
-  , remoteSend'
   , remoteThrow
   )
 
@@ -190,7 +189,7 @@ onVmRun rtable host port bg = do
       if bg 
         then detach $ startCH proc lprocMVar runProcess (\_ -> return ()) 
         else do
-          startCH proc lprocMVar forkProcess remoteThrow 
+          startCH proc lprocMVar forkProcess (liftIO . remoteThrow)
           lproc <- readMVar lprocMVar
           queueFromHandle stdin (processQueue lproc)
   where
@@ -202,7 +201,7 @@ onVmRun rtable host port bg = do
     startCH rproc lprocMVar go exceptionHandler = do
       mTransport <- createTransport host port defaultTCPParameters 
       case mTransport of
-        Left err -> remoteSend' 1 (show err) 
+        Left err -> remoteThrow err
         Right transport -> do 
           node <- newLocalNode transport rtable
           void . go node $ do 
