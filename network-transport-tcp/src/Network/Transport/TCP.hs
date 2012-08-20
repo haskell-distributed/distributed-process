@@ -97,7 +97,7 @@ import Control.Exception ( IOException
 import Data.IORef (IORef, newIORef, writeIORef, readIORef)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (concat)
-import qualified Data.ByteString.Char8 as BSC (pack, unpack, split)
+import qualified Data.ByteString.Char8 as BSC (pack, unpack)
 import Data.Int (Int32)
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap (empty)
@@ -1539,13 +1539,28 @@ encodeEndPointAddress host port ix = EndPointAddress . BSC.pack $
 decodeEndPointAddress :: EndPointAddress 
                       -> Maybe (N.HostName, N.ServiceName, EndPointId)
 decodeEndPointAddress (EndPointAddress bs) = 
-  case map BSC.unpack $ BSC.split ':' bs of
+  case splitMaxFromEnd (== ':') 2 $ BSC.unpack bs of
     [host, port, endPointIdStr] -> 
       case reads endPointIdStr of 
         [(endPointId, "")] -> Just (host, port, endPointId)
         _                  -> Nothing
     _ ->
       Nothing
+
+-- | @spltiMaxFromEnd p n xs@ splits list @xs@ at elements matching @p@,
+-- returning at most @p@ segments -- counting from the /end/
+-- 
+-- > splitMaxFromEnd (== ':') 2 "ab:cd:ef:gh" == ["ab:cd", "ef", "gh"]
+splitMaxFromEnd :: (a -> Bool) -> Int -> [a] -> [[a]]
+splitMaxFromEnd p = \n -> go [[]] n . reverse 
+  where
+    -- go :: [[a]] -> Int -> [a] -> [[a]]
+    go accs         _ []     = accs 
+    go ([]  : accs) 0 xs     = reverse xs : accs
+    go (acc : accs) n (x:xs) =
+      if p x then go ([] : acc : accs) (n - 1) xs
+             else go ((x : acc) : accs) n xs
+    go _ _ _ = error "Bug in splitMaxFromEnd"
 
 --------------------------------------------------------------------------------
 -- Functions from TransportInternals                                          --
