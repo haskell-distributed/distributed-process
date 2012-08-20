@@ -19,12 +19,18 @@ import Prelude hiding (id, (.))
 import Control.Category (id, (.))
 import Control.Arrow (arr)
 import Control.Monad (forM)
+import Control.Applicative ((<$>), (<*>))
 import Data.Maybe (listToMaybe)
+import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Char8 as BSC (pack)
 import Data.ByteString.Lazy.Char8 as BSLC (unpack)
-import Network.TLS (PrivateKey)
+import Data.Binary (Binary(get,put))
+import Data.Binary.Put (runPut)
+import Data.Binary.Get (Get, runGet)
+import Network.TLS (PrivateKey(PrivRSA))
 import Network.TLS.Extra (fileReadCertificate, fileReadPrivateKey)
-import Data.Certificate.X509 (X509)
+import Data.Certificate.X509 (X509, encodeCertificate, decodeCertificate)
+import qualified Crypto.Types.PubKey.RSA as RSA (PrivateKey(..))
 import Control.Monad.Trans.Resource (ResourceT)
 import Control.Monad.IO.Class (liftIO)
 import Control.Arrow.ArrowList (listA, arr2A)
@@ -160,6 +166,41 @@ data AzureSetup = AzureSetup
   , privateKey     :: PrivateKey
   , baseUrl        :: String
   }
+
+-- TODO: it's dubious to be transferring private keys, but we transfer them
+-- over a secure connection and it can be argued that it's safer than actually
+-- storing the private key on each remote server 
+
+encodePrivateKey :: PrivateKey -> ByteString
+encodePrivateKey (PrivRSA pkey) = runPut $ do
+  put (RSA.private_size pkey)
+  put (RSA.private_n pkey)
+  put (RSA.private_d pkey)
+  put (RSA.private_p pkey)
+  put (RSA.private_q pkey)
+  put (RSA.private_dP pkey)
+  put (RSA.private_dQ pkey)
+  put (RSA.private_qinv pkey)
+
+decodePrivateKey :: ByteString -> PrivateKey
+decodePrivateKey = PrivRSA . runGet getPrivateKey 
+  where
+    getPrivateKey :: Get RSA.PrivateKey
+    getPrivateKey = 
+      RSA.PrivateKey <$> get <*> get <*> get <*> get <*> get <*> get <*> get <*> get
+
+instance Binary AzureSetup where
+  put (AzureSetup sid cert pkey url) = do
+    put sid
+    put (encodeCertificate cert)
+    put (encodePrivateKey pkey)
+    put url 
+  get = do
+    sid  <- get
+    Right cert <- decodeCertificate <$> get
+    pkey <- decodePrivateKey <$> get
+    url  <- get
+    return $ AzureSetup sid cert pkey url
 
 -- | Initialize Azure
 azureSetup :: String        -- ^ Subscription ID

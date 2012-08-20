@@ -26,6 +26,8 @@ Library
                        case-insensitive >= 0.4 && < 0.5,
                        hxt >= 9.2 && < 9.3,
                        pretty >= 1.1 && < 1.2,
+                       crypto-pubkey-types >= 0.1 && < 0.2, 
+                       binary >= 0.5 && < 0.6, 
                        resourcet,
                        transformers,
                        hxt-xpath
