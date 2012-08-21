@@ -1,5 +1,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 
+import System.Environment (getArgs)
 import Data.Binary (encode, decode)
 import Control.Monad (forever)
 import Control.Monad.IO.Class (liftIO)
@@ -16,14 +17,6 @@ import Control.Distributed.Process
   )
 import Control.Distributed.Process.Closure (remotable, mkClosure) 
 import Control.Distributed.Process.Backend.Azure 
-  ( Backend
-  , ProcessPair(..)
-  , RemoteProcess
-  , LocalProcess
-  , localExpect
-  , remoteSend
-  )
-import Control.Distributed.Process.Backend.Azure.GenericMain (genericMain) 
 import qualified Data.ByteString.Lazy as BSL (readFile, writeFile) 
 
 pingServer :: () -> Backend -> Process ()
@@ -59,12 +52,21 @@ pingClientLocal :: LocalProcess ()
 pingClientLocal = localExpect >>= liftIO . putStrLn 
 
 main :: IO ()
-main = genericMain __remoteTable callable spawnable
-  where
-    callable :: String -> IO (ProcessPair ())
-    callable "client" = return $ ProcessPair ($(mkClosure 'pingClientRemote) ()) pingClientLocal 
-    callable _        = error "callable: unknown"
-
-    spawnable :: String -> IO (RemoteProcess ())
-    spawnable "server" = return $ ($(mkClosure 'pingServer) ()) 
-    spawnable _        = error "spawnable: unknown"
+main = do
+  args <- getArgs
+  case args of
+    "onvm":args' -> onVmMain __remoteTable args'
+    "list":sid:x509:pkey:_ -> do
+      params <- defaultAzureParameters sid x509 pkey 
+      css <- cloudServices (azureSetup params)
+      mapM_ print css
+    cmd:sid:x509:pkey:user:cloudService:virtualMachine:port:_ -> do
+      params <- defaultAzureParameters sid x509 pkey 
+      let params' = params { azureSshUserName = user }
+      backend <- initializeBackend params' cloudService
+      Just vm <- findNamedVM backend virtualMachine
+      case cmd of
+        "server" -> spawnOnVM backend vm port ($(mkClosure 'pingServer) ()) 
+        "client" -> callOnVM backend vm port $ 
+                      ProcessPair ($(mkClosure 'pingClientRemote) ()) 
+                                  pingClientLocal 

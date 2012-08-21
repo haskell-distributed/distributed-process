@@ -103,13 +103,13 @@
 -- 
 -- > cabal-dev install distributed-process-azure -f build-demos
 --
--- We can use any of the demos to test our setup; we will use the @ping@ demo:
+-- We can the @cloud-haskell-azure-ping@ demo to test our setup:
 -- 
 -- > cloud-haskell-azure-ping list \
--- >   --subscription-id <<your subscription ID>> \
--- >   --certificate /path/to/credentials.x509 \
--- >   --private /path/to/credentials.private
--- 
+-- >   <<your subscription ID>> \
+-- >   /path/to/credentials.x509 \
+-- >   /path/to/credentials.private 
+--
 -- (you can find your subscription ID in the @.publishsettings@ file from the previous step).
 -- If everything went well, this will output something like
 --
@@ -182,63 +182,35 @@
 -- machine will echo this back; the local machine will wait for the echo, show
 -- the echo, and repeat.
 --
--- Before you can try it you will first need to copy the executable to the remote server:
+-- Before you can try it you will first need to copy the executable (for
+-- example, using scp, although the Azure backend also provides this natively
+-- in Haskell). Once that's done, you can run the demo as follows:
 --
--- > cloud-haskell-azure-echo install \
--- >   --subscription-id <<your subscription ID>> \ 
--- >   --certificate /path/to/credentials.x509 \
--- >   --private /path/to/credentials.private \
--- >   --user <<remote username>> \
--- >   --cloud-service <<Cloud Service name>> \
--- >   --virtual-machine <<Virtual Machine name>> 
---
--- (If you leave out the @--virtual-machine@ argument the binary will be copied
--- to every virtual machine in the specified cloud service). Once installed,
--- you can run it as follows:
---
--- > cloud-haskell-azure-echo run \
--- >   --subscription-id <<your subscription ID>> \ 
--- >   --certificate /path/to/credentials.x509 \
--- >   --private /path/to/credentials.private \
--- >   --user <<remote username>> \
--- >   --cloud-service <<Cloud Service name>> \
--- >   --virtual-machine <<Virtual Machine name>> \
--- >   --port 8080 \
--- >   --closure echo
--- > CHDemo1: # Everything I type will be echoed back
--- > Echo: Everything I type will be echoed back
+-- > cloud-haskell-azure-echo \ 
+-- >   <<subscription ID>> \ 
+-- >   /path/to/credentials.x509 \ 
+-- >   /path/to/credentials.private \ 
+-- >   <<remote username>> \ 
+-- >   <<cloud service name>> \ 
+-- >   <<virtual machine name>> \ 
+-- >   <<port number>> 
+-- > # Everything I type gets echoed back
+-- > Echo: Everything I type gets echoed back
 -- > # Until I enter a blank line
 -- > Echo: Until I enter a blank line
 -- > # 
---
--- "Control.Distributed.Process.Backend.Azure.GenericMain" provides a generic
--- main function that you can use to structure your code. It provides command line
--- arguments such as the ones we saw in section /Testing the Setup/, it
--- initializes the Azure backend, and it takes care of running your code on the
--- remote machines. You don't have to use 'genericMain' if you prefer not to,
--- but then it will be your own responsibility to initialize Azure and to make
--- sure that your executable does the right thing when it's invoked on the
--- remote node. In these notes we will assume that you will use 'genericMain'. 
 --
 -- The full @echo@ demo is
 --
 -- > {-# LANGUAGE TemplateHaskell #-}
 -- > 
 -- > import System.IO (hFlush, stdout)
+-- > import System.Environment (getArgs)
 -- > import Control.Monad (unless, forever)
 -- > import Control.Monad.IO.Class (liftIO)
 -- > import Control.Distributed.Process (Process, expect)
 -- > import Control.Distributed.Process.Closure (remotable, mkClosure) 
 -- > import Control.Distributed.Process.Backend.Azure 
--- >   ( Backend
--- >   , ProcessPair(..)
--- >   , RemoteProcess
--- >   , LocalProcess
--- >   , localExpect
--- >   , remoteSend
--- >   , localSend
--- >   )
--- > import Control.Distributed.Process.Backend.Azure.GenericMain (genericMain) 
 -- > 
 -- > echoRemote :: () -> Backend -> Process ()
 -- > echoRemote () _backend = forever $ do
@@ -258,84 +230,61 @@
 -- >     echoLocal
 -- > 
 -- > main :: IO ()
--- > main = genericMain __remoteTable callable spawnable
--- >   where
--- >     callable :: String -> IO (ProcessPair ())
--- >     callable "echo" = return $ ProcessPair ($(mkClosure 'echoRemote) ()) echoLocal 
--- >     callable _      = error "callable: unknown"
--- > 
--- >     spawnable :: String -> IO (RemoteProcess ())
--- >     spawnable _ = error "spawnable: unknown"
---
--- 'genericMain' expects three arguments: the first is the standard
--- '__remoteTable' argument familiar from
--- "Control.Distributed.Process.Closure"; the second and third should map
--- strings to process pairs (for use with 'callOnVM') or remote processes (for
--- use with 'spawnOnVM') respectively.
---
--- When you invoke the @echo@ demo with @--closure echo@ the 'genericMain'
--- function calls 'callOnVM' with the process pair consisting of 'echoRemote'
--- and 'echoLocal'. Hopefully the definition of these two functions is
--- self-explanatory.
+-- > main = do
+-- >   args <- getArgs
+-- >   case args of
+-- >     "onvm":args' -> onVmMain __remoteTable args'
+-- >     sid:x509:pkey:user:cloudService:virtualMachine:port:_ -> do
+-- >       params <- defaultAzureParameters sid x509 pkey 
+-- >       let params' = params { azureSshUserName = user }
+-- >       backend <- initializeBackend params' cloudService
+-- >       Just vm <- findNamedVM backend virtualMachine
+-- >       callOnVM backend vm port $
+-- >         ProcessPair ($(mkClosure 'echoRemote) ()) 
+-- >                     echoLocal 
 -- 
 -- [Second Example: Ping]
 --
 -- The second example differs from the @echo@ demo in that it uses both
--- 'callable' ('callOnVM') and 'spawnable' ('spawnOnVM'). It uses the latter to
+-- 'callOnVM' and 'spawnOnVM'. It uses the latter to
 -- install a ping server which keeps running in the background; it uses the
 -- former to run a ping client which sends a request to the ping server and
--- outputs the response. As with the @echo@ server, we must first copy the
--- executable: 
+-- outputs the response. 
 --
--- > cloud-haskell-azure-ping install \
--- >   --subscription-id <<your subscription ID>> \ 
--- >   --certificate /path/to/credentials.x509 \
--- >   --private /path/to/credentials.private \
--- >   --user <<remote username>> \
--- >   --cloud-service <<Cloud Service name>> \
--- > CHDemo3: Done
--- > CHDemo2: Done
--- > CHDemo1: Done
+-- As with the @echo@ demo, make sure to copy the executable to the remote server first.
+-- Once that is done, you can start a ping server on a virtual machine using
 --
--- Now we can start the ping server on every virtual machine in the cloud
--- service (to install it to a single virtual machine only, pass the
--- @--virtual-machine@ argument):
---
--- > cloud-haskell-azure-ping run \
--- >   --subscription-id <<your subscription ID>> \ 
--- >   --certificate /path/to/credentials.x509 \
--- >   --private /path/to/credentials.private \
--- >   --user <<remote username>> \
--- >   --cloud-service <<Cloud Service name>> \
--- >   --port 8080 
--- >   --closure server 
--- >   --background
--- > CHDemo3: OK
--- > CHDemo2: OK
--- > CHDemo1: OK
+-- > cloud-haskell-azure-ping server \
+-- >   <<subscription ID>> \ 
+-- >   /path/to/credentials.x509 \ 
+-- >   /path/to/credentials.private \ 
+-- >   <<remote username>> \
+-- >   <<cloud service name>> \ 
+-- >   <<virtual machine name>> \ 
+-- >   <<port number>> 
 --
 -- Finally, we can run the ping client:
 --
--- > cloud-haskell-azure-ping run 
--- >   --subscription-id <<your subscription ID>> \ 
--- >   --certificate /path/to/credentials.x509 \
--- >   --private /path/to/credentials.private \
--- >   --user <<remote username>> \
--- >   --cloud-service <<Cloud Service name>> \
--- >   --port 8081 
--- >   --closure client
--- > CHDemo3: Ping server at pid://10.119.182.127:8080:0:2 ok
--- > CHDemo2: Ping server at pid://10.59.238.125:8080:0:2 ok
--- > CHDemo1: Ping server at pid://10.59.224.122:8080:0:2 ok
+-- > cloud-haskell-azure-ping client \
+-- >   <<subscription ID>> \
+-- >   /path/to/credentials.x509 \
+-- >   /path/to/credentials.private \ 
+-- >   <<remote username>> \
+-- >   <<cloud service name>> \ 
+-- >   <<virtual machine name>> \ 
+-- >   <<DIFFERENT port number>> 
+-- > Ping server at pid://10.59.224.122:8080:0:2 ok
 --
 -- Note that we must pass a different port number, because the client will run
 -- within its own Cloud Haskell instance.
 --
--- The code for the ping demo is similar to the echo demo, but demonstrates
--- both 'callable' and 'spawnable' and shows one way to discover nodes.
+-- The code for the @ping@ demo is similar to the @echo@ demo, but uses both
+-- 'callOnVM' and 'spawnOnVM' and demonstrates a way to discover processes (in
+-- this case, through a PID file).
 --
 -- > {-# LANGUAGE TemplateHaskell #-}
 -- > 
+-- > import System.Environment (getArgs)
 -- > import Data.Binary (encode, decode)
 -- > import Control.Monad (forever)
 -- > import Control.Monad.IO.Class (liftIO)
@@ -352,14 +301,6 @@
 -- >   )
 -- > import Control.Distributed.Process.Closure (remotable, mkClosure) 
 -- > import Control.Distributed.Process.Backend.Azure 
--- >   ( Backend
--- >   , ProcessPair(..)
--- >   , RemoteProcess
--- >   , LocalProcess
--- >   , localExpect
--- >   , remoteSend
--- >   )
--- > import Control.Distributed.Process.Backend.Azure.GenericMain (genericMain) 
 -- > import qualified Data.ByteString.Lazy as BSL (readFile, writeFile) 
 -- > 
 -- > pingServer :: () -> Backend -> Process ()
@@ -395,28 +336,34 @@
 -- > pingClientLocal = localExpect >>= liftIO . putStrLn 
 -- > 
 -- > main :: IO ()
--- > main = genericMain __remoteTable callable spawnable
--- >   where
--- >     callable :: String -> IO (ProcessPair ())
--- >     callable "client" = return $ ProcessPair ($(mkClosure 'pingClientRemote) ()) pingClientLocal 
--- >     callable _        = error "callable: unknown"
--- > 
--- >     spawnable :: String -> IO (RemoteProcess ())
--- >     spawnable "server" = return $ ($(mkClosure 'pingServer) ()) 
--- >     spawnable _        = error "spawnable: unknown"
---
--- The ping server stores its PID in a file, which the ping client attempts to
--- read. This kind of pattern is typical, and is provided for in the high-level API.
---
--- [Using the High-Level API]
---
--- TODO: Does not yet exist.
+-- > main = do
+-- >   args <- getArgs
+-- >   case args of
+-- >     "onvm":args' -> onVmMain __remoteTable args'
+-- >     "list":sid:x509:pkey:_ -> do
+-- >       params <- defaultAzureParameters sid x509 pkey 
+-- >       css <- cloudServices (azureSetup params)
+-- >       mapM_ print css
+-- >     cmd:sid:x509:pkey:user:cloudService:virtualMachine:port:_ -> do
+-- >       params <- defaultAzureParameters sid x509 pkey 
+-- >       let params' = params { azureSshUserName = user }
+-- >       backend <- initializeBackend params' cloudService
+-- >       Just vm <- findNamedVM backend virtualMachine
+-- >       case cmd of
+-- >         "server" -> spawnOnVM backend vm port ($(mkClosure 'pingServer) ()) 
+-- >         "client" -> callOnVM backend vm port $ 
+-- >                       ProcessPair ($(mkClosure 'pingClientRemote) ()) 
+-- >                                   pingClientLocal 
 module Control.Distributed.Process.Backend.Azure 
   ( -- * Initialization
     Backend(..)
   , AzureParameters(..)
   , defaultAzureParameters
   , initializeBackend
+    -- * Utilities
+  , findNamedVM
+    -- * On-VM main
+  , onVmMain
     -- * Re-exports from Azure Service Management
   , CloudService(..)
   , VirtualMachine(..)
@@ -433,10 +380,22 @@ module Control.Distributed.Process.Backend.Azure
   , remoteThrow
   ) where
 
+import Prelude hiding (catch)
 import System.Environment (getEnv)
 import System.FilePath ((</>), takeFileName)
 import System.Environment.Executable (getExecutablePath)
-import System.IO (stdout, hFlush)
+import System.IO 
+  ( stdout
+  , hFlush
+  , hSetBinaryMode
+  , stdin
+  , stdout
+  , stderr
+  , Handle
+  , hClose
+  )
+import qualified System.Posix.Process as Posix (forkProcess, createSession)
+import Data.Maybe (listToMaybe)
 import Data.Binary (Binary(get, put), encode, decode)
 import Data.Digest.Pure.MD5 (md5, MD5Digest)
 import qualified Data.ByteString as BSS 
@@ -444,6 +403,7 @@ import qualified Data.ByteString as BSS
   , length
   , concat
   , hPut
+  , hGet
   )
 import qualified Data.ByteString.Char8 as BSSC (pack)
 import qualified Data.ByteString.Lazy as BSL 
@@ -453,14 +413,23 @@ import qualified Data.ByteString.Lazy as BSL
   , fromChunks
   , toChunks
   , hPut
+  , hGet
   )
 import qualified Data.ByteString.Lazy.Char8 as BSLC (unpack)
 import Data.Typeable (Typeable)
+import Data.Foldable (forM_)
 import Control.Applicative ((<$>), (<*>))
 import Control.Monad (void, unless)
 import Control.Monad.Reader (MonadReader, ReaderT, runReaderT, ask)
-import Control.Exception (Exception, catches, Handler(Handler), throwIO)
+import Control.Exception 
+  ( Exception
+  , catches
+  , Handler(Handler)
+  , throwIO
+  , SomeException
+  )
 import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Concurrent.MVar (MVar, newEmptyMVar, readMVar, putMVar)
 
 -- Azure
 import Network.Azure.ServiceManagement 
@@ -499,12 +468,30 @@ import qualified Network.SSH.Client.LibSSH2.Errors as SSH
   )
 
 -- CH
-import Control.Distributed.Process (Process, Closure)
+import Control.Distributed.Process 
+  ( Process
+  , Closure
+  , RemoteTable
+  , catch
+  , unClosure
+  )
 import Control.Distributed.Process.Serializable (Serializable)
-import Control.Distributed.Process.Internal.Types 
-  ( messageToPayload
+import qualified Control.Distributed.Process.Internal.Types as CH 
+  ( LocalNode
+  , LocalProcess(processQueue)
+  , Message
+  , payloadToMessage
+  , messageToPayload
   , createMessage
   )
+import Control.Distributed.Process.Node 
+  ( runProcess
+  , forkProcess
+  , newLocalNode
+  , initRemoteTable
+  )
+import Control.Distributed.Process.Internal.CQueue (CQueue, enqueue)
+import Network.Transport.TCP (createTransport, defaultTCPParameters)
 import Network.Transport.Internal (encodeInt32, decodeInt32, prependLength)
 
 -- | Azure backend
@@ -609,10 +596,11 @@ apiCallOnVM :: AzureParameters
 apiCallOnVM params cloudService vm port ppair =
     withSSH2 params vm $ \s -> do
       let exe = "PATH=. " ++ azureSshRemotePath params 
-             ++ " onvm run "
-             ++ " --host " ++ vmIpAddress vm 
-             ++ " --port " ++ port
-             ++ " --cloud-service " ++ cloudService 
+             ++ " onvm"
+             ++ " " ++ vmIpAddress vm 
+             ++ " " ++ port
+             ++ " " ++ cloudService 
+             ++ " False"
              ++ " 2>&1"
       let paramsEnc = encode params
       (status, r) <- SSH.withChannelBy (SSH.openChannelSession s) id $ \ch -> do
@@ -639,11 +627,11 @@ apiSpawnOnVM params cloudService vm port proc =
     withSSH2 params vm $ \s -> do
       -- TODO: reduce duplication with apiCallOnVM
       let exe = "PATH=. " ++ azureSshRemotePath params 
-             ++ " onvm run "
-             ++ " --host " ++ vmIpAddress vm 
-             ++ " --port " ++ port
-             ++ " --cloud-service " ++ cloudService
-             ++ " --background "
+             ++ " onvm"
+             ++ " " ++ vmIpAddress vm 
+             ++ " " ++ port
+             ++ " " ++ cloudService
+             ++ " True"
              ++ " 2>&1"
       let paramsEnc = encode params
       (status, r) <- SSH.withChannelBy (SSH.openChannelSession s) id $ \ch -> do
@@ -703,6 +691,15 @@ localHash :: AzureParameters -> IO MD5Digest
 localHash params = md5 <$> BSL.readFile (azureSshLocalPath params) 
 
 --------------------------------------------------------------------------------
+-- Utilities                                                                  --
+--------------------------------------------------------------------------------
+
+-- | Find a virtual machine with a particular name
+findNamedVM :: Backend -> String -> IO (Maybe VirtualMachine)
+findNamedVM backend vm = 
+  listToMaybe . filter ((== vm) . vmName) <$> findVMs backend 
+
+--------------------------------------------------------------------------------
 -- Local and remote processes                                                 --
 --------------------------------------------------------------------------------
 
@@ -735,8 +732,8 @@ localSend x = LocalProcess $ do
   ch <- ask
   liftIO $ mapM_ (SSH.writeChannel ch) 
          . prependLength
-         . messageToPayload 
-         . createMessage 
+         . CH.messageToPayload 
+         . CH.createMessage 
          $ x 
 
 -- | Wait for a message from the remote process (see 'ProcessPair').
@@ -772,6 +769,80 @@ remoteSend' flags x = do
   BSS.hPut stdout (encodeInt32 (BSL.length enc))
   BSL.hPut stdout enc
   hFlush stdout
+
+--------------------------------------------------------------------------------
+-- On-VM main                                                                 --
+--------------------------------------------------------------------------------
+
+-- | Program main when run on the VM. A typical 'main' function looks like
+--
+-- > main :: IO ()
+-- > main = do
+-- >     args <- getArgs
+-- >     case args of
+-- >       "onvm":args' -> onVmMain __remoteTable args'
+-- >       _ -> -- your normal main
+onVmMain :: (RemoteTable -> RemoteTable) -> [String] -> IO ()
+onVmMain rtable [host, port, cloudService, bg] = do
+    hSetBinaryMode stdin True
+    hSetBinaryMode stdout True
+    Just procEnc   <- getWithLength stdin
+    Just paramsEnc <- getWithLength stdin
+    backend <- initializeBackend (decode paramsEnc) cloudService 
+    let proc = decode procEnc 
+    lprocMVar <- newEmptyMVar :: IO (MVar CH.LocalProcess)
+    if read bg 
+      then detach $ startCH proc lprocMVar backend runProcess (\_ -> return ()) 
+      else do
+        startCH proc lprocMVar backend forkProcess (liftIO . remoteThrow)
+        lproc <- readMVar lprocMVar
+        queueFromHandle stdin (CH.processQueue lproc)
+  where
+    startCH :: RemoteProcess () 
+            -> MVar CH.LocalProcess 
+            -> Backend
+            -> (CH.LocalNode -> Process () -> IO a) 
+            -> (SomeException -> Process ())
+            -> IO () 
+    startCH rproc lprocMVar backend go exceptionHandler = do
+      mTransport <- createTransport host port defaultTCPParameters 
+      case mTransport of
+        Left err -> remoteThrow err
+        Right transport -> do 
+          node <- newLocalNode transport (rtable initRemoteTable)
+          void . go node $ do 
+            ask >>= liftIO . putMVar lprocMVar
+            proc <- unClosure rproc :: Process (Backend -> Process ())
+            catch (proc backend) exceptionHandler
+onVmMain _ _ 
+  = error "Invalid arguments passed on onVmMain"
+
+-- | Read a 4-byte length @l@ and then an @l@-byte payload
+--
+-- Returns Nothing on EOF
+getWithLength :: Handle -> IO (Maybe BSL.ByteString)
+getWithLength h = do 
+  lenEnc <- BSS.hGet h 4
+  if BSS.length lenEnc < 4
+    then return Nothing
+    else do
+      let len = decodeInt32 lenEnc
+      bs <- BSL.hGet h len
+      if BSL.length bs < fromIntegral len
+        then return Nothing
+        else return (Just bs)
+
+queueFromHandle :: Handle -> CQueue CH.Message -> IO ()
+queueFromHandle h q = do
+  mPayload <- getWithLength stdin 
+  forM_ mPayload $ \payload -> do
+    enqueue q $ CH.payloadToMessage (BSL.toChunks payload) 
+    queueFromHandle h q
+
+detach :: IO () -> IO ()
+detach io = do 
+  mapM_ hClose [stdin, stdout, stderr]
+  void . Posix.forkProcess $ void Posix.createSession >> io
 
 --------------------------------------------------------------------------------
 -- SSH utilities                                                              --

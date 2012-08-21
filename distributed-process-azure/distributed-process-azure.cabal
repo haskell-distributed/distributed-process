@@ -39,8 +39,7 @@ Library
                      unix >= 2.5 && < 2.6,
                      network-transport >= 0.2 && < 0.3,
                      mtl >= 2.1 && < 2.2
-  Exposed-modules:   Control.Distributed.Process.Backend.Azure,
-                     Control.Distributed.Process.Backend.Azure.GenericMain
+  Exposed-modules:   Control.Distributed.Process.Backend.Azure
   Extensions:        ViewPatterns,
                      RankNTypes,
                      ExistentialQuantification,
