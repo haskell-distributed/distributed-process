@@ -16,28 +16,28 @@ import Control.Distributed.Process.Backend.Azure
   )
 import Control.Distributed.Process.Backend.Azure.GenericMain (genericMain) 
 
-echoServer :: () -> Backend -> Process ()
-echoServer () _backend = forever $ do
+echoRemote :: () -> Backend -> Process ()
+echoRemote () _backend = forever $ do
   str <- expect 
   remoteSend (str :: String)
 
-remotable ['echoServer]
+remotable ['echoRemote]
 
-echoClient :: LocalProcess ()
-echoClient = do
+echoLocal :: LocalProcess ()
+echoLocal = do
   str <- liftIO $ putStr "# " >> hFlush stdout >> getLine
   unless (null str) $ do
     localSend str
     liftIO $ putStr "Echo: " >> hFlush stdout
     echo <- localExpect
     liftIO $ putStrLn echo
-    echoClient
+    echoLocal
 
 main :: IO ()
 main = genericMain __remoteTable callable spawnable
   where
     callable :: String -> IO (ProcessPair ())
-    callable "echo" = return $ ProcessPair ($(mkClosure 'echoServer) ()) echoClient 
+    callable "echo" = return $ ProcessPair ($(mkClosure 'echoRemote) ()) echoLocal 
     callable _      = error "callable: unknown"
 
     spawnable :: String -> IO (RemoteProcess ())
