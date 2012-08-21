@@ -1,3 +1,141 @@
+-- | This module provides the low-level API to running Cloud Haskell on
+-- Microsoft Azure virtual machines (<http://www.windowsazure.com>). Virtual
+-- machines within an Azure cloud service can talk to each other directly using
+-- standard Cloud Haskell primitives (using TCP/IP under the hood); to talk to
+-- the remote machines from your local machine you can use the primitives
+-- provided in this module (which use ssh under the hood). It looks something
+-- like 
+--
+-- >                _  _
+-- >               ( `   )_
+-- >              (    )    `)     Azure cloud service
+-- >            (_   (_ .  _) _)
+-- >  
+-- >                   |
+-- >                   | ssh connection
+-- >                   |
+-- > 
+-- >                 +---+
+-- >                 |   |   Local machine
+-- >                 +---+
+--
+-- In this module we concentrate on the link between the local machine to the
+-- remote machines. "Control.Distributed.Process.Backend.Azure.Process" provides
+-- a higher-level interface that can be used in code that runs on the remote
+-- machines.
+--
+-- /NOTE/: It is unfortunate that the local machine cannot talk to the remote
+-- machine using the standard Cloud Haskell primitives. In an ideal world, we
+-- could just start a Cloud Haskell node on the local machine, too.
+-- Unfortunately, Cloud Haskell does not yet support using multiple network
+-- transports (TCP/IP vs SSH). This is a temporary workaround.
+--
+-- [Azure Setup]
+--
+-- In this section we describe how to set up an Azure Cloud Service for use
+-- with Cloud Haskell, starting from a brand new Azure account. It is not
+-- intended as an Azure tutorial, but as a guide to making the right choices to
+-- get Cloud Haskell up and running as quickly as possible.
+--
+-- An Azure /Cloud Service/ is a set of virtual machines that can talk to each
+-- other directly over TCP/IP (they are part of the same private network). You
+-- don't create the cloud service directly; instead, after you have set up your
+-- first virtual machine as a /stand alone/ virtual machine, you can /connect/
+-- subsequent virtual machines to the first virtual machine, thereby implicitly
+-- setting up a Cloud Service.
+--
+-- We have only tested Cloud Haskell with Linux based virtual machines; 
+-- Windows based virtual machines /might/ work, but you'll be entering
+-- unchartered territory. Cloud Haskell assumes that all nodes run the same
+-- binary code; hence, you must use the same OS on all virtual machines, 
+-- /as well as on your local machine/. We use Ubuntu Server 12.04 LTS for our
+-- tests (running on VirtualBox on our local machine). 
+--
+-- When you set up your virtual machine, you can pick an arbitrary name; these
+-- names are for your own use only and do not need to be globally unique. Set a
+-- username and password; you should use the same username on all virtual
+-- machines. You should also upload
+-- an SSH key for authentication (see 
+-- /Converting OpenSSH keys for use on Windows Azure Linux VM's/,
+-- <http://utlemming.azurewebsites.net/?p=91>, for
+-- information on how to convert a standard Linux @id_rsa.pub@ public key to
+-- X509 format suitable for Azure). For the first VM you create select
+-- /Standalone Virtual Machine/, and pick an appropriate DNS name. The DNS name
+-- /does/ have to be globally unique, and will also be the name of the Cloud
+-- Service. For subsequent virtual machines, select 
+-- /Connect to Existing Virtual Machine/ instead and then select the first VM
+-- you created. 
+--
+-- In these notes, we assume three virtual machines called @CHDemo1@,
+-- @CHDemo2@, and @CHDemo3@, all part of the @CloudHaskellDemo@ cloud service.
+--
+-- [Obtaining a Management Certificate]
+--
+-- Azure authentication is by means of an X509 certificate and corresponding
+-- private key. /Create management certificates for Linux in Windows Azure/,
+-- <https://www.windowsazure.com/en-us/manage/linux/common-tasks/manage-certificates/>,
+-- describes how you can create a management certificate for Azure, download it
+-- as a @.publishsettings@ file, and extract an @.pfx@ file from it. You cannot
+-- use this @.pfx@ directly; instead, you will need to extract an X509
+-- certificate from it and a private key in suitable format. You can use the
+-- @openssl@ command line tool for both tasks; assuming that you stored the
+-- @.pfx@ file as @credentials.pfx@, to extract the X509 certificate:
+--
+-- > openssl pkcs12 -in credentials.pfx -nokeys -out credentials.x509
+--
+-- And to extract the private key:
+--
+-- > openssl pkcs12 -in credentials.pfx -nocerts -nodes | openssl rsa -out credentials.private 
+--
+-- (@openssl pkcs12@ outputs the private key in PKCS#8 format (BEGIN PRIVATE
+-- KEY), but we need it in PKCS#1 format (BEGIN RSA PRIVATE KEY).
+--  
+-- [Testing the Setup]
+--
+-- Build and install the @distributed-process-azure@ package, making sure to
+-- pass the @build-demos@ flag to Cabal.
+-- 
+-- > cabal-dev install distributed-process-azure -f build-demos
+--
+-- We can use any of the demos to test our setup; we will use the @ping@ demo:
+-- 
+-- > cloud-haskell-azure-ping list \
+-- >   --subscription-id <<your subscription ID>> \
+-- >   --certificate /path/to/credentials.x509 \
+-- >   --private /path/to/credentials.private
+-- 
+-- (you can find your subscription ID in the @.publishsettings@ file from the previous step).
+-- If everything went well, this will output something like
+--
+-- > Cloud Service "CloudHaskellDemo"
+-- >   VIRTUAL MACHINES
+-- >     Virtual Machine "CHDemo3"
+-- >       IP 10.119.182.127
+-- >       INPUT ENDPOINTS
+-- >         Input endpoint "SSH"
+-- >           Port 50136
+-- >           VIP 168.63.31.38
+-- >     Virtual Machine "CHDemo2"
+-- >       IP 10.59.238.125
+-- >       INPUT ENDPOINTS
+-- >         Input endpoint "SSH"
+-- >           Port 63365
+-- >           VIP 168.63.31.38
+-- >     Virtual Machine "CHDemo1"
+-- >       IP 10.59.224.122
+-- >       INPUT ENDPOINTS
+-- >         Input endpoint "SSH"
+-- >           Port 22
+-- >           VIP 168.63.31.38
+--
+-- The IP addresses listed are /internal/ IP addresses; they can be used by the
+-- virtual machines to talk to each other, but not by the outside world to talk
+-- to the virtual machines. To do that, you will need to use the VIP (Virtual
+-- IP) address instead, which you will notice is the same for all virtual
+-- machines that are part of the cloud service. The corresponding DNS name
+-- (here @CloudHaskellDemo.cloudapp.net@) will also resolve to this (V)IP
+-- address. To login to individual machines (through SSH) you will need to use
+-- the specific port mentioned under INPUT ENDPOINTS.
 module Control.Distributed.Process.Backend.Azure 
   ( -- * Initialization
     Backend(..)
