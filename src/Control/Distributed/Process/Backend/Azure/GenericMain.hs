@@ -149,6 +149,7 @@ genericMain remoteTable callable spawnable = do
         onVmRun (remoteTable initRemoteTable) 
                 (onVmIP vmCmd) 
                 (onVmPort vmCmd)
+                (onVmService vmCmd)
                 (onVmBackground vmCmd)
     SSH.exit
   where
@@ -178,27 +179,29 @@ azureParameters opts (Just sshOpts) = do
 -- Executing a closure on the VM                                              --
 --------------------------------------------------------------------------------
 
-onVmRun :: RemoteTable -> String -> String -> Bool -> IO ()
-onVmRun rtable host port bg = do
+onVmRun :: RemoteTable -> String -> String -> String -> Bool -> IO ()
+onVmRun rtable host port cloudService bg = do
     hSetBinaryMode stdin True
     hSetBinaryMode stdout True
-    mProcEnc <- getWithLength stdin
-    forM_ mProcEnc $ \procEnc -> do
-      let proc = decode procEnc 
-      lprocMVar <- newEmptyMVar :: IO (MVar LocalProcess)
-      if bg 
-        then detach $ startCH proc lprocMVar runProcess (\_ -> return ()) 
-        else do
-          startCH proc lprocMVar forkProcess (liftIO . remoteThrow)
-          lproc <- readMVar lprocMVar
-          queueFromHandle stdin (processQueue lproc)
+    Just procEnc   <- getWithLength stdin
+    Just paramsEnc <- getWithLength stdin
+    backend <- initializeBackend (decode paramsEnc) cloudService 
+    let proc = decode procEnc 
+    lprocMVar <- newEmptyMVar :: IO (MVar LocalProcess)
+    if bg 
+      then detach $ startCH proc lprocMVar backend runProcess (\_ -> return ()) 
+      else do
+        startCH proc lprocMVar backend forkProcess (liftIO . remoteThrow)
+        lproc <- readMVar lprocMVar
+        queueFromHandle stdin (processQueue lproc)
   where
     startCH :: RemoteProcess () 
             -> MVar LocalProcess 
+            -> Backend
             -> (LocalNode -> Process () -> IO a) 
             -> (SomeException -> Process ())
             -> IO () 
-    startCH rproc lprocMVar go exceptionHandler = do
+    startCH rproc lprocMVar backend go exceptionHandler = do
       mTransport <- createTransport host port defaultTCPParameters 
       case mTransport of
         Left err -> remoteThrow err
@@ -206,7 +209,6 @@ onVmRun rtable host port bg = do
           node <- newLocalNode transport rtable
           void . go node $ do 
             ask >>= liftIO . putMVar lprocMVar
-            let backend = error "TODO: backend not initialized in onVmRun"
             proc <- unClosure rproc :: Process (Backend -> Process ())
             catch (proc backend) exceptionHandler
 
@@ -291,6 +293,7 @@ data OnVmCommand =
     OnVmRun {
       onVmIP         :: String
     , onVmPort       :: String
+    , onVmService    :: String
     , onVmBackground :: Bool
     }
   deriving Show
@@ -386,6 +389,10 @@ onVmRunParser = OnVmRun
   <*> strOption ( long "port"
                 & metavar "PORT"
                 & help "port number"
+                )
+  <*> strOption ( long "cloud-service"
+                & metavar "CS"
+                & help "Cloud service name"
                 )
   <*> switch ( long "background"
              & help "Run the process in the background"

@@ -24,7 +24,7 @@ import System.Environment (getEnv)
 import System.FilePath ((</>), takeFileName)
 import System.Environment.Executable (getExecutablePath)
 import System.IO (stdout, hFlush)
-import Data.Binary (encode, decode)
+import Data.Binary (Binary(get, put), encode, decode)
 import Data.Digest.Pure.MD5 (md5, MD5Digest)
 import qualified Data.ByteString as BSS 
   ( ByteString
@@ -43,7 +43,7 @@ import qualified Data.ByteString.Lazy as BSL
   )
 import qualified Data.ByteString.Lazy.Char8 as BSLC (unpack)
 import Data.Typeable (Typeable)
-import Control.Applicative ((<$>))
+import Control.Applicative ((<$>), (<*>))
 import Control.Monad (void, unless)
 import Control.Monad.Reader (MonadReader, ReaderT, runReaderT, ask)
 import Control.Exception (Exception, catches, Handler(Handler), throwIO)
@@ -125,6 +125,19 @@ data AzureParameters = AzureParameters {
   , azureSshLocalPath    :: FilePath
   }
 
+instance Binary AzureParameters where
+  put params = do
+    put (azureSetup params)
+    put (azureSshUserName params)
+    put (azureSshPublicKey params)
+    put (azureSshPrivateKey params)
+    put (azureSshPassphrase params)
+    put (azureSshKnownHosts params)
+    put (azureSshRemotePath params)
+    put (azureSshLocalPath params)
+  get = 
+    AzureParameters <$> get <*> get <*> get <*> get <*> get <*> get <*> get <*> get
+
 -- | Create default azure parameters
 defaultAzureParameters :: String    -- ^ Azure subscription ID
                        -> FilePath  -- ^ Path to X509 certificate
@@ -155,8 +168,8 @@ initializeBackend params cloudService =
       findVMs   = apiFindVMs params cloudService 
     , copyToVM  = apiCopyToVM params 
     , checkMD5  = apiCheckMD5 params
-    , callOnVM  = apiCallOnVM params
-    , spawnOnVM = apiSpawnOnVM params
+    , callOnVM  = apiCallOnVM params cloudService
+    , spawnOnVM = apiSpawnOnVM params cloudService
     }
 
 -- | Find virtual machines
@@ -175,21 +188,26 @@ apiCopyToVM params vm =
 
 -- | Call a process on a VM 
 apiCallOnVM :: AzureParameters 
+            -> String
             -> VirtualMachine 
             -> String 
             -> ProcessPair a
             -> IO a
-apiCallOnVM params vm port ppair =
+apiCallOnVM params cloudService vm port ppair =
     withSSH2 params vm $ \s -> do
       let exe = "PATH=. " ++ azureSshRemotePath params 
              ++ " onvm run "
              ++ " --host " ++ vmIpAddress vm 
              ++ " --port " ++ port
+             ++ " --cloud-service " ++ cloudService 
              ++ " 2>&1"
+      let paramsEnc = encode params
       (status, r) <- SSH.withChannelBy (SSH.openChannelSession s) id $ \ch -> do
         SSH.channelExecute ch exe
-        _ <- SSH.writeChannel ch (encodeInt32 (BSL.length rprocEnc))
-        _ <- SSH.writeAllChannel ch rprocEnc 
+        SSH.writeChannel ch (encodeInt32 (BSL.length rprocEnc))
+        SSH.writeAllChannel ch rprocEnc 
+        SSH.writeChannel ch (encodeInt32 (BSL.length paramsEnc))
+        SSH.writeAllChannel ch paramsEnc 
         runLocalProcess (ppairLocal ppair) ch
       if status == 0 
         then return r 
@@ -199,22 +217,28 @@ apiCallOnVM params vm port ppair =
     rprocEnc = encode (ppairRemote ppair) 
 
 apiSpawnOnVM :: AzureParameters 
+             -> String
              -> VirtualMachine 
              -> String 
              -> Closure (Backend -> Process ()) 
              -> IO ()
-apiSpawnOnVM params vm port proc = 
+apiSpawnOnVM params cloudService vm port proc = 
     withSSH2 params vm $ \s -> do
+      -- TODO: reduce duplication with apiCallOnVM
       let exe = "PATH=. " ++ azureSshRemotePath params 
              ++ " onvm run "
              ++ " --host " ++ vmIpAddress vm 
              ++ " --port " ++ port
+             ++ " --cloud-service " ++ cloudService
              ++ " --background "
              ++ " 2>&1"
+      let paramsEnc = encode params
       (status, r) <- SSH.withChannelBy (SSH.openChannelSession s) id $ \ch -> do
         SSH.channelExecute ch exe
-        _ <- SSH.writeChannel ch (encodeInt32 (BSL.length procEnc))
-        _ <- SSH.writeAllChannel ch procEnc 
+        SSH.writeChannel ch (encodeInt32 (BSL.length procEnc))
+        SSH.writeAllChannel ch procEnc 
+        SSH.writeChannel ch (encodeInt32 (BSL.length paramsEnc))
+        SSH.writeAllChannel ch paramsEnc 
         SSH.channelSendEOF ch
         SSH.readAllChannel ch
       unless (status == 0) $ error (BSLC.unpack r)

@@ -2,6 +2,8 @@
 import Data.Data (Typeable, Data)
 import Data.Binary (Binary(get, put))
 import Data.Binary.Generic (getGeneric, putGeneric)
+import Control.Monad (forever)
+import Control.Monad.IO.Class (liftIO)
 import Control.Distributed.Process
   ( Process
   , expect
@@ -11,9 +13,12 @@ import Control.Distributed.Process.Closure
   , mkClosure
   )
 import Control.Distributed.Process.Backend.Azure 
-  ( Backend
-  , ProcessPair(..)
+  ( Backend(findVMs)
+  , ProcessPair(ProcessPair)
   , RemoteProcess
+  , LocalProcess
+  , remoteSend
+  , localExpect
   )
 import Control.Distributed.Process.Backend.Azure.GenericMain (genericMain) 
 
@@ -25,23 +30,24 @@ instance Binary ControllerMsg where
   get = getGeneric
   put = putGeneric
 
-conwayController :: () -> Backend -> Process ()
-conwayController () _backend = go
-  where
-    go = do
-      msg <- expect
-      case msg of
-        ControllerExit -> 
-          return ()
+conwayStart :: () -> Backend -> Process ()
+conwayStart () backend = do 
+  vms <- liftIO $ findVMs backend
+  remoteSend (show vms)
 
-remotable ['conwayController]
+remotable ['conwayStart]
+
+echo :: LocalProcess ()
+echo = forever $ do
+  msg <- localExpect
+  liftIO $ putStrLn msg
 
 main :: IO ()
 main = genericMain __remoteTable callable spawnable
   where
     callable :: String -> IO (ProcessPair ())
-    callable _      = error "spawnable: unknown"
+    callable "start" = return $ ProcessPair ($(mkClosure 'conwayStart) ()) echo 
+    callable _       = error "callable: unknown"
 
     spawnable :: String -> IO (RemoteProcess ())
-    spawnable "controller" = return $ $(mkClosure 'conwayController) ()
-    spawnable _            = error "callable: unknown"
+    spawnable _ = error "spawnable: unknown"
