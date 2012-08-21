@@ -1,4 +1,5 @@
 {-# LANGUAGE TemplateHaskell, DeriveDataTypeable #-}
+import System.Environment (getArgs)
 import Data.Data (Typeable, Data)
 import Data.Binary (Binary(get, put))
 import Data.Binary.Generic (getGeneric, putGeneric)
@@ -13,14 +14,6 @@ import Control.Distributed.Process.Closure
   , mkClosure
   )
 import Control.Distributed.Process.Backend.Azure 
-  ( Backend(findVMs)
-  , ProcessPair(ProcessPair)
-  , RemoteProcess
-  , LocalProcess
-  , remoteSend
-  , localExpect
-  )
-import Control.Distributed.Process.Backend.Azure.GenericMain (genericMain) 
 
 data ControllerMsg = 
     ControllerExit
@@ -43,11 +36,16 @@ echo = forever $ do
   liftIO $ putStrLn msg
 
 main :: IO ()
-main = genericMain __remoteTable callable spawnable
-  where
-    callable :: String -> IO (ProcessPair ())
-    callable "start" = return $ ProcessPair ($(mkClosure 'conwayStart) ()) echo 
-    callable _       = error "callable: unknown"
-
-    spawnable :: String -> IO (RemoteProcess ())
-    spawnable _ = error "spawnable: unknown"
+main = do
+  args <- getArgs
+  case args of
+    "onvm":args' -> onVmMain __remoteTable args'
+    cmd:sid:x509:pkey:user:cloudService:virtualMachine:port:_ -> do
+      params <- defaultAzureParameters sid x509 pkey 
+      let params' = params { azureSshUserName = user }
+      backend <- initializeBackend params' cloudService
+      Just vm <- findNamedVM backend virtualMachine
+      case cmd of
+        "start" -> callOnVM backend vm port $ 
+                      ProcessPair ($(mkClosure 'conwayStart) ()) 
+                                  echo  
