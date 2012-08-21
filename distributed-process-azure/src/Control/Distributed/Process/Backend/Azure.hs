@@ -177,10 +177,11 @@
 --
 -- [First Example: Echo]
 --
--- The @echo@ demo starts a new Cloud Haskell node, waits for input from the
--- user on the local machine, sends this to the remote machine. The remote
--- machine will echo this back; the local machine will wait for the echo, show
--- the echo, and repeat.
+-- When we run the @cloud-haskell-azure-echo@ demo on our local machine, it
+-- starts a new Cloud Haskell node on the specified remote virtual machine. It
+-- then repeatedly waits for input from the user on the local machine, sends
+-- this to the remote virtual machine which will echo it back, and wait for and
+-- show the echo. 
 --
 -- Before you can try it you will first need to copy the executable (for
 -- example, using scp, although the Azure backend also provides this natively
@@ -233,16 +234,35 @@
 -- > main = do
 -- >   args <- getArgs
 -- >   case args of
--- >     "onvm":args' -> onVmMain __remoteTable args'
+-- >     "onvm":args' -> 
+-- >       -- Pass execution to 'onVmMain' if we are running on the VM
+-- >       -- ('callOnVM' will provide the right arguments)
+-- >       onVmMain __remoteTable args'
+-- >
 -- >     sid:x509:pkey:user:cloudService:virtualMachine:port:_ -> do
+-- >       -- Initialize the Azure backend
 -- >       params <- defaultAzureParameters sid x509 pkey 
 -- >       let params' = params { azureSshUserName = user }
 -- >       backend <- initializeBackend params' cloudService
+-- >
+-- >       -- Find the specified virtual machine
 -- >       Just vm <- findNamedVM backend virtualMachine
+-- >
+-- >       -- Run the echo client proper 
 -- >       callOnVM backend vm port $
 -- >         ProcessPair ($(mkClosure 'echoRemote) ()) 
 -- >                     echoLocal 
 -- 
+-- The most important part of this code is the last three lines
+--
+-- >       callOnVM backend vm port $
+-- >         ProcessPair ($(mkClosure 'echoRemote) ()) 
+-- >                     echoLocal 
+--
+-- 'callOnVM' creats a new Cloud Haskell node on the specified virtual machine,
+-- then runs @echoRemote@ on the remote machine and @echoLocal@ on the local
+-- machine.
+--
 -- [Second Example: Ping]
 --
 -- The second example differs from the @echo@ demo in that it uses both
@@ -263,7 +283,13 @@
 -- >   <<virtual machine name>> \ 
 -- >   <<port number>> 
 --
--- Finally, we can run the ping client:
+-- As before, when we execute this on our local machine, it starts a new Cloud
+-- Haskell node on the specified remote virtual machine and then executes the
+-- ping server. Unlike with the echo example, however, this command will
+-- terminate once the Cloud Haskell node has been set up, leaving the ping
+-- server running in the background.
+--
+-- Once the ping server is running we can run the ping client:
 --
 -- > cloud-haskell-azure-ping client \
 -- >   <<subscription ID>> \
@@ -339,16 +365,26 @@
 -- > main = do
 -- >   args <- getArgs
 -- >   case args of
--- >     "onvm":args' -> onVmMain __remoteTable args'
+-- >     "onvm":args' -> 
+-- >       -- Pass execution to 'onVmMain' if we are running on the VM
+-- >       onVmMain __remoteTable args'
+-- >
 -- >     "list":sid:x509:pkey:_ -> do
+-- >       -- List all available cloud services
+-- >       -- (useful, but not strictly necessary for the example)
 -- >       params <- defaultAzureParameters sid x509 pkey 
 -- >       css <- cloudServices (azureSetup params)
 -- >       mapM_ print css
+-- >
 -- >     cmd:sid:x509:pkey:user:cloudService:virtualMachine:port:_ -> do
+-- >       -- Initialize the backend and find the right VM
 -- >       params <- defaultAzureParameters sid x509 pkey 
 -- >       let params' = params { azureSshUserName = user }
 -- >       backend <- initializeBackend params' cloudService
 -- >       Just vm <- findNamedVM backend virtualMachine
+-- > 
+-- >       -- The same binary can behave as the client or the server, 
+-- >       -- depending on the command line arguments
 -- >       case cmd of
 -- >         "server" -> spawnOnVM backend vm port ($(mkClosure 'pingServer) ()) 
 -- >         "client" -> callOnVM backend vm port $ 
