@@ -26,8 +26,16 @@ import Control.Distributed.Process.Backend.Azure
 import Control.Distributed.Process.Backend.Azure.GenericMain (genericMain) 
 import qualified Data.ByteString.Lazy as BSL (readFile, writeFile) 
 
-pingClient :: () -> Backend -> Process () 
-pingClient () _backend = do
+pingServer :: () -> Backend -> Process ()
+pingServer () _backend = do
+  us <- getSelfPid
+  liftIO $ BSL.writeFile "pingServer.pid" (encode us)
+  forever $ do 
+    them <- expect
+    send them ()
+
+pingClientRemote :: () -> Backend -> Process () 
+pingClientRemote () _backend = do
   mPingServerEnc <- liftIO $ try (BSL.readFile "pingServer.pid")
   case mPingServerEnc of
     Left err -> 
@@ -45,26 +53,18 @@ pingClient () _backend = do
         then remoteSend $ "Ping server at " ++ show pingServerPid ++ " ok"
         else remoteSend $ "Ping server at " ++ show pingServerPid ++ " failure"
 
-pingServer :: () -> Backend -> Process ()
-pingServer () _backend = do
-  us <- getSelfPid
-  liftIO $ BSL.writeFile "pingServer.pid" (encode us)
-  forever $ do 
-    them <- expect
-    send them ()
+remotable ['pingClientRemote, 'pingServer]
 
-remotable ['pingClient, 'pingServer]
-
-receiveString :: LocalProcess ()
-receiveString = localExpect >>= liftIO . putStrLn 
+pingClientLocal :: LocalProcess ()
+pingClientLocal = localExpect >>= liftIO . putStrLn 
 
 main :: IO ()
 main = genericMain __remoteTable callable spawnable
   where
     callable :: String -> IO (ProcessPair ())
-    callable "ping"       = return $ ProcessPair ($(mkClosure 'pingClient) ()) receiveString 
-    callable _            = error "callable: unknown"
+    callable "client" = return $ ProcessPair ($(mkClosure 'pingClientRemote) ()) pingClientLocal 
+    callable _        = error "callable: unknown"
 
     spawnable :: String -> IO (RemoteProcess ())
-    spawnable "pingServer" = return $ ($(mkClosure 'pingServer) ()) 
-    spawnable _            = error "spawnable: unknown"
+    spawnable "server" = return $ ($(mkClosure 'pingServer) ()) 
+    spawnable _        = error "spawnable: unknown"
