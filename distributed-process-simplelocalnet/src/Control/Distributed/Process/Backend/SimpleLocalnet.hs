@@ -305,14 +305,21 @@ terminateAllSlaves backend = do
 -- Master nodes
 --------------------------------------------------------------------------------
 
--- | 'startMaster' finds all slaves currently available on the local network
--- (which should therefore be started first), redirects all log messages to
--- itself, and then calls the specified process, passing the list of slaves
--- nodes. 
+-- | 'startMaster' finds all slaves /currently/ available on the local network,
+-- redirects all log messages to itself, and then calls the specified process,
+-- passing the list of slaves nodes. 
 --
 -- Terminates when the specified process terminates. If you want to terminate
 -- the slaves when the master terminates, you should manually call 
 -- 'terminateAllSlaves'.
+--
+-- If you start more slave nodes after having started the master node, you can
+-- discover them with later calls to 'findSlaves', but be aware that you will
+-- need to call 'redirectLogHere' to redirect their logs to the master node.  
+--
+-- Note that you can use functionality of "SimpleLocalnet" directly (through
+-- 'Backend'), instead of using 'startMaster'/'startSlave', if the master/slave
+-- distinction does not suit your application.
 startMaster :: Backend -> ([NodeId] -> Process ()) -> IO ()
 startMaster backend proc = do
   node <- newLocalNode backend
