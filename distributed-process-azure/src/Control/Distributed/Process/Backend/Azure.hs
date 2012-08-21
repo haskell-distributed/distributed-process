@@ -22,7 +22,8 @@
 -- machine using the standard Cloud Haskell primitives. In an ideal world, we
 -- could just start a Cloud Haskell node on the local machine, too.
 -- Unfortunately, Cloud Haskell does not yet support using multiple network
--- transports (TCP/IP vs SSH). This is a temporary workaround.
+-- transports within the same system (i.e. both TCP/IP and SSH). This is a
+-- temporary workaround.
 --
 -- [Azure Setup]
 --
@@ -45,11 +46,11 @@
 -- /as well as on your local machine/. We use Ubuntu Server 12.04 LTS for our
 -- tests (running on VirtualBox on our local machine). 
 --
--- When you set up your virtual machine, you can pick an arbitrary name; these
--- names are for your own use only and do not need to be globally unique. Set a
--- username and password; you should use the same username on all virtual
--- machines. You should also upload
--- an SSH key for authentication (see 
+-- When you set up your virtual machine, you can pick an arbitrary virtual
+-- machine name; these names are for your own use only and do not need to be
+-- globally unique. Set a username and password; you should use the same
+-- username on all virtual machines. You should also upload an SSH key for
+-- authentication (see 
 -- /Converting OpenSSH keys for use on Windows Azure Linux VM's/,
 -- <http://utlemming.azurewebsites.net/?p=91>, for
 -- information on how to convert a standard Linux @id_rsa.pub@ public key to
@@ -63,8 +64,8 @@
 -- Once your virtual machines have been set up, you have to make sure that the
 -- user you created when you created the VM can ssh from any virtual machine to
 -- any other using public key authentication. Moreover, you have to make sure
--- that @libssh2@ is installed; if you are using the Ubuntu image we recommend
--- you can install @libssh2@ using
+-- that @libssh2@ is installed; if you are using the Ubuntu image you can
+-- install @libssh2@ using
 --
 -- > sudo apt-get install libssh2-1
 --
@@ -72,7 +73,7 @@
 -- message.)
 --
 -- In these notes, we assume three virtual machines called @CHDemo1@,
--- @CHDemo2@, and @CHDemo3@, all part of the @CloudHaskellDemo@ cloud service.
+-- @CHDemo2@, and @CHDemo3@, all part of a @CloudHaskellDemo@ cloud service.
 --
 -- [Obtaining a Management Certificate]
 --
@@ -161,8 +162,9 @@
 -- > type RemoteProcess a = Closure (Backend -> Process a)
 --
 -- (If you don't know what a 'Closure' is you should read
--- "Control.Distributed.Process.Closure".) 'spawnOnVM' terminates once the
--- Cloud Haskell node has been set up.
+-- "Control.Distributed.Process.Closure".); the remote process will be supplied
+-- with an Azure backend initialized with the same parameters. 'spawnOnVM'
+-- returns once the Cloud Haskell node has been set up.
 --
 -- 'callOnVM' is similar to 'spawnOnVM', but it takes a /pair/ of processes:
 -- one to run on the remote host (on a newly created Cloud Haskell node), and
@@ -183,7 +185,7 @@
 -- Before you can try it you will first need to copy the executable to the remote server:
 --
 -- > cloud-haskell-azure-echo install \
--- >   --subscription-id <<your subscription ID> \ 
+-- >   --subscription-id <<your subscription ID>> \ 
 -- >   --certificate /path/to/credentials.x509 \
 -- >   --private /path/to/credentials.private \
 -- >   --user <<remote username>> \
@@ -195,7 +197,7 @@
 -- you can run it as follows:
 --
 -- > cloud-haskell-azure-echo run \
--- >   --subscription-id <<your subscription ID> \ 
+-- >   --subscription-id <<your subscription ID>> \ 
 -- >   --certificate /path/to/credentials.x509 \
 -- >   --private /path/to/credentials.private \
 -- >   --user <<remote username>> \
@@ -210,7 +212,7 @@
 -- > # 
 --
 -- "Control.Distributed.Process.Backend.Azure.GenericMain" provides a generic
--- main function that you can to structure your code. It provides command line
+-- main function that you can use to structure your code. It provides command line
 -- arguments such as the ones we saw in section /Testing the Setup/, it
 -- initializes the Azure backend, and it takes care of running your code on the
 -- remote machines. You don't have to use 'genericMain' if you prefer not to,
@@ -286,7 +288,7 @@
 -- executable: 
 --
 -- > cloud-haskell-azure-ping install \
--- >   --subscription-id <<your subscription ID> \ 
+-- >   --subscription-id <<your subscription ID>> \ 
 -- >   --certificate /path/to/credentials.x509 \
 -- >   --private /path/to/credentials.private \
 -- >   --user <<remote username>> \
@@ -300,7 +302,7 @@
 -- @--virtual-machine@ argument):
 --
 -- > cloud-haskell-azure-ping run \
--- >   --subscription-id <<your subscription ID> \ 
+-- >   --subscription-id <<your subscription ID>> \ 
 -- >   --certificate /path/to/credentials.x509 \
 -- >   --private /path/to/credentials.private \
 -- >   --user <<remote username>> \
@@ -315,7 +317,7 @@
 -- Finally, we can run the ping client:
 --
 -- > cloud-haskell-azure-ping run 
--- >   --subscription-id <<your subscription ID> \ 
+-- >   --subscription-id <<your subscription ID>> \ 
 -- >   --certificate /path/to/credentials.x509 \
 -- >   --private /path/to/credentials.private \
 -- >   --user <<remote username>> \
@@ -329,7 +331,7 @@
 -- Note that we must pass a different port number, because the client will run
 -- within its own Cloud Haskell instance.
 --
--- The code for the ping server is similar to the echo server, but demonstrates
+-- The code for the ping demo is similar to the echo demo, but demonstrates
 -- both 'callable' and 'spawnable' and shows one way to discover nodes.
 --
 -- > {-# LANGUAGE TemplateHaskell #-}
