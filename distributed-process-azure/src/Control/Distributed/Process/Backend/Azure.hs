@@ -629,29 +629,7 @@ apiCallOnVM :: AzureParameters
             -> String 
             -> ProcessPair a
             -> IO a
-apiCallOnVM params cloudService vm port ppair =
-    withSSH2 params vm $ \s -> do
-      let exe = "PATH=. " ++ azureSshRemotePath params 
-             ++ " onvm"
-             ++ " " ++ vmIpAddress vm 
-             ++ " " ++ port
-             ++ " " ++ cloudService 
-             ++ " False"
-             ++ " 2>&1"
-      let paramsEnc = encode params
-      (status, r) <- SSH.withChannelBy (SSH.openChannelSession s) id $ \ch -> do
-        SSH.channelExecute ch exe
-        SSH.writeChannel ch (encodeInt32 (BSL.length rprocEnc))
-        SSH.writeAllChannel ch rprocEnc 
-        SSH.writeChannel ch (encodeInt32 (BSL.length paramsEnc))
-        SSH.writeAllChannel ch paramsEnc 
-        runLocalProcess (ppairLocal ppair) ch
-      if status == 0 
-        then return r 
-        else error "callOnVM: Non-zero exit status" 
-  where
-    rprocEnc :: BSL.ByteString
-    rprocEnc = encode (ppairRemote ppair) 
+apiCallOnVM = runOnVM False
 
 apiSpawnOnVM :: AzureParameters 
              -> String
@@ -659,37 +637,40 @@ apiSpawnOnVM :: AzureParameters
              -> String 
              -> Closure (Backend -> Process ()) 
              -> IO ProcessId 
-apiSpawnOnVM params cloudService vm port proc = 
-    withSSH2 params vm $ \s -> do
-      -- TODO: reduce duplication with apiCallOnVM
-      let exe = "PATH=. " ++ azureSshRemotePath params 
-             ++ " onvm"
-             ++ " " ++ vmIpAddress vm 
-             ++ " " ++ port
-             ++ " " ++ cloudService
-             ++ " True"
-             ++ " 2>&1"
-      let paramsEnc = encode params
-      (status, r) <- SSH.withChannelBy (SSH.openChannelSession s) id $ \ch -> do
-        SSH.channelExecute ch exe
-        SSH.writeChannel ch (encodeInt32 (BSL.length procEnc))
-        SSH.writeAllChannel ch procEnc 
-        SSH.writeChannel ch (encodeInt32 (BSL.length paramsEnc))
-        SSH.writeAllChannel ch paramsEnc 
-        localExpect' ch
-      if status == 0 
-        then return r 
-        else error "spawnOnVM: Non-zero exit status" 
-     {-
-        --SSH.channelSendEOF ch
-        --SSH.readAllChannel ch
-      if status == 0
-        then return (decode r)
-        else error (BSLC.unpack r)
-     -}
-  where
-    procEnc :: BSL.ByteString
-    procEnc = encode proc
+apiSpawnOnVM params cloudService vm port rproc = 
+  runOnVM True params cloudService vm port $ 
+    ProcessPair rproc localExpect
+    
+-- | Internal generalization of 'spawnOnVM' and 'callOnVM'
+runOnVM :: Bool 
+        -> AzureParameters
+        -> String
+        -> VirtualMachine
+        -> String
+        -> ProcessPair a
+        -> IO a
+runOnVM bg params cloudService vm port ppair = 
+  withSSH2 params vm $ \s -> do
+    -- TODO: reduce duplication with apiCallOnVM
+    let exe = "PATH=. " ++ azureSshRemotePath params 
+           ++ " onvm"
+           ++ " " ++ vmIpAddress vm 
+           ++ " " ++ port
+           ++ " " ++ cloudService
+           ++ " " ++ show bg 
+           ++ " 2>&1"
+    let paramsEnc = encode params
+    let rprocEnc  = encode (ppairRemote ppair) 
+    (status, r) <- SSH.withChannelBy (SSH.openChannelSession s) id $ \ch -> do
+      SSH.channelExecute ch exe
+      SSH.writeChannel ch (encodeInt32 (BSL.length rprocEnc))
+      SSH.writeAllChannel ch rprocEnc 
+      SSH.writeChannel ch (encodeInt32 (BSL.length paramsEnc))
+      SSH.writeAllChannel ch paramsEnc 
+      runLocalProcess (ppairLocal ppair) ch
+    if status == 0 
+      then return r 
+      else error "runOnVM: Non-zero exit status" -- This would a bug 
 
 -- | Check the MD5 hash of the executable on the remote machine
 apiCheckMD5 :: AzureParameters -> VirtualMachine -> IO Bool 
@@ -784,16 +765,15 @@ localSend x = LocalProcess $ do
 -- Note that unlike for the standard Cloud Haskell 'expect' it will result in a
 -- runtime error if the remote process sends a message of type other than @a@.
 localExpect :: Serializable a => LocalProcess a
-localExpect = LocalProcess $ ask >>= liftIO . localExpect' 
-
-localExpect' :: Serializable a => SSH.Channel -> IO a
-localExpect' ch = do 
-  isE <- readIntChannel ch
-  len <- readIntChannel ch 
-  msg <- readSizeChannel ch len
-  if isE /= 0
-    then error (decode msg)
-    else return (decode msg)
+localExpect = LocalProcess $ do
+  ch <- ask
+  liftIO $ do 
+    isE <- readIntChannel ch
+    len <- readIntChannel ch 
+    msg <- readSizeChannel ch len
+    if isE /= 0
+      then error (decode msg)
+      else return (decode msg)
 
 -- | Send a message from the remote process to the local process (see
 -- 'ProcessPair'). Note that the remote process can use the standard Cloud
