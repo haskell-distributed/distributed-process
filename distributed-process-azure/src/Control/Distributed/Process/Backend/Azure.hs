@@ -455,7 +455,7 @@ import qualified Data.ByteString.Lazy.Char8 as BSLC (unpack)
 import Data.Typeable (Typeable)
 import Data.Foldable (forM_)
 import Control.Applicative ((<$>), (<*>))
-import Control.Monad (void, unless)
+import Control.Monad (void)
 import Control.Monad.Reader (MonadReader, ReaderT, runReaderT, ask)
 import Control.Exception 
   ( Exception
@@ -510,6 +510,8 @@ import Control.Distributed.Process
   , RemoteTable
   , catch
   , unClosure
+  , ProcessId
+  , getSelfPid
   )
 import Control.Distributed.Process.Serializable (Serializable)
 import qualified Control.Distributed.Process.Internal.Types as CH 
@@ -546,7 +548,7 @@ data Backend = Backend {
     -- | Create a new CH node and run the specified process.
     -- The CH node will shut down when the /remote/ process exists. @spawnOnVM@
     -- returns as soon as the process has been spawned.
-  , spawnOnVM :: VirtualMachine -> String -> RemoteProcess () -> IO ()
+  , spawnOnVM :: VirtualMachine -> String -> RemoteProcess () -> IO ProcessId 
   } deriving (Typeable)
 
 -- | Azure connection parameters
@@ -658,7 +660,7 @@ apiSpawnOnVM :: AzureParameters
              -> VirtualMachine 
              -> String 
              -> Closure (Backend -> Process ()) 
-             -> IO ()
+             -> IO ProcessId 
 apiSpawnOnVM params cloudService vm port proc = 
     withSSH2 params vm $ \s -> do
       -- TODO: reduce duplication with apiCallOnVM
@@ -678,7 +680,9 @@ apiSpawnOnVM params cloudService vm port proc =
         SSH.writeAllChannel ch paramsEnc 
         SSH.channelSendEOF ch
         SSH.readAllChannel ch
-      unless (status == 0) $ error (BSLC.unpack r)
+      if status == 0
+        then return (decode r)
+        else error (BSLC.unpack r)
   where
     procEnc :: BSL.ByteString
     procEnc = encode proc
@@ -822,15 +826,27 @@ onVmMain :: (RemoteTable -> RemoteTable) -> [String] -> IO ()
 onVmMain rtable [host, port, cloudService, bg] = do
     hSetBinaryMode stdin True
     hSetBinaryMode stdout True
-    Just procEnc   <- getWithLength stdin
+    Just rprocEnc  <- getWithLength stdin
     Just paramsEnc <- getWithLength stdin
     backend <- initializeBackend (decode paramsEnc) cloudService 
-    let proc = decode procEnc 
+    let rproc = decode rprocEnc 
     lprocMVar <- newEmptyMVar :: IO (MVar CH.LocalProcess)
     if read bg 
-      then detach $ startCH proc lprocMVar backend runProcess (\_ -> return ()) 
+      then
+        void . Posix.forkProcess $ do
+          -- We inherit the file descriptors from the parent, so the SSH
+          -- session will not be terminated until we close them
+          void Posix.createSession
+          startCH rproc lprocMVar backend 
+            (\node proc -> runProcess node $ do
+              us <- getSelfPid
+              liftIO $ do
+                BSL.hPut stdout (encode us)
+                mapM_ hClose [stdin, stdout, stderr]
+              proc) 
+            (\_ -> return ()) 
       else do
-        startCH proc lprocMVar backend forkProcess (liftIO . remoteThrow)
+        startCH rproc lprocMVar backend forkProcess (liftIO . remoteThrow)
         lproc <- readMVar lprocMVar
         queueFromHandle stdin (CH.processQueue lproc)
   where
@@ -874,11 +890,6 @@ queueFromHandle h q = do
   forM_ mPayload $ \payload -> do
     enqueue q $ CH.payloadToMessage (BSL.toChunks payload) 
     queueFromHandle h q
-
-detach :: IO () -> IO ()
-detach io = do 
-  mapM_ hClose [stdin, stdout, stderr]
-  void . Posix.forkProcess $ void Posix.createSession >> io
 
 --------------------------------------------------------------------------------
 -- SSH utilities                                                              --
