@@ -76,7 +76,10 @@ main = do
       -- The same binary can behave as the client or the server,
       -- depending on the command line arguments
       case cmd of
-        "server" -> spawnOnVM backend vm port ($(mkClosure 'pingServer) ()) 
-        "client" -> callOnVM backend vm port $ 
-                      ProcessPair ($(mkClosure 'pingClientRemote) ()) 
-                                  pingClientLocal 
+        "server" -> do 
+          pid <- spawnOnVM backend vm port ($(mkClosure 'pingServer) ()) 
+          putStrLn $ "Ping server started at " ++ show pid
+        "client" -> 
+          callOnVM backend vm port $ 
+            ProcessPair ($(mkClosure 'pingClientRemote) ()) 
+                        pingClientLocal 
