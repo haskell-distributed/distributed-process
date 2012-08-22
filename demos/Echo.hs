@@ -29,12 +29,21 @@ main :: IO ()
 main = do
   args <- getArgs
   case args of
-    "onvm":args' -> onVmMain __remoteTable args'
+    "onvm":args' -> 
+      -- Pass execution to 'onVmMain' if we are running on the VM
+      -- ('callOnVM' will provide the right arguments)
+      onVmMain __remoteTable args'
+
     sid:x509:pkey:user:cloudService:virtualMachine:port:_ -> do
+      -- Initialize the Azure backend
       params <- defaultAzureParameters sid x509 pkey 
       let params' = params { azureSshUserName = user }
       backend <- initializeBackend params' cloudService
+
+      -- Find the specified virtual machine
       Just vm <- findNamedVM backend virtualMachine
+      
+      -- Run the echo client proper
       callOnVM backend vm port $
         ProcessPair ($(mkClosure 'echoRemote) ()) 
                     echoLocal 
