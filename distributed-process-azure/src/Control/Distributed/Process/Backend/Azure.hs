@@ -413,7 +413,6 @@ module Control.Distributed.Process.Backend.Azure
   , localSend
   , localExpect
   , remoteSend
-  , remoteThrow
   ) where
 
 import Prelude hiding (catch)
@@ -451,7 +450,6 @@ import qualified Data.ByteString.Lazy as BSL
   , hPut
   , hGet
   )
-import qualified Data.ByteString.Lazy.Char8 as BSLC (unpack)
 import Data.Typeable (Typeable)
 import Data.Foldable (forM_)
 import Control.Applicative ((<$>), (<*>))
@@ -678,11 +676,17 @@ apiSpawnOnVM params cloudService vm port proc =
         SSH.writeAllChannel ch procEnc 
         SSH.writeChannel ch (encodeInt32 (BSL.length paramsEnc))
         SSH.writeAllChannel ch paramsEnc 
-        SSH.channelSendEOF ch
-        SSH.readAllChannel ch
+        localExpect' ch
+      if status == 0 
+        then return r 
+        else error "spawnOnVM: Non-zero exit status" 
+     {-
+        --SSH.channelSendEOF ch
+        --SSH.readAllChannel ch
       if status == 0
         then return (decode r)
         else error (BSLC.unpack r)
+     -}
   where
     procEnc :: BSL.ByteString
     procEnc = encode proc
@@ -780,30 +784,34 @@ localSend x = LocalProcess $ do
 -- Note that unlike for the standard Cloud Haskell 'expect' it will result in a
 -- runtime error if the remote process sends a message of type other than @a@.
 localExpect :: Serializable a => LocalProcess a
-localExpect = LocalProcess $ do
-  ch <- ask 
-  liftIO $ do
-    isE <- readIntChannel ch
-    len <- readIntChannel ch 
-    msg <- readSizeChannel ch len
-    if isE /= 0
-      then error (decode msg)
-      else return (decode msg)
+localExpect = LocalProcess $ ask >>= liftIO . localExpect' 
+
+localExpect' :: Serializable a => SSH.Channel -> IO a
+localExpect' ch = do 
+  isE <- readIntChannel ch
+  len <- readIntChannel ch 
+  msg <- readSizeChannel ch len
+  if isE /= 0
+    then error (decode msg)
+    else return (decode msg)
 
 -- | Send a message from the remote process to the local process (see
 -- 'ProcessPair'). Note that the remote process can use the standard Cloud
 -- Haskell primitives to /receive/ messages from the local process.
 remoteSend :: Serializable a => a -> Process ()
-remoteSend = liftIO . remoteSend' 0  
+remoteSend = liftIO . remoteSend' 
+
+remoteSend' :: Serializable a => a -> IO ()
+remoteSend' = remoteSendFlagged 0
 
 -- | If the remote process encounters an error it can use 'remoteThrow'. This
 -- will cause the exception to be raised (as a user-exception, not as the
 -- original type) in the local process (as well as in the remote process).
 remoteThrow :: Exception e => e -> IO ()
-remoteThrow e = remoteSend' 1 (show e) >> throwIO e
+remoteThrow e = remoteSendFlagged 1 (show e) >> throwIO e
 
-remoteSend' :: Serializable a => Int -> a -> IO ()
-remoteSend' flags x = do
+remoteSendFlagged :: Serializable a => Int -> a -> IO ()
+remoteSendFlagged flags x = do
   let enc = encode x
   BSS.hPut stdout (encodeInt32 flags)
   BSS.hPut stdout (encodeInt32 (BSL.length enc))
@@ -841,12 +849,11 @@ onVmMain rtable [host, port, cloudService, bg] = do
             (\node proc -> runProcess node $ do
               us <- getSelfPid
               liftIO $ do
-                BSL.hPut stdout (encode us)
+                remoteSend' us
                 mapM_ hClose [stdin, stdout, stderr]
               proc) 
-            (\_ -> return ()) 
       else do
-        startCH rproc lprocMVar backend forkProcess (liftIO . remoteThrow)
+        startCH rproc lprocMVar backend forkProcess 
         lproc <- readMVar lprocMVar
         queueFromHandle stdin (CH.processQueue lproc)
   where
@@ -854,9 +861,8 @@ onVmMain rtable [host, port, cloudService, bg] = do
             -> MVar CH.LocalProcess 
             -> Backend
             -> (CH.LocalNode -> Process () -> IO a) 
-            -> (SomeException -> Process ())
             -> IO () 
-    startCH rproc lprocMVar backend go exceptionHandler = do
+    startCH rproc lprocMVar backend go = do
       mTransport <- createTransport host port defaultTCPParameters 
       case mTransport of
         Left err -> remoteThrow err
@@ -865,7 +871,8 @@ onVmMain rtable [host, port, cloudService, bg] = do
           void . go node $ do 
             ask >>= liftIO . putMVar lprocMVar
             proc <- unClosure rproc :: Process (Backend -> Process ())
-            catch (proc backend) exceptionHandler
+            catch (proc backend) 
+                  (liftIO . (remoteThrow :: SomeException -> IO ()))
 onVmMain _ _ 
   = error "Invalid arguments passed on onVmMain"
 
