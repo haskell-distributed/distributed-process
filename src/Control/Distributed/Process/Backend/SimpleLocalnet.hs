@@ -97,7 +97,7 @@ import Data.Foldable (forM_)
 import Data.Typeable (Typeable)
 import Control.Applicative ((<$>))
 import Control.Exception (throw)
-import Control.Monad (forever, forM)
+import Control.Monad (forever, forM, replicateM)
 import Control.Monad.IO.Class (liftIO)
 import Control.Concurrent (forkIO, threadDelay, ThreadId)
 import Control.Concurrent.MVar (MVar, newMVar, readMVar, modifyMVar_)
@@ -114,8 +114,12 @@ import Control.Distributed.Process
   , expect
   , nsendRemote
   , receiveWait
+  , match
   , matchIf
   , processNodeId
+  , monitorNode
+  , unmonitor
+  , NodeMonitorNotification(..)
   )
 import qualified Control.Distributed.Process.Node as Node 
   ( LocalNode
@@ -286,12 +290,24 @@ findSlaves :: Backend -> Process [NodeId]
 findSlaves backend = do
   nodes <- liftIO $ findPeers backend 1000000   
   -- Fire of asynchronous requests for the slave controller
-  forM_ nodes $ \nid -> whereisRemoteAsync nid "slaveController" 
+  refs <- forM nodes $ \nid -> do
+    whereisRemoteAsync nid "slaveController" 
+    ref <- monitorNode nid
+    return (nid, ref)
   -- Wait for the replies
-  catMaybes <$> forM nodes (\_ -> 
+  catMaybes <$> replicateM (length nodes) ( 
     receiveWait 
       [ matchIf (\(WhereIsReply label _) -> label == "slaveController")
-                (\(WhereIsReply _ mPid) -> return (processNodeId <$> mPid))
+                (\(WhereIsReply _ mPid) -> 
+                  case mPid of
+                    Nothing -> 
+                      return Nothing
+                    Just pid -> do
+                      let nid      = processNodeId pid
+                          Just ref = lookup nid refs
+                      unmonitor ref 
+                      return (Just nid))
+      , match (\(NodeMonitorNotification {}) -> return Nothing) 
       ])
 
 -- | Terminate all slaves
