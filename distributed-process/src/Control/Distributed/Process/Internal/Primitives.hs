@@ -297,7 +297,12 @@ link = sendCtrlMsg Nothing . Link . ProcessIdentifier
 monitor :: ProcessId -> Process MonitorRef 
 monitor = monitor' . ProcessIdentifier 
 
--- | Remove a link (synchronous)
+-- | Remove a link 
+--
+-- This is synchronous in the sense that once it returns you are guaranteed
+-- that no exception will be raised if the remote process dies. However, it is
+-- asynchronous in the sense that we do not wait for a response from the remote 
+-- node.
 unlink :: ProcessId -> Process ()
 unlink pid = do
   unlinkAsync pid
@@ -305,7 +310,9 @@ unlink pid = do
                         (\_ -> return ()) 
               ]
 
--- | Remove a node link (synchronous)
+-- | Remove a node link 
+--
+-- This has the same synchronous/asynchronous nature as 'unlink'. 
 unlinkNode :: NodeId -> Process ()
 unlinkNode nid = do
   unlinkNodeAsync nid
@@ -313,7 +320,9 @@ unlinkNode nid = do
                         (\_ -> return ())
               ]
 
--- | Remove a channel (send port) link (synchronous)
+-- | Remove a channel (send port) link
+--
+-- This has the same synchronous/asynchronous nature as 'unlink'. 
 unlinkPort :: SendPort a -> Process ()
 unlinkPort sport = do
   unlinkPortAsync sport
@@ -321,7 +330,9 @@ unlinkPort sport = do
                         (\_ -> return ())
               ]
 
--- | Remove a monitor (synchronous)
+-- | Remove a monitor 
+--
+-- This has the same synchronous/asynchronous nature as 'unlink'. 
 unmonitor :: MonitorRef -> Process ()
 unmonitor ref = do
   unmonitorAsync ref
@@ -388,12 +399,12 @@ spawnAsync nid proc = do
   sendCtrlMsg (Just nid) $ Spawn proc spawnRef
   return spawnRef
 
--- | Monitor a node
+-- | Monitor a node (asynchronous)
 monitorNode :: NodeId -> Process MonitorRef
 monitorNode = 
   monitor' . NodeIdentifier
 
--- | Monitor a typed channel
+-- | Monitor a typed channel (asynchronous)
 monitorPort :: forall a. Serializable a => SendPort a -> Process MonitorRef
 monitorPort (SendPort cid) = 
   monitor' (SendPortIdentifier cid) 
@@ -403,11 +414,11 @@ unmonitorAsync :: MonitorRef -> Process ()
 unmonitorAsync = 
   sendCtrlMsg Nothing . Unmonitor
 
--- | Link to a node
+-- | Link to a node (asynchronous)
 linkNode :: NodeId -> Process ()
 linkNode = link' . NodeIdentifier 
 
--- | Link to a channel (send port)
+-- | Link to a channel (asynchronous)
 linkPort :: SendPort a -> Process ()
 linkPort (SendPort cid) = 
   link' (SendPortIdentifier cid)
@@ -471,7 +482,7 @@ unregisterRemote :: NodeId -> String -> Process ()
 unregisterRemote nid label =
   sendCtrlMsg (Just nid) (Register label Nothing)
 
--- | Query the local process registry (synchronous).
+-- | Query the local process registry
 whereis :: String -> Process (Maybe ProcessId)
 whereis label = do
   sendCtrlMsg Nothing (WhereIs label)
@@ -480,6 +491,8 @@ whereis label = do
               ]
 
 -- | Query a remote process registry (synchronous)
+--
+-- TODO: what if the remote node is unreachable?
 whereisRemote :: NodeId -> String -> Process (Maybe ProcessId)
 whereisRemote nid label = do
   whereisRemoteAsync nid label
