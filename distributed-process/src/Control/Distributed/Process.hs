@@ -101,7 +101,6 @@ module Control.Distributed.Process
   , spawnChannelLocal
     -- * Reconnecting
   , reconnect
-  , reconnectNode
   , reconnectPort
   ) where
 
@@ -118,6 +117,8 @@ import Control.Distributed.Static
   , closure
   , Static
   , RemoteTable
+  , closureCompose
+  , staticClosure
   )
 import Control.Distributed.Process.Internal.Types 
   ( NodeId(..)
@@ -139,7 +140,7 @@ import Control.Distributed.Process.Internal.Types
   , WhereIsReply(..)
   , LocalProcess(processNode)
   )
-import Control.Distributed.Process.Serializable (SerializableDict)
+import Control.Distributed.Process.Serializable (Serializable, SerializableDict)
 import Control.Distributed.Process.Internal.Closure.BuiltIn
   ( sdictUnit 
   , sdictSendPort
@@ -154,7 +155,6 @@ import Control.Distributed.Process.Internal.Closure.BuiltIn
   , cpSend
   , cpNewChan
   )
-import Control.Distributed.Static (closureCompose, staticClosure)
 import Control.Distributed.Process.Internal.Primitives
   ( -- Basic messaging
     send 
@@ -214,10 +214,8 @@ import Control.Distributed.Process.Internal.Primitives
   , spawnAsync
     -- Reconnecting
   , reconnect
-  , reconnectNode
   , reconnectPort
   )
-import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Node (forkProcess)
 
 -- INTERNAL NOTES

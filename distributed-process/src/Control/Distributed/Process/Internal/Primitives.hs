@@ -61,7 +61,6 @@ module Control.Distributed.Process.Internal.Primitives
   , monitorPort
     -- * Reconnecting
   , reconnect
-  , reconnectNode
   , reconnectPort
   ) where
 
@@ -537,11 +536,6 @@ unClosure closure = do
 reconnect :: ProcessId -> Process ()
 reconnect = 
   sendCtrlMsg Nothing . Reconnect . ProcessIdentifier 
-
--- | Reconnect to a node. See 'reconnect' for more information.
-reconnectNode :: NodeId -> Process ()
-reconnectNode = 
-  sendCtrlMsg Nothing . Reconnect . NodeIdentifier 
 
 -- | Reconnect to a sendport. See 'reconnect' for more information.
 reconnectPort :: SendPort a -> Process ()
