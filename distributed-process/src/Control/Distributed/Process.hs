@@ -77,7 +77,6 @@ module Control.Distributed.Process
   , nsend
   , registerRemote
   , unregisterRemote
-  , whereisRemote
   , whereisRemoteAsync
   , nsendRemote
   , WhereIsReply(..)
@@ -197,7 +196,6 @@ import Control.Distributed.Process.Internal.Primitives
   , nsend
   , registerRemote
   , unregisterRemote
-  , whereisRemote
   , whereisRemoteAsync
   , nsendRemote
     -- Closures

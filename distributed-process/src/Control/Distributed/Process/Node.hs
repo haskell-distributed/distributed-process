@@ -116,6 +116,7 @@ import Control.Distributed.Process.Internal.Types
   , payloadToMessage
   , createMessage
   , runLocalProcess
+  , firstNonReservedProcessId
   )
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Internal.Messaging
@@ -151,7 +152,7 @@ createBareLocalNode endPoint rtable = do
   unq <- randomIO
   state <- newMVar LocalNodeState 
     { _localProcesses   = Map.empty
-    , _localPidCounter  = 0 
+    , _localPidCounter  = firstNonReservedProcessId 
     , _localPidUnique   = unq 
     , _localConnections = Map.empty
     }
@@ -235,7 +236,7 @@ forkProcess node proc = modifyMVar (localState node) startProcess
         then do
           newUnique <- randomIO
           return ( (localProcessWithId lpid ^= Just lproc)
-                 . (localPidCounter ^= 0)
+                 . (localPidCounter ^= firstNonReservedProcessId)
                  . (localPidUnique ^= newUnique)
                  $ st
                  , pid

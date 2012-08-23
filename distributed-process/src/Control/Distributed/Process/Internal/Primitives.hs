@@ -38,7 +38,6 @@ module Control.Distributed.Process.Internal.Primitives
   , nsend
   , registerRemote
   , unregisterRemote
-  , whereisRemote
   , whereisRemoteAsync
   , nsendRemote
     -- * Closures

@@ -10,6 +10,8 @@ module Control.Distributed.Process.Internal.Types
   , ProcessId(..)
   , Identifier(..)
   , nodeOf
+  , firstNonReservedProcessId
+  , nullProcessId
     -- * Local nodes and processes
   , LocalNode(..)
   , LocalNodeState(..)
@@ -147,6 +149,21 @@ nodeOf :: Identifier -> NodeId
 nodeOf (NodeIdentifier nid)     = nid
 nodeOf (ProcessIdentifier pid)  = processNodeId pid
 nodeOf (SendPortIdentifier cid) = processNodeId (sendPortProcessId cid)
+
+--------------------------------------------------------------------------------
+-- Special PIDs                                                               --
+--------------------------------------------------------------------------------
+
+firstNonReservedProcessId :: Int32
+firstNonReservedProcessId = 1
+
+nullProcessId :: NodeId -> ProcessId
+nullProcessId nid = 
+  ProcessId { processNodeId  = nid
+            , processLocalId = LocalProcessId { lpidUnique  = 0
+                                              , lpidCounter = 0
+                                              }
+            }
 
 --------------------------------------------------------------------------------
 -- Local nodes and processes                                                  --

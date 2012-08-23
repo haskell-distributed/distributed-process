@@ -48,6 +48,13 @@ ping = do
   send partner (Ping self)
   ping
 
+-- | Quick and dirty synchronous version of whereisRemoteAsync
+whereisRemote :: NodeId -> String -> Process (Maybe ProcessId)
+whereisRemote nid string = do
+  whereisRemoteAsync nid string
+  WhereIsReply _ mPid <- expect
+  return mPid
+
 -- | Basic ping test
 testPing :: NT.Transport -> IO ()
 testPing transport = do
@@ -549,7 +556,7 @@ testRegistry transport = do
     Ping pid' <- expect 
     True <- return $ pingServer == pid'
     return ()
-    
+
 testRemoteRegistry :: NT.Transport -> IO ()
 testRemoteRegistry transport = do
   node1 <- newLocalNode transport initRemoteTable
