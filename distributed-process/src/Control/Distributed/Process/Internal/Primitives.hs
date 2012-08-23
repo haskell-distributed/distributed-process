@@ -123,7 +123,12 @@ import Control.Distributed.Process.Internal.Types
   , createMessage
   , runLocalProcess
   )
-import Control.Distributed.Process.Internal.Messaging (sendMessage, sendBinary) 
+import Control.Distributed.Process.Internal.Messaging 
+  ( sendMessage
+  , sendBinary
+  , ImplicitReconnect(WithImplicitReconnect, NoImplicitReconnect)
+  , disconnect
+  ) 
 
 --------------------------------------------------------------------------------
 -- Basic messaging                                                            --
@@ -138,6 +143,7 @@ send them msg = do
   liftIO $ sendMessage (processNode proc) 
                        (ProcessIdentifier (processId proc)) 
                        (ProcessIdentifier them)
+                       NoImplicitReconnect
                        msg
 
 -- | Wait for a message of a specific type
@@ -174,6 +180,7 @@ sendChan (SendPort cid) msg = do
   liftIO $ sendBinary (processNode proc)
                       (ProcessIdentifier (processId proc))
                       (SendPortIdentifier cid) 
+                      NoImplicitReconnect
                       msg 
 
 -- | Wait for a message on a typed channel
@@ -534,13 +541,17 @@ unClosure closure = do
 -- communication attempts are made to B then A can use reconnect to clean up
 -- its connection to B.
 reconnect :: ProcessId -> Process ()
-reconnect = 
-  sendCtrlMsg Nothing . Reconnect . ProcessIdentifier 
+reconnect them = do
+  us <- getSelfPid
+  node <- processNode <$> ask
+  liftIO $ disconnect node (ProcessIdentifier us) (ProcessIdentifier them)
 
 -- | Reconnect to a sendport. See 'reconnect' for more information.
 reconnectPort :: SendPort a -> Process ()
-reconnectPort = 
-  sendCtrlMsg Nothing . Reconnect . SendPortIdentifier . sendPortId
+reconnectPort them = do 
+  us <- getSelfPid
+  node <- processNode <$> ask
+  liftIO $ disconnect node (ProcessIdentifier us) (SendPortIdentifier (sendPortId them))
 
 --------------------------------------------------------------------------------
 -- Auxiliary functions                                                        --
@@ -592,4 +603,5 @@ sendCtrlMsg mNid signal = do
       liftIO $ sendBinary (processNode proc)
                           (ProcessIdentifier (processId proc))
                           (NodeIdentifier nid)
+                          WithImplicitReconnect
                           msg

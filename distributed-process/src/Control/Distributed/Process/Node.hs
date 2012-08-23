@@ -122,7 +122,7 @@ import Control.Distributed.Process.Internal.Messaging
   ( sendBinary
   , sendMessage
   , sendPayload
-  , reconnect
+  , ImplicitReconnect(WithImplicitReconnect, NoImplicitReconnect)
   )
 import Control.Distributed.Process.Internal.Primitives (expect, register, finally)
 import qualified Control.Distributed.Process.Internal.Closure.BuiltIn as BuiltIn (remoteTable)
@@ -422,6 +422,7 @@ nodeController = do
         liftIO $ sendBinary node
                             (ctrlMsgSender msg)
                             (NodeIdentifier nid') 
+                            WithImplicitReconnect
                             msg
       _ -> 
         return ()
@@ -445,8 +446,6 @@ nodeController = do
         ncEffectWhereIs from label
       NCMsg from (NamedSend label msg') ->
         ncEffectNamedSend from label msg'
-      NCMsg from (Reconnect to) ->
-        ncEffectReconnect from to
       unexpected ->
         error $ "nodeController: unexpected message " ++ show unexpected
 
@@ -475,6 +474,7 @@ ncEffectMonitor from them mRef = do
       liftIO $ sendBinary node
                           (NodeIdentifier $ localNodeId node)
                           (NodeIdentifier $ processNodeId from)
+                          WithImplicitReconnect
         NCMsg  
           { ctrlMsgSender = NodeIdentifier (localNodeId node)
           , ctrlMsgSignal = Died them DiedUnknownId
@@ -537,6 +537,7 @@ ncEffectSpawn pid cProc ref = do
   liftIO $ sendMessage node
                        (NodeIdentifier (localNodeId node))
                        (ProcessIdentifier pid) 
+                       WithImplicitReconnect
                        (DidSpawn ref pid') 
 
 -- Unified semantics does not explicitly describe how to implement 'register',
@@ -556,6 +557,7 @@ ncEffectWhereIs from label = do
   liftIO $ sendMessage node
                        (NodeIdentifier (localNodeId node))
                        (ProcessIdentifier from) 
+                       WithImplicitReconnect
                        (WhereIsReply label mPid)
 
 -- [Unified: Table 14]
@@ -568,13 +570,8 @@ ncEffectNamedSend from label msg = do
     liftIO $ sendPayload node
                          from
                          (ProcessIdentifier pid) 
+                         NoImplicitReconnect
                          (messageToPayload msg) 
-
--- Reconnecting
-ncEffectReconnect :: Identifier -> Identifier -> NC ()
-ncEffectReconnect from to = do
-  node <- ask
-  liftIO $ reconnect node from to
 
 --------------------------------------------------------------------------------
 -- Auxiliary                                                                  --
@@ -601,11 +598,11 @@ notifyDied dest src reason mRef = do
     (True, Nothing, SendPortIdentifier pid) ->
       throwException dest $ PortLinkException pid reason 
     (False, _, _) ->
-      -- TODO: why the change in sender? How does that affect 'reconnect' semantics?
-      -- (see [Unified: Table 10]
+      -- The change in sender comes from [Unified: Table 10]
       liftIO $ sendBinary node
                           (NodeIdentifier $ localNodeId node)
                           (NodeIdentifier $ processNodeId dest)
+                          WithImplicitReconnect
         NCMsg
           { ctrlMsgSender = NodeIdentifier (localNodeId node) 
           , ctrlMsgSignal = Died src reason
@@ -621,7 +618,6 @@ destNid (Spawn _ _)     = Nothing
 destNid (Register _ _)  = Nothing
 destNid (WhereIs _)     = Nothing
 destNid (NamedSend _ _) = Nothing
-destNid (Reconnect _)   = Nothing
 -- We don't need to forward 'Died' signals; if monitoring/linking is setup,
 -- then when a local process dies the monitoring/linking machinery will take
 -- care of notifying remote nodes
@@ -721,10 +717,12 @@ registryFor ident = registry >>> DAC.mapMaybe ident
 --
 -- * the notifications for that process specifically and 
 -- * the notifications for typed channels to that process.
+--
+-- See https://github.com/haskell/containers/issues/14 for the bang on _v.
 splitNotif :: Identifier
            -> Map Identifier a
            -> (Map Identifier a, Map Identifier a)
-splitNotif ident = Map.partitionWithKey (\k !v -> impliesDeathOf ident k) 
+splitNotif ident = Map.partitionWithKey (\k !_v -> impliesDeathOf ident k) 
 
 -- | Does the death of one entity (node, project, channel) imply the death
 -- of another?

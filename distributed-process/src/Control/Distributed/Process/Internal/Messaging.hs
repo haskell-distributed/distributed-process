@@ -1,9 +1,10 @@
 module Control.Distributed.Process.Internal.Messaging
   ( -- * Message sending
-    sendPayload
+    ImplicitReconnect(WithImplicitReconnect, NoImplicitReconnect)
+  , sendPayload
   , sendBinary
   , sendMessage
-  , reconnect
+  , disconnect 
   ) where
 
 import Data.Accessor ((^.), (^=))
@@ -12,7 +13,7 @@ import qualified Data.ByteString.Lazy as BSL (toChunks)
 import qualified Data.ByteString as BSS (ByteString)
 import Control.Distributed.Process.Internal.StrictMVar (withMVar, modifyMVar_)
 import Control.Concurrent.Chan (writeChan)
-import Control.Monad (unless)
+import Control.Monad (unless, when)
 import qualified Network.Transport as NT 
   ( Connection
   , send
@@ -39,8 +40,16 @@ import Control.Distributed.Process.Serializable (Serializable)
 -- Message sending                                                            -- 
 --------------------------------------------------------------------------------
 
-sendPayload :: LocalNode -> Identifier -> Identifier -> [BSS.ByteString] -> IO ()
-sendPayload node from to payload = do
+data ImplicitReconnect = WithImplicitReconnect | NoImplicitReconnect
+  deriving (Eq, Show)
+
+sendPayload :: LocalNode 
+            -> Identifier
+            -> Identifier
+            -> ImplicitReconnect
+            -> [BSS.ByteString] 
+            -> IO ()
+sendPayload node from to implicitReconnect payload = do
   mConn <- connBetween node from to
   didSend <- case mConn of
     Just conn -> do
@@ -49,17 +58,33 @@ sendPayload node from to payload = do
         Left _err -> return False 
         Right ()  -> return True 
     Nothing -> return False
-  unless didSend $
+  unless didSend $ do
     writeChan (localCtrlChan node) NCMsg
       { ctrlMsgSender = to 
       , ctrlMsgSignal = Died to DiedDisconnect
       }
+    when (implicitReconnect == WithImplicitReconnect) $
+      disconnect node from to 
 
-sendBinary :: Binary a => LocalNode -> Identifier -> Identifier -> a -> IO ()
-sendBinary node from to = sendPayload node from to . BSL.toChunks . encode
+sendBinary :: Binary a 
+           => LocalNode 
+           -> Identifier 
+           -> Identifier 
+           -> ImplicitReconnect
+           -> a 
+           -> IO ()
+sendBinary node from to implicitReconnect 
+  = sendPayload node from to implicitReconnect . BSL.toChunks . encode
 
-sendMessage :: Serializable a => LocalNode -> Identifier -> Identifier -> a -> IO ()
-sendMessage node from to = sendPayload node from to . messageToPayload . createMessage
+sendMessage :: Serializable a 
+            => LocalNode 
+            -> Identifier 
+            -> Identifier 
+            -> ImplicitReconnect
+            -> a 
+            -> IO ()
+sendMessage node from to implicitReconnect = 
+  sendPayload node from to implicitReconnect . messageToPayload . createMessage
 
 setupConnBetween :: LocalNode -> Identifier -> Identifier -> IO (Maybe NT.Connection)
 setupConnBetween node from to = do
@@ -92,8 +117,8 @@ connBetween node from to = do
   where
     nodeState = localState node
 
-reconnect :: LocalNode -> Identifier -> Identifier -> IO ()
-reconnect node from to =
+disconnect :: LocalNode -> Identifier -> Identifier -> IO ()
+disconnect node from to =
   modifyMVar_ (localState node) $ \st -> 
     case st ^. localConnectionBetween from to of
       Nothing -> 

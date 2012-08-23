@@ -86,7 +86,8 @@ Test-Suite TestCH
                      distributed-process >= 0.3 && < 0.4,
                      network-transport >= 0.2 && < 0.3,
                      network-transport-tcp >= 0.2 && < 0.3,
-                     binary >= 0.5 && < 0.6
+                     binary >= 0.5 && < 0.6,
+                     network >= 2.3 && < 2.4
   Other-modules:     TestAuxiliary
   Extensions:        CPP,
                      ScopedTypeVariables,

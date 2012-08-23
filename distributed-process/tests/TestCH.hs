@@ -19,9 +19,17 @@ import Control.Monad (replicateM_, replicateM)
 import Control.Exception (throwIO)
 import Control.Applicative ((<$>), (<*>))
 import qualified Network.Transport as NT (Transport, closeEndPoint)
-import Network.Transport.TCP (createTransport, defaultTCPParameters)
+import Network.Socket (sClose)
+import Network.Transport.TCP 
+  ( createTransportExposeInternals
+  , TransportInternals(socketBetween)
+  , defaultTCPParameters
+  )
 import Control.Distributed.Process
-import Control.Distributed.Process.Internal.Types (LocalNode(localEndPoint))
+import Control.Distributed.Process.Internal.Types 
+  ( NodeId(nodeAddress) 
+  , LocalNode(localEndPoint)
+  )
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable (Serializable)
 import TestAuxiliary
@@ -578,9 +586,75 @@ testSpawnLocal transport = do
     send pid sport
     expect
 
+testReconnect :: NT.Transport -> TransportInternals -> IO ()
+testReconnect transport transportInternals = do
+  [node1, node2] <- replicateM 2 $ newLocalNode transport initRemoteTable
+  let nid1 = localNodeId node1
+      nid2 = localNodeId node2
+  processA <- newEmptyMVar
+  [sendTestOk, registerTestOk] <- replicateM 2 newEmptyMVar
+
+  forkProcess node1 $ do
+    us <- getSelfPid
+    liftIO $ putMVar processA us
+    msg1 <- expect
+    msg2 <- expect
+    True <- return $ msg1 == "message 1" && msg2 == "message 3"
+    liftIO $ putMVar sendTestOk ()
+
+  forkProcess node2 $ do
+    {-
+     - Make sure there is no implicit reconnect on normal message sending
+     -}
+
+    them <- liftIO $ readMVar processA
+    send them "message 1" >> liftIO (threadDelay 100000)
+
+    -- Simulate network failure
+    liftIO $ do 
+      sock <- socketBetween transportInternals (nodeAddress nid1) (nodeAddress nid2)
+      sClose sock
+
+    -- Should not arrive
+    send them "message 2" 
+
+    -- Should arrive
+    reconnect them
+    send them "message 3" 
+
+    liftIO $ takeMVar sendTestOk
+
+    {-
+     - Test that there *is* implicit reconnect on node controller messages
+     -}
+    
+    us <- getSelfPid
+    registerRemote nid1 "a" us >> liftIO (threadDelay 100000) -- registerRemote is asynchronous
+
+    -- Simulate network failure
+    liftIO $ do 
+      sock <- socketBetween transportInternals (nodeAddress nid1) (nodeAddress nid2)
+      sClose sock
+      threadDelay 10000
+
+    -- Should not happen
+    registerRemote nid1 "b" us
+
+    -- Should happen
+    registerRemote nid1 "c" us
+
+    -- Check
+    Just _  <- whereisRemote nid1 "a" 
+    Nothing <- whereisRemote nid1 "b" 
+    Just _  <- whereisRemote nid1 "c" 
+
+    liftIO $ putMVar registerTestOk ()
+
+  takeMVar registerTestOk
+
 main :: IO ()
 main = do
-  Right transport <- createTransport "127.0.0.1" "8080" defaultTCPParameters
+  Right (transport, transportInternals) <- createTransportExposeInternals "127.0.0.1" "8080" defaultTCPParameters
   runTests 
     [ ("Ping",             testPing             transport)
     , ("Math",             testMath             transport) 
@@ -619,4 +693,6 @@ main = do
       -- Monitoring nodes and channels
     , ("MonitorNode",                  testMonitorNode                transport)
     , ("MonitorChannel",               testMonitorChannel             transport)
+      -- Reconnect
+    , ("Reconnect",                    testReconnect                  transport transportInternals)
     ]
