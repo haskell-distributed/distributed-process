@@ -490,19 +490,15 @@ whereis label = do
                         (\(WhereIsReply _ mPid) -> return mPid)
               ]
 
--- | Query a remote process registry (synchronous)
---
--- TODO: what if the remote node is unreachable?
-whereisRemote :: NodeId -> String -> Process (Maybe ProcessId)
-whereisRemote nid label = do
-  whereisRemoteAsync nid label
-  receiveWait [ matchIf (\(WhereIsReply label' _) -> label == label')
-                        (\(WhereIsReply _ mPid) -> return mPid)
-              ]
-
 -- | Query a remote process registry (asynchronous)
 --
--- Reply will come in the form of a 'WhereIsReply' message
+-- Reply will come in the form of a 'WhereIsReply' message. 
+--
+-- There is currently no synchronous version of 'whereisRemoteAsync': if
+-- you implement one yourself, be sure to take into account that the remote
+-- node might die or get disconnect before it can respond (i.e. you should
+-- use 'monitorNode' and take appropriate action when you receive a 
+-- 'NodeMonitorNotification').
 whereisRemoteAsync :: NodeId -> String -> Process ()
 whereisRemoteAsync nid label = 
   sendCtrlMsg (Just nid) (WhereIs label)
