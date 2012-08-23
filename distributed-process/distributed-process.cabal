@@ -58,7 +58,7 @@ Library
                      Control.Distributed.Process.Internal.CQueue,
                      Control.Distributed.Process.Internal.Types,
                      Control.Distributed.Process.Internal.Closure.BuiltIn,
-                     Control.Distributed.Process.Internal.Node
+                     Control.Distributed.Process.Internal.Messaging,
                      Control.Distributed.Process.Internal.StrictMVar
   Extensions:        RankNTypes,
                      ScopedTypeVariables,

@@ -123,7 +123,7 @@ import Control.Distributed.Process.Internal.Types
   , createMessage
   , runLocalProcess
   )
-import Control.Distributed.Process.Internal.Node (sendMessage, sendBinary) 
+import Control.Distributed.Process.Internal.Messaging (sendMessage, sendBinary) 
 
 --------------------------------------------------------------------------------
 -- Basic messaging                                                            --

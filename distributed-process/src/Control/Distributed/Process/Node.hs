@@ -118,7 +118,7 @@ import Control.Distributed.Process.Internal.Types
   , runLocalProcess
   )
 import Control.Distributed.Process.Serializable (Serializable)
-import Control.Distributed.Process.Internal.Node 
+import Control.Distributed.Process.Internal.Messaging
   ( sendBinary
   , sendMessage
   , sendPayload

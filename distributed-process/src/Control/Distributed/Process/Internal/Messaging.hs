@@ -1,4 +1,4 @@
-module Control.Distributed.Process.Internal.Node 
+module Control.Distributed.Process.Internal.Messaging
   ( -- * Message sending
     sendPayload
   , sendBinary
