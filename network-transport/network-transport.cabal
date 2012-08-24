@@ -1,5 +1,5 @@
 Name:          network-transport
-Version:       0.2.0.2
+Version:       0.3.0
 Cabal-Version: >=1.6
 Build-Type:    Simple
 License:       BSD3 

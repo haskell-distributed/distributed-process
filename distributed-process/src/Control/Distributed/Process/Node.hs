@@ -345,23 +345,24 @@ handleIncomingMessages node = go Set.empty Map.empty Map.empty Set.empty
              (Map.delete cid procs)
              (Map.delete cid chans)
              (Set.delete cid ctrls)
-        NT.ErrorEvent (NT.TransportError (NT.EventConnectionLost (Just theirAddr) cids) _) -> do 
+        NT.ErrorEvent (NT.TransportError (NT.EventConnectionLost theirAddr) _) -> do 
           -- [Unified table 9, rule node_disconnect]
           let nid = NodeIdentifier $ NodeId theirAddr
           writeChan ctrlChan NCMsg 
             { ctrlMsgSender = nid
             , ctrlMsgSignal = Died nid DiedDisconnect
             }
+          -- TODO: we should remove the incoming transactions that were lost
+          -- TODO: and we should remove the outgoing connections for which
+          -- we have an implicit reconnect
+          {-
           let notRemoved k = k `notElem` cids
           go (Set.filter notRemoved uninitConns)
              (Map.filterWithKey (const . notRemoved) procs)
              (Map.filterWithKey (const . notRemoved) chans)
              (Set.filter notRemoved ctrls)
-        NT.ErrorEvent (NT.TransportError (NT.EventConnectionLost Nothing _) _) ->
-          -- TODO: We should treat an asymetrical connection loss (incoming
-          -- connection broken, but outgoing connection still potentially ok)
-          -- as a fatal error on the part of the remote node (like (**), above)
-          fail "handleIncomingMessages: TODO"
+          -}
+          go uninitConns procs chans ctrls 
         NT.ErrorEvent (NT.TransportError NT.EventEndPointFailed str) ->
           fail $ "Cloud Haskell fatal error: end point failed: " ++ str 
         NT.ErrorEvent (NT.TransportError NT.EventTransportFailed str) ->

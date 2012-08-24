@@ -1,5 +1,5 @@
 Name:          distributed-process-simplelocalnet
-Version:       0.2.0.5
+Version:       0.2.0.6
 Cabal-Version: >=1.8
 Build-Type:    Simple
 License:       BSD3 
@@ -32,8 +32,8 @@ Library
                      binary >= 0.5 && < 0.6,
                      containers >= 0.4 && < 0.6,
                      transformers >= 0.2 && < 0.4,
-                     network-transport >= 0.2 && < 0.3,
-                     network-transport-tcp >= 0.2 && < 0.3,
+                     network-transport >= 0.3 && < 0.4,
+                     network-transport-tcp >= 0.3 && < 0.4,
                      distributed-process >= 0.2 && < 0.4
   Exposed-modules:   Control.Distributed.Process.Backend.SimpleLocalnet,
                      Control.Distributed.Process.Backend.SimpleLocalnet.Internal.Multicast
@@ -54,8 +54,8 @@ Test-Suite TestSimpleLocalnet
                      binary >= 0.5 && < 0.6,
                      containers >= 0.4 && < 0.6,
                      transformers >= 0.2 && < 0.4,
-                     network-transport >= 0.2 && < 0.3,
-                     network-transport-tcp >= 0.2 && < 0.3,
+                     network-transport >= 0.3 && < 0.4,
+                     network-transport-tcp >= 0.3 && < 0.4,
                      distributed-process >= 0.2 && < 0.4
   Extensions:        RankNTypes,
                      DeriveDataTypeable

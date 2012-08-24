@@ -1,5 +1,5 @@
 Name:          network-transport-tcp
-Version:       0.2.0.3
+Version:       0.3.0
 Cabal-Version: >=1.8
 Build-Type:    Simple
 License:       BSD3 
@@ -22,7 +22,7 @@ Source-Repository head
 
 Library
   Build-Depends:   base >= 4.3 && < 5,
-                   network-transport >= 0.2 && < 0.3,
+                   network-transport >= 0.3 && < 0.4,
                    data-accessor >= 0.2 && < 0.3,
                    containers >= 0.4 && < 0.6,
                    bytestring >= 0.9 && < 0.11,
@@ -37,7 +37,7 @@ Test-Suite TestTCP
   Type:            exitcode-stdio-1.0
   Main-Is:         TestTCP.hs
   Build-Depends:   base >= 4.3 && < 5,
-                   network-transport >= 0.2 && < 0.3,
+                   network-transport >= 0.3 && < 0.4,
                    data-accessor >= 0.2 && < 0.3,
                    containers >= 0.4 && < 0.6,
                    bytestring >= 0.9 && < 0.11,

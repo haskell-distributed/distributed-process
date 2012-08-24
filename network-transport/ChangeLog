@@ -1,3 +1,7 @@
+<<date>     Edsko de Vries  <edsko@well-typed.com>  0.3.0
+
+* Clarify disconnection
+
 2012-07-16  Edsko de Vries  <edsko@well-typed.com>  0.2.0.2
 
 * Base 4.6 compatible test suites
