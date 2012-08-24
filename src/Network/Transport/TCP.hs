@@ -745,8 +745,7 @@ modifyRemoteState (ourEndPoint, theirEndPoint) match =
     handleIOException ex vst = do
       tryCloseSocket (remoteSocket vst)
       putMVar theirState (RemoteEndPointFailed ex)
-      let incoming = IntSet.elems $ vst ^. remoteIncoming
-          code     = EventConnectionLost (Just $ remoteAddress theirEndPoint) incoming
+      let code     = EventConnectionLost (remoteAddress theirEndPoint)  
           err      = TransportError code (show ex)
       writeChan (localChannel ourEndPoint) $ ErrorEvent err 
 
@@ -1085,9 +1084,7 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
             relyViolation (ourEndPoint, theirEndPoint) 
               "handleIncomingMessages:prematureExit"
           RemoteEndPointValid vst -> do
-            let code = EventConnectionLost 
-                         (Just $ remoteAddress theirEndPoint) 
-                         (IntSet.elems $ vst ^. remoteIncoming)
+            let code = EventConnectionLost (remoteAddress theirEndPoint) 
             writeChan ourChannel . ErrorEvent $ TransportError code (show err)
             forM_ (vst ^. pendingCtrlRequests) $ flip putMVar (Left err) 
             return (RemoteEndPointFailed err)

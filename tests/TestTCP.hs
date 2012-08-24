@@ -98,11 +98,11 @@ testEarlyDisconnect nextPort = do
 
       -- TEST 1: they connect to us, then drop the connection
       do
-        ConnectionOpened cid _ addr <- receive endpoint 
+        ConnectionOpened _ _ addr <- receive endpoint 
         True <- return $ addr == theirAddr
       
-        ErrorEvent (TransportError (EventConnectionLost (Just addr') [cid']) _) <- receive endpoint 
-        True <- return $ addr' == theirAddr && cid' == cid
+        ErrorEvent (TransportError (EventConnectionLost addr') _) <- receive endpoint 
+        True <- return $ addr' == theirAddr 
 
         return ()
 
@@ -124,8 +124,8 @@ testEarlyDisconnect nextPort = do
         Received cid' ["pong"] <- receive endpoint
         True <- return $ cid == cid'
         
-        ErrorEvent (TransportError (EventConnectionLost (Just addr') [cid'']) _) <- receive endpoint
-        True <- return $ addr' == theirAddr && cid'' == cid
+        ErrorEvent (TransportError (EventConnectionLost addr') _) <- receive endpoint
+        True <- return $ addr' == theirAddr 
 
         return ()
 
@@ -235,7 +235,7 @@ testEarlyCloseSocket nextPort = do
         ConnectionClosed cid'' <- receive endpoint
         True <- return $ cid'' == cid
         
-        ErrorEvent (TransportError (EventConnectionLost (Just addr') []) _) <- receive endpoint
+        ErrorEvent (TransportError (EventConnectionLost addr') _) <- receive endpoint
         True <- return $ addr' == theirAddr 
         
         return ()
@@ -634,7 +634,7 @@ testReconnect nextPort = do
     
     -- But a send will fail because the server has closed the connection again
     Left (TransportError SendFailed _) <- send conn1 ["ping"]
-    ErrorEvent (TransportError (EventConnectionLost _ []) _) <- receive endpoint
+    ErrorEvent (TransportError (EventConnectionLost _) _) <- receive endpoint
 
     -- But a subsequent call to connect should reestablish the connection
     Right conn2 <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
@@ -695,7 +695,7 @@ testUnidirectionalError nextPort = do
    
     -- But when we send we find the error
     Left (TransportError SendFailed _) <- send conn1 ["ping"]
-    ErrorEvent (TransportError (EventConnectionLost _ []) _) <- receive endpoint
+    ErrorEvent (TransportError (EventConnectionLost _) _) <- receive endpoint
 
     -- A call to connect should now re-establish the connection
     Right conn2 <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
@@ -709,7 +709,7 @@ testUnidirectionalError nextPort = do
     -- We now find the error when we attempt to close the connection
     Nothing <- timeout 500000 $ receive endpoint
     close conn2
-    ErrorEvent (TransportError (EventConnectionLost _ []) _) <- receive endpoint
+    ErrorEvent (TransportError (EventConnectionLost _) _) <- receive endpoint
     Right conn3 <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
     send conn3 ["ping"]
     takeMVar serverGotPing
@@ -721,7 +721,7 @@ testUnidirectionalError nextPort = do
     -- Now we notice the problem when we try to connect
     Nothing <- timeout 500000 $ receive endpoint
     Left (TransportError ConnectFailed _) <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
-    ErrorEvent (TransportError (EventConnectionLost _ []) _) <- receive endpoint
+    ErrorEvent (TransportError (EventConnectionLost _) _) <- receive endpoint
     Right conn4 <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
     send conn4 ["ping"]
     takeMVar serverGotPing
@@ -746,7 +746,7 @@ testInvalidCloseConnection nextPort = do
 
     -- At this point the client sends an invalid request, so we terminate the
     -- connection
-    ErrorEvent (TransportError (EventConnectionLost _ [_]) _) <- receive endpoint
+    ErrorEvent (TransportError (EventConnectionLost _) _) <- receive endpoint
 
     putMVar serverDone () 
 

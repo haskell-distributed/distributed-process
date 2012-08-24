@@ -606,7 +606,7 @@ testCloseEndPoint transport _ = do
       send conn ["pong"]
 
       ConnectionClosed cid'' <- receive endpoint ; True <- return $ cid == cid''
-      ErrorEvent (TransportError (EventConnectionLost (Just addr') []) _) <- receive endpoint ; True <- return $ addr' == theirAddr
+      ErrorEvent (TransportError (EventConnectionLost addr') _) <- receive endpoint ; True <- return $ addr' == theirAddr
 
       Left (TransportError SendFailed _) <- send conn ["pong2"]
     
@@ -694,7 +694,7 @@ testCloseTransport newTransport = do
     evs <- replicateM 3 $ receive endpoint
     let expected = [ ConnectionClosed cid1
                    , ConnectionClosed cid2
-                   , ErrorEvent (TransportError (EventConnectionLost (Just theirAddr2) []) "")
+                   , ErrorEvent (TransportError (EventConnectionLost theirAddr2) "")
                    ]
     True <- return $ any (== expected) (permutations evs)
 
@@ -813,8 +813,8 @@ testSendException newTransport = do
   -- This will have been as a failure to send by endpoint1, which will
   -- therefore have closed the socket. In turn this will have caused endpoint2
   -- to report that the connection was lost 
-  ErrorEvent (TransportError (EventConnectionLost _ []) _)  <- receive endpoint1
-  ErrorEvent (TransportError (EventConnectionLost _ [_]) _) <- receive endpoint2
+  ErrorEvent (TransportError (EventConnectionLost _) _) <- receive endpoint1
+  ErrorEvent (TransportError (EventConnectionLost _) _) <- receive endpoint2
 
   -- A new connection will re-establish the connection
   Right conn2 <- connect endpoint1 (address endpoint2) ReliableOrdered defaultConnectHints
