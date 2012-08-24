@@ -644,7 +644,7 @@ testReconnect transport transportInternals = do
       sClose sock
       threadDelay 10000
 
-    -- Should not happen
+    -- This will happen due to implicit reconnect 
     registerRemote nid1 "b" us
 
     -- Should happen
@@ -652,7 +652,7 @@ testReconnect transport transportInternals = do
 
     -- Check
     Just _  <- whereisRemote nid1 "a" 
-    Nothing <- whereisRemote nid1 "b" 
+    Just _  <- whereisRemote nid1 "b" 
     Just _  <- whereisRemote nid1 "c" 
 
     liftIO $ putMVar registerTestOk ()

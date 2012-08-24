@@ -6,13 +6,27 @@ import Data.Typeable (Typeable)
 import Control.Monad (join, replicateM, forever)
 import Control.Exception (IOException, throw)
 import Control.Concurrent (forkIO, threadDelay)
-import Control.Concurrent.MVar (MVar, newEmptyMVar, readMVar, takeMVar, putMVar)
+import Control.Concurrent.MVar 
+  ( MVar
+  , newEmptyMVar
+  , readMVar
+  , takeMVar
+  , putMVar
+  , modifyMVar_
+  , newMVar
+  )
 import Control.Applicative ((<$>))
 import Network.Transport (Transport)
-import Network.Transport.TCP (createTransport, defaultTCPParameters)
+import Network.Transport.TCP 
+  ( createTransportExposeInternals
+  , defaultTCPParameters
+  , TransportInternals(socketBetween)
+  )
+import Network.Socket (sClose)  
 import Control.Distributed.Process
 import Control.Distributed.Process.Closure
 import Control.Distributed.Process.Node
+import Control.Distributed.Process.Internal.Types (NodeId(nodeAddress))
 import Control.Distributed.Static (staticLabel, staticClosure)
 import TestAuxiliary
 
@@ -53,6 +67,9 @@ typedPingServer () rport = forever $ do
   sport <- receiveChan rport
   sendChan sport ()
 
+signal :: ProcessId -> Process ()
+signal pid = send pid ()
+
 remotable [ 'factorial
           , 'addInt
           , 'putInt
@@ -62,6 +79,7 @@ remotable [ 'factorial
           , 'typedPingServer
           , 'isPrime
           , 'quintuple
+          , 'signal
           ]
 
 -- Just try creating a static polymorphic value
@@ -337,9 +355,46 @@ testTDict transport rtable = do
     liftIO $ putMVar done ()
   takeMVar done
 
+
+testSpawnReconnect :: Transport -> RemoteTable -> TransportInternals -> IO ()
+testSpawnReconnect transport rtable transportInternals = do
+  [node1, node2] <- replicateM 2 $ newLocalNode transport rtable 
+  let nid1 = localNodeId node1
+      nid2 = localNodeId node2
+  done <- newEmptyMVar 
+  iv <- newMVar (0 :: Int) 
+
+  incr <- forkProcess node1 $ forever $ do
+    () <- expect
+    liftIO $ modifyMVar_ iv (return . (+ 1))
+
+  forkProcess node2 $ do
+    _pid1 <- spawn nid1 ($(mkClosure 'signal) incr) 
+
+    -- Simulate network failure
+    liftIO $ do 
+      sock <- socketBetween transportInternals (nodeAddress nid2) (nodeAddress nid1)
+      sClose sock
+
+    -- Implicit reconnect: spawn happens; but since we also receive the
+    -- monitor signal, the process might not actually be started
+    _pid2 <- spawn nid1 ($(mkClosure 'signal) incr) 
+
+    -- As does this one 
+    _pid3 <- spawn nid1 ($(mkClosure 'signal) incr) 
+
+    liftIO $ threadDelay 10000
+
+    count <- liftIO $ takeMVar iv
+    True <- return $ count == 2 || count == 3 -- Depending on whether we get the monitor notification first or not
+
+    liftIO $ putMVar done ()
+
+  takeMVar done
+
 main :: IO ()
 main = do
-  Right transport <- createTransport "127.0.0.1" "8080" defaultTCPParameters
+  Right (transport, transportInternals) <- createTransportExposeInternals "127.0.0.1" "8080" defaultTCPParameters
   let rtable = __remoteTable initRemoteTable 
   runTests 
     [ ("Unclosure",       testUnclosure       transport rtable)
@@ -356,4 +411,5 @@ main = do
     , ("ClosureExpect",   testClosureExpect   transport rtable)
     , ("SpawnChannel",    testSpawnChannel    transport rtable)
     , ("TDict",           testTDict           transport rtable)
+    , ("SpawnReconnect",  testSpawnReconnect  transport rtable transportInternals)
     ]

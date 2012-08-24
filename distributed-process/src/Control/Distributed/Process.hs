@@ -138,6 +138,7 @@ import Control.Distributed.Process.Internal.Types
   , SendPortId(..)
   , WhereIsReply(..)
   , LocalProcess(processNode)
+  , nullProcessId
   )
 import Control.Distributed.Process.Serializable (Serializable, SerializableDict)
 import Control.Distributed.Process.Internal.Closure.BuiltIn
@@ -289,10 +290,6 @@ import Control.Distributed.Process.Node (forkProcess)
 spawn :: NodeId -> Closure (Process ()) -> Process ProcessId
 spawn nid proc = do
   us   <- getSelfPid
-  -- Since we throw an exception when the remote node dies, we could use
-  -- linkNode instead. However, we don't have a way of "scoped" linking so if
-  -- we call linkNode here, and unlinkNode after, then we might remove a link
-  -- that was already set up
   mRef <- monitorNode nid
   sRef <- spawnAsync nid $ cpLink us 
                    `seqCP` cpExpect sdictUnit 
@@ -306,7 +303,7 @@ spawn nid proc = do
     ]
   unmonitor mRef
   case mPid of
-    Left err  -> fail $ "spawn: remote node failed: " ++ show err
+    Left _err -> return (nullProcessId nid)
     Right pid -> send pid () >> return pid
 
 -- | Spawn a process and link to it

@@ -257,6 +257,7 @@ forkProcess node proc = modifyMVar (localState node) startProcess
              . (localConnections ^= unaffected)
              $ st
 
+-- TODO: invariant: if P reconnects to Q, Q must consider its connection to be broken at that point
 handleIncomingMessages :: LocalNode -> IO ()
 handleIncomingMessages node = go Set.empty Map.empty Map.empty Set.empty
   where

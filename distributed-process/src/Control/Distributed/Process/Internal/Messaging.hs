@@ -63,8 +63,11 @@ sendPayload node from to implicitReconnect payload = do
       { ctrlMsgSender = to 
       , ctrlMsgSignal = Died to DiedDisconnect
       }
-    when (implicitReconnect == WithImplicitReconnect) $
+    when (implicitReconnect == WithImplicitReconnect) $ do
       disconnect node from to 
+      -- Try once more
+      -- (TODO: not quite sure this is the Right Thing)
+      sendPayload node from to NoImplicitReconnect payload 
 
 sendBinary :: Binary a 
            => LocalNode 
