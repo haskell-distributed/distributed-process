@@ -23,10 +23,12 @@ module Network.Transport ( -- * Types
                          ) where
 
 import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS (copy)
 import qualified Data.ByteString.Char8 as BSC (unpack)
 import Control.Exception (Exception)
+import Control.Applicative ((<$>))
 import Data.Typeable (Typeable)
-import Data.Binary (Binary)
+import Data.Binary (Binary(get, put))
 
 --------------------------------------------------------------------------------
 -- Main API                                                                   --
@@ -116,7 +118,11 @@ data MulticastGroup = MulticastGroup {
 
 -- | EndPointAddress of an endpoint.
 newtype EndPointAddress = EndPointAddress { endPointAddressToByteString :: ByteString }
-  deriving (Eq, Ord, Typeable, Binary)
+  deriving (Eq, Ord, Typeable)
+
+instance Binary EndPointAddress where
+  put = put . endPointAddressToByteString
+  get = EndPointAddress . BS.copy <$> get
 
 instance Show EndPointAddress where
   show = BSC.unpack . endPointAddressToByteString
