@@ -230,8 +230,35 @@ data EventErrorCode =
     EventEndPointFailed
     -- | Transport-wide fatal error
   | EventTransportFailed
-    -- | Some incoming connections were closed abruptly.
-    -- If an endpoint address is specified, then all connections to and
-    -- from that endpoint are now lost
-  | EventConnectionLost (Maybe EndPointAddress) [ConnectionId] 
+    -- | We lost connection to another endpoint
+    --
+    -- Although "Network.Transport" provides multiple independent lightweight
+    -- connections between endpoints, those connections cannot /fail/
+    -- independently: once one connection has failed, /all/ connections, in
+    -- both directions, must now be considered to have failed; they fail as a
+    -- "bundle" of connections, with only a single "bundle" of connections per
+    -- endpoint at any point in time.
+    -- 
+    -- That is, suppose there are multiple connections in either direction
+    -- between A and B, and A receives a notification that it has lost
+    -- connection to B. Then A should not be able to send any further messages
+    -- to B on existing connections. 
+    --
+    -- Although B may not realize /immediately/ that its connection to A has
+    -- been broken, messages sent by B on existing connections should not be
+    -- delivered, and B must eventually get an EventConnectionLost message,
+    -- too. 
+    --
+    -- Moreover, this event must be posted before A has successfully
+    -- reconnected (in other words, if B notices a reconnection attempt from A,
+    -- it must post the EventConnectionLost before acknowledging the connection
+    -- from A) so that B will not receive events about new connections or
+    -- incoming messages from A without realizing that it got disconnected. 
+    -- 
+    -- If B attempts to establish another connection to A before it realized
+    -- that it got disconnected from A then it's okay for this connection
+    -- attempt to fail, and the EventConnectionLost to be posted at that point,
+    -- or for the EventConnectionLost to be posted and for the new connection
+    -- to be considered the first connection of the "new bundle".
+  | EventConnectionLost EndPointAddress 
   deriving (Show, Typeable, Eq)
