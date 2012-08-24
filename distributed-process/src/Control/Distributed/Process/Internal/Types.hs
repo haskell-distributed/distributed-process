@@ -98,9 +98,6 @@ import Control.Distributed.Process.Internal.CQueue (CQueue)
 import Control.Distributed.Process.Internal.StrictMVar (StrictMVar)
 import Control.Distributed.Static (RemoteTable, Closure)
 
--- import Control.Distributed.Process.Internal.Dynamic (Dynamic) 
--- import Control.Distributed.Process.Internal.TypeRep (compareTypeRep) -- and Binary instances
-
 --------------------------------------------------------------------------------
 -- Node and process identifiers                                               --
 --------------------------------------------------------------------------------
