@@ -19,6 +19,7 @@ module Control.Distributed.Process.Internal.Types
   , LocalProcessState(..)
   , Process(..)
   , runLocalProcess
+  , ImplicitReconnect(..)
     -- * Typed channels
   , LocalSendPortId 
   , SendPortId(..)
@@ -181,12 +182,21 @@ data LocalNode = LocalNode
   , remoteTable :: RemoteTable 
   }
 
+data ImplicitReconnect = WithImplicitReconnect | NoImplicitReconnect
+  deriving (Eq, Show)
+
 -- | Local node state
 data LocalNodeState = LocalNodeState 
-  { _localProcesses   :: !(Map LocalProcessId LocalProcess)
+  { -- | Processes running on this node
+    _localProcesses   :: !(Map LocalProcessId LocalProcess)
+    -- | Counter to assign PIDs 
   , _localPidCounter  :: !Int32
+    -- | The 'unique' value used to create PIDs (so that processes on
+    -- restarted nodes have new PIDs)
   , _localPidUnique   :: !Int32
-  , _localConnections :: !(Map (Identifier, Identifier) NT.Connection)
+    -- | Outgoing connections
+  , _localConnections :: !(Map (Identifier, Identifier) 
+                               (NT.Connection, ImplicitReconnect))
   }
 
 -- | Processes running on our local node
@@ -509,13 +519,13 @@ localPidCounter = accessor _localPidCounter (\ctr st -> st { _localPidCounter = 
 localPidUnique :: Accessor LocalNodeState Int32
 localPidUnique = accessor _localPidUnique (\unq st -> st { _localPidUnique = unq })
 
-localConnections :: Accessor LocalNodeState (Map (Identifier, Identifier) NT.Connection)
+localConnections :: Accessor LocalNodeState (Map (Identifier, Identifier) (NT.Connection, ImplicitReconnect))
 localConnections = accessor _localConnections (\conns st -> st { _localConnections = conns })
 
 localProcessWithId :: LocalProcessId -> Accessor LocalNodeState (Maybe LocalProcess)
 localProcessWithId lpid = localProcesses >>> DAC.mapMaybe lpid
 
-localConnectionBetween :: Identifier -> Identifier -> Accessor LocalNodeState (Maybe NT.Connection)
+localConnectionBetween :: Identifier -> Identifier -> Accessor LocalNodeState (Maybe (NT.Connection, ImplicitReconnect))
 localConnectionBetween from to = localConnections >>> DAC.mapMaybe (from, to)
 
 monitorCounter :: Accessor LocalProcessState Int32

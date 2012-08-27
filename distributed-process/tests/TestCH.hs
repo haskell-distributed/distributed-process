@@ -621,6 +621,7 @@ testReconnect transport transportInternals = do
     liftIO $ do 
       sock <- socketBetween transportInternals (nodeAddress nid1) (nodeAddress nid2)
       sClose sock
+      threadDelay 10000
 
     -- Should not arrive
     send them "message 2" 

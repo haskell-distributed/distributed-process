@@ -121,11 +121,11 @@ import Control.Distributed.Process.Internal.Types
   , WhereIsReply(..)
   , createMessage
   , runLocalProcess
+  , ImplicitReconnect(WithImplicitReconnect, NoImplicitReconnect)
   )
 import Control.Distributed.Process.Internal.Messaging 
   ( sendMessage
   , sendBinary
-  , ImplicitReconnect(WithImplicitReconnect, NoImplicitReconnect)
   , disconnect
   ) 
 

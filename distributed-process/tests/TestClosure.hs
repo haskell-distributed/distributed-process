@@ -355,6 +355,12 @@ testTDict transport rtable = do
     liftIO $ putMVar done ()
   takeMVar done
 
+simulateNetworkFailure :: TransportInternals -> NodeId -> NodeId -> Process ()
+simulateNetworkFailure transportInternals fr to = liftIO $ do
+  threadDelay 10000
+  sock <- socketBetween transportInternals (nodeAddress fr) (nodeAddress to) 
+  sClose sock
+  threadDelay 10000
 
 testSpawnReconnect :: Transport -> RemoteTable -> TransportInternals -> IO ()
 testSpawnReconnect transport rtable transportInternals = do
@@ -370,23 +376,14 @@ testSpawnReconnect transport rtable transportInternals = do
 
   forkProcess node2 $ do
     _pid1 <- spawn nid1 ($(mkClosure 'signal) incr) 
-
-    -- Simulate network failure
-    liftIO $ do 
-      sock <- socketBetween transportInternals (nodeAddress nid2) (nodeAddress nid1)
-      sClose sock
-
-    -- Implicit reconnect: spawn happens; but since we also receive the
-    -- monitor signal, the process might not actually be started
+    simulateNetworkFailure transportInternals nid2 nid1
     _pid2 <- spawn nid1 ($(mkClosure 'signal) incr) 
-
-    -- As does this one 
     _pid3 <- spawn nid1 ($(mkClosure 'signal) incr) 
 
-    liftIO $ threadDelay 10000
+    liftIO $ threadDelay 100000
 
     count <- liftIO $ takeMVar iv
-    True <- return $ count == 2 || count == 3 -- Depending on whether we get the monitor notification first or not
+    True <- return $ count == 3 
 
     liftIO $ putMVar done ()
 

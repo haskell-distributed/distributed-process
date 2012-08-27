@@ -116,13 +116,15 @@ import Control.Distributed.Process.Internal.Types
   , createMessage
   , runLocalProcess
   , firstNonReservedProcessId
+  , ImplicitReconnect(WithImplicitReconnect, NoImplicitReconnect)
   )
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Internal.Messaging
   ( sendBinary
   , sendMessage
   , sendPayload
-  , ImplicitReconnect(WithImplicitReconnect, NoImplicitReconnect)
+  , closeImplicitReconnections 
+  , impliesDeathOf
   )
 import Control.Distributed.Process.Internal.Primitives (expect, register, finally)
 import qualified Control.Distributed.Process.Internal.Closure.BuiltIn as BuiltIn (remoteTable)
@@ -251,7 +253,7 @@ forkProcess node proc = modifyMVar (localState node) startProcess
     cleanupProcess pid st = do
       let pid' = ProcessIdentifier pid 
       let (affected, unaffected) = Map.partitionWithKey (\(fr, _to) !_v -> impliesDeathOf pid' fr) (st ^. localConnections)
-      mapM_ NT.close (Map.elems affected)
+      mapM_ (NT.close . fst) (Map.elems affected)
       return $ (localProcessWithId (processLocalId pid) ^= Nothing)
              . (localConnections ^= unaffected)
              $ st
@@ -364,12 +366,11 @@ handleIncomingMessages node = go initConnectionState
             , ctrlMsgSignal = Died nid DiedDisconnect
             }
           let notLost k = not (k `Set.member` (st ^. incomingFrom theirAddr))
+          closeImplicitReconnections node nid 
           go ( (incomingFrom theirAddr ^= Set.empty)
              . (incoming ^: Map.filterWithKey (const . notLost))
              $ st 
              )
-          -- TODO: we should remove the outgoing connections for which
-          -- we have an implicit reconnect
         NT.ErrorEvent (NT.TransportError NT.EventEndPointFailed str) ->
           fail $ "Cloud Haskell fatal error: end point failed: " ++ str 
         NT.ErrorEvent (NT.TransportError NT.EventTransportFailed str) ->
@@ -742,27 +743,7 @@ registryFor ident = registry >>> DAC.mapMaybe ident
 splitNotif :: Identifier
            -> Map Identifier a
            -> (Map Identifier a, Map Identifier a)
-splitNotif ident = Map.partitionWithKey (\k !_v -> impliesDeathOf ident k) 
-
--- | Does the death of one entity (node, project, channel) imply the death
--- of another?
-impliesDeathOf :: Identifier -- ^ Who died 
-               -> Identifier -- ^ Who's being watched 
-               -> Bool       -- ^ Does this death implies the death of the watchee? 
-NodeIdentifier nid `impliesDeathOf` NodeIdentifier nid' = 
-  nid' == nid
-NodeIdentifier nid `impliesDeathOf` ProcessIdentifier pid =
-  processNodeId pid == nid
-NodeIdentifier nid `impliesDeathOf` SendPortIdentifier cid =
-  processNodeId (sendPortProcessId cid) == nid
-ProcessIdentifier pid `impliesDeathOf` ProcessIdentifier pid' =
-  pid' == pid
-ProcessIdentifier pid `impliesDeathOf` SendPortIdentifier cid =
-  sendPortProcessId cid == pid
-SendPortIdentifier cid `impliesDeathOf` SendPortIdentifier cid' =
-  cid' == cid
-_ `impliesDeathOf` _ =
-  False
+splitNotif ident = Map.partitionWithKey (\k !_v -> ident `impliesDeathOf` k) 
 
 --------------------------------------------------------------------------------
 -- Strict evaluation of the state                                             --
