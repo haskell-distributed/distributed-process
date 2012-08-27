@@ -19,16 +19,13 @@ import Data.Binary (decode)
 import Data.Map (Map)
 import qualified Data.Map as Map 
   ( empty
-  , lookup
-  , insert
-  , delete
   , toList
   , partitionWithKey
-  , filterWithKey
   , elems
+  , filterWithKey
   )
 import Data.Set (Set)
-import qualified Data.Set as Set (empty, insert, delete, member, filter)
+import qualified Data.Set as Set (empty, insert, delete, member)
 import Data.Foldable (forM_)
 import Data.Maybe (isJust)
 import Data.Typeable (Typeable)
@@ -67,6 +64,8 @@ import qualified Network.Transport as NT
   , ConnectionId
   , Connection
   , close
+  , EndPointAddress
+  , Reliability(ReliableOrdered)
   )
 import Data.Accessor (Accessor, accessor, (^.), (^=), (^:))
 import qualified Data.Accessor.Container as DAC (mapDefault, mapMaybe)
@@ -257,59 +256,77 @@ forkProcess node proc = modifyMVar (localState node) startProcess
              . (localConnections ^= unaffected)
              $ st
 
--- TODO: invariant: if P reconnects to Q, Q must consider its connection to be broken at that point
-handleIncomingMessages :: LocalNode -> IO ()
-handleIncomingMessages node = go Set.empty Map.empty Map.empty Set.empty
+--------------------------------------------------------------------------------
+-- Handle incoming messages                                                   --
+--------------------------------------------------------------------------------
+
+type IncomingConnection = (NT.EndPointAddress, IncomingTarget)
+
+data IncomingTarget =  
+    Uninit
+  | ToProc LocalProcess
+  | ToChan TypedChannel
+  | ToNode
+
+data ConnectionState = ConnectionState {
+    _incoming     :: !(Map NT.ConnectionId IncomingConnection)
+  , _incomingFrom :: !(Map NT.EndPointAddress (Set NT.ConnectionId))
+  }
+
+initConnectionState :: ConnectionState
+initConnectionState = ConnectionState {
+    _incoming     = Map.empty
+  , _incomingFrom = Map.empty
+  }
+
+incoming :: Accessor ConnectionState (Map NT.ConnectionId IncomingConnection)
+incoming = accessor _incoming (\conns st -> st { _incoming = conns })
+
+incomingAt :: NT.ConnectionId -> Accessor ConnectionState (Maybe IncomingConnection)
+incomingAt cid = incoming >>> DAC.mapMaybe cid
+
+incomingFrom :: NT.EndPointAddress -> Accessor ConnectionState (Set NT.ConnectionId) 
+incomingFrom addr = aux >>> DAC.mapDefault Set.empty addr
   where
-    go :: Set NT.ConnectionId -- ^ Connections whose purpose we don't yet know 
-       -> Map NT.ConnectionId LocalProcess -- ^ Connections to local processes
-       -> Map NT.ConnectionId TypedChannel -- ^ Connections to typed channels
-       -> Set NT.ConnectionId              -- ^ Connections to our controller
-       -> IO () 
-    go !uninitConns !procs !chans !ctrls = do
+    aux = accessor _incomingFrom (\fr st -> st { _incomingFrom = fr })
+
+handleIncomingMessages :: LocalNode -> IO ()
+handleIncomingMessages node = go initConnectionState 
+  where
+    go :: ConnectionState -> IO () 
+    go !st = do
       event <- NT.receive endpoint
       case event of
-        NT.ConnectionOpened cid _rel _theirAddr ->
-          -- TODO: Check if _rel is ReliableOrdered, and if not, treat as
-          -- (**) below.
-          go (Set.insert cid uninitConns) procs chans ctrls 
-        NT.Received cid payload -> 
-          case ( Map.lookup cid procs 
-               , Map.lookup cid chans
-               , cid `Set.member` ctrls
-               , cid `Set.member` uninitConns
-               ) of
-            (Just proc, _, _, _) -> do
+        NT.ConnectionOpened cid rel theirAddr ->
+          if rel == NT.ReliableOrdered 
+            then go ( (incomingAt cid ^= Just (theirAddr, Uninit))
+                    . (incomingFrom theirAddr ^: Set.insert cid)
+                    $ st
+                    )
+            else invalidRequest cid st
+        NT.Received cid payload ->
+          case st ^. incomingAt cid of
+            Just (_, ToProc proc) -> do
               let msg = payloadToMessage payload
               enqueue (processQueue proc) msg
-              go uninitConns procs chans ctrls 
-            (_, Just (TypedChannel chan), _, _) -> do
+              go st 
+            Just (_, ToChan (TypedChannel chan)) -> do
               atomically $ writeTChan chan . decode . BSL.fromChunks $ payload
-              go uninitConns procs chans ctrls 
-            (_, _, True, _) -> do
+              go st 
+            Just (_, ToNode) -> do
               let ctrlMsg = decode . BSL.fromChunks $ payload
               writeChan ctrlChan ctrlMsg
-              go uninitConns procs chans ctrls 
-            (_, _, _, True) -> 
+              go st 
+            Just (src, Uninit) -> 
               case decode (BSL.fromChunks payload) of
                 ProcessIdentifier pid -> do
                   let lpid = processLocalId pid
                   mProc <- withMVar state $ return . (^. localProcessWithId lpid) 
                   case mProc of
                     Just proc -> 
-                      go (Set.delete cid uninitConns) 
-                         (Map.insert cid proc procs)
-                         chans
-                         ctrls
+                      go (incomingAt cid ^= Just (src, ToProc proc) $ st) 
                     Nothing -> 
-                      -- Request for an unknown process. 
-                      --
-                      -- TODO: We should treat this as a fatal error on the
-                      -- part of the remote node. That is, we should report the
-                      -- remote node as having died, and we should close
-                      -- incoming connections (this requires a Transport layer
-                      -- extension). (**)
-                      go (Set.delete cid uninitConns) procs chans ctrls
+                      invalidRequest cid st
                 SendPortIdentifier chId -> do
                   let lcid = sendPortLocalId chId
                       lpid = processLocalId (sendPortProcessId chId)
@@ -318,33 +335,27 @@ handleIncomingMessages node = go Set.empty Map.empty Map.empty Set.empty
                     Just proc -> do
                       mChannel <- withMVar (processState proc) $ return . (^. typedChannelWithId lcid)
                       case mChannel of
-                        Just channel ->
-                          go (Set.delete cid uninitConns)
-                             procs
-                             (Map.insert cid channel chans)
-                             ctrls
+                        Just channel -> 
+                          go (incomingAt cid ^= Just (src, ToChan channel) $ st)
                         Nothing ->
-                          -- Unknown typed channel
-                          -- TODO (**) above
-                          go (Set.delete cid uninitConns) procs chans ctrls
+                          invalidRequest cid st
                     Nothing ->
-                      -- Unknown process
-                      -- TODO (**) above
-                      go (Set.delete cid uninitConns) procs chans ctrls
-                NodeIdentifier _ ->
-                  go (Set.delete cid uninitConns)
-                     procs
-                     chans
-                     (Set.insert cid ctrls)
-            _ ->
-              -- Unexpected message
-              -- TODO (**) above 
-              go uninitConns procs chans ctrls
+                      invalidRequest cid st
+                NodeIdentifier nid ->
+                  if nid == localNodeId node
+                    then go (incomingAt cid ^= Just (src, ToNode) $ st)
+                    else invalidRequest cid st 
+            Nothing ->
+              invalidRequest cid st
         NT.ConnectionClosed cid -> 
-          go (Set.delete cid uninitConns) 
-             (Map.delete cid procs)
-             (Map.delete cid chans)
-             (Set.delete cid ctrls)
+          case st ^. incomingAt cid of
+            Nothing -> 
+              invalidRequest cid st
+            Just (src, _) -> 
+              go ( (incomingAt cid ^= Nothing)
+                 . (incomingFrom src ^: Set.delete cid)
+                 $ st
+                 )
         NT.ErrorEvent (NT.TransportError (NT.EventConnectionLost theirAddr) _) -> do 
           -- [Unified table 9, rule node_disconnect]
           let nid = NodeIdentifier $ NodeId theirAddr
@@ -352,17 +363,13 @@ handleIncomingMessages node = go Set.empty Map.empty Map.empty Set.empty
             { ctrlMsgSender = nid
             , ctrlMsgSignal = Died nid DiedDisconnect
             }
-          -- TODO: we should remove the incoming transactions that were lost
-          -- TODO: and we should remove the outgoing connections for which
+          let notLost k = not (k `Set.member` (st ^. incomingFrom theirAddr))
+          go ( (incomingFrom theirAddr ^= Set.empty)
+             . (incoming ^: Map.filterWithKey (const . notLost))
+             $ st 
+             )
+          -- TODO: we should remove the outgoing connections for which
           -- we have an implicit reconnect
-          {-
-          let notRemoved k = k `notElem` cids
-          go (Set.filter notRemoved uninitConns)
-             (Map.filterWithKey (const . notRemoved) procs)
-             (Map.filterWithKey (const . notRemoved) chans)
-             (Set.filter notRemoved ctrls)
-          -}
-          go uninitConns procs chans ctrls 
         NT.ErrorEvent (NT.TransportError NT.EventEndPointFailed str) ->
           fail $ "Cloud Haskell fatal error: end point failed: " ++ str 
         NT.ErrorEvent (NT.TransportError NT.EventTransportFailed str) ->
@@ -373,7 +380,17 @@ handleIncomingMessages node = go Set.empty Map.empty Map.empty Set.empty
           -- If we received a multicast message, something went horribly wrong
           -- and we just give up
           fail "Cloud Haskell fatal error: received unexpected multicast"
-    
+
+    invalidRequest :: NT.ConnectionId -> ConnectionState -> IO ()
+    invalidRequest cid st = do
+      -- TODO: We should treat this as a fatal error on the part of the remote
+      -- node. That is, we should report the remote node as having died, and we
+      -- should close incoming connections (this requires a Transport layer
+      -- extension).
+      go ( (incomingAt cid ^= Nothing)
+         $ st 
+         )
+
     state    = localState node
     endpoint = localEndPoint node
     ctrlChan = localCtrlChan node
