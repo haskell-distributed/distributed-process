@@ -15,11 +15,14 @@
 \newcommand{\sThrow}{\mathtt{throw}}
 \newcommand{\sReconnect}{\mathtt{reconnect}}
 
-\newcommand{\sParP}{\mathrel{{\parallel}_P}}
+\newcommand{\sPar}{\mathrel{{\parallel}_P}}
 \newcommand{\sParN}{\mathrel{{\parallel}_N}}
 \newcommand{\sProc}[2]{{#1}_{#2}}
+
 \newcommand{\sPid}{\ensuremath{\mathit{pid}}}
 \newcommand{\sNid}{\ensuremath{\mathit{nid}}}
+\newcommand{\sId}{\ensuremath{\mathit{id}}}
+
 \newcommand{\sLinks}{\ensuremath{\mathit{links}}}
 \newcommand{\sNode}[3]{\left[{#1} ; {#2}\right]_{#3}} 
 \newcommand{\sSystem}[3]{\left\langle #1 ; #2 ; #3 \right\rangle}
@@ -65,31 +68,28 @@
 
 \subsection{Processes, Nodes, Systems}
 
-A \emph{process} $\sProc{M}{\sPid}$ is a pair of a term $M$ and a process ID $\sPid$.
-A \emph{node}
-  $$\sNode{\sProcesses}
-          {\sLinks}
-          {\sNid}$$
-is a tuple consisting of a set of
-processes $\sProcesses$, sometimes written as
-  $$\sProc{M}{\sPid} \sParP \cdots \sParP \sProc{N}{\sPid'}$$
-together with a set \sLinks{} of pairs of process IDs and a node ID \sNid. 
+We assume two disjoint enumerable sets $\mathtt{ProcessId}$ and
+$\mathtt{NodeId}$, ranged over by $\sPid$ and $\sNid$ and representing process
+identifiers and node identifiers respectively. We do not need to refer to nodes
+as entities in their own right in the semantics, but simply assume a total
+function $$\mathtt{node} : \mathtt{ProcessId} \rightarrow \mathtt{NodeId}$$ We
+also define $\mathtt{Identifier} = \mathtt{ProcessId} \uplus \mathtt{NodeId}$
+and let $\sId$ range over $\mathtt{Identifier}$. 
+
+We represent a process as a pair $\sProc{M}{\sPid}$ of a term $M$ and a process
+ID $\sPid$. We will denote a set of processes as
+%
+  $$\sProc{M}{\sPid} \sPar \cdots \sPar \sProc{N}{\sPid'}$$
+%
 A \emph{system} 
-  $\sSystem{\sNodes}{\sQueue}{\sBlacklist}$ 
-finally is a tuple containing a set $\sNodes$ of nodes, sometimes written
-  $$\sNode{\sProcesses}{\sLinks}{\sNid} 
-    \sParN
-       \cdots
-    \sParN
-    \sNode{\sProcesses'}{\sLinks'}{\sNid'}
-  $$
-a \emph{system queue} $\sQueue$, and a \emph{blacklist} $\sBlacklist$. The
-system queue is a set of triples $(\mathit{to}, \mathit{from},
+  $\sSystem{\sProcesses}{\sQueue}{\sBlacklist}$ 
+finally is a tuple containing a set $\sProcesses$ of nodes,
+a \emph{system queue} $\sQueue$, and a \emph{blacklist} $\sBlacklist$.
+
+The system queue is a set of triples $(\sId_\mathit{to}, \sId_\mathit{fr},
 \mathit{message})$ of messages that have been sent but not yet processed. The
-blacklist is a set of pairs $(\mathit{to}, \mathit{from})$. Once a pair
-$(\mathit{to}, \mathit{from})$ has been blacklisted messages from
-$\mathit{from}$ to $\mathit{to}$ will never be delivered ($\mathit{to}$ and
-$\mathit{from}$ are node or process identifiers). 
+blacklist records disconnections and is represented as a of pairs
+$(\sId_\mathit{to}, \sId_\mathit{fr})$. 
 
 \section{Semantics}
 
@@ -105,7 +105,7 @@ A process context, parametrized by a \sPid, identifies a process within a set
 of nodes. 
 
 \begin{equation*}
-\sCtxt{P}_\sPid ::= \sNode{\sProc{\sCtxt{E}}{pid} \sParP \sProcesses}{\sLinks}{\sNid} \sParN \sNodes 
+\sCtxt{P}_\sPid ::= \sNode{\sProc{\sCtxt{E}}{pid} \sPar \sProcesses}{\sLinks}{\sNid} \sParN \sNodes 
 \end{equation*}
 
 We also find it useful to have a process context with two holes, one for a
@@ -115,9 +115,9 @@ This set of processes may or may not live on the same node as \sPid.
 \begin{equation*}
 \begin{array}{rl}
 \sCtxt{P}_{\sPid,\sNid} ::= & 
-  \sNode{\sProc{\sCtxt{E}}{pid} \sParP []}{\sLinks}{\sNid} \sParN \sNodes \\[1em]
+  \sNode{\sProc{\sCtxt{E}}{pid} \sPar []}{\sLinks}{\sNid} \sParN \sNodes \\[1em]
 \OR & 
-  \sNode{\sProc{\sCtxt{E}}{pid} \sParP \sProcesses}{\sLinks}{\sNid'} \sParN \sNode{[]}{\sLinks}{\sNid} \sParN \sNodes 
+  \sNode{\sProc{\sCtxt{E}}{pid} \sPar \sProcesses}{\sLinks}{\sNid'} \sParN \sNode{[]}{\sLinks}{\sNid} \sParN \sNodes 
     \qquad
   (\sNid \neq \sNid')
 \end{array}
@@ -125,13 +125,54 @@ This set of processes may or may not live on the same node as \sPid.
 
 \subsection{System Rules}
 
+At the Cloud Haskell level we assume that \emph{nodes} get disconnected, not
+individual processes. To formalize this, let $\overline{\sNid}$ be the smallest
+set, given a set of processes $\sProcesses$, such that
+%
 \begin{equation*}
 \frac{
 }{
-  \sSystem{\sNodes}{\sQueue}{\sBlacklist}
+\sNid \in \overline{\sNid}
+} 
+%
+\qquad
+%
+\frac{
+\sPid \in \sProcesses \qquad
+\mathtt{node}(\sPid) = \sNid
+}{
+\sPid \in \overline{\sNid}
+}
+\end{equation*}
+
+The following rule models random network disconnect between nodes $\sNid_1$ and
+$\sNid_2$:
+
+\begin{equation*}
+\frac{
+}{
+  \sSystem{\sProcesses}{\sQueue}{\sBlacklist}
 \rightarrow
-  \sSystem{\sNodes}{\sQueue}{\sBlacklist, (\mathit{to}, \mathit{from})}
+  \sSystem{\sProcesses}{\sQueue}{\sBlacklist \cup (\overline{\sNid_1} \times \overline{\sNid_2})}
 } \textsc{Disconnect}
+\end{equation*}
+
+However, connections to and from nodes can be implicitly reconnected:
+
+\begin{equation*}
+\frac{
+}{
+  \sSystem{\sProcesses}{\sQueue}{\sBlacklist, (\sNid_\mathit{to}, \sId_\mathit{fr})}
+\rightarrow
+  \sSystem{\sProcesses}{\sQueue}{\sBlacklist}
+} \textsc{Recon-To}
+\qquad
+\frac{
+}{
+  \sSystem{\sProcesses}{\sQueue}{\sBlacklist, (\sId_\mathit{to}, \sNid_\mathit{fr})}
+\rightarrow
+  \sSystem{\sProcesses}{\sQueue}{\sBlacklist}
+} \textsc{Recon-Fr}
 \end{equation*}
 
 \subsection{Process rules}
@@ -142,27 +183,27 @@ If the communication is blacklisted the send is a no-op.
 
 \begin{equation*}
 \frac{
-(\mathit{to}, \mathit{from}) \notin \sBlacklist
+(\mathit{to}, \mathit{fr}) \notin \sBlacklist
 }{
-  \sSystem{\sCtxt{P}[ \sSend \; \mathit{to} \; V ]_\mathit{from}}
+  \sSystem{\sCtxt{P}[ \sSend \; \mathit{to} \; V ]_\mathit{fr}}
           {\sQueue}
           {\sBlacklist}
 \rightarrow 
-  \sSystem{\sCtxt{P}[ \sReturn \; () ]_\mathit{from}}
-          {\sQueue, (\mathit{to}, \mathit{from}, V)}
+  \sSystem{\sCtxt{P}[ \sReturn \; () ]_\mathit{fr}}
+          {\sQueue, (\mathit{to}, \mathit{fr}, V)}
           {\sBlacklist}
 } \textsc{Send-Ok}
 \end{equation*}
 
 \begin{equation*}
 \frac{
-(\mathit{to}, \mathit{from}) \in \sBlacklist
+(\mathit{to}, \mathit{fr}) \in \sBlacklist
 }{
-  \sSystem{\sCtxt{P}[ \sSend \; \mathit{to} \; V ]_\mathit{from}}
+  \sSystem{\sCtxt{P}[ \sSend \; \mathit{to} \; V ]_\mathit{fr}}
           {\sQueue}
           {\sBlacklist}
 \rightarrow 
-  \sSystem{\sCtxt{P}[ \sReturn \; () ]_\mathit{from}}
+  \sSystem{\sCtxt{P}[ \sReturn \; () ]_\mathit{fr}}
           {\sQueue}
           {\sBlacklist}
 } \textsc{Send-No}
@@ -176,13 +217,13 @@ We return the \emph{first} message of a randomly chosen sender.
 
 \begin{equation*}
 \frac{
-  \mathit{from} \notin \sSenders(\sQueue)
+  \mathit{fr} \notin \sSenders(\sQueue)
 }{
-  \sSystem{\sCtxt{P}[ \sExpect ]_\mathit{from}}
-          {\sQueue, (\mathit{to}, \mathit{from}, V), \sQueue'}
+  \sSystem{\sCtxt{P}[ \sExpect ]_\mathit{fr}}
+          {\sQueue, (\mathit{to}, \mathit{fr}, V), \sQueue'}
           {\sBlacklist}
 \rightarrow
-  \sSystem{\sCtxt{P}[ \sReturn \; V ]_\mathit{from}}
+  \sSystem{\sCtxt{P}[ \sReturn \; V ]_\mathit{fr}}
           {\sQueue, \sQueue'}
           {\sBlacklist}
 } \textsc{Expect}
@@ -199,7 +240,7 @@ We return the \emph{first} message of a randomly chosen sender.
           {\sQueue}
           {\sBlacklist}
 \rightarrow          
-  \sSystem{\sCtxt{P}[ \sReturn \; (\sJust{\sPid'}) ]_\sPid[\sProcesses \sParP M_{\sPid'}]_\sNid}
+  \sSystem{\sCtxt{P}[ \sReturn \; (\sJust{\sPid'}) ]_\sPid[\sProcesses \sPar M_{\sPid'}]_\sNid}
           {\sQueue}
           {\sBlacklist}
 } \textsc{Spawn-Ok}
