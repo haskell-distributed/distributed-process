@@ -1,4 +1,7 @@
 -- | Local nodes
+--
+-- TODO: Calls to 'sendBinary' and co by the node controller may stall the
+-- node controller.
 module Control.Distributed.Process.Node 
   ( LocalNode
   , newLocalNode
