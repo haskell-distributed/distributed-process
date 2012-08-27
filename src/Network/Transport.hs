@@ -240,9 +240,9 @@ data EventErrorCode =
     -- endpoint at any point in time.
     -- 
     -- That is, suppose there are multiple connections in either direction
-    -- between A and B, and A receives a notification that it has lost
-    -- connection to B. Then A should not be able to send any further messages
-    -- to B on existing connections. 
+    -- between endpoints A and B, and A receives a notification that it has
+    -- lost contact with B. Then A must not be able to send any further
+    -- messages to B on existing connections. 
     --
     -- Although B may not realize /immediately/ that its connection to A has
     -- been broken, messages sent by B on existing connections should not be
