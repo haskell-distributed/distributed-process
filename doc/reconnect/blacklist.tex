@@ -14,27 +14,36 @@
 \newcommand{\sLink}{\mathtt{link}}
 \newcommand{\sThrow}{\mathtt{throw}}
 \newcommand{\sReconnect}{\mathtt{reconnect}}
+\newcommand{\sNewChan}{\mathtt{newChan}}
+\newcommand{\sSendChan}{\mathtt{sendChan}}
+\newcommand{\sReceiveChan}{\mathtt{receiveChan}}
+\newcommand{\sMonitor}{\mathtt{monitor}}
+
+\DeclareMathOperator{\sNodeOf}{node}
+\DeclareMathOperator{\sProcessOf}{process}
 
 \newcommand{\sSpawned}{\mathtt{spawned}}
 
 \newcommand{\sExtend}[1]{\mathrel{\triangleright_{#1}}}
 
 \newcommand{\sPar}{\mathrel{\parallel}}
-\newcommand{\sParN}{\mathrel{{\parallel}_N}}
 \newcommand{\sProc}[2]{{#1}_{#2}}
 
-\newcommand{\sPid}{\ensuremath{\mathit{pid}}}
 \newcommand{\sNid}{\ensuremath{\mathit{nid}}}
+\newcommand{\sPid}{\ensuremath{\mathit{pid}}}
+\newcommand{\sCid}{\ensuremath{\mathit{cid}}}
+
 \newcommand{\sId}{\ensuremath{\mathit{id}}}
 \newcommand{\sRef}{\ensuremath{\mathit{ref}}}
 
 \newcommand{\sLinks}{\ensuremath{\mathit{links}}}
 \newcommand{\sNode}[3]{\left[{#1} ; {#2}\right]_{#3}} 
-\newcommand{\sSystem}[3]{\left\langle #1 ; #2 ; #3 \right\rangle}
+\newcommand{\sSystem}[4]{\left\langle #1 ; #2 ; #3 ; #4 \right\rangle}
 \newcommand{\sNodes}{\mathcal{N}}
 \newcommand{\sQueue}{\mathcal{Q}}
 \newcommand{\sProcesses}{\mathcal{P}}
 \newcommand{\sBlacklist}{\mathcal{B}}
+\newcommand{\sMonitors}{\mathcal{M}}
 
 \newcommand{\sJust}[1]{\mathtt{Just} \; {#1}}
 \newcommand{\sNothing}{\mathtt{Nothing}}
@@ -73,13 +82,21 @@
 
 \subsection{Processes, Nodes, Systems}
 
-We assume two disjoint enumerable sets $\mathtt{ProcessId}$ and
-$\mathtt{NodeId}$, ranged over by $\sPid$ and $\sNid$ and representing process
-identifiers and node identifiers respectively. We do not need to refer to nodes
-as entities in their own right in the semantics, but simply assume a total
-function $$\mathtt{node} : \mathtt{ProcessId} \rightarrow \mathtt{NodeId}$$ We
-also define $\mathtt{Identifier} = \mathtt{ProcessId} \uplus \mathtt{NodeId}$
-and let $\sId$ range over $\mathtt{Identifier}$. 
+We assume disjoint countable sets $\mathtt{NodeId}$, $\mathtt{ProcessId}$, and
+$\mathtt{ChannelId}$, changed over by \sNid, \sPid{} and \sCid{} respectively,
+and representing process identifiers, node identifiers, and (typed) channel
+identifiers. We assume the existence of total functions
+%
+\begin{equation*}
+\begin{array}{r@{\;:\;}l}
+\sNodeOf    & (\mathtt{ProcessId} \uplus \mathtt{ChannelId}) \rightarrow \mathtt{NodeId} \\
+\sProcessOf & \mathtt{ChannelId} \rightarrow \mathtt{ProcessId} 
+\end{array}
+\end{equation*}
+%
+and define 
+$$\mathtt{Identifier} = \mathtt{NodeId} \uplus \mathtt{ProcessId} \uplus \mathtt{ChannelId}$$ 
+and let $\sId$ range over $\mathtt{Identifier}$.
 
 We represent a process as a pair $\sProc{M}{\sPid}$ of a term $M$ and a process
 ID $\sPid$. We will denote a set of processes as
@@ -87,14 +104,23 @@ ID $\sPid$. We will denote a set of processes as
   $$\sProc{M}{\sPid} \sPar \cdots \sPar \sProc{N}{\sPid'}$$
 %
 A \emph{system} 
-  $\sSystem{\sProcesses}{\sQueue}{\sBlacklist}$ 
-finally is a tuple containing a set $\sProcesses$ of nodes,
-a \emph{system queue} $\sQueue$, and a \emph{blacklist} $\sBlacklist$.
+  $\sSystem{\sProcesses}{\sQueue}{\sBlacklist}{\sMonitors}$ 
+finally is a tuple containing a set $\sProcesses$ of nodes, a \emph{system
+queue} $\sQueue$, a \emph{blacklist} $\sBlacklist$, and a set of monitors
+$\sMonitors$.
+
+The set of monitors $\sMonitors$ is a set of tuples 
+  $(\sId_\mathit{to}, \sPid_\mathit{fr}, \sNid, \sRef)$ 
+which records that the node controller at \sNid is aware that process
+$\sPid_\mathit{fr}$ is monitoring $\sId_\mathit{to}$.
 
 The system queue is a set of triples $(\sId_\mathit{to}, \sId_\mathit{fr},
 \mathit{message})$ of messages that have been sent but not yet processed. The
 blacklist records disconnections and is represented as a of pairs
 $(\sId_\mathit{to}, \sId_\mathit{fr})$. 
+
+Note that we do not need to refer to nodes as entities in their own right in
+the semantics.
 
 \section{Semantics}
 
@@ -102,9 +128,10 @@ $(\sId_\mathit{to}, \sId_\mathit{fr})$.
 
 We define an evaluation context as usual (TODO: catch?)
 
-\begin{equation*}
-\sCtxt{E} ::= [] \OR \sBind{\sCtxt{E}}{M}
-\end{equation*}
+\begin{align*}
+\sCtxt{E} & ::= [] \OR \sBind{\sCtxt{E}}{M}  \\
+\sCtxt{P}_\sPid  & ::= \sCtxt{E}[]_\sPid \sPar \sProcesses
+\end{align*}
 
 \subsection{Disconnect}
 
@@ -123,9 +150,18 @@ processes $\sProcesses$, such that
 %
 \frac{
 \sPid \in \sProcesses \qquad
-\mathtt{node}(\sPid) = \sNid
+\sNodeOf(\sPid) = \sNid
 }{
 \sPid \in \overline{\sNid}
+}
+%
+\qquad
+%
+\frac{
+\sCid \in \sProcesses \qquad
+\sNodeOf(\sCid) = \sNid
+}{
+\sCid \in \overline{\sNid}
 }
 \end{equation*}
 
@@ -135,28 +171,45 @@ $\sNid_2$:
 \begin{equation*}
 \frac{
 }{
-  \sSystem{\sProcesses}{\sQueue}{\sBlacklist}
+  \sSystem{\sProcesses}{\sQueue}{\sBlacklist}{\sMonitors}
 \rightarrow
-  \sSystem{\sProcesses}{\sQueue}{\sBlacklist \cup (\overline{\sNid_1} \times \overline{\sNid_2})}
+  \sSystem{\sProcesses}{\sQueue}{\sBlacklist \cup (\overline{\sNid_1} \times \overline{\sNid_2})}{\sMonitors}
 } \textsc{Disconnect}
 \end{equation*}
 
-However, connections to and from nodes can be implicitly reconnected:
+We provide a primitive to remove a connection from the blacklist:
 
 \begin{equation*}
 \frac{
 }{
-  \sSystem{\sProcesses}{\sQueue}{\sBlacklist, (\sNid_\mathit{to}, \sId_\mathit{fr})}
+  \sSystem{\sCtxt{P}[ \sReconnect \; \sId_\mathit{to} ]_{\sPid_\mathit{fr}}}
+          {\sQueue}
+          {\sBlacklist}
+          {\sMonitors}
 \rightarrow
-  \sSystem{\sProcesses}{\sQueue}{\sBlacklist}
-} \textsc{Recon-To}
+  \sSystem{\sCtxt{P}[ \sReturn \; () ]_\sPid}
+          {\sQueue}
+          {\sBlacklist \backslash (\sPid_\mathit{to}, \sPid_\mathit{fr})}
+          {\sMonitors}
+} \textsc{Recon-Ex}
+\end{equation*}
+
+Connections to and from nodes can be implicitly reconnected:
+
+\begin{equation*}
+\frac{
+}{
+  \sSystem{\sProcesses}{\sQueue}{\sBlacklist, (\sNid_\mathit{to}, \sId_\mathit{fr})}{\sMonitors}
+\rightarrow
+  \sSystem{\sProcesses}{\sQueue}{\sBlacklist}{\sMonitors}
+} \textsc{Recon-Im1}
 \qquad
 \frac{
 }{
-  \sSystem{\sProcesses}{\sQueue}{\sBlacklist, (\sId_\mathit{to}, \sNid_\mathit{fr})}
+  \sSystem{\sProcesses}{\sQueue}{\sBlacklist, (\sId_\mathit{to}, \sNid_\mathit{fr})}{\sMonitors}
 \rightarrow
-  \sSystem{\sProcesses}{\sQueue}{\sBlacklist}
-} \textsc{Recon-Fr}
+  \sSystem{\sProcesses}{\sQueue}{\sBlacklist}{\sMonitors}
+} \textsc{Recon-Im2}
 \end{equation*}
 
 Once a connection has been blacklisted, no further messages can be sent across
@@ -179,31 +232,28 @@ introduce a function
 \end{array}
 \end{equation*}
 
+
+
 \subsection{Process rules}
 
-\subsubsection{Sending}
+\subsubsection{Send and Receive}
 
-If the communication is blacklisted the send is a no-op.
+We ignore issues of serializability for the purposes of this semantics.
 
 \begin{equation*}
 \frac{
 }{
-  \sSystem{   \sCtxt{E}[ \sSend \; \sPid_\mathit{to} \; M ]_{\sPid_\mathit{fr}} 
-            \sPar
-              \sProcesses
-          }
+  \sSystem{\sCtxt{P}[ \sSend \; \sPid_\mathit{to} \; M ]_{\sPid_\mathit{fr}}}
           {\sQueue}
           {\sBlacklist}
+          {\sMonitors}
 \rightarrow 
-  \sSystem{\sCtxt{E}[ \sReturn \; () ]_\mathit{fr} \sPar \sProcesses}
+  \sSystem{\sCtxt{P}[ \sReturn \; () ]_\mathit{fr}}
           {\sQueue \sExtend{\sBlacklist} (\sPid_\mathit{to}, \sPid_\mathit{fr}, M)}
           {\sBlacklist}
+          {\sMonitors}
 } \textsc{Send}
 \end{equation*}
-
-We ignore issues of serializability for the purposes of this semantics.
-
-\subsubsection{Receiving}
 
 We return the \emph{first} message of a randomly chosen sender.
 
@@ -211,13 +261,15 @@ We return the \emph{first} message of a randomly chosen sender.
 \frac{
   \sId_{\mathit{fr}} \notin \sSenders(\sQueue)
 }{
-  \sSystem{\sCtxt{E}[ \sExpect ]_{\sPid_\mathit{to}} \sPar \sProcesses}
+  \sSystem{\sCtxt{P}[ \sExpect ]_{\sPid_\mathit{to}}}
           {\sQueue, (\sPid_\mathit{to}, \sId_\mathit{fr}, M), \sQueue'}
           {\sBlacklist}
+          {\sMonitors}
 \rightarrow
-  \sSystem{\sCtxt{E}[ \sReturn \; M ]_{\sPid_\mathit{to}} \sPar \sProcesses}
+  \sSystem{\sCtxt{P}[ \sReturn \; M ]_{\sPid_\mathit{to}}}
           {\sQueue, \sQueue'}
           {\sBlacklist}
+          {\sMonitors}
 } \textsc{Expect}
 \end{equation*}
 
@@ -227,48 +279,186 @@ Spawning is asynchronous
 
 \begin{equation*}
 \frac{
-  \text{\sRef fresh} 
+  \sRef \text{ fresh} 
 }{
-  \sSystem{\sCtxt{E}[ \sSpawn \; \sNid \; M ]_\sPid \sPar \sProcesses}
+  \sSystem{\sCtxt{P}[ \sSpawn \; \sNid \; M ]_\sPid}
           {\sQueue}
           {\sBlacklist}
+          {\sMonitors}
 \rightarrow          
-  \sSystem{\sCtxt{E}[ \sReturn \; \sRef ]_\sPid \sPar \sProcesses}
+  \sSystem{\sCtxt{P}[ \sReturn \; \sRef ]_\sPid}
           {\sQueue \sExtend{\sBlacklist} (\sNid, \sPid, \sSpawn \; \sRef \; M)}
           {\sBlacklist}
+          {\sMonitors}
 } \textsc{Spawn-Async}
 \end{equation*}
-
 
 \begin{equation*}
 \frac{
   \sPid \notin \sSenders(\sQueue)
 \qquad
-  \text{$\sPid'$ fresh}
+  \sPid' \text{ fresh} 
+\qquad
+  \sNodeOf(\sPid') = \sNid
 }{
   \sSystem{\sProcesses}
           {\sQueue, (\sNid, \sPid, \sSpawn \; \sRef \; M), \sQueue'}
           {\sBlacklist}
+          {\sMonitors}
 \rightarrow
   \sSystem{\sProcesses \sPar M_{\sPid'}}
           {\sQueue, \sQueue' \sExtend{\sBlacklist} (\sPid, \sNid, \sSpawned \; \sRef \; \sPid')}
           {\sBlacklist}
+          {\sMonitors}
 } \textsc{Spawn-Reply}
 \end{equation*}
 
-\subsubsection{Reconnect}
+\subsubsection{Typed Channels}
+
+Since the semantics is not type-driven, we represent typed channels simply as
+an identifier with an annotation whether it is the send-end ($\sCid^s$) or the
+receive end ($\sCid^r$) of the channel.
+
+\begin{equation*}
+\frac{
+  \sCid \text{ fresh}
+\qquad
+  \sProcessOf(\sCid) = \sPid
+}{
+  \sSystem{\sCtxt{P}[\sNewChan]_\sPid}
+          {\sQueue}
+          {\sBlacklist}
+          {\sMonitors}
+\rightarrow
+  \sSystem{\sCtxt{P}[\sReturn \; (\sCid^s, \sCid^r)]_\sPid}
+          {\sQueue}
+          {\sBlacklist}
+          {\sMonitors}
+} \textsc{NewChan}
+\end{equation*}
 
 \begin{equation*}
 \frac{
 }{
-  \sSystem{\sCtxt{P}[ \sReconnect \; \sId_\mathit{to} ]_{\sPid_\mathit{fr}}}
+  \sSystem{\sCtxt{P}[ \sSendChan \; \sCid_\mathit{to}^s \; M ]_{\sPid_\mathit{fr}}}
           {\sQueue}
           {\sBlacklist}
+          {\sMonitors}
+\rightarrow 
+  \sSystem{\sCtxt{P}[ \sReturn \; () ]_{\sPid_\mathit{fr}}}
+          {\sQueue \sExtend{\sBlacklist} (\sCid_\mathit{to}, \sPid_\mathit{fr}, M)}
+          {\sBlacklist}
+          {\sMonitors}
+} \textsc{SendChan}
+\end{equation*}
+
+\begin{equation*}
+\frac{
+  \sId_{\mathit{fr}} \notin \sSenders(\sQueue)
+}{
+  \sSystem{\sCtxt{P}[ \sReceiveChan \; \sCid^r ]_{\sPid}}
+          {\sQueue, (\sCid_\mathit{to}, \sPid_\mathit{fr}, M), \sQueue'}
+          {\sBlacklist}
+          {\sMonitors}
 \rightarrow
-  \sSystem{\sCtxt{P}[ \sReturn \; () ]_\sPid}
+  \sSystem{\sCtxt{P}[ \sReturn \; M ]_{\sPid}}
+          {\sQueue, \sQueue'}
+          {\sBlacklist}
+          {\sMonitors}
+} \textsc{ReceiveChan}
+\end{equation*}
+
+\subsubsection{Monitoring}
+
+\begin{equation*}
+\frac{
+  \sNid_\mathit{fr} = \sNodeOf(\sPid_\mathit{fr}) 
+\qquad
+  \sNid_\mathit{to} = \sNodeOf(\sPid_\mathit{to})
+\qquad
+  \sRef \text{ fresh}
+}{
+\begin{array}{ll}
+& \sSystem{\sCtxt{P}[ \sMonitor \; \sId_\mathit{to} ]_{\sPid_\mathit{fr}}}
           {\sQueue}
-          {\sBlacklist \backslash (\sPid_\mathit{to}, \sPid_\mathit{fr})}
-} \textsc{Reconnect}
+          {\sBlacklist}
+          {\sMonitors}
+\\         
+\rightarrow &
+  \sSystem{\sCtxt{P}[ \sReturn \; \sRef ]_{\sPid_\mathit{fr}}}
+          {\sQueue \sExtend{\sBlacklist} (\sNid_\mathit{to}, \sPid_\mathit{fr}, \sMonitor \; \sRef \; \sId_\mathit{to})}
+          {\sBlacklist}
+          {\sMonitors, (\sId_\mathit{to}, \sPid_\mathit{fr}, \sNid_\mathit{fr}, \sRef)}
+\end{array}
+} \textsc{Monitor}
+\end{equation*}
+
+\begin{equation*}
+\frac{
+  \sPid_\mathit{fr} \notin \sSenders(\sQueue)
+}{
+  \sSystem{\sProcesses}
+          {\sQueue, (\sNid_\mathit{to}, \sPid_\mathit{fr}, \sMonitor \; \sRef \; \sId_\mathit{to}), \sQueue'}
+          {\sBlacklist}
+          {\sMonitors}
+\rightarrow          
+  \sSystem{\sProcesses}
+          {\sQueue, \sQueue'}
+          {\sBlacklist}
+          {\sMonitors, (\sId_\mathit{to}, \sPid_\mathit{fr}, \sNid_\mathit{to}, \sRef)}
+} \textsc{Monitor-Remote}
+\end{equation*}
+
+\begin{equation*}
+\frac{
+  \sNid_\mathit{fr} = \sNodeOf(\sPid_\mathit{fr})
+}{
+  \sSystem{\sProcesses}
+          {\sQueue}
+          {\sBlacklist, (\sId_\mathit{to}, \sPid_\mathit{fr})}
+          {\sMonitors, (\sId_\mathit{to}, \sPid_\mathit{fr}, \sNid_\mathit{fr}, \sRef)}
+\rightarrow          
+  \sSystem{\sProcesses}
+          {\sQueue, (\sPid_\mathit{fr}, \sId_\mathit{to}, \mathtt{disconnected} \; \sRef)}
+          {\sBlacklist, (\sId_\mathit{to}, \sPid_\mathit{fr})}
+          {\sMonitors}
+}
+\end{equation*}
+
+\subsubsection{Process Termination}
+
+\begin{equation*}
+\frac{
+  \sNodeOf(\sPid) = \sNid
+\qquad
+  \nexists \; \sPid', \sRef \cdot (\sPid, \sPid', \sNid, \sRef) \in \sMonitors 
+}{
+  \sSystem{{(\sReturn \; ())}_\sPid \sPar \sProcesses}
+          {\sQueue}
+          {\sBlacklist}
+          {\sMonitors}
+\rightarrow          
+  \sSystem{\sProcesses}
+          {\sQueue}
+          {\sBlacklist}
+          {\sMonitors}
+} \textsc{Term}
+\end{equation*}
+
+\begin{equation*}
+\frac{
+  \sNodeOf(\sPid) = \sNid
+}{
+  \sSystem{{(\sReturn \; ())}_\sPid \sPar \sProcesses}
+          {\sQueue}
+          {\sBlacklist}
+          {\sMonitors, (\sPid, \sPid', \sNid, \sRef)}
+\rightarrow
+  \sSystem{{(\sReturn \; ())}_\sPid \sPar \sProcesses}
+          {\sQueue \sExtend{\sBlacklist} (\sPid', \sPid, \mathtt{died} \; \sRef)}
+          {\sBlacklist}
+          {\sMonitors}
+} \textsc{Died}
 \end{equation*}
 
 \subsubsection{Administration}
