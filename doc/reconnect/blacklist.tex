@@ -71,9 +71,10 @@
 \begin{array}{ll@{\;::=\;}l}
 \text{value} & V    & \sLam{x}{M} \OR
                       \sExpect \OR
-                      \sSend \; \sPid \; V \OR
-                      \sSpawn \; \sNid \; V \OR 
-                      \sReturn \; M
+                      \sSend \; \sPid \; M \OR
+                      \sSpawn \; \sNid \; M \OR 
+                      \sReturn \; M \OR
+                      \cdots
 \\
 \text{term}  & M, N & \sApp{M}{N} \OR
                       \sBind{M}{N}
@@ -105,22 +106,21 @@ ID $\sPid$. We will denote a set of processes as
 %
 A \emph{system} 
   $\sSystem{\sProcesses}{\sQueue}{\sBlacklist}{\sMonitors}$ 
-finally is a tuple containing a set $\sProcesses$ of nodes, a \emph{system
+is a tuple containing a set $\sProcesses$ of processes, a \emph{system
 queue} $\sQueue$, a \emph{blacklist} $\sBlacklist$, and a set of monitors
 $\sMonitors$.
-
 The set of monitors $\sMonitors$ is a set of tuples 
   $(\sId_\mathit{to}, \sPid_\mathit{fr}, \sNid, \sRef)$ 
-which records that the node controller at \sNid is aware that process
-$\sPid_\mathit{fr}$ is monitoring $\sId_\mathit{to}$.
-
+which records that the node controller at \sNid{} knows that process
+$\sPid_\mathit{fr}$ is monitoring $\sId_\mathit{to}$ ($\sRef$ is the monitor
+reference).
 The system queue is a set of triples $(\sId_\mathit{to}, \sId_\mathit{fr},
 \mathit{message})$ of messages that have been sent but not yet processed. The
 blacklist records disconnections and is represented as a of pairs
 $(\sId_\mathit{to}, \sId_\mathit{fr})$. 
 
-Note that we do not need to refer to nodes as entities in their own right in
-the semantics.
+%Note that we do not need to refer to nodes as entities in their own right in
+%the semantics.
 
 \section{Semantics}
 
@@ -189,7 +189,7 @@ We provide a primitive to remove a connection from the blacklist:
 \rightarrow
   \sSystem{\sCtxt{P}[ \sReturn \; () ]_\sPid}
           {\sQueue}
-          {\sBlacklist \backslash (\sPid_\mathit{to}, \sPid_\mathit{fr})}
+          {\sBlacklist \backslash (\sId_\mathit{to}, \sPid_\mathit{fr})}
           {\sMonitors}
 } \textsc{Recon-Ex}
 \end{equation*}
@@ -231,14 +231,12 @@ introduce a function
   \text{otherwise}
 \end{array}
 \end{equation*}
-
-
+%
+$(\sExtend{\sBlacklist})$ is only defined for serializable payloads.
 
 \subsection{Process rules}
 
 \subsubsection{Send and Receive}
-
-We ignore issues of serializability for the purposes of this semantics.
 
 \begin{equation*}
 \frac{
@@ -248,7 +246,7 @@ We ignore issues of serializability for the purposes of this semantics.
           {\sBlacklist}
           {\sMonitors}
 \rightarrow 
-  \sSystem{\sCtxt{P}[ \sReturn \; () ]_\mathit{fr}}
+  \sSystem{\sCtxt{P}[ \sReturn \; () ]_{\sPid_\mathit{fr}}}
           {\sQueue \sExtend{\sBlacklist} (\sPid_\mathit{to}, \sPid_\mathit{fr}, M)}
           {\sBlacklist}
           {\sMonitors}
@@ -354,9 +352,9 @@ receive end ($\sCid^r$) of the channel.
 
 \begin{equation*}
 \frac{
-  \sId_{\mathit{fr}} \notin \sSenders(\sQueue)
+  \sPid_{\mathit{fr}} \notin \sSenders(\sQueue)
 }{
-  \sSystem{\sCtxt{P}[ \sReceiveChan \; \sCid^r ]_{\sPid}}
+  \sSystem{\sCtxt{P}[ \sReceiveChan \; \sCid_\mathit{to}^r ]_{\sPid}}
           {\sQueue, (\sCid_\mathit{to}, \sPid_\mathit{fr}, M), \sQueue'}
           {\sBlacklist}
           {\sMonitors}
@@ -370,11 +368,14 @@ receive end ($\sCid^r$) of the channel.
 
 \subsubsection{Monitoring}
 
+The local node controller is notified immediately of the new monitor, and the
+remote monitor is sent a message (which may, of course, be lost). 
+
 \begin{equation*}
 \frac{
   \sNid_\mathit{fr} = \sNodeOf(\sPid_\mathit{fr}) 
 \qquad
-  \sNid_\mathit{to} = \sNodeOf(\sPid_\mathit{to})
+  \sNid_\mathit{to} = \sNodeOf(\sId_\mathit{to})
 \qquad
   \sRef \text{ fresh}
 }{
@@ -409,29 +410,36 @@ receive end ($\sCid^r$) of the channel.
 } \textsc{Monitor-Remote}
 \end{equation*}
 
+The \emph{local} node controller notifies a monitoring process when it gets
+disconncted from a monitored remote process.
+
 \begin{equation*}
 \frac{
   \sNid_\mathit{fr} = \sNodeOf(\sPid_\mathit{fr})
+\qquad
+  (\sId_\mathit{to}, \sPid_\mathit{fr}) \in \sBlacklist
 }{
   \sSystem{\sProcesses}
           {\sQueue}
-          {\sBlacklist, (\sId_\mathit{to}, \sPid_\mathit{fr})}
+          {\sBlacklist}
           {\sMonitors, (\sId_\mathit{to}, \sPid_\mathit{fr}, \sNid_\mathit{fr}, \sRef)}
 \rightarrow          
   \sSystem{\sProcesses}
-          {\sQueue, (\sPid_\mathit{fr}, \sId_\mathit{to}, \mathtt{disconnected} \; \sRef)}
-          {\sBlacklist, (\sId_\mathit{to}, \sPid_\mathit{fr})}
+          {\sQueue, (\sPid_\mathit{fr}, \sId_\mathit{to}, \mathtt{discon} \; \sRef)}
+          {\sBlacklist}
           {\sMonitors}
-}
+} \textsc{Discon}
 \end{equation*}
 
 \subsubsection{Process Termination}
+
+We remove a terminated process only once all its monitors have been notified.
 
 \begin{equation*}
 \frac{
   \sNodeOf(\sPid) = \sNid
 \qquad
-  \nexists \; \sPid', \sRef \cdot (\sPid, \sPid', \sNid, \sRef) \in \sMonitors 
+  \nexists \; \sPid', \sRef \cdot (\sPid', \sPid, \sNid, \sRef) \in \sMonitors 
 }{
   \sSystem{{(\sReturn \; ())}_\sPid \sPar \sProcesses}
           {\sQueue}
@@ -444,6 +452,9 @@ receive end ($\sCid^r$) of the channel.
           {\sMonitors}
 } \textsc{Term}
 \end{equation*}
+
+The \emph{remote} node controller notifies a monitoring process when its
+monitored remote process terminates.
 
 \begin{equation*}
 \frac{
