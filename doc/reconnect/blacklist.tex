@@ -57,15 +57,55 @@
 
 \begin{document}
 
-\title{Cloud Haskell Semantics}
+\title{Cloud Haskell Semantics (DRAFT)}
 \author{Edsko de Vries, Well-Typed LLP}
 \date{\today}
 
 \maketitle
 
-\section{Syntax}
+\section{Introduction}
+
+This is a semantics for Cloud Haskell, based on the \textit{Unified Semantics
+for a Future Erlang} (Hans Svensson, Lars-\AA{}ke Fredlund and Clara Benac
+Earle, Erlang '10) but using the semantics style of \textit{Composable Memory
+Transactions} (Tim Harris, Simon Marlow, Simon Peyton-Jones, Maurice Herlihy,
+PPoPP '05). It differs from the former in that
+%
+\begin{enumerate}
+\item We introduce an explicit notion of \textit{reconnecting} (with potential
+message loss)
+\item We simplify the semantics: we ``flatten'' sets of nodes of processes as
+sets of processes (but assume a mapping from process identifiers to node
+identifiers), do not have per-process mailboxes (but only the system queue or
+``ether'') and do not have an explicit concept of node controllers
+\end{enumerate}
+%
+It differs from the latter in that
+%
+\begin{enumerate}
+\item We pretend that the Cloud Haskell \texttt{Process} monad is the top-level
+monad, and do not consider the \texttt{IO} monad at all
+\item We ignore exceptions
+\end{enumerate}
+%
+Current imprecisions with respect to the ``real'' Cloud Haskell are
+%
+\begin{enumerate}
+\item We ignore the issue of serializability, other than to say that the
+semantics will get stuck when trying to send a non-serializable payload;
+consequently, we do not formalize $\mathtt{static}$
+\item We do not formalize all Cloud Haskell primitives (merging of ports,
+``advanced messaging'', and others)
+\item Some of the concepts that we do formalize are lower-level concepts; for
+instance, the primitive $\sSpawn$ that we formalize is asynchronous (following
+the Unified semantics); a synchronous construct can be derived.
+\end{enumerate}
+
+\section{Preliminaries}
 
 \subsection{Terms}
+
+We assume the usual definitions of values and terms.
 
 \begin{equation*}
 \begin{array}{ll@{\;::=\;}l}
@@ -82,6 +122,12 @@
 \end{equation*}
 
 \subsection{Processes, Nodes, Systems}
+
+Processes run on \emph{nodes}. We assume that nodes run a special process
+called the \emph{node controller} which is responsible for issuing monitor
+messages, spawning new processes, etc. In the semantics messages to node
+controllers (for instance, requests to spawn new processes) are recorded as
+messages sent to the node itself.
 
 We assume disjoint countable sets $\mathtt{NodeId}$, $\mathtt{ProcessId}$, and
 $\mathtt{ChannelId}$, changed over by \sNid, \sPid{} and \sCid{} respectively,
@@ -119,14 +165,13 @@ The system queue is a set of triples $(\sId_\mathit{to}, \sId_\mathit{fr},
 blacklist records disconnections and is represented as a of pairs
 $(\sId_\mathit{to}, \sId_\mathit{fr})$. 
 
-%Note that we do not need to refer to nodes as entities in their own right in
-%the semantics.
-
 \section{Semantics}
 
 \subsection{Contexts}
 
-We define an evaluation context as usual (TODO: catch?)
+We define an evaluation context as in the \textit{Composable Memory
+Transactions} paper, but note that we work with \emph{sets} of processes so the
+definition of $\sCtxt{P}$ can be slightly simpler. 
 
 \begin{align*}
 \sCtxt{E} & ::= [] \OR \sBind{\sCtxt{E}}{M}  \\
@@ -135,7 +180,7 @@ We define an evaluation context as usual (TODO: catch?)
 
 \subsection{Disconnect}
 
-At the Cloud Haskell level we assume that \emph{nodes} get disconnected, not
+We assume that entire \emph{nodes} get disconnected from each other, not
 individual processes. \emph{Reconnecting} however is on a per process basis. To
 formalize this, let $\overline{\sNid}$ be the smallest set, given a set of
 processes $\sProcesses$, such that
@@ -177,41 +222,6 @@ $\sNid_2$:
 } \textsc{Disconnect}
 \end{equation*}
 
-We provide a primitive to remove a connection from the blacklist:
-
-\begin{equation*}
-\frac{
-}{
-  \sSystem{\sCtxt{P}[ \sReconnect \; \sId_\mathit{to} ]_{\sPid_\mathit{fr}}}
-          {\sQueue}
-          {\sBlacklist}
-          {\sMonitors}
-\rightarrow
-  \sSystem{\sCtxt{P}[ \sReturn \; () ]_\sPid}
-          {\sQueue}
-          {\sBlacklist \backslash (\sId_\mathit{to}, \sPid_\mathit{fr})}
-          {\sMonitors}
-} \textsc{Recon-Ex}
-\end{equation*}
-
-Connections to and from nodes can be implicitly reconnected:
-
-\begin{equation*}
-\frac{
-}{
-  \sSystem{\sProcesses}{\sQueue}{\sBlacklist, (\sNid_\mathit{to}, \sId_\mathit{fr})}{\sMonitors}
-\rightarrow
-  \sSystem{\sProcesses}{\sQueue}{\sBlacklist}{\sMonitors}
-} \textsc{Recon-Im1}
-\qquad
-\frac{
-}{
-  \sSystem{\sProcesses}{\sQueue}{\sBlacklist, (\sId_\mathit{to}, \sNid_\mathit{fr})}{\sMonitors}
-\rightarrow
-  \sSystem{\sProcesses}{\sQueue}{\sBlacklist}{\sMonitors}
-} \textsc{Recon-Im2}
-\end{equation*}
-
 Once a connection has been blacklisted, no further messages can be sent across
 that connection (until an explicit or implicit reconnect). To model this we
 introduce a function
@@ -234,9 +244,45 @@ introduce a function
 %
 $(\sExtend{\sBlacklist})$ is only defined for serializable payloads.
 
-\subsection{Process rules}
+We provide a primitive to remove a connection from the blacklist:
 
-\subsubsection{Send and Receive}
+\begin{equation*}
+\frac{
+}{
+  \sSystem{\sCtxt{P}[ \sReconnect \; \sId_\mathit{to} ]_{\sPid_\mathit{fr}}}
+          {\sQueue}
+          {\sBlacklist}
+          {\sMonitors}
+\rightarrow
+  \sSystem{\sCtxt{P}[ \sReturn \; () ]_\sPid}
+          {\sQueue}
+          {\sBlacklist \backslash (\sId_\mathit{to}, \sPid_\mathit{fr})}
+          {\sMonitors}
+} \textsc{Recon-Ex}
+\end{equation*}
+
+Note that using this primitive means giving up on the reliability guarantee: a
+call to $\sReconnect$ means that message loss is accepted.
+
+Connections to and from node controllers can be implicitly reconnected:
+
+\begin{equation*}
+\frac{
+}{
+  \sSystem{\sProcesses}{\sQueue}{\sBlacklist, (\sNid_\mathit{to}, \sId_\mathit{fr})}{\sMonitors}
+\rightarrow
+  \sSystem{\sProcesses}{\sQueue}{\sBlacklist}{\sMonitors}
+} \textsc{Recon-Im1}
+\qquad
+\frac{
+}{
+  \sSystem{\sProcesses}{\sQueue}{\sBlacklist, (\sId_\mathit{to}, \sNid_\mathit{fr})}{\sMonitors}
+\rightarrow
+  \sSystem{\sProcesses}{\sQueue}{\sBlacklist}{\sMonitors}
+} \textsc{Recon-Im2}
+\end{equation*}
+
+\subsection{Send and Receive}
 
 \begin{equation*}
 \frac{
@@ -271,7 +317,7 @@ We return the \emph{first} message of a randomly chosen sender.
 } \textsc{Expect}
 \end{equation*}
 
-\subsubsection{Spawning}
+\subsection{Spawning}
 
 Spawning is asynchronous
 
@@ -311,7 +357,7 @@ Spawning is asynchronous
 } \textsc{Spawn-Reply}
 \end{equation*}
 
-\subsubsection{Typed Channels}
+\subsection{Typed Channels}
 
 Since the semantics is not type-driven, we represent typed channels simply as
 an identifier with an annotation whether it is the send-end ($\sCid^s$) or the
@@ -366,7 +412,7 @@ receive end ($\sCid^r$) of the channel.
 } \textsc{ReceiveChan}
 \end{equation*}
 
-\subsubsection{Monitoring}
+\subsection{Monitoring}
 
 The local node controller is notified immediately of the new monitor, and the
 remote monitor is sent a message (which may, of course, be lost). 
@@ -431,7 +477,7 @@ disconncted from a monitored remote process.
 } \textsc{Discon}
 \end{equation*}
 
-\subsubsection{Process Termination}
+\subsection{Process Termination}
 
 We remove a terminated process only once all its monitors have been notified.
 
@@ -472,7 +518,7 @@ monitored remote process terminates.
 } \textsc{Died}
 \end{equation*}
 
-\subsubsection{Administration}
+\subsection{Administration}
 
 TODO: bind, pure evaluation, maybe exception handling
 
