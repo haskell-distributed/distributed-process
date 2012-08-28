@@ -15,13 +15,18 @@
 \newcommand{\sThrow}{\mathtt{throw}}
 \newcommand{\sReconnect}{\mathtt{reconnect}}
 
-\newcommand{\sPar}{\mathrel{{\parallel}_P}}
+\newcommand{\sSpawned}{\mathtt{spawned}}
+
+\newcommand{\sExtend}[1]{\mathrel{\triangleright_{#1}}}
+
+\newcommand{\sPar}{\mathrel{\parallel}}
 \newcommand{\sParN}{\mathrel{{\parallel}_N}}
 \newcommand{\sProc}[2]{{#1}_{#2}}
 
 \newcommand{\sPid}{\ensuremath{\mathit{pid}}}
 \newcommand{\sNid}{\ensuremath{\mathit{nid}}}
 \newcommand{\sId}{\ensuremath{\mathit{id}}}
+\newcommand{\sRef}{\ensuremath{\mathit{ref}}}
 
 \newcommand{\sLinks}{\ensuremath{\mathit{links}}}
 \newcommand{\sNode}[3]{\left[{#1} ; {#2}\right]_{#3}} 
@@ -101,33 +106,12 @@ We define an evaluation context as usual (TODO: catch?)
 \sCtxt{E} ::= [] \OR \sBind{\sCtxt{E}}{M}
 \end{equation*}
 
-A process context, parametrized by a \sPid, identifies a process within a set
-of nodes. 
-
-\begin{equation*}
-\sCtxt{P}_\sPid ::= \sNode{\sProc{\sCtxt{E}}{pid} \sPar \sProcesses}{\sLinks}{\sNid} \sParN \sNodes 
-\end{equation*}
-
-We also find it useful to have a process context with two holes, one for a
-process identified by \sPid{} and one for the set of processes on node \sNid.
-This set of processes may or may not live on the same node as \sPid. 
-
-\begin{equation*}
-\begin{array}{rl}
-\sCtxt{P}_{\sPid,\sNid} ::= & 
-  \sNode{\sProc{\sCtxt{E}}{pid} \sPar []}{\sLinks}{\sNid} \sParN \sNodes \\[1em]
-\OR & 
-  \sNode{\sProc{\sCtxt{E}}{pid} \sPar \sProcesses}{\sLinks}{\sNid'} \sParN \sNode{[]}{\sLinks}{\sNid} \sParN \sNodes 
-    \qquad
-  (\sNid \neq \sNid')
-\end{array}
-\end{equation*}
-
-\subsection{System Rules}
+\subsection{Disconnect}
 
 At the Cloud Haskell level we assume that \emph{nodes} get disconnected, not
-individual processes. To formalize this, let $\overline{\sNid}$ be the smallest
-set, given a set of processes $\sProcesses$, such that
+individual processes. \emph{Reconnecting} however is on a per process basis. To
+formalize this, let $\overline{\sNid}$ be the smallest set, given a set of
+processes $\sProcesses$, such that
 %
 \begin{equation*}
 \frac{
@@ -175,6 +159,26 @@ However, connections to and from nodes can be implicitly reconnected:
 } \textsc{Recon-Fr}
 \end{equation*}
 
+Once a connection has been blacklisted, no further messages can be sent across
+that connection (until an explicit or implicit reconnect). To model this we
+introduce a function
+%
+\begin{equation*}
+\begin{array}{l@{\;=\;}l@{\hspace{3em}}l}
+  \sQueue \sExtend{\sBlacklist} (\sId_\mathit{to}, \sId_\mathit{fr}, M) 
+& 
+  \sQueue,  (\sId_\mathit{to}, \sId_\mathit{fr}, M)
+&
+  \text{if } (\sId_\mathit{to}, \sId_\mathit{fr}) \notin \sBlacklist
+\\
+  \sQueue \sExtend{\sBlacklist} (\sId_\mathit{to}, \sId_\mathit{fr}, M) 
+& 
+  \sQueue
+&
+  \text{otherwise}
+\end{array}
+\end{equation*}
+
 \subsection{Process rules}
 
 \subsubsection{Sending}
@@ -183,33 +187,21 @@ If the communication is blacklisted the send is a no-op.
 
 \begin{equation*}
 \frac{
-(\mathit{to}, \mathit{fr}) \notin \sBlacklist
 }{
-  \sSystem{\sCtxt{P}[ \sSend \; \mathit{to} \; V ]_\mathit{fr}}
+  \sSystem{   \sCtxt{E}[ \sSend \; \sPid_\mathit{to} \; M ]_{\sPid_\mathit{fr}} 
+            \sPar
+              \sProcesses
+          }
           {\sQueue}
           {\sBlacklist}
 \rightarrow 
-  \sSystem{\sCtxt{P}[ \sReturn \; () ]_\mathit{fr}}
-          {\sQueue, (\mathit{to}, \mathit{fr}, V)}
+  \sSystem{\sCtxt{E}[ \sReturn \; () ]_\mathit{fr} \sPar \sProcesses}
+          {\sQueue \sExtend{\sBlacklist} (\sPid_\mathit{to}, \sPid_\mathit{fr}, M)}
           {\sBlacklist}
-} \textsc{Send-Ok}
+} \textsc{Send}
 \end{equation*}
 
-\begin{equation*}
-\frac{
-(\mathit{to}, \mathit{fr}) \in \sBlacklist
-}{
-  \sSystem{\sCtxt{P}[ \sSend \; \mathit{to} \; V ]_\mathit{fr}}
-          {\sQueue}
-          {\sBlacklist}
-\rightarrow 
-  \sSystem{\sCtxt{P}[ \sReturn \; () ]_\mathit{fr}}
-          {\sQueue}
-          {\sBlacklist}
-} \textsc{Send-No}
-\end{equation*}
-
-TODO: this allows to send functions
+We ignore issues of serializability for the purposes of this semantics.
 
 \subsubsection{Receiving}
 
@@ -217,13 +209,13 @@ We return the \emph{first} message of a randomly chosen sender.
 
 \begin{equation*}
 \frac{
-  \mathit{fr} \notin \sSenders(\sQueue)
+  \sId_{\mathit{fr}} \notin \sSenders(\sQueue)
 }{
-  \sSystem{\sCtxt{P}[ \sExpect ]_\mathit{fr}}
-          {\sQueue, (\mathit{to}, \mathit{fr}, V), \sQueue'}
+  \sSystem{\sCtxt{E}[ \sExpect ]_{\sPid_\mathit{to}} \sPar \sProcesses}
+          {\sQueue, (\sPid_\mathit{to}, \sId_\mathit{fr}, M), \sQueue'}
           {\sBlacklist}
 \rightarrow
-  \sSystem{\sCtxt{P}[ \sReturn \; V ]_\mathit{fr}}
+  \sSystem{\sCtxt{E}[ \sReturn \; M ]_{\sPid_\mathit{to}} \sPar \sProcesses}
           {\sQueue, \sQueue'}
           {\sBlacklist}
 } \textsc{Expect}
@@ -231,33 +223,37 @@ We return the \emph{first} message of a randomly chosen sender.
 
 \subsubsection{Spawning}
 
-\begin{equation*}
-\frac{
-  \sPid' \text{ fresh} \qquad
-  (\sNid, \sPid) \notin \sBlacklist
-}{
-  \sSystem{\sCtxt{P}[ \sSpawn \; \sNid \; M ]_\sPid[\sProcesses]_\sNid}
-          {\sQueue}
-          {\sBlacklist}
-\rightarrow          
-  \sSystem{\sCtxt{P}[ \sReturn \; (\sJust{\sPid'}) ]_\sPid[\sProcesses \sPar M_{\sPid'}]_\sNid}
-          {\sQueue}
-          {\sBlacklist}
-} \textsc{Spawn-Ok}
-\end{equation*}
+Spawning is asynchronous
 
 \begin{equation*}
 \frac{
-  (\sNid, \sPid) \in \sBlacklist
+  \text{\sRef fresh} 
 }{
-  \sSystem{\sCtxt{P}[ \sSpawn \; \sNid \; M ]_\sPid}
+  \sSystem{\sCtxt{E}[ \sSpawn \; \sNid \; M ]_\sPid \sPar \sProcesses}
           {\sQueue}
           {\sBlacklist}
 \rightarrow          
-  \sSystem{\sCtxt{P}[ \sReturn \; \sNothing ]_\sPid}
-          {\sQueue}
+  \sSystem{\sCtxt{E}[ \sReturn \; \sRef ]_\sPid \sPar \sProcesses}
+          {\sQueue \sExtend{\sBlacklist} (\sNid, \sPid, \sSpawn \; \sRef \; M)}
           {\sBlacklist}
-} \textsc{Spawn-No}
+} \textsc{Spawn-Async}
+\end{equation*}
+
+
+\begin{equation*}
+\frac{
+  \sPid \notin \sSenders(\sQueue)
+\qquad
+  \text{$\sPid'$ fresh}
+}{
+  \sSystem{\sProcesses}
+          {\sQueue, (\sNid, \sPid, \sSpawn \; \sRef \; M), \sQueue'}
+          {\sBlacklist}
+\rightarrow
+  \sSystem{\sProcesses \sPar M_{\sPid'}}
+          {\sQueue, \sQueue' \sExtend{\sBlacklist} (\sPid, \sNid, \sSpawned \; \sRef \; \sPid')}
+          {\sBlacklist}
+} \textsc{Spawn-Reply}
 \end{equation*}
 
 \subsubsection{Reconnect}
@@ -265,28 +261,14 @@ We return the \emph{first} message of a randomly chosen sender.
 \begin{equation*}
 \frac{
 }{
-  \sSystem{\sCtxt{P}[ \sReconnect \; \mathit{id} ]_\sPid}
-          {\sQueue}
-          {\sBlacklist, (\mathit{id}, \sPid), \sBlacklist'}
-\rightarrow
-  \sSystem{\sCtxt{P}[ \sReturn \; () ]_\sPid}
-          {\sQueue}
-          {\sBlacklist, \sBlacklist'}
-} \textsc{Reconnect-Ok}
-\end{equation*}
-
-\begin{equation*}
-\frac{
-  (\mathit{id}, \sPid) \notin \sBlacklist
-}{
-  \sSystem{\sCtxt{P}[ \sReconnect \; \mathit{id} ]_\sPid}
+  \sSystem{\sCtxt{P}[ \sReconnect \; \sId_\mathit{to} ]_{\sPid_\mathit{fr}}}
           {\sQueue}
           {\sBlacklist}
 \rightarrow
   \sSystem{\sCtxt{P}[ \sReturn \; () ]_\sPid}
           {\sQueue}
-          {\sBlacklist}
-} \textsc{Reconnect-No}
+          {\sBlacklist \backslash (\sPid_\mathit{to}, \sPid_\mathit{fr})}
+} \textsc{Reconnect}
 \end{equation*}
 
 \subsubsection{Administration}
