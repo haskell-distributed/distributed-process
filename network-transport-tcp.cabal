@@ -10,8 +10,8 @@ Maintainer:    edsko@well-typed.com, dcoutts@well-typed.com
 Stability:     experimental
 Homepage:      http://github.com/haskell-distributed/distributed-process
 Bug-Reports:   mailto:edsko@well-typed.com
-Synopsis:      TCP instantation of Network.Transport
-Description:   TCP instantation of Network.Transport  
+Synopsis:      TCP instantiation of Network.Transport
+Description:   TCP instantiation of Network.Transport  
 Tested-With:   GHC==7.0.4 GHC==7.2.2 GHC==7.4.1 GHC==7.4.2
 Category:      Network  
 
@@ -37,23 +37,11 @@ Test-Suite TestTCP
   Type:            exitcode-stdio-1.0
   Main-Is:         TestTCP.hs
   Build-Depends:   base >= 4.3 && < 5,
-                   network-transport >= 0.3 && < 0.4,
-                   data-accessor >= 0.2 && < 0.3,
-                   containers >= 0.4 && < 0.6,
-                   bytestring >= 0.9 && < 0.11,
+                   network-transport-tests >= 0.1 && < 0.2,
                    network >= 2.3 && < 2.4,
-                   random >= 1.0 && < 1.1,
-                   ansi-terminal >= 0.5 && < 0.6,
-                   mtl >= 2.0 && < 2.2
-  Other-modules:   TestAuxiliary,
-                   TestTransport,
-                   Traced
-  ghc-options:     -Wall -fno-warn-unused-do-bind -threaded -rtsopts -with-rtsopts=-N
-  Extensions:      ExistentialQuantification,
-                   FlexibleInstances,
-                   DeriveDataTypeable,
-                   RankNTypes,
-                   OverlappingInstances,
-                   OverloadedStrings,
-                   CPP
-  HS-Source-Dirs:  tests src
+                   network-transport >= 0.3 && < 0.4,
+                   network-transport-tcp >= 0.3 && < 0.4
+  ghc-options:     -threaded -rtsopts -with-rtsopts=-N
+  HS-Source-Dirs:  tests
+  Extensions:      CPP,
+                   OverloadedStrings
