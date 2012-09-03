@@ -453,7 +453,7 @@ import qualified Data.ByteString.Lazy as BSL
 import Data.Typeable (Typeable)
 import Data.Foldable (forM_)
 import Control.Applicative ((<$>), (<*>))
-import Control.Monad (void)
+import Control.Monad (void, when)
 import Control.Monad.Reader (MonadReader, ReaderT, runReaderT, ask)
 import Control.Exception 
   ( Exception
@@ -764,12 +764,18 @@ localSend x = LocalProcess $ do
 -- | Wait for a message from the remote process (see 'ProcessPair').
 -- Note that unlike for the standard Cloud Haskell 'expect' it will result in a
 -- runtime error if the remote process sends a message of type other than @a@.
+--
+-- Since it is relatively easy for the remote process to mess up the
+-- communication protocol (for instance, by doing a putStr) we ask for the
+-- length twice, as some sort of sanity check. 
 localExpect :: Serializable a => LocalProcess a
 localExpect = LocalProcess $ do
   ch <- ask
   liftIO $ do 
     isE <- readIntChannel ch
     len <- readIntChannel ch 
+    lenAgain <- readIntChannel ch 
+    when (len /= lenAgain) $ throwIO (userError "Protocol violation")
     msg <- readSizeChannel ch len
     if isE /= 0
       then error (decode msg)
@@ -794,6 +800,8 @@ remoteSendFlagged :: Serializable a => Int -> a -> IO ()
 remoteSendFlagged flags x = do
   let enc = encode x
   BSS.hPut stdout (encodeInt32 flags)
+  -- See 'localExpect' for why we send the length twice
+  BSS.hPut stdout (encodeInt32 (BSL.length enc))
   BSS.hPut stdout (encodeInt32 (BSL.length enc))
   BSL.hPut stdout enc
   hFlush stdout
