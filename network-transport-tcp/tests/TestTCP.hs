@@ -11,8 +11,6 @@ import Prelude hiding
   , catch
 #endif
   )
-import TestTransport (testTransport) 
-import TestAuxiliary (forkTry, runTests)
 import Network.Transport
 import Network.Transport.TCP ( createTransport
                              , createTransportExposeInternals
@@ -54,10 +52,12 @@ import qualified Network.Socket as N ( sClose
                                      )
 import Network.Socket.ByteString (sendMany)                                     
 import Data.String (fromString)
-import Traced 
 import GHC.IO.Exception (ioe_errno)
 import Foreign.C.Error (Errno(..), eADDRNOTAVAIL)
 import System.Timeout (timeout)
+import Network.Transport.Tests (testTransport) 
+import Network.Transport.Tests.Auxiliary (forkTry, runTests)
+import Network.Transport.Tests.Traced 
 
 instance Traceable ControlHeader where
   trace = traceShow

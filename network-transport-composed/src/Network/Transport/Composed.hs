@@ -14,6 +14,10 @@
 -- When C2 connects to C1 then it is assumed that whatever transport C2 uses
 -- to connect to C1, this is the same transport that C1 needs to use to connect
 -- back to C2. 
+--
+-- TODO: at the moment the address reported by a ConnectionOpened might differ
+-- from the address reported by the remote endpoint itself. This might cause
+-- difficulties?
 module Network.Transport.Composed 
   ( ComposedTransport(..)
   , createTransport

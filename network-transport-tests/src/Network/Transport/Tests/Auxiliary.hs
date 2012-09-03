@@ -1,12 +1,13 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-module TestAuxiliary ( -- Running tests
-                       runTest
-                     , runTests
-                       -- Writing tests
-                     , forkTry
-                     , trySome
-                     , randomThreadDelay
-                     ) where
+module Network.Transport.Tests.Auxiliary
+  ( -- Running tests
+    runTest
+  , runTests
+    -- Writing tests
+  , forkTry
+  , trySome
+  , randomThreadDelay
+  ) where
 
 #if ! MIN_VERSION_base(4,6,0)
 import Prelude hiding (catch)
@@ -26,7 +27,7 @@ import System.Console.ANSI ( SGR(SetColor, Reset)
                            )
 import System.Random (randomIO)
 import Network.Transport
-import Traced (Traceable(..), traceShow)
+import Network.Transport.Tests.Traced (Traceable(..), traceShow)
 
 -- | Like fork, but throw exceptions in the child thread to the parent
 forkTry :: IO () -> IO ThreadId 

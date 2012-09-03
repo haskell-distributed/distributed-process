@@ -39,16 +39,17 @@
 -- > *** Exception: user error (Pattern match failure in do expression at Traced.hs:193:3-6)
 -- > Trace:
 -- > 0  Left 1
-module Traced ( MonadS(..)
-              , return
-              , (>>=)
-              , (>>)
-              , fail
-              , ifThenElse
-              , Showable(..)
-              , Traceable(..)
-              , traceShow
-              ) where
+module Network.Transport.Tests.Traced 
+  ( MonadS(..)
+  , return
+  , (>>=)
+  , (>>)
+  , fail
+  , ifThenElse
+  , Showable(..)
+  , Traceable(..)
+  , traceShow
+  ) where
 
 import Prelude hiding 
   ( (>>=)

@@ -1,5 +1,5 @@
 {-# LANGUAGE RebindableSyntax #-}
-module TestTransport where
+module Network.Transport.Tests where
 
 import Prelude hiding 
   ( (>>=)
@@ -10,7 +10,6 @@ import Prelude hiding
   , catch
 #endif
   )
-import TestAuxiliary (forkTry, runTests, trySome, randomThreadDelay)
 import Control.Concurrent (forkIO, killThread, yield)
 import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar, readMVar, tryTakeMVar, modifyMVar_, newMVar)
 import Control.Exception (evaluate, throw, throwIO, bracket)
@@ -27,7 +26,8 @@ import Data.Map (Map)
 import qualified Data.Map as Map (empty, insert, delete, findWithDefault, adjust, null, toList, map)
 import Data.String (fromString)
 import Data.List (permutations)
-import Traced
+import Network.Transport.Tests.Auxiliary (forkTry, runTests, trySome, randomThreadDelay)
+import Network.Transport.Tests.Traced
 
 -- | Server that echoes messages straight back to the origin endpoint.
 echoServer :: EndPoint -> IO ()
