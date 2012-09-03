@@ -1,0 +1,22 @@
+name:                network-transport-composed
+version:             0.1.0.0
+synopsis:            Compose network transports
+-- description:         
+homepage:            http://github.com/haskell-distributed/distributed-process
+license:             BSD3
+license-file:        LICENSE
+author:              Edsko de Vries
+maintainer:          edsko@well-typed.com
+copyright:           Well-Typed LLP
+category:            Network
+build-type:          Simple
+cabal-version:       >=1.8
+
+library
+  exposed-modules:     Network.Transport.Composed
+  -- other-modules:       
+  build-depends:       base ==4.5.*,
+                       network-transport >= 0.3 && < 0.4
+  hs-source-dirs:      src
+  ghc-options:         -Wall
+  extensions:          BangPatterns
