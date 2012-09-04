@@ -1,6 +1,6 @@
 module Main where
 
-import TestMulticast
+import Network.Transport.Tests.Multicast
 import Network.Transport.Chan (createTransport)
 
 main :: IO ()

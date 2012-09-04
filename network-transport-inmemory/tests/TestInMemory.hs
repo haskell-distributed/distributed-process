@@ -1,6 +1,6 @@
 module Main where
 
-import TestTransport 
+import Network.Transport.Tests
 import Network.Transport.Chan
 import Control.Applicative ((<$>))
   

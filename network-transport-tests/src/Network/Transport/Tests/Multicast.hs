@@ -1,12 +1,12 @@
-module TestMulticast where
+module Network.Transport.Tests.Multicast where
 
 import Network.Transport
-import TestAuxiliary (runTests)
 import Control.Monad (replicateM, replicateM_, forM_, when)
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, takeMVar, putMVar, readMVar)
 import Data.ByteString (ByteString)
 import Data.List (elemIndex)
+import Network.Transport.Tests.Auxiliary (runTests)
 
 -- | Node for the "No confusion" test
 noConfusionNode :: Transport -- ^ Transport
