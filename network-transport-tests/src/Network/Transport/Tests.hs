@@ -882,8 +882,8 @@ testCrossing :: Transport -> Int -> IO ()
 testCrossing transport numRepeats = do
   [aAddr, bAddr] <- replicateM 2 newEmptyMVar
   [aDone, bDone] <- replicateM 2 newEmptyMVar
+  [aGo,   bGo]   <- replicateM 2 newEmptyMVar
   [aTimeout, bTimeout] <- replicateM 2 newEmptyMVar
-  go <- newEmptyMVar
 
   let hints = defaultConnectHints {
                 connectTimeout = Just 5000000
@@ -896,7 +896,7 @@ testCrossing transport numRepeats = do
     theirAddress <- readMVar bAddr
 
     replicateM_ numRepeats $ do
-      takeMVar go >> yield
+      takeMVar aGo >> yield
       -- Because we are creating lots of connections, it's possible that
       -- connect times out (for instance, in the TCP transport,
       -- Network.Socket.connect may time out). We shouldn't regard this as an
@@ -914,9 +914,9 @@ testCrossing transport numRepeats = do
     Right endpoint <- newEndPoint transport
     putMVar bAddr (address endpoint)
     theirAddress <- readMVar aAddr
-    
+   
     replicateM_ numRepeats $ do
-      takeMVar go >> yield
+      takeMVar bGo >> yield
       connectResult <- connect endpoint theirAddress ReliableOrdered hints
       case connectResult of
         Right conn -> close conn 
@@ -930,8 +930,10 @@ testCrossing transport numRepeats = do
     -- putStrLn $ "Round " ++ show _i
     tryTakeMVar aTimeout
     tryTakeMVar bTimeout
-    putMVar go ()
-    putMVar go ()
+    b <- randomIO 
+    if b then do putMVar aGo () ; putMVar bGo ()
+         else do putMVar bGo () ; putMVar aGo ()
+    yield
     takeMVar aDone
     takeMVar bDone
 
