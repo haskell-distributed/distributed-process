@@ -6,8 +6,10 @@ This repository holds an implementation of [Cloud Haskell][1].
 At present, this repository hosts 
 
 * network-transport: Generic Network.Transport API
+* network-transport-tests: Test suite for Network.Transport instantiations
 * network-transport-tcp: TCP instantiation of Network.Transport
 * network-transport-inmemory: In-memory instantiation of Network.Transport (incomplete) 
+* network-transport-composed: Compose two transports (incomplete)
 * distributed-static: Support for static values
 * distributed-process: The main Cloud Haskell package
 * distributed-process-simplelocalnet: Simple backend for local networks
