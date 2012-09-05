@@ -413,6 +413,9 @@ module Control.Distributed.Process.Backend.Azure
   , localSend
   , localExpect
   , remoteSend
+    -- * High-level API
+  , spawnNodeOnVM
+  , terminateNode
   ) where
 
 import Prelude hiding (catch)
@@ -431,7 +434,7 @@ import System.IO
   )
 import qualified System.Posix.Process as Posix (forkProcess, createSession)
 import Data.Maybe (listToMaybe)
-import Data.Binary (Binary(get, put), encode, decode)
+import Data.Binary (Binary(get, put), encode, decode, getWord8, putWord8)
 import Data.Digest.Pure.MD5 (md5, MD5Digest)
 import qualified Data.ByteString as BSS 
   ( ByteString
@@ -510,6 +513,11 @@ import Control.Distributed.Process
   , unClosure
   , ProcessId
   , getSelfPid
+  , NodeId
+  , processNodeId
+  , register
+  , expect
+  , nsendRemote
   )
 import Control.Distributed.Process.Serializable (Serializable)
 import qualified Control.Distributed.Process.Internal.Types as CH 
@@ -529,6 +537,15 @@ import Control.Distributed.Process.Node
 import Control.Distributed.Process.Internal.CQueue (CQueue, enqueue)
 import Network.Transport.TCP (createTransport, defaultTCPParameters)
 import Network.Transport.Internal (encodeInt32, decodeInt32, prependLength)
+
+-- Static
+import Control.Distributed.Static 
+  ( Static
+  , registerStatic
+  , staticClosure
+  , staticLabel
+  )
+import Data.Rank1Dynamic (toDynamic)
 
 -- | Azure backend
 data Backend = Backend {
@@ -855,7 +872,7 @@ onVmMain rtable [host, port, cloudService, bg] = do
       case mTransport of
         Left err -> remoteThrow err
         Right transport -> do 
-          node <- newLocalNode transport (rtable initRemoteTable)
+          node <- newLocalNode transport (rtable . __remoteTable $ initRemoteTable)
           void . go node $ do 
             ask >>= liftIO . putMVar lprocMVar
             proc <- unClosure rproc :: Process (Backend -> Process ())
@@ -902,3 +919,46 @@ readSizeChannel ch = go []
 readIntChannel :: SSH.Channel -> IO Int
 readIntChannel ch = 
   decodeInt32 . BSS.concat . BSL.toChunks <$> readSizeChannel ch 4
+
+--------------------------------------------------------------------------------
+-- High-level API                                                             --
+--------------------------------------------------------------------------------
+
+data ServiceProcessMsg =
+    ServiceProcessTerminate
+  deriving Typeable
+
+instance Binary ServiceProcessMsg where
+  put ServiceProcessTerminate = putWord8 0
+  get = do
+    header <- getWord8
+    case header of
+      0 -> return ServiceProcessTerminate
+      _ -> fail "ServiceProcessMsg.get"
+
+serviceProcess :: Backend -> Process ()
+serviceProcess _backend = do
+    us <- getSelfPid
+    register "serviceProcess" us
+    go
+  where
+    go = do
+      msg <- expect
+      case msg of
+        ServiceProcessTerminate -> 
+          return ()
+
+serviceProcessStatic :: Static (Backend -> Process ())
+serviceProcessStatic = staticLabel "serviceProcess"
+
+-- | Start a new Cloud Haskell node on the given virtual machine
+spawnNodeOnVM :: Backend -> VirtualMachine -> String -> IO NodeId
+spawnNodeOnVM backend vm port = 
+  processNodeId <$> spawnOnVM backend vm port (staticClosure serviceProcessStatic)
+
+-- | Terminate a node started with 'spawnNodeOnVM'
+terminateNode :: NodeId -> Process () 
+terminateNode nid = nsendRemote nid "serviceProcess" ServiceProcessTerminate
+
+__remoteTable :: RemoteTable -> RemoteTable
+__remoteTable = registerStatic "serviceProcess" (toDynamic serviceProcess)
