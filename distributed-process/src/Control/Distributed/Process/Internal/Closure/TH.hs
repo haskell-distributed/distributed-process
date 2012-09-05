@@ -96,6 +96,10 @@ remotable ns = do
 -- dictionaries and static versions that 'remotable' also creates.
 -- 'remotableDec' is sometimes necessary when you want to refer to, say,
 -- @$(mkClosure 'f)@ within the definition of @f@ itself.
+--
+-- NOTE: 'remotableDec' creates @__remoteTableDec@ instead of @__remoteTable@
+-- so that you can use both 'remotable' and 'remotableDec' within the same
+-- module.
 remotableDec :: [Q [Dec]] -> Q [Dec]
 remotableDec qDecs = do
     decs <- concat <$> sequence qDecs
