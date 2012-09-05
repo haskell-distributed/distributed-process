@@ -418,7 +418,7 @@ testSpawnReconnect transport rtable transportInternals = do
     liftIO $ threadDelay 100000
 
     count <- liftIO $ takeMVar iv
-    True <- return $ count == 3 
+    True <- return $ count == 2 || count == 3 -- It depends on which message we get first in 'spawn' 
 
     liftIO $ putMVar done ()
 
