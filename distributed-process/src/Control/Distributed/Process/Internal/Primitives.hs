@@ -42,6 +42,7 @@ module Control.Distributed.Process.Internal.Primitives
   , nsendRemote
     -- * Closures
   , unClosure
+  , unStatic
     -- * Exception handling
   , catch
   , mask
@@ -91,9 +92,9 @@ import Control.Concurrent.STM
 import Control.Distributed.Process.Internal.CQueue (dequeue, BlockSpec(..))
 import Control.Distributed.Process.Serializable (Serializable, fingerprint)
 import Data.Accessor ((^.), (^:), (^=))
-import Control.Distributed.Static (Closure)
+import Control.Distributed.Static (Closure, Static)
 import Data.Rank1Typeable (Typeable)
-import qualified Control.Distributed.Static as Static (unclosure)
+import qualified Control.Distributed.Static as Static (unstatic, unclosure)
 import Control.Distributed.Process.Internal.Types 
   ( NodeId(..)
   , ProcessId(..)
@@ -516,8 +517,16 @@ nsendRemote nid label msg =
 -- Closures                                                                   --
 --------------------------------------------------------------------------------
 
--- | Deserialize a closure
-unClosure :: forall a. Typeable a => Closure a -> Process a
+-- | Resolve a static value
+unStatic :: Typeable a => Static a -> Process a
+unStatic static = do
+  rtable <- remoteTable . processNode <$> ask
+  case Static.unstatic rtable static of
+    Left err -> fail $ "Could not resolve static value: " ++ err
+    Right x  -> return x
+
+-- | Resolve a closure
+unClosure :: Typeable a => Closure a -> Process a
 unClosure closure = do
   rtable <- remoteTable . processNode <$> ask 
   case Static.unclosure rtable closure of

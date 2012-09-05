@@ -66,6 +66,7 @@ module Control.Distributed.Process
   , Closure
   , closure
   , Static
+  , unStatic
   , unClosure
   , RemoteTable
     -- * Logging
@@ -200,6 +201,7 @@ import Control.Distributed.Process.Internal.Primitives
   , whereisRemoteAsync
   , nsendRemote
     -- Closures
+  , unStatic
   , unClosure
     -- Exception handling
   , catch

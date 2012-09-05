@@ -30,15 +30,17 @@ Library
                      libssh2 >= 0.2 && < 0.3,
                      pureMD5 >= 2.1 && < 2.2,
                      bytestring >= 0.9 && < 0.11,
-                     distributed-process >= 0.2.3 && < 0.3,
+                     distributed-process >= 0.3.2 && < 0.4,
                      binary >= 0.5 && < 0.6,
-                     network-transport-tcp >= 0.2 && < 0.3,
+                     network-transport-tcp >= 0.3 && < 0.4,
                      optparse-applicative >= 0.2 && < 0.4,
                      transformers >= 0.3 && < 0.4,
                      certificate >= 1.2.4 && < 1.3,
                      unix >= 2.5 && < 2.6,
-                     network-transport >= 0.2 && < 0.3,
-                     mtl >= 2.1 && < 2.2
+                     network-transport >= 0.3 && < 0.4,
+                     mtl >= 2.1 && < 2.2,
+                     rank1dynamic >= 0.1 && < 0.2,
+                     distributed-static >= 0.2 && < 0.3
   Exposed-modules:   Control.Distributed.Process.Backend.Azure
   Extensions:        ViewPatterns,
                      RankNTypes,
@@ -53,7 +55,7 @@ Executable cloud-haskell-azure-echo
   if flag(build-demos)
     Build-Depends:   base >= 4.4 && < 5,
                      distributed-process-azure >= 0.1 && < 0.2,
-                     distributed-process >= 0.2 && < 0.3,
+                     distributed-process >= 0.3.2 && < 0.4,
                      transformers >= 0.3 && < 0.4
   else
     buildable: False
@@ -64,7 +66,7 @@ Executable cloud-haskell-azure-ping
   if flag(build-demos)
     Build-Depends:   base >= 4.4 && < 5,
                      distributed-process-azure >= 0.1 && < 0.2,
-                     distributed-process >= 0.2 && < 0.3,
+                     distributed-process >= 0.3.2 && < 0.4,
                      transformers >= 0.3 && < 0.4,
                      bytestring >= 0.9 && < 0.11,
                      binary >= 0.5 && < 0.6,
@@ -75,16 +77,19 @@ Executable cloud-haskell-azure-ping
   Main-Is:           demos/Ping.hs
   ghc-options:       -Wall
 
-Executable cloud-haskell-azure-conway
+Executable cloud-haskell-azure-fib
   if flag(build-demos)
     Build-Depends:   base >= 4.4 && < 5,
                      distributed-process-azure >= 0.1 && < 0.2,
-                     distributed-process >= 0.2 && < 0.3,
+                     distributed-process >= 0.3.2 && < 0.4,
                      transformers >= 0.3 && < 0.4,
                      bytestring >= 0.9 && < 0.11,
                      binary >= 0.5 && < 0.6,
-                     binary-generic >= 0.2 && < 0.3
+                     binary-generic >= 0.2 && < 0.3,
+                     rank1dynamic >= 0.1 && < 0.2,
+                     distributed-static >= 0.2 && < 0.3,
+                     random >= 1.0 && < 1.1 
   else
     buildable: False
-  Main-Is:           demos/Conway.hs
+  Main-Is:           demos/Fib.hs
   ghc-options:       -Wall

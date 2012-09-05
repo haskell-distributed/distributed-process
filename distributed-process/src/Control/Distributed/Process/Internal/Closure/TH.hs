@@ -3,6 +3,7 @@
 module Control.Distributed.Process.Internal.Closure.TH 
   ( -- * User-level API
     remotable
+  , remotableDec
   , mkStatic
   , functionSDict
   , functionTDict
@@ -20,7 +21,7 @@ import Language.Haskell.TH
   , mkName
   , nameBase
     -- Algebraic data types
-  , Dec
+  , Dec(SigD)
   , Exp
   , Type(AppT, ForallT, VarT, ArrowT)
   , Info(VarI)
@@ -39,6 +40,7 @@ import Language.Haskell.TH
   , funD
   , sigD
   )
+import Data.Maybe (catMaybes)  
 import Data.Binary (encode)
 import Data.Generics (everywhereM, mkM, gmapM)
 import Data.Rank1Dynamic (toDynamic)
@@ -69,9 +71,42 @@ import Control.Distributed.Process.Internal.Closure.BuiltIn (staticDecode)
 -- of functions
 remotable :: [Name] -> Q [Dec] 
 remotable ns = do
-  (closures, inserts) <- unzip <$> mapM generateDefs ns
-  rtable <- createMetaData (concat inserts)
-  return $ concat closures ++ rtable 
+    types <- mapM getType ns 
+    (closures, inserts) <- unzip <$> mapM generateDefs types 
+    rtable <- createMetaData (mkName "__remoteTable") (concat inserts)
+    return $ concat closures ++ rtable 
+
+-- | Like 'remotable', but parameterized by the declaration of a function
+-- instead of the function name. So where for 'remotable' you'd do
+--
+-- > f :: T1 -> T2
+-- > f = ...
+-- >
+-- > remotable ['f]
+--
+-- with 'remotableDec' you would instead do
+--
+-- > remotableDec [
+-- >    [d| f :: T1 -> T2 ;
+-- >        f = ...
+-- >      |]
+-- >  ]
+--
+-- 'remotableDec' creates the function specified as well as the various
+-- dictionaries and static versions that 'remotable' also creates.
+-- 'remotableDec' is sometimes necessary when you want to refer to, say,
+-- @$(mkClosure 'f)@ within the definition of @f@ itself.
+remotableDec :: [Q [Dec]] -> Q [Dec]
+remotableDec qDecs = do
+    decs <- concat <$> sequence qDecs
+    let types = catMaybes (map typeOf decs)
+    (closures, inserts) <- unzip <$> mapM generateDefs types 
+    rtable <- createMetaData (mkName "__remoteTableDec") (concat inserts)
+    return $ decs ++ concat closures ++ rtable 
+  where
+    typeOf :: Dec -> Maybe (Name, Type)
+    typeOf (SigD name typ) = Just (name, typ)
+    typeOf _               = Nothing
 
 -- | Construct a static value.
 --
@@ -95,6 +130,10 @@ functionSDict = varE . sdictName
 functionTDict :: Name -> Q Exp
 functionTDict = varE . tdictName
 
+-- | If @f : T1 -> T2@ then @$(mkClosure 'f) :: T1 -> Closure T2@. 
+--
+-- TODO: The current version of mkClosure is too polymorphic 
+-- (@forall a. Binary a => a -> Closure T2).
 mkClosure :: Name -> Q Exp
 mkClosure n = 
   [|   closure ($(mkStatic n) `staticCompose` staticDecode $(functionSDict n)) 
@@ -106,49 +145,44 @@ mkClosure n =
 --------------------------------------------------------------------------------
 
 -- | Generate the code to add the metadata to the CH runtime
-createMetaData :: [Q Exp] -> Q [Dec]
-createMetaData is = 
-  [d| __remoteTable :: RemoteTable -> RemoteTable ;
-      __remoteTable = $(compose is)
-    |]
+createMetaData :: Name -> [Q Exp] -> Q [Dec]
+createMetaData name is = 
+  sequence [ sigD name [t| RemoteTable -> RemoteTable |] 
+           , sfnD name (compose is)
+           ]
 
-generateDefs :: Name -> Q ([Dec], [Q Exp])
-generateDefs n = do
+generateDefs :: (Name, Type) -> Q ([Dec], [Q Exp])
+generateDefs (origName, fullType) = do
     proc <- [t| Process |]
-    mType <- getType n
-    case mType of
-      Just (origName, typ) -> do
-        let (typVars, typ') = case typ of ForallT vars [] mono -> (vars, mono)
-                                          _                    -> ([], typ)
+    let (typVars, typ') = case fullType of ForallT vars [] mono -> (vars, mono)
+                                           _                    -> ([], fullType)
 
-        -- The main "static" entry                                  
-        (static, register) <- makeStatic origName typVars typ' 
-         
-        -- If n :: T1 -> T2, static serializable dictionary for T1 
-        -- TODO: we should check if arg is an instance of Serializable, but we cannot
-        -- http://hackage.haskell.org/trac/ghc/ticket/7066
-        (sdict, registerSDict) <- case (typVars, typ') of
-          ([], ArrowT `AppT` arg `AppT` _res) -> 
-            makeDict (sdictName origName) arg
-          _ -> 
-            return ([], [])
-        
-        -- If n :: T1 -> Process T2, static serializable dictionary for T2
-        -- TODO: check if T2 is serializable (same as above)
-        (tdict, registerTDict) <- case (typVars, typ') of
-          ([], ArrowT `AppT` _arg `AppT` (proc' `AppT` res)) | proc' == proc -> 
-            makeDict (tdictName origName) res 
-          _ ->
-            return ([], [])
-        
-        return ( concat [static, sdict, tdict]
-               , concat [register, registerSDict, registerTDict]
-               )
+    -- The main "static" entry                                  
+    (static, register) <- makeStatic typVars typ' 
+     
+    -- If n :: T1 -> T2, static serializable dictionary for T1 
+    -- TODO: we should check if arg is an instance of Serializable, but we cannot
+    -- http://hackage.haskell.org/trac/ghc/ticket/7066
+    (sdict, registerSDict) <- case (typVars, typ') of
+      ([], ArrowT `AppT` arg `AppT` _res) -> 
+        makeDict (sdictName origName) arg
       _ -> 
-        fail $ "remotable: " ++ show n ++ " not found"
+        return ([], [])
+    
+    -- If n :: T1 -> Process T2, static serializable dictionary for T2
+    -- TODO: check if T2 is serializable (same as above)
+    (tdict, registerTDict) <- case (typVars, typ') of
+      ([], ArrowT `AppT` _arg `AppT` (proc' `AppT` res)) | proc' == proc -> 
+        makeDict (tdictName origName) res 
+      _ ->
+        return ([], [])
+    
+    return ( concat [static, sdict, tdict]
+           , concat [register, registerSDict, registerTDict]
+           )
   where
-    makeStatic :: Name -> [TyVarBndr] -> Type -> Q ([Dec], [Q Exp])
-    makeStatic origName typVars typ = do 
+    makeStatic :: [TyVarBndr] -> Type -> Q ([Dec], [Q Exp])
+    makeStatic typVars typ = do 
       static <- generateStatic origName typVars typ
       let dyn = case typVars of 
                   [] -> [| toDynamic $(varE origName) |]
@@ -189,8 +223,6 @@ monomorphize tvs =
         Nothing -> return (VarT n)
         Just t  -> t
     applySubst s t = gmapM (mkM (applySubst s)) t
-
-    
 
 -- | Generate a static value 
 generateStatic :: Name -> [TyVarBndr] -> Type -> Q [Dec]
@@ -240,12 +272,12 @@ stringE :: String -> Q Exp
 stringE = litE . stringL
 
 -- | Look up the "original name" (module:name) and type of a top-level function
-getType :: Name -> Q (Maybe (Name, Type))
+getType :: Name -> Q (Name, Type)
 getType name = do 
   info <- reify name
   case info of 
-    VarI origName typ _ _ -> return $ Just (origName, typ)
-    _                     -> return Nothing
+    VarI origName typ _ _ -> return (origName, typ)
+    _                     -> fail $ show name ++ " not found"
 
 -- | Variation on 'funD' which takes a single expression to define the function
 sfnD :: Name -> Q Exp -> Q Dec

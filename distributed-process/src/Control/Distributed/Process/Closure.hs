@@ -179,6 +179,7 @@ module Control.Distributed.Process.Closure
 #ifdef TemplateHaskellSupport 
     -- * Template Haskell support for creating static values and closures 
   , remotable
+  , remotableDec
   , mkStatic
   , mkClosure
   , functionSDict
@@ -210,6 +211,7 @@ import Control.Distributed.Process.Internal.Closure.BuiltIn
 #ifdef TemplateHaskellSupport 
 import Control.Distributed.Process.Internal.Closure.TH 
   ( remotable
+  , remotableDec
   , mkStatic
   , functionSDict
   , functionTDict

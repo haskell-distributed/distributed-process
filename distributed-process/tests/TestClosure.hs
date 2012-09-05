@@ -16,6 +16,7 @@ import Control.Concurrent.MVar
   , newMVar
   )
 import Control.Applicative ((<$>))
+import System.Random (randomIO)
 import Network.Transport (Transport)
 import Network.Transport.TCP 
   ( createTransportExposeInternals
@@ -81,6 +82,27 @@ remotable [ 'factorial
           , 'quintuple
           , 'signal
           ]
+
+randomElement :: [a] -> IO a
+randomElement xs = do
+  ix <- randomIO
+  return (xs !! (ix `mod` length xs))
+
+remotableDec [ 
+    [d| dfib :: ([NodeId], SendPort Integer, Integer) -> Process () ;
+        dfib (_, reply, 0) = sendChan reply 0
+        dfib (_, reply, 1) = sendChan reply 1
+        dfib (nids, reply, n) = do
+          nid1 <- liftIO $ randomElement nids
+          nid2 <- liftIO $ randomElement nids
+          (sport, rport) <- newChan
+          spawn nid1 $ $(mkClosure 'dfib) (nids, sport, n - 2)
+          spawn nid2 $ $(mkClosure 'dfib) (nids, sport, n - 1)
+          n1 <- receiveChan rport
+          n2 <- receiveChan rport
+          sendChan reply $ n1 + n2
+      |]
+  ]
 
 -- Just try creating a static polymorphic value
 staticQuintuple :: (Typeable a, Typeable b, Typeable c, Typeable d, Typeable e)
@@ -362,6 +384,19 @@ simulateNetworkFailure transportInternals fr to = liftIO $ do
   sClose sock
   threadDelay 10000
 
+testFib :: Transport -> RemoteTable -> IO ()
+testFib transport rtable = do
+  nodes <- replicateM 4 $ newLocalNode transport rtable
+  done <- newEmptyMVar
+
+  forkProcess (head nodes) $ do
+    (sport, rport) <- newChan
+    spawnLocal $ dfib (map localNodeId nodes, sport, 10)
+    55 <- receiveChan rport :: Process Integer
+    liftIO $ putMVar done ()
+
+  takeMVar done
+
 testSpawnReconnect :: Transport -> RemoteTable -> TransportInternals -> IO ()
 testSpawnReconnect transport rtable transportInternals = do
   [node1, node2] <- replicateM 2 $ newLocalNode transport rtable 
@@ -392,7 +427,7 @@ testSpawnReconnect transport rtable transportInternals = do
 main :: IO ()
 main = do
   Right (transport, transportInternals) <- createTransportExposeInternals "127.0.0.1" "8080" defaultTCPParameters
-  let rtable = __remoteTable initRemoteTable 
+  let rtable = __remoteTable . __remoteTableDec $ initRemoteTable 
   runTests 
     [ ("Unclosure",       testUnclosure       transport rtable)
     , ("Bind",            testBind            transport rtable)
@@ -408,5 +443,6 @@ main = do
     , ("ClosureExpect",   testClosureExpect   transport rtable)
     , ("SpawnChannel",    testSpawnChannel    transport rtable)
     , ("TDict",           testTDict           transport rtable)
+    , ("Fib",             testFib             transport rtable)
     , ("SpawnReconnect",  testSpawnReconnect  transport rtable transportInternals)
     ]

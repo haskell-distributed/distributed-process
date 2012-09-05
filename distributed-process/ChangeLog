@@ -2,6 +2,9 @@
 
 * Improved treatment of network failure, using new failure semantics of
 Network.Transport.
+* Make NodeId Typeable
+* Extend Template Haskell support with "remotableDec" so that you can refer to
+$(mkClosure 'f) within the body of "f".
 
 2012-08-16  Edsko de Vries  <edsko@well-typed.com>  0.3.1
 

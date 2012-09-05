@@ -105,7 +105,7 @@ import Control.Distributed.Static (RemoteTable, Closure)
 
 -- | Node identifier 
 newtype NodeId = NodeId { nodeAddress :: NT.EndPointAddress }
-  deriving (Eq, Ord, Binary)
+  deriving (Eq, Ord, Binary, Typeable)
 
 instance Show NodeId where
   show (NodeId addr) = "nid://" ++ show addr 
