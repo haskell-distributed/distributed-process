@@ -3,7 +3,7 @@
 module Control.Distributed.Process.Internal.Closure.TH 
   ( -- * User-level API
     remotable
-  , remotableDec
+  , remotableDecl
   , mkStatic
   , functionSDict
   , functionTDict
@@ -84,28 +84,28 @@ remotable ns = do
 -- >
 -- > remotable ['f]
 --
--- with 'remotableDec' you would instead do
+-- with 'remotableDecl' you would instead do
 --
--- > remotableDec [
+-- > remotableDecl [
 -- >    [d| f :: T1 -> T2 ;
 -- >        f = ...
 -- >      |]
 -- >  ]
 --
--- 'remotableDec' creates the function specified as well as the various
+-- 'remotableDecl' creates the function specified as well as the various
 -- dictionaries and static versions that 'remotable' also creates.
--- 'remotableDec' is sometimes necessary when you want to refer to, say,
+-- 'remotableDecl' is sometimes necessary when you want to refer to, say,
 -- @$(mkClosure 'f)@ within the definition of @f@ itself.
 --
--- NOTE: 'remotableDec' creates @__remoteTableDec@ instead of @__remoteTable@
--- so that you can use both 'remotable' and 'remotableDec' within the same
+-- NOTE: 'remotableDecl' creates @__remoteTableDecl@ instead of @__remoteTable@
+-- so that you can use both 'remotable' and 'remotableDecl' within the same
 -- module.
-remotableDec :: [Q [Dec]] -> Q [Dec]
-remotableDec qDecs = do
+remotableDecl :: [Q [Dec]] -> Q [Dec]
+remotableDecl qDecs = do
     decs <- concat <$> sequence qDecs
     let types = catMaybes (map typeOf decs)
     (closures, inserts) <- unzip <$> mapM generateDefs types 
-    rtable <- createMetaData (mkName "__remoteTableDec") (concat inserts)
+    rtable <- createMetaData (mkName "__remoteTableDecl") (concat inserts)
     return $ decs ++ concat closures ++ rtable 
   where
     typeOf :: Dec -> Maybe (Name, Type)

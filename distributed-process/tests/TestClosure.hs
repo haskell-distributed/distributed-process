@@ -88,7 +88,7 @@ randomElement xs = do
   ix <- randomIO
   return (xs !! (ix `mod` length xs))
 
-remotableDec [ 
+remotableDecl [ 
     [d| dfib :: ([NodeId], SendPort Integer, Integer) -> Process () ;
         dfib (_, reply, 0) = sendChan reply 0
         dfib (_, reply, 1) = sendChan reply 1
@@ -427,7 +427,7 @@ testSpawnReconnect transport rtable transportInternals = do
 main :: IO ()
 main = do
   Right (transport, transportInternals) <- createTransportExposeInternals "127.0.0.1" "8080" defaultTCPParameters
-  let rtable = __remoteTable . __remoteTableDec $ initRemoteTable 
+  let rtable = __remoteTable . __remoteTableDecl $ initRemoteTable 
   runTests 
     [ ("Unclosure",       testUnclosure       transport rtable)
     , ("Bind",            testBind            transport rtable)
