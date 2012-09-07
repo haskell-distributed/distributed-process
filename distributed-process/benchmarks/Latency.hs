@@ -7,33 +7,26 @@ import Network.Transport.TCP (createTransport, defaultTCPParameters)
 import Data.Binary (encode, decode)
 import qualified Data.ByteString.Lazy as BSL
 
-counter :: Process ()
-counter = go 0
-  where
-    go :: Int -> Process () 
-    go !n = do
-      b <- expect
-      case b of
-        Nothing   -> go (n + 1)
-        Just them -> send them n >> go 0
+pingServer :: Process ()
+pingServer = forever $ do
+  them <- expect
+  send them ()
 
-count :: Int -> ProcessId -> Process ()
-count n them = do
+pingClient :: Int -> ProcessId -> Process ()
+pingClient n them = do
   us <- getSelfPid
-  replicateM_ n $ send them (Nothing :: Maybe ProcessId)
-  send them (Just us)
-  n' <- expect
-  liftIO $ print (n == n')
+  replicateM_ n $ send them us >> (expect :: Process ())
+  liftIO . putStrLn $ "Did " ++ show n ++ " pings"
 
 initialProcess :: String -> Process () 
 initialProcess "SERVER" = do
   us <- getSelfPid
-  liftIO $ BSL.writeFile "counter.pid" (encode us)
-  counter
+  liftIO $ BSL.writeFile "pingServer.pid" (encode us)
+  pingServer 
 initialProcess "CLIENT" = do
   n <- liftIO $ getLine
-  them <- liftIO $ decode <$> BSL.readFile "counter.pid"
-  count (read n) them
+  them <- liftIO $ decode <$> BSL.readFile "pingServer.pid"
+  pingClient (read n) them
 
 main :: IO ()
 main = do
