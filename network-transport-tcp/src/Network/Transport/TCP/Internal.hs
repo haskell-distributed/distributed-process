@@ -1,33 +1,35 @@
 -- | Utility functions for TCP sockets 
-module Network.Transport.TCP.Internal ( forkServer
-                                      , recvWithLength
-                                      , recvExact 
-                                      , recvInt32
-                                      , tryCloseSocket
-                                      ) where
+module Network.Transport.TCP.Internal 
+  ( forkServer
+  , recvWithLength
+  , recvExact 
+  , recvInt32
+  , tryCloseSocket
+  ) where
 
 #if ! MIN_VERSION_base(4,6,0)
 import Prelude hiding (catch)
 #endif
 
 import Network.Transport.Internal (decodeInt32, void, tryIO, forkIOWithUnmask)
-import qualified Network.Socket as N ( HostName
-                                     , ServiceName
-                                     , Socket
-                                     , SocketType(Stream)
-                                     , SocketOption(ReuseAddr)
-                                     , getAddrInfo
-                                     , defaultHints
-                                     , socket
-                                     , bindSocket
-                                     , listen
-                                     , addrFamily
-                                     , addrAddress
-                                     , defaultProtocol
-                                     , setSocketOption
-                                     , accept
-                                     , sClose
-                                     )
+import qualified Network.Socket as N 
+  ( HostName
+  , ServiceName
+  , Socket
+  , SocketType(Stream)
+  , SocketOption(ReuseAddr)
+  , getAddrInfo
+  , defaultHints
+  , socket
+  , bindSocket
+  , listen
+  , addrFamily
+  , addrAddress
+  , defaultProtocol
+  , setSocketOption
+  , accept
+  , sClose
+  )
 import qualified Network.Socket.ByteString as NBS (recv)
 import Control.Concurrent (ThreadId)
 import Control.Monad (forever, when)

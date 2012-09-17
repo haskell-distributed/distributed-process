@@ -10,23 +10,24 @@
 -- Applications that use the TCP transport should use
 -- 'Network.Socket.withSocketsDo' in their main function for Windows
 -- compatibility (see "Network.Socket").
-module Network.Transport.TCP ( -- * Main API
-                               createTransport
-                             , TCPParameters(..)
-                             , defaultTCPParameters
-                               -- * Internals (exposed for unit tests) 
-                             , createTransportExposeInternals 
-                             , TransportInternals(..)
-                             , EndPointId
-                             , encodeEndPointAddress
-                             , decodeEndPointAddress
-                             , ControlHeader(..)
-                             , ConnectionRequestResponse(..)
-                             , firstNonReservedConnectionId
-                             , socketToEndPoint 
-                               -- * Design notes
-                               -- $design
-                             ) where
+module Network.Transport.TCP 
+  ( -- * Main API
+    createTransport
+  , TCPParameters(..)
+  , defaultTCPParameters
+    -- * Internals (exposed for unit tests) 
+  , createTransportExposeInternals 
+  , TransportInternals(..)
+  , EndPointId
+  , encodeEndPointAddress
+  , decodeEndPointAddress
+  , ControlHeader(..)
+  , ConnectionRequestResponse(..)
+  , firstNonReservedConnectionId
+  , socketToEndPoint 
+    -- * Design notes
+    -- $design
+  ) where
 
 import Prelude hiding 
   ( mapM_
@@ -36,64 +37,69 @@ import Prelude hiding
   )
  
 import Network.Transport
-import Network.Transport.TCP.Internal ( forkServer
-                                      , recvWithLength
-                                      , recvInt32
-                                      , tryCloseSocket
-                                      )
-import Network.Transport.Internal ( encodeInt32
-                                  , decodeInt32
-                                  , prependLength
-                                  , mapIOException
-                                  , tryIO
-                                  , tryToEnum
-                                  , void
-                                  , timeoutMaybe
-                                  , asyncWhenCancelled
-                                  )
-import qualified Network.Socket as N ( HostName
-                                     , ServiceName
-                                     , Socket
-                                     , getAddrInfo
-                                     , socket
-                                     , addrFamily
-                                     , addrAddress
-                                     , SocketType(Stream)
-                                     , defaultProtocol
-                                     , setSocketOption
-                                     , SocketOption(ReuseAddr) 
-                                     , connect
-                                     , sOMAXCONN
-                                     , AddrInfo
-                                     )
+import Network.Transport.TCP.Internal 
+  ( forkServer
+  , recvWithLength
+  , recvInt32
+  , tryCloseSocket
+  )
+import Network.Transport.Internal 
+  ( encodeInt32
+  , decodeInt32
+  , prependLength
+  , mapIOException
+  , tryIO
+  , tryToEnum
+  , void
+  , timeoutMaybe
+  , asyncWhenCancelled
+  )
+import qualified Network.Socket as N 
+  ( HostName
+  , ServiceName
+  , Socket
+  , getAddrInfo
+  , socket
+  , addrFamily
+  , addrAddress
+  , SocketType(Stream)
+  , defaultProtocol
+  , setSocketOption
+  , SocketOption(ReuseAddr) 
+  , connect
+  , sOMAXCONN
+  , AddrInfo
+  )
 import Network.Socket.ByteString (sendMany)
 import Control.Concurrent (forkIO, ThreadId, killThread, myThreadId)
 import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
-import Control.Concurrent.MVar ( MVar
-                               , newMVar
-                               , modifyMVar
-                               , modifyMVar_
-                               , readMVar
-                               , takeMVar
-                               , putMVar
-                               , newEmptyMVar
-                               , withMVar
-                               )
+import Control.Concurrent.MVar 
+  ( MVar
+  , newMVar
+  , modifyMVar
+  , modifyMVar_
+  , readMVar
+  , takeMVar
+  , putMVar
+  , newEmptyMVar
+  , withMVar
+  )
 import Control.Category ((>>>))
 import Control.Applicative ((<$>))
 import Control.Monad (when, unless)
-import Control.Exception ( IOException
-                         , SomeException
-                         , AsyncException
-                         , handle
-                         , throw
-                         , throwIO
-                         , try
-                         , bracketOnError
-                         , mask
-                         , onException
-                         , fromException
-                         )
+import Control.Exception 
+  ( IOException
+  , SomeException
+  , AsyncException
+  , handle
+  , throw
+  , throwIO
+  , try
+  , bracketOnError
+  , mask
+  , onException
+  , fromException
+  )
 import Data.IORef (IORef, newIORef, writeIORef, readIORef)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (concat)
@@ -102,14 +108,15 @@ import Data.Int (Int32)
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap (empty)
 import Data.IntSet (IntSet)
-import qualified Data.IntSet as IntSet ( empty
-                                       , insert
-                                       , elems
-                                       , singleton
-                                       , null
-                                       , delete
-                                       , member
-                                       )
+import qualified Data.IntSet as IntSet 
+  ( empty
+  , insert
+  , elems
+  , singleton
+  , null
+  , delete
+  , member
+  )
 import Data.Map (Map)
 import qualified Data.Map as Map (empty)
 import Data.Accessor (Accessor, accessor, (^.), (^=), (^:)) 

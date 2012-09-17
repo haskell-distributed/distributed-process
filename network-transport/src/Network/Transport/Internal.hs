@@ -1,22 +1,23 @@
 -- | Internal functions
-module Network.Transport.Internal ( -- * Encoders/decoders
-                                    encodeInt32
-                                  , decodeInt32
-                                  , encodeInt16
-                                  , decodeInt16
-                                  , prependLength
-                                    -- * Miscellaneous abstractions
-                                  , mapIOException
-                                  , tryIO
-                                  , tryToEnum
-                                  , timeoutMaybe
-                                  , asyncWhenCancelled
-                                  -- * Replicated functionality from "base"
-                                  , void
-                                  , forkIOWithUnmask
-                                    -- * Debugging
-                                  , tlog
-                                  ) where
+module Network.Transport.Internal 
+  ( -- * Encoders/decoders
+    encodeInt32
+  , decodeInt32
+  , encodeInt16
+  , decodeInt16
+  , prependLength
+    -- * Miscellaneous abstractions
+  , mapIOException
+  , tryIO
+  , tryToEnum
+  , timeoutMaybe
+  , asyncWhenCancelled
+  -- * Replicated functionality from "base"
+  , void
+  , forkIOWithUnmask
+    -- * Debugging
+  , tlog
+  ) where
 
 #if ! MIN_VERSION_base(4,6,0)
 import Prelude hiding (catch)
@@ -27,20 +28,23 @@ import Foreign.C (CInt(..), CShort(..))
 import Foreign.ForeignPtr (withForeignPtr)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (length)
-import qualified Data.ByteString.Internal as BSI ( unsafeCreate
-                                                 , toForeignPtr
-                                                 , inlinePerformIO)
+import qualified Data.ByteString.Internal as BSI 
+  ( unsafeCreate
+  , toForeignPtr
+  , inlinePerformIO
+  )
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import Control.Exception ( IOException
-                         , SomeException
-                         , AsyncException
-                         , Exception
-                         , catch
-                         , try
-                         , throw
-                         , throwIO
-                         , mask_
-                         )
+import Control.Exception 
+  ( IOException
+  , SomeException
+  , AsyncException
+  , Exception
+  , catch
+  , try
+  , throw
+  , throwIO
+  , mask_
+  )
 import Control.Concurrent (ThreadId, forkIO)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, takeMVar, putMVar)
 import GHC.IO (unsafeUnmask)

@@ -1,26 +1,27 @@
 -- | Network Transport 
-module Network.Transport ( -- * Types
-                           Transport(..)
-                         , EndPoint(..)
-                         , Connection(..)
-                         , Event(..)
-                         , ConnectionId
-                         , Reliability(..)
-                         , MulticastGroup(..)
-                         , EndPointAddress(..)
-                         , MulticastAddress(..)
-                           -- * Hints
-                         , ConnectHints(..)
-                         , defaultConnectHints
-                           -- * Error codes
-                         , TransportError(..)
-                         , NewEndPointErrorCode(..)
-                         , ConnectErrorCode(..)
-                         , NewMulticastGroupErrorCode(..)
-                         , ResolveMulticastGroupErrorCode(..)
-                         , SendErrorCode(..)
-                         , EventErrorCode(..)
-                         ) where
+module Network.Transport 
+  ( -- * Types
+    Transport(..)
+  , EndPoint(..)
+  , Connection(..)
+  , Event(..)
+  , ConnectionId
+  , Reliability(..)
+  , MulticastGroup(..)
+  , EndPointAddress(..)
+  , MulticastAddress(..)
+    -- * Hints
+  , ConnectHints(..)
+  , defaultConnectHints
+    -- * Error codes
+  , TransportError(..)
+  , NewEndPointErrorCode(..)
+  , ConnectErrorCode(..)
+  , NewMulticastGroupErrorCode(..)
+  , ResolveMulticastGroupErrorCode(..)
+  , SendErrorCode(..)
+  , EventErrorCode(..)
+  ) where
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (copy)
