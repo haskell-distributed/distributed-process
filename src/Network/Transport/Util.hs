@@ -3,11 +3,12 @@
 -- Note: this module is bound to change even more than the rest of the API :)
 module Network.Transport.Util (spawn) where
 
-import Network.Transport ( Transport
-                         , EndPoint(..)
-                         , EndPointAddress
-                         , newEndPoint
-                         )
+import Network.Transport 
+  ( Transport
+  , EndPoint(..)
+  , EndPointAddress
+  , newEndPoint
+  )
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 
