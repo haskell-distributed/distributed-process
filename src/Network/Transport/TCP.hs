@@ -372,7 +372,7 @@ data ValidRemoteEndPointState = ValidRemoteEndPointState
   { _remoteOutgoing      :: !Int
   , _remoteIncoming      :: !IntSet
   ,  remoteSocket        :: !N.Socket
-  ,  sendOn              :: [ByteString] -> IO ()
+  ,  remoteSendLock      :: !(MVar ())
   , _pendingCtrlRequests :: !(IntMap (MVar (Either IOException [ByteString])))
   , _nextCtrlRequestId   :: !ControlRequestId 
   }
@@ -727,11 +727,12 @@ handleConnectionRequest transport sock = handle handleException $ do
             tryCloseSocket sock
             return Nothing 
           else do
+            sendLock <- newMVar ()
             let vst = ValidRemoteEndPointState 
                         {  remoteSocket        = sock
+                        ,  remoteSendLock      = sendLock
                         , _remoteOutgoing      = 0
                         , _remoteIncoming      = IntSet.empty
-                        , sendOn               = sendMany sock
                         , _pendingCtrlRequests = IntMap.empty
                         , _nextCtrlRequestId   = 0
                         }
@@ -1039,11 +1040,12 @@ setupRemoteEndPoint params (ourEndPoint, theirEndPoint) hints = do
                                (connectTimeout hints)
     didAccept <- case result of
       Right (sock, ConnectionRequestAccepted) -> do 
+        sendLock <- newMVar () 
         let vst = ValidRemoteEndPointState 
                     {  remoteSocket        = sock
+                    ,  remoteSendLock      = sendLock
                     , _remoteOutgoing      = 0 
                     , _remoteIncoming      = IntSet.empty
-                    ,  sendOn              = sendMany sock 
                     , _pendingCtrlRequests = IntMap.empty
                     , _nextCtrlRequestId   = 0
                     }
@@ -1385,6 +1387,11 @@ findRemoteEndPoint ourEndPoint theirAddress findOrigin = go
           
     ourState   = localState ourEndPoint 
     ourAddress = localAddress ourEndPoint
+
+-- | Send a payload over a heavyweight connection (thread safe)
+sendOn :: ValidRemoteEndPointState -> [ByteString] -> IO () 
+sendOn vst bs = withMVar (remoteSendLock vst) $ \() -> 
+  sendMany (remoteSocket vst) bs
 
 --------------------------------------------------------------------------------
 -- Scheduling actions                                                         --
