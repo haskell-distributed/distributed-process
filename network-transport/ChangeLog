@@ -1,6 +1,7 @@
 <<date>     Edsko de Vries  <edsko@well-typed.com>  0.3.0
 
 * Clarify disconnection
+* Require that 'connect' be "as asynchronous as possible"
 
 2012-07-16  Edsko de Vries  <edsko@well-typed.com>  0.2.0.2
 

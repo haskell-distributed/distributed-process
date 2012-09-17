@@ -30,6 +30,7 @@ import Control.Exception (Exception)
 import Control.Applicative ((<$>))
 import Data.Typeable (Typeable)
 import Data.Binary (Binary(get, put))
+import Data.Word (Word64)
 
 --------------------------------------------------------------------------------
 -- Main API                                                                   --
@@ -51,6 +52,11 @@ data EndPoint = EndPoint {
     -- | EndPointAddress of the endpoint.
   , address :: EndPointAddress 
     -- | Create a new lightweight connection. 
+    --
+    -- 'connect' should be as asynchronous as possible; for instance, in
+    -- Transport implementations based on some heavy-weight underlying network
+    -- protocol (TCP, ssh), a call to 'connect' should be asynchronous when a
+    -- heavyweight connection has already been established.
   , connect :: EndPointAddress -> Reliability -> ConnectHints -> IO (Either (TransportError ConnectErrorCode) Connection)
     -- | Create a new multicast group.
   , newMulticastGroup :: IO (Either (TransportError NewMulticastGroupErrorCode) MulticastGroup)
@@ -80,6 +86,8 @@ data Event =
     -- | Connection closed
   | ConnectionClosed ConnectionId
     -- | Connection opened
+    --
+    -- 'ConnectionId's need not be allocated contiguously.
   | ConnectionOpened ConnectionId Reliability EndPointAddress 
     -- | Received multicast
   | ReceivedMulticast MulticastAddress [ByteString]
@@ -90,7 +98,7 @@ data Event =
   deriving (Show, Eq)
 
 -- | Connection data ConnectHintsIDs enable receivers to distinguish one connection from another.
-type ConnectionId = Int
+type ConnectionId = Word64 
 
 -- | Reliability guarantees of a connection.
 data Reliability = 
