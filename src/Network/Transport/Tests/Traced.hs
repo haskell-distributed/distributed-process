@@ -66,7 +66,8 @@ import Control.Applicative ((<$>))
 import Data.Typeable (Typeable)
 import Data.Maybe (catMaybes)
 import Data.ByteString (ByteString)
-import Data.Int (Int32)
+import Data.Int (Int32, Int64)
+import Data.Word (Word32, Word64)
 import Control.Concurrent.MVar (MVar)
 
 --------------------------------------------------------------------------------
@@ -150,6 +151,15 @@ instance Traceable Int where
   trace = traceShow 
 
 instance Traceable Int32 where
+  trace = traceShow 
+
+instance Traceable Int64 where
+  trace = traceShow 
+
+instance Traceable Word32 where
+  trace = traceShow 
+
+instance Traceable Word64 where
   trace = traceShow 
 
 instance Traceable Bool where

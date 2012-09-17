@@ -691,12 +691,14 @@ testCloseTransport newTransport = do
     send conn ["pong"]
 
     -- Client now closes down its transport. We should receive connection closed messages (we don't know the precise order, however)
-    evs <- replicateM 3 $ receive endpoint
+    -- TODO: should we get an EventConnectionLost for theirAddr1? We have no outgoing connections
+    evs <- replicateM 4 $ receive endpoint
     let expected = [ ConnectionClosed cid1
                    , ConnectionClosed cid2
+                   , ErrorEvent (TransportError (EventConnectionLost theirAddr1) "")
                    , ErrorEvent (TransportError (EventConnectionLost theirAddr2) "")
                    ]
-    True <- return $ any (== expected) (permutations evs)
+    True <- return $ expected `elem` permutations evs
 
     -- An attempt to send to the endpoint should now fail
     Left (TransportError SendFailed _) <- send conn ["pong2"]
