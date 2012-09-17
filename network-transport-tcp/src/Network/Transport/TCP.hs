@@ -231,34 +231,34 @@ import Data.Foldable (forM_, mapM_)
 --   ValidRemoteEndPointState).
 
 data TCPTransport = TCPTransport 
-  { transportHost   :: N.HostName
-  , transportPort   :: N.ServiceName
-  , transportState  :: MVar TransportState 
-  , transportParams :: TCPParameters
+  { transportHost   :: !N.HostName
+  , transportPort   :: !N.ServiceName
+  , transportState  :: !(MVar TransportState)
+  , transportParams :: !TCPParameters
   }
 
 data TransportState = 
-    TransportValid ValidTransportState
+    TransportValid !ValidTransportState
   | TransportClosed
 
 data ValidTransportState = ValidTransportState 
-  { _localEndPoints :: Map EndPointAddress LocalEndPoint 
-  , _nextEndPointId :: EndPointId 
+  { _localEndPoints :: !(Map EndPointAddress LocalEndPoint)
+  , _nextEndPointId :: !EndPointId 
   }
 
 data LocalEndPoint = LocalEndPoint
-  { localAddress :: EndPointAddress
-  , localChannel :: Chan Event
-  , localState   :: MVar LocalEndPointState 
+  { localAddress :: !EndPointAddress
+  , localChannel :: !(Chan Event)
+  , localState   :: !(MVar LocalEndPointState)
   }
 
 data LocalEndPointState = 
-    LocalEndPointValid ValidLocalEndPointState
+    LocalEndPointValid !ValidLocalEndPointState
   | LocalEndPointClosed
 
 data ValidLocalEndPointState = ValidLocalEndPointState 
   { _nextConnectionId :: !ConnectionId 
-  , _localConnections :: Map EndPointAddress RemoteEndPoint 
+  , _localConnections :: !(Map EndPointAddress RemoteEndPoint)
   , _nextRemoteId     :: !Int
   }
 
@@ -345,9 +345,9 @@ data ValidLocalEndPointState = ValidLocalEndPointState
 --   modifyRemoteState.
 
 data RemoteEndPoint = RemoteEndPoint 
-  { remoteAddress :: EndPointAddress
-  , remoteState   :: MVar RemoteState
-  , remoteId      :: Int
+  { remoteAddress :: !EndPointAddress
+  , remoteState   :: !(MVar RemoteState)
+  , remoteId      :: !Int
   }
 
 data RequestedBy = RequestedByUs | RequestedByThem 
@@ -355,25 +355,25 @@ data RequestedBy = RequestedByUs | RequestedByThem
 
 data RemoteState =
     -- | Invalid remote endpoint (for example, invalid address)
-    RemoteEndPointInvalid (TransportError ConnectErrorCode)
+    RemoteEndPointInvalid !(TransportError ConnectErrorCode)
     -- | The remote endpoint is being initialized
-  | RemoteEndPointInit (MVar ()) RequestedBy 
+  | RemoteEndPointInit !(MVar ()) !RequestedBy 
     -- | "Normal" working endpoint
-  | RemoteEndPointValid ValidRemoteEndPointState 
+  | RemoteEndPointValid !ValidRemoteEndPointState 
     -- | The remote endpoint is being closed (garbage collected)
-  | RemoteEndPointClosing (MVar ()) ValidRemoteEndPointState
+  | RemoteEndPointClosing !(MVar ()) !ValidRemoteEndPointState
     -- | The remote endpoint has been closed (garbage collected)
   | RemoteEndPointClosed
     -- | The remote endpoint has failed, or has been forcefully shutdown
     -- using a closeTransport or closeEndPoint API call
-  | RemoteEndPointFailed IOException
+  | RemoteEndPointFailed !IOException
 
 data ValidRemoteEndPointState = ValidRemoteEndPointState 
   { _remoteOutgoing      :: !Int
-  , _remoteIncoming      :: IntSet
-  ,  remoteSocket        :: N.Socket
+  , _remoteIncoming      :: !IntSet
+  ,  remoteSocket        :: !N.Socket
   ,  sendOn              :: [ByteString] -> IO ()
-  , _pendingCtrlRequests :: IntMap (MVar (Either IOException [ByteString]))
+  , _pendingCtrlRequests :: !(IntMap (MVar (Either IOException [ByteString])))
   , _nextCtrlRequestId   :: !ControlRequestId 
   }
 
