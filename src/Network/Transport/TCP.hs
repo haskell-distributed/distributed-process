@@ -86,7 +86,7 @@ import Control.Concurrent.MVar
   )
 import Control.Category ((>>>))
 import Control.Applicative ((<$>))
-import Control.Monad (when, unless)
+import Control.Monad (when, unless, join)
 import Control.Exception 
   ( IOException
   , SomeException
@@ -96,9 +96,8 @@ import Control.Exception
   , throwIO
   , try
   , bracketOnError
-  , mask
-  , onException
   , fromException
+  , catch
   )
 import Data.IORef (IORef, newIORef, writeIORef, readIORef)
 import Data.ByteString (ByteString)
@@ -345,9 +344,10 @@ data ValidLocalEndPointState = ValidLocalEndPointState
 --   modifyRemoteState.
 
 data RemoteEndPoint = RemoteEndPoint 
-  { remoteAddress :: !EndPointAddress
-  , remoteState   :: !(MVar RemoteState)
-  , remoteId      :: !Int
+  { remoteAddress   :: !EndPointAddress
+  , remoteState     :: !(MVar RemoteState)
+  , remoteId        :: !Int
+  , remoteScheduled :: !(Chan (IO ()))
   }
 
 data RequestedBy = RequestedByUs | RequestedByThem 
@@ -571,21 +571,26 @@ apiConnect params ourEndPoint theirAddress _reliability hints =
 apiClose :: EndPointPair -> ConnectionId -> IORef Bool -> IO ()
 apiClose (ourEndPoint, theirEndPoint) connId connAlive = 
   void . tryIO . asyncWhenCancelled return $ do 
-    modifyRemoteState_ (ourEndPoint, theirEndPoint) remoteStateIdentity  
-      { caseValid = \vst -> do
-          alive <- readIORef connAlive
-          if alive 
-            then do
-              writeIORef connAlive False
-              sendOn vst [encodeInt32 CloseConnection, encodeInt32 connId] 
-              return ( RemoteEndPointValid 
-                     . (remoteOutgoing ^: (\x -> x - 1)) 
-                     $ vst
-                     )
-            else
-              return (RemoteEndPointValid vst)
-      }
+    mAct <- modifyMVar (remoteState theirEndPoint) $ \st -> case st of
+      RemoteEndPointValid vst -> do
+        alive <- readIORef connAlive
+        if alive 
+          then do
+            writeIORef connAlive False
+            act <- schedule theirEndPoint $ 
+              sendOn vst [encodeInt32 CloseConnection, encodeInt32 connId]  
+            return ( RemoteEndPointValid 
+                   . (remoteOutgoing ^: (\x -> x - 1)) 
+                   $ vst
+                   , Just act
+                   )
+          else
+            return (RemoteEndPointValid vst, Nothing)
+      _ ->
+        return (st, Nothing)
+    forM_ mAct $ runScheduledAction (ourEndPoint, theirEndPoint)
     closeIfUnused (ourEndPoint, theirEndPoint)
+
 
 -- | Send data across a connection
 apiSend :: EndPointPair  -- ^ Local and remote endpoint 
@@ -595,33 +600,33 @@ apiSend :: EndPointPair  -- ^ Local and remote endpoint
         -> IO (Either (TransportError SendErrorCode) ())
 apiSend (ourEndPoint, theirEndPoint) connId connAlive payload =  
     -- We don't need the overhead of asyncWhenCancelled here
-    try . mapIOException sendFailed $ 
-      withRemoteState (ourEndPoint, theirEndPoint) RemoteStatePatternMatch
-        { caseInvalid = \_ -> 
-            relyViolation (ourEndPoint, theirEndPoint) "apiSend"
-        , caseInit = \_ _ ->
-            relyViolation (ourEndPoint, theirEndPoint) "apiSend"
-        , caseValid = \vst -> do
-            alive <- readIORef connAlive
-            if alive 
-              then sendOn vst (encodeInt32 connId : prependLength payload)
-              else throwIO $ TransportError SendClosed "Connection closed"
-        , caseClosing = \_ _ -> do
-            alive <- readIORef connAlive
-            if alive 
-              then relyViolation (ourEndPoint, theirEndPoint) "apiSend" 
-              else throwIO $ TransportError SendClosed "Connection closed"
-        , caseClosed = do
-            alive <- readIORef connAlive
-            if alive 
-              then relyViolation (ourEndPoint, theirEndPoint) "apiSend" 
-              else throwIO $ TransportError SendClosed "Connection closed"
-        , caseFailed = \err -> do
-            alive <- readIORef connAlive
-            if alive 
-              then throwIO $ TransportError SendFailed (show err) 
-              else throwIO $ TransportError SendClosed "Connection closed"
-        }
+    try . mapIOException sendFailed $ do
+      act <- withMVar (remoteState theirEndPoint) $ \st -> case st of
+        RemoteEndPointInvalid _ ->
+          relyViolation (ourEndPoint, theirEndPoint) "apiSend"
+        RemoteEndPointInit _ _ ->
+          relyViolation (ourEndPoint, theirEndPoint) "apiSend"
+        RemoteEndPointValid vst -> do
+          alive <- readIORef connAlive
+          if alive 
+            then schedule theirEndPoint $ sendOn vst (encodeInt32 connId : prependLength payload)
+            else throwIO $ TransportError SendClosed "Connection closed"
+        RemoteEndPointClosing _ _ -> do 
+          alive <- readIORef connAlive
+          if alive 
+            then relyViolation (ourEndPoint, theirEndPoint) "apiSend" 
+            else throwIO $ TransportError SendClosed "Connection closed"
+        RemoteEndPointClosed -> do
+          alive <- readIORef connAlive
+          if alive 
+            then relyViolation (ourEndPoint, theirEndPoint) "apiSend" 
+            else throwIO $ TransportError SendClosed "Connection closed"
+        RemoteEndPointFailed err -> do
+          alive <- readIORef connAlive
+          if alive 
+            then throwIO $ TransportError SendFailed (show err) 
+            else throwIO $ TransportError SendClosed "Connection closed"
+      runScheduledAction (ourEndPoint, theirEndPoint) act
   where
     sendFailed = TransportError SendFailed . show
 
@@ -651,155 +656,28 @@ apiCloseEndPoint transport evs ourEndPoint =
       -- We make an attempt to close the connection nicely 
       -- (by sending a CloseSocket first)
       let closed = RemoteEndPointFailed . userError $ "apiCloseEndPoint"
-      modifyMVar_ (remoteState theirEndPoint) $ \st ->
+      mAct <- modifyMVar (remoteState theirEndPoint) $ \st ->
         case st of
           RemoteEndPointInvalid _ -> 
-            return st
+            return (st, Nothing)
           RemoteEndPointInit resolved _ -> do
             putMVar resolved ()
-            return closed 
-          RemoteEndPointValid conn -> do 
-            tryIO $ sendOn conn [encodeInt32 CloseSocket]
-            tryCloseSocket (remoteSocket conn)
-            return closed 
-          RemoteEndPointClosing resolved conn -> do 
+            return (closed, Nothing)
+          RemoteEndPointValid vst -> do 
+            act <- schedule theirEndPoint $ do
+              tryIO $ sendOn vst [encodeInt32 CloseSocket]
+              tryCloseSocket (remoteSocket vst)
+            return (closed, Just act)
+          RemoteEndPointClosing resolved vst -> do 
             putMVar resolved ()
-            tryCloseSocket (remoteSocket conn)
-            return closed 
+            act <- schedule theirEndPoint $ tryCloseSocket (remoteSocket vst)
+            return (closed, Just act)
           RemoteEndPointClosed ->
-            return st
+            return (st, Nothing)
           RemoteEndPointFailed err ->
-            return $ RemoteEndPointFailed err 
-
---------------------------------------------------------------------------------
--- As soon as a remote connection fails, we want to put notify our endpoint   --
--- and put it into a closed state. Since this may happen in many places, we   --
--- provide some abstractions.                                                 --
---------------------------------------------------------------------------------
-
-data RemoteStatePatternMatch a = RemoteStatePatternMatch 
-  { caseInvalid :: TransportError ConnectErrorCode -> IO a
-  , caseInit    :: MVar () -> RequestedBy -> IO a
-  , caseValid   :: ValidRemoteEndPointState -> IO a
-  , caseClosing :: MVar () -> ValidRemoteEndPointState -> IO a
-  , caseClosed  :: IO a
-  , caseFailed  :: IOException -> IO a
-  }
-
-remoteStateIdentity :: RemoteStatePatternMatch RemoteState
-remoteStateIdentity =
-  RemoteStatePatternMatch 
-    { caseInvalid = return . RemoteEndPointInvalid
-    , caseInit    = (return .) . RemoteEndPointInit
-    , caseValid   = return . RemoteEndPointValid
-    , caseClosing = (return .) . RemoteEndPointClosing 
-    , caseClosed  = return RemoteEndPointClosed
-    , caseFailed  = return . RemoteEndPointFailed
-    }
-
--- | Like modifyMVar, but if an I/O exception occurs don't restore the remote
--- endpoint to its original value but close it instead 
-modifyRemoteState :: EndPointPair 
-                  -> RemoteStatePatternMatch (RemoteState, a) 
-                  -> IO a
-modifyRemoteState (ourEndPoint, theirEndPoint) match = 
-    mask $ \restore -> do
-      st <- takeMVar theirState
-      case st of
-        RemoteEndPointValid vst -> do
-          mResult <- try $ restore (caseValid match vst) 
-          case mResult of
-            Right (st', a) -> do
-              putMVar theirState st'
-              return a
-            Left ex -> do
-              case fromException ex of
-                Just ioEx -> handleIOException ioEx vst 
-                Nothing   -> putMVar theirState st 
-              throwIO ex
-        -- The other cases are less interesting, because unless the endpoint is
-        -- in Valid state we're not supposed to do any IO on it
-        RemoteEndPointInit resolved origin -> do
-          (st', a) <- onException (restore $ caseInit match resolved origin)
-                                  (putMVar theirState st)
-          putMVar theirState st'
-          return a
-        RemoteEndPointClosing resolved vst -> do 
-          (st', a) <- onException (restore $ caseClosing match resolved vst)
-                                  (putMVar theirState st)
-          putMVar theirState st'
-          return a
-        RemoteEndPointInvalid err -> do
-          (st', a) <- onException (restore $ caseInvalid match err)
-                                  (putMVar theirState st)
-          putMVar theirState st'
-          return a
-        RemoteEndPointClosed -> do
-          (st', a) <- onException (restore $ caseClosed match)
-                                  (putMVar theirState st)
-          putMVar theirState st'
-          return a
-        RemoteEndPointFailed err -> do
-          (st', a) <- onException (restore $ caseFailed match err)
-                                  (putMVar theirState st)
-          putMVar theirState st'
-          return a
-  where
-    theirState :: MVar RemoteState
-    theirState = remoteState theirEndPoint
-
-    handleIOException :: IOException -> ValidRemoteEndPointState -> IO () 
-    handleIOException ex vst = do
-      tryCloseSocket (remoteSocket vst)
-      putMVar theirState (RemoteEndPointFailed ex)
-      let code     = EventConnectionLost (remoteAddress theirEndPoint)  
-          err      = TransportError code (show ex)
-      writeChan (localChannel ourEndPoint) $ ErrorEvent err 
-
--- | Like 'modifyRemoteState' but without a return value
-modifyRemoteState_ :: EndPointPair
-                   -> RemoteStatePatternMatch RemoteState 
-                   -> IO ()
-modifyRemoteState_ (ourEndPoint, theirEndPoint) match =
-    modifyRemoteState (ourEndPoint, theirEndPoint) 
-      RemoteStatePatternMatch 
-        { caseInvalid = u . caseInvalid match
-        , caseInit    = \resolved origin -> u $ caseInit match resolved origin
-        , caseValid   = u . caseValid match
-        , caseClosing = \resolved vst -> u $ caseClosing match resolved vst
-        , caseClosed  = u $ caseClosed match
-        , caseFailed  = u . caseFailed match
-        }
-  where
-    u :: IO a -> IO (a, ())
-    u p = p >>= \a -> return (a, ())
-
--- | Like 'modifyRemoteState' but without the ability to change the state
-withRemoteState :: EndPointPair
-                -> RemoteStatePatternMatch a
-                -> IO a 
-withRemoteState (ourEndPoint, theirEndPoint) match =
-  modifyRemoteState (ourEndPoint, theirEndPoint)
-    RemoteStatePatternMatch 
-      { caseInvalid = \err -> do
-          a <- caseInvalid match err
-          return (RemoteEndPointInvalid err, a)
-      , caseInit = \resolved origin -> do
-          a <- caseInit match resolved origin
-          return (RemoteEndPointInit resolved origin, a)
-      , caseValid = \vst -> do
-          a <- caseValid match vst
-          return (RemoteEndPointValid vst, a)
-      , caseClosing = \resolved vst -> do 
-          a <- caseClosing match resolved vst
-          return (RemoteEndPointClosing resolved vst, a)
-      , caseClosed = do 
-          a <- caseClosed match
-          return (RemoteEndPointClosed, a)
-      , caseFailed = \err -> do 
-          a <- caseFailed match err
-          return (RemoteEndPointFailed err, a)
-      }
+            return (RemoteEndPointFailed err, Nothing)
+      forM_ mAct $ runScheduledAction (ourEndPoint, theirEndPoint)
+            
 
 --------------------------------------------------------------------------------
 -- Incoming requests                                                          --
@@ -1029,8 +907,8 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
 
     -- Close the socket (if we don't have any outgoing connections)
     closeSocket :: N.Socket -> IO Bool 
-    closeSocket sock =
-      modifyMVar theirState $ \st ->
+    closeSocket sock = do
+      mAct <- modifyMVar theirState $ \st ->
         case st of
           RemoteEndPointInvalid _ ->
             relyViolation (ourEndPoint, theirEndPoint)
@@ -1050,22 +928,28 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
               then do 
                 removeRemoteEndPoint (ourEndPoint, theirEndPoint)
                 -- Attempt to reply (but don't insist)
-                tryIO $ sendOn vst' [encodeInt32 CloseSocket]
-                tryCloseSocket sock 
-                return (RemoteEndPointClosed, True)
+                act <- schedule theirEndPoint $ do
+                  tryIO $ sendOn vst' [encodeInt32 CloseSocket]
+                  tryCloseSocket sock 
+                return (RemoteEndPointClosed, Just act)
               else 
-                return (RemoteEndPointValid vst', False)
+                return (RemoteEndPointValid vst', Nothing)
           RemoteEndPointClosing resolved  _ -> do
             removeRemoteEndPoint (ourEndPoint, theirEndPoint)
-            tryCloseSocket sock 
+            act <- schedule theirEndPoint $ tryCloseSocket sock 
             putMVar resolved ()
-            return (RemoteEndPointClosed, True)
+            return (RemoteEndPointClosed, Just act)
           RemoteEndPointFailed err ->
             throwIO err
           RemoteEndPointClosed ->
             relyViolation (ourEndPoint, theirEndPoint) 
               "handleIncomingMessages:closeSocket (closed)"
-            
+      case mAct of
+        Nothing -> return False
+        Just act -> do
+          runScheduledAction (ourEndPoint, theirEndPoint) act
+          return True
+
     -- Read a message and output it on the endPoint's channel. By rights we
     -- should verify that the connection ID is valid, but this is unnecessary
     -- overhead
@@ -1191,27 +1075,28 @@ setupRemoteEndPoint params (ourEndPoint, theirEndPoint) hints = do
 doRemoteRequest :: EndPointPair -> ControlHeader -> IO [ByteString]
 doRemoteRequest (ourEndPoint, theirEndPoint) header = do 
   replyMVar <- newEmptyMVar
-  modifyRemoteState_ (ourEndPoint, theirEndPoint) RemoteStatePatternMatch 
-    { caseValid = \vst -> do 
-        let reqId = vst ^. nextCtrlRequestId
-        sendOn vst [encodeInt32 header, encodeInt32 reqId]
-        return ( RemoteEndPointValid
-               . (nextCtrlRequestId ^: (+ 1))
-               . (pendingCtrlRequestsAt reqId ^= Just replyMVar)
-               $ vst
-               ) 
+  act <- modifyMVar (remoteState theirEndPoint) $ \st -> case st of
+    RemoteEndPointValid vst -> do
+      let reqId = vst ^. nextCtrlRequestId
+      act <- schedule theirEndPoint $ sendOn vst [encodeInt32 header, encodeInt32 reqId]
+      return ( RemoteEndPointValid
+             . (nextCtrlRequestId ^: (+ 1))
+             . (pendingCtrlRequestsAt reqId ^= Just replyMVar)
+             $ vst
+             , act
+             ) 
     -- Error cases
-    , caseInvalid = 
-        throwIO 
-    , caseInit = \_ _ -> 
-        relyViolation (ourEndPoint, theirEndPoint) "doRemoteRequest (init)"
-    , caseClosing = \_ _ -> 
-        relyViolation (ourEndPoint, theirEndPoint) "doRemoteRequest (closing)" 
-    , caseClosed =
-        relyViolation (ourEndPoint, theirEndPoint) "doRemoteRequest (closed)" 
-    , caseFailed =
-        throwIO
-    }
+    RemoteEndPointInvalid err -> 
+      throwIO err
+    RemoteEndPointInit _ _ -> 
+      relyViolation (ourEndPoint, theirEndPoint) "doRemoteRequest (init)"
+    RemoteEndPointClosing _ _ -> 
+      relyViolation (ourEndPoint, theirEndPoint) "doRemoteRequest (closing)" 
+    RemoteEndPointClosed ->
+      relyViolation (ourEndPoint, theirEndPoint) "doRemoteRequest (closed)" 
+    RemoteEndPointFailed err ->
+      throwIO err
+  runScheduledAction (ourEndPoint, theirEndPoint) act
   mReply <- takeMVar replyMVar
   case mReply of
     Left err    -> throwIO err
@@ -1219,17 +1104,19 @@ doRemoteRequest (ourEndPoint, theirEndPoint) header = do
 
 -- | Send a CloseSocket request if the remote endpoint is unused
 closeIfUnused :: EndPointPair -> IO ()
-closeIfUnused (ourEndPoint, theirEndPoint) =
-  modifyRemoteState_ (ourEndPoint, theirEndPoint) remoteStateIdentity 
-    { caseValid = \vst -> 
-        if vst ^. remoteOutgoing == 0 && IntSet.null (vst ^. remoteIncoming) 
-          then do 
-            sendOn vst [encodeInt32 CloseSocket]
-            resolved <- newEmptyMVar
-            return $ RemoteEndPointClosing resolved vst 
-          else 
-            return $ RemoteEndPointValid vst
-    }
+closeIfUnused (ourEndPoint, theirEndPoint) = do 
+  mAct <- modifyMVar (remoteState theirEndPoint) $ \st -> case st of
+    RemoteEndPointValid vst ->
+      if vst ^. remoteOutgoing == 0 && IntSet.null (vst ^. remoteIncoming) 
+        then do 
+          resolved <- newEmptyMVar
+          act <- schedule theirEndPoint $ sendOn vst [encodeInt32 CloseSocket]
+          return (RemoteEndPointClosing resolved vst, Just act)
+        else 
+          return (RemoteEndPointValid vst, Nothing)
+    _ ->
+      return (st, Nothing)
+  forM_ mAct $ runScheduledAction (ourEndPoint, theirEndPoint) 
 
 -- | Reset a remote endpoint if it is in Invalid mode
 --
@@ -1419,12 +1306,14 @@ findRemoteEndPoint ourEndPoint theirAddress findOrigin = go
           Just theirEndPoint ->
             return (st, (theirEndPoint, False))
           Nothing -> do
-            resolved <- newEmptyMVar
+            resolved   <- newEmptyMVar
             theirState <- newMVar (RemoteEndPointInit resolved findOrigin)
+            scheduled  <- newChan
             let theirEndPoint = RemoteEndPoint
-                                  { remoteAddress = theirAddress
-                                  , remoteState   = theirState
-                                  , remoteId      = vst ^. nextRemoteId
+                                  { remoteAddress   = theirAddress
+                                  , remoteState     = theirState
+                                  , remoteId        = vst ^. nextRemoteId
+                                  , remoteScheduled = scheduled 
                                   }
             return ( LocalEndPointValid 
                    . (localConnectionTo theirAddress ^= Just theirEndPoint) 
@@ -1488,6 +1377,55 @@ findRemoteEndPoint ourEndPoint theirAddress findOrigin = go
           
     ourState   = localState ourEndPoint 
     ourAddress = localAddress ourEndPoint
+
+--------------------------------------------------------------------------------
+-- Scheduling actions                                                         --
+--------------------------------------------------------------------------------
+
+-- | See 'schedule'/'runScheduledAction'
+type Action a = MVar (Either SomeException a)
+
+-- | Schedule an action to be executed (see also 'runScheduledAction')
+schedule :: RemoteEndPoint -> IO a -> IO (Action a)
+schedule theirEndPoint act = do
+  mvar <- newEmptyMVar
+  writeChan (remoteScheduled theirEndPoint) $ 
+    catch (act >>= putMVar mvar . Right) (putMVar mvar . Left)
+  return mvar
+
+-- | Run a scheduled action. Every call to 'schedule' should be paired with a
+-- call to 'runScheduledAction' so that every scheduled action is run. Note
+-- however that the there is no guarantee that in
+--
+-- > do act <- schedule p
+-- >    runScheduledAction
+--
+-- 'runScheduledAction' will run @p@ (it might run some other scheduled action).
+-- However, it will then wait until @p@ is executed (by this call to 
+-- 'runScheduledAction' or by another).
+runScheduledAction :: EndPointPair -> Action a -> IO a
+runScheduledAction (ourEndPoint, theirEndPoint) mvar = do
+    join $ readChan (remoteScheduled theirEndPoint)
+    ma <- readMVar mvar
+    case ma of
+      Right a -> return a
+      Left e -> do
+        forM_ (fromException e) $ \ioe -> 
+          modifyMVar_ (remoteState theirEndPoint) $ \st ->
+            case st of  
+              RemoteEndPointValid vst -> handleIOException ioe vst
+              _ -> return (RemoteEndPointFailed ioe)
+        throwIO e
+  where
+    handleIOException :: IOException 
+                      -> ValidRemoteEndPointState 
+                      -> IO RemoteState 
+    handleIOException ex vst = do
+      tryCloseSocket (remoteSocket vst)
+      let code     = EventConnectionLost (remoteAddress theirEndPoint)  
+          err      = TransportError code (show ex)
+      writeChan (localChannel ourEndPoint) $ ErrorEvent err 
+      return (RemoteEndPointFailed ex)
 
 --------------------------------------------------------------------------------
 -- "Stateless" (MVar free) functions                                          --
