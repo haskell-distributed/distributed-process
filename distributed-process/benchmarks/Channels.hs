@@ -12,6 +12,8 @@ pingServer :: Process ()
 pingServer = forever $ do
   them <- expect
   sendChan them ()
+  -- TODO: should this be automatic?
+  reconnectPort them
 
 pingClient :: Int -> ProcessId -> Process ()
 pingClient n them = do
