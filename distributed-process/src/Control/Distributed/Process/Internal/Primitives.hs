@@ -77,14 +77,16 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Applicative ((<$>))
 import Control.Exception (Exception, throwIO, SomeException)
 import qualified Control.Exception as Ex (catch, mask)
-import Control.Distributed.Process.Internal.StrictMVar (modifyMVar)
+import Control.Distributed.Process.Internal.StrictMVar 
+  ( StrictMVar
+  , modifyMVar
+  , modifyMVar_
+  )
 import Control.Concurrent.Chan (writeChan)
 import Control.Concurrent.STM 
   ( STM
   , atomically
   , orElse
-  , newTChan
-  , readTChan
   , newTVar
   , readTVar
   , writeTVar
@@ -123,12 +125,19 @@ import Control.Distributed.Process.Internal.Types
   , createMessage
   , runLocalProcess
   , ImplicitReconnect(WithImplicitReconnect, NoImplicitReconnect)
+  , LocalProcessState
+  , LocalSendPortId
   )
 import Control.Distributed.Process.Internal.Messaging 
   ( sendMessage
   , sendBinary
   , disconnect
   ) 
+import Control.Distributed.Process.Internal.WeakTQueue 
+  ( newTQueueIO
+  , readTQueue
+  , mkWeakTQueue
+  )
 
 --------------------------------------------------------------------------------
 -- Basic messaging                                                            --
@@ -157,21 +166,26 @@ expect = receiveWait [match return]
 -- | Create a new typed channel
 newChan :: Serializable a => Process (SendPort a, ReceivePort a)
 newChan = do
-  proc <- ask 
-  liftIO . modifyMVar (processState proc) $ \st -> do
-    chan <- liftIO . atomically $ newTChan
-    let lcid  = st ^. channelCounter
-        cid   = SendPortId { sendPortProcessId = processId proc
-                           , sendPortLocalId   = lcid
-                           }
-        sport = SendPort cid 
-        rport = ReceivePortSingle chan
-        tch   = TypedChannel chan 
-    return ( (channelCounter ^: (+ 1))
-           . (typedChannelWithId lcid ^= Just tch)
-           $ st
-           , (sport, rport)
-           )
+    proc <- ask 
+    liftIO . modifyMVar (processState proc) $ \st -> do
+      let lcid  = st ^. channelCounter
+      let cid   = SendPortId { sendPortProcessId = processId proc
+                             , sendPortLocalId   = lcid
+                             }
+      let sport = SendPort cid 
+      chan  <- liftIO newTQueueIO
+      chan' <- mkWeakTQueue chan $ finalizer (processState proc) lcid
+      let rport = ReceivePortSingle chan
+      let tch   = TypedChannel chan' 
+      return ( (channelCounter ^: (+ 1))
+             . (typedChannelWithId lcid ^= Just tch)
+             $ st
+             , (sport, rport)
+             )
+  where
+    finalizer :: StrictMVar LocalProcessState -> LocalSendPortId -> IO ()
+    finalizer processState lcid = modifyMVar_ processState $ 
+      return . (typedChannelWithId lcid ^= Nothing)
 
 -- | Send a message on a typed channel
 sendChan :: Serializable a => SendPort a -> a -> Process ()
@@ -189,7 +203,7 @@ receiveChan = liftIO . atomically . receiveSTM
   where
     receiveSTM :: ReceivePort a -> STM a
     receiveSTM (ReceivePortSingle c) = 
-      readTChan c
+      readTQueue c
     receiveSTM (ReceivePortBiased ps) =
       foldr1 orElse (map receiveSTM ps)
     receiveSTM (ReceivePortRR psVar) = do

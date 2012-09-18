@@ -17,6 +17,7 @@ import Prelude hiding (catch)
 #endif
 
 import System.IO (fixIO, hPutStrLn, stderr)
+import System.Mem.Weak (deRefWeak)
 import qualified Data.ByteString.Lazy as BSL (fromChunks)
 import Data.Binary (decode)
 import Data.Map (Map)
@@ -52,7 +53,7 @@ import Control.Distributed.Process.Internal.StrictMVar
   , takeMVar
   )
 import Control.Concurrent.Chan (newChan, writeChan, readChan)
-import Control.Concurrent.STM (atomically, writeTChan)
+import Control.Concurrent.STM (atomically)
 import Control.Distributed.Process.Internal.CQueue (enqueue, newCQueue)
 import qualified Network.Transport as NT 
   ( Transport
@@ -131,6 +132,7 @@ import Control.Distributed.Process.Internal.Messaging
   )
 import Control.Distributed.Process.Internal.Primitives (expect, register, finally)
 import qualified Control.Distributed.Process.Internal.Closure.BuiltIn as BuiltIn (remoteTable)
+import Control.Distributed.Process.Internal.WeakTQueue (writeTQueue)
 
 --------------------------------------------------------------------------------
 -- Initialization                                                             --
@@ -315,8 +317,12 @@ handleIncomingMessages node = go initConnectionState
               let msg = payloadToMessage payload
               enqueue (processQueue proc) msg
               go st 
-            Just (_, ToChan (TypedChannel chan)) -> do
-              atomically $ writeTChan chan . decode . BSL.fromChunks $ payload
+            Just (_, ToChan (TypedChannel chan')) -> do
+              mChan <- deRefWeak chan'
+              -- If mChan is Nothing, the process has given up the read end of
+              -- the channel and we simply ignore the incoming message
+              forM_ mChan $ \chan -> atomically $  
+                writeTQueue chan . decode . BSL.fromChunks $ payload
               go st 
             Just (_, ToNode) -> do
               let ctrlMsg = decode . BSL.fromChunks $ payload

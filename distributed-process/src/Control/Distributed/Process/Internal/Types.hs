@@ -64,6 +64,7 @@ module Control.Distributed.Process.Internal.Types
   , typedChannelWithId
   ) where
 
+import System.Mem.Weak (Weak)
 import Data.Map (Map)
 import Data.Int (Int32)
 import Data.Typeable (Typeable)
@@ -81,7 +82,7 @@ import Control.Category ((>>>))
 import Control.Exception (Exception)
 import Control.Concurrent (ThreadId)
 import Control.Concurrent.Chan (Chan)
-import Control.Concurrent.STM (TChan, TVar)
+import Control.Concurrent.STM (TVar)
 import qualified Network.Transport as NT (EndPoint, EndPointAddress, Connection)
 import Control.Applicative (Applicative, (<$>), (<*>))
 import Control.Monad.Reader (MonadReader(..), ReaderT, runReaderT)
@@ -97,6 +98,7 @@ import Control.Distributed.Process.Serializable
   )
 import Control.Distributed.Process.Internal.CQueue (CQueue)
 import Control.Distributed.Process.Internal.StrictMVar (StrictMVar)
+import Control.Distributed.Process.Internal.WeakTQueue (TQueue)
 import Control.Distributed.Static (RemoteTable, Closure)
 
 --------------------------------------------------------------------------------
@@ -248,7 +250,7 @@ instance Show SendPortId where
   show (SendPortId (ProcessId (NodeId addr) (LocalProcessId _ plid)) clid)  
     = "cid://" ++ show addr ++ ":" ++ show plid ++ ":" ++ show clid
 
-data TypedChannel = forall a. Serializable a => TypedChannel (TChan a)
+data TypedChannel = forall a. Serializable a => TypedChannel (Weak (TQueue a))
 
 -- | The send send of a typed channel (serializable)
 newtype SendPort a = SendPort { 
@@ -260,7 +262,7 @@ newtype SendPort a = SendPort {
 -- | The receive end of a typed channel (not serializable)
 data ReceivePort a = 
     -- | A single receive port
-    ReceivePortSingle (TChan a)
+    ReceivePortSingle (TQueue a)
     -- | A left-biased combination of receive ports 
   | ReceivePortBiased [ReceivePort a] 
     -- | A round-robin combination of receive ports
