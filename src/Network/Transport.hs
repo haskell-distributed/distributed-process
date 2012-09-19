@@ -82,13 +82,13 @@ data Connection = Connection {
 -- | Event on an endpoint.
 data Event = 
     -- | Received a message
-    Received ConnectionId [ByteString]
+    Received {-# UNPACK #-} !ConnectionId [ByteString]
     -- | Connection closed
-  | ConnectionClosed ConnectionId
+  | ConnectionClosed {-# UNPACK #-} !ConnectionId
     -- | Connection opened
     --
     -- 'ConnectionId's need not be allocated contiguously.
-  | ConnectionOpened ConnectionId Reliability EndPointAddress 
+  | ConnectionOpened {-# UNPACK #-} !ConnectionId Reliability EndPointAddress 
     -- | Received multicast
   | ReceivedMulticast MulticastAddress [ByteString]
     -- | The endpoint got closed (manually, by a call to closeEndPoint or closeTransport)
