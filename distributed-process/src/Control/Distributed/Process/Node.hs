@@ -27,6 +27,8 @@ import qualified Data.Map as Map
   , partitionWithKey
   , elems
   , filterWithKey
+  , findWithDefault
+  , insert
   )
 import Data.Set (Set)
 import qualified Data.Set as Set (empty, insert, delete, member)
@@ -293,7 +295,7 @@ incomingAt :: NT.ConnectionId -> Accessor ConnectionState (Maybe IncomingConnect
 incomingAt cid = incoming >>> DAC.mapMaybe cid
 
 incomingFrom :: NT.EndPointAddress -> Accessor ConnectionState (Set NT.ConnectionId) 
-incomingFrom addr = aux >>> DAC.mapDefault Set.empty addr
+incomingFrom addr = aux >>> strictMapDefault Set.empty addr
   where
     aux = accessor _incomingFrom (\fr st -> st { _incomingFrom = fr })
 
@@ -755,9 +757,15 @@ splitNotif :: Identifier
 splitNotif ident = Map.partitionWithKey (\k !_v -> ident `impliesDeathOf` k) 
 
 --------------------------------------------------------------------------------
--- Strict evaluation of the state                                             --
+-- Auxiliary                                                                  --
 --------------------------------------------------------------------------------
 
 -- | Modify and evaluate the state
 modify' :: MonadState s m => (s -> s) -> m ()
 modify' f = StateT.get >>= \s -> StateT.put $! f s
+
+-- | Strict lens for Map
+strictMapDefault :: Ord key => elem -> key -> Accessor (Map key elem) elem
+strictMapDefault def key = 
+  accessor (Map.findWithDefault def key)
+           (\val -> val `seq` Map.insert key val)
