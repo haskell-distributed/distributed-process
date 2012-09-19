@@ -19,6 +19,8 @@ module Control.Distributed.Process.Internal.Primitives
   , match
   , matchIf
   , matchUnknown
+  , AbstractMessage(..) 
+  , matchAny
     -- * Process management
   , terminate
   , ProcessTerminationException(..)
@@ -127,10 +129,12 @@ import Control.Distributed.Process.Internal.Types
   , ImplicitReconnect(WithImplicitReconnect, NoImplicitReconnect)
   , LocalProcessState
   , LocalSendPortId
+  , messageToPayload
   )
 import Control.Distributed.Process.Internal.Messaging 
   ( sendMessage
   , sendBinary
+  , sendPayload
   , disconnect
   ) 
 import Control.Distributed.Process.Internal.WeakTQueue 
@@ -268,6 +272,25 @@ matchIf c p = Match $ \msg ->
   if messageFingerprint msg == fingerprint (undefined :: a) && c decoded
     then Just $ p decoded 
     else Nothing
+
+data AbstractMessage = AbstractMessage {
+    forward :: ProcessId -> Process ()
+  }
+
+-- | Match against an arbitrary message
+matchAny :: forall b. (AbstractMessage -> Process b) -> Match b
+matchAny p = Match $ Just . p . abstract
+  where 
+    abstract :: Message -> AbstractMessage
+    abstract msg = AbstractMessage {
+        forward = \them -> do
+          proc <- ask
+          liftIO $ sendPayload (processNode proc)
+                               (ProcessIdentifier (processId proc))
+                               (ProcessIdentifier them)
+                               NoImplicitReconnect 
+                               (messageToPayload msg)
+      }
 
 -- | Remove any message from the queue
 matchUnknown :: Process b -> Match b

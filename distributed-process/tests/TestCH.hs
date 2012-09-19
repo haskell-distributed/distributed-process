@@ -15,7 +15,7 @@ import Control.Concurrent.MVar
   , takeMVar
   , readMVar
   )
-import Control.Monad (replicateM_, replicateM)
+import Control.Monad (replicateM_, replicateM, forever)
 import Control.Exception (throwIO)
 import Control.Applicative ((<$>), (<*>))
 import qualified Network.Transport as NT (Transport, closeEndPoint)
@@ -660,6 +660,39 @@ testReconnect transport transportInternals = do
 
   takeMVar registerTestOk
 
+-- | Test 'matchAny'. This repeats the 'testMath' but with a proxy server 
+-- in between
+testMatchAny :: NT.Transport -> IO ()
+testMatchAny transport = do
+  proxyAddr <- newEmptyMVar 
+  clientDone <- newEmptyMVar
+
+  -- Math server
+  forkIO $ do
+    localNode <- newLocalNode transport initRemoteTable 
+    mathServer <- forkProcess localNode math
+    proxyServer <- forkProcess localNode $ forever $ do 
+      msg <- receiveWait [ matchAny return ]
+      forward msg mathServer
+    putMVar proxyAddr proxyServer 
+
+  -- Client
+  forkIO $ do
+    localNode <- newLocalNode transport initRemoteTable
+    mathServer <- readMVar proxyAddr
+
+    runProcess localNode $ do
+      pid <- getSelfPid
+      send mathServer (Add pid 1 2)
+      3 <- expect :: Process Double  
+      send mathServer (Divide pid 8 2)
+      4 <- expect :: Process Double
+      send mathServer (Divide pid 8 0)
+      DivByZero <- expect
+      liftIO $ putMVar clientDone ()
+
+  takeMVar clientDone
+
 main :: IO ()
 main = do
   Right (transport, transportInternals) <- createTransportExposeInternals "127.0.0.1" "8080" defaultTCPParameters
@@ -675,6 +708,7 @@ main = do
     , ("Registry",         testRegistry         transport)
     , ("RemoteRegistry",   testRemoteRegistry   transport)
     , ("SpawnLocal",       testSpawnLocal       transport)
+    , ("MatchAny",         testMatchAny         transport)
       -- Monitoring processes
       --
       -- The "missing" combinations in the list below don't make much sense, as
