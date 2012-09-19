@@ -530,8 +530,10 @@ testMonitorChannel transport = do
     pid <- forkProcess node1 $ do
       sport <- expect :: Process (SendPort ())
       ref <- monitorPort sport
-      PortMonitorNotification ref' port' DiedNormal <- expect
-      return $ ref' == ref && port' == sendPortId sport 
+      PortMonitorNotification ref' port' reason <- expect
+      -- reason might be DiedUnknownId if the receive port is GCed before the 
+      -- monitor is established (TODO: not sure that this is reasonable)
+      return $ ref' == ref && port' == sendPortId sport && (reason == DiedNormal || reason == DiedUnknownId)
       liftIO $ putMVar gotNotification ()
 
     runProcess node2 $ do
