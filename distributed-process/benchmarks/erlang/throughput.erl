@@ -1,15 +1,20 @@
 -module(throughput).
 
--export([start_counter/0, start_count/2, counter/0, count/2]).
+-export([start_counter/0, start_count/3, counter/0, count/3, nats/1]).
+
+nats(0) ->
+  [];
+nats(N) ->
+  [N | nats(N - 1)].
 
 counter() ->
   counter(0).
 
 counter(N) ->
   receive
-    nothing ->
-      counter(N + 1);
-    {just, Them} ->
+    {count, List} ->
+      counter(N + length(List));
+    {get, Them} ->
       Them ! N,
       counter(0)
   end.
@@ -20,9 +25,9 @@ replicate(N, What) ->
   What(),
   replicate(N - 1, What).
 
-count(N, Them) ->
-  replicate(N, fun() -> {counter, Them} ! nothing end),
-  {counter, Them} ! {just, self()},
+count(Packets, Size, Them) ->
+  replicate(Packets, fun() -> {counter, Them} ! {count, nats(Size)} end),
+  {counter, Them} ! {get, self()},
   receive 
     N -> io:format("Did ~B pings", [N])
   end.
@@ -30,5 +35,5 @@ count(N, Them) ->
 start_counter() ->
   register(counter, spawn(throughput, counter, [])).
 
-start_count(N, Them) ->
-  count(N, Them).
+start_count(Packets, Size, Them) ->
+  count(Packets, Size, Them).
