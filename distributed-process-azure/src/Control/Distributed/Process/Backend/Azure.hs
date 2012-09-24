@@ -792,7 +792,7 @@ localExpect = LocalProcess $ do
     isE <- readIntChannel ch
     len <- readIntChannel ch 
     lenAgain <- readIntChannel ch 
-    when (len /= lenAgain) $ throwIO (userError "Protocol violation")
+    when (len /= lenAgain) $ throwIO (userError "Internal error: protocol violation (perhaps the remote binary is not installed correctly?)")
     msg <- readSizeChannel ch len
     if isE /= 0
       then error (decode msg)
@@ -939,7 +939,7 @@ instance Binary ServiceProcessMsg where
 serviceProcess :: Backend -> Process ()
 serviceProcess _backend = do
     us <- getSelfPid
-    register "serviceProcess" us
+    register "$azureBackendServiceProcess" us
     go
   where
     go = do
@@ -958,7 +958,7 @@ spawnNodeOnVM backend vm port =
 
 -- | Terminate a node started with 'spawnNodeOnVM'
 terminateNode :: NodeId -> Process () 
-terminateNode nid = nsendRemote nid "serviceProcess" ServiceProcessTerminate
+terminateNode nid = nsendRemote nid "$azureBackendServiceProcess" ServiceProcessTerminate
 
 __remoteTable :: RemoteTable -> RemoteTable
 __remoteTable = registerStatic "serviceProcess" (toDynamic serviceProcess)
