@@ -17,16 +17,15 @@ cabal-version:       >=1.8
 
 flag use-simplelocalnet
   description: Use the SimpleLocalnet backend
-  default: False
-  manual: True
+  default: True 
 
 flag use-azure
   description: Use the Azure backend
-  default: False
-  manual: True
+  default: True
 
-executable distributed-process-masterslave
-  main-is:             src/MasterSlave.hs
+executable distributed-process-simplelocalnet-masterslave
+  main-is:             SimpleLocalnet.hs
+  hs-source-dirs:      src/MasterSlave
   build-depends:       base ==4.5.*,
                        distributed-process >= 0.3.2
   extensions:          BangPatterns, CPP, TemplateHaskell
@@ -35,8 +34,17 @@ executable distributed-process-masterslave
     build-depends: distributed-process-simplelocalnet
     cpp-options:   -DUSE_SIMPLELOCALNET
   else 
-    if flag(use-azure)
-      build-depends: distributed-process-azure
-      cpp-options:   -DUSE_AZURE
-    else
-      buildable: False
+    buildable: False
+
+executable distributed-process-azure-masterslave
+  main-is:             Azure.hs
+  hs-source-dirs:      src/MasterSlave
+  build-depends:       base ==4.5.*,
+                       distributed-process >= 0.3.2
+  extensions:          BangPatterns, CPP, TemplateHaskell
+  ghc-options:         -Wall
+  if flag(use-azure)
+    build-depends: distributed-process-azure
+    cpp-options:   -DUSE_AZURE
+  else
+    buildable: False

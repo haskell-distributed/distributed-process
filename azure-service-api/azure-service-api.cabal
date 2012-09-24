@@ -18,7 +18,7 @@ Cabal-Version:       >=1.8
 Library
   Exposed-Modules:     Network.Azure.ServiceManagement 
   Build-Depends:       base ==4.5.*,
-                       http-conduit >= 1.5.1 && < 1.6,
+                       http-conduit >= 1.6.1 && < 1.7,
                        tls >= 1.0 && < 1.1,
                        tls-extra >= 0.5 && < 0.6,
                        bytestring >= 0.9 && < 1.0,
