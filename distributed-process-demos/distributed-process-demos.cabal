@@ -48,3 +48,17 @@ executable distributed-process-azure-masterslave
     cpp-options:   -DUSE_AZURE
   else
     buildable: False
+
+executable distributed-process-simplelocalnet-workstealing
+  main-is:             SimpleLocalnet.hs
+  hs-source-dirs:      src/WorkStealing
+  build-depends:       base ==4.5.*,
+                       distributed-process >= 0.3.2
+  extensions:          BangPatterns, CPP, TemplateHaskell
+  ghc-options:         -Wall
+  if flag(use-simplelocalnet)
+    build-depends: distributed-process-simplelocalnet
+    cpp-options:   -DUSE_SIMPLELOCALNET
+  else 
+    buildable: False
+
