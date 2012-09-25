@@ -15,7 +15,7 @@ type Document  = String
 type Word      = String
 type Frequency = Int
 
-countWords :: MapReduce FilePath Document Word Frequency 
+countWords :: MapReduce FilePath Document Word Frequency Frequency
 countWords = MapReduce {
     mrMap    = const (map (, 1) . words)
   , mrReduce = const sum  
