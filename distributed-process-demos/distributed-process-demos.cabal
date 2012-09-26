@@ -49,6 +49,32 @@ executable distributed-process-azure-masterslave
   else
     buildable: False
 
+executable distributed-process-simplelocalnet-workpushing
+  main-is:             SimpleLocalnet.hs
+  hs-source-dirs:      src/WorkPushing
+  build-depends:       base ==4.5.*,
+                       distributed-process >= 0.3.2
+  extensions:          BangPatterns, CPP, TemplateHaskell
+  ghc-options:         -Wall
+  if flag(use-simplelocalnet)
+    build-depends: distributed-process-simplelocalnet
+    cpp-options:   -DUSE_SIMPLELOCALNET
+  else 
+    buildable: False
+
+executable distributed-process-azure-workpushing
+  main-is:             Azure.hs
+  hs-source-dirs:      src/WorkPushing
+  build-depends:       base ==4.5.*,
+                       distributed-process >= 0.3.2
+  extensions:          BangPatterns, CPP, TemplateHaskell
+  ghc-options:         -Wall
+  if flag(use-azure)
+    build-depends: distributed-process-azure
+    cpp-options:   -DUSE_AZURE
+  else
+    buildable: False
+
 executable distributed-process-simplelocalnet-workstealing
   main-is:             SimpleLocalnet.hs
   hs-source-dirs:      src/WorkStealing
