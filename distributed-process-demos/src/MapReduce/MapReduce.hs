@@ -17,6 +17,7 @@ import qualified Data.Map as Map (mapWithKey, fromListWith, toList, size)
 import Control.Arrow (second)
 import Control.Monad (forM_, forever, replicateM)
 import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar)
+import qualified Control.Concurrent.Chan as Chan
 import Control.Distributed.Process
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Closure
@@ -113,43 +114,57 @@ mapperProcessClosure dictIn dictOut mr pid =
       `staticCompose` 
         staticDecode sdictProcessId
 
-distrMapReduce :: forall k1 k2 v1 v2 v3. 
+distrMapReduce :: forall k1 k2 v1 v2 v3 a. 
                   (Serializable k1, Serializable v1, Serializable k2, Serializable v2, Serializable v3, Ord k2)
                => Static (SerializableDict (ProcessId, k1, v1))
                -> Static (SerializableDict [(k2, v2)])
                -> Closure (MapReduce k1 v1 k2 v2 v3)
                -> [NodeId]
-               -> Map k1 v1 
-               -> Process (Map k2 v3)
-distrMapReduce dictIn dictOut mr mappers input = do
+               -> ((Map k1 v1 -> Process (Map k2 v3)) -> Process a) 
+               -> Process a 
+distrMapReduce dictIn dictOut mr mappers p = do
+  mr' <- unClosure mr
   us <- getSelfPid
+  queue <- liftIO $ Chan.newChan
   slavesTerminated <- liftIO $ newEmptyMVar
-
+ 
   workQueue <- spawnLocal $ do
-    -- As long as there is work, return the next Fib to compute
-    forM_ (Map.toList input) $ \(key, val) -> do
-      them <- expect 
-      send them (us, key, val)
-
-    -- After that, just report that the work is done
-    replicateM (length mappers) $ do
-      pid <- expect
-      send pid ()
-
-    liftIO $ putMVar slavesTerminated ()
+    let go :: Process ()
+        go = do 
+          mWork <- liftIO $ Chan.readChan queue
+          case mWork of
+            Just (key, val) -> do
+              -- As long there is work, make it available to the mappers 
+              them <- expect
+              send them (us, key, val)
+              go
+            Nothing -> do
+              -- Tell the mappers to terminate
+              replicateM (length mappers) $ do
+                them <- expect
+                send them ()
+              liftIO $ putMVar slavesTerminated ()
+    go
 
   -- Start the mappers
-  liftIO $ print mappers
   forM_ mappers $ flip spawn (mapperProcessClosure dictIn dictOut mr workQueue) 
 
-  liftIO $ threadDelay 1000000
+  let iteration :: Map k1 v1 -> Process (Map k2 v3)
+      iteration input = do
+        -- Make work available to the mappers
+        liftIO $ mapM_ (Chan.writeChan queue . Just) (Map.toList input)
 
-  -- Wait for the result from the mappers
-  partials <- replicateM (Map.size input) expect 
-  
-  -- Wait for the slaves to terminate
-  liftIO $ takeMVar slavesTerminated
+        -- Wait for the partial results
+        partials <- replicateM (Map.size input) expect 
 
-  -- We reduce on this node
-  mr' <- unClosure mr
-  return (reducePerKey mr' . groupByKey . concat $ partials)
+        -- We reduce on this node
+        return (reducePerKey mr' . groupByKey . concat $ partials)
+
+  result <- p iteration
+
+  -- Terminate the wrappers
+  liftIO $ do
+    Chan.writeChan queue Nothing
+    takeMVar slavesTerminated
+
+  return result

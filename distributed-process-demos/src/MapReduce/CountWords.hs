@@ -33,6 +33,9 @@ dictOut = SerializableDict
 remotable ['dictIn, 'dictOut, 'countWords]
 
 distrCountWords :: [NodeId] -> Map FilePath Document -> Process (Map Word Frequency)
-distrCountWords = distrMapReduce $(mkStatic 'dictIn)
-                                 $(mkStatic 'dictOut) 
-                                 (staticClosure $(mkStatic 'countWords)) 
+distrCountWords mappers input = 
+  distrMapReduce $(mkStatic 'dictIn)
+                 $(mkStatic 'dictOut) 
+                 (staticClosure $(mkStatic 'countWords))
+                 mappers
+                 (\iteration -> iteration input)

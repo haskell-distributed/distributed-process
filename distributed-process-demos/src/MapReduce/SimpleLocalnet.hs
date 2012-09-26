@@ -8,7 +8,7 @@ import Control.Distributed.Process.Node (initRemoteTable)
 import Control.Distributed.Process.Backend.SimpleLocalnet
 import Data.Map (Map)
 import Data.Array (Array, listArray)
-import qualified Data.Map as Map (fromList, toList, size, elems)
+import qualified Data.Map as Map (fromList)
 
 import qualified CountWords 
 import qualified MapReduce
@@ -17,6 +17,7 @@ import qualified KMeans
 rtable :: RemoteTable
 rtable = MapReduce.__remoteTable 
        . CountWords.__remoteTable
+       . KMeans.__remoteTable
        $ initRemoteTable 
 
 main :: IO ()
@@ -40,15 +41,16 @@ main = do
     -- Local k-means
     "local" : "kmeans" : [] -> do
       points <- replicateM 1000 randomPoint
-      let kmeans = KMeans.localKMeans (arrayFromList points) 
+      withFile "plot.data" WriteMode $ KMeans.createGnuPlot $
+        KMeans.localKMeans (arrayFromList points) (take 5 points) 5 
 
-      let it 0 = kmeans (take 5 points)
-          it n = let clusters = it (n - 1) in
-                 kmeans (map snd $ Map.elems clusters) 
-
-      forM_ ([0 .. 4] :: [Int]) $ \n -> 
-        withFile ("plot" ++ show n) WriteMode $
-          createGnuPlot (it n)
+    -- Distributed k-means
+    "master" : "kmeans" : host : port : [] -> do
+      points  <- replicateM 1000 randomPoint
+      backend <- initializeBackend host port rtable 
+      startMaster backend $ \slaves -> do
+        result <- KMeans.distrKMeans (arrayFromList points) (take 5 points) slaves 5
+        liftIO $ withFile "plot.data" WriteMode $ KMeans.createGnuPlot result
 
     -- Generic slave for distributed examples
     "slave" : host : port : [] -> do
@@ -69,22 +71,3 @@ randomPoint = (,) <$> randomIO <*> randomIO
 
 arrayFromList :: [e] -> Array Int e
 arrayFromList xs = listArray (0, length xs - 1) xs
-
--- | Create a gnuplot data file for the output of the k-means algorithm
---
--- To plot the data, use 
---
--- > plot "<<filename>>" u 1:2:3 with points palette
-createGnuPlot :: Map KMeans.Cluster ([KMeans.Point], KMeans.Point) -> Handle -> IO ()
-createGnuPlot clusters h = 
-    mapM_ printPoint . flatten . zip colors . Map.toList $ clusters
-  where
-    printPoint (x, y, color) = 
-      hPutStrLn h $ show x ++ " " ++ show y ++ " " ++ show color
-
-    flatten :: [(Float, (KMeans.Cluster, ([KMeans.Point], KMeans.Point)))] 
-            -> [(Double, Double, Float)]
-    flatten = concat . map (\(color, (_, (points, _))) -> map (\(x, y) -> (x, y, color)) points) 
-
-    colors :: [Float]
-    colors = [0, 1 / fromIntegral (Map.size clusters) .. 1] 
