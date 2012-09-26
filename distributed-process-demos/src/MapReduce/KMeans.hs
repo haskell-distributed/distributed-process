@@ -1,5 +1,6 @@
 module KMeans 
   ( Point
+  , Cluster
   , localKMeans
   ) where
 
@@ -27,14 +28,14 @@ nearest p = minimumBy (compare `on` distanceSq p)
 center :: [Point] -> Point
 center ps = let (xs, ys) = unzip ps in (average xs, average ys) 
 
-kmeans :: Array Int Point -> MapReduce (Int, Int) [Cluster] Cluster Point Point 
+kmeans :: Array Int Point -> MapReduce (Int, Int) [Cluster] Cluster Point ([Point], Point)
 kmeans points = MapReduce {
     mrMap    = \(lo, hi) cs -> [ let p = points ! i in (nearest p cs, p)
                                | i <- [lo .. hi]
                                ] 
-  , mrReduce = \_ ps -> center ps 
+  , mrReduce = \_ ps -> (ps, center ps)
   }
 
-localKMeans :: Array Int Point -> [Cluster] -> Map Cluster Point
+localKMeans :: Array Int Point -> [Cluster] -> Map Cluster ([Point], Point)
 localKMeans points cs = 
   localMapReduce (kmeans points) (Map.fromList [(bounds points, cs)]) 
