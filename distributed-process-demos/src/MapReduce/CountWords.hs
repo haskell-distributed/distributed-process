@@ -8,7 +8,6 @@ module CountWords
 
 import Control.Distributed.Process
 import Control.Distributed.Process.Closure
-import Control.Distributed.Static (staticClosure)
 import MapReduce hiding (__remoteTable) 
 
 type Document  = String
@@ -30,12 +29,15 @@ dictIn = SerializableDict
 dictOut :: SerializableDict [(Word, Frequency)]
 dictOut = SerializableDict
 
-remotable ['dictIn, 'dictOut, 'countWords]
+countWords_ :: () -> MapReduce FilePath Document Word Frequency Frequency
+countWords_ () = countWords
+
+remotable ['dictIn, 'dictOut, 'countWords_]
 
 distrCountWords :: [NodeId] -> Map FilePath Document -> Process (Map Word Frequency)
 distrCountWords mappers input = 
   distrMapReduce $(mkStatic 'dictIn)
                  $(mkStatic 'dictOut) 
-                 (staticClosure $(mkStatic 'countWords))
+                 ($(mkClosure 'countWords_) ())
                  mappers
                  (\iteration -> iteration input)
