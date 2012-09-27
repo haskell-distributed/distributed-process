@@ -59,7 +59,7 @@ localKMeans points cs iterations = go (iterations - 1)
     trivialSegmentation :: [Cluster] -> Map (Int, Int) [Cluster]
     trivialSegmentation cs' = Map.fromList [(bounds points, cs')]
 
-dictIn :: SerializableDict (ProcessId, (Int, Int), [Cluster])
+dictIn :: SerializableDict ((Int, Int), [Cluster])
 dictIn = SerializableDict
 
 dictOut :: SerializableDict [(Cluster, Point)]
@@ -82,7 +82,7 @@ distrKMeans points cs mappers iterations =
     go :: Int
        -> (Map (Int, Int) [Cluster] -> Process (Map Cluster ([Point], Point))) 
        -> Process (Map Cluster ([Point], Point))
-    go 0 iteration = do
+    go 0 iteration = 
       iteration (Map.fromList $ map (, cs) segments) 
     go n iteration = do
       clusters <- go (n - 1) iteration
@@ -120,7 +120,7 @@ createGnuPlot clusters h =
 
     flatten :: [(Float, (KMeans.Cluster, ([KMeans.Point], KMeans.Point)))] 
             -> [(Double, Double, Float)]
-    flatten = concat . map (\(color, (_, (points, _))) -> map (\(x, y) -> (x, y, color)) points) 
+    flatten = concatMap (\(color, (_, (points, _))) -> map (\(x, y) -> (x, y, color)) points) 
 
     colors :: [Float]
     colors = [0, 1 / fromIntegral (Map.size clusters) .. 1] 

@@ -93,7 +93,7 @@ executable distributed-process-simplelocalnet-mapreduce
   hs-source-dirs:      src/MapReduce
   build-depends:       base ==4.5.*,
                        distributed-process >= 0.3.2,
-                       distributed-static >= 0.2 && < 0.3,
+                       distributed-static >= 0.2.0 && < 0.3,
                        containers >= 0.4 && < 0.6,
                        bytestring >= 0.9 && < 0.11,
                        binary >= 0.5 && < 0.6,

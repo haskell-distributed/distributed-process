@@ -15,14 +15,13 @@ import Data.ByteString.Lazy (ByteString)
 import Data.Map (Map)
 import qualified Data.Map as Map (mapWithKey, fromListWith, toList, size)
 import Control.Arrow (second)
-import Control.Monad (forM_, forever, replicateM)
+import Control.Monad (forM_, replicateM, replicateM_)
 import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar)
 import qualified Control.Concurrent.Chan as Chan
 import Control.Distributed.Process
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Closure
 import Control.Distributed.Static (closureApply, staticCompose, staticApply)
-import Control.Concurrent (threadDelay)
 
 --------------------------------------------------------------------------------
 -- Definition of a MapReduce skeleton and a local implementation              --
@@ -64,59 +63,52 @@ matchDict SerializableDict = match
 sendDict :: forall a. SerializableDict a -> ProcessId -> a -> Process ()
 sendDict SerializableDict = send
 
+sdictProcessIdPair :: SerializableDict (ProcessId, ProcessId)
+sdictProcessIdPair = SerializableDict
+
 mapperProcess :: forall k1 v1 k2 v2 v3. 
-                 SerializableDict (ProcessId, k1, v1)
+                 SerializableDict (k1, v1)
               -> SerializableDict [(k2, v2)]
-              -> ProcessId
+              -> (ProcessId, ProcessId)
               -> MapReduce k1 v1 k2 v2 v3 
               -> Process ()
-mapperProcess dictIn dictOut workQueue mr = do
-    us <- getSelfPid
-    liftIO . putStrLn $ "Mapper " ++ show us ++ " started"
-    go us
+mapperProcess dictIn dictOut (master, workQueue) mr = getSelfPid >>= go 
   where
     go us = do
       -- Ask the queue for work 
       send workQueue us
   
-      liftIO . putStrLn $ "Mapper " ++ show us ++ " waiting for work"
-      -- Wait for a reply
-      mWork <- receiveWait 
-        [ matchDict dictIn $ \(pid, key, val) -> return $ Just (pid, key, val)
-        , match $ \() -> return Nothing
+      -- Wait for a reply; if there is work, do it and repeat; otherwise, exit
+      receiveWait 
+        [ matchDict dictIn $ \(key, val) -> do
+            sendDict dictOut master (mrMap mr key val)
+            go us
+        , match $ \() -> 
+            return () 
         ]
 
-      -- If there is work, do it and repeat; otherwise, exit
-      case mWork of
-        Just (pid, key, val) -> do
-          sendDict dictOut pid (mrMap mr key val)
-          go us
-
-        Nothing -> do 
-          liftIO $ putStrLn "Slave exiting"
-          return ()
-      
-remotable ['mapperProcess]
+remotable ['mapperProcess, 'sdictProcessIdPair]
 
 mapperProcessClosure :: forall k1 v1 k2 v2 v3. 
                         (Typeable k1, Typeable v1, Typeable k2, Typeable v2, Typeable v3)
-                     => Static (SerializableDict (ProcessId, k1, v1))
+                     => Static (SerializableDict (k1, v1))
                      -> Static (SerializableDict [(k2, v2)])
                      -> Closure (MapReduce k1 v1 k2 v2 v3) 
                      -> ProcessId 
+                     -> ProcessId 
                      -> Closure (Process ())
-mapperProcessClosure dictIn dictOut mr pid = 
-    closure decoder (encode pid) `closureApply` mr
+mapperProcessClosure dictIn dictOut mr master workQueue = 
+    closure decoder (encode (master, workQueue)) `closureApply` mr
   where
     decoder :: Static (ByteString -> MapReduce k1 v1 k2 v2 v3 -> Process ())
     decoder = 
         ($(mkStatic 'mapperProcess) `staticApply` dictIn `staticApply` dictOut)
       `staticCompose` 
-        staticDecode sdictProcessId
+        staticDecode $(mkStatic 'sdictProcessIdPair)
 
 distrMapReduce :: forall k1 k2 v1 v2 v3 a. 
                   (Serializable k1, Serializable v1, Serializable k2, Serializable v2, Serializable v3, Ord k2)
-               => Static (SerializableDict (ProcessId, k1, v1))
+               => Static (SerializableDict (k1, v1))
                -> Static (SerializableDict [(k2, v2)])
                -> Closure (MapReduce k1 v1 k2 v2 v3)
                -> [NodeId]
@@ -125,8 +117,8 @@ distrMapReduce :: forall k1 k2 v1 v2 v3 a.
 distrMapReduce dictIn dictOut mr mappers p = do
   mr' <- unClosure mr
   us <- getSelfPid
-  queue <- liftIO $ Chan.newChan
-  slavesTerminated <- liftIO $ newEmptyMVar
+  queue <- liftIO Chan.newChan
+  slavesTerminated <- liftIO newEmptyMVar
  
   workQueue <- spawnLocal $ do
     let go :: Process ()
@@ -136,18 +128,18 @@ distrMapReduce dictIn dictOut mr mappers p = do
             Just (key, val) -> do
               -- As long there is work, make it available to the mappers 
               them <- expect
-              send them (us, key, val)
+              send them (key, val)
               go
             Nothing -> do
               -- Tell the mappers to terminate
-              replicateM (length mappers) $ do
+              replicateM_ (length mappers) $ do
                 them <- expect
                 send them ()
               liftIO $ putMVar slavesTerminated ()
     go
 
   -- Start the mappers
-  forM_ mappers $ flip spawn (mapperProcessClosure dictIn dictOut mr workQueue) 
+  forM_ mappers $ \nid -> spawn nid (mapperProcessClosure dictIn dictOut mr us workQueue) 
 
   let iteration :: Map k1 v1 -> Process (Map k2 v3)
       iteration input = do

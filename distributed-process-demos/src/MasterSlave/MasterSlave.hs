@@ -24,7 +24,7 @@ master n slaves = do
     spawn them ($(mkClosure 'slave) (us, m))
 
   -- Wait for the result
-  partials <- replicateM (fromInteger n) (expect :: Process Integer)
+  partials <- replicateM (fromIntegral n) (expect :: Process Integer)
 
   -- And return the sum
   return (sum partials) 

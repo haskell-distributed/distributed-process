@@ -23,7 +23,7 @@ countWords = MapReduce {
 localCountWords :: Map FilePath Document -> Map Word Frequency
 localCountWords = localMapReduce countWords
 
-dictIn :: SerializableDict (ProcessId, FilePath, Document)
+dictIn :: SerializableDict (FilePath, Document)
 dictIn = SerializableDict
 
 dictOut :: SerializableDict [(Word, Frequency)]

@@ -10,10 +10,10 @@ fib = go (0, 1)
     go (!a, !b) !n | n == 0    = a
                    | otherwise = go (b, a + b) (n - 1)
 
-slave :: () -> Process ()
-slave () = forever $ do
-  (pid, n) <- expect
-  send pid (fib n)
+slave :: ProcessId -> Process ()
+slave them = forever $ do
+  n <- expect
+  send them (fib n)
 
 remotable ['slave]
 
@@ -22,14 +22,13 @@ master n slaves = do
   us <- getSelfPid
 
   -- Start processes on the slaves that compute Fibonacci numbers
-  slaveProcesses <- forM slaves $ flip spawn ($(mkClosure 'slave) ())
+  slaveProcesses <- forM slaves $ \nid -> spawn nid ($(mkClosure 'slave) us)
 
   -- Distribute 1 .. n amongst the slave processes 
-  forM_ (zip [1 .. n] (cycle slaveProcesses)) $ \(m, them) -> 
-    send them (us, m)
+  forM_ (zip [1 .. n] (cycle slaveProcesses)) $ \(m, them) -> send them m 
 
   -- Wait for the result
-  partials <- replicateM (fromInteger n) (expect :: Process Integer)
+  partials <- replicateM (fromIntegral n) (expect :: Process Integer)
 
   -- And return the sum
   return (sum partials) 
