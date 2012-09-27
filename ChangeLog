@@ -1,3 +1,7 @@
+<<date>>    Edsko de Vries  <edsko@well-typed.com>  0.2.1
+
+* Add support for 'staticFlip'
+
 2012-08-16  Edsko de Vries  <edsko@well-typed.com>  0.2
 
 * Hide the 'Closure' constructor and export 'closure' instead so that we are
