@@ -1,5 +1,5 @@
 Name:                rank1dynamic
-Version:             0.1.0.0
+Version:             0.1.0.1
 Synopsis:            Like Data.Dynamic/Data.Typeable but with support for rank-1 polymorphic types
 Description:         "Data.Typeable" and "Data.Dynamic" only support monomorphic types. 
                      In this package we provide similar functionality but with
@@ -17,7 +17,7 @@ Cabal-Version:       >=1.8
 Library
   Exposed-Modules:     Data.Rank1Dynamic,
                        Data.Rank1Typeable
-  Build-Depends:       base >= 4.5 && < 4.7,
+  Build-Depends:       base >= 4.4 && < 4.7,
                        ghc-prim >= 0.2 && < 0.4,
                        binary >= 0.5 && < 0.6 
   HS-Source-Dirs:      src
