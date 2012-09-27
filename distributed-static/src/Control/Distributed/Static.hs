@@ -205,6 +205,7 @@ module Control.Distributed.Static
   , staticCompose
   , staticSplit
   , staticConst
+  , staticFlip
     -- * Closures
   , Closure
   , closure
@@ -310,6 +311,7 @@ initRemoteTable =
     . registerStatic "$split"         (toDynamic ((***)  :: (ANY1 -> ANY3) -> (ANY2 -> ANY4) -> (ANY1, ANY2) -> (ANY3, ANY4)))
     . registerStatic "$app"           (toDynamic (app    :: (ANY1 -> ANY2, ANY1) -> ANY2))
     . registerStatic "$decodeEnvPair" (toDynamic (decode :: ByteString -> (ByteString, ByteString)))
+    . registerStatic "$flip"          (toDynamic (flip   :: (ANY1 -> ANY2 -> ANY3) -> ANY2 -> ANY1 -> ANY3))
     $ RemoteTable Map.empty
 
 -- | Register a static label
@@ -385,6 +387,11 @@ appStatic :: (Typeable a, Typeable b)
           => Static ((a -> b, a) -> b)
 appStatic = staticLabel "$app"
 
+-- | Static version of 'flip'
+flipStatic :: (Typeable a, Typeable b, Typeable c)
+           => Static ((a -> b -> c) -> b -> a -> c)
+flipStatic = staticLabel "$flip"           
+
 --------------------------------------------------------------------------------
 -- Combinators on static values                                               --
 --------------------------------------------------------------------------------
@@ -403,6 +410,11 @@ staticSplit f g = splitStatic `staticApply` f `staticApply` g
 staticConst :: (Typeable a, Typeable b)
             => Static a -> Static (b -> a)
 staticConst x = constStatic `staticApply` x 
+
+-- | Static version of 'Prelude.flip'
+staticFlip :: (Typeable a, Typeable b, Typeable c)
+           => Static (a -> b -> c) -> Static (b -> a -> c)
+staticFlip f = flipStatic `staticApply` f           
 
 --------------------------------------------------------------------------------
 -- Combinators on Closures                                                    --
