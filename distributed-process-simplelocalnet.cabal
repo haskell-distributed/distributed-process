@@ -38,7 +38,8 @@ Library
   Exposed-modules:   Control.Distributed.Process.Backend.SimpleLocalnet,
                      Control.Distributed.Process.Backend.SimpleLocalnet.Internal.Multicast
   Extensions:        RankNTypes,
-                     DeriveDataTypeable
+                     DeriveDataTypeable,
+                     CPP
   ghc-options:       -Wall
   HS-Source-Dirs:    src
 
