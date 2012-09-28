@@ -15,7 +15,7 @@ master n slaves = do
   us <- getSelfPid
 
   -- Distribute 1 .. n amongst the slave processes 
-  forM_ (zip [1 .. n] (cycle slaves)) $ \(m, them) -> 
+  spawnLocal $ forM_ (zip [1 .. n] (cycle slaves)) $ \(m, them) -> 
     spawn them ($(mkClosure 'slave) (us, m))
 
   -- Wait for the result

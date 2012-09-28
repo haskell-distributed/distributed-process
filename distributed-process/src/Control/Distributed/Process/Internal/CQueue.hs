@@ -7,7 +7,6 @@ module Control.Distributed.Process.Internal.CQueue
   , dequeue
   ) where
 
-import Control.Concurrent.MVar (MVar, newMVar, takeMVar, putMVar)
 import Control.Concurrent.STM 
   ( atomically
   , TChan
@@ -19,16 +18,37 @@ import Control.Concurrent.STM
 import Control.Applicative ((<$>), (<*>))
 import Control.Exception (mask, onException)
 import System.Timeout (timeout)
+import Control.Distributed.Process.Internal.StrictMVar 
+  ( StrictMVar
+  , newMVar
+  , takeMVar
+  , putMVar
+  )
+
+-- | Strict list
+data StrictList a = StrictCons !a !(StrictList a) | StrictNil
+
+-- | Reverse a strict list
+reverseStrict :: StrictList a -> StrictList a 
+reverseStrict xs = reverseStrict' xs StrictNil
+
+-- | @reverseStrict' xs ys@ is 'reverse xs ++ ys' if they were lists
+reverseStrict' :: StrictList a -> StrictList a -> StrictList a 
+reverseStrict' StrictNil         ys = ys
+reverseStrict' (StrictCons x xs) ys = reverseStrict' xs (StrictCons x ys)
 
 -- We use a TCHan rather than a Chan so that we have a non-blocking read
-data CQueue a = CQueue (MVar [a]) -- Arrived
-                       (TChan a)  -- Incoming
+data CQueue a = CQueue (StrictMVar (StrictList a)) -- Arrived
+                       (TChan a)                   -- Incoming
 
 newCQueue :: IO (CQueue a)
-newCQueue = CQueue <$> newMVar [] <*> atomically newTChan
+newCQueue = CQueue <$> newMVar StrictNil <*> atomically newTChan
 
+-- | Enqueue an element
+--
+-- Enqueue is strict.
 enqueue :: CQueue a -> a -> IO ()
-enqueue (CQueue _arrived incoming) a = atomically $ writeTChan incoming a 
+enqueue (CQueue _arrived incoming) !a = atomically $ writeTChan incoming a 
 
 data BlockSpec = 
     NonBlocking
@@ -51,7 +71,7 @@ dequeue (CQueue arrived incoming) blockSpec matches = go
       arr <- takeMVar arrived 
       -- We first check the arrived messages. If we get interrupted during this
       -- search, we just put the MVar back (we haven't read from the Chan yet)
-      (arr', mb) <- onException (restore (checkArrived [] arr))
+      (arr', mb) <- onException (restore (checkArrived StrictNil arr))
                                 (putMVar arrived arr) 
       case (mb, blockSpec) of
         (Just b, _) -> do 
@@ -65,36 +85,36 @@ dequeue (CQueue arrived incoming) blockSpec matches = go
           timeout n $ checkBlocking arr'
 
     -- We reverse the accumulator on return only if we find a match
-    checkArrived :: [a] -> [a] -> IO ([a], Maybe b)
-    checkArrived acc []     = return (acc, Nothing)
-    checkArrived acc (x:xs) = 
+    checkArrived :: StrictList a -> StrictList a -> IO (StrictList a, Maybe b)
+    checkArrived acc StrictNil = return (acc, Nothing)
+    checkArrived acc (StrictCons x xs) = 
       case check x of
-        Just y  -> return (reverse acc ++ xs, Just y)
-        Nothing -> checkArrived (x:acc) xs
+        Just y  -> return (reverseStrict' acc xs, Just y)
+        Nothing -> checkArrived (StrictCons x acc) xs
 
     -- If we call checkBlocking there may or may not be a timeout
-    checkBlocking :: [a] -> IO b
+    checkBlocking :: StrictList a -> IO b
     checkBlocking acc = do
       -- readTChan is a blocking call, and hence is interruptable. If it is 
       -- interrupted, we put the value of the accumulator in 'arrived'  
       -- (as opposed to the original value), so that no messages get lost
       -- (hence the low-level structure using mask rather than modifyMVar)
       x <- onException (atomically $ readTChan incoming)
-                       (putMVar arrived $ reverse acc)
+                       (putMVar arrived $ reverseStrict acc)
       case check x of
-        Nothing -> checkBlocking (x:acc)
-        Just y  -> putMVar arrived (reverse acc) >> return y 
+        Nothing -> checkBlocking (StrictCons x acc)
+        Just y  -> putMVar arrived (reverseStrict acc) >> return y 
 
     -- checkNonBlocking is only called if there is no timeout
-    checkNonBlocking :: [a] -> IO (Maybe b)
+    checkNonBlocking :: StrictList a -> IO (Maybe b)
     checkNonBlocking acc = do
       -- tryReadTChan is *not* interruptible
       mx <- atomically $ tryReadTChan incoming
       case mx of
-        Nothing -> putMVar arrived (reverse acc) >> return Nothing
+        Nothing -> putMVar arrived (reverseStrict acc) >> return Nothing
         Just x  -> case check x of
-          Nothing -> checkNonBlocking (x:acc)
-          Just y  -> putMVar arrived (reverse acc) >> return (Just y)
+          Nothing -> checkNonBlocking (StrictCons x acc)
+          Just y  -> putMVar arrived (reverseStrict acc) >> return (Just y)
         
     check :: a -> Maybe b
     check = checkMatches matches 

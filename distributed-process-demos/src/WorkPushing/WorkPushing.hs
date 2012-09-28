@@ -12,6 +12,16 @@ slave them = forever $ do
 
 remotable ['slave]
 
+-- | Wait for n integers and sum them all up
+sumIntegers :: Int -> Process Integer
+sumIntegers = go 0
+  where
+    go :: Integer -> Int -> Process Integer
+    go !acc 0 = return acc
+    go !acc n = do
+      m <- expect
+      go (acc + m) (n - 1)
+
 master :: Integer -> [NodeId] -> Process Integer
 master n slaves = do
   us <- getSelfPid
@@ -20,10 +30,8 @@ master n slaves = do
   slaveProcesses <- forM slaves $ \nid -> spawn nid ($(mkClosure 'slave) us)
 
   -- Distribute 1 .. n amongst the slave processes 
-  forM_ (zip [1 .. n] (cycle slaveProcesses)) $ \(m, them) -> send them m 
+  spawnLocal $ forM_ (zip [1 .. n] (cycle slaveProcesses)) $ 
+    \(m, them) -> send them m 
 
   -- Wait for the result
-  partials <- replicateM (fromIntegral n) (expect :: Process Integer)
-
-  -- And return the sum
-  return (sum partials) 
+  sumIntegers (fromIntegral n)

@@ -135,9 +135,9 @@ instance Show ProcessId where
 
 -- | Union of all kinds of identifiers 
 data Identifier = 
-    NodeIdentifier NodeId
-  | ProcessIdentifier ProcessId 
-  | SendPortIdentifier SendPortId
+    NodeIdentifier !NodeId
+  | ProcessIdentifier !ProcessId 
+  | SendPortIdentifier !SendPortId
   deriving (Eq, Ord)
 
 instance Show Identifier where
@@ -172,16 +172,16 @@ nullProcessId nid =
 -- | Local nodes
 data LocalNode = LocalNode 
   { -- | 'NodeId' of the node
-    localNodeId :: NodeId
+    localNodeId :: !NodeId
     -- | The network endpoint associated with this node 
-  , localEndPoint :: NT.EndPoint 
+  , localEndPoint :: !NT.EndPoint 
     -- | Local node state 
-  , localState :: StrictMVar LocalNodeState
+  , localState :: !(StrictMVar LocalNodeState)
     -- | Channel for the node controller
-  , localCtrlChan :: Chan NCMsg
+  , localCtrlChan :: !(Chan NCMsg)
     -- | Runtime lookup table for supporting closures
     -- TODO: this should be part of the CH state, not the local endpoint state
-  , remoteTable :: RemoteTable 
+  , remoteTable :: !RemoteTable 
   }
 
 data ImplicitReconnect = WithImplicitReconnect | NoImplicitReconnect
@@ -203,11 +203,11 @@ data LocalNodeState = LocalNodeState
 
 -- | Processes running on our local node
 data LocalProcess = LocalProcess 
-  { processQueue  :: CQueue Message 
-  , processId     :: ProcessId
-  , processState  :: StrictMVar LocalProcessState
-  , processThread :: ThreadId
-  , processNode   :: LocalNode
+  { processQueue  :: !(CQueue Message)
+  , processId     :: !ProcessId
+  , processState  :: !(StrictMVar LocalProcessState)
+  , processThread :: !ThreadId
+  , processNode   :: !LocalNode
   }
 
 -- | Deconstructor for 'Process' (not exported to the public API) 
@@ -275,8 +275,8 @@ data ReceivePort a =
 
 -- | Messages consist of their typeRep fingerprint and their encoding
 data Message = Message 
-  { messageFingerprint :: Fingerprint 
-  , messageEncoding    :: BSL.ByteString
+  { messageFingerprint :: !Fingerprint 
+  , messageEncoding    :: !BSL.ByteString
   }
 
 instance Show Message where
@@ -313,32 +313,32 @@ data MonitorRef = MonitorRef
 
 -- | Message sent by process monitors
 data ProcessMonitorNotification = 
-    ProcessMonitorNotification MonitorRef ProcessId DiedReason
+    ProcessMonitorNotification !MonitorRef !ProcessId !DiedReason
   deriving (Typeable, Show)
 
 -- | Message sent by node monitors
 data NodeMonitorNotification = 
-    NodeMonitorNotification MonitorRef NodeId DiedReason
+    NodeMonitorNotification !MonitorRef !NodeId !DiedReason
   deriving (Typeable, Show)
 
 -- | Message sent by channel (port) monitors
 data PortMonitorNotification = 
-    PortMonitorNotification MonitorRef SendPortId DiedReason
+    PortMonitorNotification !MonitorRef !SendPortId !DiedReason
   deriving (Typeable, Show)
 
 -- | Exceptions thrown when a linked process dies
 data ProcessLinkException = 
-    ProcessLinkException ProcessId DiedReason
+    ProcessLinkException !ProcessId !DiedReason
   deriving (Typeable, Show)
 
 -- | Exception thrown when a linked node dies
 data NodeLinkException = 
-    NodeLinkException NodeId DiedReason
+    NodeLinkException !NodeId !DiedReason
   deriving (Typeable, Show)
 
 -- | Exception thrown when a linked channel (port) dies
 data PortLinkException = 
-    PortLinkException SendPortId DiedReason
+    PortLinkException !SendPortId !DiedReason
   deriving (Typeable, Show)
 
 instance Exception ProcessLinkException
@@ -351,7 +351,7 @@ data DiedReason =
     DiedNormal
     -- | The process exited with an exception
     -- (provided as 'String' because 'Exception' does not implement 'Binary')
-  | DiedException String
+  | DiedException !String
     -- | We got disconnected from the process node
   | DiedDisconnect
     -- | The process node died
@@ -394,22 +394,22 @@ data WhereIsReply = WhereIsReply String (Maybe ProcessId)
 
 -- | Messages to the node controller
 data NCMsg = NCMsg 
-  { ctrlMsgSender :: Identifier 
-  , ctrlMsgSignal :: ProcessSignal
+  { ctrlMsgSender :: !Identifier 
+  , ctrlMsgSignal :: !ProcessSignal
   }
   deriving Show
 
 -- | Signals to the node controller (see 'NCMsg')
 data ProcessSignal =
-    Link Identifier 
-  | Unlink Identifier 
-  | Monitor MonitorRef
-  | Unmonitor MonitorRef
-  | Died Identifier DiedReason
-  | Spawn (Closure (Process ())) SpawnRef 
-  | WhereIs String
-  | Register String (Maybe ProcessId) -- Nothing to unregister
-  | NamedSend String Message
+    Link !Identifier 
+  | Unlink !Identifier 
+  | Monitor !MonitorRef
+  | Unmonitor !MonitorRef
+  | Died Identifier !DiedReason
+  | Spawn !(Closure (Process ())) !SpawnRef 
+  | WhereIs !String
+  | Register !String !(Maybe ProcessId) -- Nothing to unregister
+  | NamedSend !String !Message
   deriving Show
 
 --------------------------------------------------------------------------------

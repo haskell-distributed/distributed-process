@@ -267,11 +267,12 @@ match = matchIf (const True)
 -- | Match against any message of the right type that satisfies a predicate
 matchIf :: forall a b. Serializable a => (a -> Bool) -> (a -> Process b) -> Match b
 matchIf c p = Match $ \msg -> 
-  let decoded :: a
-      decoded = decode . messageEncoding $ msg in
-  if messageFingerprint msg == fingerprint (undefined :: a) && c decoded
-    then Just $ p decoded 
-    else Nothing
+   case messageFingerprint msg == fingerprint (undefined :: a) of
+     True | c decoded -> Just (p decoded)
+       where
+         decoded :: a
+         !decoded = decode (messageEncoding msg)
+     _ -> Nothing
 
 data AbstractMessage = AbstractMessage {
     forward :: ProcessId -> Process ()
