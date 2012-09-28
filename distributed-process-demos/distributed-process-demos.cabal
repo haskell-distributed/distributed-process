@@ -25,7 +25,7 @@ flag use-azure
 
 executable distributed-process-simplelocalnet-masterslave
   main-is:             SimpleLocalnet.hs
-  hs-source-dirs:      src/MasterSlave
+  hs-source-dirs:      src/MasterSlave src/Common
   build-depends:       base ==4.5.*,
                        distributed-process >= 0.3.2
   extensions:          BangPatterns, CPP, TemplateHaskell
@@ -38,7 +38,7 @@ executable distributed-process-simplelocalnet-masterslave
 
 executable distributed-process-azure-masterslave
   main-is:             Azure.hs
-  hs-source-dirs:      src/MasterSlave
+  hs-source-dirs:      src/MasterSlave src/Common
   build-depends:       base ==4.5.*,
                        distributed-process >= 0.3.2
   extensions:          BangPatterns, CPP, TemplateHaskell
@@ -51,7 +51,7 @@ executable distributed-process-azure-masterslave
 
 executable distributed-process-simplelocalnet-workpushing
   main-is:             SimpleLocalnet.hs
-  hs-source-dirs:      src/WorkPushing
+  hs-source-dirs:      src/WorkPushing src/Common
   build-depends:       base ==4.5.*,
                        distributed-process >= 0.3.2
   extensions:          BangPatterns, CPP, TemplateHaskell
@@ -64,7 +64,7 @@ executable distributed-process-simplelocalnet-workpushing
 
 executable distributed-process-azure-workpushing
   main-is:             Azure.hs
-  hs-source-dirs:      src/WorkPushing
+  hs-source-dirs:      src/WorkPushing src/Common
   build-depends:       base ==4.5.*,
                        distributed-process >= 0.3.2
   extensions:          BangPatterns, CPP, TemplateHaskell
@@ -77,7 +77,7 @@ executable distributed-process-azure-workpushing
 
 executable distributed-process-simplelocalnet-workstealing
   main-is:             SimpleLocalnet.hs
-  hs-source-dirs:      src/WorkStealing
+  hs-source-dirs:      src/WorkStealing src/Common
   build-depends:       base ==4.5.*,
                        distributed-process >= 0.3.2
   extensions:          BangPatterns, CPP, TemplateHaskell

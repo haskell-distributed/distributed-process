@@ -3,15 +3,10 @@ module MasterSlave where
 import Control.Monad
 import Control.Distributed.Process
 import Control.Distributed.Process.Closure
-
-fib :: Integer -> Integer
-fib = go (0, 1)
-  where
-    go (!a, !b) !n | n == 0    = a
-                   | otherwise = go (b, a + b) (n - 1)
+import PrimeFactors
 
 slave :: (ProcessId, Integer) -> Process ()
-slave (pid, n) = send pid (fib n)
+slave (pid, n) = send pid (numPrimeFactors n)
 
 remotable ['slave]
 

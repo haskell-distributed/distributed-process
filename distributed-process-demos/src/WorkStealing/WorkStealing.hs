@@ -3,12 +3,7 @@ module WorkStealing where
 import Control.Monad
 import Control.Distributed.Process
 import Control.Distributed.Process.Closure
-
-fib :: Integer -> Integer
-fib = go (0, 1)
-  where
-    go (!a, !b) !n | n == 0    = a
-                   | otherwise = go (b, a + b) (n - 1)
+import PrimeFactors
 
 slave :: (ProcessId, ProcessId) -> Process ()
 slave (master, workQueue) = do
@@ -21,7 +16,7 @@ slave (master, workQueue) = do
    
       -- If there is work, do it, otherwise terminate 
       receiveWait 
-        [ match $ \n  -> send master (fib n) >> go us
+        [ match $ \n  -> send master (numPrimeFactors n) >> go us
         , match $ \() -> return ()
         ]
 
@@ -32,17 +27,17 @@ master n slaves = do
   us <- getSelfPid
 
   workQueue <- spawnLocal $ do
-    -- As long as there is work, return the next Fib to compute
+    -- Reply with the next bit of work to be done 
     forM_ [1 .. n] $ \m -> do
       them <- expect 
       send them m 
 
-    -- After that, just report that the work is done
+    -- Once all the work is done, tell the slaves to terminate
     forever $ do
       pid <- expect
       send pid ()
 
-  -- Start processes on the slaves that compute Fibonacci numbers
+  -- Start slave processes 
   forM_ slaves $ \nid -> spawn nid ($(mkClosure 'slave) (us, workQueue))
 
   -- Wait for the result
