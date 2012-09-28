@@ -21,7 +21,7 @@ instance Binary a => Binary (SizedList a) where
 
 -- Copied from Data.Binary
 getMany :: Binary a => Int -> Get [a]
-getMany n = go [] n
+getMany = go []
  where
     go xs 0 = return $! reverse xs
     go xs i = do x <- get
@@ -38,22 +38,19 @@ counter :: Process ()
 counter = go 0
   where
     go :: Int -> Process () 
-    go !n = do
-      msg <- receiveWait 
-        [ match $ \xs   -> return . Left . size $ (xs :: SizedList Int)
-        , match $ \them -> return . Right $ them
+    go !n =
+      receiveWait 
+        [ match $ \xs   -> go (n + size (xs :: SizedList Int))
+        , match $ \them -> send them n >> go 0
         ]
-      case msg of
-        Left n' -> go (n + n')
-        Right them -> send them n >> go 0
 
 count :: (Int, Int) -> ProcessId -> Process ()
-count (packets, size) them = do
+count (packets, sz) them = do
   us <- getSelfPid
-  replicateM_ packets $ send them (nats size)
+  replicateM_ packets $ send them (nats sz)
   send them us
   n' <- expect
-  liftIO $ print (packets * size, n' == packets * size)
+  liftIO $ print (packets * sz, n' == packets * sz)
 
 initialProcess :: String -> Process () 
 initialProcess "SERVER" = do
@@ -61,7 +58,7 @@ initialProcess "SERVER" = do
   liftIO $ BSL.writeFile "counter.pid" (encode us)
   counter
 initialProcess "CLIENT" = do
-  n <- liftIO $ getLine
+  n <- liftIO getLine
   them <- liftIO $ decode <$> BSL.readFile "counter.pid"
   count (read n) them
 
