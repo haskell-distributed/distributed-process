@@ -61,10 +61,12 @@ initMulticast host port bufferSize = do
 
 type UDPState = Map SockAddr BSL.ByteString 
 
--- TODO: This is inefficient and an orphan instance. 
--- Requested official instance (https://github.com/haskell/network/issues/38) 
+#if MIN_VERSION_network(2,4,0)
+-- network-2.4.0 provides the Ord instance for us
+#else
 instance Ord SockAddr where
   compare = compare `on` show
+#endif
 
 bufferFor :: SockAddr -> Accessor UDPState BSL.ByteString
 bufferFor = DAC.mapDefault BSL.empty
