@@ -271,6 +271,9 @@ matchIf c p = Match $ \msg ->
      True | c decoded -> Just (p decoded)
        where
          decoded :: a
+         -- Make sure the value is fully decoded so that we don't hang to 
+         -- bytestrings when the process calling 'matchIf' doesn't process
+         -- the values immediately
          !decoded = decode (messageEncoding msg)
      _ -> Nothing
 
