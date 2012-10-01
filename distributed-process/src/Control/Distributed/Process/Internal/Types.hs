@@ -75,6 +75,7 @@ import qualified Data.ByteString.Lazy as BSL
   , toChunks
   , splitAt
   , fromChunks
+  , copy
   )
 import Data.Accessor (Accessor, accessor)
 import qualified Data.Accessor.Container as DAC (mapMaybe)
@@ -204,6 +205,7 @@ data LocalNodeState = LocalNodeState
 -- | Processes running on our local node
 data LocalProcess = LocalProcess 
   { processQueue  :: !(CQueue Message)
+  , processWeakQ  :: !(Weak (CQueue Message))
   , processId     :: !ProcessId
   , processState  :: !(StrictMVar LocalProcessState)
   , processThread :: !ThreadId
@@ -292,7 +294,7 @@ messageToPayload (Message fp enc) = encodeFingerprint fp : BSL.toChunks enc
 
 -- | Deserialize a message
 payloadToMessage :: [BSS.ByteString] -> Message
-payloadToMessage payload = Message fp msg
+payloadToMessage payload = Message fp (BSL.copy msg)
   where
     (encFp, msg) = BSL.splitAt (fromIntegral sizeOfFingerprint) 
                  $ BSL.fromChunks payload 

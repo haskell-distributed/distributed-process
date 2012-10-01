@@ -17,7 +17,7 @@ import Prelude hiding (catch)
 #endif
 
 import System.IO (fixIO, hPutStrLn, stderr)
-import System.Mem.Weak (deRefWeak)
+import System.Mem.Weak (Weak, deRefWeak)
 import qualified Data.ByteString.Lazy as BSL (fromChunks)
 import Data.Binary (decode)
 import Data.Map (Map)
@@ -56,7 +56,12 @@ import Control.Distributed.Process.Internal.StrictMVar
   )
 import Control.Concurrent.Chan (newChan, writeChan, readChan)
 import Control.Concurrent.STM (atomically)
-import Control.Distributed.Process.Internal.CQueue (enqueue, newCQueue)
+import Control.Distributed.Process.Internal.CQueue 
+  ( CQueue
+  , enqueue
+  , newCQueue
+  , mkWeakCQueue
+  )
 import qualified Network.Transport as NT 
   ( Transport
   , EndPoint
@@ -221,8 +226,10 @@ forkProcess node proc = modifyMVar (localState node) startProcess
                                        , _typedChannels  = Map.empty
                                        }
       queue <- newCQueue
+      weakQueue <- mkWeakCQueue queue (return ())
       (_, lproc) <- fixIO $ \ ~(tid, _) -> do
         let lproc = LocalProcess { processQueue  = queue
+                                 , processWeakQ  = weakQueue
                                  , processId     = pid
                                  , processState  = pst 
                                  , processThread = tid
@@ -273,7 +280,7 @@ type IncomingConnection = (NT.EndPointAddress, IncomingTarget)
 
 data IncomingTarget =  
     Uninit
-  | ToProc LocalProcess
+  | ToProc (Weak (CQueue Message))
   | ToChan TypedChannel
   | ToNode
 
@@ -315,20 +322,24 @@ handleIncomingMessages node = go initConnectionState
             else invalidRequest cid st
         NT.Received cid payload ->
           case st ^. incomingAt cid of
-            Just (_, ToProc proc) -> do
-              let msg = payloadToMessage payload
-              enqueue (processQueue proc) msg
+            Just (_, ToProc weakQueue) -> do
+              mQueue <- deRefWeak weakQueue
+              forM_ mQueue $ \queue -> 
+                -- TODO: if we find that the queue is Nothing, should we remove
+                -- it from the NC state? (and same for channels, below)
+                enqueue queue $ payloadToMessage payload
               go st 
             Just (_, ToChan (TypedChannel chan')) -> do
               mChan <- deRefWeak chan'
               -- If mChan is Nothing, the process has given up the read end of
               -- the channel and we simply ignore the incoming message
               forM_ mChan $ \chan -> atomically $  
+                -- TODO: we should make sure that this decode is forced
                 writeTQueue chan . decode . BSL.fromChunks $ payload
               go st 
             Just (_, ToNode) -> do
               let ctrlMsg = decode . BSL.fromChunks $ payload
-              writeChan ctrlChan ctrlMsg
+              writeChan ctrlChan $! ctrlMsg
               go st 
             Just (src, Uninit) -> 
               case decode (BSL.fromChunks payload) of
@@ -337,7 +348,7 @@ handleIncomingMessages node = go initConnectionState
                   mProc <- withMVar state $ return . (^. localProcessWithId lpid) 
                   case mProc of
                     Just proc -> 
-                      go (incomingAt cid ^= Just (src, ToProc proc) $ st) 
+                      go (incomingAt cid ^= Just (src, ToProc (processWeakQ proc)) $ st) 
                     Nothing -> 
                       invalidRequest cid st
                 SendPortIdentifier chId -> do
@@ -394,12 +405,12 @@ handleIncomingMessages node = go initConnectionState
           fail "Cloud Haskell fatal error: received unexpected multicast"
 
     invalidRequest :: NT.ConnectionId -> ConnectionState -> IO ()
-    invalidRequest cid st = do
+    invalidRequest cid st = 
       -- TODO: We should treat this as a fatal error on the part of the remote
       -- node. That is, we should report the remote node as having died, and we
       -- should close incoming connections (this requires a Transport layer
       -- extension).
-      go ( (incomingAt cid ^= Nothing)
+      go ( incomingAt cid ^= Nothing
          $ st 
          )
 
