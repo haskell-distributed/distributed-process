@@ -78,7 +78,6 @@ import qualified Data.ByteString.Lazy as BSL
   , copy
   )
 import Data.Accessor (Accessor, accessor)
-import qualified Data.Accessor.Container as DAC (mapMaybe)
 import Control.Category ((>>>))
 import Control.Exception (Exception)
 import Control.Concurrent (ThreadId)
@@ -101,6 +100,7 @@ import Control.Distributed.Process.Internal.CQueue (CQueue)
 import Control.Distributed.Process.Internal.StrictMVar (StrictMVar)
 import Control.Distributed.Process.Internal.WeakTQueue (TQueue)
 import Control.Distributed.Static (RemoteTable, Closure)
+import qualified Control.Distributed.Process.Internal.StrictContainerAccessors as DAC (mapMaybe)
 
 --------------------------------------------------------------------------------
 -- Node and process identifiers                                               --

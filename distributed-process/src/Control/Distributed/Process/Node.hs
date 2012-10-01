@@ -27,8 +27,6 @@ import qualified Data.Map as Map
   , partitionWithKey
   , elems
   , filterWithKey
-  , findWithDefault
-  , insert
   )
 import Data.Set (Set)
 import qualified Data.Set as Set (empty, insert, delete, member)
@@ -79,7 +77,6 @@ import qualified Network.Transport as NT
   , Reliability(ReliableOrdered)
   )
 import Data.Accessor (Accessor, accessor, (^.), (^=), (^:))
-import qualified Data.Accessor.Container as DAC (mapDefault, mapMaybe)
 import System.Random (randomIO)
 import Control.Distributed.Static (RemoteTable, Closure)
 import qualified Control.Distributed.Static as Static 
@@ -140,6 +137,10 @@ import Control.Distributed.Process.Internal.Messaging
 import Control.Distributed.Process.Internal.Primitives (expect, register, finally)
 import qualified Control.Distributed.Process.Internal.Closure.BuiltIn as BuiltIn (remoteTable)
 import Control.Distributed.Process.Internal.WeakTQueue (writeTQueue)
+import qualified Control.Distributed.Process.Internal.StrictContainerAccessors as DAC
+  ( mapMaybe
+  , mapDefault
+  )
 
 --------------------------------------------------------------------------------
 -- Initialization                                                             --
@@ -302,7 +303,7 @@ incomingAt :: NT.ConnectionId -> Accessor ConnectionState (Maybe IncomingConnect
 incomingAt cid = incoming >>> DAC.mapMaybe cid
 
 incomingFrom :: NT.EndPointAddress -> Accessor ConnectionState (Set NT.ConnectionId) 
-incomingFrom addr = aux >>> strictMapDefault Set.empty addr
+incomingFrom addr = aux >>> DAC.mapDefault Set.empty addr
   where
     aux = accessor _incomingFrom (\fr st -> st { _incomingFrom = fr })
 
@@ -324,7 +325,7 @@ handleIncomingMessages node = go initConnectionState
           case st ^. incomingAt cid of
             Just (_, ToProc weakQueue) -> do
               mQueue <- deRefWeak weakQueue
-              forM_ mQueue $ \queue -> do
+              forM_ mQueue $ \queue -> do 
                 -- TODO: if we find that the queue is Nothing, should we remove
                 -- it from the NC state? (and same for channels, below)
                 let msg = payloadToMessage payload
@@ -775,9 +776,3 @@ splitNotif ident = Map.partitionWithKey (\k !_v -> ident `impliesDeathOf` k)
 -- | Modify and evaluate the state
 modify' :: MonadState s m => (s -> s) -> m ()
 modify' f = StateT.get >>= \s -> StateT.put $! f s
-
--- | Strict lens for Map
-strictMapDefault :: Ord key => elem -> key -> Accessor (Map key elem) elem
-strictMapDefault def key = 
-  accessor (Map.findWithDefault def key)
-           (\val -> val `seq` Map.insert key val)
