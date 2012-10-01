@@ -20,16 +20,30 @@ sumIntegers = go 0
       m <- expect
       go (acc + m) (n - 1)
 
-master :: Integer -> [NodeId] -> Process Integer
-master n slaves = do
+data SpawnStrategy = SpawnSyncWithReconnect
+                   | SpawnSyncNoReconnect
+                   | SpawnAsync
+  deriving (Show, Read)                   
+
+master :: Integer -> SpawnStrategy -> [NodeId] -> Process Integer
+master n spawnStrategy slaves = do
   us <- getSelfPid
 
   -- Distribute 1 .. n amongst the slave processes 
-  spawnLocal $ 
-    forM_ (zip [1 .. n] (cycle slaves)) $ \(m, there) -> do
-      spawnAsync there ($(mkClosure 'slave) (us, m))
-      _ <- expectTimeout 0 :: Process (Maybe DidSpawn)
-      return ()
+  spawnLocal $ case spawnStrategy of 
+    SpawnSyncWithReconnect ->
+      forM_ (zip [1 .. n] (cycle slaves)) $ \(m, there) -> do
+        them <- spawn there ($(mkClosure 'slave) (us, m))
+        reconnect them
+    SpawnSyncNoReconnect ->
+      forM_ (zip [1 .. n] (cycle slaves)) $ \(m, there) -> do
+        _them <- spawn there ($(mkClosure 'slave) (us, m))
+        return ()
+    SpawnAsync ->
+      forM_ (zip [1 .. n] (cycle slaves)) $ \(m, there) -> do
+        spawnAsync there ($(mkClosure 'slave) (us, m))
+        _ <- expectTimeout 0 :: Process (Maybe DidSpawn)
+        return ()
 
   -- Wait for the result
   sumIntegers (fromIntegral n)
