@@ -324,10 +324,11 @@ handleIncomingMessages node = go initConnectionState
           case st ^. incomingAt cid of
             Just (_, ToProc weakQueue) -> do
               mQueue <- deRefWeak weakQueue
-              forM_ mQueue $ \queue -> 
+              forM_ mQueue $ \queue -> do
                 -- TODO: if we find that the queue is Nothing, should we remove
                 -- it from the NC state? (and same for channels, below)
-                enqueue queue $ payloadToMessage payload
+                let msg = payloadToMessage payload
+                enqueue queue msg 
               go st 
             Just (_, ToChan (TypedChannel chan')) -> do
               mChan <- deRefWeak chan'
