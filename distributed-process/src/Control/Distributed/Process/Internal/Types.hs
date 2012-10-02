@@ -69,14 +69,14 @@ import Data.Map (Map)
 import Data.Int (Int32)
 import Data.Typeable (Typeable)
 import Data.Binary (Binary(put, get), putWord8, getWord8, encode)
-import qualified Data.ByteString as BSS (ByteString, concat)
+import qualified Data.ByteString as BSS (ByteString, concat, copy)
 import qualified Data.ByteString.Lazy as BSL 
   ( ByteString
   , toChunks
   , splitAt
   , fromChunks
-  , copy
   )
+import qualified Data.ByteString.Lazy.Internal as BSL (ByteString(..))
 import Data.Accessor (Accessor, accessor)
 import Control.Category ((>>>))
 import Control.Exception (Exception)
@@ -294,11 +294,19 @@ messageToPayload (Message fp enc) = encodeFingerprint fp : BSL.toChunks enc
 
 -- | Deserialize a message
 payloadToMessage :: [BSS.ByteString] -> Message
-payloadToMessage payload = Message fp (BSL.copy msg)
+payloadToMessage payload = Message fp (copy msg) 
   where
+    encFp :: BSL.ByteString
+    msg   :: BSL.ByteString
     (encFp, msg) = BSL.splitAt (fromIntegral sizeOfFingerprint) 
                  $ BSL.fromChunks payload 
+
+    fp :: Fingerprint
     fp = decodeFingerprint . BSS.concat . BSL.toChunks $ encFp
+
+    copy :: BSL.ByteString -> BSL.ByteString
+    copy (BSL.Chunk bs BSL.Empty) = BSL.Chunk (BSS.copy bs) BSL.Empty
+    copy bsl = BSL.fromChunks . return . BSS.concat . BSL.toChunks $ bsl 
 
 --------------------------------------------------------------------------------
 -- Node controller user-visible data types                                    --
@@ -410,7 +418,7 @@ data ProcessSignal =
   | Died Identifier !DiedReason
   | Spawn !(Closure (Process ())) !SpawnRef 
   | WhereIs !String
-  | Register !String !(Maybe ProcessId) -- Nothing to unregister
+  | Register !String !(Maybe ProcessId) -- Use 'Nothing' to unregister
   | NamedSend !String !Message
   deriving Show
 
