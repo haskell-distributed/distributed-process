@@ -329,15 +329,15 @@ handleIncomingMessages node = go initConnectionState
                 -- TODO: if we find that the queue is Nothing, should we remove
                 -- it from the NC state? (and same for channels, below)
                 let msg = payloadToMessage payload
-                enqueue queue msg 
+                enqueue queue msg -- 'enqueue' is strict
               go st 
             Just (_, ToChan (TypedChannel chan')) -> do
               mChan <- deRefWeak chan'
               -- If mChan is Nothing, the process has given up the read end of
               -- the channel and we simply ignore the incoming message
               forM_ mChan $ \chan -> atomically $  
-                -- TODO: we should make sure that this decode is forced
-                writeTQueue chan . decode . BSL.fromChunks $ payload
+                -- We make sure the message is fully decoded when it is enqueued
+                writeTQueue chan $! decode (BSL.fromChunks payload)
               go st 
             Just (_, ToNode) -> do
               let ctrlMsg = decode . BSL.fromChunks $ payload
