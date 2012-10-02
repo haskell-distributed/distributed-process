@@ -17,7 +17,6 @@ import qualified Data.Map as Map (mapWithKey, fromListWith, toList, size)
 import Control.Arrow (second)
 import Control.Monad (forM_, replicateM, replicateM_)
 import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar)
-import qualified Control.Concurrent.Chan as Chan
 import Control.Distributed.Process
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Closure
@@ -117,13 +116,12 @@ distrMapReduce :: forall k1 k2 v1 v2 v3 a.
 distrMapReduce dictIn dictOut mr mappers p = do
   mr' <- unClosure mr
   us <- getSelfPid
-  queue <- liftIO Chan.newChan
   slavesTerminated <- liftIO newEmptyMVar
  
-  workQueue <- spawnLocal $ do
+  workQueue <- spawnChannelLocal $ \queue -> do
     let go :: Process ()
         go = do 
-          mWork <- liftIO $ Chan.readChan queue
+          mWork <- receiveChan queue
           case mWork of
             Just (key, val) -> do
               -- As long there is work, make it available to the mappers 
@@ -139,12 +137,14 @@ distrMapReduce dictIn dictOut mr mappers p = do
     go
 
   -- Start the mappers
-  forM_ mappers $ \nid -> spawn nid (mapperProcessClosure dictIn dictOut mr us workQueue) 
+  let workQueuePid = sendPortProcessId (sendPortId workQueue)
+  forM_ mappers $ \nid -> 
+    spawn nid (mapperProcessClosure dictIn dictOut mr us workQueuePid) 
 
   let iteration :: Map k1 v1 -> Process (Map k2 v3)
       iteration input = do
         -- Make work available to the mappers
-        liftIO $ mapM_ (Chan.writeChan queue . Just) (Map.toList input)
+        mapM_ (sendChan workQueue . Just) (Map.toList input)
 
         -- Wait for the partial results
         partials <- replicateM (Map.size input) expect 
@@ -155,8 +155,7 @@ distrMapReduce dictIn dictOut mr mappers p = do
   result <- p iteration
 
   -- Terminate the wrappers
-  liftIO $ do
-    Chan.writeChan queue Nothing
-    takeMVar slavesTerminated
+  sendChan workQueue Nothing
+  liftIO $ takeMVar slavesTerminated
 
   return result
