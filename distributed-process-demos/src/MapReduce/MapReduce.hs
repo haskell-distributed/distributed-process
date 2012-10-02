@@ -16,7 +16,6 @@ import Data.Map (Map)
 import qualified Data.Map as Map (mapWithKey, fromListWith, toList, size)
 import Control.Arrow (second)
 import Control.Monad (forM_, replicateM, replicateM_)
-import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar)
 import Control.Distributed.Process
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Closure
@@ -114,10 +113,9 @@ distrMapReduce :: forall k1 k2 v1 v2 v3 a.
                -> ((Map k1 v1 -> Process (Map k2 v3)) -> Process a) 
                -> Process a 
 distrMapReduce dictIn dictOut mr mappers p = do
-  mr' <- unClosure mr
-  us <- getSelfPid
-  slavesTerminated <- liftIO newEmptyMVar
- 
+  mr'    <- unClosure mr
+  master <- getSelfPid
+
   workQueue <- spawnChannelLocal $ \queue -> do
     let go :: Process ()
         go = do 
@@ -133,13 +131,15 @@ distrMapReduce dictIn dictOut mr mappers p = do
               replicateM_ (length mappers) $ do
                 them <- expect
                 send them ()
-              liftIO $ putMVar slavesTerminated ()
+
+              -- Tell the master that the slaves are terminated
+              send master ()
     go
 
   -- Start the mappers
   let workQueuePid = sendPortProcessId (sendPortId workQueue)
   forM_ mappers $ \nid -> 
-    spawn nid (mapperProcessClosure dictIn dictOut mr us workQueuePid) 
+    spawn nid (mapperProcessClosure dictIn dictOut mr master workQueuePid) 
 
   let iteration :: Map k1 v1 -> Process (Map k2 v3)
       iteration input = do
@@ -156,6 +156,6 @@ distrMapReduce dictIn dictOut mr mappers p = do
 
   -- Terminate the wrappers
   sendChan workQueue Nothing
-  liftIO $ takeMVar slavesTerminated
+  expect :: Process ()
 
   return result
