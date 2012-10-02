@@ -38,6 +38,7 @@ import Control.Applicative ((<$>))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (length, concat, null)
 import Data.Int (Int32)
+import Data.ByteString.Lazy.Internal (smallChunkSize) 
 
 -- | Start a server at the specified address.
 -- 
@@ -115,7 +116,7 @@ recvExact sock len = go [] len
     go :: [ByteString] -> Int32 -> IO [ByteString] 
     go acc 0 = return (reverse acc) 
     go acc l = do
-      bs <- NBS.recv sock (fromIntegral l `min` 4096)
+      bs <- NBS.recv sock (fromIntegral l `min` smallChunkSize)
       if BS.null bs 
         then throwIO (userError "recvExact: Socket closed")
         else go (bs : acc) (l - fromIntegral (BS.length bs))
