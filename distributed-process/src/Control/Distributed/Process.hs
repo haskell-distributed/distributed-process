@@ -114,6 +114,7 @@ import Data.Typeable (Typeable)
 import Control.Monad.IO.Class (liftIO)
 import Control.Applicative ((<$>))
 import Control.Monad.Reader (ask)
+import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar)
 import Control.Distributed.Static 
   ( Closure
   , closure
@@ -410,6 +411,12 @@ spawnChannelLocal :: Serializable a
                   -> Process (SendPort a)
 spawnChannelLocal proc = do 
   node <- processNode <$> ask 
-  (sport, rport) <- newChan
-  _ <- liftIO $ forkProcess node (proc rport)
-  return sport
+  liftIO $ do
+    mvar <- newEmptyMVar
+    forkProcess node $ do
+      -- It is important that we allocate the new channel in the new process,
+      -- because otherwise it will be associated with the wrong process ID
+      (sport, rport) <- newChan
+      liftIO $ putMVar mvar sport
+      proc rport
+    takeMVar mvar 
