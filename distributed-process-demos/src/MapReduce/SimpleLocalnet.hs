@@ -11,11 +11,13 @@ import Data.Array (Array, listArray)
 import qualified Data.Map as Map (fromList)
 
 import qualified CountWords 
-import qualified MapReduce
+import qualified PolyDistrMapReduce
+import qualified MonoDistrMapReduce
 import qualified KMeans
 
 rtable :: RemoteTable
-rtable = MapReduce.__remoteTable 
+rtable = PolyDistrMapReduce.__remoteTable 
+       . MonoDistrMapReduce.__remoteTable 
        . CountWords.__remoteTable
        . KMeans.__remoteTable
        $ initRemoteTable 

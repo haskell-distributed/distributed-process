@@ -15,7 +15,8 @@ import Data.Array (Array, (!), bounds)
 import qualified Data.Map as Map (fromList, elems, toList, size)
 import Control.Distributed.Process
 import Control.Distributed.Process.Closure
-import MapReduce hiding (__remoteTable)
+import MapReduce
+import PolyDistrMapReduce hiding (__remoteTable)
 
 type Point    = (Double, Double)
 type Cluster  = (Double, Double)
