@@ -126,7 +126,7 @@ executable distributed-process-simplelocalnet-mapreduce
                        array >= 0.4 && < 0.5,
                        random >= 1.0 && < 1.1
   extensions:          BangPatterns, CPP, TemplateHaskell, ScopedTypeVariables
-  ghc-options:         -Wall
+  ghc-options:         -Wall -rtsopts -with-rtsopts=-K64M
   if flag(use-simplelocalnet)
     build-depends: distributed-process-simplelocalnet
     cpp-options:   -DUSE_SIMPLELOCALNET

@@ -33,7 +33,7 @@ main = do
       print $ CountWords.localCountWords input 
 
     -- Distributed word count
-    "master" : "count" : host : port : files -> do
+    "master" : host : port : "count" : files -> do
       input   <- constructInput files 
       backend <- initializeBackend host port rtable 
       startMaster backend $ \slaves -> do
@@ -42,16 +42,16 @@ main = do
 
     -- Local k-means
     "local" : "kmeans" : [] -> do
-      points <- replicateM 1000 randomPoint
+      points <- replicateM 50000 randomPoint
       withFile "plot.data" WriteMode $ KMeans.createGnuPlot $
         KMeans.localKMeans (arrayFromList points) (take 5 points) 5 
 
     -- Distributed k-means
-    "master" : "kmeans" : host : port : [] -> do
-      points  <- replicateM 1000 randomPoint
+    "master" : host : port : "kmeans" : [] -> do
+      points  <- replicateM 50000 randomPoint
       backend <- initializeBackend host port rtable 
       startMaster backend $ \slaves -> do
-        result <- KMeans.distrKMeans (arrayFromList points) (take 5 points) slaves 5
+        result <- KMeans.distrKMeans (arrayFromList points) (take 5 points) slaves 5 
         liftIO $ withFile "plot.data" WriteMode $ KMeans.createGnuPlot result
 
     -- Generic slave for distributed examples
