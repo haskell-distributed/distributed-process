@@ -34,7 +34,7 @@ Library
                      transformers >= 0.2 && < 0.4,
                      network-transport >= 0.3 && < 0.4,
                      network-transport-tcp >= 0.3 && < 0.4,
-                     distributed-process >= 0.2 && < 0.4
+                     distributed-process >= 0.2 && < 0.5
   Exposed-modules:   Control.Distributed.Process.Backend.SimpleLocalnet,
                      Control.Distributed.Process.Backend.SimpleLocalnet.Internal.Multicast
   Extensions:        RankNTypes,
@@ -57,7 +57,7 @@ Test-Suite TestSimpleLocalnet
                      transformers >= 0.2 && < 0.4,
                      network-transport >= 0.3 && < 0.4,
                      network-transport-tcp >= 0.3 && < 0.4,
-                     distributed-process >= 0.2 && < 0.4
+                     distributed-process >= 0.2 && < 0.5
   Extensions:        RankNTypes,
                      DeriveDataTypeable
   ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind 
