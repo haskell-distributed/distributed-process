@@ -25,6 +25,8 @@ flag use-azure
 
 executable distributed-process-simplelocalnet-masterslave
   main-is:             SimpleLocalnet.hs
+  other-modules:       MasterSlave 
+                       PrimeFactors
   hs-source-dirs:      src/MasterSlave src/Common
   build-depends:       base ==4.5.*,
                        distributed-process >= 0.3.2
@@ -38,6 +40,8 @@ executable distributed-process-simplelocalnet-masterslave
 
 executable distributed-process-azure-masterslave
   main-is:             Azure.hs
+  other-modules:       MasterSlave 
+                       PrimeFactors
   hs-source-dirs:      src/MasterSlave src/Common
   build-depends:       base ==4.5.*,
                        distributed-process >= 0.3.2
@@ -51,6 +55,8 @@ executable distributed-process-azure-masterslave
 
 executable distributed-process-simplelocalnet-workpushing
   main-is:             SimpleLocalnet.hs
+  other-modules:       WorkPushing
+                       PrimeFactors
   hs-source-dirs:      src/WorkPushing src/Common
   build-depends:       base ==4.5.*,
                        distributed-process >= 0.3.2
@@ -64,6 +70,8 @@ executable distributed-process-simplelocalnet-workpushing
 
 executable distributed-process-azure-workpushing
   main-is:             Azure.hs
+  other-modules:       WorkPushing
+                       PrimeFactors
   hs-source-dirs:      src/WorkPushing src/Common
   build-depends:       base ==4.5.*,
                        distributed-process >= 0.3.2
@@ -77,6 +85,8 @@ executable distributed-process-azure-workpushing
 
 executable distributed-process-simplelocalnet-typedworkpushing
   main-is:             SimpleLocalnet.hs
+  other-modules:       TypedWorkPushing
+                       PrimeFactors
   hs-source-dirs:      src/TypedWorkPushing src/Common
   build-depends:       base ==4.5.*,
                        distributed-process >= 0.3.2
@@ -90,6 +100,8 @@ executable distributed-process-simplelocalnet-typedworkpushing
 
 executable distributed-process-azure-typedworkpushing
   main-is:             Azure.hs
+  other-modules:       TypedWorkPushing
+                       PrimeFactors
   hs-source-dirs:      src/TypedWorkPushing src/Common
   build-depends:       base ==4.5.*,
                        distributed-process >= 0.3.2
@@ -103,6 +115,8 @@ executable distributed-process-azure-typedworkpushing
 
 executable distributed-process-simplelocalnet-workstealing
   main-is:             SimpleLocalnet.hs
+  other-modules:       WorkStealing
+                       PrimeFactors
   hs-source-dirs:      src/WorkStealing src/Common
   build-depends:       base ==4.5.*,
                        distributed-process >= 0.3.2
@@ -116,6 +130,11 @@ executable distributed-process-simplelocalnet-workstealing
 
 executable distributed-process-simplelocalnet-mapreduce
   main-is:             SimpleLocalnet.hs
+  other-modules:       CountWords
+                       KMeans
+                       MapReduce
+                       MonoDistrMapReduce
+                       PolyDistrMapReduce
   hs-source-dirs:      src/MapReduce
   build-depends:       base ==4.5.*,
                        distributed-process >= 0.3.2,
