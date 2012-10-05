@@ -12,7 +12,12 @@ import Prelude hiding (catch)
 #endif
 
 import Network.Transport.Internal (decodeInt32, void, tryIO, forkIOWithUnmask)
+
+#ifdef USE_MOCK_NETWORK
+import qualified Network.Transport.TCP.Mock.Socket as N
+#else
 import qualified Network.Socket as N 
+#endif
   ( HostName
   , ServiceName
   , Socket
@@ -30,7 +35,13 @@ import qualified Network.Socket as N
   , accept
   , sClose
   )
+
+#ifdef USE_MOCK_NETWORK
+import qualified Network.Transport.TCP.Mock.Socket.ByteString as NBS (recv)
+#else
 import qualified Network.Socket.ByteString as NBS (recv)
+#endif
+
 import Control.Concurrent (ThreadId)
 import Control.Monad (forever, when)
 import Control.Exception (SomeException, catch, bracketOnError, throwIO, mask_)
