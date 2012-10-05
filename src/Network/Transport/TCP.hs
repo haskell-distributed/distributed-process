@@ -55,7 +55,12 @@ import Network.Transport.Internal
   , timeoutMaybe
   , asyncWhenCancelled
   )
+
+#ifdef USE_MOCK_NETWORK
+import qualified Network.Transport.TCP.Mock.Socket as N
+#else
 import qualified Network.Socket as N 
+#endif
   ( HostName
   , ServiceName
   , Socket
@@ -71,7 +76,13 @@ import qualified Network.Socket as N
   , sOMAXCONN
   , AddrInfo
   )
+
+#ifdef USE_MOCK_NETWORK
+import Network.Transport.TCP.Mock.Socket.ByteString (sendMany)
+#else
 import Network.Socket.ByteString (sendMany)
+#endif
+
 import Control.Concurrent (forkIO, ThreadId, killThread, myThreadId)
 import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
 import Control.Concurrent.MVar 

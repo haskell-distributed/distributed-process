@@ -20,6 +20,10 @@ Source-Repository head
   Location: https://github.com/haskell-distributed/distributed-process
   SubDir:   network-transport-tcp
 
+Flag use-mock-network
+  Description:     Use mock network implementation (for testing)
+  Default:         False
+
 Library
   Build-Depends:   base >= 4.3 && < 5,
                    network-transport >= 0.3 && < 0.4,
@@ -32,6 +36,10 @@ Library
   Extensions:      CPP
   ghc-options:     -Wall -fno-warn-unused-do-bind
   HS-Source-Dirs:  src
+  If flag(use-mock-network)
+    CPP-Options:     -DUSE_MOCK_NETWORK
+    Exposed-modules: Network.Transport.TCP.Mock.Socket
+                     Network.Transport.TCP.Mock.Socket.ByteString
 
 Test-Suite TestTCP 
   Type:            exitcode-stdio-1.0
@@ -45,3 +53,5 @@ Test-Suite TestTCP
   HS-Source-Dirs:  tests
   Extensions:      CPP,
                    OverloadedStrings
+  If flag(use-mock-network)
+    CPP-Options:   -DUSE_MOCK_NETWORK
