@@ -16,6 +16,8 @@ import Language.Haskell.TH
   ( -- Q monad and operations
     Q
   , reify
+  , Loc(loc_module)
+  , location
     -- Names
   , Name
   , mkName
@@ -192,7 +194,7 @@ generateDefs (origName, fullType) = do
                   [] -> [| toDynamic $(varE origName) |]
                   _  -> [| toDynamic ($(varE origName) :: $(monomorphize typVars typ)) |]
       return ( static
-             , [ [| registerStatic $(stringE (show origName)) $dyn |] ]
+             , [ [| registerStatic $(showFQN origName) $dyn |] ]
              )
 
     makeDict :: Name -> Type -> Q ([Dec], [Q Exp]) 
@@ -200,7 +202,7 @@ generateDefs (origName, fullType) = do
       sdict <- generateDict dictName typ 
       let dyn = [| toDynamic (SerializableDict :: SerializableDict $(return typ)) |]
       return ( sdict
-             , [ [| registerStatic $(stringE (show dictName)) $dyn |] ] 
+             , [ [| registerStatic $(showFQN dictName) $dyn |] ] 
              )
 
 -- | Turn a polymorphic type into a monomorphic type using ANY and co
@@ -238,7 +240,7 @@ generateStatic n xs typ = do
                   (map typeable xs) 
                   (staticTyp `AppT` typ)
           )
-      , sfnD (staticName n) [| staticLabel $(stringE (show n)) |]
+      , sfnD (staticName n) [| staticLabel $(showFQN n) |]
       ]
   where
     typeable :: TyVarBndr -> Pred
@@ -249,7 +251,7 @@ generateDict :: Name -> Type -> Q [Dec]
 generateDict n typ = do
     sequence
       [ sigD n $ [t| Static (SerializableDict $(return typ)) |]
-      , sfnD n [| staticLabel $(stringE (show n))  |]
+      , sfnD n [| staticLabel $(showFQN n) |]
       ]
 
 staticName :: Name -> Name
@@ -291,3 +293,13 @@ sfnD n e = funD n [clause [] (normalB e) []]
 tyVarBndrName :: TyVarBndr -> Name
 tyVarBndrName (PlainTV n)    = n
 tyVarBndrName (KindedTV n _) = n
+
+-- | Fully qualified name; that is, the name and the _current_ module
+--
+-- We ignore the module part of the Name argument (which may or may not exist)
+-- because we construct various names (`staticName`, `sdictName`, `tdictName`)
+-- and those names certainly won't have Module components.
+showFQN :: Name -> Q Exp 
+showFQN n = do
+  loc <- location
+  stringE (loc_module loc ++ "." ++ nameBase n)
