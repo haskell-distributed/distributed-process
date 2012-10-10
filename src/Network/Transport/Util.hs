@@ -9,6 +9,7 @@ import Network.Transport
   , EndPointAddress
   , newEndPoint
   )
+import Control.Exception (throwIO)
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 
@@ -17,9 +18,16 @@ import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 -- Returns the address of the new end point.
 spawn :: Transport -> (EndPoint -> IO ()) -> IO EndPointAddress 
 spawn transport proc = do
-  addr <- newEmptyMVar
+  addrMVar <- newEmptyMVar
   forkIO $ do
-    Right endpoint <- newEndPoint transport
-    putMVar addr (address endpoint)
-    proc endpoint
-  takeMVar addr
+    mEndPoint <- newEndPoint transport
+    case mEndPoint of
+      Left err ->
+        putMVar addrMVar (Left err)
+      Right endPoint -> do
+        putMVar addrMVar (Right (address endPoint))
+        proc endPoint
+  mAddr <- takeMVar addrMVar
+  case mAddr of
+    Left err   -> throwIO err
+    Right addr -> return addr
