@@ -55,3 +55,16 @@ Test-Suite TestTCP
                    OverloadedStrings
   If flag(use-mock-network)
     CPP-Options:   -DUSE_MOCK_NETWORK
+
+Test-Suite TestQC
+  Type:           exitcode-stdio-1.0
+  Main-Is:        TestQC.hs
+  Build-Depends:  base >= 4.3 && < 5,
+                  test-framework,
+                  test-framework-quickcheck2,
+                  QuickCheck,
+                  network-transport,
+                  network-transport-tcp,
+                  containers
+  ghc-options:    -threaded 
+  HS-Source-Dirs: tests
