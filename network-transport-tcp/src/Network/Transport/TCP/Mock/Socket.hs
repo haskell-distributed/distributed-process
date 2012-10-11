@@ -28,13 +28,13 @@ module Network.Transport.TCP.Mock.Socket
     -- * Internal API
   , writeSocket
   , readSocket
+  , Message(..)
   ) where
 
 import Data.Word (Word8)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Control.Category ((>>>))
-import Control.Applicative ((<$>))
 import Control.Concurrent.MVar 
 import Control.Concurrent.Chan
 import System.IO.Unsafe (unsafePerformIO)
@@ -99,12 +99,16 @@ data Socket = Socket {
 data SocketState = 
     Uninit
   | BoundSocket { socketBacklog :: Chan (Socket, SockAddr, MVar Socket) }
-  | Connected { socketPeer :: Socket,socketBuff :: Chan Word8 }
+  | Connected { socketPeer :: Socket, socketBuff :: Chan Message }
   | Closed
 
+data Message = 
+    Payload Word8
+  | CloseSocket
+
 data AddrInfo = AddrInfo {
-    addrFamily  ::  Family
-  , addrAddress :: !SockAddr
+    addrFamily  :: Family
+  , addrAddress :: SockAddr
   }
 
 data SockAddr = SockAddrInet PortNumber HostAddress
@@ -165,29 +169,23 @@ accept serverSock = do
       return (socketBacklog st)
     _ ->
       error "accept: socket not bound"
-  (them, theirAddress, reply) <- readChan backlog 
-  buff <- newChan
+  (theirSocket, theirAddress, reply) <- readChan backlog 
+  ourBuff  <- newChan
   ourState <- newMVar Connected { 
-      socketPeer = them 
-    , socketBuff = buff
+      socketPeer = theirSocket
+    , socketBuff = ourBuff
     }
-  let us = Socket {
+  let ourSocket = Socket {
       socketState       = ourState
     , socketDescription = ""
     }
-  putMVar reply us
-  return (us, theirAddress)
+  putMVar reply ourSocket 
+  return (ourSocket, theirAddress)
 
 sClose :: Socket -> IO ()
 sClose sock = do
-  mPeer <- modifyMVar (socketState sock) $ \st -> case st of
-    Connected {} ->
-      return (Closed, Just $ socketPeer st)
-    _ ->
-      return (Closed, Nothing)
-  case mPeer of
-    Just peer -> modifyMVar_ (socketState peer) $ const (return Closed)
-    Nothing   -> return () 
+  writeSocket sock CloseSocket 
+  modifyMVar_ (socketState sock) $ const (return Closed)
 
 connect :: Socket -> SockAddr -> IO ()
 connect us serverAddr = do
@@ -223,19 +221,29 @@ shutdown = error "shutdown not implemented"
 -- Functions with no direct public counterpart                                --
 --------------------------------------------------------------------------------
 
-writeSocket :: Socket -> Word8 -> IO ()
-writeSocket sock w = do
-  peer <- withMVar (socketState sock) $ \st -> case st of
+peerBuffer :: Socket -> IO (Either String (Chan Message))
+peerBuffer sock = do
+  mPeer <- withMVar (socketState sock) $ \st -> case st of
     Connected {} -> 
-      return (socketPeer st)
+      return (Just (socketPeer st))
     _ ->
-      error "writeSocket: not connected"
-  theirBuff <- withMVar (socketState peer) $ \st -> case st of
-    Connected {} ->
-      return (socketBuff st)
-    _ ->
-      error "writeSocket: peer socket closed"
-  writeChan theirBuff w
+      return Nothing
+  case mPeer of
+    Just peer -> withMVar (socketState peer) $ \st -> case st of
+      Connected {} ->
+        return (Right (socketBuff st))
+      _ ->
+        return (Left "Peer socket closed") 
+    Nothing -> 
+      return (Left "Socket closed") 
+
+writeSocket :: Socket -> Message -> IO ()
+writeSocket sock msg = do
+  theirBuff <- peerBuffer sock
+  case theirBuff of
+    Right buff -> writeChan buff msg 
+    Left err   -> case msg of Payload _   -> error $ "writeSocket: " ++ err 
+                              CloseSocket -> return ()
 
 readSocket :: Socket -> IO (Maybe Word8)
 readSocket sock = do
@@ -245,5 +253,14 @@ readSocket sock = do
     _ ->
       return Nothing
   case mBuff of
-    Just buff -> Just <$> readChan buff 
-    Nothing   -> return Nothing
+    Just buff -> do
+      msg <- readChan buff 
+      case msg of
+        Payload w -> return (Just w)
+        CloseSocket -> modifyMVar (socketState sock) $ \st -> case st of
+          Connected {} ->
+            return (Closed, Nothing)
+          _ ->
+            error "readSocket: socket in unexpected state"
+    Nothing -> 
+      return Nothing

@@ -10,7 +10,7 @@ import Control.Applicative ((<$>))
 import Network.Transport.TCP.Mock.Socket
 
 sendMany :: Socket -> [ByteString] -> IO ()
-sendMany sock = mapM_ (bsMapM_ $ writeSocket sock)
+sendMany sock = mapM_ (bsMapM_ (writeSocket sock . Payload))
   where
     bsMapM_ :: (Word8 -> IO ()) -> ByteString -> IO ()
     bsMapM_ p = BSS.foldl (\io w -> io >> p w) (return ())
