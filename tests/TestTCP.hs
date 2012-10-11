@@ -778,7 +778,6 @@ main = do
   portMVar <- newEmptyMVar
   forkTry $ forM_ ([10080 ..] :: [Int]) $ putMVar portMVar . show 
   let nextPort = takeMVar portMVar 
-  {-
   tcpResult <- tryIO $ runTests 
            [ ("EarlyDisconnect",        testEarlyDisconnect nextPort)
            , ("EarlyCloseSocket",       testEarlyCloseSocket nextPort)
@@ -793,12 +792,9 @@ main = do
            , ("UnidirectionalError",    testUnidirectionalError nextPort)
            , ("InvalidCloseConnection", testInvalidCloseConnection nextPort)
            ]
- -}           
   -- Run the generic tests even if the TCP specific tests failed.. 
   testTransport (either (Left . show) (Right) <$> nextPort >>= \port -> createTransport "127.0.0.1" port defaultTCPParameters)
   -- ..but if the generic tests pass, still fail if the specific tests did not
-  {-
   case tcpResult of
     Left err -> throwIO err
     Right () -> return ()
-  -}
