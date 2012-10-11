@@ -34,6 +34,7 @@ module Network.Transport.TCP.Mock.Socket
 import Data.Word (Word8)
 import Data.Map (Map)
 import qualified Data.Map as Map
+import Control.Exception (throwIO)
 import Control.Category ((>>>))
 import Control.Concurrent.MVar 
 import Control.Concurrent.Chan
@@ -46,14 +47,16 @@ import qualified Data.Accessor.Container as DAC (mapMaybe)
 --------------------------------------------------------------------------------
 
 data MockState = MockState {
-    _boundSockets :: !(Map SockAddr Socket)
-  , _nextSocketId :: !Int
+    _boundSockets   :: !(Map SockAddr Socket)
+  , _nextSocketId   :: !Int
+  , _validHostnames ::  [HostName]
   }
 
 initialMockState :: MockState
 initialMockState = MockState {
-    _boundSockets = Map.empty
-  , _nextSocketId = 0
+    _boundSockets   = Map.empty
+  , _nextSocketId   = 0
+  , _validHostnames = ["localhost", "127.0.0.1"]
   }
 
 mockState :: MVar MockState
@@ -74,6 +77,9 @@ boundSocketAt addr = boundSockets >>> DAC.mapMaybe addr
 
 nextSocketId :: Accessor MockState Int
 nextSocketId = accessor _nextSocketId (\sid st -> st { _nextSocketId = sid })
+
+validHostnames :: Accessor MockState [HostName]
+validHostnames = accessor _validHostnames (\ns st -> st { _validHostnames = ns })
 
 --------------------------------------------------------------------------------
 -- The public API (mirroring Network.Socket)                                  --
@@ -99,7 +105,7 @@ data Socket = Socket {
 data SocketState = 
     Uninit
   | BoundSocket { socketBacklog :: Chan (Socket, SockAddr, MVar Socket) }
-  | Connected { socketPeer :: Socket, socketBuff :: Chan Message }
+  | Connected { socketPeer :: Maybe Socket, socketBuff :: Chan Message }
   | Closed
 
 data Message = 
@@ -121,10 +127,14 @@ instance Show Socket where
   show sock = "<<socket " ++ socketDescription sock ++ ">>"
 
 getAddrInfo :: Maybe AddrInfo -> Maybe HostName -> Maybe ServiceName -> IO [AddrInfo]
-getAddrInfo _ (Just host) (Just port) = return . return $ AddrInfo { 
-    addrFamily  = error "Family unused" 
-  , addrAddress = SockAddrInet port host 
-  }
+getAddrInfo _ (Just host) (Just port) = do
+  validHosts <- get validHostnames
+  if host `elem` validHosts
+    then return . return $ AddrInfo { 
+             addrFamily  = error "Family unused" 
+           , addrAddress = SockAddrInet port host 
+           }
+    else throwSocketError $ "getAddrInfo: invalid hostname '" ++ host ++ "'"
 getAddrInfo _ _ _ = error "getAddrInfo: unsupported arguments"
 
 defaultHints :: AddrInfo
@@ -149,7 +159,7 @@ bindSocket sock addr = do
           socketBacklog = backlog 
         }
     _ ->
-      error "bind: socket already initialized"
+      throwSocketError "bind: socket already initialized"
   set (boundSocketAt addr) (Just sock)
   
 listen :: Socket -> Int -> IO ()
@@ -168,11 +178,11 @@ accept serverSock = do
     BoundSocket {} -> 
       return (socketBacklog st)
     _ ->
-      error "accept: socket not bound"
+      throwSocketError "accept: socket not bound"
   (theirSocket, theirAddress, reply) <- readChan backlog 
   ourBuff  <- newChan
   ourState <- newMVar Connected { 
-      socketPeer = theirSocket
+      socketPeer = Just theirSocket
     , socketBuff = ourBuff
     }
   let ourSocket = Socket {
@@ -196,7 +206,7 @@ connect us serverAddr = do
         BoundSocket {} ->
           return (socketBacklog st)
         _ ->
-          error "connect: server socket not bound"
+          throwSocketError "connect: server socket not bound"
       reply <- newEmptyMVar
       writeChan serverBacklog (us, SockAddrInet "" "", reply)
       them <- readMVar reply 
@@ -204,18 +214,24 @@ connect us serverAddr = do
         Uninit -> do 
           buff <- newChan
           return Connected { 
-              socketPeer = them 
+              socketPeer = Just them 
             , socketBuff = buff
             }
         _ ->
-          error "connect: already connected"
-    Nothing -> error "connect: unknown address"
+          throwSocketError "connect: already connected"
+    Nothing -> throwSocketError "connect: unknown address"
 
 sOMAXCONN :: Int
 sOMAXCONN = error "sOMAXCONN not implemented" 
 
 shutdown :: Socket -> ShutdownCmd -> IO ()
-shutdown = error "shutdown not implemented" 
+shutdown sock ShutdownSend = do
+  writeSocket sock CloseSocket
+  modifyMVar_ (socketState sock) $ \st -> case st of
+    Connected {} ->
+      return (Connected Nothing (socketBuff st))
+    _ ->
+      return st
 
 --------------------------------------------------------------------------------
 -- Functions with no direct public counterpart                                --
@@ -225,7 +241,7 @@ peerBuffer :: Socket -> IO (Either String (Chan Message))
 peerBuffer sock = do
   mPeer <- withMVar (socketState sock) $ \st -> case st of
     Connected {} -> 
-      return (Just (socketPeer st))
+      return (socketPeer st)
     _ ->
       return Nothing
   case mPeer of
@@ -237,12 +253,15 @@ peerBuffer sock = do
     Nothing -> 
       return (Left "Socket closed") 
 
+throwSocketError :: String -> IO a
+throwSocketError = throwIO . userError
+
 writeSocket :: Socket -> Message -> IO ()
 writeSocket sock msg = do
   theirBuff <- peerBuffer sock
   case theirBuff of
     Right buff -> writeChan buff msg 
-    Left err   -> case msg of Payload _   -> error $ "writeSocket: " ++ err 
+    Left err   -> case msg of Payload _   -> throwSocketError $ "writeSocket: " ++ err 
                               CloseSocket -> return ()
 
 readSocket :: Socket -> IO (Maybe Word8)
@@ -261,6 +280,6 @@ readSocket sock = do
           Connected {} ->
             return (Closed, Nothing)
           _ ->
-            error "readSocket: socket in unexpected state"
+            throwSocketError "readSocket: socket in unexpected state"
     Nothing -> 
       return Nothing
