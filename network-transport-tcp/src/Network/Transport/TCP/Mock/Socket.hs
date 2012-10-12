@@ -41,6 +41,7 @@ import Control.Concurrent.Chan
 import System.IO.Unsafe (unsafePerformIO)
 import Data.Accessor (Accessor, accessor, (^=), (^.))
 import qualified Data.Accessor.Container as DAC (mapMaybe)
+import System.Timeout (timeout)
 
 --------------------------------------------------------------------------------
 -- Mock state                                                                 --
@@ -64,10 +65,10 @@ mockState :: MVar MockState
 mockState = unsafePerformIO $ newMVar initialMockState
 
 get :: Accessor MockState a -> IO a
-get acc = withMVar mockState $ return . (^. acc)
+get acc = timeoutThrow mvarThreshold $ withMVar mockState $ return . (^. acc)
 
 set :: Accessor MockState a -> a -> IO ()
-set acc val = modifyMVar_ mockState $ return . (acc ^= val) 
+set acc val = timeoutThrow mvarThreshold $ modifyMVar_ mockState $ return . (acc ^= val) 
 
 boundSockets :: Accessor MockState (Map SockAddr Socket)
 boundSockets = accessor _boundSockets (\bs st -> st { _boundSockets = bs })
@@ -152,7 +153,7 @@ socket _ Stream _ = do
   
 bindSocket :: Socket -> SockAddr -> IO ()
 bindSocket sock addr = do
-  modifyMVar_ (socketState sock) $ \st -> case st of
+  timeoutThrow mvarThreshold $ modifyMVar_ (socketState sock) $ \st -> case st of
     Uninit -> do
       backlog <- newChan
       return BoundSocket { 
@@ -174,7 +175,7 @@ setSocketOption _ _ _ = error "setSocketOption: unsupported arguments"
 
 accept :: Socket -> IO (Socket, SockAddr)
 accept serverSock = do
-  backlog <- withMVar (socketState serverSock) $ \st -> case st of
+  backlog <- timeoutThrow mvarThreshold $ withMVar (socketState serverSock) $ \st -> case st of
     BoundSocket {} -> 
       return (socketBacklog st)
     _ ->
@@ -189,28 +190,38 @@ accept serverSock = do
       socketState       = ourState
     , socketDescription = ""
     }
-  putMVar reply ourSocket 
+  timeoutThrow mvarThreshold $ putMVar reply ourSocket 
   return (ourSocket, theirAddress)
 
 sClose :: Socket -> IO ()
 sClose sock = do
+  -- Close the peer socket
   writeSocket sock CloseSocket 
-  modifyMVar_ (socketState sock) $ const (return Closed)
+
+  -- Close our socket
+  timeoutThrow mvarThreshold $ modifyMVar_ (socketState sock) $ \st ->
+    case st of
+      Connected {} -> do
+        -- In case there is a parallel read stuck on a readChan
+        writeChan (socketBuff st) CloseSocket
+        return Closed
+      _ -> 
+        return Closed
 
 connect :: Socket -> SockAddr -> IO ()
 connect us serverAddr = do
   mServer <- get (boundSocketAt serverAddr)
   case mServer of
     Just server -> do
-      serverBacklog <- withMVar (socketState server) $ \st -> case st of
+      serverBacklog <- timeoutThrow mvarThreshold $ withMVar (socketState server) $ \st -> case st of
         BoundSocket {} ->
           return (socketBacklog st)
         _ ->
           throwSocketError "connect: server socket not bound"
       reply <- newEmptyMVar
       writeChan serverBacklog (us, SockAddrInet "" "", reply)
-      them <- readMVar reply 
-      modifyMVar_ (socketState us) $ \st -> case st of
+      them <- timeoutThrow mvarThreshold $ readMVar reply 
+      timeoutThrow mvarThreshold $ modifyMVar_ (socketState us) $ \st -> case st of
         Uninit -> do 
           buff <- newChan
           return Connected { 
@@ -227,7 +238,7 @@ sOMAXCONN = error "sOMAXCONN not implemented"
 shutdown :: Socket -> ShutdownCmd -> IO ()
 shutdown sock ShutdownSend = do
   writeSocket sock CloseSocket
-  modifyMVar_ (socketState sock) $ \st -> case st of
+  timeoutThrow mvarThreshold $ modifyMVar_ (socketState sock) $ \st -> case st of
     Connected {} ->
       return (Connected Nothing (socketBuff st))
     _ ->
@@ -239,13 +250,13 @@ shutdown sock ShutdownSend = do
 
 peerBuffer :: Socket -> IO (Either String (Chan Message))
 peerBuffer sock = do
-  mPeer <- withMVar (socketState sock) $ \st -> case st of
+  mPeer <- timeoutThrow mvarThreshold $ withMVar (socketState sock) $ \st -> case st of
     Connected {} -> 
       return (socketPeer st)
     _ ->
       return Nothing
   case mPeer of
-    Just peer -> withMVar (socketState peer) $ \st -> case st of
+    Just peer -> timeoutThrow mvarThreshold $ withMVar (socketState peer) $ \st -> case st of
       Connected {} ->
         return (Right (socketBuff st))
       _ ->
@@ -266,20 +277,37 @@ writeSocket sock msg = do
 
 readSocket :: Socket -> IO (Maybe Word8)
 readSocket sock = do
-  mBuff <- withMVar (socketState sock) $ \st -> case st of
+  mBuff <- timeoutThrow mvarThreshold $ withMVar (socketState sock) $ \st -> case st of
     Connected {} -> 
       return (Just $ socketBuff st)
     _ ->
       return Nothing
   case mBuff of
     Just buff -> do
-      msg <- readChan buff 
+      msg <- timeoutThrow readSocketThreshold $ readChan buff 
       case msg of
         Payload w -> return (Just w)
-        CloseSocket -> modifyMVar (socketState sock) $ \st -> case st of
+        CloseSocket -> timeoutThrow mvarThreshold $ modifyMVar (socketState sock) $ \st -> case st of
           Connected {} ->
             return (Closed, Nothing)
           _ ->
             throwSocketError "readSocket: socket in unexpected state"
     Nothing -> 
       return Nothing
+
+--------------------------------------------------------------------------------
+-- Util                                                                       --
+--------------------------------------------------------------------------------
+
+mvarThreshold :: Int
+mvarThreshold = 1000000
+
+readSocketThreshold :: Int
+readSocketThreshold = 10000000
+
+timeoutThrow :: Int -> IO a -> IO a
+timeoutThrow n p = do
+  ma <- timeout n p
+  case ma of
+    Just a  -> return a
+    Nothing -> throwIO (userError "timeout")

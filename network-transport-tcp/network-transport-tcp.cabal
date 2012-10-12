@@ -66,5 +66,5 @@ Test-Suite TestQC
                   network-transport,
                   network-transport-tcp,
                   containers
-  ghc-options:    -threaded 
+  ghc-options:    -threaded -Wall
   HS-Source-Dirs: tests
