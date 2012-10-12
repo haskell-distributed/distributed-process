@@ -1,7 +1,7 @@
 import Test.Framework (defaultMain, testGroup)
 import Test.Framework.Providers.QuickCheck2 (testProperty)
 import Test.QuickCheck (Gen, choose, suchThatMaybe, forAll)
-import Test.QuickCheck.Property (morallyDubiousIOProperty)
+import Test.QuickCheck.Property (morallyDubiousIOProperty, Result(..), result)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Control.Applicative ((<$>))
@@ -49,7 +49,7 @@ connectCloseScript numEndPoints = go Map.empty
           return []
 
     isOpen :: Map Int Bool -> Int -> Bool
-    isOpen conns connIdx = connIdx `Map.member` conns && conns Map.! connIdx
+    isOpen conns connIx = connIx `Map.member` conns && conns Map.! connIx
 
 execScript :: Transport -> Int -> Script -> IO (Map Int [Event]) 
 execScript transport numEndPoints script = do
@@ -63,12 +63,12 @@ execScript transport numEndPoints script = do
     runScript endPoints = go
       where
         go :: [Connection] -> Script -> IO ()
-        go _ [] = threadDelay 50000 >> mapM_ closeEndPoint endPoints 
+        go _ [] = threadDelay 500000 >> mapM_ closeEndPoint endPoints 
         go conns cmd@(Connect fr to rel hints : cmds) = do
           Right conn <- connect (endPoints !! fr) (address (endPoints !! to)) rel hints
           go (conns ++ [conn]) cmds 
-        go conns cmd@(Close connIdx : cmds) = do
-          close (conns !! connIdx)
+        go conns cmd@(Close connIx : cmds) = do
+          close (conns !! connIx)
           go conns cmds
 
     forwardTo :: Chan (Int, Event) -> (Int, EndPoint) -> IO ()
@@ -81,7 +81,7 @@ execScript transport numEndPoints script = do
           case ev of
             EndPointClosed -> return () 
             _              -> go 
-       
+
     collectAll :: Chan (Int, Event) -> Int -> IO (Map Int [Event]) 
     collectAll chan = go (Map.fromList (zip [0 .. numEndPoints - 1] (repeat []))) 
       where
@@ -95,11 +95,37 @@ execScript transport numEndPoints script = do
                                     _              -> numDone
           go acc' numDone'
 
+verify :: Int -> Script -> Map Int [Event] -> Result
+verify numEndPoints script evs = 
+    case go script [] evs of
+      Nothing  -> result { ok     = Just True 
+                         }
+      Just err -> result { ok     = Just False
+                         , reason = err 
+                         }
+  where
+    go :: Script -> [(Int, ConnectionId)] -> Map Int [Event] -> Maybe String
+    go [] conns evs = 
+      let closed = Map.fromList (zip [0 .. numEndPoints - 1] (repeat [EndPointClosed])) in
+      if evs == closed then Nothing 
+                       else Just $ "Expected " ++ show closed ++ "; got " ++ show evs
+    go (Connect fr to rel hints : cmds) conns evs =
+      case evs Map.! to of
+        (ConnectionOpened connId rel' addr : epEvs) | rel' == rel ->
+          go cmds (conns ++ [(to, connId)]) (Map.insert to epEvs evs)
+        _ -> Just $ "Missing ConnectionOpened event in " ++ show evs
+    go (Close connIx : cmds) conns evs = 
+      let (epIx, connId) = conns !! connIx in
+      case evs Map.! epIx of
+        (ConnectionClosed connId' : epEvs) | connId' == connId ->
+          go cmds conns (Map.insert epIx epEvs evs)
+        _ -> Just $ "Missing ConnectionClosed event in " ++ show evs
+
 prop_connect_close transport = forAll (connectCloseScript 2) $ \script -> 
   morallyDubiousIOProperty $ do 
     logShow script
     evs <- execScript transport 2 script 
-    return (evs == Map.fromList [])
+    return (verify 2 script evs)
 
 tests transport = [
     testGroup "Unidirectional" [
