@@ -2,8 +2,10 @@ module Main (main, logShow) where
 
 import Test.Framework (Test, defaultMain, testGroup)
 import Test.Framework.Providers.QuickCheck2 (testProperty)
-import Test.QuickCheck (Gen, choose, suchThatMaybe, forAllShrink, Property)
+import Test.Framework.Providers.HUnit (testCase)
+import Test.QuickCheck (Gen, choose, suchThatMaybe, forAll, forAllShrink, Property)
 import Test.QuickCheck.Property (morallyDubiousIOProperty, Result(..), result)
+import Test.HUnit (Assertion, assertFailure)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Control.Exception (Exception, throwIO)
@@ -16,13 +18,9 @@ import Network.Transport.TCP (createTransport, defaultTCPParameters)
 
 data ScriptCmd = 
     NewEndPoint
-  | Connect Int Int Reliability ConnectHints 
+  | Connect Int Int 
   | Close Int 
-
-instance Show ScriptCmd where
-  show NewEndPoint = "NewEndPoint"
-  show (Connect fr to _ _) = "Connect " ++ show fr ++ " " ++ show to
-  show (Close i) = "Close " ++ show i
+  deriving Show
 
 type Script = [ScriptCmd]
 
@@ -52,7 +50,7 @@ script_Connect numEndPoints = do
          fr <- choose (0, numEndPoints - 1)
          to <- choose (0, numEndPoints - 1)
          cmds <- go
-         return (Connect fr to ReliableOrdered defaultConnectHints : cmds)
+         return (Connect fr to : cmds)
         _ ->
           return []
 
@@ -69,7 +67,7 @@ script_ConnectClose numEndPoints = do
          fr <- choose (0, numEndPoints - 1)
          to <- choose (0, numEndPoints - 1)
          cmds <- go (Map.insert (Map.size conns) True conns) 
-         return (Connect fr to ReliableOrdered defaultConnectHints : cmds)
+         return (Connect fr to : cmds)
         1 -> do
           mConn <- choose (0, Map.size conns - 1) `suchThatMaybe` isOpen conns 
           case mConn of 
@@ -102,8 +100,8 @@ execScript transport script = do
           _tid <- forkIO $ forwardTo chan (endPointIx, endPoint)
           threadDelay 10000
           go (endPoints ++ [endPoint]) conns cmds
-        go endPoints conns (Connect fr to rel hints : cmds) = do
-          conn <- throwIfLeft $ connect (endPoints !! fr) (address (endPoints !! to)) rel hints
+        go endPoints conns (Connect fr to : cmds) = do
+          conn <- throwIfLeft $ connect (endPoints !! fr) (address (endPoints !! to)) ReliableOrdered defaultConnectHints
           threadDelay 10000
           go endPoints (conns ++ [conn]) cmds 
         go endPoints conns (Close connIx : cmds) = do
@@ -135,13 +133,8 @@ execScript transport script = do
     insertEvent ev Nothing    = Just [ev]
     insertEvent ev (Just evs) = Just (ev : evs)
 
-verify :: Script -> Map Int [Event] -> Result
-verify script = \evs -> case go script [] evs of
-    Nothing  -> result { ok     = Just True 
-                       }
-    Just err -> result { ok     = Just False
-                       , reason = '\n' : err ++ "\nAll events: " ++ show evs 
-                       }
+verify :: Script -> Map Int [Event] -> Maybe String 
+verify script = go script []
   where
     go :: Script -> [(Int, ConnectionId)] -> Map Int [Event] -> Maybe String
     go [] _conns evs = 
@@ -150,11 +143,11 @@ verify script = \evs -> case go script [] evs of
          else Just $ "Unexpected events: " ++ show evs
     go (NewEndPoint : cmds) conns evs =
       go cmds conns evs
-    go (Connect _fr to rel _hints : cmds) conns evs =
+    go (Connect _fr to : cmds) conns evs =
       case evs Map.! to of
-        (ConnectionOpened connId rel' _addr : epEvs) | rel' == rel ->
+        (ConnectionOpened connId _rel _addr : epEvs) ->
           go cmds (conns ++ [(to, connId)]) (Map.insert to epEvs evs)
-        _ -> Just $ "Missing (ConnectionOpened <<connId>> " ++ show rel ++ " <<addr>>) event in " ++ show evs
+        _ -> Just $ "Missing (ConnectionOpened <<connId>> <<rel>> <<addr>>) event in " ++ show evs
     go (Close connIx : cmds) conns evs = 
       let (epIx, connId) = conns !! connIx in
       case evs Map.! epIx of
@@ -162,19 +155,45 @@ verify script = \evs -> case go script [] evs of
           go cmds conns (Map.insert epIx epEvs evs)
         _ -> Just $ "Missing (ConnectionClosed " ++ show connId ++ ") event in " ++ show evs
 
-genericProp :: Transport -> Int -> (Int -> Gen Script) -> Property
-genericProp transport numEndPoints scriptGen = 
-  forAllShrink (scriptGen numEndPoints) inits $ \script -> 
+testScript1 :: Script
+testScript1 = [
+    NewEndPoint
+  , NewEndPoint
+  , Connect 0 1
+  , Close 0
+  , Connect 1 0
+  , Close 1
+  , Connect 1 0
+  ]
+
+genericProp :: Transport -> Gen Script -> Property
+genericProp transport scriptGen = 
+  forAll scriptGen $ \script -> 
     morallyDubiousIOProperty $ do 
+      logShow script 
       evs <- execScript transport script 
-      return (verify script evs)
+      return $ case verify script evs of
+        Nothing  -> result { ok     = Just True 
+                           }
+        Just err -> result { ok     = Just False
+                           , reason = '\n' : err ++ "\nAll events: " ++ show evs 
+                           }
+
+testOneScript :: Transport -> Script -> Assertion
+testOneScript transport script = do
+  logShow script 
+  evs <- execScript transport script 
+  case verify script evs of
+    Just err -> assertFailure $ "Failed with script " ++ show script ++ ": " ++ err
+    Nothing  -> return ()
 
 tests :: Transport -> [Test]
 tests transport = [
     testGroup "Unidirectional" [
-      testProperty "NewEndPoint"  (genericProp transport 2 script_NewEndPoint)
-    , testProperty "Connect"      (genericProp transport 2 script_Connect)
-    , testProperty "ConnectClose" (genericProp transport 2 script_ConnectClose)
+    --  testProperty "NewEndPoint"  (genericProp transport (script_NewEndPoint 2))
+    --, testProperty "Connect"      (genericProp transport (script_Connect 2))
+       testCase "testScript1" (testOneScript transport testScript1)
+    -- testProperty "ConnectClose" (genericProp transport (script_ConnectClose 2))
     ]
   ]
 

@@ -62,7 +62,9 @@ Test-Suite TestQC
   Build-Depends:  base >= 4.3 && < 5,
                   test-framework,
                   test-framework-quickcheck2,
+                  test-framework-hunit,
                   QuickCheck,
+                  HUnit,
                   network-transport,
                   network-transport-tcp,
                   containers
