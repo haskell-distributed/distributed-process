@@ -16,6 +16,10 @@ import Data.List (inits)
 import Network.Transport
 import Network.Transport.TCP (createTransport, defaultTCPParameters)
 
+--------------------------------------------------------------------------------
+-- Script infrastructure                                                      --
+--------------------------------------------------------------------------------
+
 data ScriptCmd = 
     NewEndPoint
   | Connect Int Int 
@@ -23,63 +27,6 @@ data ScriptCmd =
   deriving Show
 
 type Script = [ScriptCmd]
-
-logShow :: Show a => a -> IO ()
-logShow = appendFile "log" . (++ "\n") . show
-
-throwIfLeft :: Exception a => IO (Either a b) -> IO b
-throwIfLeft p = do
-  mb <- p
-  case mb of
-    Left a  -> throwIO a
-    Right b -> return b
-
-script_NewEndPoint :: Int -> Gen Script
-script_NewEndPoint numEndPoints = return (replicate numEndPoints NewEndPoint)
-
-script_Connect :: Int -> Gen Script
-script_Connect numEndPoints = do
-    script <- go
-    return (replicate numEndPoints NewEndPoint ++ script)
-  where
-    go :: Gen Script
-    go = do
-      next <- choose (0, 1) :: Gen Int
-      case next of
-        0 -> do
-         fr <- choose (0, numEndPoints - 1)
-         to <- choose (0, numEndPoints - 1)
-         cmds <- go
-         return (Connect fr to : cmds)
-        _ ->
-          return []
-
-script_ConnectClose :: Int -> Gen Script
-script_ConnectClose numEndPoints = do
-    script <- go Map.empty 
-    return (replicate numEndPoints NewEndPoint ++ script)
-  where
-    go :: Map Int Bool -> Gen Script
-    go conns = do
-      next <- choose (0, 2) :: Gen Int
-      case next of
-        0 -> do
-         fr <- choose (0, numEndPoints - 1)
-         to <- choose (0, numEndPoints - 1)
-         cmds <- go (Map.insert (Map.size conns) True conns) 
-         return (Connect fr to : cmds)
-        1 -> do
-          mConn <- choose (0, Map.size conns - 1) `suchThatMaybe` isOpen conns 
-          case mConn of 
-            Nothing -> go conns
-            Just conn -> do
-              cmds <- go (Map.insert conn False conns)
-              return (Close conn : cmds) 
-        _ ->
-          return []
-
-    isOpen :: Map Int Bool -> Int -> Bool
-    isOpen conns connIx = connIx `Map.member` conns && conns Map.! connIx
 
 execScript :: Transport -> Script -> IO (Map Int [Event]) 
 execScript transport script = do
@@ -155,6 +102,61 @@ verify script = go script []
           go cmds conns (Map.insert epIx epEvs evs)
         _ -> Just $ "Missing (ConnectionClosed " ++ show connId ++ ") event in " ++ show evs
 
+--------------------------------------------------------------------------------
+-- Script generators                                                          --
+--------------------------------------------------------------------------------
+
+script_NewEndPoint :: Int -> Gen Script
+script_NewEndPoint numEndPoints = return (replicate numEndPoints NewEndPoint)
+
+script_Connect :: Int -> Gen Script
+script_Connect numEndPoints = do
+    script <- go
+    return (replicate numEndPoints NewEndPoint ++ script)
+  where
+    go :: Gen Script
+    go = do
+      next <- choose (0, 1) :: Gen Int
+      case next of
+        0 -> do
+         fr <- choose (0, numEndPoints - 1)
+         to <- choose (0, numEndPoints - 1)
+         cmds <- go
+         return (Connect fr to : cmds)
+        _ ->
+          return []
+
+script_ConnectClose :: Int -> Gen Script
+script_ConnectClose numEndPoints = do
+    script <- go Map.empty 
+    return (replicate numEndPoints NewEndPoint ++ script)
+  where
+    go :: Map Int Bool -> Gen Script
+    go conns = do
+      next <- choose (0, 2) :: Gen Int
+      case next of
+        0 -> do
+         fr <- choose (0, numEndPoints - 1)
+         to <- choose (0, numEndPoints - 1)
+         cmds <- go (Map.insert (Map.size conns) True conns) 
+         return (Connect fr to : cmds)
+        1 -> do
+          mConn <- choose (0, Map.size conns - 1) `suchThatMaybe` isOpen conns 
+          case mConn of 
+            Nothing -> go conns
+            Just conn -> do
+              cmds <- go (Map.insert conn False conns)
+              return (Close conn : cmds) 
+        _ ->
+          return []
+
+    isOpen :: Map Int Bool -> Int -> Bool
+    isOpen conns connIx = connIx `Map.member` conns && conns Map.! connIx
+
+--------------------------------------------------------------------------------
+-- Individual scripts to test specific bugs                                   -- 
+--------------------------------------------------------------------------------
+
 testScript1 :: Script
 testScript1 = [
     NewEndPoint
@@ -165,6 +167,29 @@ testScript1 = [
   , Close 1
   , Connect 1 0
   ]
+
+--------------------------------------------------------------------------------
+-- Main application driver                                                    --
+--------------------------------------------------------------------------------
+
+tests :: Transport -> [Test]
+tests transport = [
+    testGroup "Unidirectional" [
+    --  testProperty "NewEndPoint"  (genericProp transport (script_NewEndPoint 2))
+    --, testProperty "Connect"      (genericProp transport (script_Connect 2))
+       testCase "testScript1" (testOneScript transport testScript1)
+    -- testProperty "ConnectClose" (genericProp transport (script_ConnectClose 2))
+    ]
+  ]
+
+main :: IO ()
+main = do
+  Right transport <- createTransport "127.0.0.1" "8080" defaultTCPParameters
+  defaultMain (tests transport)
+
+--------------------------------------------------------------------------------
+-- Test infrastructure                                                        --
+--------------------------------------------------------------------------------
 
 genericProp :: Transport -> Gen Script -> Property
 genericProp transport scriptGen = 
@@ -187,17 +212,17 @@ testOneScript transport script = do
     Just err -> assertFailure $ "Failed with script " ++ show script ++ ": " ++ err
     Nothing  -> return ()
 
-tests :: Transport -> [Test]
-tests transport = [
-    testGroup "Unidirectional" [
-    --  testProperty "NewEndPoint"  (genericProp transport (script_NewEndPoint 2))
-    --, testProperty "Connect"      (genericProp transport (script_Connect 2))
-       testCase "testScript1" (testOneScript transport testScript1)
-    -- testProperty "ConnectClose" (genericProp transport (script_ConnectClose 2))
-    ]
-  ]
+--------------------------------------------------------------------------------
+-- Auxiliary
+--------------------------------------------------------------------------------
 
-main :: IO ()
-main = do
-  Right transport <- createTransport "127.0.0.1" "8080" defaultTCPParameters
-  defaultMain (tests transport)
+logShow :: Show a => a -> IO ()
+logShow = appendFile "log" . (++ "\n") . show
+
+throwIfLeft :: Exception a => IO (Either a b) -> IO b
+throwIfLeft p = do
+  mb <- p
+  case mb of
+    Left a  -> throwIO a
+    Right b -> return b
+
