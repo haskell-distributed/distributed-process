@@ -1,9 +1,23 @@
-module Main (main, logShow) where
+module Main 
+  ( main
+  -- Shush the compiler about unused definitions
+  , logShow
+  , forAllShrink
+  , inits
+  ) where
 
-import Test.Framework (Test, defaultMain, testGroup)
+import Test.Framework (Test, TestName, defaultMain, testGroup)
 import Test.Framework.Providers.QuickCheck2 (testProperty)
 import Test.Framework.Providers.HUnit (testCase)
-import Test.QuickCheck (Gen, choose, suchThatMaybe, forAll, forAllShrink, Property)
+import Test.QuickCheck 
+  ( Gen
+  , choose
+  , suchThatMaybe
+  , forAll
+  , forAllShrink
+  , Property
+  , Arbitrary(arbitrary)
+  )
 import Test.QuickCheck.Property (morallyDubiousIOProperty, Result(..), result)
 import Test.HUnit (Assertion, assertFailure)
 import Data.Map (Map)
@@ -11,7 +25,11 @@ import qualified Data.Map as Map
 import Control.Exception (Exception, throwIO)
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.Chan (Chan, newChan, writeChan, readChan)
+import Control.Monad (replicateM)
 import Data.List (inits)
+import Data.ByteString (ByteString)
+import Data.ByteString.Char8 (pack)
+import qualified Data.ByteString as BSS (concat)
 
 import Network.Transport
 import Network.Transport.TCP (createTransport, defaultTCPParameters)
@@ -24,6 +42,7 @@ data ScriptCmd =
     NewEndPoint
   | Connect Int Int 
   | Close Int 
+  | Send Int [ByteString]
   deriving Show
 
 type Script = [ScriptCmd]
@@ -39,7 +58,7 @@ execScript transport script = do
       where
         go :: [EndPoint] -> [Connection] -> Script -> IO ()
         go _endPoints _conns [] = do
-          threadDelay 100000
+          threadDelay 10000
           writeChan chan Nothing
         go endPoints conns (NewEndPoint : cmds) = do
           endPoint <- throwIfLeft $ newEndPoint transport
@@ -53,6 +72,10 @@ execScript transport script = do
           go endPoints (conns ++ [conn]) cmds 
         go endPoints conns (Close connIx : cmds) = do
           close (conns !! connIx)
+          threadDelay 10000
+          go endPoints conns cmds
+        go endPoints conns (Send connIx payload : cmds) = do
+          Right () <- send (conns !! connIx) payload
           threadDelay 10000
           go endPoints conns cmds
 
@@ -91,16 +114,28 @@ verify script = go script []
     go (NewEndPoint : cmds) conns evs =
       go cmds conns evs
     go (Connect _fr to : cmds) conns evs =
-      case evs Map.! to of
-        (ConnectionOpened connId _rel _addr : epEvs) ->
-          go cmds (conns ++ [(to, connId)]) (Map.insert to epEvs evs)
-        _ -> Just $ "Missing (ConnectionOpened <<connId>> <<rel>> <<addr>>) event in " ++ show evs
+      let epEvs = evs Map.! to
+      in case epEvs of
+        (ConnectionOpened connId _rel _addr : epEvs') ->
+          go cmds (conns ++ [(to, connId)]) (Map.insert to epEvs' evs)
+        _ -> 
+          Just $ "Missing (ConnectionOpened <<connId>> <<rel>> <<addr>>) event in " ++ show evs
     go (Close connIx : cmds) conns evs = 
-      let (epIx, connId) = conns !! connIx in
-      case evs Map.! epIx of
-        (ConnectionClosed connId' : epEvs) | connId' == connId ->
-          go cmds conns (Map.insert epIx epEvs evs)
-        _ -> Just $ "Missing (ConnectionClosed " ++ show connId ++ ") event in " ++ show evs
+      let (epIx, connId) = conns !! connIx 
+          epEvs          = evs Map.! epIx
+      in case epEvs of
+        (ConnectionClosed connId' : epEvs') | connId' == connId ->
+          go cmds conns (Map.insert epIx epEvs' evs)
+        _ -> 
+          Just $ "Missing (ConnectionClosed " ++ show connId ++ ") event in " ++ show evs
+    go (Send connIx payload : cmds) conns evs = 
+      let (epIx, connId) = conns !! connIx 
+          epEvs          = evs Map.! epIx 
+      in case epEvs of
+        (Received connId' payload' : epEvs') | connId' == connId && BSS.concat payload == BSS.concat payload' ->
+          go cmds conns (Map.insert epIx epEvs' evs)
+        _ -> 
+          Just $ "Missing (Received " ++ show connId ++ " " ++ show payload ++ ") event in " ++ show epEvs 
 
 --------------------------------------------------------------------------------
 -- Script generators                                                          --
@@ -141,6 +176,41 @@ script_ConnectClose numEndPoints = do
          cmds <- go (Map.insert (Map.size conns) True conns) 
          return (Connect fr to : cmds)
         1 -> do
+          mConn <- choose (0, Map.size conns - 1) `suchThatMaybe` isOpen conns 
+          case mConn of 
+            Nothing -> go conns
+            Just conn -> do
+              cmds <- go (Map.insert conn False conns)
+              return (Close conn : cmds) 
+        _ ->
+          return []
+
+    isOpen :: Map Int Bool -> Int -> Bool
+    isOpen conns connIx = connIx `Map.member` conns && conns Map.! connIx
+
+script_ConnectSendClose :: Int -> Gen Script
+script_ConnectSendClose numEndPoints = do
+    script <- go Map.empty 
+    return (replicate numEndPoints NewEndPoint ++ script)
+  where
+    go :: Map Int Bool -> Gen Script
+    go conns = do
+      next <- choose (0, 3) :: Gen Int
+      case next of
+        0 -> do
+         fr <- choose (0, numEndPoints - 1)
+         to <- choose (0, numEndPoints - 1)
+         cmds <- go (Map.insert (Map.size conns) True conns) 
+         return (Connect fr to : cmds)
+        1 -> do
+          mConn <- choose (0, Map.size conns - 1) `suchThatMaybe` isOpen conns 
+          case mConn of 
+            Nothing -> go conns
+            Just conn -> do
+              payload <- arbitrary 
+              cmds <- go conns 
+              return (Send conn payload : cmds) 
+        2 -> do
           mConn <- choose (0, Map.size conns - 1) `suchThatMaybe` isOpen conns 
           case mConn of 
             Nothing -> go conns
@@ -213,20 +283,30 @@ script_Bug1 = [
 -- Main application driver                                                    --
 --------------------------------------------------------------------------------
 
+basicTests :: Transport -> Int -> [Test]
+basicTests transport numEndPoints = [
+    testGen "NewEndPoint"      transport (script_NewEndPoint 2)
+  , testGen "Connect"          transport (script_Connect 2)
+  , testGen "ConnectClose"     transport (script_ConnectClose 2)
+  , testGen "ConnectSendClose" transport (script_ConnectSendClose 2)
+  ]
+
 tests :: Transport -> [Test]
 tests transport = [
       testGroup "Bugs" [
-        testOne "Bug1" script_Bug1
+        testOne "Bug1" transport script_Bug1
       ]
-    , testGroup "Unidirectional" [
-        testQC "NewEndPoint"  (script_NewEndPoint 2)
-      , testQC "Connect"      (script_Connect 2)
-      , testQC "ConnectClose" (script_ConnectClose 2)
-      ]
+    , testGroup "One endpoint, with delays"    (basicTests transport 1) 
+    , testGroup "Two endpoints, with delays"   (basicTests transport 2) 
+    , testGroup "Three endpoints, with delays" (basicTests transport 3)
     ]
   where
-    testOne label script = testCase label (testScript transport script)
-    testQC  label script = testProperty label (testScriptGen transport script) 
+
+testOne :: TestName -> Transport -> Script -> Test
+testOne label transport script = testCase label (testScript transport script)
+
+testGen :: TestName -> Transport -> Gen Script -> Test
+testGen label transport script = testProperty label (testScriptGen transport script) 
 
 main :: IO ()
 main = do
@@ -272,3 +352,8 @@ throwIfLeft p = do
     Left a  -> throwIO a
     Right b -> return b
 
+instance Arbitrary ByteString where
+  arbitrary = do
+    len <- choose (0, 10)
+    xs  <- replicateM len arbitrary
+    return (pack xs)

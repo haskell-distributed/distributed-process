@@ -67,6 +67,7 @@ Test-Suite TestQC
                   HUnit,
                   network-transport,
                   network-transport-tcp,
-                  containers
-  ghc-options:    -threaded -Wall
+                  containers,
+                  bytestring
+  ghc-options:    -threaded -Wall -fno-warn-orphans
   HS-Source-Dirs: tests
