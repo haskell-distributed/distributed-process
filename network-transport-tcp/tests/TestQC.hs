@@ -157,8 +157,49 @@ script_ConnectClose numEndPoints = do
 -- Individual scripts to test specific bugs                                   -- 
 --------------------------------------------------------------------------------
 
-testScript1 :: Script
-testScript1 = [
+-- | Bug #1
+--
+-- When process A wants to close the heavyweight connection to process B it
+-- sends a CloseSocket request together with the ID of the last connection from
+-- B. When B receives the CloseSocket request it can compare this ID to the last
+-- connection it created; if they don't match, B knows that there are some 
+-- messages still on the way from B to A (in particular, a CreatedConnection 
+-- message) which will cancel the CloseSocket request from A. Hence, it will 
+-- know to ignore the CloseSocket request from A.
+--
+-- The bug was that we recorded the last _created_ outgoing connection on the
+-- local endpoint, but the last _received_ incoming connection on the state of
+-- the heavyweight connection. So, in the script below, the following happened:
+-- 
+-- A connects to B, records "last connection ID is 1024"
+-- A closes the lightweight connection, sends [CloseConnection 1024]
+-- A closes the heivyweight connection, sends [CloseSocket 0]
+--
+--   (the 0 here indicates that it had not yet received any connections from B)
+--
+-- B receives the [CloseSocket 0], compares it to the recorded outgoing ID (0),
+-- confirms that they are equal, and confirms the CloseSocket request.
+--
+-- B connects to A, records "last connection ID is 1024"
+-- B closes the lightweight connection, sends [CloseConnection 1024]
+-- B closes the heavyweight connection, sends [CloseSocket 0]
+--
+--   (the 0 here indicates that it has not yet received any connections from A,
+--   ON THIS HEAVYWEIGHT connection)
+--
+-- A receives the [CloseSocket 0] request, compares it to the last recorded
+-- outgoing ID (1024), sees that they are not equal, and concludes that this
+-- must mean that there is still a CreatedConnection message on the way from A
+-- to B. 
+--
+-- This of course is not the case, so B will wait forever for A to confirm
+-- the CloseSocket request, and deadlock arises. (This deadlock doesn't become
+-- obvious though until the next attempt from B to connect to A.)
+--
+-- The solution is of course that both the recorded outgoing and recorded
+-- incoming connection ID must be per heavyweight connection.
+script_Bug1 :: Script
+script_Bug1 = [
     NewEndPoint
   , NewEndPoint
   , Connect 0 1
@@ -174,13 +215,18 @@ testScript1 = [
 
 tests :: Transport -> [Test]
 tests transport = [
-    testGroup "Unidirectional" [
-    --  testProperty "NewEndPoint"  (genericProp transport (script_NewEndPoint 2))
-    --, testProperty "Connect"      (genericProp transport (script_Connect 2))
-       testCase "testScript1" (testOneScript transport testScript1)
-    -- testProperty "ConnectClose" (genericProp transport (script_ConnectClose 2))
+      testGroup "Bugs" [
+        testOne "Bug1" script_Bug1
+      ]
+    , testGroup "Unidirectional" [
+        testQC "NewEndPoint"  (script_NewEndPoint 2)
+      , testQC "Connect"      (script_Connect 2)
+      , testQC "ConnectClose" (script_ConnectClose 2)
+      ]
     ]
-  ]
+  where
+    testOne label script = testCase label (testScript transport script)
+    testQC  label script = testProperty label (testScriptGen transport script) 
 
 main :: IO ()
 main = do
@@ -191,8 +237,8 @@ main = do
 -- Test infrastructure                                                        --
 --------------------------------------------------------------------------------
 
-genericProp :: Transport -> Gen Script -> Property
-genericProp transport scriptGen = 
+testScriptGen :: Transport -> Gen Script -> Property
+testScriptGen transport scriptGen = 
   forAll scriptGen $ \script -> 
     morallyDubiousIOProperty $ do 
       logShow script 
@@ -204,8 +250,8 @@ genericProp transport scriptGen =
                            , reason = '\n' : err ++ "\nAll events: " ++ show evs 
                            }
 
-testOneScript :: Transport -> Script -> Assertion
-testOneScript transport script = do
+testScript :: Transport -> Script -> Assertion
+testScript transport script = do
   logShow script 
   evs <- execScript transport script 
   case verify script evs of
