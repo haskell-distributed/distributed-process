@@ -25,6 +25,8 @@ module Network.Transport.TCP.Mock.Socket
   , defaultHints
   , defaultProtocol
   , sOMAXCONN
+    -- * Debugging API
+  , scheduleReadAction
     -- * Internal API
   , writeSocket
   , readSocket
@@ -39,7 +41,7 @@ import Control.Category ((>>>))
 import Control.Concurrent.MVar 
 import Control.Concurrent.Chan
 import System.IO.Unsafe (unsafePerformIO)
-import Data.Accessor (Accessor, accessor, (^=), (^.))
+import Data.Accessor (Accessor, accessor, (^=), (^.), (^:))
 import qualified Data.Accessor.Container as DAC (mapMaybe)
 import System.Timeout (timeout)
 
@@ -105,8 +107,14 @@ data Socket = Socket {
 
 data SocketState = 
     Uninit
-  | BoundSocket { socketBacklog :: Chan (Socket, SockAddr, MVar Socket) }
-  | Connected { socketPeer :: Maybe Socket, socketBuff :: Chan Message }
+  | BoundSocket { 
+        socketBacklog :: Chan (Socket, SockAddr, MVar Socket) 
+      }
+  | Connected { 
+         socketBuff :: Chan Message 
+      , _socketPeer :: Maybe Socket
+      , _scheduledReadActions :: [(Int, IO ())]
+      }
   | Closed
 
 data Message = 
@@ -126,6 +134,12 @@ instance Show AddrInfo where
 
 instance Show Socket where
   show sock = "<<socket " ++ socketDescription sock ++ ">>"
+
+socketPeer :: Accessor SocketState (Maybe Socket)
+socketPeer = accessor _socketPeer (\peer st -> st { _socketPeer = peer })
+
+scheduledReadActions :: Accessor SocketState [(Int, IO ())]
+scheduledReadActions = accessor _scheduledReadActions (\acts st -> st { _scheduledReadActions = acts })
 
 getAddrInfo :: Maybe AddrInfo -> Maybe HostName -> Maybe ServiceName -> IO [AddrInfo]
 getAddrInfo _ (Just host) (Just port) = do
@@ -183,8 +197,9 @@ accept serverSock = do
   (theirSocket, theirAddress, reply) <- readChan backlog 
   ourBuff  <- newChan
   ourState <- newMVar Connected { 
-      socketPeer = Just theirSocket
-    , socketBuff = ourBuff
+       socketBuff = ourBuff
+    , _socketPeer = Just theirSocket
+    , _scheduledReadActions = []
     }
   let ourSocket = Socket {
       socketState       = ourState
@@ -225,8 +240,9 @@ connect us serverAddr = do
         Uninit -> do 
           buff <- newChan
           return Connected { 
-              socketPeer = Just them 
-            , socketBuff = buff
+               socketBuff = buff
+            , _socketPeer = Just them 
+            , _scheduledReadActions = []
             }
         _ ->
           throwSocketError "connect: already connected"
@@ -240,7 +256,7 @@ shutdown sock ShutdownSend = do
   writeSocket sock CloseSocket
   timeoutThrow mvarThreshold $ modifyMVar_ (socketState sock) $ \st -> case st of
     Connected {} ->
-      return (Connected Nothing (socketBuff st))
+      return (socketPeer ^= Nothing $ st)
     _ ->
       return st
 
@@ -252,7 +268,7 @@ peerBuffer :: Socket -> IO (Either String (Chan Message))
 peerBuffer sock = do
   mPeer <- timeoutThrow mvarThreshold $ withMVar (socketState sock) $ \st -> case st of
     Connected {} -> 
-      return (socketPeer st)
+      return (st ^. socketPeer)
     _ ->
       return Nothing
   case mPeer of
@@ -277,13 +293,17 @@ writeSocket sock msg = do
 
 readSocket :: Socket -> IO (Maybe Word8)
 readSocket sock = do
-  mBuff <- timeoutThrow mvarThreshold $ withMVar (socketState sock) $ \st -> case st of
-    Connected {} -> 
-      return (Just $ socketBuff st)
+  mBuff <- timeoutThrow mvarThreshold $ modifyMVar (socketState sock) $ \st -> case st of
+    Connected {} -> do
+      let (later, now) = tick $ st ^. scheduledReadActions
+      return ( scheduledReadActions ^= later $ st
+             , Just (socketBuff st, now)
+             )
     _ ->
-      return Nothing
+      return (st, Nothing)
   case mBuff of
-    Just buff -> do
+    Just (buff, actions) -> do
+      sequence actions
       msg <- timeoutThrow readSocketThreshold $ readChan buff 
       case msg of
         Payload w -> return (Just w)
@@ -294,6 +314,32 @@ readSocket sock = do
             throwSocketError "readSocket: socket in unexpected state"
     Nothing -> 
       return Nothing
+
+-- | Given a list of scheduled actions, reduce all delays by 1, and return the
+-- actions that should be executed now.
+tick :: [(Int, IO ())] -> ([(Int, IO ())], [IO ()])
+tick = go [] []
+  where
+    go later now [] = (reverse later, reverse now)
+    go later now ((n, action) : actions) 
+      | n == 0    = go later (action : now) actions
+      | otherwise = go ((n - 1, action) : later) now actions
+
+--------------------------------------------------------------------------------
+-- Debugging API                                                              --
+--------------------------------------------------------------------------------
+
+-- | Schedule an action to be executed after /n/ reads on this socket
+-- 
+-- If /n/ is zero we execute the action immediately.
+scheduleReadAction :: Socket -> Int -> IO () -> IO ()
+scheduleReadAction _    0 action = action
+scheduleReadAction sock n action = 
+  modifyMVar_ (socketState sock) $ \st -> case st of 
+    Connected {} ->
+      return (scheduledReadActions ^: ((n, action) :) $ st)
+    _ ->
+      throwSocketError "scheduleReadAction: socket not connected" 
 
 --------------------------------------------------------------------------------
 -- Util                                                                       --
