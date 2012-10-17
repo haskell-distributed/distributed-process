@@ -1,11 +1,13 @@
 module Main 
   ( main
   -- Shush the compiler about unused definitions
+  , log
   , logShow
   , forAllShrink
   , inits
   ) where
 
+import Prelude hiding (log)
 import Test.Framework (Test, TestName, defaultMain, testGroup)
 import Test.Framework.Providers.QuickCheck2 (testProperty)
 import Test.Framework.Providers.HUnit (testCase)
@@ -17,20 +19,21 @@ import Test.QuickCheck
   , forAllShrink
   , Property
   , Arbitrary(arbitrary)
-  , elements
   )
 import Test.QuickCheck.Property (morallyDubiousIOProperty, Result(..), result)
 import Test.HUnit (Assertion, assertFailure)
 import Data.Map (Map)
 import qualified Data.Map as Map
+import Control.Applicative ((<$>))
 import Control.Exception (Exception, throwIO)
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.Chan (Chan, newChan, writeChan, readChan)
-import Control.Monad (replicateM)
+import Control.Monad (replicateM, void)
 import Data.List (inits)
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 (pack)
 import qualified Data.ByteString as BSS (concat)
+import qualified Text.PrettyPrint as PP
 
 import Network.Transport
 import Network.Transport.TCP 
@@ -72,6 +75,26 @@ data ScriptCmd =
 
 type Script = [ScriptCmd]
 
+verticalList :: [PP.Doc] -> PP.Doc
+verticalList = PP.brackets . PP.vcat
+
+eventsDoc :: Map Int [Event] -> PP.Doc
+eventsDoc = verticalList . map aux . Map.toList
+  where
+    aux :: (Int, [Event]) -> PP.Doc
+    aux (i, evs) = PP.parens . PP.hsep . PP.punctuate PP.comma $ [PP.int i, verticalList (map (PP.text . show) evs)]
+
+
+instance Show Script where
+  show = ("\n" ++) . show . verticalList . map (PP.text . show) 
+
+instance Show (Map Int [Event]) where
+  show = ("\n" ++) . show . eventsDoc
+  
+-- | Execute a script
+--
+-- Execute ignores error codes reported back. Instead, we verify the events
+-- that are posted
 execScript :: (Transport, TransportInternals) -> Script -> IO (Map Int [Event]) 
 execScript (transport, transportInternals) script = do
     chan <- newChan
@@ -81,7 +104,7 @@ execScript (transport, transportInternals) script = do
     runScript :: Chan (Maybe (Int, Event)) -> Script -> IO () 
     runScript chan = go [] []
       where
-        go :: [EndPoint] -> [Connection] -> Script -> IO ()
+        go :: [EndPoint] -> [Either (TransportError ConnectErrorCode) Connection] -> Script -> IO ()
         go _endPoints _conns [] = do
           threadDelay 10000
           writeChan chan Nothing
@@ -92,20 +115,24 @@ execScript (transport, transportInternals) script = do
           threadDelay 10000
           go (endPoints ++ [endPoint]) conns cmds
         go endPoints conns (Connect fr to : cmds) = do
-          conn <- throwIfLeft $ connect (endPoints !! fr) (address (endPoints !! to)) ReliableOrdered defaultConnectHints
+          conn <- connect (endPoints !! fr) (address (endPoints !! to)) ReliableOrdered defaultConnectHints
           threadDelay 10000
           go endPoints (conns ++ [conn]) cmds 
         go endPoints conns (Close connIx : cmds) = do
-          close (conns !! connIx)
+          case conns !! connIx of
+            Left  _err -> return ()  
+            Right conn -> close conn 
           threadDelay 10000
           go endPoints conns cmds
         go endPoints conns (Send connIx payload : cmds) = do
-          Right () <- send (conns !! connIx) payload
+          case conns !! connIx of
+            Left  _err -> return ()
+            Right conn -> void $ send conn payload
           threadDelay 10000
           go endPoints conns cmds
         go endPoints conns (BreakAfterReads n i j : cmds) = do
           sock <- socketBetween transportInternals (address (endPoints !! i)) (address (endPoints !! j))
-          scheduleReadAction sock n (sClose sock)  
+          scheduleReadAction sock n (putStrLn "Closing" >> sClose sock)  
           go endPoints conns cmds
 
     forwardTo :: Chan (Maybe (Int, Event)) -> (Int, EndPoint) -> IO ()
@@ -133,40 +160,40 @@ execScript (transport, transportInternals) script = do
     insertEvent ev (Just evs) = Just (ev : evs)
 
 verify :: Script -> Map Int [Event] -> Maybe String 
-verify script = go script []
+verify = go [] 
   where
-    go :: Script -> [(Int, ConnectionId)] -> Map Int [Event] -> Maybe String
-    go [] _conns evs = 
+    go :: [(Int, ConnectionId)] -> Script -> Map Int [Event] -> Maybe String
+    go _conns [] evs = 
       if concat (Map.elems evs) == [] 
          then Nothing
          else Just $ "Unexpected events: " ++ show evs
-    go (NewEndPoint : cmds) conns evs =
-      go cmds conns evs
-    go (Connect _fr to : cmds) conns evs =
+    go conns (NewEndPoint : cmds) evs =
+      go conns cmds evs
+    go conns (Connect _fr to : cmds) evs =
       let epEvs = evs Map.! to
       in case epEvs of
         (ConnectionOpened connId _rel _addr : epEvs') ->
-          go cmds (conns ++ [(to, connId)]) (Map.insert to epEvs' evs)
+          go (conns ++ [(to, connId)]) cmds (Map.insert to epEvs' evs) 
         _ -> 
           Just $ "Missing (ConnectionOpened <<connId>> <<rel>> <<addr>>) event in " ++ show evs
-    go (Close connIx : cmds) conns evs = 
+    go conns (Close connIx : cmds) evs = 
       let (epIx, connId) = conns !! connIx 
           epEvs          = evs Map.! epIx
       in case epEvs of
         (ConnectionClosed connId' : epEvs') | connId' == connId ->
-          go cmds conns (Map.insert epIx epEvs' evs)
+          go conns cmds (Map.insert epIx epEvs' evs)
         _ -> 
           Just $ "Missing (ConnectionClosed " ++ show connId ++ ") event in " ++ show evs
-    go (Send connIx payload : cmds) conns evs = 
+    go conns (Send connIx payload : cmds) evs = 
       let (epIx, connId) = conns !! connIx 
           epEvs          = evs Map.! epIx 
       in case epEvs of
         (Received connId' payload' : epEvs') | connId' == connId && BSS.concat payload == BSS.concat payload' ->
-          go cmds conns (Map.insert epIx epEvs' evs)
+          go conns cmds (Map.insert epIx epEvs' evs)
         _ -> 
           Just $ "Missing (Received " ++ show connId ++ " " ++ show payload ++ ") event in " ++ show epEvs 
-    go (BreakAfterReads n i j : cmds) conns evs = 
-      go cmds conns evs
+    go conns (BreakAfterReads n i j : cmds) evs = 
+      go conns cmds evs
 
 --------------------------------------------------------------------------------
 -- Script generators                                                          --
@@ -238,7 +265,8 @@ script_ConnectSendClose numEndPoints = do
           case mConn of 
             Nothing -> go conns
             Just conn -> do
-              payload <- arbitrary 
+              numSegments <- choose (0, 2)
+              payload <- replicateM numSegments arbitrary 
               cmds <- go conns 
               return (Send conn payload : cmds) 
         2 -> do
@@ -263,9 +291,11 @@ withErrors numErrors gen = gen >>= insertError numErrors
       insert <- arbitrary
       if insert && n > 0
         then do
-          -- We sometimes want big delays, but usually we want short delays
-          numReads <- elements (concat (replicate 10 [0 .. 9]) ++ [10 ..99]) 
-          return $ Connect i j : BreakAfterReads numReads i j : cmds
+          numReads <- chooseFrom' (NormalD { mean = 5, stdDev = 10 }) (0, 100)
+          swap <- arbitrary
+          if swap
+            then return $ Connect i j : BreakAfterReads numReads j i : cmds
+            else return $ Connect i j : BreakAfterReads numReads i j : cmds
         else do
           cmds' <- insertError (n - 1) cmds
           return $ Connect i j : cmds'
@@ -329,6 +359,26 @@ script_Bug1 = [
   , Connect 1 0
   ]
 
+-- | Simulate broken network connection during send 
+script_BreakSend :: Script
+script_BreakSend = [
+    NewEndPoint
+  , NewEndPoint
+  , Connect 0 1
+  , BreakAfterReads 1 1 0
+  , Send 0 ["ping"]
+  ]
+
+-- | Simulate broken network connection during connect
+script_BreakConnect :: Script
+script_BreakConnect = [
+    NewEndPoint
+  , NewEndPoint
+  , Connect 0 1
+  , BreakAfterReads 1 1 0
+  , Connect 0 1
+  ]
+
 --------------------------------------------------------------------------------
 -- Main application driver                                                    --
 --------------------------------------------------------------------------------
@@ -343,8 +393,10 @@ basicTests transport numEndPoints trans = [
 
 tests :: (Transport, TransportInternals) -> [Test]
 tests transport = [
-      testGroup "Bugs" [
-        testOne "Bug1" transport script_Bug1
+      testGroup "Specific scripts" [
+        testOne "Bug1"         transport script_Bug1
+      , testOne "BreakSend"    transport script_BreakSend
+      , testOne "BreakConnect" transport script_BreakConnect
       ]
     , testGroup "One endpoint, with delays"    (basicTests transport 1 id) 
     , testGroup "Two endpoints, with delays"   (basicTests transport 2 id) 
@@ -393,8 +445,11 @@ testScript transport script = do
 -- Auxiliary
 --------------------------------------------------------------------------------
 
+log :: String -> IO ()
+log = appendFile "log" . (++ "\n")
+
 logShow :: Show a => a -> IO ()
-logShow = appendFile "log" . (++ "\n") . show
+logShow = log . show
 
 throwIfLeft :: Exception a => IO (Either a b) -> IO b
 throwIfLeft p = do
@@ -405,6 +460,37 @@ throwIfLeft p = do
 
 instance Arbitrary ByteString where
   arbitrary = do
-    len <- choose (0, 10)
+    len <- chooseFrom' (NormalD { mean = 5, stdDev = 10 }) (0, 100) 
     xs  <- replicateM len arbitrary
     return (pack xs)
+
+--------------------------------------------------------------------------------
+-- Draw random values from probability distributions                          --
+--------------------------------------------------------------------------------
+
+data NormalD = NormalD { mean :: Double , stdDev :: Double }
+
+class Distribution d where
+  probabilityOf :: d -> Double -> Double
+
+instance Distribution NormalD where
+  probabilityOf d x = a * exp (-0.5 * b * b) 
+    where
+      a = 1 / (stdDev d * sqrt (2 * pi))
+      b = (x - mean d) / stdDev d
+
+-- | Choose from a distribution 
+chooseFrom :: Distribution d => d -> (Double, Double) -> Gen Double
+chooseFrom d (lo, hi) = findCandidate 
+  where
+    findCandidate :: Gen Double 
+    findCandidate = do
+      candidate <- choose (lo, hi)
+      uniformSample <- choose (0, 1)
+      if uniformSample < probabilityOf d candidate
+        then return candidate
+        else findCandidate 
+
+chooseFrom' :: Distribution d => d -> (Int, Int) -> Gen Int
+chooseFrom' d (lo, hi) = 
+  round <$> chooseFrom d (fromIntegral lo, fromIntegral hi)
