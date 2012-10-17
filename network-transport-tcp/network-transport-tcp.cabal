@@ -68,6 +68,11 @@ Test-Suite TestQC
                   network-transport,
                   network-transport-tcp,
                   containers,
-                  bytestring
+                  bytestring,
+                  pretty
   ghc-options:    -threaded -Wall -fno-warn-orphans
   HS-Source-Dirs: tests
+  Extensions:     TypeSynonymInstances
+                  FlexibleInstances
+                  OverlappingInstances
+                  OverloadedStrings
