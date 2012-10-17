@@ -17,6 +17,7 @@ import Test.QuickCheck
   , forAllShrink
   , Property
   , Arbitrary(arbitrary)
+  , elements
   )
 import Test.QuickCheck.Property (morallyDubiousIOProperty, Result(..), result)
 import Test.HUnit (Assertion, assertFailure)
@@ -32,23 +33,47 @@ import Data.ByteString.Char8 (pack)
 import qualified Data.ByteString as BSS (concat)
 
 import Network.Transport
-import Network.Transport.TCP (createTransport, defaultTCPParameters)
+import Network.Transport.TCP 
+  ( createTransportExposeInternals
+  , defaultTCPParameters
+  , TransportInternals(socketBetween)
+  )
+
+import Network.Transport.TCP.Mock.Socket (scheduleReadAction, sClose)
 
 --------------------------------------------------------------------------------
 -- Script infrastructure                                                      --
 --------------------------------------------------------------------------------
 
+-- | We randomly generate /scripts/ which are essentially a deep embedding of
+-- the Transport API. These scripts are then executed and the results compared
+-- against an abstract interpreter.
 data ScriptCmd = 
+    -- | Create a new endpoint
     NewEndPoint
+    -- | @Connect i j@ creates a connection from endpoint @i@ to endpoint @j@,
+    -- where @i@ and @j@ are indices and refer to the @i@th and @j@th endpoint
+    -- created by NewEndPoint
   | Connect Int Int 
+    -- | @Close i@ closes the @i@ connection created using 'Connect'. Note that
+    -- closing a connection does not shift other indices; in other words, in
+    -- @[Connect 0 0, Close 0, Connect 0 0, Close 0]@ the second 'Close'
+    -- refers to the first (already closed) connection
   | Close Int 
+    -- | @Send i bs@ sends payload @bs@ on the @i@ connection created 
   | Send Int [ByteString]
+    -- | @BreakAfterReads n i j@ force-closes the socket between endpoints @i@
+    -- and @j@ after @n@ reads by @i@ 
+    -- 
+    -- We should have @i /= j@ because the TCP transport does not use sockets
+    -- for connections from an endpoint to itself
+  | BreakAfterReads Int Int Int
   deriving Show
 
 type Script = [ScriptCmd]
 
-execScript :: Transport -> Script -> IO (Map Int [Event]) 
-execScript transport script = do
+execScript :: (Transport, TransportInternals) -> Script -> IO (Map Int [Event]) 
+execScript (transport, transportInternals) script = do
     chan <- newChan
     runScript chan script
     collectAll chan
@@ -77,6 +102,10 @@ execScript transport script = do
         go endPoints conns (Send connIx payload : cmds) = do
           Right () <- send (conns !! connIx) payload
           threadDelay 10000
+          go endPoints conns cmds
+        go endPoints conns (BreakAfterReads n i j : cmds) = do
+          sock <- socketBetween transportInternals (address (endPoints !! i)) (address (endPoints !! j))
+          scheduleReadAction sock n (sClose sock)  
           go endPoints conns cmds
 
     forwardTo :: Chan (Maybe (Int, Event)) -> (Int, EndPoint) -> IO ()
@@ -136,6 +165,8 @@ verify script = go script []
           go cmds conns (Map.insert epIx epEvs' evs)
         _ -> 
           Just $ "Missing (Received " ++ show connId ++ " " ++ show payload ++ ") event in " ++ show epEvs 
+    go (BreakAfterReads n i j : cmds) conns evs = 
+      go cmds conns evs
 
 --------------------------------------------------------------------------------
 -- Script generators                                                          --
@@ -223,6 +254,25 @@ script_ConnectSendClose numEndPoints = do
     isOpen :: Map Int Bool -> Int -> Bool
     isOpen conns connIx = connIx `Map.member` conns && conns Map.! connIx
 
+withErrors :: Int -> Gen Script -> Gen Script
+withErrors numErrors gen = gen >>= insertError numErrors
+  where
+    insertError :: Int -> Script -> Gen Script
+    insertError _ [] = return []
+    insertError n (Connect i j : cmds) | i /= j = do
+      insert <- arbitrary
+      if insert && n > 0
+        then do
+          -- We sometimes want big delays, but usually we want short delays
+          numReads <- elements (concat (replicate 10 [0 .. 9]) ++ [10 ..99]) 
+          return $ Connect i j : BreakAfterReads numReads i j : cmds
+        else do
+          cmds' <- insertError (n - 1) cmds
+          return $ Connect i j : cmds'
+    insertError n (cmd : cmds) = do
+      cmds' <- insertError n cmds
+      return $ cmd : cmds'
+
 --------------------------------------------------------------------------------
 -- Individual scripts to test specific bugs                                   -- 
 --------------------------------------------------------------------------------
@@ -283,41 +333,42 @@ script_Bug1 = [
 -- Main application driver                                                    --
 --------------------------------------------------------------------------------
 
-basicTests :: Transport -> Int -> [Test]
-basicTests transport numEndPoints = [
-    testGen "NewEndPoint"      transport (script_NewEndPoint 2)
-  , testGen "Connect"          transport (script_Connect 2)
-  , testGen "ConnectClose"     transport (script_ConnectClose 2)
-  , testGen "ConnectSendClose" transport (script_ConnectSendClose 2)
+basicTests :: (Transport, TransportInternals) -> Int -> (Gen Script -> Gen Script) -> [Test]
+basicTests transport numEndPoints trans = [
+    testGen "NewEndPoint"      transport (trans (script_NewEndPoint numEndPoints))
+  , testGen "Connect"          transport (trans (script_Connect numEndPoints))
+  , testGen "ConnectClose"     transport (trans (script_ConnectClose numEndPoints))
+  , testGen "ConnectSendClose" transport (trans (script_ConnectSendClose numEndPoints))
   ]
 
-tests :: Transport -> [Test]
+tests :: (Transport, TransportInternals) -> [Test]
 tests transport = [
       testGroup "Bugs" [
         testOne "Bug1" transport script_Bug1
       ]
-    , testGroup "One endpoint, with delays"    (basicTests transport 1) 
-    , testGroup "Two endpoints, with delays"   (basicTests transport 2) 
-    , testGroup "Three endpoints, with delays" (basicTests transport 3)
+    , testGroup "One endpoint, with delays"    (basicTests transport 1 id) 
+    , testGroup "Two endpoints, with delays"   (basicTests transport 2 id) 
+    , testGroup "Three endpoints, with delays" (basicTests transport 3 id)
+    , testGroup "Four endpoints, with delay, single error" (basicTests transport 4 (withErrors 1))
     ]
   where
 
-testOne :: TestName -> Transport -> Script -> Test
+testOne :: TestName -> (Transport, TransportInternals) -> Script -> Test
 testOne label transport script = testCase label (testScript transport script)
 
-testGen :: TestName -> Transport -> Gen Script -> Test
+testGen :: TestName -> (Transport, TransportInternals) -> Gen Script -> Test
 testGen label transport script = testProperty label (testScriptGen transport script) 
 
 main :: IO ()
 main = do
-  Right transport <- createTransport "127.0.0.1" "8080" defaultTCPParameters
+  Right transport <- createTransportExposeInternals "127.0.0.1" "8080" defaultTCPParameters
   defaultMain (tests transport)
 
 --------------------------------------------------------------------------------
 -- Test infrastructure                                                        --
 --------------------------------------------------------------------------------
 
-testScriptGen :: Transport -> Gen Script -> Property
+testScriptGen :: (Transport, TransportInternals) -> Gen Script -> Property
 testScriptGen transport scriptGen = 
   forAll scriptGen $ \script -> 
     morallyDubiousIOProperty $ do 
@@ -330,7 +381,7 @@ testScriptGen transport scriptGen =
                            , reason = '\n' : err ++ "\nAll events: " ++ show evs 
                            }
 
-testScript :: Transport -> Script -> Assertion
+testScript :: (Transport, TransportInternals) -> Script -> Assertion
 testScript transport script = do
   logShow script 
   evs <- execScript transport script 
