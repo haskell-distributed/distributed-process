@@ -70,7 +70,11 @@ Test-Suite TestQC
                   containers,
                   bytestring,
                   pretty,
-                  data-accessor
+                  data-accessor,
+                  data-accessor-transformers,
+                  mtl,
+                  transformers,
+                  lockfree-queue
   ghc-options:    -threaded -Wall -fno-warn-orphans
   HS-Source-Dirs: tests
   Extensions:     TypeSynonymInstances
