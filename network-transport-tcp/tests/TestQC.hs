@@ -25,17 +25,24 @@ import Test.HUnit (Assertion, assertFailure)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Control.Category ((>>>))
+import Control.Arrow (second)
 import Control.Applicative ((<$>))
-import Control.Exception (Exception, throwIO)
-import Control.Concurrent (forkIO, threadDelay)
-import Control.Concurrent.Chan (Chan, newChan, writeChan, readChan)
-import Control.Monad (replicateM, void)
-import Data.List (inits, delete)
+import Control.Exception (throwIO)
+import Control.Concurrent (forkIO, threadDelay, ThreadId, killThread)
+import Control.Monad (replicateM, forever, guard)
+import Control.Monad.State.Lazy (StateT, execStateT)
+import Control.Monad.IO.Class (liftIO)
+import Data.Maybe (isJust)
+import Data.List (inits)
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 (pack)
-import Data.Accessor (Accessor, accessor, (^:), (^.), (^=))
+import Data.Accessor (Accessor, accessor, (^.))
+import Data.Accessor.Monad.Trans.State (get, modify)
+import qualified Data.Accessor.Container as DAC (mapDefault)
 import qualified Data.ByteString as BSS (concat)
 import qualified Text.PrettyPrint as PP
+import Data.Unique (Unique, newUnique, hashUnique)
+import Data.Concurrent.Queue.MichaelScott (newQ, pushL, tryPopR)
 
 import Network.Transport
 import Network.Transport.TCP 
@@ -82,165 +89,179 @@ data ScriptCmd =
 
 type Script = [ScriptCmd]
 
-verticalList :: [PP.Doc] -> PP.Doc
-verticalList = PP.brackets . PP.vcat
+--------------------------------------------------------------------------------
+-- Execute and verify scripts                                                 --
+--------------------------------------------------------------------------------
 
-eventsDoc :: Map Int [Event] -> PP.Doc
-eventsDoc = verticalList . map aux . Map.toList
-  where
-    aux :: (Int, [Event]) -> PP.Doc
-    aux (i, evs) = PP.parens . PP.hsep . PP.punctuate PP.comma $ [PP.int i, verticalList (map (PP.text . show) evs)]
+data Variable a = Value a | Variable Unique
+  deriving Eq
 
+instance Show a => Show (Variable a) where
+  show (Value x) = show x
+  show (Variable u) = "<<" ++ show (hashUnique u) ++ ">>"
 
-instance Show Script where
-  show = ("\n" ++) . show . verticalList . map (PP.text . show) 
+data ExpEvent =
+    ExpConnectionOpened (Variable ConnectionId)
+  | ExpConnectionClosed (Variable ConnectionId)
+  | ExpReceived (Variable ConnectionId) [ByteString]
+  deriving Show
 
-instance Show (Map Int [Event]) where
-  show = ("\n" ++) . show . eventsDoc
+type TargetAddress = EndPointAddress
+
+data RunState = RunState {
+    _endPoints         :: [EndPoint]
+  , _connections       :: [(TargetAddress, Connection, Variable ConnectionId)]
+  , _expectedEvents    :: Map EndPointAddress [ExpEvent]
+  , _forwardingThreads :: [ThreadId]
+  }
+
+initialRunState :: RunState 
+initialRunState = RunState {
+    _endPoints      = []
+  , _connections    = []
+  , _expectedEvents = Map.empty
+  , _forwardingThreads = []
+  }
+
+verify :: (Transport, TransportInternals) -> Script -> IO (Either String ())
+verify (transport, transportInternals) script = do
+  allEvents <- newQ
+
+  let runScript :: Script -> StateT RunState IO ()
+      runScript = mapM_ runCmd 
+
+      runCmd :: ScriptCmd -> StateT RunState IO () 
+      runCmd NewEndPoint = do
+        mEndPoint <- liftIO $ newEndPoint transport
+        case mEndPoint of
+          Right endPoint -> do
+            modify endPoints (snoc endPoint)
+            tid <- liftIO $ forkIO (forward endPoint) 
+            modify forwardingThreads (tid :)
+          Left err ->
+            liftIO $ throwIO err
+      runCmd (Connect i j) = do
+        endPointA <- get (endPointAtIx i)
+        endPointB <- address <$> get (endPointAtIx j)
+        mConn <- liftIO $ connect endPointA endPointB ReliableOrdered defaultConnectHints
+        case mConn of
+          Right conn -> do
+            connId <- Variable <$> liftIO newUnique 
+            modify connections (snoc (endPointB, conn, connId))
+            modify (expectedEventsAt endPointB) (snoc (ExpConnectionOpened connId))
+          Left err ->
+            liftIO $ throwIO err
+      runCmd (Close i) = do
+        (target, conn, connId) <- get (connectionAt i)
+        liftIO $ close conn
+        modify (expectedEventsAt target) (snoc (ExpConnectionClosed connId))
+      runCmd (Send i payload) = do
+        (target, conn, connId) <- get (connectionAt i)
+        mResult <- liftIO $ send conn payload
+        case mResult of
+          Right () -> return ()
+          Left err -> liftIO $ throwIO err
+        modify (expectedEventsAt target) (snoc (ExpReceived connId payload))
  
+      forward :: EndPoint -> IO ()
+      forward endPoint = forever $ do
+        ev <- receive endPoint
+        pushL allEvents (address endPoint, ev)
+
+      collectEvents :: RunState -> IO (Map EndPointAddress [Event]) 
+      collectEvents st = do
+          threadDelay 10000
+          mapM_ killThread (st ^. forwardingThreads)
+          evs <- go []
+          return (groupByKey evs)
+        where
+          go acc = do
+            mEv <- tryPopR allEvents
+            case mEv of
+              Just ev -> go (ev : acc)
+              Nothing -> return acc 
+        
+  st <- execStateT (runScript script) initialRunState 
+  actualEvents <- collectEvents st
+ 
+  let eventsMatch = and . map (uncurry match) $ 
+        zip (Map.elems (st ^. expectedEvents))
+        (Map.elems actualEvents)
+
+  return $ if eventsMatch 
+             then Right () 
+             else Left ("Could not match " ++ show (st ^. expectedEvents)
+                                ++ " and " ++ show actualEvents)
+
 --------------------------------------------------------------------------------
--- Execution                                                                  --
+-- Match expected and actual events                                           --
 --------------------------------------------------------------------------------
 
--- | Execute a script
---
--- Execute ignores error codes reported back. Instead, we verify the events
--- that are posted
-execScript :: (Transport, TransportInternals) -> Script -> IO (Map EndPointIx [Event], VerificationState) 
-execScript (transport, transportInternals) script = do
-    chan <- newChan
-    vst <- runScript chan script
-    evs <- collectAll chan
-    return (evs, vst)
+-- | Match a list of expected events to a list of actual events, taking into
+-- account that events may be reordered
+match :: [ExpEvent] -> [Event] -> Bool
+match expected actual = or (map (isJust . flip unify actual) (reorder expected))
+
+-- | Match a list of expected events to a list of actual events, without doing
+-- reordering
+unify :: [ExpEvent] -> [Event] -> Maybe () 
+unify [] [] = return () 
+unify (ExpConnectionOpened connId : expected) (ConnectionOpened connId' _ _ : actual) = do 
+  subst <- unifyConnectionId connId connId' 
+  unify (apply subst expected) actual
+unify (ExpConnectionClosed connId : expected) (ConnectionClosed connId' : actual) = do
+  subst <- unifyConnectionId connId connId'
+  unify (apply subst expected) actual
+unify (ExpReceived connId payload : expected) (Received connId' payload' : actual) = do
+  guard (BSS.concat payload == BSS.concat payload')
+  subst <- unifyConnectionId connId connId'
+  unify (apply subst expected) actual
+unify _ _ = fail "Cannot unify" 
+
+type Substitution a = Map Unique a
+
+-- | Match two connection IDs
+unifyConnectionId :: Variable ConnectionId -> ConnectionId -> Maybe (Substitution ConnectionId)
+unifyConnectionId (Variable x)    connId = Just $ Map.singleton x connId
+unifyConnectionId (Value connId') connId | connId == connId' = Just Map.empty
+                                         | otherwise         = Nothing
+
+-- | Apply a substitution
+apply :: Substitution ConnectionId -> [ExpEvent] -> [ExpEvent]
+apply subst = map applyEvent 
   where
-    runScript :: Chan (Maybe (EndPointIx, Event)) -> Script -> IO VerificationState 
-    runScript chan = go [] []
-      where
-        go :: [EndPoint] -> [Either (TransportError ConnectErrorCode) Connection] -> Script -> IO VerificationState 
-        go endPoints _conns [] = do
-          threadDelay 10000
-          writeChan chan Nothing
-          return (initialVerificationState (map address endPoints))
-        go endPoints conns (NewEndPoint : cmds) = do
-          endPoint <- throwIfLeft $ newEndPoint transport
-          let endPointIx = length endPoints
-          _tid <- forkIO $ forwardTo chan (endPointIx, endPoint)
-          threadDelay 10000
-          go (endPoint `snoc` endPoints) conns cmds
-        go endPoints conns (Connect fr to : cmds) = do
-          conn <- connect (endPoints !! fr) (address (endPoints !! to)) ReliableOrdered defaultConnectHints
-          threadDelay 10000
-          go endPoints (conn `snoc` conns) cmds 
-        go endPoints conns (Close connIx : cmds) = do
-          case conns !! connIx of
-            Left  _err -> return ()  
-            Right conn -> close conn 
-          threadDelay 10000
-          go endPoints conns cmds
-        go endPoints conns (Send connIx payload : cmds) = do
-          case conns !! connIx of
-            Left  _err -> return ()
-            Right conn -> void $ send conn payload
-          threadDelay 10000
-          go endPoints conns cmds
-        go endPoints conns (BreakAfterReads n i j : cmds) = do
-          sock <- socketBetween transportInternals (address (endPoints !! i)) (address (endPoints !! j))
-          scheduleReadAction sock n (putStrLn "Closing" >> sClose sock)  
-          go endPoints conns cmds
+    applyEvent :: ExpEvent -> ExpEvent
+    applyEvent (ExpConnectionOpened connId) = ExpConnectionOpened (applyVar connId)
+    applyEvent (ExpConnectionClosed connId) = ExpConnectionClosed (applyVar connId)
+    applyEvent (ExpReceived connId payload) = ExpReceived (applyVar connId) payload
 
-    forwardTo :: Chan (Maybe (EndPointIx, Event)) -> (EndPointIx, EndPoint) -> IO ()
-    forwardTo chan (ix, endPoint) = go
-      where
-        go :: IO ()
-        go = do
-          ev <- receive endPoint
-          case ev of
-            EndPointClosed -> return () 
-            _              -> writeChan chan (Just (ix, ev)) >> go 
+    applyVar :: Variable ConnectionId -> Variable ConnectionId
+    applyVar (Value connId) = Value connId
+    applyVar (Variable x)   = case Map.lookup x subst of 
+                                Just connId -> Value connId
+                                Nothing     -> Variable x
 
-    collectAll :: Chan (Maybe (EndPointIx, Event)) -> IO (Map EndPointIx [Event]) 
-    collectAll chan = go Map.empty 
-      where
-        go :: Map Int [Event] -> IO (Map Int [Event])
-        go acc = do
-          mEv <- readChan chan
-          case mEv of
-            Nothing       -> return $ Map.map reverse acc
-            Just (ix, ev) -> go (Map.alter (insertEvent ev) ix acc)
+-- | Return all possible reorderings of a list of expected events
+--
+-- Events from different connections can be reordered, but events from the 
+-- same connection cannot.
+reorder :: [ExpEvent] -> [[ExpEvent]]
+reorder = go
+  where
+    go :: [ExpEvent] -> [[ExpEvent]]
+    go []         = [[]]
+    go (ev : evs) = concat [insert ev evs' | evs' <- reorder evs]
 
-    insertEvent :: Event -> Maybe [Event] -> Maybe [Event]
-    insertEvent ev Nothing    = Just [ev]
-    insertEvent ev (Just evs) = Just (ev : evs)
+    insert :: ExpEvent -> [ExpEvent] -> [[ExpEvent]]
+    insert ev [] = [[ev]]
+    insert ev (ev' : evs') 
+      | connectionId ev == connectionId ev' = [ev : ev' : evs']
+      | otherwise = (ev : ev' : evs') : [ev' : evs'' | evs'' <- insert ev evs']
 
---------------------------------------------------------------------------------
--- Verification                                                               --
---------------------------------------------------------------------------------
-
-data VerificationState = VerificationState {
-     endPointAddrs :: [EndPointAddress]
-  , _connections   :: [(SourceEndPointIx, TargetEndPointIx, ConnectionId)]
-  , _mayBreak      :: [(SourceEndPointIx, TargetEndPointIx)]
-  }
-
-initialVerificationState :: [EndPointAddress] -> VerificationState
-initialVerificationState addrs = VerificationState {
-    endPointAddrs = addrs
-  , _connections  = []
-  , _mayBreak     = []
-  }
-
--- TODO: we currently have no way to verify addresses in ConnectionOpened
--- or EventConnectionLost (because we don't know the addresses of the endpoints)
-verify :: VerificationState -> Script -> Map EndPointIx [Event] -> Maybe String 
-verify _st [] evs = 
-  -- TODO: we should compare the error events against mayBreak, but we 
-  -- cannot because we don't know the endpoint addresses
-  if removeErrorEvents (concat (Map.elems evs)) == [] 
-     then Nothing
-     else Just $ "Unexpected events: " ++ show evs
-verify st (NewEndPoint : cmds) evs =
-  verify st cmds evs
-verify st (Connect fr to : cmds) evs =
-  case destruct evs to of
-    Just (ConnectionOpened connId _rel _addr, evs') ->
-      verify (connections ^: snoc (fr, to, connId) $ st) cmds evs'
-    ev -> 
-      Just $ "Missing (ConnectionOpened <<connId>> <<rel>> <<addr>>). Got " ++ show ev
-verify st (Close connIx : cmds) evs = 
-  let (_fr, to, connId) = st ^. connectionAt connIx in
-  case destruct evs to of
-    Just (ConnectionClosed connId', evs') | connId' == connId ->
-      verify st cmds evs' 
-    ev -> 
-      Just $ "Missing (ConnectionClosed " ++ show connId ++ "). Got " ++ show ev
-verify st (Send connIx payload : cmds) evs = 
-  let (fr, to, connId) = st ^. connectionAt connIx in
-  case destruct evs to of
-    Just (Received connId' payload', evs') | connId' == connId && BSS.concat payload == BSS.concat payload' ->
-      verify st cmds evs' 
-    Just (ErrorEvent (TransportError (EventConnectionLost _addr) _), evs') | st ^. mayBreak fr to -> 
-      verify st cmds evs'
-    ev -> 
-      Just $ "Missing (Received " ++ show connId ++ " " ++ show payload ++ "). Got " ++ show ev
-verify st (BreakAfterReads _n i j : cmds) evs = 
-  verify (mayBreak i j ^= True $ st) cmds evs
-
-connections :: Accessor VerificationState [(SourceEndPointIx, TargetEndPointIx, ConnectionId)]
-connections = accessor _connections (\cs st -> st { _connections = cs })
-
-connectionAt :: ConnectionIx -> Accessor VerificationState (SourceEndPointIx, TargetEndPointIx, ConnectionId)
-connectionAt i = connections >>> listAccessor i 
-
-mayBreak :: EndPointIx -> EndPointIx -> Accessor VerificationState Bool
-mayBreak i j = accessor
-  (\st -> (i, j) `elem` _mayBreak st || (j, i) `elem` _mayBreak st)
-  (\b st -> if b then st { _mayBreak = (i, j) : _mayBreak st }
-                 else st { _mayBreak = delete (i, j) . delete (j, i) $ _mayBreak st })
-
-removeErrorEvents :: [Event] -> [Event]
-removeErrorEvents [] = []
-removeErrorEvents (ErrorEvent _ : evs) = removeErrorEvents evs
-removeErrorEvents (ev : evs) = ev : removeErrorEvents evs
+    connectionId :: ExpEvent -> Variable ConnectionId
+    connectionId (ExpConnectionOpened connId) = connId
+    connectionId (ExpConnectionClosed connId) = connId
+    connectionId (ExpReceived connId _)       = connId
 
 --------------------------------------------------------------------------------
 -- Script generators                                                          --
@@ -472,21 +493,61 @@ testScriptGen transport scriptGen =
   forAll scriptGen $ \script -> 
     morallyDubiousIOProperty $ do 
       logShow script 
-      (evs, vst) <- execScript transport script 
-      return $ case verify vst script evs of
-        Nothing  -> result { ok     = Just True 
-                           }
-        Just err -> result { ok     = Just False
-                           , reason = '\n' : err ++ "\nAll events: " ++ show evs 
+      mErr <- verify transport script
+      return $ case mErr of
+        Right () -> result { ok     = Just True }
+        Left err -> result { ok     = Just False
+                           , reason = '\n' : err ++ "\n"
                            }
 
 testScript :: (Transport, TransportInternals) -> Script -> Assertion
 testScript transport script = do
   logShow script 
-  (evs, vst) <- execScript transport script 
-  case verify vst script evs of
-    Just err -> assertFailure $ "Failed with script " ++ show script ++ ": " ++ err ++ "\nAll events: " ++ show evs
-    Nothing  -> return ()
+  mErr <- verify transport script
+  case mErr of
+    Left err -> assertFailure $ "Failed with script " ++ show script ++ ": " ++ err ++ "\n"
+    Right () -> return ()
+
+--------------------------------------------------------------------------------
+-- Accessors                                                                  --
+--------------------------------------------------------------------------------
+
+endPoints :: Accessor RunState [EndPoint]
+endPoints = accessor _endPoints (\es st -> st { _endPoints = es })
+
+endPointAtIx :: EndPointIx -> Accessor RunState EndPoint
+endPointAtIx i = endPoints >>> listAccessor i
+
+connections :: Accessor RunState [(TargetAddress, Connection, Variable ConnectionId)]
+connections = accessor _connections (\cs st -> st { _connections = cs })
+
+connectionAt :: ConnectionIx -> Accessor RunState (TargetAddress, Connection, Variable ConnectionId)
+connectionAt i = connections >>> listAccessor i
+
+expectedEvents :: Accessor RunState (Map EndPointAddress [ExpEvent])
+expectedEvents = accessor _expectedEvents (\es st -> st { _expectedEvents = es })
+
+expectedEventsAt :: EndPointAddress -> Accessor RunState [ExpEvent]
+expectedEventsAt addr = expectedEvents >>> DAC.mapDefault [] addr
+
+forwardingThreads :: Accessor RunState [ThreadId]
+forwardingThreads = accessor _forwardingThreads (\ts st -> st { _forwardingThreads = ts })
+
+--------------------------------------------------------------------------------
+-- Pretty-printing                                                            --
+--------------------------------------------------------------------------------
+
+verticalList :: Show a => [a] -> PP.Doc
+verticalList = PP.brackets . PP.vcat . map (PP.text . show)
+
+instance Show Script where
+  show = ("\n" ++) . show . verticalList 
+
+instance Show [Event] where
+  show = ("\n" ++) . show . verticalList
+
+instance Show [ExpEvent] where
+  show = ("\n" ++) . show . verticalList
 
 --------------------------------------------------------------------------------
 -- Draw random values from probability distributions                          --
@@ -529,13 +590,6 @@ log = appendFile "log" . (++ "\n")
 logShow :: Show a => a -> IO ()
 logShow = log . show
 
-throwIfLeft :: Exception a => IO (Either a b) -> IO b
-throwIfLeft p = do
-  mb <- p
-  case mb of
-    Left a  -> throwIO a
-    Right b -> return b
-
 instance Arbitrary ByteString where
   arbitrary = do
     len <- chooseFrom' (NormalD { mean = 5, stdDev = 10 }) (0, 100) 
@@ -548,8 +602,5 @@ listAccessor i = accessor (!! i) (error "listAccessor.set not defined")
 snoc :: a -> [a] -> [a]
 snoc x xs = xs ++ [x]
 
-destruct :: Map EndPointIx [Event] -> EndPointIx -> Maybe (Event, Map EndPointIx [Event])
-destruct evs i = 
-  case evs Map.! i of
-    []        -> Nothing
-    ev : evs' -> Just (ev, Map.insert i evs' evs) 
+groupByKey :: Ord a => [(a, b)] -> Map a [b]
+groupByKey = Map.fromListWith (++) . map (second return) 
