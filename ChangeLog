@@ -1,3 +1,8 @@
+2012-10-19  Edsko de Vries  <edsko@well-typed.com>  0.3.1
+
+* Bugfix. Reconnecting between endpoints did not work under certain
+circumstances.
+
 2012-10-03  Edsko de Vries  <edsko@well-typed.com>  0.3.0
 
 * Implement new disconnection semantics

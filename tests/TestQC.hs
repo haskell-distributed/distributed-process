@@ -27,11 +27,12 @@ import qualified Data.Map as Map
 import Control.Category ((>>>))
 import Control.Arrow (second)
 import Control.Applicative ((<$>))
-import Control.Exception (throwIO)
+import Control.Exception (Exception, throwIO, try)
 import Control.Concurrent (forkIO, threadDelay, ThreadId, killThread)
 import Control.Monad (replicateM, forever, guard)
 import Control.Monad.State.Lazy (StateT, execStateT)
-import Control.Monad.IO.Class (liftIO)
+import Control.Monad.IO.Class (MonadIO, liftIO)
+import Data.Typeable (Typeable)
 import Data.Maybe (isJust)
 import Data.List (inits)
 import Data.ByteString (ByteString)
@@ -48,10 +49,8 @@ import Network.Transport
 import Network.Transport.TCP 
   ( createTransportExposeInternals
   , defaultTCPParameters
-  , TransportInternals(socketBetween)
+  , TransportInternals
   )
-
-import Network.Transport.TCP.Mock.Socket (scheduleReadAction, sClose)
 
 --------------------------------------------------------------------------------
 -- Script infrastructure                                                      --
@@ -124,7 +123,7 @@ initialRunState = RunState {
   }
 
 verify :: (Transport, TransportInternals) -> Script -> IO (Either String ())
-verify (transport, transportInternals) script = do
+verify (transport, _transportInternals) script = do
   allEvents <- newQ
 
   let runScript :: Script -> StateT RunState IO ()
@@ -162,6 +161,8 @@ verify (transport, transportInternals) script = do
           Right () -> return ()
           Left err -> liftIO $ throwIO err
         modify (expectedEventsAt target) (snoc (ExpReceived connId payload))
+      runCmd (BreakAfterReads _n _i _j) =
+        expectedFailure "BreakAfterReads not implemented"
  
       forward :: EndPoint -> IO ()
       forward endPoint = forever $ do
@@ -493,20 +494,30 @@ testScriptGen transport scriptGen =
   forAll scriptGen $ \script -> 
     morallyDubiousIOProperty $ do 
       logShow script 
-      mErr <- verify transport script
+      mErr <- try $ verify transport script
       return $ case mErr of
-        Right () -> result { ok     = Just True }
-        Left err -> result { ok     = Just False
-                           , reason = '\n' : err ++ "\n"
-                           }
+        Left (ExpectedFailure str) ->
+          result { ok     = Nothing
+                 , reason = str
+                 }
+        Right (Left err) ->
+          result { ok     = Just False
+                 , reason = '\n' : err ++ "\n"
+                 }
+        Right (Right ()) ->
+          result { ok = Just True }
 
 testScript :: (Transport, TransportInternals) -> Script -> Assertion
 testScript transport script = do
   logShow script 
-  mErr <- verify transport script
+  mErr <- try $ verify transport script
   case mErr of
-    Left err -> assertFailure $ "Failed with script " ++ show script ++ ": " ++ err ++ "\n"
-    Right () -> return ()
+    Left (ExpectedFailure _str) -> 
+      return ()
+    Right (Left err) -> 
+       assertFailure $ "Failed with script " ++ show script ++ ": " ++ err ++ "\n"
+    Right (Right ()) ->
+      return ()
 
 --------------------------------------------------------------------------------
 -- Accessors                                                                  --
@@ -604,3 +615,14 @@ snoc x xs = xs ++ [x]
 
 groupByKey :: Ord a => [(a, b)] -> Map a [b]
 groupByKey = Map.fromListWith (++) . map (second return) 
+
+--------------------------------------------------------------------------------
+-- Expected failures (can't find explicit support for this in test-framework) --
+--------------------------------------------------------------------------------
+
+data ExpectedFailure = ExpectedFailure String deriving (Typeable, Show)
+
+instance Exception ExpectedFailure
+
+expectedFailure :: MonadIO m => String -> m ()
+expectedFailure = liftIO . throwIO . ExpectedFailure

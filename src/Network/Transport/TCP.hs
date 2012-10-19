@@ -946,7 +946,6 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
             -- that case.
             if lastReceivedId < lastSentId vst
               then do
-                putStrLn "This really shouldn't happen"
                 return (RemoteEndPointClosing resolved vst, Nothing)
               else do
                 removeRemoteEndPoint (ourEndPoint, theirEndPoint)
