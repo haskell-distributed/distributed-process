@@ -59,22 +59,25 @@ Test-Suite TestTCP
 Test-Suite TestQC
   Type:           exitcode-stdio-1.0
   Main-Is:        TestQC.hs
-  Build-Depends:  base >= 4.3 && < 5,
-                  test-framework,
-                  test-framework-quickcheck2,
-                  test-framework-hunit,
-                  QuickCheck,
-                  HUnit,
-                  network-transport,
-                  network-transport-tcp,
-                  containers,
-                  bytestring,
-                  pretty,
-                  data-accessor,
-                  data-accessor-transformers,
-                  mtl,
-                  transformers,
-                  lockfree-queue
+  If flag(use-mock-network)
+    Build-Depends:  base >= 4.3 && < 5,
+                    test-framework,
+                    test-framework-quickcheck2,
+                    test-framework-hunit,
+                    QuickCheck,
+                    HUnit,
+                    network-transport,
+                    network-transport-tcp,
+                    containers,
+                    bytestring,
+                    pretty,
+                    data-accessor,
+                    data-accessor-transformers,
+                    mtl,
+                    transformers,
+                    lockfree-queue
+  Else
+    Buildable: False
   ghc-options:    -threaded -Wall -fno-warn-orphans
   HS-Source-Dirs: tests
   Extensions:     TypeSynonymInstances
@@ -82,3 +85,5 @@ Test-Suite TestQC
                   OverlappingInstances
                   OverloadedStrings
                   DeriveDataTypeable
+                  MultiParamTypeClasses
+                  GeneralizedNewtypeDeriving
