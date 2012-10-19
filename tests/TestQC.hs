@@ -26,7 +26,6 @@ import Test.HUnit (Assertion, assertFailure)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Control.Category ((>>>))
-import Control.Arrow (second)
 import Control.Applicative ((<$>))
 import Control.Exception (Exception, throwIO, try)
 import Control.Concurrent (forkIO, threadDelay, ThreadId, killThread)
@@ -164,6 +163,7 @@ verify (transport, transportInternals) script = do
             tid <- liftIO $ forkIO (forward endPoint) 
             modify endPoints (snoc endPoint)
             modify forwardingThreads (tid :)
+            set (expectedEventsAt (address endPoint)) [] 
           Left err ->
             liftIO $ throwIO err
       runCmd (Connect i j) = do
@@ -235,7 +235,7 @@ verify (transport, transportInternals) script = do
           threadDelay 10000
           mapM_ killThread (st ^. forwardingThreads)
           evs <- go []
-          return (groupByKey evs)
+          return $ groupByKey (map address (st ^. endPoints)) evs
         where
           go acc = do
             mEv <- tryPopR allEvents
@@ -543,12 +543,22 @@ script_BreakSend = [
   ]
 
 -- | Simulate broken network connection during connect
-script_BreakConnect :: Script
-script_BreakConnect = [
+script_BreakConnect1 :: Script
+script_BreakConnect1 = [
     NewEndPoint
   , NewEndPoint
   , Connect 0 1
   , BreakAfterReads 1 1 0
+  , Connect 0 1
+  ]
+
+-- | Simulate broken network connection during connect
+script_BreakConnect2 :: Script
+script_BreakConnect2 = [
+    NewEndPoint
+  , NewEndPoint
+  , Connect 0 1
+  , BreakAfterReads 1 0 1
   , Connect 0 1
   ]
 
@@ -578,16 +588,24 @@ basicTests transport numEndPoints trans = [
 
 tests :: (Transport, TransportInternals) -> [Test]
 tests transport = [
-      testGroup "Specific scripts" [
-        testOne "Bug1"               transport script_Bug1
-      , testOne "BreakSend"          transport script_BreakSend
-      , testOne "BreakConnect"       transport script_BreakConnect
-      , testOne "BreakSendReconnect" transport script_BreakSendReconnect
-      ]
-    , testGroup "One endpoint, with delays"    (basicTests transport 1 id) 
-    , testGroup "Two endpoints, with delays"   (basicTests transport 2 id) 
-    , testGroup "Three endpoints, with delays" (basicTests transport 3 id)
-    , testGroup "Four endpoints, with delay, single error" (basicTests transport 4 (withErrors 1))
+      testGroup "Regression tests" [
+          testOne "Bug1" transport script_Bug1
+        ]
+    , testGroup "Specific scripts" [
+          testOne "BreakSend"          transport script_BreakSend
+        , testOne "BreakConnect1"      transport script_BreakConnect1
+        , testOne "BreakConnect2"      transport script_BreakConnect2
+        , testOne "BreakSendReconnect" transport script_BreakSendReconnect
+        ]
+    , testGroup "Without errors" [
+          testGroup "One endpoint, with delays"    (basicTests transport 1 id) 
+        , testGroup "Two endpoints, with delays"   (basicTests transport 2 id) 
+        , testGroup "Three endpoints, with delays" (basicTests transport 3 id)
+        ]
+    , testGroup "Single error" [
+          testGroup "Two endpoints, with delays"   (basicTests transport 2 (withErrors 1)) 
+        , testGroup "Three endpoints, with delays" (basicTests transport 3 (withErrors 1))
+        ]
     ]
   where
 
@@ -696,6 +714,16 @@ instance Show [Event] where
 instance Show [ExpEvent] where
   show = ("\n" ++) . show . verticalList
 
+instance Show (Map EndPointAddress [ExpEvent]) where
+  show = ("\n" ++) . show . PP.brackets . PP.vcat 
+       . map (\(addr, evs) -> PP.hcat . PP.punctuate PP.comma $ [PP.text (show addr), verticalList evs]) 
+       . Map.toList
+
+instance Show (Map EndPointAddress [Event]) where
+  show = ("\n" ++) . show . PP.brackets . PP.vcat 
+       . map (\(addr, evs) -> PP.hcat . PP.punctuate PP.comma $ [PP.text (show addr), verticalList evs]) 
+       . Map.toList
+
 --------------------------------------------------------------------------------
 -- Draw random values from probability distributions                          --
 --------------------------------------------------------------------------------
@@ -749,8 +777,11 @@ listAccessor i = accessor (!! i) (error "listAccessor.set not defined")
 snoc :: a -> [a] -> [a]
 snoc x xs = xs ++ [x]
 
-groupByKey :: Ord a => [(a, b)] -> Map a [b]
-groupByKey = Map.fromListWith (++) . map (second return) 
+groupByKey :: Ord a => [a] -> [(a, b)] -> Map a [b]
+groupByKey keys = go (Map.fromList [(key, []) | key <- keys])
+  where
+    go acc [] = Map.map reverse acc 
+    go acc ((key, val) : rest) = go (Map.adjust (val :) key acc) rest 
 
 --------------------------------------------------------------------------------
 -- Expected failures (can't find explicit support for this in test-framework) --
