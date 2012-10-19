@@ -103,13 +103,20 @@ instance Show a => Show (Variable a) where
   show (Value x) = show x
   show (Variable u) = "<<" ++ show (hashUnique u) ++ ">>"
 
-type BundleId = Int
+-- | In the implementation "bundles" are purely a conceptual idea, but in the
+-- verifier we need to concretize this notion
+--
+-- Invariant: first endpoint address < second endpoint address
+type BundleId = (EndPointAddress, EndPointAddress, Int) 
+
+incrementBundleId :: BundleId -> BundleId
+incrementBundleId (a, b, i) = (a, b, i + 1)
 
 data ConnectionInfo = ConnectionInfo {
-    source       :: EndPointAddress
-  , target       :: EndPointAddress
-  , connectionId :: Variable ConnectionId
-  , bundleId     :: BundleId
+    source           :: EndPointAddress
+  , target           :: EndPointAddress
+  , connectionId     :: Variable ConnectionId
+  , connectionBundle :: BundleId
   }
   deriving Show
  
@@ -125,9 +132,10 @@ data RunState = RunState {
   , _connections       :: [(Connection, ConnectionInfo)]
   , _expectedEvents    :: Map EndPointAddress [ExpEvent]
   , _forwardingThreads :: [ThreadId]
+    -- | Invariant: not mayBreak && broken
   , _mayBreak          :: Set BundleId
   , _broken            :: Set BundleId
-  , _currentBundle     :: BundleId
+  , _currentBundle     :: Map (EndPointAddress, EndPointAddress) BundleId 
   }
 
 initialRunState :: RunState 
@@ -138,7 +146,7 @@ initialRunState = RunState {
   , _forwardingThreads = []
   , _mayBreak          = Set.empty 
   , _broken            = Set.empty
-  , _currentBundle     = 0
+  , _currentBundle     = Map.empty 
   }
 
 verify :: (Transport, TransportInternals) -> Script -> IO (Either String ())
@@ -153,8 +161,8 @@ verify (transport, transportInternals) script = do
         mEndPoint <- liftIO $ newEndPoint transport
         case mEndPoint of
           Right endPoint -> do
-            modify endPoints (snoc endPoint)
             tid <- liftIO $ forkIO (forward endPoint) 
+            modify endPoints (snoc endPoint)
             modify forwardingThreads (tid :)
           Left err ->
             liftIO $ throwIO err
@@ -162,23 +170,24 @@ verify (transport, transportInternals) script = do
         endPointA <- get (endPointAtIx i)
         endPointB <- address <$> get (endPointAtIx j)
         mConn <- liftIO $ connect endPointA endPointB ReliableOrdered defaultConnectHints
+        let bundleId = currentBundle (address endPointA) endPointB
         case mConn of
           Right conn -> do
-            bundleBroken <- get currentBundle >>= get . broken
+            bundleBroken <- get bundleId >>= get . broken
             currentBundleId <- if bundleBroken 
-              then modify currentBundle (+ 1) >> get currentBundle
-              else get currentBundle
+              then modify bundleId incrementBundleId >> get bundleId
+              else get bundleId 
             connId <- Variable <$> liftIO newUnique 
             let connInfo = ConnectionInfo {
-                               source       = address endPointA
-                             , target       = endPointB
-                             , connectionId = connId
-                             , bundleId     = currentBundleId
+                               source           = address endPointA
+                             , target           = endPointB
+                             , connectionId     = connId
+                             , connectionBundle = currentBundleId
                              }
             modify connections (snoc (conn, connInfo))
             modify (expectedEventsAt endPointB) (snoc (ExpConnectionOpened connInfo))
           Left err -> do
-            currentBundleId <- get currentBundle
+            currentBundleId <- get bundleId 
             expectingBreak  <- get $ mayBreak currentBundleId
             if expectingBreak 
               then do
@@ -196,12 +205,12 @@ verify (transport, transportInternals) script = do
         case mResult of
           Right () -> return ()
           Left err -> do
-            expectingBreak <- get $ mayBreak (bundleId connInfo)
-            isBroken       <- get $ broken (bundleId connInfo)
+            expectingBreak <- get $ mayBreak (connectionBundle connInfo)
+            isBroken       <- get $ broken (connectionBundle connInfo)
             if expectingBreak || isBroken
               then do
-                set (mayBreak (bundleId connInfo)) False
-                set (broken (bundleId connInfo)) True
+                set (mayBreak (connectionBundle connInfo)) False
+                set (broken (connectionBundle connInfo)) True
               else 
                 liftIO $ throwIO err
         modify (expectedEventsAt (target connInfo)) (snoc (ExpReceived connInfo payload))
@@ -211,7 +220,7 @@ verify (transport, transportInternals) script = do
         liftIO $ do
           sock <- socketBetween transportInternals endPointA endPointB
           scheduleReadAction sock n (sClose sock)
-        currentBundleId <- get currentBundle
+        currentBundleId <- get (currentBundle endPointA endPointB)
         set (mayBreak currentBundleId) True
         modify (expectedEventsAt endPointA) (snoc (ExpConnectionLost currentBundleId endPointB))
         modify (expectedEventsAt endPointB) (snoc (ExpConnectionLost currentBundleId endPointA))
@@ -291,9 +300,9 @@ possibleTraces = go
     removeBundle bid = filter ((/= bid) . eventBundleId) 
 
     eventBundleId :: ExpEvent -> BundleId
-    eventBundleId (ExpConnectionOpened connInfo) = bundleId connInfo
-    eventBundleId (ExpConnectionClosed connInfo) = bundleId connInfo
-    eventBundleId (ExpReceived connInfo _)       = bundleId connInfo
+    eventBundleId (ExpConnectionOpened connInfo) = connectionBundle connInfo
+    eventBundleId (ExpConnectionClosed connInfo) = connectionBundle connInfo
+    eventBundleId (ExpReceived connInfo _)       = connectionBundle connInfo
     eventBundleId (ExpConnectionLost bid _)      = bid
       
     eventConnId :: ExpEvent -> Maybe (Variable ConnectionId) 
@@ -543,6 +552,18 @@ script_BreakConnect = [
   , Connect 0 1
   ]
 
+-- | Simulate broken send, then reconnect
+script_BreakSendReconnect :: Script
+script_BreakSendReconnect = [
+    NewEndPoint
+  , NewEndPoint
+  , Connect 0 1
+  , BreakAfterReads 1 1 0
+  , Send 0 ["ping1"]
+  , Connect 0 1
+  , Send 1 ["ping2"]
+  ]
+
 --------------------------------------------------------------------------------
 -- Main application driver                                                    --
 --------------------------------------------------------------------------------
@@ -558,9 +579,10 @@ basicTests transport numEndPoints trans = [
 tests :: (Transport, TransportInternals) -> [Test]
 tests transport = [
       testGroup "Specific scripts" [
-        testOne "Bug1"         transport script_Bug1
-      , testOne "BreakSend"    transport script_BreakSend
-      , testOne "BreakConnect" transport script_BreakConnect
+        testOne "Bug1"               transport script_Bug1
+      , testOne "BreakSend"          transport script_BreakSend
+      , testOne "BreakConnect"       transport script_BreakConnect
+      , testOne "BreakSendReconnect" transport script_BreakSendReconnect
       ]
     , testGroup "One endpoint, with delays"    (basicTests transport 1 id) 
     , testGroup "Two endpoints, with delays"   (basicTests transport 2 id) 
@@ -651,8 +673,12 @@ broken bid = aux >>> DAC.set bid
     aux :: Accessor RunState (Set BundleId)
     aux = accessor _broken (\bs st -> st { _broken = bs })
 
-currentBundle :: Accessor RunState BundleId
-currentBundle = accessor _currentBundle (\bid st -> st { _currentBundle = bid })
+currentBundle :: EndPointAddress -> EndPointAddress -> Accessor RunState BundleId
+currentBundle i j = aux >>> if i < j then DAC.mapDefault (i, j, 0) (i, j)
+                                     else DAC.mapDefault (j, i, 0) (j, i)
+  where
+    aux :: Accessor RunState (Map (EndPointAddress, EndPointAddress) BundleId)
+    aux = accessor _currentBundle (\mp st -> st { _currentBundle = mp })
 
 --------------------------------------------------------------------------------
 -- Pretty-printing                                                            --
