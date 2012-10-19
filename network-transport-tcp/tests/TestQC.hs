@@ -241,7 +241,7 @@ verify (transport, transportInternals) script = do
             mEv <- tryPopR allEvents
             case mEv of
               Just ev -> go (ev : acc)
-              Nothing -> return acc 
+              Nothing -> return (reverse acc) 
         
   st <- execStateT (runScript script) initialRunState 
   actualEvents <- collectEvents st
@@ -532,6 +532,18 @@ script_Bug1 = [
   , Connect 1 0
   ]
 
+-- | Test ordering of sends
+script_MultipleSends :: Script
+script_MultipleSends = [
+    NewEndPoint
+  , Connect 0 0
+  , Send 0 ["A"]
+  , Send 0 ["B"]
+  , Send 0 ["C"]
+  , Send 0 ["D"]
+  , Send 0 ["E"]
+  ]
+
 -- | Simulate broken network connection during send 
 script_BreakSend :: Script
 script_BreakSend = [
@@ -592,7 +604,8 @@ tests transport = [
           testOne "Bug1" transport script_Bug1
         ]
     , testGroup "Specific scripts" [
-          testOne "BreakSend"          transport script_BreakSend
+          testOne "BreakMultipleSends" transport script_MultipleSends
+        , testOne "BreakSend"          transport script_BreakSend
         , testOne "BreakConnect1"      transport script_BreakConnect1
         , testOne "BreakConnect2"      transport script_BreakConnect2
         , testOne "BreakSendReconnect" transport script_BreakSendReconnect
