@@ -5,6 +5,7 @@ module Main
   , logShow
   , forAllShrink
   , inits
+  , expectedFailure
   ) where
 
 import Prelude hiding (log)
@@ -29,8 +30,8 @@ import Control.Arrow (second)
 import Control.Applicative ((<$>))
 import Control.Exception (Exception, throwIO, try)
 import Control.Concurrent (forkIO, threadDelay, ThreadId, killThread)
-import Control.Monad (replicateM, forever, guard)
-import Control.Monad.State.Lazy (StateT, execStateT)
+import Control.Monad (MonadPlus(..), replicateM, forever, guard)
+import Control.Monad.State (StateT, execStateT)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Typeable (Typeable)
 import Data.Maybe (isJust)
@@ -38,19 +39,22 @@ import Data.List (inits)
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 (pack)
 import Data.Accessor (Accessor, accessor, (^.))
-import Data.Accessor.Monad.Trans.State (get, modify)
-import qualified Data.Accessor.Container as DAC (mapDefault)
+import Data.Accessor.Monad.Trans.State (get, set, modify)
+import qualified Data.Accessor.Container as DAC (set, mapDefault)
 import qualified Data.ByteString as BSS (concat)
 import qualified Text.PrettyPrint as PP
 import Data.Unique (Unique, newUnique, hashUnique)
 import Data.Concurrent.Queue.MichaelScott (newQ, pushL, tryPopR)
+import Data.Set (Set)
+import qualified Data.Set as Set
 
 import Network.Transport
 import Network.Transport.TCP 
   ( createTransportExposeInternals
   , defaultTCPParameters
-  , TransportInternals
+  , TransportInternals(socketBetween)
   )
+import Network.Transport.TCP.Mock.Socket (scheduleReadAction, sClose)
 
 --------------------------------------------------------------------------------
 -- Script infrastructure                                                      --
@@ -99,31 +103,46 @@ instance Show a => Show (Variable a) where
   show (Value x) = show x
   show (Variable u) = "<<" ++ show (hashUnique u) ++ ">>"
 
-data ExpEvent =
-    ExpConnectionOpened (Variable ConnectionId)
-  | ExpConnectionClosed (Variable ConnectionId)
-  | ExpReceived (Variable ConnectionId) [ByteString]
-  deriving Show
+type BundleId = Int
 
-type TargetAddress = EndPointAddress
+data ConnectionInfo = ConnectionInfo {
+    source       :: EndPointAddress
+  , target       :: EndPointAddress
+  , connectionId :: Variable ConnectionId
+  , bundleId     :: BundleId
+  }
+  deriving Show
+ 
+data ExpEvent =
+    ExpConnectionOpened ConnectionInfo
+  | ExpConnectionClosed ConnectionInfo 
+  | ExpReceived ConnectionInfo [ByteString]
+  | ExpConnectionLost BundleId EndPointAddress
+  deriving Show
 
 data RunState = RunState {
     _endPoints         :: [EndPoint]
-  , _connections       :: [(TargetAddress, Connection, Variable ConnectionId)]
+  , _connections       :: [(Connection, ConnectionInfo)]
   , _expectedEvents    :: Map EndPointAddress [ExpEvent]
   , _forwardingThreads :: [ThreadId]
+  , _mayBreak          :: Set BundleId
+  , _broken            :: Set BundleId
+  , _currentBundle     :: BundleId
   }
 
 initialRunState :: RunState 
 initialRunState = RunState {
-    _endPoints      = []
-  , _connections    = []
-  , _expectedEvents = Map.empty
+    _endPoints         = []
+  , _connections       = []
+  , _expectedEvents    = Map.empty
   , _forwardingThreads = []
+  , _mayBreak          = Set.empty 
+  , _broken            = Set.empty
+  , _currentBundle     = 0
   }
 
 verify :: (Transport, TransportInternals) -> Script -> IO (Either String ())
-verify (transport, _transportInternals) script = do
+verify (transport, transportInternals) script = do
   allEvents <- newQ
 
   let runScript :: Script -> StateT RunState IO ()
@@ -145,24 +164,57 @@ verify (transport, _transportInternals) script = do
         mConn <- liftIO $ connect endPointA endPointB ReliableOrdered defaultConnectHints
         case mConn of
           Right conn -> do
+            bundleBroken <- get currentBundle >>= get . broken
+            currentBundleId <- if bundleBroken 
+              then modify currentBundle (+ 1) >> get currentBundle
+              else get currentBundle
             connId <- Variable <$> liftIO newUnique 
-            modify connections (snoc (endPointB, conn, connId))
-            modify (expectedEventsAt endPointB) (snoc (ExpConnectionOpened connId))
-          Left err ->
-            liftIO $ throwIO err
+            let connInfo = ConnectionInfo {
+                               source       = address endPointA
+                             , target       = endPointB
+                             , connectionId = connId
+                             , bundleId     = currentBundleId
+                             }
+            modify connections (snoc (conn, connInfo))
+            modify (expectedEventsAt endPointB) (snoc (ExpConnectionOpened connInfo))
+          Left err -> do
+            currentBundleId <- get currentBundle
+            expectingBreak  <- get $ mayBreak currentBundleId
+            if expectingBreak 
+              then do
+                set (mayBreak currentBundleId) False
+                set (broken currentBundleId) True
+              else
+                liftIO $ throwIO err
       runCmd (Close i) = do
-        (target, conn, connId) <- get (connectionAt i)
-        liftIO $ close conn
-        modify (expectedEventsAt target) (snoc (ExpConnectionClosed connId))
+        (conn, connInfo) <- get (connectionAt i)
+        liftIO $ close conn 
+        modify (expectedEventsAt (target connInfo)) (snoc (ExpConnectionClosed connInfo))
       runCmd (Send i payload) = do
-        (target, conn, connId) <- get (connectionAt i)
+        (conn, connInfo) <- get (connectionAt i)
         mResult <- liftIO $ send conn payload
         case mResult of
           Right () -> return ()
-          Left err -> liftIO $ throwIO err
-        modify (expectedEventsAt target) (snoc (ExpReceived connId payload))
-      runCmd (BreakAfterReads _n _i _j) =
-        expectedFailure "BreakAfterReads not implemented"
+          Left err -> do
+            expectingBreak <- get $ mayBreak (bundleId connInfo)
+            isBroken       <- get $ broken (bundleId connInfo)
+            if expectingBreak || isBroken
+              then do
+                set (mayBreak (bundleId connInfo)) False
+                set (broken (bundleId connInfo)) True
+              else 
+                liftIO $ throwIO err
+        modify (expectedEventsAt (target connInfo)) (snoc (ExpReceived connInfo payload))
+      runCmd (BreakAfterReads n i j) = do
+        endPointA <- address <$> get (endPointAtIx i)
+        endPointB <- address <$> get (endPointAtIx j)
+        liftIO $ do
+          sock <- socketBetween transportInternals endPointA endPointB
+          scheduleReadAction sock n (sClose sock)
+        currentBundleId <- get currentBundle
+        set (mayBreak currentBundleId) True
+        modify (expectedEventsAt endPointA) (snoc (ExpConnectionLost currentBundleId endPointB))
+        modify (expectedEventsAt endPointB) (snoc (ExpConnectionLost currentBundleId endPointA))
  
       forward :: EndPoint -> IO ()
       forward endPoint = forever $ do
@@ -185,7 +237,7 @@ verify (transport, _transportInternals) script = do
   st <- execStateT (runScript script) initialRunState 
   actualEvents <- collectEvents st
  
-  let eventsMatch = and . map (uncurry match) $ 
+  let eventsMatch = all (uncurry match) $ 
         zip (Map.elems (st ^. expectedEvents))
         (Map.elems actualEvents)
 
@@ -201,68 +253,111 @@ verify (transport, _transportInternals) script = do
 -- | Match a list of expected events to a list of actual events, taking into
 -- account that events may be reordered
 match :: [ExpEvent] -> [Event] -> Bool
-match expected actual = or (map (isJust . flip unify actual) (reorder expected))
+match expected actual = any (`canUnify` actual) (possibleTraces expected)
 
--- | Match a list of expected events to a list of actual events, without doing
--- reordering
-unify :: [ExpEvent] -> [Event] -> Maybe () 
-unify [] [] = return () 
-unify (ExpConnectionOpened connId : expected) (ConnectionOpened connId' _ _ : actual) = do 
-  subst <- unifyConnectionId connId connId' 
-  unify (apply subst expected) actual
-unify (ExpConnectionClosed connId : expected) (ConnectionClosed connId' : actual) = do
-  subst <- unifyConnectionId connId connId'
-  unify (apply subst expected) actual
-unify (ExpReceived connId payload : expected) (Received connId' payload' : actual) = do
-  guard (BSS.concat payload == BSS.concat payload')
-  subst <- unifyConnectionId connId connId'
-  unify (apply subst expected) actual
-unify _ _ = fail "Cannot unify" 
-
-type Substitution a = Map Unique a
-
--- | Match two connection IDs
-unifyConnectionId :: Variable ConnectionId -> ConnectionId -> Maybe (Substitution ConnectionId)
-unifyConnectionId (Variable x)    connId = Just $ Map.singleton x connId
-unifyConnectionId (Value connId') connId | connId == connId' = Just Map.empty
-                                         | otherwise         = Nothing
-
--- | Apply a substitution
-apply :: Substitution ConnectionId -> [ExpEvent] -> [ExpEvent]
-apply subst = map applyEvent 
+possibleTraces :: [ExpEvent] -> [[ExpEvent]]
+possibleTraces = go
   where
-    applyEvent :: ExpEvent -> ExpEvent
-    applyEvent (ExpConnectionOpened connId) = ExpConnectionOpened (applyVar connId)
-    applyEvent (ExpConnectionClosed connId) = ExpConnectionClosed (applyVar connId)
-    applyEvent (ExpReceived connId payload) = ExpReceived (applyVar connId) payload
+    go [] = [[]]
+    go (ev@(ExpConnectionLost _ _) : evs) = 
+      [ trace | evs' <- possibleTraces evs, trace <- insertConnectionLost ev evs' ]
+    go (ev : evs) =
+      [ trace | evs' <- possibleTraces evs, trace <- insertEvent ev evs' ]
 
-    applyVar :: Variable ConnectionId -> Variable ConnectionId
-    applyVar (Value connId) = Value connId
-    applyVar (Variable x)   = case Map.lookup x subst of 
-                                Just connId -> Value connId
-                                Nothing     -> Variable x
+    -- We don't know when exactly the error will occur (indeed, it may never
+    -- happen at all), but it must occur before any future connection lost
+    -- event to the same destination.
+    -- If it occurs now, then all other events on this bundle will not happen. 
+    insertConnectionLost :: ExpEvent -> [ExpEvent] -> [[ExpEvent]]
+    insertConnectionLost ev [] = [[ev], []]
+    insertConnectionLost ev@(ExpConnectionLost bid addr) (ev' : evs) =
+      (ev : removeBundle bid (ev' : evs)) :
+      case ev' of
+        ExpConnectionLost _ addr' | addr == addr' -> [] 
+        _ -> [ev' : evs' | evs' <- insertConnectionLost ev evs]
+    insertConnectionLost _ _ = error "The impossible happened"
+   
+    -- All other events can be arbitrarily reordered /across/ connections, but
+    -- never /within/ connections
+    insertEvent :: ExpEvent -> [ExpEvent] -> [[ExpEvent]]
+    insertEvent ev [] = [[ev]]
+    insertEvent ev (ev' : evs) =
+      (ev : ev' : evs) : 
+      if eventConnId ev == eventConnId ev' 
+        then []
+        else [ev' : evs' | evs' <- insertEvent ev evs]
 
--- | Return all possible reorderings of a list of expected events
---
--- Events from different connections can be reordered, but events from the 
--- same connection cannot.
-reorder :: [ExpEvent] -> [[ExpEvent]]
-reorder = go
-  where
-    go :: [ExpEvent] -> [[ExpEvent]]
-    go []         = [[]]
-    go (ev : evs) = concat [insert ev evs' | evs' <- reorder evs]
+    removeBundle :: BundleId -> [ExpEvent] -> [ExpEvent]
+    removeBundle bid = filter ((/= bid) . eventBundleId) 
 
-    insert :: ExpEvent -> [ExpEvent] -> [[ExpEvent]]
-    insert ev [] = [[ev]]
-    insert ev (ev' : evs') 
-      | connectionId ev == connectionId ev' = [ev : ev' : evs']
-      | otherwise = (ev : ev' : evs') : [ev' : evs'' | evs'' <- insert ev evs']
+    eventBundleId :: ExpEvent -> BundleId
+    eventBundleId (ExpConnectionOpened connInfo) = bundleId connInfo
+    eventBundleId (ExpConnectionClosed connInfo) = bundleId connInfo
+    eventBundleId (ExpReceived connInfo _)       = bundleId connInfo
+    eventBundleId (ExpConnectionLost bid _)      = bid
+      
+    eventConnId :: ExpEvent -> Maybe (Variable ConnectionId) 
+    eventConnId (ExpConnectionOpened connInfo) = Just $ connectionId connInfo 
+    eventConnId (ExpConnectionClosed connInfo) = Just $ connectionId connInfo 
+    eventConnId (ExpReceived connInfo _)       = Just $ connectionId connInfo
+    eventConnId (ExpConnectionLost _ _)        = Nothing
 
-    connectionId :: ExpEvent -> Variable ConnectionId
-    connectionId (ExpConnectionOpened connId) = connId
-    connectionId (ExpConnectionClosed connId) = connId
-    connectionId (ExpReceived connId _)       = connId
+--------------------------------------------------------------------------------
+-- Unification                                                                --
+--------------------------------------------------------------------------------
+
+type Substitution = Map Unique ConnectionId 
+
+newtype Unifier a = Unifier { 
+    runUnifier :: Substitution -> Maybe (a, Substitution) 
+  } 
+
+instance Monad Unifier where
+  return x = Unifier $ \subst -> Just (x, subst)
+  x >>= f  = Unifier $ \subst -> case runUnifier x subst of
+                                   Nothing -> Nothing
+                                   Just (a, subst') -> runUnifier (f a) subst'
+  fail _str = mzero                                  
+
+instance MonadPlus Unifier where                                  
+  mzero = Unifier $ const Nothing
+  f `mplus` g = Unifier $ \subst -> case runUnifier f subst of
+                                      Nothing          -> runUnifier g subst
+                                      Just (a, subst') -> Just (a, subst')
+
+class Unify a b where
+  unify :: a -> b -> Unifier () 
+
+canUnify :: Unify a b => a -> b -> Bool
+canUnify a b = isJust $ runUnifier (unify a b) Map.empty
+
+instance Unify Unique ConnectionId where
+  unify x cid = Unifier $ \subst -> 
+    case Map.lookup x subst of
+      Just cid' -> if cid == cid' then Just ((), subst)
+                                  else Nothing
+      Nothing   -> Just ((), Map.insert x cid subst)
+
+instance Unify (Variable ConnectionId) ConnectionId where
+  unify (Variable x)    connId = unify x connId 
+  unify (Value connId') connId = guard $ connId' == connId 
+
+instance Unify ExpEvent Event where
+  unify (ExpConnectionOpened connInfo) (ConnectionOpened connId _ _) =  
+    unify (connectionId connInfo) connId 
+  unify (ExpConnectionClosed connInfo) (ConnectionClosed connId) = 
+    unify (connectionId connInfo) connId
+  unify (ExpReceived connInfo payload) (Received connId payload') = do
+    guard $ BSS.concat payload == BSS.concat payload'
+    unify (connectionId connInfo) connId
+  unify (ExpConnectionLost _ addr) (ErrorEvent (TransportError (EventConnectionLost addr') _)) = 
+    guard $ addr == addr'
+  unify _ _ = fail "Cannot unify" 
+
+instance Unify a b => Unify [a] [b] where
+  unify []     []     = return () 
+  unify (x:xs) (y:ys) = unify x y >> unify xs ys
+  unify _      _      = fail "Cannot unify"
 
 --------------------------------------------------------------------------------
 -- Script generators                                                          --
@@ -360,7 +455,7 @@ withErrors numErrors gen = gen >>= insertError numErrors
       insert <- arbitrary
       if insert && n > 0
         then do
-          numReads <- chooseFrom' (NormalD { mean = 5, stdDev = 10 }) (0, 100)
+          numReads <- chooseFrom' NormalD { mean = 5, stdDev = 10 } (0, 100)
           swap <- arbitrary
           if swap
             then return $ Connect i j : BreakAfterReads numReads j i : cmds
@@ -529,10 +624,10 @@ endPoints = accessor _endPoints (\es st -> st { _endPoints = es })
 endPointAtIx :: EndPointIx -> Accessor RunState EndPoint
 endPointAtIx i = endPoints >>> listAccessor i
 
-connections :: Accessor RunState [(TargetAddress, Connection, Variable ConnectionId)]
+connections :: Accessor RunState [(Connection, ConnectionInfo)]
 connections = accessor _connections (\cs st -> st { _connections = cs })
 
-connectionAt :: ConnectionIx -> Accessor RunState (TargetAddress, Connection, Variable ConnectionId)
+connectionAt :: ConnectionIx -> Accessor RunState (Connection, ConnectionInfo)
 connectionAt i = connections >>> listAccessor i
 
 expectedEvents :: Accessor RunState (Map EndPointAddress [ExpEvent])
@@ -543,6 +638,21 @@ expectedEventsAt addr = expectedEvents >>> DAC.mapDefault [] addr
 
 forwardingThreads :: Accessor RunState [ThreadId]
 forwardingThreads = accessor _forwardingThreads (\ts st -> st { _forwardingThreads = ts })
+
+mayBreak :: BundleId -> Accessor RunState Bool
+mayBreak bid = aux >>> DAC.set bid
+  where
+    aux :: Accessor RunState (Set BundleId)
+    aux = accessor _mayBreak (\bs st -> st { _mayBreak = bs })
+
+broken :: BundleId -> Accessor RunState Bool
+broken bid = aux >>> DAC.set bid
+  where
+    aux :: Accessor RunState (Set BundleId)
+    aux = accessor _broken (\bs st -> st { _broken = bs })
+
+currentBundle :: Accessor RunState BundleId
+currentBundle = accessor _currentBundle (\bid st -> st { _currentBundle = bid })
 
 --------------------------------------------------------------------------------
 -- Pretty-printing                                                            --
@@ -603,7 +713,7 @@ logShow = log . show
 
 instance Arbitrary ByteString where
   arbitrary = do
-    len <- chooseFrom' (NormalD { mean = 5, stdDev = 10 }) (0, 100) 
+    len <- chooseFrom' NormalD { mean = 5, stdDev = 10 } (0, 100) 
     xs  <- replicateM len arbitrary
     return (pack xs)
 
