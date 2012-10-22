@@ -73,6 +73,13 @@
 -- peer nodes. In other words, if you start a node and pass hostname @localhost@
 -- then peer nodes won't be able to reach it because @localhost@ will resolve
 -- to a different IP address for them.
+--
+-- [Troubleshooting]
+--
+-- If you try the above example and the master process cannot find any slaves,
+-- then it might be that your firewall settings do not allow for UDP multicast
+-- (in particular, the default iptables on some Linux distributions might not
+-- allow it).  
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Control.Distributed.Process.Backend.SimpleLocalnet
   ( -- * Initialization 
