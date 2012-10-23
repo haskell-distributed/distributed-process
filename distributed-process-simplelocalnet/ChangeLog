@@ -1,4 +1,4 @@
-<<date>>  Edsko de Vries  <edsko@well-typed.com>  0.2.0.7
+2012-10-23  Edsko de Vries  <edsko@well-typed.com>  0.2.0.7
 
 * Fix cabal script so that the example program compiles
 
