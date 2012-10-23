@@ -146,18 +146,16 @@ import Control.Distributed.Process.Internal.Types
   )
 import Control.Distributed.Process.Serializable (Serializable, SerializableDict)
 import Control.Distributed.Process.Internal.Closure.BuiltIn
-  ( sdictUnit 
-  , sdictSendPort
+  ( sdictSendPort
   , sndStatic
   , idCP
   , seqCP 
   , bindCP 
   , splitCP
   , cpLink
-  , cpUnlink
-  , cpExpect
   , cpSend
   , cpNewChan
+  , cpDelay
   )
 import Control.Distributed.Process.Internal.Primitives
   ( -- Basic messaging
@@ -298,20 +296,15 @@ spawn :: NodeId -> Closure (Process ()) -> Process ProcessId
 spawn nid proc = do
   us   <- getSelfPid
   mRef <- monitorNode nid
-  sRef <- spawnAsync nid $ cpLink us 
-                   `seqCP` cpExpect sdictUnit 
-                   `seqCP` cpUnlink us
-                   `seqCP` proc
-  mPid <- receiveWait 
-    [ matchIf (\(DidSpawn ref _) -> ref == sRef)
-              (\(DidSpawn _ pid) -> return $ Right pid)
-    , matchIf (\(NodeMonitorNotification ref _ _) -> ref == mRef)
-              (\(NodeMonitorNotification _ _ err) -> return $ Left err)
+  sRef <- spawnAsync nid (cpDelay us proc)
+  receiveWait [
+      matchIf (\(DidSpawn ref _) -> ref == sRef) $ \(DidSpawn _ pid) -> do
+        unmonitor mRef
+        send pid ()
+        return pid
+    , matchIf (\(NodeMonitorNotification ref _ _) -> ref == mRef) $ \_ ->
+        return (nullProcessId nid)
     ]
-  unmonitor mRef
-  case mPid of
-    Left _err -> return (nullProcessId nid)
-    Right pid -> send pid () >> return pid
 
 -- | Spawn a process and link to it
 --

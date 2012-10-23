@@ -21,6 +21,8 @@ module Control.Distributed.Process.Internal.Closure.BuiltIn
   , cpSend
   , cpExpect
   , cpNewChan
+    -- * Support for some CH operations
+  , cpDelay
   ) where
 
 import Data.ByteString.Lazy (ByteString)  
@@ -49,6 +51,7 @@ import Control.Distributed.Process.Internal.Types
   , ProcessId
   , SendPort
   , ReceivePort
+  , ProcessMonitorNotification(ProcessMonitorNotification)
   )
 import Control.Distributed.Process.Internal.Primitives 
   ( link
@@ -56,6 +59,11 @@ import Control.Distributed.Process.Internal.Primitives
   , send
   , expect
   , newChan
+  , monitor
+  , unmonitor
+  , match
+  , matchIf
+  , receiveWait
   )
 
 --------------------------------------------------------------------------------
@@ -79,6 +87,7 @@ remoteTable =
     . registerStatic "$newChanDict"     (toDynamic (newChanDict      :: SerializableDict ANY -> Process (SendPort ANY, ReceivePort ANY)))
     . registerStatic "$cpSplit"         (toDynamic (cpSplit          :: (ANY1 -> Process ANY3) -> (ANY2 -> Process ANY4) -> (ANY1, ANY2) -> Process (ANY3, ANY4)))
     . registerStatic "$snd"             (toDynamic (snd              :: (ANY1, ANY2) -> ANY2))
+    . registerStatic "$delay"           (toDynamic delay)
   where
     decodeDict :: forall a. SerializableDict a -> ByteString -> a
     decodeDict SerializableDict = decode
@@ -236,3 +245,33 @@ cpNewChan dict = staticClosure (newChanDictStatic `staticApply` dict)
     newChanDictStatic :: Typeable a 
                       => Static (SerializableDict a -> Process (SendPort a, ReceivePort a))
     newChanDictStatic = staticLabel "$newChanDict"                  
+
+--------------------------------------------------------------------------------
+-- Support for spawn                                                          --
+--------------------------------------------------------------------------------
+
+-- | @delay them p@ is a process that waits for a signal (a message of type @()@)
+-- from 'them' (origin is not verified) before proceeding as @p@. In order to
+-- avoid waiting forever, @delay them p@ monitors 'them'. If it receives a 
+-- monitor message instead it simply terminates.
+delay :: ProcessId -> Process () -> Process ()
+delay them p = do
+  ref <- monitor them
+  let sameRef (ProcessMonitorNotification ref' _ _) = ref == ref'
+  receiveWait [
+      match           $ \() -> unmonitor ref >> p
+    , matchIf sameRef $ \_  -> return ()
+    ]
+
+-- | 'CP' version of 'delay'
+cpDelay :: ProcessId -> Closure (Process ()) -> Closure (Process ())
+cpDelay = closureApply . cpDelay'
+  where
+    cpDelay' :: ProcessId -> Closure (Process () -> Process ())
+    cpDelay' pid = closure decoder (encode pid)
+    
+    decoder :: Static (ByteString -> Process () -> Process ())
+    decoder = delayStatic `staticCompose` decodeProcessIdStatic
+
+    delayStatic :: Static (ProcessId -> Process () -> Process ())
+    delayStatic = staticLabel "$delay"

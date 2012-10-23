@@ -3,7 +3,7 @@ module Main where
 
 import Data.ByteString.Lazy (empty)
 import Data.Typeable (Typeable)
-import Control.Monad (join, replicateM, forever)
+import Control.Monad (join, replicateM, forever, replicateM_, void)
 import Control.Exception (IOException, throw)
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar 
@@ -424,6 +424,22 @@ testSpawnReconnect transport rtable transportInternals = do
 
   takeMVar done
 
+-- | 'spawn' used to ave a race condition which would be triggered if the
+-- spawning process terminates immediately after spawning
+testSpawnTerminate :: Transport -> RemoteTable -> IO ()
+testSpawnTerminate transport rtable = do
+  slave  <- newLocalNode transport rtable 
+  master <- newLocalNode transport rtable 
+  masterDone <- newEmptyMVar
+
+  runProcess master $ do
+    us <- getSelfPid
+    replicateM_ 1000 . spawnLocal . void . spawn (localNodeId slave) $ $(mkClosure 'signal) us
+    replicateM_ 1000 $ (expect :: Process ())
+    liftIO $ putMVar masterDone ()
+
+  takeMVar masterDone
+
 main :: IO ()
 main = do
   Right (transport, transportInternals) <- createTransportExposeInternals "127.0.0.1" "8080" defaultTCPParameters
@@ -444,5 +460,6 @@ main = do
     , ("SpawnChannel",    testSpawnChannel    transport rtable)
     , ("TDict",           testTDict           transport rtable)
     , ("Fib",             testFib             transport rtable)
+    , ("SpawnTerminate",  testSpawnTerminate  transport rtable)
     , ("SpawnReconnect",  testSpawnReconnect  transport rtable transportInternals)
     ]
