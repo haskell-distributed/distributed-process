@@ -6,7 +6,7 @@ License:       BSD3
 License-file:  LICENSE
 Copyright:     Well-Typed LLP
 Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
-Maintainer:    edsko@well-typed.com, dcoutts@well-typed.com
+Maintainer:    edsko@well-typed.com, duncan@well-typed.com
 Stability:     experimental
 Homepage:      http://github.com/haskell-distributed/distributed-process
 Bug-Reports:   mailto:edsko@well-typed.com
