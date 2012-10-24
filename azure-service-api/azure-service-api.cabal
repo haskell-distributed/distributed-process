@@ -17,20 +17,20 @@ Cabal-Version:       >=1.8
 
 Library
   Exposed-Modules:     Network.Azure.ServiceManagement 
-  Build-Depends:       base ==4.5.*,
-                       http-conduit >= 1.6.1 && < 1.7,
+  Build-Depends:       base >= 4.5 && < 5,
+                       http-conduit >= 1.8 && < 1.9,
                        tls >= 1.0 && < 1.1,
                        tls-extra >= 0.5 && < 0.6,
-                       bytestring >= 0.9 && < 1.0,
-                       certificate >= 1.2 && < 1.3,
+                       bytestring >= 0.9 && < 0.11,
+                       certificate >= 1.3 && < 1.4,
                        case-insensitive >= 0.4 && < 0.5,
-                       hxt >= 9.2 && < 9.3,
+                       hxt >= 9.2 && < 9.4,
+                       hxt-xpath >= 9.1 && < 9.2,
                        pretty >= 1.1 && < 1.2,
                        crypto-pubkey-types >= 0.1 && < 0.2, 
-                       binary >= 0.5 && < 0.6, 
-                       resourcet,
-                       transformers,
-                       hxt-xpath
+                       binary >= 0.5 && < 0.7, 
+                       resourcet >= 0.4 && < 0.5,
+                       transformers >= 0.3 && < 0.4
   HS-Source-Dirs:      src
   ghc-options:         -Wall
   Extensions:          RankNTypes
