@@ -161,8 +161,8 @@ verify (transport, transportInternals) script = do
         case mEndPoint of
           Right endPoint -> do
             tid <- liftIO $ forkIO (forward endPoint) 
-            modify endPoints (snoc endPoint)
-            modify forwardingThreads (tid :)
+            append endPoints endPoint 
+            append forwardingThreads tid 
             set (expectedEventsAt (address endPoint)) [] 
           Left err ->
             liftIO $ throwIO err
@@ -184,8 +184,8 @@ verify (transport, transportInternals) script = do
                              , connectionId     = connId
                              , connectionBundle = currentBundleId
                              }
-            modify connections (snoc (conn, connInfo))
-            modify (expectedEventsAt endPointB) (snoc (ExpConnectionOpened connInfo))
+            append connections (conn, connInfo)
+            append (expectedEventsAt endPointB) (ExpConnectionOpened connInfo)
           Left err -> do
             currentBundleId <- get bundleId 
             expectingBreak  <- get $ mayBreak currentBundleId
@@ -198,7 +198,7 @@ verify (transport, transportInternals) script = do
       runCmd (Close i) = do
         (conn, connInfo) <- get (connectionAt i)
         liftIO $ close conn 
-        modify (expectedEventsAt (target connInfo)) (snoc (ExpConnectionClosed connInfo))
+        append (expectedEventsAt (target connInfo)) (ExpConnectionClosed connInfo)
       runCmd (Send i payload) = do
         (conn, connInfo) <- get (connectionAt i)
         mResult <- liftIO $ send conn payload
@@ -213,7 +213,7 @@ verify (transport, transportInternals) script = do
                 set (broken (connectionBundle connInfo)) True
               else 
                 liftIO $ throwIO err
-        modify (expectedEventsAt (target connInfo)) (snoc (ExpReceived connInfo payload))
+        append (expectedEventsAt (target connInfo)) (ExpReceived connInfo payload)
       runCmd (BreakAfterReads n i j) = do
         endPointA <- address <$> get (endPointAtIx i)
         endPointB <- address <$> get (endPointAtIx j)
@@ -222,8 +222,8 @@ verify (transport, transportInternals) script = do
           scheduleReadAction sock n (sClose sock)
         currentBundleId <- get (currentBundle endPointA endPointB)
         set (mayBreak currentBundleId) True
-        modify (expectedEventsAt endPointA) (snoc (ExpConnectionLost currentBundleId endPointB))
-        modify (expectedEventsAt endPointB) (snoc (ExpConnectionLost currentBundleId endPointA))
+        append (expectedEventsAt endPointA) (ExpConnectionLost currentBundleId endPointB)
+        append (expectedEventsAt endPointB) (ExpConnectionLost currentBundleId endPointA)
  
       forward :: EndPoint -> IO ()
       forward endPoint = forever $ do
@@ -586,6 +586,16 @@ script_BreakSendReconnect = [
   , Send 1 ["ping2"]
   ]
 
+script_Foo :: Script
+script_Foo = [
+    NewEndPoint
+  , NewEndPoint
+  , Connect 1 0
+  , BreakAfterReads 2 0 1
+  , Send 0 ["pingpong"]
+  , Connect 0 1
+  ]
+
 --------------------------------------------------------------------------------
 -- Main application driver                                                    --
 --------------------------------------------------------------------------------
@@ -609,6 +619,7 @@ tests transport = [
         , testOne "BreakConnect1"      transport script_BreakConnect1
         , testOne "BreakConnect2"      transport script_BreakConnect2
         , testOne "BreakSendReconnect" transport script_BreakSendReconnect
+        , testOne "Foo"                transport script_Foo
         ]
     , testGroup "Without errors" [
           testGroup "One endpoint, with delays"    (basicTests transport 1 id) 
@@ -786,6 +797,9 @@ instance Arbitrary ByteString where
 
 listAccessor :: Int -> Accessor [a] a
 listAccessor i = accessor (!! i) (error "listAccessor.set not defined") 
+
+append :: Monad m => Accessor st [a] -> a -> StateT st m ()
+append acc x = modify acc (snoc x) 
 
 snoc :: a -> [a] -> [a]
 snoc x xs = xs ++ [x]
