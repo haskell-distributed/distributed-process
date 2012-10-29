@@ -26,7 +26,7 @@ to the corresponding Haddock documentation ([Control.Distributed.Process][3],
 [Control.Distributed.Process.Node][5], and
 [Control.Distributed.Process.Backend.SimpleLocalnet][6]).
 
-[1]: http://research.microsoft.com/en-us/um/people/simonpj/papers/parallel/remote.pdf
+[1]: http://www.haskell.org/haskellwiki/Cloud_Haskell
 [2]: https://github.com/haskell-distributed/distributed-process/wiki
 [3]: http://hackage.haskell.org/packages/archive/distributed-process/0.2.1.4/doc/html/Control-Distributed-Process.html
 [4]: http://hackage.haskell.org/packages/archive/distributed-process/0.2.1.4/doc/html/Control-Distributed-Process-Closure.html
