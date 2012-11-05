@@ -328,6 +328,25 @@ getSelfNode = localNodeId . processNode <$> ask
 
 -- | Link to a remote process (asynchronous)
 --
+-- When process A links to process B (that is, process A calls
+-- @link pidB@) then an asynchronous exception will be thrown to process A
+-- when process B terminates (normally or abnormally), or when process A gets
+-- disconnected from process B. Although it is /technically/ possible to catch
+-- these exceptions, chances are if you find yourself trying to do so you should
+-- probably be using 'monitor' rather than 'link'. In particular, code such as
+--
+-- > link pidB   -- Link to process B
+-- > expect      -- Wait for a message from process B
+-- > unlink pidB -- Unlink again
+--
+-- doesn't quite do what one might expect: if process B sends a message to
+-- process A, and /subsequently terminates/, then process A might or might not 
+-- be terminated too, depending on whether the exception is thrown before or
+-- after the 'unlink' (i.e., this code has a race condition).
+--
+-- Linking is all-or-nothing: A is either linked to B, or it's not. A second
+-- call to 'link' has no effect.
+--
 -- Note that 'link' provides unidirectional linking (see 'spawnSupervised').
 -- Linking makes no distinction between normal and abnormal termination of
 -- the remote process.
@@ -335,6 +354,17 @@ link :: ProcessId -> Process ()
 link = sendCtrlMsg Nothing . Link . ProcessIdentifier
 
 -- | Monitor another process (asynchronous)
+--
+-- When process A monitors process B (that is, process A calls 
+-- @monitor pidB@) then process A will receive a 'ProcessMonitorNotification'
+-- when process B terminates (normally or abnormally), or when process A gets
+-- disconnected from process B. You receive this message like any other (using
+-- 'expect'); the notification includes a reason ('DiedNormal', 'DiedException',
+-- 'DiedDisconnect', etc.).
+--
+-- Every call to 'monitor' returns a new monitor reference 'MonitorRef'; if
+-- multiple monitors are set up, multiple notifications will be delivered 
+-- and monitors can be disabled individually using 'unmonitor'.
 monitor :: ProcessId -> Process MonitorRef 
 monitor = monitor' . ProcessIdentifier 
 
