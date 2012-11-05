@@ -3,8 +3,16 @@
 
 Name:                azure-service-api
 Version:             0.1.0.0
-Synopsis:            Haskell bindings for the Azure Service Management API
--- description:         
+Synopsis:            Haskell bindings for the Microsoft Azure Service Management API
+Description:         At the moment, this module only provides minimal
+                     functionality, just enough to support the
+                     "distributed-process-azure" package (Azure backend for
+                     Cloud Haskell). However, the code is set up in such a way
+                     that adding additional functionality should be relatively
+                     straightforward; developers who wish to do will probably
+                     want to consult the Windows Azure Service Management REST
+                     API Reference
+                     (<http://msdn.microsoft.com/en-us/library/windowsazure/ee460799.aspx>). 
 Homepage:            github.com/haskell-distributed/azure-service-api
 License:             BSD3
 License-File:        LICENSE
