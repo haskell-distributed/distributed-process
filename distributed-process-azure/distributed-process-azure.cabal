@@ -68,7 +68,7 @@ Executable cloud-haskell-azure-ping
                      distributed-process >= 0.3.2 && < 0.5,
                      transformers >= 0.3 && < 0.4,
                      bytestring >= 0.9 && < 0.11,
-                     binary >= 0.6 && < 0.7,
+                     binary >= 0.5 && < 0.7,
                      mtl,
                      libssh2
   else
@@ -83,7 +83,7 @@ Executable cloud-haskell-azure-fib
                      distributed-process >= 0.3.2 && < 0.5,
                      transformers >= 0.3 && < 0.4,
                      bytestring >= 0.9 && < 0.11,
-                     binary >= 0.6 && < 0.7,
+                     binary >= 0.5 && < 0.7,
                      binary-generic >= 0.2 && < 0.3,
                      rank1dynamic >= 0.1 && < 0.2,
                      distributed-static >= 0.2 && < 0.3,

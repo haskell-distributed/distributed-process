@@ -39,7 +39,7 @@ flag benchmarks
 
 Library
   Build-Depends:     base >= 4.4 && < 5,
-                     binary >= 0.6 && < 0.7,
+                     binary >= 0.5 && < 0.7,
                      network-transport >= 0.3 && < 0.4,
                      stm >= 2.3 && < 2.5,
                      transformers >= 0.2 && < 0.4,
@@ -93,7 +93,7 @@ Test-Suite TestCH
                      distributed-process,
                      network-transport >= 0.3 && < 0.4,
                      network-transport-tcp >= 0.3 && < 0.4,
-                     binary >= 0.6 && < 0.7,
+                     binary >= 0.5 && < 0.7,
                      network >= 2.3 && < 2.5
   Other-modules:     TestAuxiliary
   Extensions:        CPP,
@@ -127,7 +127,7 @@ Executable distributed-process-throughput
                      distributed-process,
                      network-transport-tcp >= 0.3 && < 0.4,
                      bytestring >= 0.9 && < 0.11,
-                     binary >= 0.6 && < 0.7
+                     binary >= 0.5 && < 0.7
   else
     buildable: False
   Main-Is:           benchmarks/Throughput.hs
@@ -140,7 +140,7 @@ Executable distributed-process-latency
                      distributed-process,
                      network-transport-tcp >= 0.3 && < 0.4,
                      bytestring >= 0.9 && < 0.11,
-                     binary >= 0.6 && < 0.7
+                     binary >= 0.5 && < 0.7
   else
     buildable: False
   Main-Is:           benchmarks/Latency.hs
@@ -153,7 +153,7 @@ Executable distributed-process-channels
                      distributed-process,
                      network-transport-tcp >= 0.3 && < 0.4,
                      bytestring >= 0.9 && < 0.11,
-                     binary >= 0.6 && < 0.7
+                     binary >= 0.5 && < 0.7
   else
     buildable: False
   Main-Is:           benchmarks/Channels.hs
@@ -166,7 +166,7 @@ Executable distributed-process-spawns
                      distributed-process,
                      network-transport-tcp >= 0.3 && < 0.4,
                      bytestring >= 0.9 && < 0.11,
-                     binary >= 0.6 && < 0.7
+                     binary >= 0.5 && < 0.7
   else
     buildable: False
   Main-Is:           benchmarks/Spawns.hs
