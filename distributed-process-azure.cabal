@@ -11,6 +11,14 @@ Stability:     experimental
 Homepage:      http://github.com/haskell-distributed/distributed-process
 Bug-Reports:   mailto:edsko@well-typed.com
 Synopsis:      Microsoft Azure backend for Cloud Haskell 
+Description:   This is a proof of concept Azure backend for Cloud Haskell. It
+               provides just enough functionality to run Cloud Haskell
+               applications on Azure virtual machines. You need to create your
+               virtual machines in the Azure management portal; you can then
+               use this backend to copy or verify your executable to the
+               virtual machine, start or terminate Cloud Haskell nodes on those
+               virtual machines, and communicate with those virtual machines
+               from your local machine. 
 Category:      Control 
 
 Source-Repository head
