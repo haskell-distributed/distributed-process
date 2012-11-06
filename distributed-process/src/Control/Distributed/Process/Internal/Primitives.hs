@@ -89,6 +89,7 @@ import Control.Distributed.Process.Internal.StrictMVar
 import Control.Concurrent.Chan (writeChan)
 import Control.Concurrent.STM 
   ( STM
+  , TVar
   , atomically
   , orElse
   , newTVar
@@ -181,7 +182,7 @@ newChan = do
       let sport = SendPort cid 
       chan  <- liftIO newTQueueIO
       chan' <- mkWeakTQueue chan $ finalizer (processState proc) lcid
-      let rport = ReceivePortSingle chan
+      let rport = ReceivePort $ readTQueue chan
       let tch   = TypedChannel chan' 
       return ( (channelCounter ^: (+ 1))
              . (typedChannelWithId lcid ^= Just tch)
@@ -215,35 +216,30 @@ receiveChanTimeout 0 ch = liftIO . atomically $
 receiveChanTimeout n ch = liftIO . timeout n . atomically $ 
   receiveSTM ch
 
--- | Receive a message from a typed channel as an STM transaction.
--- 
--- The transaction retries when no message is available.
-receiveSTM :: ReceivePort a -> STM a
-receiveSTM (ReceivePortSingle c) = 
-    readTQueue c
-receiveSTM (ReceivePortBiased ps) =
-    foldr1 orElse (map receiveSTM ps)
-receiveSTM (ReceivePortRR psVar) = do
-    ps <- readTVar psVar
-    a  <- foldr1 orElse (map receiveSTM ps)
-    writeTVar psVar (rotate ps)
-    return a
-  where
-    rotate :: [a] -> [a]
-    rotate []     = []
-    rotate (x:xs) = xs ++ [x]
-
 -- | Merge a list of typed channels.
 -- 
 -- The result port is left-biased: if there are messages available on more
 -- than one port, the first available message is returned.
 mergePortsBiased :: Serializable a => [ReceivePort a] -> Process (ReceivePort a)
-mergePortsBiased = return . ReceivePortBiased 
+mergePortsBiased = return . ReceivePort. foldr1 orElse . map receiveSTM
 
 -- | Like 'mergePortsBiased', but with a round-robin scheduler (rather than
 -- left-biased)
 mergePortsRR :: Serializable a => [ReceivePort a] -> Process (ReceivePort a)
-mergePortsRR ps = liftIO . atomically $ ReceivePortRR <$> newTVar ps
+mergePortsRR = \ps -> do
+    psVar <- liftIO . atomically $ newTVar (map receiveSTM ps)
+    return $ ReceivePort (rr psVar) 
+  where
+    rotate :: [a] -> [a]
+    rotate []     = []
+    rotate (x:xs) = xs ++ [x]
+
+    rr :: TVar [STM a] -> STM a
+    rr psVar = do
+      ps <- readTVar psVar
+      a  <- foldr1 orElse ps 
+      writeTVar psVar (rotate ps)
+      return a
 
 --------------------------------------------------------------------------------
 -- Advanced messaging                                                         -- 

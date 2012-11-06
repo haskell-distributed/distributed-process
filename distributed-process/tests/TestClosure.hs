@@ -31,7 +31,7 @@ import Control.Distributed.Process.Internal.Types (NodeId(nodeAddress))
 import Control.Distributed.Static (staticLabel, staticClosure)
 
 import Test.HUnit (Assertion)
-import Test.Framework (Test, defaultMain, testGroup)
+import Test.Framework (Test, defaultMain)
 import Test.Framework.Providers.HUnit (testCase)
 
 --------------------------------------------------------------------------------

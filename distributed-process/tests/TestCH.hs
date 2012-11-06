@@ -443,29 +443,34 @@ testMergeChannels transport = do
   where
     -- Single layer of merging
     testFlat :: LocalNode -> Bool -> String -> IO () 
-    testFlat localNode biased expected = 
-      runProcess localNode $ do
+    testFlat localNode biased expected = do
+      done <- newEmptyMVar
+      forkProcess localNode $ do
         rs  <- mapM charChannel "abc" 
         m   <- mergePorts biased rs 
         xs  <- replicateM 9 $ receiveChan m 
         True <- return $ xs == expected
-        return ()
+        liftIO $ putMVar done ()
+      takeMVar done
 
     -- Two layers of merging
     testNested :: LocalNode -> Bool -> Bool -> String -> IO ()
-    testNested localNode biasedInner biasedOuter expected = 
-      runProcess localNode $ do
+    testNested localNode biasedInner biasedOuter expected = do
+      done <- newEmptyMVar
+      forkProcess localNode $ do
         rss  <- mapM (mapM charChannel) ["abc", "def", "ghi"]
         ms   <- mapM (mergePorts biasedInner) rss
         m    <- mergePorts biasedOuter ms
         xs   <- replicateM (9 * 3) $ receiveChan m 
         True <- return $ xs == expected
-        return ()
+        liftIO $ putMVar done ()
+      takeMVar done
 
     -- Test that if no messages are (immediately) available, the scheduler makes no difference
     testBlocked :: LocalNode -> Bool -> IO ()
     testBlocked localNode biased = do
       vs <- replicateM 3 newEmptyMVar 
+      done <- newEmptyMVar
 
       forkProcess localNode $ do
         [sa, sb, sc] <- liftIO $ mapM readMVar vs 
@@ -496,13 +501,15 @@ testMergeChannels transport = do
           , (sa, 'a')
           ]
 
-      runProcess localNode $ do
+      forkProcess localNode $ do
         (ss, rs) <- unzip <$> replicateM 3 newChan
         liftIO $ mapM_ (uncurry putMVar) $ zip vs ss 
         m  <- mergePorts biased rs 
         xs <- replicateM (6 * 3) $ receiveChan m
         True <- return $ xs == "abcacbbacbcacabcba"
-        return ()
+        liftIO $ putMVar done ()
+
+      takeMVar done
 
     mergePorts :: Serializable a => Bool -> [ReceivePort a] -> Process (ReceivePort a)
     mergePorts True  = mergePortsBiased
