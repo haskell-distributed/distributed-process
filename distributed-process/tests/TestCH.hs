@@ -4,10 +4,11 @@ module Main where
 import Prelude hiding (catch)
 #endif
 
+
 import Data.Binary (Binary(..))
 import Data.Typeable (Typeable)
 import Data.Foldable (forM_)
-import Control.Concurrent (forkIO, threadDelay)
+import Control.Concurrent (forkIO, threadDelay, myThreadId, throwTo, ThreadId)
 import Control.Concurrent.MVar 
   ( MVar
   , newEmptyMVar
@@ -16,7 +17,8 @@ import Control.Concurrent.MVar
   , readMVar
   )
 import Control.Monad (replicateM_, replicateM, forever)
-import Control.Exception (throwIO)
+import Control.Exception (SomeException, throwIO)
+import qualified Control.Exception as Ex (catch)
 import Control.Applicative ((<$>), (<*>))
 import qualified Network.Transport as NT (Transport, closeEndPoint)
 import Network.Socket (sClose)
@@ -32,13 +34,26 @@ import Control.Distributed.Process.Internal.Types
   )
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable (Serializable)
-import TestAuxiliary
+
+import Test.HUnit (Assertion)
+import Test.Framework (Test, defaultMain, testGroup)
+import Test.Framework.Providers.HUnit (testCase)
 
 newtype Ping = Ping ProcessId
   deriving (Typeable, Binary, Show)
 
 newtype Pong = Pong ProcessId
   deriving (Typeable, Binary, Show)
+
+--------------------------------------------------------------------------------
+-- Supporting definitions                                                     --
+--------------------------------------------------------------------------------
+
+-- | Like fork, but throw exceptions in the child thread to the parent
+forkTry :: IO () -> IO ThreadId 
+forkTry p = do
+  tid <- myThreadId
+  forkIO $ Ex.catch p (\e -> throwTo tid (e :: SomeException))
 
 -- | The ping server from the paper
 ping :: Process ()
@@ -55,35 +70,32 @@ whereisRemote nid string = do
   WhereIsReply _ mPid <- expect
   return mPid
 
--- | Basic ping test
-testPing :: NT.Transport -> IO ()
-testPing transport = do
-  serverAddr <- newEmptyMVar
-  clientDone <- newEmptyMVar
+data Add       = Add    ProcessId Double Double deriving (Typeable) 
+data Divide    = Divide ProcessId Double Double deriving (Typeable)
+data DivByZero = DivByZero deriving (Typeable)
 
-  -- Server
-  forkIO $ do
-    localNode <- newLocalNode transport initRemoteTable
-    addr <- forkProcess localNode ping
-    putMVar serverAddr addr
+instance Binary Add where
+  put (Add pid x y) = put pid >> put x >> put y
+  get = Add <$> get <*> get <*> get
 
-  -- Client
-  forkIO $ do
-    localNode <- newLocalNode transport initRemoteTable
-    pingServer <- readMVar serverAddr
+instance Binary Divide where
+  put (Divide pid x y) = put pid >> put x >> put y
+  get = Divide <$> get <*> get <*> get
 
-    let numPings = 10000
+instance Binary DivByZero where
+  put DivByZero = return ()
+  get = return DivByZero
 
-    runProcess localNode $ do
-      pid <- getSelfPid
-      replicateM_ numPings $ do
-        send pingServer (Pong pid)
-        Ping _ <- expect
-        return ()
-
-    putMVar clientDone ()
-
-  takeMVar clientDone
+-- The math server from the paper
+math :: Process ()
+math = do
+  receiveWait
+    [ match (\(Add pid x y) -> send pid (x + y))
+    , matchIf (\(Divide _   _ y) -> y /= 0)
+              (\(Divide pid x y) -> send pid (x / y))
+    , match (\(Divide pid _ _) -> send pid DivByZero)
+    ]
+  math
 
 -- | Monitor or link to a remote node
 monitorOrLink :: Bool            -- ^ 'True' for monitor, 'False' for link
@@ -125,9 +137,42 @@ monitorTestProcess theirAddr mOrL un reason monitorSetup done =
             liftIO $ putMVar done ()
         )
   
+--------------------------------------------------------------------------------
+-- The tests proper                                                           --
+--------------------------------------------------------------------------------
+
+-- | Basic ping test
+testPing :: NT.Transport -> Assertion 
+testPing transport = do
+  serverAddr <- newEmptyMVar
+  clientDone <- newEmptyMVar
+
+  -- Server
+  forkIO $ do
+    localNode <- newLocalNode transport initRemoteTable
+    addr <- forkProcess localNode ping
+    putMVar serverAddr addr
+
+  -- Client
+  forkIO $ do
+    localNode <- newLocalNode transport initRemoteTable
+    pingServer <- readMVar serverAddr
+
+    let numPings = 10000
+
+    runProcess localNode $ do
+      pid <- getSelfPid
+      replicateM_ numPings $ do
+        send pingServer (Pong pid)
+        Ping _ <- expect
+        return ()
+
+    putMVar clientDone ()
+
+  takeMVar clientDone
 
 -- | Monitor a process on an unreachable node 
-testMonitorUnreachable :: NT.Transport -> Bool -> Bool -> IO ()
+testMonitorUnreachable :: NT.Transport -> Bool -> Bool -> Assertion 
 testMonitorUnreachable transport mOrL un = do
   deadProcess <- newEmptyMVar
   done <- newEmptyMVar
@@ -147,7 +192,7 @@ testMonitorUnreachable transport mOrL un = do
   takeMVar done
 
 -- | Monitor a process which terminates normally
-testMonitorNormalTermination :: NT.Transport -> Bool -> Bool -> IO ()
+testMonitorNormalTermination :: NT.Transport -> Bool -> Bool -> Assertion 
 testMonitorNormalTermination transport mOrL un = do
   monitorSetup <- newEmptyMVar
   monitoredProcess <- newEmptyMVar
@@ -168,7 +213,7 @@ testMonitorNormalTermination transport mOrL un = do
   takeMVar done
 
 -- | Monitor a process which terminates abnormally
-testMonitorAbnormalTermination :: NT.Transport -> Bool -> Bool -> IO ()
+testMonitorAbnormalTermination :: NT.Transport -> Bool -> Bool -> Assertion 
 testMonitorAbnormalTermination transport mOrL un = do
   monitorSetup <- newEmptyMVar
   monitoredProcess <- newEmptyMVar
@@ -192,7 +237,7 @@ testMonitorAbnormalTermination transport mOrL un = do
   takeMVar done
     
 -- | Monitor a local process that is already dead
-testMonitorLocalDeadProcess :: NT.Transport -> Bool -> Bool -> IO ()
+testMonitorLocalDeadProcess :: NT.Transport -> Bool -> Bool -> Assertion 
 testMonitorLocalDeadProcess transport mOrL un = do
   processDead <- newEmptyMVar
   processAddr <- newEmptyMVar
@@ -212,7 +257,7 @@ testMonitorLocalDeadProcess transport mOrL un = do
   takeMVar done
 
 -- | Monitor a remote process that is already dead
-testMonitorRemoteDeadProcess :: NT.Transport -> Bool -> Bool -> IO ()
+testMonitorRemoteDeadProcess :: NT.Transport -> Bool -> Bool -> Assertion 
 testMonitorRemoteDeadProcess transport mOrL un = do
   processDead <- newEmptyMVar
   processAddr <- newEmptyMVar
@@ -233,7 +278,7 @@ testMonitorRemoteDeadProcess transport mOrL un = do
   takeMVar done
 
 -- | Monitor a process that becomes disconnected
-testMonitorDisconnect :: NT.Transport -> Bool -> Bool -> IO ()
+testMonitorDisconnect :: NT.Transport -> Bool -> Bool -> Assertion 
 testMonitorDisconnect transport mOrL un = do
   processAddr <- newEmptyMVar
   monitorSetup <- newEmptyMVar
@@ -254,34 +299,8 @@ testMonitorDisconnect transport mOrL un = do
   
   takeMVar done
 
-data Add       = Add    ProcessId Double Double deriving (Typeable) 
-data Divide    = Divide ProcessId Double Double deriving (Typeable)
-data DivByZero = DivByZero deriving (Typeable)
-
-instance Binary Add where
-  put (Add pid x y) = put pid >> put x >> put y
-  get = Add <$> get <*> get <*> get
-
-instance Binary Divide where
-  put (Divide pid x y) = put pid >> put x >> put y
-  get = Divide <$> get <*> get <*> get
-
-instance Binary DivByZero where
-  put DivByZero = return ()
-  get = return DivByZero
-
-math :: Process ()
-math = do
-  receiveWait
-    [ match (\(Add pid x y) -> send pid (x + y))
-    , matchIf (\(Divide _   _ y) -> y /= 0)
-              (\(Divide pid x y) -> send pid (x / y))
-    , match (\(Divide pid _ _) -> send pid DivByZero)
-    ]
-  math
-
 -- | Test the math server (i.e., receiveWait)
-testMath :: NT.Transport -> IO ()
+testMath :: NT.Transport -> Assertion 
 testMath transport = do
   serverAddr <- newEmptyMVar 
   clientDone <- newEmptyMVar
@@ -312,7 +331,7 @@ testMath transport = do
 -- | Send first message (i.e. connect) to an already terminated process
 -- (without monitoring); then send another message to a second process on 
 -- the same remote node (we're checking that the remote node did not die)
-testSendToTerminated :: NT.Transport -> IO ()
+testSendToTerminated :: NT.Transport -> Assertion 
 testSendToTerminated transport = do
   serverAddr1 <- newEmptyMVar
   serverAddr2 <- newEmptyMVar
@@ -342,7 +361,7 @@ testSendToTerminated transport = do
   takeMVar clientDone
 
 -- | Test (non-zero) timeout
-testTimeout :: NT.Transport -> IO ()
+testTimeout :: NT.Transport -> Assertion 
 testTimeout transport = do
   localNode <- newLocalNode transport initRemoteTable
   runProcess localNode $ do
@@ -350,7 +369,7 @@ testTimeout transport = do
     return ()
 
 -- | Test zero timeout
-testTimeout0 :: NT.Transport -> IO ()
+testTimeout0 :: NT.Transport -> Assertion 
 testTimeout0 transport = do
   serverAddr <- newEmptyMVar
   clientDone <- newEmptyMVar
@@ -384,7 +403,7 @@ testTimeout0 transport = do
   takeMVar clientDone
 
 -- | Test typed channels
-testTypedChannels :: NT.Transport -> IO ()
+testTypedChannels :: NT.Transport -> Assertion 
 testTypedChannels transport = do
   serverChannel <- newEmptyMVar :: IO (MVar (SendPort (SendPort Bool, Int)))
   clientDone <- newEmptyMVar
@@ -410,7 +429,7 @@ testTypedChannels transport = do
   takeMVar clientDone 
 
 -- | Test merging receive ports
-testMergeChannels :: NT.Transport -> IO ()
+testMergeChannels :: NT.Transport -> Assertion 
 testMergeChannels transport = do
     localNode <- newLocalNode transport initRemoteTable
     testFlat localNode True          "aaabbbccc"
@@ -496,7 +515,7 @@ testMergeChannels transport = do
       liftIO $ threadDelay 10000 -- Make sure messages have been sent
       return rport
 
-testTerminate :: NT.Transport -> IO ()
+testTerminate :: NT.Transport -> Assertion 
 testTerminate transport = do
   localNode <- newLocalNode transport initRemoteTable
 
@@ -510,7 +529,7 @@ testTerminate transport = do
     True <- return $ ref == ref' && pid == pid' && ex == show ProcessTerminationException 
     return ()
 
-testMonitorNode :: NT.Transport -> IO ()
+testMonitorNode :: NT.Transport -> Assertion 
 testMonitorNode transport = do
   [node1, node2] <- replicateM 2 $ newLocalNode transport initRemoteTable
 
@@ -522,7 +541,7 @@ testMonitorNode transport = do
     True <- return $ ref == ref' && nid == localNodeId node1
     return ()
 
-testMonitorChannel :: NT.Transport -> IO ()
+testMonitorChannel :: NT.Transport -> Assertion 
 testMonitorChannel transport = do
     [node1, node2] <- replicateM 2 $ newLocalNode transport initRemoteTable
     gotNotification <- newEmptyMVar
@@ -543,7 +562,7 @@ testMonitorChannel transport = do
 
     takeMVar gotNotification
 
-testRegistry :: NT.Transport -> IO ()
+testRegistry :: NT.Transport -> Assertion 
 testRegistry transport = do
   node <- newLocalNode transport initRemoteTable
 
@@ -559,7 +578,7 @@ testRegistry transport = do
     True <- return $ pingServer == pid'
     return ()
 
-testRemoteRegistry :: NT.Transport -> IO ()
+testRemoteRegistry :: NT.Transport -> Assertion 
 testRemoteRegistry transport = do
   node1 <- newLocalNode transport initRemoteTable
   node2 <- newLocalNode transport initRemoteTable
@@ -577,7 +596,7 @@ testRemoteRegistry transport = do
     True <- return $ pingServer == pid'
     return ()
 
-testSpawnLocal :: NT.Transport -> IO ()
+testSpawnLocal :: NT.Transport -> Assertion 
 testSpawnLocal transport = do
   node <- newLocalNode transport initRemoteTable
 
@@ -595,7 +614,7 @@ testSpawnLocal transport = do
     send pid sport
     expect
 
-testReconnect :: NT.Transport -> TransportInternals -> IO ()
+testReconnect :: NT.Transport -> TransportInternals -> Assertion 
 testReconnect transport transportInternals = do
   [node1, node2] <- replicateM 2 $ newLocalNode transport initRemoteTable
   let nid1 = localNodeId node1
@@ -664,7 +683,7 @@ testReconnect transport transportInternals = do
 
 -- | Test 'matchAny'. This repeats the 'testMath' but with a proxy server 
 -- in between
-testMatchAny :: NT.Transport -> IO ()
+testMatchAny :: NT.Transport -> Assertion 
 testMatchAny transport = do
   proxyAddr <- newEmptyMVar 
   clientDone <- newEmptyMVar
@@ -696,12 +715,12 @@ testMatchAny transport = do
   takeMVar clientDone
 
 -- Test 'receiveChanTimeout'
-testReceiveChanTimeout :: NT.Transport -> IO ()
+testReceiveChanTimeout :: NT.Transport -> Assertion 
 testReceiveChanTimeout transport = do
   done <- newEmptyMVar
   sendPort <- newEmptyMVar
   
-  forkIO $ do
+  forkTry $ do
     localNode <- newLocalNode transport initRemoteTable
     runProcess localNode $ do
       -- Create a typed channel
@@ -723,7 +742,7 @@ testReceiveChanTimeout transport = do
 
       liftIO $ putMVar done ()
 
-  forkIO $ do
+  forkTry $ do
     localNode <- newLocalNode transport initRemoteTable
     runProcess localNode $ do
       sp <- liftIO $ readMVar sendPort
@@ -736,50 +755,56 @@ testReceiveChanTimeout transport = do
 
   takeMVar done
 
-main :: IO ()
-main = do
-  Right (transport, transportInternals) <- createTransportExposeInternals "127.0.0.1" "8080" defaultTCPParameters
-  runTests 
-    [ ("Ping",             testPing             transport)
-    , ("Math",             testMath             transport) 
-    , ("Timeout",          testTimeout          transport)
-    , ("Timeout0",         testTimeout0         transport)
-    , ("SendToTerminated", testSendToTerminated transport) 
-    , ("TypedChannnels",   testTypedChannels    transport)
-    , ("MergeChannels",    testMergeChannels    transport)
-    , ("Terminate",        testTerminate        transport)
-    , ("Registry",         testRegistry         transport)
-    , ("RemoteRegistry",   testRemoteRegistry   transport)
-    , ("SpawnLocal",       testSpawnLocal       transport)
-    , ("MatchAny",         testMatchAny         transport)
+tests :: (NT.Transport, TransportInternals)  -> [Test]
+tests (transport, transportInternals) = [ 
+    testGroup "Basic features" [
+        testCase "Ping"               (testPing               transport)
+      , testCase "Math"               (testMath               transport) 
+      , testCase "Timeout"            (testTimeout            transport)
+      , testCase "Timeout0"           (testTimeout0           transport)
+      , testCase "SendToTerminated"   (testSendToTerminated   transport) 
+      , testCase "TypedChannnels"     (testTypedChannels      transport)
+      , testCase "MergeChannels"      (testMergeChannels      transport)
+      , testCase "Terminate"          (testTerminate          transport)
+      , testCase "Registry"           (testRegistry           transport)
+      , testCase "RemoteRegistry"     (testRemoteRegistry     transport)
+      , testCase "SpawnLocal"         (testSpawnLocal         transport)
+      , testCase "MatchAny"           (testMatchAny           transport)
+      , testCase "ReceiveChanTimeout" (testReceiveChanTimeout transport)
+      ]
+  , testGroup "Monitoring and Linking" [
       -- Monitoring processes
       --
       -- The "missing" combinations in the list below don't make much sense, as
       -- we cannot guarantee that the monitor reply or link exception will not 
       -- happen before the unmonitor or unlink
-    , ("MonitorUnreachable",           testMonitorUnreachable         transport True  False)
-    , ("MonitorNormalTermination",     testMonitorNormalTermination   transport True  False)
-    , ("MonitorAbnormalTermination",   testMonitorAbnormalTermination transport True  False)
-    , ("MonitorLocalDeadProcess",      testMonitorLocalDeadProcess    transport True  False)
-    , ("MonitorRemoteDeadProcess",     testMonitorRemoteDeadProcess   transport True  False)
-    , ("MonitorDisconnect",            testMonitorDisconnect          transport True  False)
-    , ("LinkUnreachable",              testMonitorUnreachable         transport False False)
-    , ("LinkNormalTermination",        testMonitorNormalTermination   transport False False)
-    , ("LinkAbnormalTermination",      testMonitorAbnormalTermination transport False False)
-    , ("LinkLocalDeadProcess",         testMonitorLocalDeadProcess    transport False False)
-    , ("LinkRemoteDeadProcess",        testMonitorRemoteDeadProcess   transport False False)
-    , ("LinkDisconnect",               testMonitorDisconnect          transport False False)
-    , ("UnmonitorNormalTermination",   testMonitorNormalTermination   transport True  True)
-    , ("UnmonitorAbnormalTermination", testMonitorAbnormalTermination transport True  True)
-    , ("UnmonitorDisconnect",          testMonitorDisconnect          transport True  True)
-    , ("UnlinkNormalTermination",      testMonitorNormalTermination   transport False True)
-    , ("UnlinkAbnormalTermination",    testMonitorAbnormalTermination transport False True)
-    , ("UnlinkDisconnect",             testMonitorDisconnect          transport False True)
+      testCase "MonitorUnreachable"           (testMonitorUnreachable         transport True  False)
+    , testCase "MonitorNormalTermination"     (testMonitorNormalTermination   transport True  False)
+    , testCase "MonitorAbnormalTermination"   (testMonitorAbnormalTermination transport True  False)
+    , testCase "MonitorLocalDeadProcess"      (testMonitorLocalDeadProcess    transport True  False)
+    , testCase "MonitorRemoteDeadProcess"     (testMonitorRemoteDeadProcess   transport True  False)
+    , testCase "MonitorDisconnect"            (testMonitorDisconnect          transport True  False)
+    , testCase "LinkUnreachable"              (testMonitorUnreachable         transport False False)
+    , testCase "LinkNormalTermination"        (testMonitorNormalTermination   transport False False)
+    , testCase "LinkAbnormalTermination"      (testMonitorAbnormalTermination transport False False)
+    , testCase "LinkLocalDeadProcess"         (testMonitorLocalDeadProcess    transport False False)
+    , testCase "LinkRemoteDeadProcess"        (testMonitorRemoteDeadProcess   transport False False)
+    , testCase "LinkDisconnect"               (testMonitorDisconnect          transport False False)
+    , testCase "UnmonitorNormalTermination"   (testMonitorNormalTermination   transport True  True)
+    , testCase "UnmonitorAbnormalTermination" (testMonitorAbnormalTermination transport True  True)
+    , testCase "UnmonitorDisconnect"          (testMonitorDisconnect          transport True  True)
+    , testCase "UnlinkNormalTermination"      (testMonitorNormalTermination   transport False True)
+    , testCase "UnlinkAbnormalTermination"    (testMonitorAbnormalTermination transport False True)
+    , testCase "UnlinkDisconnect"             (testMonitorDisconnect          transport False True)
       -- Monitoring nodes and channels
-    , ("MonitorNode",                  testMonitorNode                transport)
-    , ("MonitorChannel",               testMonitorChannel             transport)
+    , testCase "MonitorNode"                  (testMonitorNode                transport)
+    , testCase "MonitorChannel"               (testMonitorChannel             transport)
       -- Reconnect
-    , ("Reconnect",                    testReconnect                  transport transportInternals)
-      -- ReceiveChanTimeout
-    , ("ReceiveChanTimeout",           testReceiveChanTimeout         transport)
+    , testCase "Reconnect"                    (testReconnect                  transport transportInternals)
     ]
+  ]
+
+main :: IO ()
+main = do
+  Right transport <- createTransportExposeInternals "127.0.0.1" "8080" defaultTCPParameters
+  defaultMain (tests transport)
