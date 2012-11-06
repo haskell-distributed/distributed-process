@@ -19,7 +19,7 @@ import Control.Concurrent.MVar
 import Control.Monad (replicateM_, replicateM, forever)
 import Control.Exception (SomeException, throwIO)
 import qualified Control.Exception as Ex (catch)
-import Control.Applicative ((<$>), (<*>))
+import Control.Applicative ((<$>), (<*>), pure, (<|>))
 import qualified Network.Transport as NT (Transport, closeEndPoint)
 import Network.Socket (sClose)
 import Network.Transport.TCP 
@@ -762,22 +762,82 @@ testReceiveChanTimeout transport = do
 
   takeMVar done
 
+-- | Test Functor, Applicative, Alternative and Monad instances for ReceiveChan
+testReceiveChanFeatures :: NT.Transport -> Assertion
+testReceiveChanFeatures transport = do
+  done <- newEmptyMVar
+
+  forkTry $ do
+    localNode <- newLocalNode transport initRemoteTable
+    runProcess localNode $ do
+      (spInt,  rpInt)  <- newChan :: Process (SendPort Int, ReceivePort Int)
+      (spBool, rpBool) <- newChan :: Process (SendPort Bool, ReceivePort Bool)
+
+      -- Test Functor instance
+
+      sendChan spInt 2
+      sendChan spBool False
+
+      rp1 <- mergePortsBiased [even <$> rpInt, rpBool]
+
+      True <- receiveChan rp1
+      False <- receiveChan rp1
+
+      -- Test Applicative instance
+
+      sendChan spInt 3
+      sendChan spInt 4
+
+      let rp2 = pure (+) <*> rpInt <*> rpInt
+
+      7 <- receiveChan rp2
+
+      -- Test Alternative instance
+      
+      sendChan spInt 3
+      sendChan spBool True 
+
+      let rp3 = (even <$> rpInt) <|> rpBool
+
+      False <- receiveChan rp3
+      True <- receiveChan rp3
+
+      -- Test Monad instance
+      
+      sendChan spBool True
+      sendChan spBool False
+      sendChan spInt 5
+
+      let rp4 :: ReceivePort Int
+          rp4 = do b <- rpBool
+                   if b 
+                     then rpInt
+                     else return 7
+
+      5 <- receiveChan rp4
+      7 <- receiveChan rp4
+
+      liftIO $ putMVar done ()
+
+  takeMVar done
+
 tests :: (NT.Transport, TransportInternals)  -> [Test]
 tests (transport, transportInternals) = [ 
     testGroup "Basic features" [
-        testCase "Ping"               (testPing               transport)
-      , testCase "Math"               (testMath               transport) 
-      , testCase "Timeout"            (testTimeout            transport)
-      , testCase "Timeout0"           (testTimeout0           transport)
-      , testCase "SendToTerminated"   (testSendToTerminated   transport) 
-      , testCase "TypedChannnels"     (testTypedChannels      transport)
-      , testCase "MergeChannels"      (testMergeChannels      transport)
-      , testCase "Terminate"          (testTerminate          transport)
-      , testCase "Registry"           (testRegistry           transport)
-      , testCase "RemoteRegistry"     (testRemoteRegistry     transport)
-      , testCase "SpawnLocal"         (testSpawnLocal         transport)
-      , testCase "MatchAny"           (testMatchAny           transport)
-      , testCase "ReceiveChanTimeout" (testReceiveChanTimeout transport)
+        testCase "Ping"                (testPing                transport)
+      , testCase "Math"                (testMath                transport) 
+      , testCase "Timeout"             (testTimeout             transport)
+      , testCase "Timeout0"            (testTimeout0            transport)
+      , testCase "SendToTerminated"    (testSendToTerminated    transport) 
+      , testCase "TypedChannnels"      (testTypedChannels       transport)
+      , testCase "MergeChannels"       (testMergeChannels       transport)
+      , testCase "Terminate"           (testTerminate           transport)
+      , testCase "Registry"            (testRegistry            transport)
+      , testCase "RemoteRegistry"      (testRemoteRegistry      transport)
+      , testCase "SpawnLocal"          (testSpawnLocal          transport)
+      , testCase "MatchAny"            (testMatchAny            transport)
+      , testCase "ReceiveChanTimeout"  (testReceiveChanTimeout  transport)
+      , testCase "ReceiveChanFeatures" (testReceiveChanFeatures transport)
       ]
   , testGroup "Monitoring and Linking" [
       -- Monitoring processes
