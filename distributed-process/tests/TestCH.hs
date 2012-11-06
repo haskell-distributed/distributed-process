@@ -695,6 +695,47 @@ testMatchAny transport = do
 
   takeMVar clientDone
 
+-- Test 'receiveChanTimeout'
+testReceiveChanTimeout :: NT.Transport -> IO ()
+testReceiveChanTimeout transport = do
+  done <- newEmptyMVar
+  sendPort <- newEmptyMVar
+  
+  forkIO $ do
+    localNode <- newLocalNode transport initRemoteTable
+    runProcess localNode $ do
+      -- Create a typed channel
+      (sp, rp) <- newChan :: Process (SendPort Bool, ReceivePort Bool)
+      liftIO $ putMVar sendPort sp
+
+      -- Wait for a message with a delay. No message arrives, we should get Nothing after 1 second 
+      Nothing <- receiveChanTimeout 1000000 rp
+
+      -- Wait for a message with a delay again. Now a message arrives after 0.5 seconds
+      Just True <- receiveChanTimeout 1000000 rp
+
+      -- Wait for a message with zero timeout: non-blocking check. No message is available, we get Nothing
+      Nothing <- receiveChanTimeout 0 rp
+
+      -- Again, but now there is a message available
+      liftIO $ threadDelay 1000000
+      Just False <- receiveChanTimeout 0 rp 
+
+      liftIO $ putMVar done ()
+
+  forkIO $ do
+    localNode <- newLocalNode transport initRemoteTable
+    runProcess localNode $ do
+      sp <- liftIO $ readMVar sendPort
+
+      liftIO $ threadDelay 1500000
+      sendChan sp True
+
+      liftIO $ threadDelay 500000
+      sendChan sp False
+
+  takeMVar done
+
 main :: IO ()
 main = do
   Right (transport, transportInternals) <- createTransportExposeInternals "127.0.0.1" "8080" defaultTCPParameters
@@ -739,4 +780,6 @@ main = do
     , ("MonitorChannel",               testMonitorChannel             transport)
       -- Reconnect
     , ("Reconnect",                    testReconnect                  transport transportInternals)
+      -- ReceiveChanTimeout
+    , ("ReceiveChanTimeout",           testReceiveChanTimeout         transport)
     ]

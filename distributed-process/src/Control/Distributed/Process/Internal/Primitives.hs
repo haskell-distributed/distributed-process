@@ -54,6 +54,7 @@ module Control.Distributed.Process.Internal.Primitives
   , finally
     -- * Auxiliary API
   , expectTimeout
+  , receiveChanTimeout
   , spawnAsync
   , linkNode
   , linkPort
@@ -74,6 +75,7 @@ import Data.Binary (decode)
 import Data.Time.Clock (getCurrentTime)
 import Data.Time.Format (formatTime)
 import System.Locale (defaultTimeLocale)
+import System.Timeout (timeout)
 import Control.Monad.Reader (ask)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Applicative ((<$>))
@@ -188,7 +190,7 @@ newChan = do
              )
   where
     finalizer :: StrictMVar LocalProcessState -> LocalSendPortId -> IO ()
-    finalizer processState lcid = modifyMVar_ processState $ 
+    finalizer st lcid = modifyMVar_ st $ 
       return . (typedChannelWithId lcid ^= Nothing)
 
 -- | Send a message on a typed channel
@@ -204,18 +206,29 @@ sendChan (SendPort cid) msg = do
 -- | Wait for a message on a typed channel
 receiveChan :: Serializable a => ReceivePort a -> Process a
 receiveChan = liftIO . atomically . receiveSTM 
-  where
-    receiveSTM :: ReceivePort a -> STM a
-    receiveSTM (ReceivePortSingle c) = 
-      readTQueue c
-    receiveSTM (ReceivePortBiased ps) =
-      foldr1 orElse (map receiveSTM ps)
-    receiveSTM (ReceivePortRR psVar) = do
-      ps <- readTVar psVar
-      a  <- foldr1 orElse (map receiveSTM ps)
-      writeTVar psVar (rotate ps)
-      return a
 
+-- | Like 'receiveChan' but with a timeout. If the timeout is 0, do a 
+-- non-blocking check for a message.
+receiveChanTimeout :: Serializable a => Int -> ReceivePort a -> Process (Maybe a)
+receiveChanTimeout 0 ch = liftIO . atomically $ 
+  (Just <$> receiveSTM ch) `orElse` return Nothing
+receiveChanTimeout n ch = liftIO . timeout n . atomically $ 
+  receiveSTM ch
+
+-- | Receive a message from a typed channel as an STM transaction.
+-- 
+-- The transaction retries when no message is available.
+receiveSTM :: ReceivePort a -> STM a
+receiveSTM (ReceivePortSingle c) = 
+    readTQueue c
+receiveSTM (ReceivePortBiased ps) =
+    foldr1 orElse (map receiveSTM ps)
+receiveSTM (ReceivePortRR psVar) = do
+    ps <- readTVar psVar
+    a  <- foldr1 orElse (map receiveSTM ps)
+    writeTVar psVar (rotate ps)
+    return a
+  where
     rotate :: [a] -> [a]
     rotate []     = []
     rotate (x:xs) = xs ++ [x]
@@ -459,7 +472,7 @@ finally a sequel = bracket_ (return ()) sequel a
 
 -- | Like 'expect' but with a timeout
 expectTimeout :: forall a. Serializable a => Int -> Process (Maybe a)
-expectTimeout timeout = receiveTimeout timeout [match return] 
+expectTimeout n = receiveTimeout n [match return] 
 
 -- | Asynchronous version of 'spawn'
 -- 
