@@ -41,7 +41,7 @@
 --
 -- We have only tested Cloud Haskell with Linux based virtual machines; 
 -- Windows based virtual machines /might/ work, but you'll be entering
--- unchartered territory. Cloud Haskell assumes that all nodes run the same
+-- uncharted territory. Cloud Haskell assumes that all nodes run the same
 -- binary code; hence, you must use the same OS on all virtual machines, 
 -- /as well as on your local machine/. We use Ubuntu Server 12.04 LTS for our
 -- tests (running on VirtualBox on our local machine). 
