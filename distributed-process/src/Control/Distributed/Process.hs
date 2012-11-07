@@ -19,6 +19,7 @@ module Control.Distributed.Process
     -- * Basic messaging
   , send 
   , expect
+  , expectTimeout
     -- * Channels
   , ReceivePort
   , SendPort
@@ -26,6 +27,7 @@ module Control.Distributed.Process
   , newChan
   , sendChan
   , receiveChan
+  , receiveChanTimeout
   , mergePortsBiased
   , mergePortsRR
     -- * Advanced messaging
@@ -91,7 +93,6 @@ module Control.Distributed.Process
   , bracket_
   , finally
     -- * Auxiliary API
-  , expectTimeout
   , spawnAsync
   , spawnSupervised
   , spawnLink
@@ -215,6 +216,7 @@ import Control.Distributed.Process.Internal.Primitives
   , finally
     -- Auxiliary API
   , expectTimeout
+  , receiveChanTimeout
   , spawnAsync
     -- Reconnecting
   , reconnect

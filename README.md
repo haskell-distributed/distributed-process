@@ -9,12 +9,12 @@ At present, this repository hosts
 * network-transport-tests: Test suite for Network.Transport instantiations
 * network-transport-tcp: TCP instantiation of Network.Transport
 * network-transport-inmemory: In-memory instantiation of Network.Transport (incomplete) 
-* network-transport-composed: Compose two transports (incomplete)
+* network-transport-composed: Compose two transports (very preliminary)
 * distributed-static: Support for static values
 * distributed-process: The main Cloud Haskell package
 * distributed-process-simplelocalnet: Simple backend for local networks
-* distributed-process-azure: Azure backend for Cloud Haskell (work in progress)
-* azure-service-api: Haskell bindings for the Azure service API (work in progress)
+* distributed-process-azure: Azure backend for Cloud Haskell (proof of concept)
+* azure-service-api: Haskell bindings for the Azure service API
 * rank1dynamic: Like Data.Dynamic and Data.Typeable but with support for polymorphic values
 
 For more detailed information about the interfaces provided by these packages,
@@ -26,7 +26,7 @@ to the corresponding Haddock documentation ([Control.Distributed.Process][3],
 [Control.Distributed.Process.Node][5], and
 [Control.Distributed.Process.Backend.SimpleLocalnet][6]).
 
-[1]: http://research.microsoft.com/en-us/um/people/simonpj/papers/parallel/remote.pdf
+[1]: http://www.haskell.org/haskellwiki/Cloud_Haskell
 [2]: https://github.com/haskell-distributed/distributed-process/wiki
 [3]: http://hackage.haskell.org/packages/archive/distributed-process/0.2.1.4/doc/html/Control-Distributed-Process.html
 [4]: http://hackage.haskell.org/packages/archive/distributed-process/0.2.1.4/doc/html/Control-Distributed-Process-Closure.html

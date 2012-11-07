@@ -41,7 +41,7 @@
 --
 -- We have only tested Cloud Haskell with Linux based virtual machines; 
 -- Windows based virtual machines /might/ work, but you'll be entering
--- unchartered territory. Cloud Haskell assumes that all nodes run the same
+-- uncharted territory. Cloud Haskell assumes that all nodes run the same
 -- binary code; hence, you must use the same OS on all virtual machines, 
 -- /as well as on your local machine/. We use Ubuntu Server 12.04 LTS for our
 -- tests (running on VirtualBox on our local machine). 
@@ -312,7 +312,7 @@
 -- > 
 -- > import System.Environment (getArgs)
 -- > import Data.Binary (encode, decode)
--- > import Control.Monad (forever)
+-- > import Control.Monad (void, forever)
 -- > import Control.Monad.IO.Class (liftIO)
 -- > import Control.Exception (try, IOException)
 -- > import Control.Distributed.Process 
@@ -386,7 +386,7 @@
 -- >       -- The same binary can behave as the client or the server, 
 -- >       -- depending on the command line arguments
 -- >       case cmd of
--- >         "server" -> spawnOnVM backend vm port ($(mkClosure 'pingServer) ()) 
+-- >         "server" -> void $ spawnOnVM backend vm port ($(mkClosure 'pingServer) ()) 
 -- >         "client" -> callOnVM backend vm port $ 
 -- >                       ProcessPair ($(mkClosure 'pingClientRemote) ()) 
 -- >                                   pingClientLocal 

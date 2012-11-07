@@ -1,17 +1,23 @@
 {-# LANGUAGE Arrows #-}
 module Network.Azure.ServiceManagement 
   ( -- * Data types
-    HostedService(..)
-  , CloudService(..)
-  , VirtualMachine(..)
-  , Endpoint(..)
+    CloudService
+  , cloudServiceName
+  , cloudServiceVMs
+  , VirtualMachine
+  , vmName
+  , vmIpAddress
+  , vmInputEndpoints
+  , Endpoint
+  , endpointName
+  , endpointPort
+  , endpointVip
     -- * Pure functions
   , vmSshEndpoint 
     -- * Setup
   , AzureSetup(..)
   , azureSetup
     -- * High-level API
-  , hostedServices
   , cloudServices 
   ) where
 
@@ -62,11 +68,7 @@ import Text.XML.HXT.Core
   , IOSArrow
   , ArrowXml
   , getText
---  , writeDocumentToString
---  , withIndent
---  , yes
   )
--- import Control.Arrow.ArrowIO (arrIO)
 import Text.XML.HXT.XPath (getXPathTrees)
 
 --------------------------------------------------------------------------------
@@ -77,20 +79,39 @@ data HostedService = HostedService {
     hostedServiceName :: String 
   }
 
+-- | A cloud service is a bunch of virtual machines that are part of the same
+-- network (i.e., can talk to each other directly using standard TCP 
+-- connections).
 data CloudService = CloudService {
+    -- | Name of the service.
     cloudServiceName :: String 
+    -- | Virtual machines that are part of this cloud service.
   , cloudServiceVMs  :: [VirtualMachine]
   }
 
+-- | Virtual machine
 data VirtualMachine = VirtualMachine { 
+    -- | Name of the virtual machine.
     vmName           :: String
+    -- | The /internal/ IP address of the virtual machine (that is, the 
+    -- IP address on the Cloud Service). For the globally accessible IP
+    -- address see 'vmInputEndpoints'.
   , vmIpAddress      :: String
+    -- | Globally accessible endpoints to the virtual machine
   , vmInputEndpoints :: [Endpoint]
   }
 
+-- | Globally accessible endpoint for a virtual machine
 data Endpoint = Endpoint {
+    -- | Name of the endpoint (typical example: @SSH@)
     endpointName :: String
+    -- | Port number (typical examples are 22 or high numbered ports such as 53749) 
   , endpointPort :: String 
+    -- | Virtual IP address (that is, globally accessible IP address).
+    --
+    -- This corresponds to the IP address associated with the Cloud Service
+    -- (i.e., that would be returned by a DNS lookup for @name.cloudapp.net@, 
+    -- where @name@ is the name of the Cloud Service).
   , endpointVip  :: String
   }
 
@@ -148,6 +169,7 @@ hang2 d1 = hang d1 2
 -- Pure operations                                                            --
 --------------------------------------------------------------------------------
 
+-- | Find the endpoint with name @SSH@.
 vmSshEndpoint :: VirtualMachine -> Maybe Endpoint
 vmSshEndpoint vm = listToMaybe 
   [ ep
@@ -160,11 +182,21 @@ vmSshEndpoint vm = listToMaybe
 --------------------------------------------------------------------------------
 
 -- | Azure setup 
+--
+-- The documentation of "distributed-process-azure" explains in detail how
+-- to obtain the SSL client certificate and the private key for your Azure
+-- account.
+--
+-- See also 'azureSetup'.
 data AzureSetup = AzureSetup
-  { subscriptionId :: String
-  , certificate    :: X509
-  , privateKey     :: PrivateKey
-  , baseUrl        :: String
+  { -- | Azure subscription ID
+    subscriptionId :: String
+    -- | SSL client certificate
+  , certificate :: X509
+    -- | RSA private key
+  , privateKey :: PrivateKey
+    -- | Base URL (generally <https://management.core.windows.net>)
+  , baseUrl :: String
   }
 
 -- TODO: it's dubious to be transferring private keys, but we transfer them
@@ -221,7 +253,7 @@ azureSetup sid certPath pkeyPath = do
 -- High-level API                                                             --
 --------------------------------------------------------------------------------
 
--- | Get a list of virtual machines
+-- | Find available cloud services 
 cloudServices :: AzureSetup -> IO [CloudService]
 cloudServices setup = azureExecute setup $ \exec -> do
   services <- exec hostedServicesRequest
@@ -239,10 +271,6 @@ cloudServices setup = azureExecute setup $ \exec -> do
           id -< VirtualMachine name ip endpoints
       }
     return $ CloudService (hostedServiceName service) roles
-
--- | Get list of available hosted services
-hostedServices :: AzureSetup -> IO [HostedService] 
-hostedServices setup = azureExecute setup (\exec -> exec hostedServicesRequest) 
 
 hostedServicesRequest :: AzureRequest HostedService
 hostedServicesRequest = AzureRequest 

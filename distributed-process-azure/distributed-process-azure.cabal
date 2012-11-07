@@ -11,6 +11,14 @@ Stability:     experimental
 Homepage:      http://github.com/haskell-distributed/distributed-process
 Bug-Reports:   mailto:edsko@well-typed.com
 Synopsis:      Microsoft Azure backend for Cloud Haskell 
+Description:   This is a proof of concept Azure backend for Cloud Haskell. It
+               provides just enough functionality to run Cloud Haskell
+               applications on Azure virtual machines. You need to create your
+               virtual machines in the Azure management portal; you can then
+               use this backend to copy or verify your executable to the
+               virtual machine, start or terminate Cloud Haskell nodes on those
+               virtual machines, and communicate with those virtual machines
+               from your local machine. 
 Category:      Control 
 
 Source-Repository head
@@ -68,7 +76,7 @@ Executable cloud-haskell-azure-ping
                      distributed-process >= 0.3.2 && < 0.5,
                      transformers >= 0.3 && < 0.4,
                      bytestring >= 0.9 && < 0.11,
-                     binary >= 0.5 && < 0.6,
+                     binary >= 0.5 && < 0.7,
                      mtl,
                      libssh2
   else
@@ -83,7 +91,7 @@ Executable cloud-haskell-azure-fib
                      distributed-process >= 0.3.2 && < 0.5,
                      transformers >= 0.3 && < 0.4,
                      bytestring >= 0.9 && < 0.11,
-                     binary >= 0.5 && < 0.6,
+                     binary >= 0.5 && < 0.7,
                      binary-generic >= 0.2 && < 0.3,
                      rank1dynamic >= 0.1 && < 0.2,
                      distributed-static >= 0.2 && < 0.3,

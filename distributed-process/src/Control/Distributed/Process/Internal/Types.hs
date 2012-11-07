@@ -82,9 +82,9 @@ import Control.Category ((>>>))
 import Control.Exception (Exception)
 import Control.Concurrent (ThreadId)
 import Control.Concurrent.Chan (Chan)
-import Control.Concurrent.STM (TVar)
+import Control.Concurrent.STM (STM)
 import qualified Network.Transport as NT (EndPoint, EndPointAddress, Connection)
-import Control.Applicative (Applicative, (<$>), (<*>))
+import Control.Applicative (Applicative, Alternative, (<$>), (<*>))
 import Control.Monad.Reader (MonadReader(..), ReaderT, runReaderT)
 import Control.Monad.IO.Class (MonadIO)
 import Control.Distributed.Process.Serializable 
@@ -262,6 +262,13 @@ newtype SendPort a = SendPort {
   deriving (Typeable, Binary, Show, Eq, Ord)
 
 -- | The receive end of a typed channel (not serializable)
+--
+-- Note that 'ReceivePort' implements 'Functor', 'Applicative', 'Alternative'
+-- and 'Monad'. This is especially useful when merging receive ports.
+newtype ReceivePort a = ReceivePort { receiveSTM :: STM a }
+  deriving (Typeable, Functor, Applicative, Alternative, Monad)
+
+{-
 data ReceivePort a = 
     -- | A single receive port
     ReceivePortSingle (TQueue a)
@@ -270,6 +277,7 @@ data ReceivePort a =
     -- | A round-robin combination of receive ports
   | ReceivePortRR (TVar [ReceivePort a]) 
   deriving Typeable
+-}
 
 --------------------------------------------------------------------------------
 -- Messages                                                                   --

@@ -54,6 +54,7 @@ module Control.Distributed.Process.Internal.Primitives
   , finally
     -- * Auxiliary API
   , expectTimeout
+  , receiveChanTimeout
   , spawnAsync
   , linkNode
   , linkPort
@@ -74,6 +75,7 @@ import Data.Binary (decode)
 import Data.Time.Clock (getCurrentTime)
 import Data.Time.Format (formatTime)
 import System.Locale (defaultTimeLocale)
+import System.Timeout (timeout)
 import Control.Monad.Reader (ask)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Applicative ((<$>))
@@ -87,6 +89,7 @@ import Control.Distributed.Process.Internal.StrictMVar
 import Control.Concurrent.Chan (writeChan)
 import Control.Concurrent.STM 
   ( STM
+  , TVar
   , atomically
   , orElse
   , newTVar
@@ -179,7 +182,7 @@ newChan = do
       let sport = SendPort cid 
       chan  <- liftIO newTQueueIO
       chan' <- mkWeakTQueue chan $ finalizer (processState proc) lcid
-      let rport = ReceivePortSingle chan
+      let rport = ReceivePort $ readTQueue chan
       let tch   = TypedChannel chan' 
       return ( (channelCounter ^: (+ 1))
              . (typedChannelWithId lcid ^= Just tch)
@@ -188,7 +191,7 @@ newChan = do
              )
   where
     finalizer :: StrictMVar LocalProcessState -> LocalSendPortId -> IO ()
-    finalizer processState lcid = modifyMVar_ processState $ 
+    finalizer st lcid = modifyMVar_ st $ 
       return . (typedChannelWithId lcid ^= Nothing)
 
 -- | Send a message on a typed channel
@@ -204,33 +207,39 @@ sendChan (SendPort cid) msg = do
 -- | Wait for a message on a typed channel
 receiveChan :: Serializable a => ReceivePort a -> Process a
 receiveChan = liftIO . atomically . receiveSTM 
-  where
-    receiveSTM :: ReceivePort a -> STM a
-    receiveSTM (ReceivePortSingle c) = 
-      readTQueue c
-    receiveSTM (ReceivePortBiased ps) =
-      foldr1 orElse (map receiveSTM ps)
-    receiveSTM (ReceivePortRR psVar) = do
-      ps <- readTVar psVar
-      a  <- foldr1 orElse (map receiveSTM ps)
-      writeTVar psVar (rotate ps)
-      return a
 
-    rotate :: [a] -> [a]
-    rotate []     = []
-    rotate (x:xs) = xs ++ [x]
+-- | Like 'receiveChan' but with a timeout. If the timeout is 0, do a 
+-- non-blocking check for a message.
+receiveChanTimeout :: Serializable a => Int -> ReceivePort a -> Process (Maybe a)
+receiveChanTimeout 0 ch = liftIO . atomically $ 
+  (Just <$> receiveSTM ch) `orElse` return Nothing
+receiveChanTimeout n ch = liftIO . timeout n . atomically $ 
+  receiveSTM ch
 
 -- | Merge a list of typed channels.
 -- 
 -- The result port is left-biased: if there are messages available on more
 -- than one port, the first available message is returned.
 mergePortsBiased :: Serializable a => [ReceivePort a] -> Process (ReceivePort a)
-mergePortsBiased = return . ReceivePortBiased 
+mergePortsBiased = return . ReceivePort. foldr1 orElse . map receiveSTM
 
 -- | Like 'mergePortsBiased', but with a round-robin scheduler (rather than
 -- left-biased)
 mergePortsRR :: Serializable a => [ReceivePort a] -> Process (ReceivePort a)
-mergePortsRR ps = liftIO . atomically $ ReceivePortRR <$> newTVar ps
+mergePortsRR = \ps -> do
+    psVar <- liftIO . atomically $ newTVar (map receiveSTM ps)
+    return $ ReceivePort (rr psVar) 
+  where
+    rotate :: [a] -> [a]
+    rotate []     = []
+    rotate (x:xs) = xs ++ [x]
+
+    rr :: TVar [STM a] -> STM a
+    rr psVar = do
+      ps <- readTVar psVar
+      a  <- foldr1 orElse ps 
+      writeTVar psVar (rotate ps)
+      return a
 
 --------------------------------------------------------------------------------
 -- Advanced messaging                                                         -- 
@@ -328,6 +337,25 @@ getSelfNode = localNodeId . processNode <$> ask
 
 -- | Link to a remote process (asynchronous)
 --
+-- When process A links to process B (that is, process A calls
+-- @link pidB@) then an asynchronous exception will be thrown to process A
+-- when process B terminates (normally or abnormally), or when process A gets
+-- disconnected from process B. Although it is /technically/ possible to catch
+-- these exceptions, chances are if you find yourself trying to do so you should
+-- probably be using 'monitor' rather than 'link'. In particular, code such as
+--
+-- > link pidB   -- Link to process B
+-- > expect      -- Wait for a message from process B
+-- > unlink pidB -- Unlink again
+--
+-- doesn't quite do what one might expect: if process B sends a message to
+-- process A, and /subsequently terminates/, then process A might or might not 
+-- be terminated too, depending on whether the exception is thrown before or
+-- after the 'unlink' (i.e., this code has a race condition).
+--
+-- Linking is all-or-nothing: A is either linked to B, or it's not. A second
+-- call to 'link' has no effect.
+--
 -- Note that 'link' provides unidirectional linking (see 'spawnSupervised').
 -- Linking makes no distinction between normal and abnormal termination of
 -- the remote process.
@@ -335,6 +363,17 @@ link :: ProcessId -> Process ()
 link = sendCtrlMsg Nothing . Link . ProcessIdentifier
 
 -- | Monitor another process (asynchronous)
+--
+-- When process A monitors process B (that is, process A calls 
+-- @monitor pidB@) then process A will receive a 'ProcessMonitorNotification'
+-- when process B terminates (normally or abnormally), or when process A gets
+-- disconnected from process B. You receive this message like any other (using
+-- 'expect'); the notification includes a reason ('DiedNormal', 'DiedException',
+-- 'DiedDisconnect', etc.).
+--
+-- Every call to 'monitor' returns a new monitor reference 'MonitorRef'; if
+-- multiple monitors are set up, multiple notifications will be delivered 
+-- and monitors can be disabled individually using 'unmonitor'.
 monitor :: ProcessId -> Process MonitorRef 
 monitor = monitor' . ProcessIdentifier 
 
@@ -429,7 +468,7 @@ finally a sequel = bracket_ (return ()) sequel a
 
 -- | Like 'expect' but with a timeout
 expectTimeout :: forall a. Serializable a => Int -> Process (Maybe a)
-expectTimeout timeout = receiveTimeout timeout [match return] 
+expectTimeout n = receiveTimeout n [match return] 
 
 -- | Asynchronous version of 'spawn'
 -- 
