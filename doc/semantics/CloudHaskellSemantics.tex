@@ -3,6 +3,7 @@
 \usepackage{amsmath, amssymb, stmaryrd}
 \usepackage{mathpazo, times}
 \usepackage{float}
+\usepackage{listings}
 
 \newcommand{\sLam}[2]{\lambda {#1} \cdot {#2}}
 \newcommand{\sApp}[2]{{#1} {#2}}
@@ -59,6 +60,8 @@
 
 \floatstyle{boxed}
 \restylefloat{figure}
+
+\lstset{basicstyle=\ttfamily\small}
 
 \begin{document}
 
@@ -256,8 +259,8 @@ Figure~\ref{fig:disconnect} gives the semantics for disconnecting and
 reconnecting.  Rule \textsc{Disconnect} models random network disconnect
 between nodes $\sNid_1$ and $\sNid_2$.  We assume that entire \emph{nodes} get
 disconnected from each other, not individual processes. \emph{Reconnecting}
-however is on a per process basis (\textsc{Recon-Ex}).  Connections to and from
-node controllers can be implicitly reconnected ($\textsc{Recon-Im}_1$ and
+however is on a per connection basis (\textsc{Recon-Ex}).  Connections to and
+from node controllers can be implicitly reconnected ($\textsc{Recon-Im}_1$ and
 $\textsc{Recon-Im}_2$).
 
 \begin{figure}
@@ -647,6 +650,55 @@ silently, unless monitors are setup.
 %
 \caption{\label{fig:termination}Process Termination}
 \end{figure}
+
+\section{Open Issues}
+
+\subsection{Ordering of Monitor/Link Notifications}
+
+The semantics as described above, like the original Unified semantics, does not
+guarantee that messages send from process $P$ to process $Q$ (\textsc{Send})
+are ordered with respect to the link or monitor notification sent when process
+$P$ terminates normally or abnormally (\textsc{Mon-Ret}, \textsc{Mon-Throw}). This means that if process $P$ does
+
+\begin{lstlisting}
+receiveWait [
+    match $ \(Reply reply) -> ...
+  , match $ \(ProcessMonitorNotification ..) -> ...
+  ]
+\end{lstlisting}
+
+and process $Q$ does
+
+\begin{lstlisting}
+send pidA (Reply reply)
+// terminate or indeed throw an exception
+\end{lstlisting}
+
+then the semantics does not guarantee that the reply from process $Q$ will
+arrive at process $P$ before the monitor notification; hence, this results in
+an (artificial) race condition in process $P$.
+
+One possible solution is to regard such a link notification as a message from
+process $Q$ to process $P$, which should be ordered along with the other
+messages.
+
+\subsection{Ordering and Typed Channels}
+
+The situation is more tricky still than sketched above because we of typed
+channels. The semantics does not provide ordering guarantees between messages
+sent directly to the process and messages sent on typed channels. That means
+that even if we consider a link or monitor notification as a message sent to
+the process, to be ordered with other messages sent to that process, it is
+still unordered with respect to messages sent on typed channels. This means
+that we have similar race conditions\footnote{Even ignoring the fact that we
+currently don't even provide a way to wait for a message on a typed channel
+\emph{or} a direct message.} 
+
+A possible solution is to insist that \emph{all} messages from process $P$ to
+process $Q$ are ordered, no matter how they are sent. From a implementation
+point of view, this would entail the use of a single ordered network connection
+for all messages from $P$ to $Q$, rather than using an ordered connection per
+typed channel plus one for direct messages.
 
 \bibliographystyle{apalike}
 \bibliography{references}
