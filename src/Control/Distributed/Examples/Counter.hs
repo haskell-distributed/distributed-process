@@ -71,12 +71,15 @@ counterServer :: Int -> Process (Server CounterRequest CounterResponse)
 counterServer count = do
   count <- liftIO $ newMVar count -- initialize state
 
-  let handleCounterRequest :: CounterRequest -> Process (Maybe CounterResponse)
+  let handleCounterRequest :: CounterRequest -> Process (CallResult CounterResponse)
       handleCounterRequest GetCount = do
         n <- liftIO $ readMVar count
-        return $ Just (Count n)
+        return $ CallOk (Count n)
       handleCounterRequest ResetCount = do
         liftIO $ putMVar count 0
-        return $ Just CountReset
+        return $ CallOk CountReset
 
-  return defaultServer { handleCall = handleCounterRequest }
+  return defaultServer { 
+    serverPorts = newChan
+    handleCall = handleCounterRequest 
+  }
