@@ -10,13 +10,13 @@ module Control.Distributed.Examples.Counter (
     resetCount
   ) where
 import           Control.Concurrent
-import           Data.Binary                            (Binary (..), getWord8,
-                                                         putWord8)
-import           Data.DeriveTH
 import           Data.Typeable                          (Typeable)
 
 import           Control.Distributed.Platform.GenServer
 import           Control.Distributed.Process
+import           Data.Binary                            (Binary (..), getWord8,
+                                                         putWord8)
+import           Data.DeriveTH
 
 --------------------------------------------------------------------------------
 -- Data Types                                                                 --
@@ -40,27 +40,33 @@ $(derive makeBinary ''CounterResponse)
 -- API                                                                        --
 --------------------------------------------------------------------------------
 
+-- | The Counter id
+type CounterId = ServerId CounterRequest CounterResponse
+
 -- |
-startCounter :: Name -> Int -> Process ProcessId
-startCounter name count = do
+startCounter :: Name -> Int -> Process CounterId
+startCounter name count =
   serverStart name (counterServer count)
 
 -- | getCount
-getCount :: ProcessId -> Process Int
-getCount pid = do
-  say $ "Get count for " ++ show pid
-  from <- getSelfPid
-  c <- serverCall pid (from, GetCount) NoTimeout
-  say $ "Count is " ++ show c
-  return c
+getCount :: CounterId -> Process Int
+getCount counterId = do
+  say $ "Get count for " ++ show counterId
+  reply <- serverCall counterId GetCount NoTimeout
+  case reply of
+    Count value -> do
+      say $ "Count is " ++ show value
+      return value
+    _ -> error "Shouldnt be here!" -- TODO tighten the types to avoid this
 
 -- | resetCount
-resetCount :: ProcessId -> Process ()
-resetCount pid = do
-  say $ "Reset count for " ++ show pid
-  from <- getSelfPid
-  serverCall pid (from, ResetCount) NoTimeout :: Process ()
-  return ()
+resetCount :: CounterId -> Process ()
+resetCount counterId = do
+  say $ "Reset count for " ++ show counterId
+  reply <- serverCall counterId ResetCount NoTimeout
+  case reply of
+    CountReset -> return ()
+    _ -> error "Shouldn't be here!" -- TODO tighten the types to avoid this
 
 --------------------------------------------------------------------------------
 -- Implementation                                                             --
@@ -79,7 +85,6 @@ counterServer count = do
         liftIO $ putMVar count 0
         return $ CallOk CountReset
 
-  return defaultServer { 
-    serverPorts = newChan
-    handleCall = handleCounterRequest 
-  }
+  return defaultServer {
+    handleCall = handleCounterRequest
+  } :: Process (Server CounterRequest CounterResponse)

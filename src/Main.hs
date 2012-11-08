@@ -44,10 +44,11 @@ main = do
 
 counterTest :: Process ()
 counterTest = do
-    pid <- startCounter "TestCounter" 10
-    c <- getCount pid
-    resetCount pid
-    c2 <- getCount pid
+    cid <- startCounter "TestCounter" 10
+    c <- getCount cid
+
+    resetCount cid
+    c2 <- getCount cid
     return ()
 
 startApp :: Process ()
