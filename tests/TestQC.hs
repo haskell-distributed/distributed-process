@@ -46,6 +46,7 @@ import Data.Unique (Unique, newUnique, hashUnique)
 import Data.Concurrent.Queue.MichaelScott (newQ, pushL, tryPopR)
 import Data.Set (Set)
 import qualified Data.Set as Set
+import GHC.Stack (currentCallStack, renderStack)
 
 import Network.Transport
 import Network.Transport.TCP 
@@ -53,7 +54,7 @@ import Network.Transport.TCP
   , defaultTCPParameters
   , TransportInternals(socketBetween)
   )
-import Network.Transport.TCP.Mock.Socket (scheduleReadAction, sClose)
+import Network.Transport.TCP.Mock.Socket (Socket, scheduleReadAction, sClose)
 
 --------------------------------------------------------------------------------
 -- Script infrastructure                                                      --
@@ -104,12 +105,7 @@ instance Show a => Show (Variable a) where
 
 -- | In the implementation "bundles" are purely a conceptual idea, but in the
 -- verifier we need to concretize this notion
---
--- Invariant: first endpoint address < second endpoint address
-type BundleId = (EndPointAddress, EndPointAddress, Int) 
-
-incrementBundleId :: BundleId -> BundleId
-incrementBundleId (a, b, i) = (a, b, i + 1)
+type BundleId = Int 
 
 data ConnectionInfo = ConnectionInfo {
     source           :: EndPointAddress
@@ -131,9 +127,19 @@ data RunState = RunState {
   , _connections       :: [(Connection, ConnectionInfo)]
   , _expectedEvents    :: Map EndPointAddress [ExpEvent]
   , _forwardingThreads :: [ThreadId]
+    -- | When a connection from A to be may break, we add both (A, B, n)
+    -- and (B, A, n) to _mayBreak. Then once we detect that from A to B
+    -- has in fact broken we move (A, B, n), *and/or* (B, A, n), from _mayBreak
+    -- to _broken. Note that we can detect that a connection has been broken
+    -- in one direction even if we haven't yet detected that the connection
+    -- has broken in the other direction.
+    --
     -- | Invariant: not mayBreak && broken
-  , _mayBreak          :: Set BundleId
-  , _broken            :: Set BundleId
+  , _mayBreak          :: Set (EndPointAddress, EndPointAddress, BundleId)
+  , _broken            :: Set (EndPointAddress, EndPointAddress, BundleId)
+    -- | Current bundle ID between two endpoints
+    --
+    -- Invariant: For all keys (A, B), A <= B
   , _currentBundle     :: Map (EndPointAddress, EndPointAddress) BundleId 
   }
 
@@ -170,12 +176,14 @@ verify (transport, transportInternals) script = do
         endPointA <- get (endPointAtIx i)
         endPointB <- address <$> get (endPointAtIx j)
         mConn <- liftIO $ connect endPointA endPointB ReliableOrdered defaultConnectHints
-        let bundleId = currentBundle (address endPointA) endPointB
+        let bundleId     = currentBundle (address endPointA) endPointB
+            connBroken   = broken (address endPointA) endPointB
+            connMayBreak = mayBreak (address endPointA) endPointB
         case mConn of
           Right conn -> do
-            bundleBroken <- get bundleId >>= get . broken
+            bundleBroken <- get bundleId >>= get . connBroken 
             currentBundleId <- if bundleBroken 
-              then modify bundleId incrementBundleId >> get bundleId
+              then modify bundleId (+ 1) >> get bundleId
               else get bundleId 
             connId <- Variable <$> liftIO newUnique 
             let connInfo = ConnectionInfo {
@@ -188,12 +196,12 @@ verify (transport, transportInternals) script = do
             append (expectedEventsAt endPointB) (ExpConnectionOpened connInfo)
           Left err -> do
             currentBundleId <- get bundleId 
-            expectingBreak  <- get $ mayBreak currentBundleId
+            expectingBreak  <- get $ connMayBreak currentBundleId
             if expectingBreak 
               then do
-                set (mayBreak currentBundleId) False
-                set (broken currentBundleId) True
-              else
+                set (connMayBreak currentBundleId) False
+                set (connBroken   currentBundleId) True
+              else 
                 liftIO $ throwIO err
       runCmd (Close i) = do
         (conn, connInfo) <- get (connectionAt i)
@@ -202,15 +210,17 @@ verify (transport, transportInternals) script = do
       runCmd (Send i payload) = do
         (conn, connInfo) <- get (connectionAt i)
         mResult <- liftIO $ send conn payload
+        let connMayBreak = mayBreak (source connInfo) (target connInfo) (connectionBundle connInfo)
+            connBroken   = broken   (source connInfo) (target connInfo) (connectionBundle connInfo)
         case mResult of
           Right () -> return ()
           Left err -> do
-            expectingBreak <- get $ mayBreak (connectionBundle connInfo)
-            isBroken       <- get $ broken (connectionBundle connInfo)
+            expectingBreak <- get connMayBreak 
+            isBroken       <- get connBroken
             if expectingBreak || isBroken
               then do
-                set (mayBreak (connectionBundle connInfo)) False
-                set (broken (connectionBundle connInfo)) True
+                set connMayBreak False
+                set connBroken   True
               else 
                 liftIO $ throwIO err
         append (expectedEventsAt (target connInfo)) (ExpReceived connInfo payload)
@@ -219,9 +229,10 @@ verify (transport, transportInternals) script = do
         endPointB <- address <$> get (endPointAtIx j)
         liftIO $ do
           sock <- socketBetween transportInternals endPointA endPointB
-          scheduleReadAction sock n (sClose sock)
+          scheduleReadAction sock n $ breakSocket sock
         currentBundleId <- get (currentBundle endPointA endPointB)
-        set (mayBreak currentBundleId) True
+        set (mayBreak endPointA endPointB currentBundleId) True
+        set (mayBreak endPointB endPointA currentBundleId) True
         append (expectedEventsAt endPointA) (ExpConnectionLost currentBundleId endPointB)
         append (expectedEventsAt endPointB) (ExpConnectionLost currentBundleId endPointA)
  
@@ -254,6 +265,11 @@ verify (transport, transportInternals) script = do
              then Right () 
              else Left ("Could not match " ++ show (st ^. expectedEvents)
                                 ++ " and " ++ show actualEvents)
+
+breakSocket :: Socket -> IO ()
+breakSocket sock = do
+  currentCallStack >>= putStrLn . renderStack
+  sClose sock
 
 --------------------------------------------------------------------------------
 -- Match expected and actual events                                           --
@@ -703,21 +719,19 @@ expectedEventsAt addr = expectedEvents >>> DAC.mapDefault [] addr
 forwardingThreads :: Accessor RunState [ThreadId]
 forwardingThreads = accessor _forwardingThreads (\ts st -> st { _forwardingThreads = ts })
 
-mayBreak :: BundleId -> Accessor RunState Bool
-mayBreak bid = aux >>> DAC.set bid
+mayBreak :: EndPointAddress -> EndPointAddress -> BundleId -> Accessor RunState Bool
+mayBreak a b bid = aux >>> DAC.set (a, b, bid)
   where
-    aux :: Accessor RunState (Set BundleId)
     aux = accessor _mayBreak (\bs st -> st { _mayBreak = bs })
 
-broken :: BundleId -> Accessor RunState Bool
-broken bid = aux >>> DAC.set bid
+broken :: EndPointAddress -> EndPointAddress -> BundleId -> Accessor RunState Bool
+broken a b bid = aux >>> DAC.set (a, b, bid)
   where
-    aux :: Accessor RunState (Set BundleId)
     aux = accessor _broken (\bs st -> st { _broken = bs })
 
 currentBundle :: EndPointAddress -> EndPointAddress -> Accessor RunState BundleId
-currentBundle i j = aux >>> if i < j then DAC.mapDefault (i, j, 0) (i, j)
-                                     else DAC.mapDefault (j, i, 0) (j, i)
+currentBundle i j = aux >>> if i < j then DAC.mapDefault 0 (i, j)
+                                     else DAC.mapDefault 0 (j, i)
   where
     aux :: Accessor RunState (Map (EndPointAddress, EndPointAddress) BundleId)
     aux = accessor _currentBundle (\mp st -> st { _currentBundle = mp })
