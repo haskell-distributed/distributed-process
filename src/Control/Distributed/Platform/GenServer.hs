@@ -20,8 +20,7 @@ module Control.Distributed.Platform.GenServer (
     serverCall,
     serverReply,
     Server(..),
-    ServerId(..),
-    defaultServer
+    ServerId,    defaultServer
   ) where
 
 import           Control.Distributed.Process
@@ -95,14 +94,10 @@ data Timeout = Timeout Int
              | NoTimeout
 
 -- | Typed server Id
-data ServerId rq rep
-  = ServerId String (SendPort (Request rq rep))
-
-instance (Serializable rq, Serializable rep) => Show (ServerId rq rep) where
-  show (ServerId serverId sport) = serverId ++ ":" ++ show (sendPortId sport)
+type ServerId = ProcessId
 
 -- | Request
-newtype Request req reply = Request (SendPort reply, req)
+newtype Request req reply = Request (reply, req)
   deriving (Typeable, Show)
 
 $(derive makeBinary ''Request)
@@ -118,18 +113,11 @@ $(derive makeBinary ''Reply)
 serverStart :: (Serializable rq, Serializable rs)
       => Name
       -> Process (Server rq rs)
-      -> Process (ServerId rq rs)
+      -> Process ServerId
 serverStart name createServer = do
-    say $ "Starting server " ++ name
-
-    -- spawnChannelLocal :: Serializable a
-    --              => (ReceivePort a -> Process ())
-    --              -> Process (SendPort a)
-    sreq <- spawnChannelLocal $ serverProcess
-    return $ ServerId name sreq
+  spawnLocal $ serverProcess
   where
-    serverProcess rreq = do
-
+    serverProcess= do
       -- server process
       server <- createServer
 
@@ -149,13 +137,13 @@ serverStart name createServer = do
             case timeout of
               Timeout value -> do
                 say $ "Waiting for call to " ++ name ++ " with timeout " ++ show value
-                tryRequest <- expectTimeout value
-                case tryRequest of
+                maybeReq <- expectTimeout value
+                case maybeReq of
                   Just req -> handleRequest server req
                   Nothing -> return ()
               NoTimeout       -> do
                 say $ "Waiting for call to " ++ name
-                req <- receiveChan rreq -- :: Process (ProcessId, rq)
+                req <- expect
 
                 handleRequest server req
 
@@ -164,43 +152,32 @@ serverStart name createServer = do
       -- terminate
       handleTerminate server TerminateNormal
 
-    handleRequest server (Request (sreply, rq)) = do
+    handleRequest server (Request (cid, rq)) = do
       say $ "Handling call for " ++ name
       callResult <- handleCall server rq
       case callResult of
         CallOk reply -> do
           say $ "Sending reply from " ++ name
-          sendChan sreply reply
+          send cid reply
         CallDeferred ->
           say $ "Not sending reply from " ++ name
         CallStop reason ->
           say $ "Stop: " ++ reason ++ " -- Not implemented!"
 
--- | Call a process using it's name
--- nsend doesnt seem to support timeouts?
---serverNCall :: (Serializable a, Serializable b) => Name -> a -> Process b
---serverNCall name rq = do
---  (sport, rport) <- newChan
---  nsend name (sport, rq)
---  receiveChan rport
---  --us <- getSelfPid
---  --nsend name (us, rq)
---  --expect
-
 -- | call a process using it's process id
-serverCall :: (Serializable rq, Serializable rs) => ServerId rq rs -> rq -> Timeout -> Process rs
-serverCall (ServerId _ sreq) rq timeout = do
-  (sreply, rreply) <- newChan
-  sendChan sreq $ Request (sreply, rq)
+serverCall :: (Serializable rq, Serializable rs) => ServerId -> rq -> Timeout -> Process rs
+serverCall sid rq timeout = do
+  cid <- getSelfPid
+  send sid $ Request (cid, rq)
   case timeout of
-    NoTimeout -> receiveChan rreply
+    NoTimeout -> expect
     Timeout value -> do
-      maybeMsg <- error "not implemented" -- expectTimeout value
-      case maybeMsg of
+      maybeReply <- expectTimeout value
+      case maybeReply of
         Just msg -> return msg
         Nothing -> error $ "timeout! value = " ++ show value
 
 -- | out of band reply to a client
-serverReply :: (Serializable a) => SendPort a -> a -> Process ()
-serverReply sport reply = do
-  sendChan sport reply
+serverReply :: (Serializable a) => ServerId -> a -> Process ()
+serverReply sid reply = do
+  send sid reply

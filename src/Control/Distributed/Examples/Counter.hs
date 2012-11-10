@@ -41,7 +41,7 @@ $(derive makeBinary ''CounterResponse)
 --------------------------------------------------------------------------------
 
 -- | The Counter id
-type CounterId = ServerId CounterRequest CounterResponse
+type CounterId = ServerId
 
 -- |
 startCounter :: Name -> Int -> Process CounterId
@@ -79,10 +79,10 @@ counterServer count = do
 
   let handleCounterRequest :: CounterRequest -> Process (CallResult CounterResponse)
       handleCounterRequest GetCount = do
-        n <- liftIO $ readMVar count
+        n <- liftIO $ readMVar count 
         return $ CallOk (Count n)
       handleCounterRequest ResetCount = do
-        liftIO $ putMVar count 0
+        liftIO $ swapMVar count 0
         return $ CallOk CountReset
 
   return defaultServer {
