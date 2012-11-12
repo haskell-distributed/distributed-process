@@ -1,3 +1,9 @@
+-- Test the TCP transport using QuickCheck generated scripts
+--
+-- TODO: This is not quite working yet. The main problem, I think, is the 
+-- allocation of "bundle ID"s to connections. The problem is exposed by the
+-- aptly-named regression test script_Foo (to be renamed once I figure out what
+-- bug that test is actually exposing :)
 module Main 
   ( main
   -- Shush the compiler about unused definitions
@@ -123,9 +129,12 @@ data ExpEvent =
   deriving Show
 
 data RunState = RunState {
-    _endPoints         :: [EndPoint]
-  , _connections       :: [(Connection, ConnectionInfo)]
-  , _expectedEvents    :: Map EndPointAddress [ExpEvent]
+    _endPoints      :: [EndPoint]
+  , _connections    :: [(Connection, ConnectionInfo)]
+  , _expectedEvents :: Map EndPointAddress [ExpEvent]
+    -- | For each endpoint we create we create a thread that forwards the events
+    -- of that endpoint to a central channel. We collect the thread IDs so that
+    -- we can kill these thread when we are done.
   , _forwardingThreads :: [ThreadId]
     -- | When a connection from A to be may break, we add both (A, B, n)
     -- and (B, A, n) to _mayBreak. Then once we detect that from A to B
@@ -135,12 +144,12 @@ data RunState = RunState {
     -- has broken in the other direction.
     --
     -- | Invariant: not mayBreak && broken
-  , _mayBreak          :: Set (EndPointAddress, EndPointAddress, BundleId)
-  , _broken            :: Set (EndPointAddress, EndPointAddress, BundleId)
+  , _mayBreak :: Set (EndPointAddress, EndPointAddress, BundleId)
+  , _broken   :: Set (EndPointAddress, EndPointAddress, BundleId)
     -- | Current bundle ID between two endpoints
     --
     -- Invariant: For all keys (A, B), A <= B
-  , _currentBundle     :: Map (EndPointAddress, EndPointAddress) BundleId 
+  , _currentBundle :: Map (EndPointAddress, EndPointAddress) BundleId 
   }
 
 initialRunState :: RunState 
@@ -177,8 +186,8 @@ verify (transport, transportInternals) script = do
         endPointB <- address <$> get (endPointAtIx j)
         mConn <- liftIO $ connect endPointA endPointB ReliableOrdered defaultConnectHints
         let bundleId     = currentBundle (address endPointA) endPointB
-            connBroken   = broken (address endPointA) endPointB
-            connMayBreak = mayBreak (address endPointA) endPointB
+            connBroken   = broken        (address endPointA) endPointB
+            connMayBreak = mayBreak      (address endPointA) endPointB
         case mConn of
           Right conn -> do
             bundleBroken <- get bundleId >>= get . connBroken 
@@ -224,6 +233,9 @@ verify (transport, transportInternals) script = do
               else 
                 liftIO $ throwIO err
         append (expectedEventsAt (target connInfo)) (ExpReceived connInfo payload)
+      -- TODO: This will only work if a connection between 'i' and 'j' has 
+      -- already been established. We would need to modify the mock network
+      -- layer to support breaking "future" connections
       runCmd (BreakAfterReads n i j) = do
         endPointA <- address <$> get (endPointAtIx i)
         endPointB <- address <$> get (endPointAtIx j)
