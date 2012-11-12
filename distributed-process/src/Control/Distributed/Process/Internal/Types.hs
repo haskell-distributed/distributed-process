@@ -1,10 +1,10 @@
 -- | Types used throughout the Cloud Haskell framework
 --
--- We collect all types used internally in a single module because 
+-- We collect all types used internally in a single module because
 -- many of these data types are mutually recursive and cannot be split across
 -- modules.
 module Control.Distributed.Process.Internal.Types
-  ( -- * Node and process identifiers 
+  ( -- * Node and process identifiers
     NodeId(..)
   , LocalProcessId(..)
   , ProcessId(..)
@@ -21,17 +21,17 @@ module Control.Distributed.Process.Internal.Types
   , runLocalProcess
   , ImplicitReconnect(..)
     -- * Typed channels
-  , LocalSendPortId 
+  , LocalSendPortId
   , SendPortId(..)
   , TypedChannel(..)
   , SendPort(..)
   , ReceivePort(..)
-    -- * Messages 
+    -- * Messages
   , Message(..)
   , createMessage
   , messageToPayload
   , payloadToMessage
-    -- * Node controller user-visible data types 
+    -- * Node controller user-visible data types
   , MonitorRef(..)
   , ProcessMonitorNotification(..)
   , NodeMonitorNotification(..)
@@ -47,7 +47,7 @@ module Control.Distributed.Process.Internal.Types
   , SpawnRef(..)
   , DidSpawn(..)
   , WhereIsReply(..)
-    -- * Node controller internal data types 
+    -- * Node controller internal data types
   , NCMsg(..)
   , ProcessSignal(..)
     -- * Accessors
@@ -70,7 +70,7 @@ import Data.Int (Int32)
 import Data.Typeable (Typeable)
 import Data.Binary (Binary(put, get), putWord8, getWord8, encode)
 import qualified Data.ByteString as BSS (ByteString, concat, copy)
-import qualified Data.ByteString.Lazy as BSL 
+import qualified Data.ByteString.Lazy as BSL
   ( ByteString
   , toChunks
   , splitAt
@@ -87,7 +87,7 @@ import qualified Network.Transport as NT (EndPoint, EndPointAddress, Connection)
 import Control.Applicative (Applicative, Alternative, (<$>), (<*>))
 import Control.Monad.Reader (MonadReader(..), ReaderT, runReaderT)
 import Control.Monad.IO.Class (MonadIO)
-import Control.Distributed.Process.Serializable 
+import Control.Distributed.Process.Serializable
   ( Fingerprint
   , Serializable
   , fingerprint
@@ -106,38 +106,38 @@ import qualified Control.Distributed.Process.Internal.StrictContainerAccessors a
 -- Node and process identifiers                                               --
 --------------------------------------------------------------------------------
 
--- | Node identifier 
+-- | Node identifier
 newtype NodeId = NodeId { nodeAddress :: NT.EndPointAddress }
   deriving (Eq, Ord, Binary, Typeable)
 
 instance Show NodeId where
-  show (NodeId addr) = "nid://" ++ show addr 
+  show (NodeId addr) = "nid://" ++ show addr
 
 -- | A local process ID consists of a seed which distinguishes processes from
 -- different instances of the same local node and a counter
-data LocalProcessId = LocalProcessId 
+data LocalProcessId = LocalProcessId
   { lpidUnique  :: {-# UNPACK #-} !Int32
   , lpidCounter :: {-# UNPACK #-} !Int32
   }
   deriving (Eq, Ord, Typeable, Show)
 
 -- | Process identifier
-data ProcessId = ProcessId 
+data ProcessId = ProcessId
   { -- | The ID of the node the process is running on
     processNodeId  :: !NodeId
     -- | Node-local identifier for the process
-  , processLocalId :: {-# UNPACK #-} !LocalProcessId 
+  , processLocalId :: {-# UNPACK #-} !LocalProcessId
   }
   deriving (Eq, Ord, Typeable)
 
 instance Show ProcessId where
-  show (ProcessId (NodeId addr) (LocalProcessId _ lid)) 
+  show (ProcessId (NodeId addr) (LocalProcessId _ lid))
     = "pid://" ++ show addr ++ ":" ++ show lid
 
--- | Union of all kinds of identifiers 
-data Identifier = 
+-- | Union of all kinds of identifiers
+data Identifier =
     NodeIdentifier !NodeId
-  | ProcessIdentifier !ProcessId 
+  | ProcessIdentifier !ProcessId
   | SendPortIdentifier !SendPortId
   deriving (Eq, Ord)
 
@@ -159,7 +159,7 @@ firstNonReservedProcessId :: Int32
 firstNonReservedProcessId = 1
 
 nullProcessId :: NodeId -> ProcessId
-nullProcessId nid = 
+nullProcessId nid =
   ProcessId { processNodeId  = nid
             , processLocalId = LocalProcessId { lpidUnique  = 0
                                               , lpidCounter = 0
@@ -171,39 +171,39 @@ nullProcessId nid =
 --------------------------------------------------------------------------------
 
 -- | Local nodes
-data LocalNode = LocalNode 
+data LocalNode = LocalNode
   { -- | 'NodeId' of the node
     localNodeId :: !NodeId
-    -- | The network endpoint associated with this node 
-  , localEndPoint :: !NT.EndPoint 
-    -- | Local node state 
+    -- | The network endpoint associated with this node
+  , localEndPoint :: !NT.EndPoint
+    -- | Local node state
   , localState :: !(StrictMVar LocalNodeState)
     -- | Channel for the node controller
   , localCtrlChan :: !(Chan NCMsg)
     -- | Runtime lookup table for supporting closures
     -- TODO: this should be part of the CH state, not the local endpoint state
-  , remoteTable :: !RemoteTable 
+  , remoteTable :: !RemoteTable
   }
 
 data ImplicitReconnect = WithImplicitReconnect | NoImplicitReconnect
   deriving (Eq, Show)
 
 -- | Local node state
-data LocalNodeState = LocalNodeState 
+data LocalNodeState = LocalNodeState
   { -- | Processes running on this node
     _localProcesses   :: !(Map LocalProcessId LocalProcess)
-    -- | Counter to assign PIDs 
+    -- | Counter to assign PIDs
   , _localPidCounter  :: !Int32
     -- | The 'unique' value used to create PIDs (so that processes on
     -- restarted nodes have new PIDs)
   , _localPidUnique   :: !Int32
     -- | Outgoing connections
-  , _localConnections :: !(Map (Identifier, Identifier) 
+  , _localConnections :: !(Map (Identifier, Identifier)
                                (NT.Connection, ImplicitReconnect))
   }
 
 -- | Processes running on our local node
-data LocalProcess = LocalProcess 
+data LocalProcess = LocalProcess
   { processQueue  :: !(CQueue Message)
   , processWeakQ  :: !(Weak (CQueue Message))
   , processId     :: !ProcessId
@@ -212,7 +212,7 @@ data LocalProcess = LocalProcess
   , processNode   :: !LocalNode
   }
 
--- | Deconstructor for 'Process' (not exported to the public API) 
+-- | Deconstructor for 'Process' (not exported to the public API)
 runLocalProcess :: LocalProcess -> Process a -> IO a
 runLocalProcess lproc proc = runReaderT (unProcess proc) lproc
 
@@ -225,8 +225,8 @@ data LocalProcessState = LocalProcessState
   }
 
 -- | The Cloud Haskell 'Process' type
-newtype Process a = Process { 
-    unProcess :: ReaderT LocalProcess IO a 
+newtype Process a = Process {
+    unProcess :: ReaderT LocalProcess IO a
   }
   deriving (Functor, Monad, MonadIO, MonadReader LocalProcess, Typeable, Applicative)
 
@@ -249,15 +249,15 @@ data SendPortId = SendPortId {
   deriving (Eq, Ord)
 
 instance Show SendPortId where
-  show (SendPortId (ProcessId (NodeId addr) (LocalProcessId _ plid)) clid)  
+  show (SendPortId (ProcessId (NodeId addr) (LocalProcessId _ plid)) clid)
     = "cid://" ++ show addr ++ ":" ++ show plid ++ ":" ++ show clid
 
 data TypedChannel = forall a. Serializable a => TypedChannel (Weak (TQueue a))
 
 -- | The send send of a typed channel (serializable)
-newtype SendPort a = SendPort { 
+newtype SendPort a = SendPort {
     -- | The (unique) ID of this send port
-    sendPortId :: SendPortId 
+    sendPortId :: SendPortId
   }
   deriving (Typeable, Binary, Show, Eq, Ord)
 
@@ -269,13 +269,13 @@ newtype ReceivePort a = ReceivePort { receiveSTM :: STM a }
   deriving (Typeable, Functor, Applicative, Alternative, Monad)
 
 {-
-data ReceivePort a = 
+data ReceivePort a =
     -- | A single receive port
     ReceivePortSingle (TQueue a)
-    -- | A left-biased combination of receive ports 
-  | ReceivePortBiased [ReceivePort a] 
+    -- | A left-biased combination of receive ports
+  | ReceivePortBiased [ReceivePort a]
     -- | A round-robin combination of receive ports
-  | ReceivePortRR (TVar [ReceivePort a]) 
+  | ReceivePortRR (TVar [ReceivePort a])
   deriving Typeable
 -}
 
@@ -284,13 +284,13 @@ data ReceivePort a =
 --------------------------------------------------------------------------------
 
 -- | Messages consist of their typeRep fingerprint and their encoding
-data Message = Message 
-  { messageFingerprint :: !Fingerprint 
+data Message = Message
+  { messageFingerprint :: !Fingerprint
   , messageEncoding    :: !BSL.ByteString
   }
 
 instance Show Message where
-  show (Message fp enc) = show enc ++ " :: " ++ showFingerprint fp [] 
+  show (Message fp enc) = show enc ++ " :: " ++ showFingerprint fp []
 
 -- | Turn any serialiable term into a message
 createMessage :: Serializable a => a -> Message
@@ -302,26 +302,26 @@ messageToPayload (Message fp enc) = encodeFingerprint fp : BSL.toChunks enc
 
 -- | Deserialize a message
 payloadToMessage :: [BSS.ByteString] -> Message
-payloadToMessage payload = Message fp (copy msg) 
+payloadToMessage payload = Message fp (copy msg)
   where
     encFp :: BSL.ByteString
     msg   :: BSL.ByteString
-    (encFp, msg) = BSL.splitAt (fromIntegral sizeOfFingerprint) 
-                 $ BSL.fromChunks payload 
+    (encFp, msg) = BSL.splitAt (fromIntegral sizeOfFingerprint)
+                 $ BSL.fromChunks payload
 
     fp :: Fingerprint
     fp = decodeFingerprint . BSS.concat . BSL.toChunks $ encFp
 
     copy :: BSL.ByteString -> BSL.ByteString
     copy (BSL.Chunk bs BSL.Empty) = BSL.Chunk (BSS.copy bs) BSL.Empty
-    copy bsl = BSL.fromChunks . return . BSS.concat . BSL.toChunks $ bsl 
+    copy bsl = BSL.fromChunks . return . BSS.concat . BSL.toChunks $ bsl
 
 --------------------------------------------------------------------------------
 -- Node controller user-visible data types                                    --
 --------------------------------------------------------------------------------
 
--- | MonitorRef is opaque for regular Cloud Haskell processes 
-data MonitorRef = MonitorRef 
+-- | MonitorRef is opaque for regular Cloud Haskell processes
+data MonitorRef = MonitorRef
   { -- | ID of the entity to be monitored
     monitorRefIdent   :: !Identifier
     -- | Unique to distinguish multiple monitor requests by the same process
@@ -330,32 +330,32 @@ data MonitorRef = MonitorRef
   deriving (Eq, Ord, Show)
 
 -- | Message sent by process monitors
-data ProcessMonitorNotification = 
+data ProcessMonitorNotification =
     ProcessMonitorNotification !MonitorRef !ProcessId !DiedReason
   deriving (Typeable, Show)
 
 -- | Message sent by node monitors
-data NodeMonitorNotification = 
+data NodeMonitorNotification =
     NodeMonitorNotification !MonitorRef !NodeId !DiedReason
   deriving (Typeable, Show)
 
 -- | Message sent by channel (port) monitors
-data PortMonitorNotification = 
+data PortMonitorNotification =
     PortMonitorNotification !MonitorRef !SendPortId !DiedReason
   deriving (Typeable, Show)
 
 -- | Exceptions thrown when a linked process dies
-data ProcessLinkException = 
+data ProcessLinkException =
     ProcessLinkException !ProcessId !DiedReason
   deriving (Typeable, Show)
 
 -- | Exception thrown when a linked node dies
-data NodeLinkException = 
+data NodeLinkException =
     NodeLinkException !NodeId !DiedReason
   deriving (Typeable, Show)
 
 -- | Exception thrown when a linked channel (port) dies
-data PortLinkException = 
+data PortLinkException =
     PortLinkException !SendPortId !DiedReason
   deriving (Typeable, Show)
 
@@ -364,7 +364,7 @@ instance Exception NodeLinkException
 instance Exception PortLinkException
 
 -- | Why did a process die?
-data DiedReason = 
+data DiedReason =
     -- | Normal termination
     DiedNormal
     -- | The process exited with an exception
@@ -374,7 +374,7 @@ data DiedReason =
   | DiedDisconnect
     -- | The process node died
   | DiedNodeDown
-    -- | Invalid (process/node/channel) identifier 
+    -- | Invalid (process/node/channel) identifier
   | DiedUnknownId
   deriving (Show, Eq)
 
@@ -391,7 +391,7 @@ newtype DidUnlinkNode = DidUnlinkNode NodeId
   deriving (Typeable, Binary)
 
 -- | (Asynchronous) reply from unlinkPort
-newtype DidUnlinkPort = DidUnlinkPort SendPortId 
+newtype DidUnlinkPort = DidUnlinkPort SendPortId
   deriving (Typeable, Binary)
 
 -- | 'SpawnRef' are used to return pids of spawned processes
@@ -411,20 +411,20 @@ data WhereIsReply = WhereIsReply String (Maybe ProcessId)
 --------------------------------------------------------------------------------
 
 -- | Messages to the node controller
-data NCMsg = NCMsg 
-  { ctrlMsgSender :: !Identifier 
+data NCMsg = NCMsg
+  { ctrlMsgSender :: !Identifier
   , ctrlMsgSignal :: !ProcessSignal
   }
   deriving Show
 
 -- | Signals to the node controller (see 'NCMsg')
 data ProcessSignal =
-    Link !Identifier 
-  | Unlink !Identifier 
+    Link !Identifier
+  | Unlink !Identifier
   | Monitor !MonitorRef
   | Unmonitor !MonitorRef
   | Died Identifier !DiedReason
-  | Spawn !(Closure (Process ())) !SpawnRef 
+  | Spawn !(Closure (Process ())) !SpawnRef
   | WhereIs !String
   | Register !String !(Maybe ProcessId) -- Use 'Nothing' to unregister
   | NamedSend !String !Message
@@ -466,12 +466,12 @@ instance Binary ProcessSignal where
   put (Link pid)            = putWord8 0 >> put pid
   put (Unlink pid)          = putWord8 1 >> put pid
   put (Monitor ref)         = putWord8 2 >> put ref
-  put (Unmonitor ref)       = putWord8 3 >> put ref 
+  put (Unmonitor ref)       = putWord8 3 >> put ref
   put (Died who reason)     = putWord8 4 >> put who >> put reason
   put (Spawn proc ref)      = putWord8 5 >> put proc >> put ref
   put (WhereIs label)       = putWord8 6 >> put label
   put (Register label pid)  = putWord8 7 >> put label >> put pid
-  put (NamedSend label msg) = putWord8 8 >> put label >> put (messageToPayload msg) 
+  put (NamedSend label msg) = putWord8 8 >> put label >> put (messageToPayload msg)
   get = do
     header <- getWord8
     case header of
@@ -488,7 +488,7 @@ instance Binary ProcessSignal where
 
 instance Binary DiedReason where
   put DiedNormal        = putWord8 0
-  put (DiedException e) = putWord8 1 >> put e 
+  put (DiedException e) = putWord8 1 >> put e
   put DiedDisconnect    = putWord8 2
   put DiedNodeDown      = putWord8 3
   put DiedUnknownId     = putWord8 4
@@ -499,7 +499,7 @@ instance Binary DiedReason where
       1 -> DiedException <$> get
       2 -> return DiedDisconnect
       3 -> return DiedNodeDown
-      4 -> return DiedUnknownId 
+      4 -> return DiedUnknownId
       _ -> fail "DiedReason.get: invalid"
 
 instance Binary DidSpawn where
@@ -508,18 +508,18 @@ instance Binary DidSpawn where
 
 instance Binary SendPortId where
   put cid = put (sendPortProcessId cid) >> put (sendPortLocalId cid)
-  get = SendPortId <$> get <*> get 
+  get = SendPortId <$> get <*> get
 
 instance Binary Identifier where
   put (ProcessIdentifier pid)  = putWord8 0 >> put pid
   put (NodeIdentifier nid)     = putWord8 1 >> put nid
   put (SendPortIdentifier cid) = putWord8 2 >> put cid
   get = do
-    header <- getWord8 
+    header <- getWord8
     case header of
       0 -> ProcessIdentifier <$> get
       1 -> NodeIdentifier <$> get
-      2 -> SendPortIdentifier <$> get 
+      2 -> SendPortIdentifier <$> get
       _ -> fail "Identifier.get: invalid"
 
 instance Binary WhereIsReply where
