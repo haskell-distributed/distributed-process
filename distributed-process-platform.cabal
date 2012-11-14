@@ -20,6 +20,7 @@ executable platform
     main-is:        Main.hs
     build-depends:  base >=4.4 && <5, binary >=0.5 && <0.6
                     , mtl
+--                    , stm
                     , derive
                     , distributed-static
                     ,  distributed-process
