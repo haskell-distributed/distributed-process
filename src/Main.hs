@@ -3,6 +3,7 @@ module Main where
 import           Control.Distributed.Naive.Kitty
 import           Control.Distributed.Platform.GenServer
 import           Control.Distributed.Examples.Counter
+--import           Control.Distributed.Examples.GenServer2
 
 --import           Prelude hiding (catch)
 import           Control.Exception                (SomeException)
@@ -44,11 +45,14 @@ main = do
 
 counterTest :: Process ()
 counterTest = do
-    cid <- startCounter "TestCounter" 10
+    cid <- startCounter
     c <- getCount cid
-
+    say $ "c = " ++ show c
     resetCount cid
     c2 <- getCount cid
+    say $ "c2 = " ++ show c2
+
+    stopCounter cid
     return ()
 
 startApp :: Process ()

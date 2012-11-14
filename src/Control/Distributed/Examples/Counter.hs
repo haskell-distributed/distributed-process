@@ -1,40 +1,20 @@
--- | Counter server example
---
--- Uses GenServer to implement a simple Counter process
---
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE TemplateHaskell    #-}
-module Control.Distributed.Examples.Counter (
+module Control.Distributed.Examples.Counter(
+   CounterId,
     startCounter,
+    stopCounter,
     getCount,
     resetCount
   ) where
 import           Control.Concurrent
-import           Data.Typeable                          (Typeable)
+import           Data.Typeable                           (Typeable)
 
 import           Control.Distributed.Platform.GenServer
 import           Control.Distributed.Process
-import           Data.Binary                            (Binary (..), getWord8,
-                                                         putWord8)
+import           Data.Binary                             (Binary (..), getWord8,
+                                                          putWord8)
 import           Data.DeriveTH
-
---------------------------------------------------------------------------------
--- Data Types                                                                 --
---------------------------------------------------------------------------------
-
-data CounterRequest
-  = GetCount
-  | ResetCount
-    deriving (Typeable, Show)
-
-$(derive makeBinary ''CounterRequest)
-
-data CounterResponse
-  = Count Int
-  | CountReset
-    deriving (Typeable, Show)
-
-$(derive makeBinary ''CounterResponse)
 
 --------------------------------------------------------------------------------
 -- API                                                                        --
@@ -43,16 +23,37 @@ $(derive makeBinary ''CounterResponse)
 -- | The Counter id
 type CounterId = ServerId
 
+-- call
+data CounterRequest
+    = IncrementCounter
+    | GetCount
+        deriving (Show, Typeable)
+$(derive makeBinary ''CounterRequest)
+
+data CounterResponse
+    = CounterIncremented
+    | Count Int
+        deriving (Show, Typeable)
+$(derive makeBinary ''CounterResponse)
+
+-- cast
+data ResetCount = ResetCount deriving (Show, Typeable)
+$(derive makeBinary ''ResetCount)
+
 -- |
-startCounter :: Name -> Int -> Process CounterId
-startCounter name count =
-  serverStart name (counterServer count)
+startCounter :: Process ServerId
+startCounter = startServer $ defaultServer { msgHandlers = [
+   handleCall handleCounter,
+   handleCast handleReset
+]}
+
+stopCounter :: ServerId -> Process ()
+stopCounter sid = stopServer sid TerminateNormal
 
 -- | getCount
-getCount :: CounterId -> Process Int
+getCount :: ServerId -> Process Int
 getCount counterId = do
-  say $ "Get count for " ++ show counterId
-  reply <- serverCall counterId GetCount NoTimeout
+  reply <- callServer counterId GetCount NoTimeout
   case reply of
     Count value -> do
       say $ "Count is " ++ show value
@@ -60,31 +61,16 @@ getCount counterId = do
     _ -> error "Shouldnt be here!" -- TODO tighten the types to avoid this
 
 -- | resetCount
-resetCount :: CounterId -> Process ()
+resetCount :: ServerId -> Process ()
 resetCount counterId = do
   say $ "Reset count for " ++ show counterId
-  reply <- serverCall counterId ResetCount NoTimeout
-  case reply of
-    CountReset -> return ()
-    _ -> error "Shouldn't be here!" -- TODO tighten the types to avoid this
+  castServer counterId ResetCount
 
 --------------------------------------------------------------------------------
--- Implementation                                                             --
+-- IMPL                                                                       --
 --------------------------------------------------------------------------------
 
--- | Counter server
-counterServer :: Int -> Process (Server CounterRequest CounterResponse)
-counterServer count = do
-  count <- liftIO $ newMVar count -- initialize state
+handleCounter IncrementCounter = return $ CallOk (CounterIncremented)
+handleCounter GetCount = return $ CallOk (Count 0)
 
-  let handleCounterRequest :: CounterRequest -> Process (CallResult CounterResponse)
-      handleCounterRequest GetCount = do
-        n <- liftIO $ readMVar count 
-        return $ CallOk (Count n)
-      handleCounterRequest ResetCount = do
-        liftIO $ swapMVar count 0
-        return $ CallOk CountReset
-
-  return defaultServer {
-    handleCall = handleCounterRequest
-  } :: Process (Server CounterRequest CounterResponse)
+handleReset ResetCount = return $ CastOk
