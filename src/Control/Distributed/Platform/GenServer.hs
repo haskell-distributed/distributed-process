@@ -1,206 +1,290 @@
 {-# LANGUAGE DeriveDataTypeable        #-}
 {-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE ScopedTypeVariables       #-}
+{-# LANGUAGE FunctionalDependencies    #-}
+{-# LANGUAGE MultiParamTypeClasses     #-}
+{-# LANGUAGE Rank2Types                #-}
 {-# LANGUAGE TemplateHaskell           #-}
 {-# LANGUAGE TypeFamilies              #-}
 
+-- | Second iteration of GenServer
 module Control.Distributed.Platform.GenServer (
     Name,
+    ServerId,
     Timeout(..),
     InitResult(..),
     CallResult(..),
     CastResult(..),
-    Info(..),
-    InfoResult(..),
     TerminateReason(..),
-    Request(..),
-    Reply(..),
-    serverStart,
-    --serverNCall,
-    serverCall,
-    serverReply,
-    Server(..),
-    ServerId(..),
-    defaultServer
+    InitHandler,
+    TerminateHandler,
+    MessageDispatcher(),
+    handleCall,
+    handleCallIf,
+    handleCast,
+    handleCastIf,
+    handleAny,
+    LocalServer(..),
+    defaultServer,
+    startServer,
+    callServer,
+    castServer,
+    stopServer
   ) where
 
-import           Control.Distributed.Process
-import           Control.Distributed.Process.Serializable
-import           Control.Monad                            (forever)
-import           Data.Typeable                            (Typeable)
-import           Prelude                                  hiding (catch, init)
+import           Control.Distributed.Process              (AbstractMessage (forward),
+                                                           Match, MonitorRef,
+                                                           Process, ProcessId,
+                                                           expect,
+                                                           expectTimeout,
+                                                           getSelfPid, match,
+                                                           matchAny, matchIf,
+                                                           receiveTimeout,
+                                                           receiveWait, say,
+                                                           send, spawnLocal)
+import           Control.Distributed.Process.Serializable (Serializable)
 
-import           Data.Binary                              (Binary (..))
+import           Data.Binary                              (Binary (..),
+                                                           getWord8, putWord8)
 import           Data.DeriveTH
+import           Data.Typeable                            (Typeable)
+
 
 --------------------------------------------------------------------------------
 -- Data Types                                                                 --
 --------------------------------------------------------------------------------
+
+-- | Process name
+type Name = String
+
+-- | ServerId
+type ServerId = ProcessId
+
+-- | Timeout
+data Timeout = Timeout Int
+             | NoTimeout
+
+-- | Initialize handler result
 data InitResult
   = InitOk Timeout
   | InitStop String
-  | InitIgnore
 
-data CallResult r
-  = CallOk r
-  | CallStop String
-  | CallDeferred
 
-data CastResult
-  = CastOk
-  | CastStop String
-
-data Info
-  = InfoTimeout Timeout
-  | Info String
-
-data InfoResult
-  = InfoNoReply Timeout
-  | InfoStop String
-
+-- | Terminate reason
 data TerminateReason
   = TerminateNormal
   | TerminateShutdown
-  | TerminateReason
+  | TerminateReason String
+    deriving (Show, Typeable)
+$(derive makeBinary ''TerminateReason)
 
--- | Server record of callbacks
-data Server rq rs = Server {
-    handleInit      :: Process InitResult,                  -- ^ initialization callback
-    handleCall      :: rq -> Process (CallResult rs),       -- ^ call callback
-    handleCast      :: rq -> Process CastResult,            -- ^ cast callback
-    handleInfo      :: Info -> Process InfoResult,          -- ^ info callback
-    handleTerminate :: TerminateReason -> Process ()        -- ^ termination callback
+--type Server s = StateT s Process
+
+-- | Handlers
+type InitHandler            = Process InitResult
+type TerminateHandler       = TerminateReason -> Process ()
+type CallHandler a b        = a -> Process (CallResult b)
+type CastHandler a          = a -> Process CastResult
+
+-- | The result of a call
+data CallResult a
+    = CallOk a
+    | CallForward ServerId
+    | CallStop a String
+        deriving (Show, Typeable)
+
+
+-- | The result of a cast
+data CastResult
+    = CastOk
+    | CastForward ServerId
+    | CastStop String
+
+-- | General idea of a future here
+-- This should hook up into the receive loop to update the result MVar automatically without blocking the server
+-- data Future a = Future { result :: MVar (Either IOError a) }
+
+
+-- | Adds routing metadata to the actual payload
+data Message a = Message ProcessId a
+    deriving (Show, Typeable)
+$(derive makeBinary ''Message)
+
+-- | Management message
+-- TODO is there a std way of terminating a process from another process?
+data ManageServer = TerminateServer TerminateReason
+  deriving (Show, Typeable)
+$(derive makeBinary ''ManageServer)
+
+
+-- | Matches messages using a dispatcher
+class MessageMatcher d where
+    matchMessage :: d -> Match ()
+
+-- | Dispatcher that knows how to dispatch messages to a handler
+data MessageDispatcher
+  = forall a . (Serializable a) => MessageDispatcher { dispatcher :: Message a -> Process () }
+  | forall a . (Serializable a) => MessageDispatcherIf { dispatcher :: Message a -> Process (), dispatchIf :: Message a -> Bool }
+  | MessageDispatcherAny { dispatcherAny :: AbstractMessage -> Process () }
+
+
+-- | Matches messages to a MessageDispatcher
+instance MessageMatcher MessageDispatcher where
+  matchMessage (MessageDispatcher d) = match d
+  matchMessage (MessageDispatcherIf d c) = matchIf c d
+  matchMessage (MessageDispatcherAny d) = matchAny d
+
+-- | Constructs a call message dispatcher
+--
+handleCall :: (Serializable a, Show a, Serializable b) => CallHandler a b -> MessageDispatcher
+handleCall = handleCallIf (const True)
+
+handleCallIf :: (Serializable a, Show a, Serializable b) => (a -> Bool) -> CallHandler a b -> MessageDispatcher
+handleCallIf pred handler = MessageDispatcherIf {
+  dispatcher = (\m@(Message cid req) -> do
+      say $ "Server got CALL: " ++ show m
+      result <- handler req
+      case result of
+          CallOk resp -> send cid resp
+          CallForward sid -> send sid m
+          CallStop resp reason -> return ()
+  ),
+  dispatchIf = \(Message _ req) -> pred req
+}
+
+-- | Constructs a cast message dispatcher
+--
+handleCast :: (Serializable a, Show a) => CastHandler a -> MessageDispatcher
+handleCast = handleCastIf (const True)
+
+handleCastIf :: (Serializable a, Show a) => (a -> Bool) -> CastHandler a -> MessageDispatcher
+handleCastIf pred handler = MessageDispatcherIf {
+  dispatcher = (\m@(Message cid msg) -> do
+      say $ "Server got CAST: " ++ show m
+      result <- handler msg
+      case result of
+          CastOk -> return ()
+          CastForward sid -> send sid m
+          CastStop reason -> error "TODO"
+  ),
+  dispatchIf = \(Message _ msg) -> pred msg
+}
+
+-- | Constructs a dispatcher for any message
+-- Note that since we don't know the type of this message it assumes the protocol of a cast
+-- i.e. no reply's
+handleAny :: (AbstractMessage -> Process (CastResult)) -> MessageDispatcher
+handleAny handler = MessageDispatcherAny {
+  dispatcherAny = (\m -> do
+      result <- handler m
+      case result of
+          CastOk -> return ()
+          CastForward sid -> (forward m) sid
+          CastStop reason -> error "TODO"
+  )
+}
+
+-- | The server callbacks
+data LocalServer = LocalServer {
+    initHandler      :: InitHandler,        -- ^ initialization handler
+    msgHandlers      :: [MessageDispatcher],
+    terminateHandler :: TerminateHandler    -- ^ termination handler
   }
 
--- | Default record
--- Starting point for creating new servers
-defaultServer :: Server rq rs
-defaultServer = Server {
-  handleInit = return $ InitOk NoTimeout,
-  handleCall = undefined,
-  handleCast = \_ -> return $ CastOk,
-  handleInfo = \_ -> return $ InfoNoReply NoTimeout,
-  handleTerminate = \_ -> return ()
+---- | Default record
+---- Starting point for creating new servers
+defaultServer :: LocalServer
+defaultServer = LocalServer {
+  initHandler = return $ InitOk NoTimeout,
+  msgHandlers = [],
+  terminateHandler = \_ -> return ()
 }
 
 --------------------------------------------------------------------------------
 -- API                                                                        --
 --------------------------------------------------------------------------------
 
--- | Process name
-type Name = String
+-- | Start a new server and return it's id
+startServer :: LocalServer -> Process ServerId
+startServer handlers = spawnLocal $ processServer handlers
 
--- | Process name
-data Timeout = Timeout Int
-             | NoTimeout
+-- TODO
+startServerLink :: LocalServer -> Process (ServerId, MonitorRef)
+startServerLink handlers = undefined
+  --us   <- getSelfPid
+  --them <- spawn nid (cpLink us `seqCP` proc)
+  --ref  <- monitor them
+  --return (them, ref)
 
--- | Typed server Id
-data ServerId rq rep
-  = ServerId String (SendPort (Request rq rep))
-
-instance (Serializable rq, Serializable rep) => Show (ServerId rq rep) where
-  show (ServerId serverId sport) = serverId ++ ":" ++ show (sendPortId sport)
-
--- | Request
-newtype Request req reply = Request (SendPort reply, req)
-  deriving (Typeable, Show)
-
-$(derive makeBinary ''Request)
-
--- | Reply
-newtype Reply reply = Reply reply
-  deriving (Typeable, Show)
-
-$(derive makeBinary ''Reply)
-
--- | Start server
---
-serverStart :: (Serializable rq, Serializable rs)
-      => Name
-      -> Process (Server rq rs)
-      -> Process (ServerId rq rs)
-serverStart name createServer = do
-    say $ "Starting server " ++ name
-
-    -- spawnChannelLocal :: Serializable a
-    --              => (ReceivePort a -> Process ())
-    --              -> Process (SendPort a)
-    sreq <- spawnChannelLocal $ serverProcess
-    return $ ServerId name sreq
-  where
-    serverProcess rreq = do
-
-      -- server process
-      server <- createServer
-
-      -- init
-      say $ "Initializing " ++ name
-      initResult <- handleInit server
-      case initResult of
-        InitIgnore -> do
-          return () -- ???
-        InitStop reason -> do
-          say $ "Initialization stopped: " ++ reason
-          return ()
-        InitOk timeout -> do
-
-          -- loop
-          forever $ do
-            case timeout of
-              Timeout value -> do
-                say $ "Waiting for call to " ++ name ++ " with timeout " ++ show value
-                tryRequest <- expectTimeout value
-                case tryRequest of
-                  Just req -> handleRequest server req
-                  Nothing -> return ()
-              NoTimeout       -> do
-                say $ "Waiting for call to " ++ name
-                req <- receiveChan rreq -- :: Process (ProcessId, rq)
-
-                handleRequest server req
-
-                return ()
-
-      -- terminate
-      handleTerminate server TerminateNormal
-
-    handleRequest server (Request (sreply, rq)) = do
-      say $ "Handling call for " ++ name
-      callResult <- handleCall server rq
-      case callResult of
-        CallOk reply -> do
-          say $ "Sending reply from " ++ name
-          sendChan sreply reply
-        CallDeferred ->
-          say $ "Not sending reply from " ++ name
-        CallStop reason ->
-          say $ "Stop: " ++ reason ++ " -- Not implemented!"
-
--- | Call a process using it's name
--- nsend doesnt seem to support timeouts?
---serverNCall :: (Serializable a, Serializable b) => Name -> a -> Process b
---serverNCall name rq = do
---  (sport, rport) <- newChan
---  nsend name (sport, rq)
---  receiveChan rport
---  --us <- getSelfPid
---  --nsend name (us, rq)
---  --expect
-
--- | call a process using it's process id
-serverCall :: (Serializable rq, Serializable rs) => ServerId rq rs -> rq -> Timeout -> Process rs
-serverCall (ServerId _ sreq) rq timeout = do
-  (sreply, rreply) <- newChan
-  sendChan sreq $ Request (sreply, rq)
+-- | call a server identified by it's ServerId
+callServer :: (Serializable rq, Serializable rs) => ServerId -> rq -> Timeout -> Process rs
+callServer sid rq timeout = do
+  cid <- getSelfPid
+  send sid (Message cid rq)
   case timeout of
-    NoTimeout -> receiveChan rreply
-    Timeout value -> do
-      maybeMsg <- error "not implemented" -- expectTimeout value
-      case maybeMsg of
+    NoTimeout -> expect
+    Timeout time -> do
+      mayResp <- expectTimeout time
+      case mayResp of
         Just msg -> return msg
-        Nothing -> error $ "timeout! value = " ++ show value
+        Nothing -> error $ "timeout! value = " ++ show time
 
--- | out of band reply to a client
-serverReply :: (Serializable a) => SendPort a -> a -> Process ()
-serverReply sport reply = do
-  sendChan sport reply
+-- | Cast a message to a server identified by it's ServerId
+castServer :: (Serializable a) => ServerId -> a -> Process ()
+castServer sid msg = do
+  cid <- getSelfPid
+  send sid (Message cid msg)
+
+-- | Stops a server identified by it's ServerId
+stopServer :: ServerId -> TerminateReason -> Process ()
+stopServer sid reason = castServer sid (TerminateServer reason)
+
+--------------------------------------------------------------------------------
+-- Implementation                                                             --
+--------------------------------------------------------------------------------
+
+-- | server process
+processServer :: LocalServer -> Process ()
+processServer localServer = do
+    ir <- processInit localServer
+    tr <- case ir of
+            InitOk to -> do
+              say $ "Server ready to receive messages!"
+              processLoop localServer to
+            InitStop r -> return (TerminateReason r)
+    processTerminate localServer tr
+
+-- | initialize server
+processInit :: LocalServer -> Process InitResult
+processInit localServer = do
+    say $ "Server initializing ... "
+    ir <- initHandler localServer
+    return ir
+
+-- | server loop
+processLoop :: LocalServer -> Timeout -> Process TerminateReason
+processLoop localServer timeout = do
+    mayMsg <- processReceive (msgHandlers localServer) timeout
+    case mayMsg of
+        Just reason -> return reason
+        Nothing -> processLoop localServer timeout
+
+-- |
+processReceive :: [MessageDispatcher] -> Timeout -> Process (Maybe TerminateReason)
+processReceive ds timeout = do
+    case timeout of
+        NoTimeout -> do
+            receiveWait $ map matchMessage ds
+            return Nothing
+        Timeout time -> do
+            mayResult <- receiveTimeout time $ map matchMessage ds
+            case mayResult of
+                Just _ -> return Nothing
+                Nothing -> do
+                    say "Receive timed out ..."
+                    return Nothing
+
+-- | terminate server
+processTerminate :: LocalServer -> TerminateReason -> Process ()
+processTerminate localServer reason = do
+    say $ "Server terminating ... "
+    (terminateHandler localServer) reason
