@@ -237,11 +237,14 @@ newtype Process a = Process {
 
 instance MonadBase IO Process where
   liftBase = liftIO
+  {-# INLINE liftBase #-}
 
 instance MonadBaseControl IO Process where
   newtype StM Process a = StProcess {unSTProcess :: StM (ReaderT LocalProcess IO) a}
   restoreM (StProcess m) = Process $ restoreM m
   liftBaseWith f = Process $ liftBaseWith $ \ rib -> f (fmap StProcess . rib . unProcess)
+  {-# INLINE liftBaseWith #-}
+  {-# INLINE restoreM #-}
 
 --------------------------------------------------------------------------------
 -- Typed channels                                                             --
