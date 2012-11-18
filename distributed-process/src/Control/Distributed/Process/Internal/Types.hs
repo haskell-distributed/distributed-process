@@ -440,7 +440,7 @@ data ProcessSignal =
   | Died Identifier !DiedReason
   | Spawn !(Closure (Process ())) !SpawnRef 
   | WhereIs !String
-  | Register !String !(Maybe ProcessId) -- Use 'Nothing' to unregister
+  | Register !String !(Maybe ProcessId) !Bool -- Use 'Nothing' to unregister, use True to force reregister
   | NamedSend !String !Message
   deriving Show
 
@@ -484,7 +484,7 @@ instance Binary ProcessSignal where
   put (Died who reason)     = putWord8 4 >> put who >> put reason
   put (Spawn proc ref)      = putWord8 5 >> put proc >> put ref
   put (WhereIs label)       = putWord8 6 >> put label
-  put (Register label pid)  = putWord8 7 >> put label >> put pid
+  put (Register label pid force)= putWord8 7 >> put label >> put pid >> put force
   put (NamedSend label msg) = putWord8 8 >> put label >> put (messageToPayload msg) 
   get = do
     header <- getWord8
@@ -496,7 +496,7 @@ instance Binary ProcessSignal where
       4 -> Died <$> get <*> get
       5 -> Spawn <$> get <*> get
       6 -> WhereIs <$> get
-      7 -> Register <$> get <*> get
+      7 -> Register <$> get <*> get <*> get
       8 -> NamedSend <$> get <*> (payloadToMessage <$> get)
       _ -> fail "ProcessSignal.get: invalid"
 
