@@ -39,6 +39,7 @@ module Control.Distributed.Process.Internal.Types
   , ProcessLinkException(..)
   , NodeLinkException(..)
   , PortLinkException(..)
+  , ProcessRegistrationException(..)
   , DiedReason(..)
   , DidUnmonitor(..)
   , DidUnlinkProcess(..)
@@ -47,6 +48,7 @@ module Control.Distributed.Process.Internal.Types
   , SpawnRef(..)
   , DidSpawn(..)
   , WhereIsReply(..)
+  , RegisterReply(..)
     -- * Node controller internal data types 
   , NCMsg(..)
   , ProcessSignal(..)
@@ -359,9 +361,17 @@ data PortLinkException =
     PortLinkException !SendPortId !DiedReason
   deriving (Typeable, Show)
 
+-- | Exception thrown when a process attempts to register
+-- a process under an already-registered name or to
+-- unregister a name that hasn't been registered
+data ProcessRegistrationException = 
+    ProcessRegistrationException !String
+  deriving (Typeable, Show)
+
 instance Exception ProcessLinkException
 instance Exception NodeLinkException
 instance Exception PortLinkException
+instance Exception ProcessRegistrationException
 
 -- | Why did a process die?
 data DiedReason = 
@@ -404,6 +414,10 @@ data DidSpawn = DidSpawn SpawnRef ProcessId
 
 -- | (Asynchronous) reply from 'whereis'
 data WhereIsReply = WhereIsReply String (Maybe ProcessId)
+  deriving (Show, Typeable)
+
+-- | (Asynchronous) reply from 'register' and 'unregister'
+data RegisterReply = RegisterReply String Bool
   deriving (Show, Typeable)
 
 --------------------------------------------------------------------------------
@@ -525,6 +539,10 @@ instance Binary Identifier where
 instance Binary WhereIsReply where
   put (WhereIsReply label mPid) = put label >> put mPid
   get = WhereIsReply <$> get <*> get
+
+instance Binary RegisterReply where
+  put (RegisterReply label ok) = put label >> put ok 
+  get = RegisterReply <$> get <*> get
 
 --------------------------------------------------------------------------------
 -- Accessors                                                                  --

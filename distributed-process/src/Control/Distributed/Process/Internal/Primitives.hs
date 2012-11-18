@@ -38,8 +38,8 @@ module Control.Distributed.Process.Internal.Primitives
   , unregister
   , whereis
   , nsend
-  , registerRemote
-  , unregisterRemote
+  , registerRemoteAsync
+  , unregisterRemoteAsync
   , whereisRemoteAsync
   , nsendRemote
     -- * Closures
@@ -76,6 +76,7 @@ import Data.Time.Clock (getCurrentTime)
 import Data.Time.Format (formatTime)
 import System.Locale (defaultTimeLocale)
 import System.Timeout (timeout)
+import Control.Monad (when)
 import Control.Monad.Reader (ask)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Applicative ((<$>))
@@ -127,6 +128,8 @@ import Control.Distributed.Process.Internal.Types
   , DidUnlinkNode(..)
   , DidUnlinkPort(..)
   , WhereIsReply(..)
+  , RegisterReply(..)
+  , ProcessRegistrationException(..)
   , createMessage
   , runLocalProcess
   , ImplicitReconnect(WithImplicitReconnect, NoImplicitReconnect)
@@ -542,24 +545,44 @@ say string = do
 --
 -- The process to be registered does not have to be local itself.
 register :: String -> ProcessId -> Process ()
-register label pid = 
+register label pid = do
   sendCtrlMsg Nothing (Register label (Just pid))
+  receiveWait [ matchIf (\(RegisterReply label' _) -> label == label')
+                        (\(RegisterReply _ ok) -> handleRegistrationReply label ok)
+              ]
 
 -- | Register a process with a remote registry (asynchronous).
 --
 -- The process to be registered does not have to live on the same remote node.
-registerRemote :: NodeId -> String -> ProcessId -> Process ()
-registerRemote nid label pid = 
+-- Reply wil come in the form of a 'RegisterReply' message
+--
+-- See comments in 'whereisRemoteAsync'
+registerRemoteAsync :: NodeId -> String -> ProcessId -> Process ()
+registerRemoteAsync nid label pid = 
   sendCtrlMsg (Just nid) (Register label (Just pid)) 
 
 -- | Remove a process from the local registry (asynchronous).
 unregister :: String -> Process ()
-unregister label = 
+unregister label = do
   sendCtrlMsg Nothing (Register label Nothing)
+  receiveWait [ matchIf (\(RegisterReply label' _) -> label == label')
+                        (\(RegisterReply _ ok) -> handleRegistrationReply label ok)
+              ]
+
+-- | Deal with the result from an attempted registration or unregistration
+-- by throwing an exception if necessary
+handleRegistrationReply :: String -> Bool -> Process ()
+handleRegistrationReply label ok = 
+  when (not ok) $
+     liftIO $ throwIO $ ProcessRegistrationException label
 
 -- | Remove a process from a remote registry (asynchronous).
-unregisterRemote :: NodeId -> String -> Process ()
-unregisterRemote nid label =
+-- 
+-- Reply wil come in the form of a 'RegisterReply' message
+--
+-- See comments in 'whereisRemoteAsync'
+unregisterRemoteAsync :: NodeId -> String -> Process ()
+unregisterRemoteAsync nid label =
   sendCtrlMsg (Just nid) (Register label Nothing)
 
 -- | Query the local process registry

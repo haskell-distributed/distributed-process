@@ -31,7 +31,7 @@ import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set (empty, insert, delete, member)
 import Data.Foldable (forM_)
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, isNothing)
 import Data.Typeable (Typeable)
 import Control.Category ((>>>))
 import Control.Applicative ((<$>))
@@ -118,6 +118,7 @@ import Control.Distributed.Process.Internal.Types
   , nodeOf
   , SendPortId(..)
   , typedChannelWithId
+  , RegisterReply(..)
   , WhereIsReply(..)
   , messageToPayload
   , payloadToMessage
@@ -485,8 +486,8 @@ nodeController = do
         ncEffectDied ident reason
       NCMsg (ProcessIdentifier from) (Spawn proc ref) ->
         ncEffectSpawn from proc ref
-      NCMsg _from (Register label pid) ->
-        ncEffectRegister label pid
+      NCMsg (ProcessIdentifier from) (Register label pid) ->
+        ncEffectRegister from label pid
       NCMsg (ProcessIdentifier from) (WhereIs label) ->
         ncEffectWhereIs from label
       NCMsg from (NamedSend label msg') ->
@@ -587,12 +588,24 @@ ncEffectSpawn pid cProc ref = do
 
 -- Unified semantics does not explicitly describe how to implement 'register',
 -- but mentions it's "very similar to nsend" (Table 14)
-ncEffectRegister :: String -> Maybe ProcessId -> NC ()
-ncEffectRegister label mPid = 
-  modify' $ registryFor label ^= mPid
-  -- An acknowledgement is not necessary. If we want a synchronous register,
-  -- it suffices to send a whereis requiry immediately after the register
-  -- (that may not suffice if we do decide for unreliable messaging instead)
+-- We send a response indicated if the operation is invalid
+ncEffectRegister :: ProcessId -> String -> Maybe ProcessId -> NC ()
+ncEffectRegister from label mPid = do
+  node <- ask
+  currentVal <- gets (^. registryFor label)
+  let isOk = 
+       case mPid of
+         Nothing -> -- unregister request
+           isJust currentVal
+         Just _ -> -- register request
+           isNothing currentVal
+  when (isOk) $
+     modify' $ registryFor label ^= mPid
+  liftIO $ sendMessage node
+                       (NodeIdentifier (localNodeId node))
+                       (ProcessIdentifier from) 
+                       WithImplicitReconnect
+                       (RegisterReply label isOk)
 
 -- Unified semantics does not explicitly describe 'whereis'
 ncEffectWhereIs :: ProcessId -> String -> NC ()

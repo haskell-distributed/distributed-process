@@ -80,8 +80,8 @@ module Control.Distributed.Process
   , unregister
   , whereis
   , nsend
-  , registerRemote
-  , unregisterRemote
+  , registerRemoteAsync
+  , unregisterRemoteAsync
   , whereisRemoteAsync
   , nsendRemote
   , WhereIsReply(..)
@@ -200,8 +200,8 @@ import Control.Distributed.Process.Internal.Primitives
   , unregister
   , whereis
   , nsend
-  , registerRemote
-  , unregisterRemote
+  , registerRemoteAsync
+  , unregisterRemoteAsync
   , whereisRemoteAsync
   , nsendRemote
     -- Closures
