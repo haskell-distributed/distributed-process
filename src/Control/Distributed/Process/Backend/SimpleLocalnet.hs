@@ -115,7 +115,7 @@ import Control.Distributed.Process
   , WhereIsReply(..)
   , whereis
   , whereisRemoteAsync
-  , registerRemote
+  , reregisterRemoteAsync
   , getSelfPid
   , register
   , expect
@@ -244,7 +244,7 @@ apiRedirectLogsHere backend = do
   mLogger <- whereis "logger"
   forM_ mLogger $ \logger -> do
     nids <- liftIO $ findPeers backend 1000000 
-    forM_ nids $ \nid -> registerRemote nid "logger" logger
+    forM_ nids $ \nid -> reregisterRemoteAsync nid "logger" logger -- ignore async response
 
 --------------------------------------------------------------------------------
 -- Slaves                                                                     --
