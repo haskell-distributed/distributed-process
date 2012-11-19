@@ -25,6 +25,7 @@ import qualified Data.Map as Map
   ( empty
   , toList
   , fromList
+  , filter
   , partitionWithKey
   , elems
   , filterWithKey
@@ -440,7 +441,8 @@ data NCState = NCState
      -- Mapping from remote processes to monitoring local processes
   , _monitors :: !(Map Identifier (Set (ProcessId, MonitorRef)))
      -- Process registry: names and where they live, mapped to the PIDs
-  , _registry :: !(Map (String,NodeId) ProcessId)
+  , _registeredHere :: !(Map String ProcessId)
+  , _registeredOnNodes :: !(Map ProcessId [(NodeId,Int)])
   }
 
 newtype NC a = NC { unNC :: StateT NCState (ReaderT LocalNode IO) a }
@@ -449,7 +451,8 @@ newtype NC a = NC { unNC :: StateT NCState (ReaderT LocalNode IO) a }
 initNCState :: NCState
 initNCState = NCState { _links    = Map.empty
                       , _monitors = Map.empty
-                      , _registry = Map.empty
+                      , _registeredHere = Map.empty
+                      , _registeredOnNodes = Map.empty
                       }
 
 --------------------------------------------------------------------------------
@@ -572,11 +575,20 @@ ncEffectDied ident reason = do
 
   modify' $ (links ^= unaffectedLinks) . (monitors ^= unaffectedMons)
 
-  remaining <- fmap Map.toList (gets (^. registry)) >>= mapM ( \whl@((_,nid),pid) ->
-     case ident `impliesDeathOf` ProcessIdentifier pid ||
-          ident `impliesDeathOf` NodeIdentifier nid of
-       True -> 
-         do when (not $ isLocal node (NodeIdentifier nid)) $
+  modify' $ registeredHere ^: Map.filter (\pid -> not $ ident `impliesDeathOf` ProcessIdentifier pid)
+
+  remaining <- fmap Map.toList (gets (^. registeredOnNodes)) >>=
+      mapM (\(pid,nidlist) -> 
+        case ident `impliesDeathOf` ProcessIdentifier pid of
+           True -> 
+              do forM_ nidlist $ \(nid,_) ->
+                   when (not $ isLocal node (NodeIdentifier nid)) 
+                      (forwardNameDeath node nid)
+                 return Nothing
+           False -> return $ Just (pid,nidlist)  )
+  modify' $ registeredOnNodes ^= (Map.fromList (catMaybes remaining))
+    where 
+       forwardNameDeath node nid =
                    liftIO $ sendBinary node
                              (NodeIdentifier $ localNodeId node)
                              (NodeIdentifier $ nid)
@@ -585,9 +597,7 @@ ncEffectDied ident reason = do
                              { ctrlMsgSender = NodeIdentifier (localNodeId node) 
                              , ctrlMsgSignal = Died ident reason
                              }              
-            return Nothing
-       False -> return $ Just whl)
-  modify' $ registry ^= Map.fromList (catMaybes remaining)
+
 
 -- [Unified: Table 13]
 ncEffectSpawn :: ProcessId -> Closure (Process ()) -> SpawnRef -> NC ()
@@ -612,7 +622,7 @@ ncEffectSpawn pid cProc ref = do
 ncEffectRegister :: ProcessId -> String -> NodeId -> Maybe ProcessId -> Bool -> NC ()
 ncEffectRegister from label atnode mPid reregistration = do
   node <- ask
-  currentVal <- gets (^. registryFor (label, localNodeId node))
+  currentVal <- gets (^. registeredHereFor label)
   isOk <-
        case mPid of
          Nothing -> -- unregister request
@@ -623,30 +633,56 @@ ncEffectRegister from label atnode mPid reregistration = do
                 (not (isLocal node (ProcessIdentifier thepid) ) || isvalidlocal )
   if isLocal node (NodeIdentifier atnode)
      then when (isOk) $
-              do modify' $ registryFor (label, atnode) ^= mPid
-                 let namedPid = 
-                       head $ catMaybes [mPid, currentVal]
-                 when (not $ isLocal node (ProcessIdentifier namedPid)) $
-                    liftIO $ sendBinary node
-                                        (ProcessIdentifier from)
-                                        (NodeIdentifier (processNodeId namedPid))
-                                        WithImplicitReconnect
-                                        NCMsg
-                                         { ctrlMsgSender = ProcessIdentifier from
-                                         , ctrlMsgSignal = Register label atnode mPid reregistration
-                                         }
-     else modify' $ registryFor (label,atnode) ^= mPid
-  liftIO $ sendMessage node
+              do modify' $ registeredHereFor label ^= mPid
+                 updateRemote node currentVal mPid
+                 liftIO $ sendMessage node
                        (NodeIdentifier (localNodeId node))
                        (ProcessIdentifier from) 
                        WithImplicitReconnect
                        (RegisterReply label isOk)
+     else let operation = 
+                 case reregistration of
+                    True -> flip decList
+                    False -> flip incList
+           in case mPid of
+                Nothing -> return ()
+                Just pid -> modify' $ registeredOnNodesFor pid ^: (maybeify $ operation atnode)
+      where updateRemote node (Just oldval) (Just newval) | processNodeId oldval /= processNodeId newval =
+              do forward node (processNodeId oldval) (Register label atnode (Just oldval) True)
+                 forward node (processNodeId newval) (Register label atnode (Just newval) False)
+            updateRemote node Nothing (Just newval) =
+                 forward node (processNodeId newval) (Register label atnode (Just newval) False)
+            updateRemote node (Just oldval) Nothing =
+                 forward node (processNodeId oldval) (Register label atnode (Just oldval) True)
+            updateRemote _ _ _ = return ()
+            maybeify f Nothing = unmaybeify $ f []
+            maybeify f (Just x) = unmaybeify $ f x
+            unmaybeify [] = Nothing
+            unmaybeify x = Just x
+            incList [] tag = [(tag,1)]
+            incList ((atag,acount):xs) tag | tag==atag = (atag,acount+1) : xs
+            incList (x:xs) tag = x : incList xs tag
+            decList [] _ = []
+            decList ((atag,1):xs) tag | atag == tag = xs
+            decList ((atag,n):xs) tag | atag == tag = (atag,n-1):xs
+            decList (x:xs) tag = x:decList xs tag
+            forward node to reg = 
+              when (not $ isLocal node (NodeIdentifier to)) $
+                    liftIO $ sendBinary node
+                                        (ProcessIdentifier from)
+                                        (NodeIdentifier to)
+                                        WithImplicitReconnect
+                                        NCMsg
+                                         { ctrlMsgSender = ProcessIdentifier from
+                                         , ctrlMsgSignal = reg
+                                         }
+
 
 -- Unified semantics does not explicitly describe 'whereis'
 ncEffectWhereIs :: ProcessId -> String -> NC ()
 ncEffectWhereIs from label = do
   node <- ask
-  mPid <- gets (^. registryFor (label, localNodeId node))
+  mPid <- gets (^. registeredHereFor label)
   liftIO $ sendMessage node
                        (NodeIdentifier (localNodeId node))
                        (ProcessIdentifier from) 
@@ -657,7 +693,7 @@ ncEffectWhereIs from label = do
 ncEffectNamedSend :: Identifier -> String -> Message -> NC ()
 ncEffectNamedSend from label msg = do
   node <- ask  
-  mPid <- gets (^. registryFor (label, localNodeId node))
+  mPid <- gets (^. registeredHereFor label)
   -- If mPid is Nothing, we just ignore the named send (as per Table 14)
   forM_ mPid $ \pid -> 
     liftIO $ sendPayload node
@@ -780,8 +816,11 @@ links = accessor _links (\ls st -> st { _links = ls })
 monitors :: Accessor NCState (Map Identifier (Set (ProcessId, MonitorRef)))
 monitors = accessor _monitors (\ms st -> st { _monitors = ms })
 
-registry :: Accessor NCState (Map (String,NodeId) ProcessId)
-registry = accessor _registry (\ry st -> st { _registry = ry })
+registeredHere :: Accessor NCState (Map String ProcessId)
+registeredHere = accessor _registeredHere (\ry st -> st { _registeredHere = ry })
+
+registeredOnNodes :: Accessor NCState (Map ProcessId [(NodeId, Int)])
+registeredOnNodes = accessor _registeredOnNodes (\ry st -> st { _registeredOnNodes = ry })
 
 linksFor :: Identifier -> Accessor NCState (Set ProcessId)
 linksFor ident = links >>> DAC.mapDefault Set.empty ident
@@ -789,8 +828,11 @@ linksFor ident = links >>> DAC.mapDefault Set.empty ident
 monitorsFor :: Identifier -> Accessor NCState (Set (ProcessId, MonitorRef))
 monitorsFor ident = monitors >>> DAC.mapDefault Set.empty ident
 
-registryFor :: (String, NodeId) -> Accessor NCState (Maybe ProcessId)
-registryFor ident = registry >>> DAC.mapMaybe ident
+registeredHereFor :: String -> Accessor NCState (Maybe ProcessId)
+registeredHereFor ident = registeredHere >>> DAC.mapMaybe ident
+
+registeredOnNodesFor :: ProcessId -> Accessor NCState (Maybe [(NodeId,Int)])
+registeredOnNodesFor ident = registeredOnNodes >>> DAC.mapMaybe ident
 
 -- | @splitNotif ident@ splits a notifications map into those
 -- notifications that should trigger when 'ident' fails and those links that
