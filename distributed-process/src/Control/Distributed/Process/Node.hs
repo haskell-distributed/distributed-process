@@ -487,8 +487,8 @@ nodeController = do
         ncEffectDied ident reason
       NCMsg (ProcessIdentifier from) (Spawn proc ref) ->
         ncEffectSpawn from proc ref
-      NCMsg (ProcessIdentifier from) (Register label pid force) ->
-        ncEffectRegister from label pid force
+      NCMsg (ProcessIdentifier from) (Register label atnode pid force) ->
+        ncEffectRegister from label atnode pid force
       NCMsg (ProcessIdentifier from) (WhereIs label) ->
         ncEffectWhereIs from label
       NCMsg from (NamedSend label msg') ->
@@ -609,8 +609,8 @@ ncEffectSpawn pid cProc ref = do
 -- Unified semantics does not explicitly describe how to implement 'register',
 -- but mentions it's "very similar to nsend" (Table 14)
 -- We send a response indicated if the operation is invalid
-ncEffectRegister :: ProcessId -> String -> Maybe ProcessId -> Bool -> NC ()
-ncEffectRegister from label mPid reregistration = do
+ncEffectRegister :: ProcessId -> String -> NodeId -> Maybe ProcessId -> Bool -> NC ()
+ncEffectRegister from label atnode mPid reregistration = do
   node <- ask
   currentVal <- gets (^. registryFor (label, localNodeId node))
   isOk <-
@@ -621,9 +621,9 @@ ncEffectRegister from label mPid reregistration = do
            do isvalidlocal <- isValidLocalIdentifier (ProcessIdentifier thepid)
               return $ (isNothing currentVal /= reregistration) && 
                 (not (isLocal node (ProcessIdentifier thepid) ) || isvalidlocal )
-  if isLocal node (ProcessIdentifier from)
+  if isLocal node (NodeIdentifier atnode)
      then when (isOk) $
-              do modify' $ registryFor (label, localNodeId node) ^= mPid
+              do modify' $ registryFor (label, atnode) ^= mPid
                  let namedPid = 
                        head $ catMaybes [mPid, currentVal]
                  when (not $ isLocal node (ProcessIdentifier namedPid)) $
@@ -633,9 +633,9 @@ ncEffectRegister from label mPid reregistration = do
                                         WithImplicitReconnect
                                         NCMsg
                                          { ctrlMsgSender = ProcessIdentifier from
-                                         , ctrlMsgSignal = Register label mPid reregistration
+                                         , ctrlMsgSignal = Register label atnode mPid reregistration
                                          }
-     else modify' $ registryFor (label,processNodeId from) ^= mPid
+     else modify' $ registryFor (label,atnode) ^= mPid
   liftIO $ sendMessage node
                        (NodeIdentifier (localNodeId node))
                        (ProcessIdentifier from) 
@@ -708,7 +708,7 @@ destNid (Unlink ident)  = Just $ nodeOf ident
 destNid (Monitor ref)   = Just $ nodeOf (monitorRefIdent ref)
 destNid (Unmonitor ref) = Just $ nodeOf (monitorRefIdent ref)
 destNid (Spawn _ _)     = Nothing 
-destNid (Register _ _ _)= Nothing
+destNid (Register _ _ _ _) = Nothing
 destNid (WhereIs _)     = Nothing
 destNid (NamedSend _ _) = Nothing
 -- We don't need to forward 'Died' signals; if monitoring/linking is setup,

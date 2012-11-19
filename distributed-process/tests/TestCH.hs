@@ -31,6 +31,7 @@ import Control.Distributed.Process
 import Control.Distributed.Process.Internal.Types 
   ( NodeId(nodeAddress) 
   , LocalNode(localEndPoint)
+  , RegisterReply(..)
   )
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable (Serializable)
@@ -594,7 +595,11 @@ testRemoteRegistry transport = do
 
   runProcess node2 $ do
     let nid1 = localNodeId node1
-    registerRemote nid1 "ping" pingServer
+    registerRemoteAsync nid1 "ping" pingServer
+    receiveWait [ 
+       matchIf (\(RegisterReply label' _) -> "ping" == label')
+               (\(RegisterReply _ _) -> return ()) ]
+
     Just pid <- whereisRemote nid1 "ping"
     True <- return $ pingServer == pid 
     us <- getSelfPid
@@ -665,7 +670,13 @@ testReconnect transport transportInternals = do
      -}
     
     us <- getSelfPid
-    registerRemote nid1 "a" us >> liftIO (threadDelay 100000) -- registerRemote is asynchronous
+    registerRemoteAsync nid1 "a" us -- registerRemote is asynchronous
+    receiveWait [
+        matchIf (\(RegisterReply label' _) -> "a" == label')
+                (\(RegisterReply _ _) -> return ()) ]
+
+    Just _  <- whereisRemote nid1 "a" 
+      
 
     -- Simulate network failure
     liftIO $ do 
@@ -674,14 +685,20 @@ testReconnect transport transportInternals = do
       threadDelay 10000
 
     -- This will happen due to implicit reconnect 
-    registerRemote nid1 "b" us
+    registerRemoteAsync nid1 "b" us
+    receiveWait [
+        matchIf (\(RegisterReply label' _) -> "b" == label')
+                (\(RegisterReply _ _) -> return ()) ]
 
     -- Should happen
-    registerRemote nid1 "c" us
+    registerRemoteAsync nid1 "c" us
+    receiveWait [
+        matchIf (\(RegisterReply label' _) -> "c" == label')
+                (\(RegisterReply _ _) -> return ()) ]
 
     -- Check
-    Just _  <- whereisRemote nid1 "a" 
-    Just _  <- whereisRemote nid1 "b" 
+    Nothing  <- whereisRemote nid1 "a"  -- this will fail because the name is removed when the node is disconnected
+    Just _  <- whereisRemote nid1 "b"  -- this will suceed because the value is set after thereconnect
     Just _  <- whereisRemote nid1 "c" 
 
     liftIO $ putMVar registerTestOk ()
