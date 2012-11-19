@@ -1,5 +1,5 @@
 Name:          distributed-process 
-Version:       0.4.0.2
+Version:       0.4.0.3
 Cabal-Version: >=1.8
 Build-Type:    Simple
 License:       BSD3 
