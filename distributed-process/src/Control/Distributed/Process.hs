@@ -44,6 +44,7 @@ module Control.Distributed.Process
   , call
   , terminate
   , ProcessTerminationException(..)
+  , ProcessRegistrationException(..)
   , SpawnRef
   , getSelfPid
   , getSelfNode
@@ -77,11 +78,13 @@ module Control.Distributed.Process
   , say
     -- * Registry
   , register
+  , reregister
   , unregister
   , whereis
   , nsend
-  , registerRemote
-  , unregisterRemote
+  , registerRemoteAsync
+  , reregisterRemoteAsync
+  , unregisterRemoteAsync
   , whereisRemoteAsync
   , nsendRemote
   , WhereIsReply(..)
@@ -135,6 +138,7 @@ import Control.Distributed.Process.Internal.Types
   , ProcessLinkException(..)
   , NodeLinkException(..)
   , PortLinkException(..)
+  , ProcessRegistrationException(..)
   , DiedReason(..)
   , SpawnRef(..)
   , DidSpawn(..)
@@ -197,11 +201,13 @@ import Control.Distributed.Process.Internal.Primitives
   , say
     -- Registry
   , register
+  , reregister
   , unregister
   , whereis
   , nsend
-  , registerRemote
-  , unregisterRemote
+  , registerRemoteAsync
+  , reregisterRemoteAsync
+  , unregisterRemoteAsync
   , whereisRemoteAsync
   , nsendRemote
     -- Closures
