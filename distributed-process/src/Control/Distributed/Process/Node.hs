@@ -632,10 +632,10 @@ ncEffectRegister from label atnode mPid reregistration = do
               return $ (isNothing currentVal /= reregistration) && 
                 (not (isLocal node (ProcessIdentifier thepid) ) || isvalidlocal )
   if isLocal node (NodeIdentifier atnode)
-     then when (isOk) $
-              do modify' $ registeredHereFor label ^= mPid
-                 updateRemote node currentVal mPid
-                 liftIO $ sendMessage node
+     then do when (isOk) $
+               do modify' $ registeredHereFor label ^= mPid
+                  updateRemote node currentVal mPid
+             liftIO $ sendMessage node
                        (NodeIdentifier (localNodeId node))
                        (ProcessIdentifier from) 
                        WithImplicitReconnect
