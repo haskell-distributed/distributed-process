@@ -136,43 +136,48 @@ $(derive makeBinary ''ManageServer)
 -- s The server state
 data MessageDispatcher s
   = forall a . (Serializable a) => MessageDispatcher {
-        dispatcher :: s -> Message a -> Process s
+        dispatcher :: s -> Message a -> Process (s, Maybe TerminateReason)
       }
   | forall a . (Serializable a) => MessageDispatcherIf {
-        dispatcher :: s -> Message a -> Process s,
+        dispatcher :: s -> Message a -> Process (s, Maybe TerminateReason),
         dispatchIf :: s -> Message a -> Bool
       }
   | MessageDispatcherAny {
-        dispatcherAny :: s -> AbstractMessage -> Process s
+        dispatcherAny :: s -> AbstractMessage -> Process (s, Maybe TerminateReason)
       }
 
 
 -- | Matches messages using a dispatcher
 class MessageMatcher d where
-    matchMessage :: s -> d s -> Match s
+    matchMessage :: s -> d s -> Match (s, Maybe TerminateReason)
 
 
 -- | Matches messages to a MessageDispatcher
 instance MessageMatcher MessageDispatcher where
-  matchMessage state (MessageDispatcher dispatcher) = match (dispatcher state)
-  matchMessage state (MessageDispatcherIf dispatcher cond) = matchIf (cond state) (dispatcher state)
-  matchMessage state (MessageDispatcherAny dispatcher) = matchAny (dispatcher state)
+  matchMessage s (MessageDispatcher dispatcher) = match (dispatcher s)
+  matchMessage s (MessageDispatcherIf dispatcher cond) = matchIf (cond s) (dispatcher s)
+  matchMessage s (MessageDispatcherAny dispatcher) = matchAny (dispatcher s)
 
 -- | Constructs a call message dispatcher
 --
 handleCall :: (Serializable a, Show a, Serializable b) => CallHandler s a b -> MessageDispatcher s
-handleCall handler = handleCallIf (const True) handler
+handleCall = handleCallIf (const True)
 
 handleCallIf :: (Serializable a, Show a, Serializable b) => (a -> Bool) -> CallHandler s a b -> MessageDispatcher s
 handleCallIf cond handler = MessageDispatcherIf {
   dispatcher = (\state m@(Message cid req) -> do
       say $ "Server got CALL: " ++ show m
-      (result, state') <- ST.runStateT (handler req) state
-      case result of
-          CallOk resp -> send cid resp
-          CallForward sid -> send sid m
-          CallStop resp reason -> return ()
-      return state'
+      (r, s') <- ST.runStateT (handler req) state
+      case r of
+          CallOk resp -> do
+            send cid resp
+            return (s', Nothing)
+          CallForward sid -> do
+            send sid m
+            return (s', Nothing)
+          CallStop resp reason -> do
+            send cid resp
+            return (s', Just (TerminateReason reason))
   ),
   dispatchIf = \state (Message _ req) -> cond req
 }
@@ -186,15 +191,15 @@ handleCast = handleCastIf (const True)
 -- |
 handleCastIf :: (Serializable a, Show a) => (a -> Bool) -> CastHandler s a -> MessageDispatcher s
 handleCastIf cond handler = MessageDispatcherIf {
-  dispatcher = (\state m@(Message cid msg) -> do
+  dispatcher = (\s m@(Message cid msg) -> do
       say $ "Server got CAST: " ++ show m
-      (result, state') <- ST.runStateT (handler msg) state
-      case result of
-          CastOk -> return state'
+      (r, s') <- ST.runStateT (handler msg) s
+      case r of
+          CastStop reason -> return (s', Just $ TerminateReason reason)
+          CastOk -> return (s', Nothing)
           CastForward sid -> do
             send sid m
-            return state'
-          CastStop reason -> error "TODO"
+            return (s', Nothing)
   ),
   dispatchIf = \state (Message _ msg) -> cond msg
 }
@@ -204,14 +209,14 @@ handleCastIf cond handler = MessageDispatcherIf {
 -- i.e. no reply's
 handleAny :: (AbstractMessage -> Server s (CastResult)) -> MessageDispatcher s
 handleAny handler = MessageDispatcherAny {
-  dispatcherAny = (\state m -> do
-      (result, state') <- ST.runStateT (handler m) state
-      case result of
-          CastOk -> return state'
+  dispatcherAny = (\s m -> do
+      (r, s') <- ST.runStateT (handler m) s
+      case r of
+          CastStop reason -> return (s', Just $ TerminateReason reason)
+          CastOk -> return (s', Nothing)
           CastForward sid -> do
             (forward m) sid
-            return state'
-          CastStop reason -> error "TODO"
+            return (s', Nothing)
   )
 }
 
@@ -302,43 +307,45 @@ processServer localServer = do
 -- | initialize server
 processInit :: LocalServer s -> Server s InitResult
 processInit localServer = do
-    ST.lift $ say $ "Server initializing ... "
+    trace $ "Server initializing ... "
     ir <- initHandler localServer
     return ir
 
 -- | server loop
 processLoop :: LocalServer s -> Timeout -> Server s TerminateReason
-processLoop localServer timeout = do
-    mayMsg <- processReceive (msgHandlers localServer) timeout
+processLoop localServer t = do
+    mayMsg <- processReceive (msgHandlers localServer) t
     case mayMsg of
-        Just reason -> return reason
-        Nothing -> processLoop localServer timeout
+        Just r -> return r
+        Nothing -> processLoop localServer t
 
 -- |
 processReceive :: [MessageDispatcher s] -> Timeout -> Server s (Maybe TerminateReason)
 processReceive ds timeout = do
-    state <- ST.get
+    s <- getState
+    let ms = map (matchMessage s) ds
     case timeout of
         NoTimeout -> do
-            state <- ST.lift $ receiveWait $ map (matchMessage state) ds
-            putState state
-            return Nothing
-        Timeout time -> do
-            mayResult <- ST.lift $ receiveTimeout time $ map (matchMessage state) ds
+            (s', r) <- ST.lift $ receiveWait ms
+            putState s'
+            return r
+        Timeout t -> do
+            mayResult <- ST.lift $ receiveTimeout t ms
             case mayResult of
-                Just state -> do
-                  putState state
-                  return Nothing
+                Just (s', r) -> do
+                  putState s
+                  return r
                 Nothing -> do
-                    trace "Receive timed out ..."
-                    return $ Just (TerminateReason "Receive timed out")
+                  trace "Receive timed out ..."
+                  return $ Just (TerminateReason "Receive timed out")
 
 -- | terminate server
 processTerminate :: LocalServer s -> TerminateReason -> Server s ()
 processTerminate localServer reason = do
-    trace $ "Server terminating ... "
+    trace $ "Server terminating: " ++ show reason
     (terminateHandler localServer) reason
 
 -- | Log a trace message using the underlying Process's say
 trace :: String -> Server s ()
 trace msg = ST.lift . say $ msg
+

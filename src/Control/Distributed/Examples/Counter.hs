@@ -90,12 +90,15 @@ resetCount sid = castServer sid ResetCount
 
 handleCounter IncrementCounter = do
   modifyState (+1)
-  return $ CallOk (CounterIncremented)
+  count <- getState
+  if count > 10
+    then return $ CallStop CounterIncremented "Count > 10"
+    else return $ CallOk CounterIncremented
+
 
 handleCounter GetCount = do
   count <- getState
   return $ CallOk (Count count)
-
 
 
 handleReset ResetCount = do
