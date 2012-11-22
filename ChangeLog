@@ -1,3 +1,7 @@
+2012-11-22  Edsko de Vries  <edsko@well-typed.com>  0.3.0.1
+
+* Relax bounds on Binary
+
 2012-10-03  Edsko de Vries  <edsko@well-typed.com>  0.3.0
 
 * Clarify disconnection
