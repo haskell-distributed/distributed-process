@@ -1,3 +1,13 @@
+2012-11-22  Edsko de Vries  <edsko@well-typed.com>  0.4.1
+
+* Make behaviour of 'register' more Erlang-like (register will now fail if the
+name is already registered).  Patch by Jeff Epstein.
+* Functor, Applicative, Alternative and Monad instances for ReceivePort
+* Add support for receiveChanTimeout
+* Improved documentation
+* Avoid name clashes in the TH generation for closures
+* Relax package bounds to allow for Binary 0.6
+
 2012-10-23  Edsko de Vries  <edsko@well-typed.com>  0.4.0.2
 
 * Fix race condition in spawn
