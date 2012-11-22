@@ -5,72 +5,102 @@ module Control.Distributed.Examples.Counter(
     startCounter,
     stopCounter,
     getCount,
+    incCount,
     resetCount
   ) where
-import           Control.Concurrent
-import           Data.Typeable                           (Typeable)
+import           Data.Typeable                          (Typeable)
 
 import           Control.Distributed.Platform.GenServer
 import           Control.Distributed.Process
-import           Data.Binary                             (Binary (..), getWord8,
-                                                          putWord8)
+import           Data.Binary                            (Binary (..), getWord8,
+                                                         putWord8)
 import           Data.DeriveTH
 
 --------------------------------------------------------------------------------
 -- API                                                                        --
 --------------------------------------------------------------------------------
 
--- | The Counter id
+
+-- | The counter server id
 type CounterId = ServerId
 
--- call
+
+-- Call request(s)
 data CounterRequest
     = IncrementCounter
     | GetCount
         deriving (Show, Typeable)
 $(derive makeBinary ''CounterRequest)
 
+-- Call response(s)
 data CounterResponse
     = CounterIncremented
     | Count Int
         deriving (Show, Typeable)
 $(derive makeBinary ''CounterResponse)
 
--- cast
+
+-- Cast message(s)
 data ResetCount = ResetCount deriving (Show, Typeable)
 $(derive makeBinary ''ResetCount)
 
--- |
-startCounter :: Process ServerId
-startCounter = startServer $ defaultServer { msgHandlers = [
-   handleCall handleCounter,
-   handleCast handleReset
+
+-- | Start a counter server
+startCounter :: Int -> Process ServerId
+startCounter count = startServer count defaultServer {
+  msgHandlers = [
+    handleCall handleCounter,
+    handleCast handleReset
 ]}
 
+
+
+-- | Stop the counter server
 stopCounter :: ServerId -> Process ()
 stopCounter sid = stopServer sid TerminateNormal
 
--- | getCount
-getCount :: ServerId -> Process Int
-getCount counterId = do
-  reply <- callServer counterId GetCount NoTimeout
-  case reply of
-    Count value -> do
-      say $ "Count is " ++ show value
-      return value
-    _ -> error "Shouldnt be here!" -- TODO tighten the types to avoid this
 
--- | resetCount
+
+-- | Increment count
+incCount :: ServerId -> Process ()
+incCount sid = do
+  CounterIncremented <- callServer sid NoTimeout IncrementCounter
+  return ()
+
+
+
+-- | Get the current count
+getCount :: ServerId -> Process Int
+getCount sid = do
+  Count c <- callServer sid NoTimeout GetCount
+  return c
+
+
+
+-- | Reset the current count
 resetCount :: ServerId -> Process ()
-resetCount counterId = do
-  say $ "Reset count for " ++ show counterId
-  castServer counterId ResetCount
+resetCount sid = castServer sid ResetCount
+
 
 --------------------------------------------------------------------------------
 -- IMPL                                                                       --
 --------------------------------------------------------------------------------
 
-handleCounter IncrementCounter = return $ CallOk (CounterIncremented)
-handleCounter GetCount = return $ CallOk (Count 0)
 
-handleReset ResetCount = return $ CastOk
+
+handleCounter IncrementCounter = do
+  modifyState (+1)
+  count <- getState
+  if count > 10
+    then return $ CallStop CounterIncremented "Count > 10"
+    else return $ CallOk CounterIncremented
+
+
+handleCounter GetCount = do
+  count <- getState
+  return $ CallOk (Count count)
+
+
+handleReset ResetCount = do
+  putState 0
+  return $ CastOk
