@@ -1,11 +1,8 @@
 module Main where
 
 import           Control.Distributed.Naive.Kitty
-import           Control.Distributed.Platform.GenServer
 import           Control.Distributed.Examples.Counter
---import           Control.Distributed.Examples.GenServer2
 
---import           Prelude hiding (catch)
 import           Control.Exception                (SomeException)
 import           Control.Monad                    (void)
 import           System.IO.Error                  (IOError)
@@ -45,7 +42,11 @@ main = do
 
 counterTest :: Process ()
 counterTest = do
-    cid <- startCounter
+    cid <- startCounter 10
+    c <- getCount cid
+    say $ "c = " ++ show c
+    incCount cid
+    incCount cid
     c <- getCount cid
     say $ "c = " ++ show c
     resetCount cid

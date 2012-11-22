@@ -27,7 +27,6 @@ import           Control.Exception(SomeException)
 import           Data.Binary                         (Binary (..), putWord8, getWord8)
 import           Data.DeriveTH
 import           Data.Typeable                       (Typeable)
-import           Control.Monad                       (liftM3, void)
 import           Control.Distributed.Process         (Process, getSelfPid, ProcessId, liftIO, spawnLocal, catch, say, send, expect)
 
 --
