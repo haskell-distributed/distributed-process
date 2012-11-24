@@ -1,3 +1,5 @@
+{-# LANGUAGE MultiParamTypeClasses, TypeFamilies #-}
+
 -- | Types used throughout the Cloud Haskell framework
 --
 -- We collect all types used internally in a single module because 
@@ -88,8 +90,11 @@ import Control.Concurrent.STM (STM)
 import qualified Network.Transport as NT (EndPoint, EndPointAddress, Connection)
 import Control.Applicative (Applicative, Alternative, (<$>), (<*>))
 import Control.Monad.Reader (MonadReader(..), ReaderT, runReaderT)
-import Control.Monad.IO.Class (MonadIO)
-import Control.Distributed.Process.Serializable 
+import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.Base (MonadBase(..))
+import Control.Monad.Trans.Control (MonadBaseControl(..))
+
+import Control.Distributed.Process.Serializable
   ( Fingerprint
   , Serializable
   , fingerprint
@@ -231,6 +236,17 @@ newtype Process a = Process {
     unProcess :: ReaderT LocalProcess IO a 
   }
   deriving (Functor, Monad, MonadIO, MonadReader LocalProcess, Typeable, Applicative)
+
+instance MonadBase IO Process where
+  liftBase = liftIO
+  {-# INLINE liftBase #-}
+
+instance MonadBaseControl IO Process where
+  newtype StM Process a = StProcess {unSTProcess :: StM (ReaderT LocalProcess IO) a}
+  restoreM (StProcess m) = Process $ restoreM m
+  liftBaseWith f = Process $ liftBaseWith $ \ rib -> f (fmap StProcess . rib . unProcess)
+  {-# INLINE liftBaseWith #-}
+  {-# INLINE restoreM #-}
 
 --------------------------------------------------------------------------------
 -- Typed channels                                                             --
