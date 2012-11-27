@@ -10,9 +10,14 @@
 module Control.Distributed.Platform.GenServer (
     ServerId,
     Timeout(..),
-    InitResult(..),
-    CallResult(..),
-    CastResult(..),
+    initOk,
+    initStop,
+    callOk,
+    callForward,
+    callStop,
+    castOk,
+    castForward,
+    castStop,
     TerminateReason(..),
     InitHandler,
     TerminateHandler,
@@ -77,10 +82,21 @@ data Timeout = Timeout Int
 
 
 
+-- | Server monad
+type Server s = ST.StateT s Process
+
+
+
 -- | Initialize handler result
 data InitResult
   = InitOk Timeout
   | InitStop String
+
+initOk :: Timeout -> Server s InitResult
+initOk t = return (InitOk t)
+
+initStop :: String -> Server s InitResult
+initStop reason = return (InitStop reason)
 
 
 
@@ -94,25 +110,21 @@ $(derive makeBinary ''TerminateReason)
 
 
 
--- | Server monad
-type Server s = ST.StateT s Process
-
-
-
--- | Handlers
-type InitHandler s           = Server s InitResult
-type TerminateHandler s       = TerminateReason -> Server s ()
-type CallHandler s a b        = a -> Server s (CallResult b)
-type CastHandler s a          = a -> Server s CastResult
-
-
-
 -- | The result of a call
 data CallResult a
     = CallOk a
     | CallForward ServerId
     | CallStop a String
         deriving (Show, Typeable)
+
+callOk :: a -> Server s (CallResult a)
+callOk resp = return (CallOk resp)
+
+callForward :: ServerId -> Server s (CallResult a)
+callForward sid = return (CallForward sid)
+
+callStop :: a -> String -> Server s (CallResult a)
+callStop resp reason = return (CallStop resp reason)
 
 
 
@@ -121,6 +133,23 @@ data CastResult
     = CastOk
     | CastForward ServerId
     | CastStop String
+
+castOk :: Server s CastResult
+castOk = return CastOk
+
+castForward :: ServerId -> Server s CastResult
+castForward sid = return (CastForward sid)
+
+castStop :: String -> Server s CastResult
+castStop reason = return (CastStop reason)
+
+
+
+-- | Handlers
+type InitHandler s           = Server s InitResult
+type TerminateHandler s       = TerminateReason -> Server s ()
+type CallHandler s a b        = a -> Server s (CallResult b)
+type CastHandler s a          = a -> Server s CastResult
 
 
 
@@ -328,6 +357,7 @@ putState = ST.put
 -- | Modify the server state
 modifyState :: (s -> s) -> Server s ()
 modifyState = ST.modify
+
 
 --------------------------------------------------------------------------------
 -- Implementation                                                             --

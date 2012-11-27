@@ -93,15 +93,14 @@ handleCounter IncrementCounter = do
   modifyState (+1)
   count <- getState
   if count > 10
-    then return $ CallStop CounterIncremented "Count > 10"
-    else return $ CallOk CounterIncremented
-
+    then callStop CounterIncremented "Count > 10"
+    else callOk CounterIncremented
 
 handleCounter GetCount = do
   count <- getState
-  return $ CallOk (Count count)
+  callOk (Count count)
 
 
 handleReset ResetCount = do
   putState 0
-  return $ CastOk
+  castOk

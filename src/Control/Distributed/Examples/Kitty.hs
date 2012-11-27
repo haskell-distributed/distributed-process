@@ -111,17 +111,17 @@ handleKitty (OrderCat name color descr) = do
         [] -> do
             let cat = Cat name color descr
             putState (cat:cats)
-            return $ CallOk (CatOrdered cat)
+            callOk (CatOrdered cat)
         (x:xs) -> do -- TODO find cat with same features
             putState xs
-            return $ CallOk (CatOrdered x)
+            callOk (CatOrdered x)
 
 handleKitty CloseShop = do
     putState []
-    return $ CallOk ShopClosed
+    callOk ShopClosed
 
 
 
 handleReturn (ReturnCat cat) = do
     modifyState (cat :)
-    return CastOk
+    castOk
