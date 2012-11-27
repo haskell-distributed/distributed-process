@@ -137,7 +137,10 @@ import Control.Distributed.Process.Internal.Messaging
   , closeImplicitReconnections 
   , impliesDeathOf
   )
-import Control.Distributed.Process.Internal.Primitives (expect, register, finally)
+import Control.Distributed.Process.Internal.Primitives
+         (register, finally, receiveWait, match, sendChan)
+import Control.Distributed.Process.Internal.Types
+         (SendPort)
 import qualified Control.Distributed.Process.Internal.Closure.BuiltIn as BuiltIn (remoteTable)
 import Control.Distributed.Process.Internal.WeakTQueue (writeTQueue)
 import qualified Control.Distributed.Process.Internal.StrictContainerAccessors as DAC
@@ -193,10 +196,17 @@ forever' a = let a' = a >> a' in a'
 -- (for now, this is only the logger)
 startServiceProcesses :: LocalNode -> IO ()
 startServiceProcesses node = do
-  logger <- forkProcess node . forever' $ do
-    (time, pid, string) <- expect :: Process (String, ProcessId, String)
-    liftIO . hPutStrLn stderr $ time ++ " " ++ show pid ++ ": " ++ string 
+  logger <- forkProcess node loop
   runProcess node $ register "logger" logger
+ where
+  loop = do
+    receiveWait
+      [ match $ \((time, pid, string) ::(String, ProcessId, String)) -> do
+          liftIO . hPutStrLn stderr $ time ++ " " ++ show pid ++ ": " ++ string
+          loop
+      , match $ \(ch :: SendPort ()) -> -- a shutdown request
+          sendChan ch ()
+      ]
 
 -- | Force-close a local node
 --
