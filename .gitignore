@@ -4,3 +4,6 @@ cabal-dev
 *.hi
 *.chi
 *.chs.h
+*.sublime-*
+*.sublime-*
+*.lksh?
