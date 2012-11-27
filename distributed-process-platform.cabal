@@ -1,4 +1,4 @@
-name: distributed-process-platform
+name:               distributed-process-platform
 version:            0.1.0
 cabal-version:      >=1.8
 build-type:         Simple
@@ -15,6 +15,10 @@ data-dir:           ""
 source-repository   head
     type:           git
     location:       https://github.com/hyperthunk/distributed-process-platform
+
+flag developer
+  description:      operate in developer mode
+  default:          False
 
 executable platform
     main-is:        Main.hs
@@ -33,4 +37,23 @@ executable platform
                     GeneralizedNewtypeDeriving GADTs DeriveDataTypeable
     hs-source-dirs: src
     ghc-options:    -Wall -threaded -rtsopts
+
+test-suite tests
+  type:             exitcode-stdio-1.0
+  hs-source-dirs:   tests
+  main-is:          Properties.hs
+  ghc-options:
+                    -Wall -threaded -rtsopts
+  build-depends:
+                    QuickCheck,
+                    aeson,
+                    attoparsec,
+                    base,
+                    containers,
+                    bytestring,
+                    template-haskell,
+                    test-framework,
+                    test-framework-quickcheck2,
+                    text,
+                    time
 
