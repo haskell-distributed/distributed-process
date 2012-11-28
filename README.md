@@ -2,6 +2,20 @@
 
 TODO
 
+# Tests and coverage
+
+The following script will configure cabal and run the unit tests with coverage enabled
+
+./test-report.sh
+
+# Profiling
+
+The following scripts will configure and run the executable with profiling enabled
+
+./profiling/configure.sh
+./profiling/run.sh
+
+
 # Join in!
 
 We are happy to receive bug reports, fixes, documentation enhancements,

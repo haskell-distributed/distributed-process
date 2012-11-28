@@ -1,59 +1,59 @@
-name:               distributed-process-platform
-version:            0.1.0
-cabal-version:      >=1.8
-build-type:         Simple
-license:            BSD3
-license-file:       LICENSE
-stability:          experimental
-homepage:           http://github.com/hyperthunk/distributed-process-platform
-synopsis:           TODO
-description:        TODO
-category:           Control
-tested-with:        GHC ==7.4.1
-data-dir:           ""
+name:                   distributed-process-platform
+version:                0.1.0
+cabal-version:          >=1.10
+build-type:             Simple
+license:                BSD3
+license-file:           LICENSE
+stability:              experimental
+homepage:               http://github.com/hyperthunk/distributed-process-platform
+synopsis:               TODO
+description:            TODO
+category:               Control
+tested-with:            GHC ==7.4.1
+data-dir:               ""
 
-source-repository   head
-    type:           git
-    location:       https://github.com/hyperthunk/distributed-process-platform
+source-repository       head
+    type:               git
+    location:           https://github.com/hyperthunk/distributed-process-platform
 
 flag developer
-  description:      operate in developer mode
-  default:          False
+  description:          operate in developer mode
+  default:              True
 
-executable platform
-    main-is:        Main.hs
-    build-depends:  base >=4.4 && <5, binary >=0.5 && <0.6
-                    , mtl
---                    , stm
-                    , derive
-                    , distributed-static
-                    ,  distributed-process
-                    , distributed-process-simplelocalnet
-                    , network-transport
-                    , network-transport-tcp
-    buildable:      True
-    extensions:     UndecidableInstances ExistentialQuantification
-                    ScopedTypeVariables FlexibleInstances CPP BangPatterns
-                    GeneralizedNewtypeDeriving GADTs DeriveDataTypeable
-    hs-source-dirs: src
-    ghc-options:    -Wall -threaded -rtsopts
+executable dtp
+    default-language:  Haskell2010
+    main-is:            Main.hs
+    build-depends:      base >=4.4 && <5, binary >=0.5 && <0.6
+                        , mtl
+--                      , stm
+                        , derive
+                        , distributed-static
+                        ,  distributed-process
+                        , distributed-process-simplelocalnet
+                        , network-transport
+                        , network-transport-tcp
+    buildable:          True
+    default-extensions: UndecidableInstances ExistentialQuantification
+                        ScopedTypeVariables FlexibleInstances CPP BangPatterns
+                        GeneralizedNewtypeDeriving GADTs DeriveDataTypeable
+    hs-source-dirs:     src
+    ghc-options:        -Wall -threaded -rtsopts
+    if flag(developer)
+        ghc-options:    -auto-all
 
-test-suite tests
-  type:             exitcode-stdio-1.0
-  hs-source-dirs:   tests
-  main-is:          Properties.hs
-  ghc-options:
-                    -Wall -threaded -rtsopts
-  build-depends:
-                    QuickCheck,
-                    aeson,
-                    attoparsec,
-                    base,
-                    containers,
-                    bytestring,
-                    template-haskell,
-                    test-framework,
-                    test-framework-quickcheck2,
-                    text,
-                    time
+test-suite unit-tests
+    default-language:   Haskell2010
+    type:               exitcode-stdio-1.0
+    hs-source-dirs:     tests
+    main-is:            Properties.hs
+    ghc-options:        -Wall -threaded -rtsopts
+    build-depends:      QuickCheck,
+                        base,
+                        containers,
+                        bytestring,
+                        template-haskell,
+                        test-framework,
+                        test-framework-quickcheck2,
+                        text,
+                        time
 
