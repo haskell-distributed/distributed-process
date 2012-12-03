@@ -10,10 +10,10 @@ import Network.Transport.Tests.Auxiliary (runTests)
 
 -- | Node for the "No confusion" test
 noConfusionNode :: Transport -- ^ Transport
-                -> [MVar MulticastAddress] -- ^ my group : groups to subscribe to 
+                -> [MVar MulticastAddress] -- ^ my group : groups to subscribe to
                 -> [MVar ()]               -- ^ I'm ready : others ready
                 -> Int                     -- ^ number of pings
-                -> [ByteString]            -- ^ my message : messages from subscribed groups (same order as 'groups to subscribe to') 
+                -> [ByteString]            -- ^ my message : messages from subscribed groups (same order as 'groups to subscribe to')
                 -> MVar ()                 -- ^ I'm done
                 -> IO ()
 noConfusionNode transport groups ready numPings msgs done = do
@@ -25,8 +25,8 @@ noConfusionNode transport groups ready numPings msgs done = do
   putMVar (head groups) (multicastAddress myGroup)
 
   -- Subscribe to the given multicast groups
-  addrs <- mapM readMVar (tail groups) 
-  forM_ addrs $ \addr -> do Right group <- resolveMulticastGroup endpoint addr 
+  addrs <- mapM readMVar (tail groups)
+  forM_ addrs $ \addr -> do Right group <- resolveMulticastGroup endpoint addr
                             multicastSubscribe group
 
   -- Indicate that we're ready and wait for everybody else to be ready
@@ -42,31 +42,31 @@ noConfusionNode transport groups ready numPings msgs done = do
     case event of
       ReceivedMulticast addr [msg] ->
         let mix = addr `elemIndex` addrs in
-        case mix of 
+        case mix of
           Nothing -> error "Message from unexpected source"
           Just ix -> when (msgs !! (ix + 1) /= msg) $ error "Unexpected message"
       _ ->
         error "Unexpected event"
 
   -- Success
-  putMVar done () 
+  putMVar done ()
 
 -- | Test that distinct multicast groups are not confused
-testNoConfusion :: Transport -> Int -> IO () 
+testNoConfusion :: Transport -> Int -> IO ()
 testNoConfusion transport numPings = do
   [group1, group2, group3] <- replicateM 3 newEmptyMVar
   [readyA, readyB, readyC] <- replicateM 3 newEmptyMVar
   [doneA, doneB, doneC]    <- replicateM 3 newEmptyMVar
   let [msgA, msgB, msgC]    = ["A says hi", "B says hi", "C says hi"]
 
-  forkIO $ noConfusionNode transport [group1, group1, group2] [readyA, readyB, readyC] numPings [msgA, msgA, msgB] doneA 
-  forkIO $ noConfusionNode transport [group2, group1, group3] [readyB, readyC, readyA] numPings [msgB, msgA, msgC] doneB 
-  forkIO $ noConfusionNode transport [group3, group2, group3] [readyC, readyA, readyB] numPings [msgC, msgB, msgC] doneC 
-  
-  mapM_ takeMVar [doneA, doneB, doneC] 
+  forkIO $ noConfusionNode transport [group1, group1, group2] [readyA, readyB, readyC] numPings [msgA, msgA, msgB] doneA
+  forkIO $ noConfusionNode transport [group2, group1, group3] [readyB, readyC, readyA] numPings [msgB, msgA, msgC] doneB
+  forkIO $ noConfusionNode transport [group3, group2, group3] [readyC, readyA, readyB] numPings [msgC, msgB, msgC] doneC
+
+  mapM_ takeMVar [doneA, doneB, doneC]
 
 -- | Test multicast
-testMulticast :: Transport -> IO () 
-testMulticast transport = 
-  runTests 
+testMulticast :: Transport -> IO ()
+testMulticast transport =
+  runTests
     [ ("NoConfusion", testNoConfusion transport 10000) ]

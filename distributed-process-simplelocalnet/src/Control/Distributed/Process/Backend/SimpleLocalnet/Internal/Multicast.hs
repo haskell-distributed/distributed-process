@@ -8,7 +8,7 @@ import qualified Data.Map as Map (empty)
 import Data.Binary (Binary, decode, encode)
 import Data.IORef (IORef, newIORef, readIORef, modifyIORef)
 import qualified Data.ByteString as BSS (ByteString, concat)
-import qualified Data.ByteString.Lazy as BSL 
+import qualified Data.ByteString.Lazy as BSL
   ( ByteString
   , empty
   , append
@@ -38,10 +38,10 @@ import Network.Multicast (multicastSender, multicastReceiver)
 --
 -- NOTE: By rights the two functions should be "locally" polymorphic in 'a',
 -- but this requires impredicative types.
-initMulticast :: forall a. Binary a 
+initMulticast :: forall a. Binary a
               => HostName    -- ^ Multicast IP
               -> PortNumber  -- ^ Port number
-              -> Int         -- ^ Maximum message size 
+              -> Int         -- ^ Maximum message size
               -> IO (IO (a, SockAddr), a -> IO ())
 initMulticast host port bufferSize = do
     (sendSock, sendAddr) <- multicastSender host port
@@ -50,8 +50,8 @@ initMulticast host port bufferSize = do
     return (recvBinary readSock st bufferSize, writer sendSock sendAddr)
   where
     writer :: forall a. Binary a => Socket -> SockAddr -> a -> IO ()
-    writer sock addr val = do 
-      let bytes = encode val 
+    writer sock addr val = do
+      let bytes = encode val
           len   = encodeInt32 (BSL.length bytes)
       NBS.sendManyTo sock (len : BSL.toChunks bytes) addr
 
@@ -59,7 +59,7 @@ initMulticast host port bufferSize = do
 -- UDP multicast read, dealing with multiple senders                          --
 --------------------------------------------------------------------------------
 
-type UDPState = Map SockAddr BSL.ByteString 
+type UDPState = Map SockAddr BSL.ByteString
 
 #if MIN_VERSION_network(2,4,0)
 -- network-2.4.0 provides the Ord instance for us
@@ -72,16 +72,16 @@ bufferFor :: SockAddr -> Accessor UDPState BSL.ByteString
 bufferFor = DAC.mapDefault BSL.empty
 
 bufferAppend :: SockAddr -> BSS.ByteString -> UDPState -> UDPState
-bufferAppend addr bytes = 
-  bufferFor addr ^: flip BSL.append (BSL.fromChunks [bytes]) 
+bufferAppend addr bytes =
+  bufferFor addr ^: flip BSL.append (BSL.fromChunks [bytes])
 
 recvBinary :: Binary a => Socket -> IORef UDPState -> Int -> IO (a, SockAddr)
 recvBinary sock st bufferSize = do
   (bytes, addr) <- recvWithLength sock st bufferSize
   return (decode bytes, addr)
 
-recvWithLength :: Socket 
-               -> IORef UDPState 
+recvWithLength :: Socket
+               -> IORef UDPState
                -> Int
                -> IO (BSL.ByteString, SockAddr)
 recvWithLength sock st bufferSize = do
@@ -93,13 +93,13 @@ recvWithLength sock st bufferSize = do
 -- Receive all bytes currently in the buffer
 recvAll :: Socket -> IORef UDPState -> Int -> IO SockAddr
 recvAll sock st bufferSize = do
-  (bytes, addr) <- NBS.recvFrom sock bufferSize 
+  (bytes, addr) <- NBS.recvFrom sock bufferSize
   modifyIORef st $ bufferAppend addr bytes
   return addr
-  
-recvExact :: Socket 
-          -> Int 
-          -> IORef UDPState 
+
+recvExact :: Socket
+          -> Int
+          -> IORef UDPState
           -> Int
           -> IO (BSL.ByteString, SockAddr)
 recvExact sock n st bufferSize = do
@@ -113,16 +113,16 @@ recvExactFrom :: SockAddr
               -> IORef UDPState
               -> Int
               -> IO BSL.ByteString
-recvExactFrom addr sock n st bufferSize = go 
+recvExactFrom addr sock n st bufferSize = go
   where
     go :: IO BSL.ByteString
     go = do
-      accAddr <- (^. bufferFor addr) <$> readIORef st 
-      if BSL.length accAddr >= fromIntegral n 
+      accAddr <- (^. bufferFor addr) <$> readIORef st
+      if BSL.length accAddr >= fromIntegral n
         then do
           let (bytes, accAddr') = BSL.splitAt (fromIntegral n) accAddr
           modifyIORef st $ bufferFor addr ^= accAddr'
           return bytes
-        else do 
+        else do
           _ <- recvAll sock st bufferSize
           go

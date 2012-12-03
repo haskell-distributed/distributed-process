@@ -38,7 +38,7 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import Control.Exception (throwIO)
 import Control.Category ((>>>))
-import Control.Concurrent.MVar 
+import Control.Concurrent.MVar
 import Control.Concurrent.Chan
 import System.IO.Unsafe (unsafePerformIO)
 import Data.Accessor (Accessor, accessor, (^=), (^.), (^:))
@@ -70,7 +70,7 @@ get :: Accessor MockState a -> IO a
 get acc = timeoutThrow mvarThreshold $ withMVar mockState $ return . (^. acc)
 
 set :: Accessor MockState a -> a -> IO ()
-set acc val = timeoutThrow mvarThreshold $ modifyMVar_ mockState $ return . (acc ^= val) 
+set acc val = timeoutThrow mvarThreshold $ modifyMVar_ mockState $ return . (acc ^= val)
 
 boundSockets :: Accessor MockState (Map SockAddr Socket)
 boundSockets = accessor _boundSockets (\bs st -> st { _boundSockets = bs })
@@ -90,34 +90,34 @@ validHostnames = accessor _validHostnames (\ns st -> st { _validHostnames = ns }
 
 type HostName    = String
 type ServiceName = String
-type PortNumber  = String 
-type HostAddress = String 
+type PortNumber  = String
+type HostAddress = String
 
-data SocketType   = Stream 
+data SocketType   = Stream
 data SocketOption = ReuseAddr
 data ShutdownCmd  = ShutdownSend
 
 data Family
 data ProtocolNumber
 
-data Socket = Socket { 
+data Socket = Socket {
     socketState       :: MVar SocketState
   , socketDescription :: String
   }
 
-data SocketState = 
+data SocketState =
     Uninit
-  | BoundSocket { 
-        socketBacklog :: Chan (Socket, SockAddr, MVar Socket) 
+  | BoundSocket {
+        socketBacklog :: Chan (Socket, SockAddr, MVar Socket)
       }
-  | Connected { 
-         socketBuff :: Chan Message 
+  | Connected {
+         socketBuff :: Chan Message
       , _socketPeer :: Maybe Socket
       , _scheduledReadActions :: [(Int, IO ())]
       }
   | Closed
 
-data Message = 
+data Message =
     Payload Word8
   | CloseSocket
 
@@ -145,43 +145,43 @@ getAddrInfo :: Maybe AddrInfo -> Maybe HostName -> Maybe ServiceName -> IO [Addr
 getAddrInfo _ (Just host) (Just port) = do
   validHosts <- get validHostnames
   if host `elem` validHosts
-    then return . return $ AddrInfo { 
-             addrFamily  = error "Family unused" 
-           , addrAddress = SockAddrInet port host 
+    then return . return $ AddrInfo {
+             addrFamily  = error "Family unused"
+           , addrAddress = SockAddrInet port host
            }
     else throwSocketError $ "getAddrInfo: invalid hostname '" ++ host ++ "'"
 getAddrInfo _ _ _ = error "getAddrInfo: unsupported arguments"
 
 defaultHints :: AddrInfo
-defaultHints = error "defaultHints not implemented" 
+defaultHints = error "defaultHints not implemented"
 
 socket :: Family -> SocketType -> ProtocolNumber -> IO Socket
 socket _ Stream _ = do
   state <- newMVar Uninit
   sid   <- get nextSocketId
   set nextSocketId (sid + 1)
-  return Socket { 
+  return Socket {
       socketState       = state
     , socketDescription = show sid
     }
-  
+
 bindSocket :: Socket -> SockAddr -> IO ()
 bindSocket sock addr = do
   timeoutThrow mvarThreshold $ modifyMVar_ (socketState sock) $ \st -> case st of
     Uninit -> do
       backlog <- newChan
-      return BoundSocket { 
-          socketBacklog = backlog 
+      return BoundSocket {
+          socketBacklog = backlog
         }
     _ ->
       throwSocketError "bind: socket already initialized"
   set (boundSocketAt addr) (Just sock)
-  
+
 listen :: Socket -> Int -> IO ()
-listen _ _ = return () 
+listen _ _ = return ()
 
 defaultProtocol :: ProtocolNumber
-defaultProtocol = error "defaultProtocol not implemented" 
+defaultProtocol = error "defaultProtocol not implemented"
 
 setSocketOption :: Socket -> SocketOption -> Int -> IO ()
 setSocketOption _ ReuseAddr 1 = return ()
@@ -190,13 +190,13 @@ setSocketOption _ _ _ = error "setSocketOption: unsupported arguments"
 accept :: Socket -> IO (Socket, SockAddr)
 accept serverSock = do
   backlog <- timeoutThrow mvarThreshold $ withMVar (socketState serverSock) $ \st -> case st of
-    BoundSocket {} -> 
+    BoundSocket {} ->
       return (socketBacklog st)
     _ ->
       throwSocketError "accept: socket not bound"
-  (theirSocket, theirAddress, reply) <- readChan backlog 
+  (theirSocket, theirAddress, reply) <- readChan backlog
   ourBuff  <- newChan
-  ourState <- newMVar Connected { 
+  ourState <- newMVar Connected {
        socketBuff = ourBuff
     , _socketPeer = Just theirSocket
     , _scheduledReadActions = []
@@ -205,13 +205,13 @@ accept serverSock = do
       socketState       = ourState
     , socketDescription = ""
     }
-  timeoutThrow mvarThreshold $ putMVar reply ourSocket 
+  timeoutThrow mvarThreshold $ putMVar reply ourSocket
   return (ourSocket, theirAddress)
 
 sClose :: Socket -> IO ()
 sClose sock = do
   -- Close the peer socket
-  writeSocket sock CloseSocket 
+  writeSocket sock CloseSocket
 
   -- Close our socket
   timeoutThrow mvarThreshold $ modifyMVar_ (socketState sock) $ \st ->
@@ -220,7 +220,7 @@ sClose sock = do
         -- In case there is a parallel read stuck on a readChan
         writeChan (socketBuff st) CloseSocket
         return Closed
-      _ -> 
+      _ ->
         return Closed
 
 connect :: Socket -> SockAddr -> IO ()
@@ -235,13 +235,13 @@ connect us serverAddr = do
           throwSocketError "connect: server socket not bound"
       reply <- newEmptyMVar
       writeChan serverBacklog (us, SockAddrInet "" "", reply)
-      them <- timeoutThrow mvarThreshold $ readMVar reply 
+      them <- timeoutThrow mvarThreshold $ readMVar reply
       timeoutThrow mvarThreshold $ modifyMVar_ (socketState us) $ \st -> case st of
-        Uninit -> do 
+        Uninit -> do
           buff <- newChan
-          return Connected { 
+          return Connected {
                socketBuff = buff
-            , _socketPeer = Just them 
+            , _socketPeer = Just them
             , _scheduledReadActions = []
             }
         _ ->
@@ -249,7 +249,7 @@ connect us serverAddr = do
     Nothing -> throwSocketError "connect: unknown address"
 
 sOMAXCONN :: Int
-sOMAXCONN = error "sOMAXCONN not implemented" 
+sOMAXCONN = error "sOMAXCONN not implemented"
 
 shutdown :: Socket -> ShutdownCmd -> IO ()
 shutdown sock ShutdownSend = do
@@ -267,7 +267,7 @@ shutdown sock ShutdownSend = do
 peerBuffer :: Socket -> IO (Either String (Chan Message))
 peerBuffer sock = do
   mPeer <- timeoutThrow mvarThreshold $ withMVar (socketState sock) $ \st -> case st of
-    Connected {} -> 
+    Connected {} ->
       return (st ^. socketPeer)
     _ ->
       return Nothing
@@ -276,9 +276,9 @@ peerBuffer sock = do
       Connected {} ->
         return (Right (socketBuff st))
       _ ->
-        return (Left "Peer socket closed") 
-    Nothing -> 
-      return (Left "Socket closed") 
+        return (Left "Peer socket closed")
+    Nothing ->
+      return (Left "Socket closed")
 
 throwSocketError :: String -> IO a
 throwSocketError = throwIO . userError
@@ -287,8 +287,8 @@ writeSocket :: Socket -> Message -> IO ()
 writeSocket sock msg = do
   theirBuff <- peerBuffer sock
   case theirBuff of
-    Right buff -> writeChan buff msg 
-    Left err   -> case msg of Payload _   -> throwSocketError $ "writeSocket: " ++ err 
+    Right buff -> writeChan buff msg
+    Left err   -> case msg of Payload _   -> throwSocketError $ "writeSocket: " ++ err
                               CloseSocket -> return ()
 
 readSocket :: Socket -> IO (Maybe Word8)
@@ -304,7 +304,7 @@ readSocket sock = do
   case mBuff of
     Just (buff, actions) -> do
       sequence actions
-      msg <- timeoutThrow readSocketThreshold $ readChan buff 
+      msg <- timeoutThrow readSocketThreshold $ readChan buff
       case msg of
         Payload w -> return (Just w)
         CloseSocket -> timeoutThrow mvarThreshold $ modifyMVar (socketState sock) $ \st -> case st of
@@ -312,7 +312,7 @@ readSocket sock = do
             return (Closed, Nothing)
           _ ->
             throwSocketError "readSocket: socket in unexpected state"
-    Nothing -> 
+    Nothing ->
       return Nothing
 
 -- | Given a list of scheduled actions, reduce all delays by 1, and return the
@@ -321,7 +321,7 @@ tick :: [(Int, IO ())] -> ([(Int, IO ())], [IO ()])
 tick = go [] []
   where
     go later now [] = (reverse later, reverse now)
-    go later now ((n, action) : actions) 
+    go later now ((n, action) : actions)
       | n == 0    = go later (action : now) actions
       | otherwise = go ((n - 1, action) : later) now actions
 
@@ -330,16 +330,16 @@ tick = go [] []
 --------------------------------------------------------------------------------
 
 -- | Schedule an action to be executed after /n/ reads on this socket
--- 
+--
 -- If /n/ is zero we execute the action immediately.
 scheduleReadAction :: Socket -> Int -> IO () -> IO ()
 scheduleReadAction _    0 action = action
-scheduleReadAction sock n action = 
-  modifyMVar_ (socketState sock) $ \st -> case st of 
+scheduleReadAction sock n action =
+  modifyMVar_ (socketState sock) $ \st -> case st of
     Connected {} ->
       return (scheduledReadActions ^: ((n, action) :) $ st)
     _ ->
-      throwSocketError "scheduleReadAction: socket not connected" 
+      throwSocketError "scheduleReadAction: socket not connected"
 
 --------------------------------------------------------------------------------
 -- Util                                                                       --

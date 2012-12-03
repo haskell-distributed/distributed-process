@@ -1,14 +1,14 @@
 -- | [Cloud Haskell]
--- 
--- This is an implementation of Cloud Haskell, as described in 
+--
+-- This is an implementation of Cloud Haskell, as described in
 -- /Towards Haskell in the Cloud/ by Jeff Epstein, Andrew Black, and Simon
 -- Peyton Jones
 -- (<http://research.microsoft.com/en-us/um/people/simonpj/papers/parallel/>),
 -- although some of the details are different. The precise message passing
 -- semantics are based on /A unified semantics for future Erlang/ by	Hans
 -- Svensson, Lars-Åke Fredlund and Clara Benac Earle.
-module Control.Distributed.Process 
-  ( -- * Basic types 
+module Control.Distributed.Process
+  ( -- * Basic types
     ProcessId
   , NodeId
   , Process
@@ -17,7 +17,7 @@ module Control.Distributed.Process
   , sendPortProcessId
   , liftIO -- Reexported for convenience
     -- * Basic messaging
-  , send 
+  , send
   , expect
   , expectTimeout
     -- * Channels
@@ -37,7 +37,7 @@ module Control.Distributed.Process
   , match
   , matchIf
   , matchUnknown
-  , AbstractMessage(..) 
+  , AbstractMessage(..)
   , matchAny
     -- * Process management
   , spawn
@@ -102,7 +102,7 @@ module Control.Distributed.Process
   , spawnMonitor
   , spawnChannel
   , DidSpawn(..)
-    -- * Local versions of 'spawn' 
+    -- * Local versions of 'spawn'
   , spawnLocal
   , spawnChannelLocal
     -- * Reconnecting
@@ -119,7 +119,7 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Applicative ((<$>))
 import Control.Monad.Reader (ask)
 import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar)
-import Control.Distributed.Static 
+import Control.Distributed.Static
   ( Closure
   , closure
   , Static
@@ -127,7 +127,7 @@ import Control.Distributed.Static
   , closureCompose
   , staticClosure
   )
-import Control.Distributed.Process.Internal.Types 
+import Control.Distributed.Process.Internal.Types
   ( NodeId(..)
   , ProcessId(..)
   , Process(..)
@@ -154,8 +154,8 @@ import Control.Distributed.Process.Internal.Closure.BuiltIn
   ( sdictSendPort
   , sndStatic
   , idCP
-  , seqCP 
-  , bindCP 
+  , seqCP
+  , bindCP
   , splitCP
   , cpLink
   , cpSend
@@ -164,7 +164,7 @@ import Control.Distributed.Process.Internal.Closure.BuiltIn
   )
 import Control.Distributed.Process.Internal.Primitives
   ( -- Basic messaging
-    send 
+    send
   , expect
     -- Channels
   , newChan
@@ -179,7 +179,7 @@ import Control.Distributed.Process.Internal.Primitives
   , match
   , matchIf
   , matchUnknown
-  , AbstractMessage(..) 
+  , AbstractMessage(..)
   , matchAny
     -- Process management
   , terminate
@@ -231,7 +231,7 @@ import Control.Distributed.Process.Internal.Primitives
 import Control.Distributed.Process.Node (forkProcess)
 
 -- INTERNAL NOTES
--- 
+--
 -- 1.  'send' never fails. If you want to know that the remote process received
 --     your message, you will need to send an explicit acknowledgement. If you
 --     want to know when the remote process failed, you will need to monitor
@@ -269,17 +269,17 @@ import Control.Distributed.Process.Node (forkProcess)
 --       http://research.microsoft.com/en-us/um/people/simonpj/papers/parallel/remote.pdf
 --
 -- The precise semantics for message passing is based on
--- 
+--
 -- [2] "A Unified Semantics for Future Erlang", Hans Svensson, Lars-Ake Fredlund
 --     and Clara Benac Earle (not freely available online, unfortunately)
 --
 -- Some pointers to related documentation about Erlang, for comparison and
--- inspiration: 
+-- inspiration:
 --
 -- [3] "Programming Distributed Erlang Applications: Pitfalls and Recipes",
---     Hans Svensson and Lars-Ake Fredlund 
+--     Hans Svensson and Lars-Ake Fredlund
 --       http://man.lupaworld.com/content/develop/p37-svensson.pdf
--- [4] The Erlang manual, sections "Message Sending" and "Send" 
+-- [4] The Erlang manual, sections "Message Sending" and "Send"
 --       http://www.erlang.org/doc/reference_manual/processes.html#id82409
 --       http://www.erlang.org/doc/reference_manual/expressions.html#send
 -- [5] Questions "Is the order of message reception guaranteed?" and
@@ -297,9 +297,9 @@ import Control.Distributed.Process.Node (forkProcess)
 -- | Spawn a process
 --
 -- For more information about 'Closure', see
--- "Control.Distributed.Process.Closure". 
+-- "Control.Distributed.Process.Closure".
 --
--- See also 'call'. 
+-- See also 'call'.
 spawn :: NodeId -> Closure (Process ()) -> Process ProcessId
 spawn nid proc = do
   us   <- getSelfPid
@@ -316,7 +316,7 @@ spawn nid proc = do
 
 -- | Spawn a process and link to it
 --
--- Note that this is just the sequential composition of 'spawn' and 'link'. 
+-- Note that this is just the sequential composition of 'spawn' and 'link'.
 -- (The "Unified" semantics that underlies Cloud Haskell does not even support
 -- a synchronous link operation)
 spawnLink :: NodeId -> Closure (Process ()) -> Process ProcessId
@@ -333,16 +333,16 @@ spawnMonitor nid proc = do
   return (pid, ref)
 
 -- | Run a process remotely and wait for it to reply
--- 
+--
 -- We monitor the remote process: if it dies before it can send a reply, we die
 -- too.
 --
 -- For more information about 'Static', 'SerializableDict', and 'Closure', see
--- "Control.Distributed.Process.Closure". 
+-- "Control.Distributed.Process.Closure".
 --
--- See also 'spawn'. 
+-- See also 'spawn'.
 call :: Serializable a => Static (SerializableDict a) -> NodeId -> Closure (Process a) -> Process a
-call dict nid proc = do 
+call dict nid proc = do
   us <- getSelfPid
   (pid, mRef) <- spawnMonitor nid (proc `bindCP` cpSend dict us)
   -- We are guaranteed to receive the reply before the monitor notification
@@ -355,25 +355,25 @@ call dict nid proc = do
     ]
   case mResult of
     Right a  -> do
-      -- Wait for the monitor message so that we the mailbox doesn't grow 
-      receiveWait 
+      -- Wait for the monitor message so that we the mailbox doesn't grow
+      receiveWait
         [ matchIf (\(ProcessMonitorNotification ref _ _) -> ref == mRef)
                   (\(ProcessMonitorNotification {}) -> return ())
         ]
       -- Clean up connection to pid
       reconnect pid
       return a
-    Left err -> 
-      fail $ "call: remote process died: " ++ show err 
+    Left err ->
+      fail $ "call: remote process died: " ++ show err
 
 -- | Spawn a child process, have the child link to the parent and the parent
 -- monitor the child
-spawnSupervised :: NodeId 
-                -> Closure (Process ()) 
+spawnSupervised :: NodeId
+                -> Closure (Process ())
                 -> Process (ProcessId, MonitorRef)
 spawnSupervised nid proc = do
   us   <- getSelfPid
-  them <- spawn nid (cpLink us `seqCP` proc) 
+  them <- spawn nid (cpLink us `seqCP` proc)
   ref  <- monitor them
   return (them, ref)
 
@@ -381,19 +381,19 @@ spawnSupervised nid proc = do
 -- the corresponding 'SendPort'.
 spawnChannel :: forall a. Typeable a => Static (SerializableDict a)
              -> NodeId
-             -> Closure (ReceivePort a -> Process ()) 
+             -> Closure (ReceivePort a -> Process ())
              -> Process (SendPort a)
 spawnChannel dict nid proc = do
     us <- getSelfPid
-    spawn nid (go us) 
+    spawn nid (go us)
     expect
   where
     go :: ProcessId -> Closure (Process ())
-    go pid = cpNewChan dict 
-           `bindCP` 
+    go pid = cpNewChan dict
+           `bindCP`
              (cpSend (sdictSendPort dict) pid `splitCP` proc)
            `bindCP`
-             (idCP `closureCompose` staticClosure sndStatic) 
+             (idCP `closureCompose` staticClosure sndStatic)
 
 --------------------------------------------------------------------------------
 -- Local versions of spawn                                                    --
@@ -402,16 +402,16 @@ spawnChannel dict nid proc = do
 -- | Spawn a process on the local node
 spawnLocal :: Process () -> Process ProcessId
 spawnLocal proc = do
-  node <- processNode <$> ask 
+  node <- processNode <$> ask
   liftIO $ forkProcess node proc
 
 -- | Create a new typed channel, spawn a process on the local node, passing it
 -- the receive port, and return the send port
 spawnChannelLocal :: Serializable a
-                  => (ReceivePort a -> Process ()) 
+                  => (ReceivePort a -> Process ())
                   -> Process (SendPort a)
-spawnChannelLocal proc = do 
-  node <- processNode <$> ask 
+spawnChannelLocal proc = do
+  node <- processNode <$> ask
   liftIO $ do
     mvar <- newEmptyMVar
     forkProcess node $ do
@@ -420,4 +420,4 @@ spawnChannelLocal proc = do
       (sport, rport) <- newChan
       liftIO $ putMVar mvar sport
       proc rport
-    takeMVar mvar 
+    takeMVar mvar

@@ -1,5 +1,5 @@
 {-# LANGUAGE ScopedTypeVariables, DeriveDataTypeable, GADTs #-}
-module MapReduce 
+module MapReduce
   ( -- * Map-reduce skeleton and implementation
     MapReduce(..)
   , localMapReduce
@@ -31,16 +31,16 @@ data MapReduce k1 v1 k2 v2 v3 = MapReduce {
 -- /Google’s MapReduce Programming Model---Revisited/ by Ralf Laemmel
 -- (<http://userpages.uni-koblenz.de/~laemmel/MapReduce/>).
 localMapReduce :: forall k1 k2 v1 v2 v3. Ord k2 =>
-                  MapReduce k1 v1 k2 v2 v3 
-               -> Map k1 v1 
+                  MapReduce k1 v1 k2 v2 v3
+               -> Map k1 v1
                -> Map k2 v3
 localMapReduce mr = reducePerKey mr . groupByKey . mapPerKey mr
 
 reducePerKey :: MapReduce k1 v1 k2 v2 v3 -> Map k2 [v2] -> Map k2 v3
-reducePerKey mr = Map.mapWithKey (mrReduce mr) 
+reducePerKey mr = Map.mapWithKey (mrReduce mr)
 
 groupByKey :: Ord k2 => [(k2, v2)] -> Map k2 [v2]
-groupByKey = Map.fromListWith (++) . map (second return) 
+groupByKey = Map.fromListWith (++) . map (second return)
 
 mapPerKey :: MapReduce k1 v1 k2 v2 v3 -> Map k1 v1 -> [(k2, v2)]
-mapPerKey mr = concatMap (uncurry (mrMap mr)) . Map.toList 
+mapPerKey mr = concatMap (uncurry (mrMap mr)) . Map.toList

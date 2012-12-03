@@ -1,4 +1,4 @@
-module Control.Distributed.Process.Internal.StrictContainerAccessors 
+module Control.Distributed.Process.Internal.StrictContainerAccessors
   ( mapMaybe
   , mapDefault
   ) where

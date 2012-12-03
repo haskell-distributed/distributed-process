@@ -11,11 +11,11 @@ slave (master, workQueue) = do
     go us
   where
     go us = do
-      -- Ask the queue for work 
+      -- Ask the queue for work
       send workQueue us
-   
-      -- If there is work, do it, otherwise terminate 
-      receiveWait 
+
+      -- If there is work, do it, otherwise terminate
+      receiveWait
         [ match $ \n  -> send master (numPrimeFactors n) >> go us
         , match $ \() -> return ()
         ]
@@ -37,17 +37,17 @@ master n slaves = do
   us <- getSelfPid
 
   workQueue <- spawnLocal $ do
-    -- Reply with the next bit of work to be done 
+    -- Reply with the next bit of work to be done
     forM_ [1 .. n] $ \m -> do
-      them <- expect 
-      send them m 
+      them <- expect
+      send them m
 
     -- Once all the work is done, tell the slaves to terminate
     forever $ do
       pid <- expect
       send pid ()
 
-  -- Start slave processes 
+  -- Start slave processes
   forM_ slaves $ \nid -> spawn nid ($(mkClosure 'slave) (us, workQueue))
 
   -- Wait for the result

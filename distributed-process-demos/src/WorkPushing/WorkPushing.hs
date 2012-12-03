@@ -26,12 +26,12 @@ master :: Integer -> [NodeId] -> Process Integer
 master n slaves = do
   us <- getSelfPid
 
-  -- Start slave processes 
+  -- Start slave processes
   slaveProcesses <- forM slaves $ \nid -> spawn nid ($(mkClosure 'slave) us)
 
-  -- Distribute 1 .. n amongst the slave processes 
-  spawnLocal $ forM_ (zip [1 .. n] (cycle slaveProcesses)) $ 
-    \(m, them) -> send them m 
+  -- Distribute 1 .. n amongst the slave processes
+  spawnLocal $ forM_ (zip [1 .. n] (cycle slaveProcesses)) $
+    \(m, them) -> send them m
 
   -- Wait for the result
   sumIntegers (fromIntegral n)

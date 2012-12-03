@@ -1,8 +1,8 @@
--- | Utility functions for TCP sockets 
-module Network.Transport.TCP.Internal 
+-- | Utility functions for TCP sockets
+module Network.Transport.TCP.Internal
   ( forkServer
   , recvWithLength
-  , recvExact 
+  , recvExact
   , recvInt32
   , tryCloseSocket
   ) where
@@ -16,7 +16,7 @@ import Network.Transport.Internal (decodeInt32, void, tryIO, forkIOWithUnmask)
 #ifdef USE_MOCK_NETWORK
 import qualified Network.Transport.TCP.Mock.Socket as N
 #else
-import qualified Network.Socket as N 
+import qualified Network.Socket as N
 #endif
   ( HostName
   , ServiceName
@@ -49,10 +49,10 @@ import Control.Applicative ((<$>))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (length, concat, null)
 import Data.Int (Int32)
-import Data.ByteString.Lazy.Internal (smallChunkSize) 
+import Data.ByteString.Lazy.Internal (smallChunkSize)
 
 -- | Start a server at the specified address.
--- 
+--
 -- This sets up a server socket for the specified host and port. Exceptions
 -- thrown during setup are not caught.
 --
@@ -67,15 +67,15 @@ import Data.ByteString.Lazy.Internal (smallChunkSize)
 -- The request handler should spawn threads to handle each individual request
 -- or the server will block. Once a thread has been spawned it will be the
 -- responsibility of the new thread to close the socket when an exception
--- occurs. 
+-- occurs.
 forkServer :: N.HostName               -- ^ Host
-           -> N.ServiceName            -- ^ Port 
+           -> N.ServiceName            -- ^ Port
            -> Int                      -- ^ Backlog (maximum number of queued connections)
            -> Bool                     -- ^ Set ReuseAddr option?
            -> (SomeException -> IO ()) -- ^ Termination handler
-           -> (N.Socket -> IO ())      -- ^ Request handler 
+           -> (N.Socket -> IO ())      -- ^ Request handler
            -> IO ThreadId
-forkServer host port backlog reuseAddr terminationHandler requestHandler = do 
+forkServer host port backlog reuseAddr terminationHandler requestHandler = do
     -- Resolve the specified address. By specification, getAddrInfo will never
     -- return an empty list (but will throw an exception instead) and will return
     -- the "best" address first, whatever that means
@@ -84,14 +84,14 @@ forkServer host port backlog reuseAddr terminationHandler requestHandler = do
                    tryCloseSocket $ \sock -> do
       when reuseAddr $ N.setSocketOption sock N.ReuseAddr 1
       N.bindSocket sock (N.addrAddress addr)
-      N.listen sock backlog 
+      N.listen sock backlog
       -- We start listening for incoming requests in a separate thread. When
       -- that thread is killed, we close the server socket and the termination
       -- handler. We have to make sure that the exception handler is installed
       -- /before/ any asynchronous exception occurs. So we mask_, then fork
       -- (the child thread inherits the masked state from the parent), then
       -- unmask only inside the catch.
-      mask_ $ forkIOWithUnmask $ \unmask ->  
+      mask_ $ forkIOWithUnmask $ \unmask ->
         catch (unmask (forever $ acceptRequest sock)) $ \ex -> do
           tryCloseSocket sock
           terminationHandler ex
@@ -100,34 +100,34 @@ forkServer host port backlog reuseAddr terminationHandler requestHandler = do
     acceptRequest sock = bracketOnError (N.accept sock)
                                         (tryCloseSocket . fst)
                                         (requestHandler . fst)
-      
+
 -- | Read a length and then a payload of that length
 recvWithLength :: N.Socket -> IO [ByteString]
 recvWithLength sock = recvInt32 sock >>= recvExact sock
 
 -- | Receive a 32-bit integer
-recvInt32 :: Num a => N.Socket -> IO a 
-recvInt32 sock = decodeInt32 . BS.concat <$> recvExact sock 4 
+recvInt32 :: Num a => N.Socket -> IO a
+recvInt32 sock = decodeInt32 . BS.concat <$> recvExact sock 4
 
 -- | Close a socket, ignoring I/O exceptions
 tryCloseSocket :: N.Socket -> IO ()
-tryCloseSocket sock = void . tryIO $ 
+tryCloseSocket sock = void . tryIO $
   N.sClose sock
 
 -- | Read an exact number of bytes from a socket
--- 
+--
 -- Throws an I/O exception if the socket closes before the specified
 -- number of bytes could be read
-recvExact :: N.Socket                -- ^ Socket to read from 
+recvExact :: N.Socket                -- ^ Socket to read from
           -> Int32                   -- ^ Number of bytes to read
           -> IO [ByteString]
-recvExact _ len | len < 0 = throwIO (userError "recvExact: Negative length") 
+recvExact _ len | len < 0 = throwIO (userError "recvExact: Negative length")
 recvExact sock len = go [] len
   where
-    go :: [ByteString] -> Int32 -> IO [ByteString] 
-    go acc 0 = return (reverse acc) 
+    go :: [ByteString] -> Int32 -> IO [ByteString]
+    go acc 0 = return (reverse acc)
     go acc l = do
       bs <- NBS.recv sock (fromIntegral l `min` smallChunkSize)
-      if BS.null bs 
+      if BS.null bs
         then throwIO (userError "recvExact: Socket closed")
         else go (bs : acc) (l - fromIntegral (BS.length bs))

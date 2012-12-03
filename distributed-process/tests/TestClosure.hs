@@ -6,7 +6,7 @@ import Data.Typeable (Typeable)
 import Control.Monad (join, replicateM, forever, replicateM_, void)
 import Control.Exception (IOException, throw)
 import Control.Concurrent (forkIO, threadDelay)
-import Control.Concurrent.MVar 
+import Control.Concurrent.MVar
   ( MVar
   , newEmptyMVar
   , readMVar
@@ -18,12 +18,12 @@ import Control.Concurrent.MVar
 import Control.Applicative ((<$>))
 import System.Random (randomIO)
 import Network.Transport (Transport)
-import Network.Transport.TCP 
+import Network.Transport.TCP
   ( createTransportExposeInternals
   , defaultTCPParameters
   , TransportInternals(socketBetween)
   )
-import Network.Socket (sClose)  
+import Network.Socket (sClose)
 import Control.Distributed.Process
 import Control.Distributed.Process.Closure
 import Control.Distributed.Process.Node
@@ -46,7 +46,7 @@ sdictInt = SerializableDict
 
 factorial :: Int -> Process Int
 factorial 0 = return 1
-factorial n = (n *) <$> factorial (n - 1) 
+factorial n = (n *) <$> factorial (n - 1)
 
 addInt :: Int -> Int -> Int
 addInt x y = x + y
@@ -95,7 +95,7 @@ randomElement xs = do
   ix <- randomIO
   return (xs !! (ix `mod` length xs))
 
-remotableDecl [ 
+remotableDecl [
     [d| dfib :: ([NodeId], SendPort Integer, Integer) -> Process () ;
         dfib (_, reply, 0) = sendChan reply 0
         dfib (_, reply, 1) = sendChan reply 1
@@ -117,33 +117,33 @@ staticQuintuple :: (Typeable a, Typeable b, Typeable c, Typeable d, Typeable e)
 staticQuintuple = $(mkStatic 'quintuple)
 
 factorialClosure :: Int -> Closure (Process Int)
-factorialClosure = $(mkClosure 'factorial) 
+factorialClosure = $(mkClosure 'factorial)
 
 addIntClosure :: Int -> Closure (Int -> Int)
-addIntClosure = $(mkClosure 'addInt) 
+addIntClosure = $(mkClosure 'addInt)
 
 putIntClosure :: Int -> Closure (MVar Int -> IO ())
-putIntClosure = $(mkClosure 'putInt) 
+putIntClosure = $(mkClosure 'putInt)
 
 sendPidClosure :: ProcessId -> Closure (Process ())
-sendPidClosure = $(mkClosure 'sendPid) 
+sendPidClosure = $(mkClosure 'sendPid)
 
 sendFac :: Int -> ProcessId -> Closure (Process ())
-sendFac n pid = factorialClosure n `bindCP` cpSend $(mkStatic 'sdictInt) pid 
+sendFac n pid = factorialClosure n `bindCP` cpSend $(mkStatic 'sdictInt) pid
 
 factorialOf :: Closure (Int -> Process Int)
 factorialOf = staticClosure $(mkStatic 'factorial)
 
 factorial' :: Int -> Closure (Process Int)
-factorial' n = returnCP $(mkStatic 'sdictInt) n `bindCP` factorialOf 
+factorial' n = returnCP $(mkStatic 'sdictInt) n `bindCP` factorialOf
 
 waitClosure :: Int -> Closure (Process ())
-waitClosure = $(mkClosure 'wait) 
+waitClosure = $(mkClosure 'wait)
 
 simulateNetworkFailure :: TransportInternals -> NodeId -> NodeId -> Process ()
 simulateNetworkFailure transportInternals fr to = liftIO $ do
   threadDelay 10000
-  sock <- socketBetween transportInternals (nodeAddress fr) (nodeAddress to) 
+  sock <- socketBetween transportInternals (nodeAddress fr) (nodeAddress to)
   sClose sock
   threadDelay 10000
 
@@ -160,87 +160,87 @@ testUnclosure transport rtable = do
     liftIO $ putMVar done ()
   takeMVar done
 
-testBind :: Transport -> RemoteTable -> Assertion 
+testBind :: Transport -> RemoteTable -> Assertion
 testBind transport rtable = do
   node <- newLocalNode transport rtable
   done <- newEmptyMVar
   runProcess node $ do
     us <- getSelfPid
-    join . unClosure $ sendFac 6 us 
-    (720 :: Int) <- expect 
+    join . unClosure $ sendFac 6 us
+    (720 :: Int) <- expect
     liftIO $ putMVar done ()
   takeMVar done
 
-testSendPureClosure :: Transport -> RemoteTable -> Assertion 
+testSendPureClosure :: Transport -> RemoteTable -> Assertion
 testSendPureClosure transport rtable = do
   serverAddr <- newEmptyMVar
   serverDone <- newEmptyMVar
 
-  forkIO $ do 
-    node <- newLocalNode transport rtable 
+  forkIO $ do
+    node <- newLocalNode transport rtable
     addr <- forkProcess node $ do
       cl <- expect
       fn <- unClosure cl :: Process (Int -> Int)
       13 <- return $ fn 6
-      liftIO $ putMVar serverDone () 
-    putMVar serverAddr addr 
+      liftIO $ putMVar serverDone ()
+    putMVar serverAddr addr
 
   forkIO $ do
-    node <- newLocalNode transport rtable 
+    node <- newLocalNode transport rtable
     theirAddr <- readMVar serverAddr
     runProcess node $ send theirAddr (addIntClosure 7)
 
   takeMVar serverDone
 
-testSendIOClosure :: Transport -> RemoteTable -> Assertion 
+testSendIOClosure :: Transport -> RemoteTable -> Assertion
 testSendIOClosure transport rtable = do
   serverAddr <- newEmptyMVar
   serverDone <- newEmptyMVar
 
-  forkIO $ do 
-    node <- newLocalNode transport rtable 
+  forkIO $ do
+    node <- newLocalNode transport rtable
     addr <- forkProcess node $ do
       cl <- expect
       io <- unClosure cl :: Process (MVar Int -> IO ())
-      liftIO $ do 
+      liftIO $ do
         someMVar <- newEmptyMVar
-        io someMVar 
+        io someMVar
         5 <- readMVar someMVar
-        putMVar serverDone () 
-    putMVar serverAddr addr 
+        putMVar serverDone ()
+    putMVar serverAddr addr
 
   forkIO $ do
-    node <- newLocalNode transport rtable 
+    node <- newLocalNode transport rtable
     theirAddr <- readMVar serverAddr
-    runProcess node $ send theirAddr (putIntClosure 5) 
+    runProcess node $ send theirAddr (putIntClosure 5)
 
   takeMVar serverDone
 
-testSendProcClosure :: Transport -> RemoteTable -> Assertion 
+testSendProcClosure :: Transport -> RemoteTable -> Assertion
 testSendProcClosure transport rtable = do
   serverAddr <- newEmptyMVar
   clientDone <- newEmptyMVar
 
-  forkIO $ do 
-    node <- newLocalNode transport rtable 
+  forkIO $ do
+    node <- newLocalNode transport rtable
     addr <- forkProcess node $ do
       cl <- expect
       pr <- unClosure cl :: Process (Int -> Process ())
       pr 5
-    putMVar serverAddr addr 
+    putMVar serverAddr addr
 
   forkIO $ do
-    node <- newLocalNode transport rtable 
+    node <- newLocalNode transport rtable
     theirAddr <- readMVar serverAddr
     runProcess node $ do
       pid <- getSelfPid
-      send theirAddr (cpSend $(mkStatic 'sdictInt) pid) 
+      send theirAddr (cpSend $(mkStatic 'sdictInt) pid)
       5 <- expect :: Process Int
       liftIO $ putMVar clientDone ()
 
   takeMVar clientDone
 
-testSpawn :: Transport -> RemoteTable -> Assertion 
+testSpawn :: Transport -> RemoteTable -> Assertion
 testSpawn transport rtable = do
   serverNodeAddr <- newEmptyMVar
   clientDone <- newEmptyMVar
@@ -261,7 +261,7 @@ testSpawn transport rtable = do
 
   takeMVar clientDone
 
-testCall :: Transport -> RemoteTable -> Assertion 
+testCall :: Transport -> RemoteTable -> Assertion
 testCall transport rtable = do
   serverNodeAddr <- newEmptyMVar
   clientDone <- newEmptyMVar
@@ -279,7 +279,7 @@ testCall transport rtable = do
 
   takeMVar clientDone
 
-testCallBind :: Transport -> RemoteTable -> Assertion 
+testCallBind :: Transport -> RemoteTable -> Assertion
 testCallBind transport rtable = do
   serverNodeAddr <- newEmptyMVar
   clientDone <- newEmptyMVar
@@ -297,7 +297,7 @@ testCallBind transport rtable = do
 
   takeMVar clientDone
 
-testSeq :: Transport -> RemoteTable -> Assertion 
+testSeq :: Transport -> RemoteTable -> Assertion
 testSeq transport rtable = do
   node <- newLocalNode transport rtable
   done <- newEmptyMVar
@@ -315,7 +315,7 @@ testSeq transport rtable = do
 -- child. The supervisor then throws an exception, the child dies because it
 -- was linked to the supervisor, and the third process notices that the child
 -- dies.
-testSpawnSupervised :: Transport -> RemoteTable -> Assertion 
+testSpawnSupervised :: Transport -> RemoteTable -> Assertion
 testSpawnSupervised transport rtable = do
     [node1, node2]       <- replicateM 2 $ newLocalNode transport rtable
     [superPid, childPid] <- replicateM 2 $ newEmptyMVar
@@ -324,7 +324,7 @@ testSpawnSupervised transport rtable = do
     forkProcess node1 $ do
       us <- getSelfPid
       liftIO $ putMVar superPid us
-      (child, _ref) <- spawnSupervised (localNodeId node2) (waitClosure 1000000) 
+      (child, _ref) <- spawnSupervised (localNodeId node2) (waitClosure 1000000)
       liftIO $ do
         putMVar childPid child
         threadDelay 500000 -- Give the child a chance to link to us
@@ -334,8 +334,8 @@ testSpawnSupervised transport rtable = do
       [super, child] <- liftIO $ mapM readMVar [superPid, childPid]
       ref <- monitor child
       ProcessMonitorNotification ref' pid' (DiedException e) <- expect
-      True <- return $ ref' == ref 
-                    && pid' == child 
+      True <- return $ ref' == ref
+                    && pid' == child
                     && e == show (ProcessLinkException super (DiedException (show supervisorDeath)))
       liftIO $ putMVar thirdProcessDone ()
 
@@ -344,19 +344,19 @@ testSpawnSupervised transport rtable = do
     supervisorDeath :: IOException
     supervisorDeath = userError "Supervisor died"
 
-testSpawnInvalid :: Transport -> RemoteTable -> Assertion 
+testSpawnInvalid :: Transport -> RemoteTable -> Assertion
 testSpawnInvalid transport rtable = do
   node <- newLocalNode transport rtable
   done <- newEmptyMVar
   forkProcess node $ do
     (pid, ref) <- spawnMonitor (localNodeId node) (closure (staticLabel "ThisDoesNotExist") empty)
-    ProcessMonitorNotification ref' pid' _reason <- expect 
+    ProcessMonitorNotification ref' pid' _reason <- expect
     -- Depending on the exact interleaving, reason might be NoProc or the exception thrown by the absence of the static closure
-    True <- return $ ref' == ref && pid == pid'  
+    True <- return $ ref' == ref && pid == pid'
     liftIO $ putMVar done ()
   takeMVar done
 
-testClosureExpect :: Transport -> RemoteTable -> Assertion 
+testClosureExpect :: Transport -> RemoteTable -> Assertion
 testClosureExpect transport rtable = do
   node <- newLocalNode transport rtable
   done <- newEmptyMVar
@@ -369,15 +369,15 @@ testClosureExpect transport rtable = do
     liftIO $ putMVar done ()
   takeMVar done
 
-testSpawnChannel :: Transport -> RemoteTable -> Assertion 
+testSpawnChannel :: Transport -> RemoteTable -> Assertion
 testSpawnChannel transport rtable = do
   done <- newEmptyMVar
   [node1, node2] <- replicateM 2 $ newLocalNode transport rtable
 
   forkProcess node1 $ do
-    pingServer <- spawnChannel 
+    pingServer <- spawnChannel
                     (sdictSendPort sdictUnit)
-                    (localNodeId node2)  
+                    (localNodeId node2)
                     ($(mkClosure 'typedPingServer) ())
     (sendReply, receiveReply) <- newChan
     sendChan pingServer sendReply
@@ -386,7 +386,7 @@ testSpawnChannel transport rtable = do
 
   takeMVar done
 
-testTDict :: Transport -> RemoteTable -> Assertion 
+testTDict :: Transport -> RemoteTable -> Assertion
 testTDict transport rtable = do
   done <- newEmptyMVar
   [node1, node2] <- replicateM 2 $ newLocalNode transport rtable
@@ -395,7 +395,7 @@ testTDict transport rtable = do
     liftIO $ putMVar done ()
   takeMVar done
 
-testFib :: Transport -> RemoteTable -> Assertion 
+testFib :: Transport -> RemoteTable -> Assertion
 testFib transport rtable = do
   nodes <- replicateM 4 $ newLocalNode transport rtable
   done <- newEmptyMVar
@@ -408,28 +408,28 @@ testFib transport rtable = do
 
   takeMVar done
 
-testSpawnReconnect :: Transport -> RemoteTable -> TransportInternals -> Assertion 
+testSpawnReconnect :: Transport -> RemoteTable -> TransportInternals -> Assertion
 testSpawnReconnect transport rtable transportInternals = do
-  [node1, node2] <- replicateM 2 $ newLocalNode transport rtable 
+  [node1, node2] <- replicateM 2 $ newLocalNode transport rtable
   let nid1 = localNodeId node1
       nid2 = localNodeId node2
-  done <- newEmptyMVar 
-  iv <- newMVar (0 :: Int) 
+  done <- newEmptyMVar
+  iv <- newMVar (0 :: Int)
 
   incr <- forkProcess node1 $ forever $ do
     () <- expect
     liftIO $ modifyMVar_ iv (return . (+ 1))
 
   forkProcess node2 $ do
-    _pid1 <- spawn nid1 ($(mkClosure 'signal) incr) 
+    _pid1 <- spawn nid1 ($(mkClosure 'signal) incr)
     simulateNetworkFailure transportInternals nid2 nid1
-    _pid2 <- spawn nid1 ($(mkClosure 'signal) incr) 
-    _pid3 <- spawn nid1 ($(mkClosure 'signal) incr) 
+    _pid2 <- spawn nid1 ($(mkClosure 'signal) incr)
+    _pid3 <- spawn nid1 ($(mkClosure 'signal) incr)
 
     liftIO $ threadDelay 100000
 
     count <- liftIO $ takeMVar iv
-    True <- return $ count == 2 || count == 3 -- It depends on which message we get first in 'spawn' 
+    True <- return $ count == 2 || count == 3 -- It depends on which message we get first in 'spawn'
 
     liftIO $ putMVar done ()
 
@@ -437,10 +437,10 @@ testSpawnReconnect transport rtable transportInternals = do
 
 -- | 'spawn' used to ave a race condition which would be triggered if the
 -- spawning process terminates immediately after spawning
-testSpawnTerminate :: Transport -> RemoteTable -> Assertion 
+testSpawnTerminate :: Transport -> RemoteTable -> Assertion
 testSpawnTerminate transport rtable = do
-  slave  <- newLocalNode transport rtable 
-  master <- newLocalNode transport rtable 
+  slave  <- newLocalNode transport rtable
+  master <- newLocalNode transport rtable
   masterDone <- newEmptyMVar
 
   runProcess master $ do
@@ -476,5 +476,5 @@ tests (transport, transportInternals) rtable = [
 main :: IO ()
 main = do
   Right transport <- createTransportExposeInternals "127.0.0.1" "8080" defaultTCPParameters
-  let rtable = __remoteTable . __remoteTableDecl $ initRemoteTable 
+  let rtable = __remoteTable . __remoteTableDecl $ initRemoteTable
   defaultMain (tests transport rtable)

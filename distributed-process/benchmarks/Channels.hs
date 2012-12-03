@@ -23,11 +23,11 @@ pingClient n them = do
     receiveChan rc
   liftIO . putStrLn $ "Did " ++ show n ++ " pings"
 
-initialProcess :: String -> Process () 
+initialProcess :: String -> Process ()
 initialProcess "SERVER" = do
   us <- getSelfPid
   liftIO $ BSL.writeFile "pingServer.pid" (encode us)
-  pingServer 
+  pingServer
 initialProcess "CLIENT" = do
   n <- liftIO $ getLine
   them <- liftIO $ decode <$> BSL.readFile "pingServer.pid"
@@ -37,5 +37,5 @@ main :: IO ()
 main = do
   [role, host, port] <- getArgs
   Right transport <- createTransport host port defaultTCPParameters
-  node <- newLocalNode transport initRemoteTable 
-  runProcess node $ initialProcess role 
+  node <- newLocalNode transport initRemoteTable
+  runProcess node $ initialProcess role

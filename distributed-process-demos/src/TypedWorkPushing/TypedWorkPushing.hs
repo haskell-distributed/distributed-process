@@ -7,7 +7,7 @@ import PrimeFactors
 
 slave :: SendPort Integer -> ReceivePort Integer -> Process ()
 slave results todo = forever $ do
-  n <- receiveChan todo 
+  n <- receiveChan todo
   sendChan results (numPrimeFactors n)
 
 sdictInteger :: SerializableDict Integer
@@ -22,20 +22,20 @@ sumIntegers rport = go 0
     go :: Integer -> Int -> Process Integer
     go !acc 0 = return acc
     go !acc n = do
-      m <- receiveChan rport 
+      m <- receiveChan rport
       go (acc + m) (n - 1)
 
 master :: Integer -> [NodeId] -> Process Integer
 master n slaves = do
   (sport, rport) <- newChan
 
-  -- Start slave processes 
-  slaveProcesses <- forM slaves $ \nid -> 
+  -- Start slave processes
+  slaveProcesses <- forM slaves $ \nid ->
     spawnChannel $(mkStatic 'sdictInteger) nid ($(mkClosure 'slave) sport)
 
-  -- Distribute 1 .. n amongst the slave processes 
-  spawnLocal $ forM_ (zip [1 .. n] (cycle slaveProcesses)) $ 
-    \(m, them) -> sendChan them m 
+  -- Distribute 1 .. n amongst the slave processes
+  spawnLocal $ forM_ (zip [1 .. n] (cycle slaveProcesses)) $
+    \(m, them) -> sendChan them m
 
   -- Wait for the result
   sumIntegers rport (fromIntegral n)

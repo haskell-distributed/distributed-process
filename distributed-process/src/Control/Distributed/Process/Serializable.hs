@@ -1,4 +1,4 @@
-module Control.Distributed.Process.Serializable 
+module Control.Distributed.Process.Serializable
   ( Serializable
   , encodeFingerprint
   , decodeFingerprint
@@ -35,29 +35,29 @@ instance (Binary a, Typeable a) => Serializable a
 
 -- | Encode type representation as a bytestring
 encodeFingerprint :: Fingerprint -> ByteString
-encodeFingerprint fp = 
+encodeFingerprint fp =
   -- Since all CH nodes will run precisely the same binary, we don't have to
   -- worry about cross-arch issues here (like endianness)
-  BSI.unsafeCreate sizeOfFingerprint $ \p -> pokeByteOff p 0 fp 
+  BSI.unsafeCreate sizeOfFingerprint $ \p -> pokeByteOff p 0 fp
 
--- | Decode a bytestring into a fingerprint. Throws an IO exception on failure 
+-- | Decode a bytestring into a fingerprint. Throws an IO exception on failure
 decodeFingerprint :: ByteString -> Fingerprint
 decodeFingerprint bs
-  | BS.length bs /= sizeOfFingerprint = 
+  | BS.length bs /= sizeOfFingerprint =
       throw $ userError "decodeFingerprint: Invalid length"
   | otherwise = BSI.inlinePerformIO $ do
       let (fp, offset, _) = BSI.toForeignPtr bs
-      withForeignPtr fp $ \p -> peekByteOff p offset 
+      withForeignPtr fp $ \p -> peekByteOff p offset
 
 -- | Size of a fingerprint
 sizeOfFingerprint :: Int
 sizeOfFingerprint = sizeOf (undefined :: Fingerprint)
 
--- | The fingerprint of the typeRep of the argument 
+-- | The fingerprint of the typeRep of the argument
 fingerprint :: Typeable a => a -> Fingerprint
 fingerprint a = let TypeRep fp _ _ = typeOf a in fp
 
 -- | Show fingerprint (for debugging purposes)
 showFingerprint :: Fingerprint -> ShowS
-showFingerprint (Fingerprint hi lo) = 
+showFingerprint (Fingerprint hi lo) =
   showString "(" . showHex hi . showString "," . showHex lo . showString ")"

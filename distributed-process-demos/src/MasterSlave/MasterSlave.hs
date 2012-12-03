@@ -16,21 +16,21 @@ sumIntegers = go 0
   where
     go :: Integer -> Int -> Process Integer
     go !acc 0 = return acc
-    go !acc n = do 
+    go !acc n = do
       m <- expect
       go (acc + m) (n - 1)
 
 data SpawnStrategy = SpawnSyncWithReconnect
                    | SpawnSyncNoReconnect
                    | SpawnAsync
-  deriving (Show, Read)                   
+  deriving (Show, Read)
 
 master :: Integer -> SpawnStrategy -> [NodeId] -> Process Integer
 master n spawnStrategy slaves = do
   us <- getSelfPid
 
-  -- Distribute 1 .. n amongst the slave processes 
-  spawnLocal $ case spawnStrategy of 
+  -- Distribute 1 .. n amongst the slave processes
+  spawnLocal $ case spawnStrategy of
     SpawnSyncWithReconnect ->
       forM_ (zip [1 .. n] (cycle slaves)) $ \(m, there) -> do
         them <- spawn there ($(mkClosure 'slave) (us, m))

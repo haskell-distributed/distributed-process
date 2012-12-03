@@ -21,7 +21,7 @@ module Control.Distributed.Process.Internal.WeakTQueue (
 import Prelude hiding (read)
 import GHC.Conc
 import Data.Typeable (Typeable)
-import GHC.IO (IO(IO)) 
+import GHC.IO (IO(IO))
 import GHC.Prim (mkWeak#)
 import GHC.Weak (Weak(Weak))
 
@@ -98,4 +98,4 @@ isEmptyTQueue (TQueue read write) = do
 
 mkWeakTQueue :: TQueue a -> IO () -> IO (Weak (TQueue a))
 mkWeakTQueue q@(TQueue _read (TVar write#)) f = IO $ \s ->
-  case mkWeak# write# q f s of (# s', w #) -> (# s', Weak w #) 
+  case mkWeak# write# q f s of (# s', w #) -> (# s', Weak w #)

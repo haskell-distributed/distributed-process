@@ -1,6 +1,6 @@
 -- | Like Control.Concurrent.MVar.Strict but reduce to HNF, not NF
 {-# LANGUAGE MagicHash, UnboxedTuples #-}
-module Control.Distributed.Process.Internal.StrictMVar 
+module Control.Distributed.Process.Internal.StrictMVar
   ( StrictMVar(StrictMVar)
   , newEmptyMVar
   , newMVar
@@ -15,7 +15,7 @@ module Control.Distributed.Process.Internal.StrictMVar
 import Control.Applicative ((<$>))
 import Control.Monad ((>=>))
 import Control.Exception (evaluate)
-import qualified Control.Concurrent.MVar as MVar 
+import qualified Control.Concurrent.MVar as MVar
   ( MVar
   , newEmptyMVar
   , newMVar
@@ -26,7 +26,7 @@ import qualified Control.Concurrent.MVar as MVar
   , modifyMVar
   )
 import GHC.MVar (MVar(MVar))
-import GHC.IO (IO(IO)) 
+import GHC.IO (IO(IO))
 import GHC.Prim (mkWeak#)
 import GHC.Weak (Weak(Weak))
 
@@ -48,7 +48,7 @@ withMVar :: StrictMVar a -> (a -> IO b) -> IO b
 withMVar (StrictMVar v) = MVar.withMVar v
 
 modifyMVar_ :: StrictMVar a -> (a -> IO a) -> IO ()
-modifyMVar_ (StrictMVar v) f = MVar.modifyMVar_ v (f >=> evaluate) 
+modifyMVar_ (StrictMVar v) f = MVar.modifyMVar_ v (f >=> evaluate)
 
 modifyMVar :: StrictMVar a -> (a -> IO (a, b)) -> IO b
 modifyMVar (StrictMVar v) f = MVar.modifyMVar v (f >=> evaluateFst)

@@ -18,15 +18,15 @@ pingClient n them = do
   replicateM_ n $ send them us >> (expect :: ProcessM ())
   liftIO . putStrLn $ "Did " ++ show n ++ " pings"
 
-initialProcess :: String -> ProcessM () 
+initialProcess :: String -> ProcessM ()
 initialProcess "SERVER" = do
   us <- getSelfPid
   liftIO $ BSL.writeFile "pingServer.pid" (encode us)
-  pingServer 
+  pingServer
 initialProcess "CLIENT" = do
   n <- liftIO $ getLine
   them <- liftIO $ decode <$> BSL.readFile "pingServer.pid"
   pingClient (read n) them
 
 main :: IO ()
-main = remoteInit (Just "config") [] initialProcess  
+main = remoteInit (Just "config") [] initialProcess

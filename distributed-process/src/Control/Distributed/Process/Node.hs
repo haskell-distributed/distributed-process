@@ -2,7 +2,7 @@
 --
 -- TODO: Calls to 'sendBinary' and co by the node controller may stall the
 -- node controller.
-module Control.Distributed.Process.Node 
+module Control.Distributed.Process.Node
   ( LocalNode
   , newLocalNode
   , closeLocalNode
@@ -21,7 +21,7 @@ import System.Mem.Weak (Weak, deRefWeak)
 import qualified Data.ByteString.Lazy as BSL (fromChunks)
 import Data.Binary (decode)
 import Data.Map (Map)
-import qualified Data.Map as Map 
+import qualified Data.Map as Map
   ( empty
   , toList
   , fromList
@@ -46,7 +46,7 @@ import Control.Exception (throwIO, SomeException, Exception, throwTo)
 import qualified Control.Exception as Exception (catch)
 import Control.Concurrent (forkIO)
 import Control.Distributed.Process.Internal.StrictMVar
-  ( newMVar 
+  ( newMVar
   , withMVar
   , modifyMVar
   , modifyMVar_
@@ -56,13 +56,13 @@ import Control.Distributed.Process.Internal.StrictMVar
   )
 import Control.Concurrent.Chan (newChan, writeChan, readChan)
 import Control.Concurrent.STM (atomically)
-import Control.Distributed.Process.Internal.CQueue 
+import Control.Distributed.Process.Internal.CQueue
   ( CQueue
   , enqueue
   , newCQueue
   , mkWeakCQueue
   )
-import qualified Network.Transport as NT 
+import qualified Network.Transport as NT
   ( Transport
   , EndPoint
   , newEndPoint
@@ -81,11 +81,11 @@ import qualified Network.Transport as NT
 import Data.Accessor (Accessor, accessor, (^.), (^=), (^:))
 import System.Random (randomIO)
 import Control.Distributed.Static (RemoteTable, Closure)
-import qualified Control.Distributed.Static as Static 
+import qualified Control.Distributed.Static as Static
   ( unclosure
   , initRemoteTable
   )
-import Control.Distributed.Process.Internal.Types 
+import Control.Distributed.Process.Internal.Types
   ( NodeId(..)
   , LocalProcessId(..)
   , ProcessId(..)
@@ -134,7 +134,7 @@ import Control.Distributed.Process.Internal.Messaging
   ( sendBinary
   , sendMessage
   , sendPayload
-  , closeImplicitReconnections 
+  , closeImplicitReconnections
   , impliesDeathOf
   )
 import Control.Distributed.Process.Internal.Primitives
@@ -153,27 +153,27 @@ import qualified Control.Distributed.Process.Internal.StrictContainerAccessors a
 --------------------------------------------------------------------------------
 
 initRemoteTable :: RemoteTable
-initRemoteTable = BuiltIn.remoteTable Static.initRemoteTable 
+initRemoteTable = BuiltIn.remoteTable Static.initRemoteTable
 
--- | Initialize a new local node. 
+-- | Initialize a new local node.
 newLocalNode :: NT.Transport -> RemoteTable -> IO LocalNode
 newLocalNode transport rtable = do
     mEndPoint <- NT.newEndPoint transport
     case mEndPoint of
       Left ex -> throwIO ex
       Right endPoint -> do
-        localNode <- createBareLocalNode endPoint rtable 
+        localNode <- createBareLocalNode endPoint rtable
         startServiceProcesses localNode
         return localNode
-    
+
 -- | Create a new local node (without any service processes running)
 createBareLocalNode :: NT.EndPoint -> RemoteTable -> IO LocalNode
 createBareLocalNode endPoint rtable = do
   unq <- randomIO
-  state <- newMVar LocalNodeState 
+  state <- newMVar LocalNodeState
     { _localProcesses   = Map.empty
-    , _localPidCounter  = firstNonReservedProcessId 
-    , _localPidUnique   = unq 
+    , _localPidCounter  = firstNonReservedProcessId
+    , _localPidUnique   = unq
     , _localConnections = Map.empty
     }
   ctrlChan <- newChan
@@ -183,7 +183,7 @@ createBareLocalNode endPoint rtable = do
                        , localCtrlChan = ctrlChan
                        , remoteTable   = rtable
                        }
-  void . forkIO $ runNodeController node 
+  void . forkIO $ runNodeController node
   void . forkIO $ handleIncomingMessages node
   return node
 
@@ -192,7 +192,7 @@ createBareLocalNode endPoint rtable = do
 forever' :: Monad m => m a -> m b
 forever' a = let a' = a >> a' in a'
 
--- | Start and register the service processes on a node 
+-- | Start and register the service processes on a node
 -- (for now, this is only the logger)
 startServiceProcesses :: LocalNode -> IO ()
 startServiceProcesses node = do
@@ -231,7 +231,7 @@ forkProcess node proc = modifyMVar (localState node) startProcess
       let lpid  = LocalProcessId { lpidCounter = st ^. localPidCounter
                                  , lpidUnique  = st ^. localPidUnique
                                  }
-      let pid   = ProcessId { processNodeId  = localNodeId node 
+      let pid   = ProcessId { processNodeId  = localNodeId node
                             , processLocalId = lpid
                             }
       pst <- newMVar LocalProcessState { _monitorCounter = 0
@@ -245,19 +245,19 @@ forkProcess node proc = modifyMVar (localState node) startProcess
         let lproc = LocalProcess { processQueue  = queue
                                  , processWeakQ  = weakQueue
                                  , processId     = pid
-                                 , processState  = pst 
+                                 , processState  = pst
                                  , processThread = tid
                                  , processNode   = node
                                  }
         tid' <- forkIO $ do
-          reason <- Exception.catch 
+          reason <- Exception.catch
             (runLocalProcess lproc proc >> return DiedNormal)
             (return . DiedException . (show :: SomeException -> String))
           -- [Unified: Table 4, rules termination and exiting]
           modifyMVar_ (localState node) (cleanupProcess pid)
-          writeChan (localCtrlChan node) NCMsg 
-            { ctrlMsgSender = ProcessIdentifier pid 
-            , ctrlMsgSignal = Died (ProcessIdentifier pid) reason 
+          writeChan (localCtrlChan node) NCMsg
+            { ctrlMsgSender = ProcessIdentifier pid
+            , ctrlMsgSignal = Died (ProcessIdentifier pid) reason
             }
         return (tid', lproc)
 
@@ -274,12 +274,12 @@ forkProcess node proc = modifyMVar (localState node) startProcess
           return ( (localProcessWithId lpid ^= Just lproc)
                  . (localPidCounter ^: (+ 1))
                  $ st
-                 , pid 
+                 , pid
                  )
 
     cleanupProcess :: ProcessId -> LocalNodeState -> IO LocalNodeState
     cleanupProcess pid st = do
-      let pid' = ProcessIdentifier pid 
+      let pid' = ProcessIdentifier pid
       let (affected, unaffected) = Map.partitionWithKey (\(fr, _to) !_v -> impliesDeathOf pid' fr) (st ^. localConnections)
       mapM_ (NT.close . fst) (Map.elems affected)
       return $ (localProcessWithId (processLocalId pid) ^= Nothing)
@@ -292,7 +292,7 @@ forkProcess node proc = modifyMVar (localState node) startProcess
 
 type IncomingConnection = (NT.EndPointAddress, IncomingTarget)
 
-data IncomingTarget =  
+data IncomingTarget =
     Uninit
   | ToProc (Weak (CQueue Message))
   | ToChan TypedChannel
@@ -315,20 +315,20 @@ incoming = accessor _incoming (\conns st -> st { _incoming = conns })
 incomingAt :: NT.ConnectionId -> Accessor ConnectionState (Maybe IncomingConnection)
 incomingAt cid = incoming >>> DAC.mapMaybe cid
 
-incomingFrom :: NT.EndPointAddress -> Accessor ConnectionState (Set NT.ConnectionId) 
+incomingFrom :: NT.EndPointAddress -> Accessor ConnectionState (Set NT.ConnectionId)
 incomingFrom addr = aux >>> DAC.mapDefault Set.empty addr
   where
     aux = accessor _incomingFrom (\fr st -> st { _incomingFrom = fr })
 
 handleIncomingMessages :: LocalNode -> IO ()
-handleIncomingMessages node = go initConnectionState 
+handleIncomingMessages node = go initConnectionState
   where
-    go :: ConnectionState -> IO () 
+    go :: ConnectionState -> IO ()
     go !st = do
       event <- NT.receive endpoint
       case event of
         NT.ConnectionOpened cid rel theirAddr ->
-          if rel == NT.ReliableOrdered 
+          if rel == NT.ReliableOrdered
             then go ( (incomingAt cid ^= Just (theirAddr, Uninit))
                     . (incomingFrom theirAddr ^: Set.insert cid)
                     $ st
@@ -338,33 +338,33 @@ handleIncomingMessages node = go initConnectionState
           case st ^. incomingAt cid of
             Just (_, ToProc weakQueue) -> do
               mQueue <- deRefWeak weakQueue
-              forM_ mQueue $ \queue -> do 
+              forM_ mQueue $ \queue -> do
                 -- TODO: if we find that the queue is Nothing, should we remove
                 -- it from the NC state? (and same for channels, below)
                 let msg = payloadToMessage payload
                 enqueue queue msg -- 'enqueue' is strict
-              go st 
+              go st
             Just (_, ToChan (TypedChannel chan')) -> do
               mChan <- deRefWeak chan'
               -- If mChan is Nothing, the process has given up the read end of
               -- the channel and we simply ignore the incoming message
-              forM_ mChan $ \chan -> atomically $  
+              forM_ mChan $ \chan -> atomically $
                 -- We make sure the message is fully decoded when it is enqueued
                 writeTQueue chan $! decode (BSL.fromChunks payload)
-              go st 
+              go st
             Just (_, ToNode) -> do
               let ctrlMsg = decode . BSL.fromChunks $ payload
               writeChan ctrlChan $! ctrlMsg
-              go st 
-            Just (src, Uninit) -> 
+              go st
+            Just (src, Uninit) ->
               case decode (BSL.fromChunks payload) of
                 ProcessIdentifier pid -> do
                   let lpid = processLocalId pid
-                  mProc <- withMVar state $ return . (^. localProcessWithId lpid) 
+                  mProc <- withMVar state $ return . (^. localProcessWithId lpid)
                   case mProc of
-                    Just proc -> 
-                      go (incomingAt cid ^= Just (src, ToProc (processWeakQ proc)) $ st) 
-                    Nothing -> 
+                    Just proc ->
+                      go (incomingAt cid ^= Just (src, ToProc (processWeakQ proc)) $ st)
+                    Nothing ->
                       invalidRequest cid st
                 SendPortIdentifier chId -> do
                   let lcid = sendPortLocalId chId
@@ -374,7 +374,7 @@ handleIncomingMessages node = go initConnectionState
                     Just proc -> do
                       mChannel <- withMVar (processState proc) $ return . (^. typedChannelWithId lcid)
                       case mChannel of
-                        Just channel -> 
+                        Just channel ->
                           go (incomingAt cid ^= Just (src, ToChan channel) $ st)
                         Nothing ->
                           invalidRequest cid st
@@ -383,35 +383,35 @@ handleIncomingMessages node = go initConnectionState
                 NodeIdentifier nid ->
                   if nid == localNodeId node
                     then go (incomingAt cid ^= Just (src, ToNode) $ st)
-                    else invalidRequest cid st 
+                    else invalidRequest cid st
             Nothing ->
               invalidRequest cid st
-        NT.ConnectionClosed cid -> 
+        NT.ConnectionClosed cid ->
           case st ^. incomingAt cid of
-            Nothing -> 
+            Nothing ->
               invalidRequest cid st
-            Just (src, _) -> 
+            Just (src, _) ->
               go ( (incomingAt cid ^= Nothing)
                  . (incomingFrom src ^: Set.delete cid)
                  $ st
                  )
-        NT.ErrorEvent (NT.TransportError (NT.EventConnectionLost theirAddr) _) -> do 
+        NT.ErrorEvent (NT.TransportError (NT.EventConnectionLost theirAddr) _) -> do
           -- [Unified table 9, rule node_disconnect]
           let nid = NodeIdentifier $ NodeId theirAddr
-          writeChan ctrlChan NCMsg 
+          writeChan ctrlChan NCMsg
             { ctrlMsgSender = nid
             , ctrlMsgSignal = Died nid DiedDisconnect
             }
           let notLost k = not (k `Set.member` (st ^. incomingFrom theirAddr))
-          closeImplicitReconnections node nid 
+          closeImplicitReconnections node nid
           go ( (incomingFrom theirAddr ^= Set.empty)
              . (incoming ^: Map.filterWithKey (const . notLost))
-             $ st 
+             $ st
              )
         NT.ErrorEvent (NT.TransportError NT.EventEndPointFailed str) ->
-          fail $ "Cloud Haskell fatal error: end point failed: " ++ str 
+          fail $ "Cloud Haskell fatal error: end point failed: " ++ str
         NT.ErrorEvent (NT.TransportError NT.EventTransportFailed str) ->
-          fail $ "Cloud Haskell fatal error: transport failed: " ++ str 
+          fail $ "Cloud Haskell fatal error: transport failed: " ++ str
         NT.EndPointClosed ->
           return ()
         NT.ReceivedMulticast _ _ ->
@@ -420,13 +420,13 @@ handleIncomingMessages node = go initConnectionState
           fail "Cloud Haskell fatal error: received unexpected multicast"
 
     invalidRequest :: NT.ConnectionId -> ConnectionState -> IO ()
-    invalidRequest cid st = 
+    invalidRequest cid st =
       -- TODO: We should treat this as a fatal error on the part of the remote
       -- node. That is, we should report the remote node as having died, and we
       -- should close incoming connections (this requires a Transport layer
       -- extension).
       go ( incomingAt cid ^= Nothing
-         $ st 
+         $ st
          )
 
     state    = localState node
@@ -445,8 +445,8 @@ runNodeController =
 -- Internal data types                                                        --
 --------------------------------------------------------------------------------
 
-data NCState = NCState 
-  {  -- Mapping from remote processes to linked local processes 
+data NCState = NCState
+  {  -- Mapping from remote processes to linked local processes
     _links    :: !(Map Identifier (Set ProcessId))
      -- Mapping from remote processes to monitoring local processes
   , _monitors :: !(Map Identifier (Set (ProcessId, MonitorRef)))
@@ -472,19 +472,19 @@ initNCState = NCState { _links    = Map.empty
 -- [Unified: Table 7]
 nodeController :: NC ()
 nodeController = do
-  node <- ask 
+  node <- ask
   forever' $ do
     msg  <- liftIO $ readChan (localCtrlChan node)
 
-    -- [Unified: Table 7, rule nc_forward] 
+    -- [Unified: Table 7, rule nc_forward]
     case destNid (ctrlMsgSignal msg) of
-      Just nid' | nid' /= localNodeId node -> 
+      Just nid' | nid' /= localNodeId node ->
         liftIO $ sendBinary node
                             (ctrlMsgSender msg)
-                            (NodeIdentifier nid') 
+                            (NodeIdentifier nid')
                             WithImplicitReconnect
                             msg
-      _ -> 
+      _ ->
         return ()
 
     case msg of
@@ -493,7 +493,7 @@ nodeController = do
       NCMsg (ProcessIdentifier from) (Monitor ref) ->
         ncEffectMonitor from (monitorRefIdent ref) (Just ref)
       NCMsg (ProcessIdentifier from) (Unlink them) ->
-        ncEffectUnlink from them 
+        ncEffectUnlink from them
       NCMsg (ProcessIdentifier from) (Unmonitor ref) ->
         ncEffectUnmonitor from ref
       NCMsg _from (Died ident reason) ->
@@ -510,23 +510,23 @@ nodeController = do
         error $ "nodeController: unexpected message " ++ show unexpected
 
 -- [Unified: Table 10]
-ncEffectMonitor :: ProcessId        -- ^ Who's watching? 
+ncEffectMonitor :: ProcessId        -- ^ Who's watching?
                 -> Identifier       -- ^ Who's being watched?
                 -> Maybe MonitorRef -- ^ 'Nothing' to link
                 -> NC ()
 ncEffectMonitor from them mRef = do
-  node <- ask 
-  shouldLink <- 
-    if not (isLocal node them) 
+  node <- ask
+  shouldLink <-
+    if not (isLocal node them)
       then return True
       else isValidLocalIdentifier them
   case (shouldLink, isLocal node (ProcessIdentifier from)) of
     (True, _) ->  -- [Unified: first rule]
       case mRef of
         Just ref -> modify' $ monitorsFor them ^: Set.insert (from, ref)
-        Nothing  -> modify' $ linksFor them ^: Set.insert from 
+        Nothing  -> modify' $ linksFor them ^: Set.insert from
     (False, True) -> -- [Unified: second rule]
-      notifyDied from them DiedUnknownId mRef 
+      notifyDied from them DiedUnknownId mRef
     (False, False) -> -- [Unified: third rule]
       -- TODO: this is the right sender according to the Unified semantics,
       -- but perhaps having 'them' as the sender would make more sense
@@ -535,7 +535,7 @@ ncEffectMonitor from them mRef = do
                           (NodeIdentifier $ localNodeId node)
                           (NodeIdentifier $ processNodeId from)
                           WithImplicitReconnect
-        NCMsg  
+        NCMsg
           { ctrlMsgSender = NodeIdentifier (localNodeId node)
           , ctrlMsgSignal = Died them DiedUnknownId
           }
@@ -543,22 +543,22 @@ ncEffectMonitor from them mRef = do
 -- [Unified: Table 11]
 ncEffectUnlink :: ProcessId -> Identifier -> NC ()
 ncEffectUnlink from them = do
-  node <- ask 
-  when (isLocal node (ProcessIdentifier from)) $ 
+  node <- ask
+  when (isLocal node (ProcessIdentifier from)) $
     case them of
-      ProcessIdentifier pid -> 
-        postAsMessage from $ DidUnlinkProcess pid 
-      NodeIdentifier nid -> 
+      ProcessIdentifier pid ->
+        postAsMessage from $ DidUnlinkProcess pid
+      NodeIdentifier nid ->
         postAsMessage from $ DidUnlinkNode nid
-      SendPortIdentifier cid -> 
-        postAsMessage from $ DidUnlinkPort cid 
+      SendPortIdentifier cid ->
+        postAsMessage from $ DidUnlinkPort cid
   modify' $ linksFor them ^: Set.delete from
 
 -- [Unified: Table 11]
 ncEffectUnmonitor :: ProcessId -> MonitorRef -> NC ()
 ncEffectUnmonitor from ref = do
-  node <- ask 
-  when (isLocal node (ProcessIdentifier from)) $ 
+  node <- ask
+  when (isLocal node (ProcessIdentifier from)) $
     postAsMessage from $ DidUnmonitor ref
   modify' $ monitorsFor (monitorRefIdent ref) ^: Set.delete (from, ref)
 
@@ -573,40 +573,40 @@ ncEffectDied ident reason = do
 
   let localOnly = case ident of NodeIdentifier _ -> True ; _ -> False
 
-  forM_ (Map.toList affectedLinks) $ \(them, uss) -> 
+  forM_ (Map.toList affectedLinks) $ \(them, uss) ->
     forM_ uss $ \us ->
-      when (localOnly <= isLocal node (ProcessIdentifier us)) $ 
+      when (localOnly <= isLocal node (ProcessIdentifier us)) $
         notifyDied us them reason Nothing
 
   forM_ (Map.toList affectedMons) $ \(them, refs) ->
     forM_ refs $ \(us, ref) ->
       when (localOnly <= isLocal node (ProcessIdentifier us)) $
-        notifyDied us them reason (Just ref)   
+        notifyDied us them reason (Just ref)
 
   modify' $ (links ^= unaffectedLinks) . (monitors ^= unaffectedMons)
 
   modify' $ registeredHere ^: Map.filter (\pid -> not $ ident `impliesDeathOf` ProcessIdentifier pid)
 
   remaining <- fmap Map.toList (gets (^. registeredOnNodes)) >>=
-      mapM (\(pid,nidlist) -> 
+      mapM (\(pid,nidlist) ->
         case ident `impliesDeathOf` ProcessIdentifier pid of
-           True -> 
+           True ->
               do forM_ nidlist $ \(nid,_) ->
-                   when (not $ isLocal node (NodeIdentifier nid)) 
+                   when (not $ isLocal node (NodeIdentifier nid))
                       (forwardNameDeath node nid)
                  return Nothing
            False -> return $ Just (pid,nidlist)  )
   modify' $ registeredOnNodes ^= (Map.fromList (catMaybes remaining))
-    where 
+    where
        forwardNameDeath node nid =
                    liftIO $ sendBinary node
                              (NodeIdentifier $ localNodeId node)
                              (NodeIdentifier $ nid)
                              WithImplicitReconnect
                              NCMsg
-                             { ctrlMsgSender = NodeIdentifier (localNodeId node) 
+                             { ctrlMsgSender = NodeIdentifier (localNodeId node)
                              , ctrlMsgSignal = Died ident reason
-                             }              
+                             }
 
 
 -- [Unified: Table 13]
@@ -622,9 +622,9 @@ ncEffectSpawn pid cProc ref = do
   pid' <- liftIO $ forkProcess node proc
   liftIO $ sendMessage node
                        (NodeIdentifier (localNodeId node))
-                       (ProcessIdentifier pid) 
+                       (ProcessIdentifier pid)
                        WithImplicitReconnect
-                       (DidSpawn ref pid') 
+                       (DidSpawn ref pid')
 
 -- Unified semantics does not explicitly describe how to implement 'register',
 -- but mentions it's "very similar to nsend" (Table 14)
@@ -639,7 +639,7 @@ ncEffectRegister from label atnode mPid reregistration = do
            return $ isJust currentVal
          Just thepid -> -- register request
            do isvalidlocal <- isValidLocalIdentifier (ProcessIdentifier thepid)
-              return $ (isNothing currentVal /= reregistration) && 
+              return $ (isNothing currentVal /= reregistration) &&
                 (not (isLocal node (ProcessIdentifier thepid) ) || isvalidlocal )
   if isLocal node (NodeIdentifier atnode)
      then do when (isOk) $
@@ -647,10 +647,10 @@ ncEffectRegister from label atnode mPid reregistration = do
                   updateRemote node currentVal mPid
              liftIO $ sendMessage node
                        (NodeIdentifier (localNodeId node))
-                       (ProcessIdentifier from) 
+                       (ProcessIdentifier from)
                        WithImplicitReconnect
                        (RegisterReply label isOk)
-     else let operation = 
+     else let operation =
                  case reregistration of
                     True -> flip decList
                     False -> flip incList
@@ -676,7 +676,7 @@ ncEffectRegister from label atnode mPid reregistration = do
             decList ((atag,1):xs) tag | atag == tag = xs
             decList ((atag,n):xs) tag | atag == tag = (atag,n-1):xs
             decList (x:xs) tag = x:decList xs tag
-            forward node to reg = 
+            forward node to reg =
               when (not $ isLocal node (NodeIdentifier to)) $
                     liftIO $ sendBinary node
                                         (ProcessIdentifier from)
@@ -695,22 +695,22 @@ ncEffectWhereIs from label = do
   mPid <- gets (^. registeredHereFor label)
   liftIO $ sendMessage node
                        (NodeIdentifier (localNodeId node))
-                       (ProcessIdentifier from) 
+                       (ProcessIdentifier from)
                        WithImplicitReconnect
                        (WhereIsReply label mPid)
 
 -- [Unified: Table 14]
 ncEffectNamedSend :: Identifier -> String -> Message -> NC ()
 ncEffectNamedSend from label msg = do
-  node <- ask  
+  node <- ask
   mPid <- gets (^. registeredHereFor label)
   -- If mPid is Nothing, we just ignore the named send (as per Table 14)
-  forM_ mPid $ \pid -> 
+  forM_ mPid $ \pid ->
     liftIO $ sendPayload node
                          from
-                         (ProcessIdentifier pid) 
+                         (ProcessIdentifier pid)
                          NoImplicitReconnect
-                         (messageToPayload msg) 
+                         (messageToPayload msg)
 
 --------------------------------------------------------------------------------
 -- Auxiliary                                                                  --
@@ -722,20 +722,20 @@ notifyDied :: ProcessId         -- ^ Who to notify?
            -> Maybe MonitorRef  -- ^ 'Nothing' for linking
            -> NC ()
 notifyDied dest src reason mRef = do
-  node <- ask 
+  node <- ask
   case (isLocal node (ProcessIdentifier dest), mRef, src) of
     (True, Just ref, ProcessIdentifier pid) ->
-      postAsMessage dest $ ProcessMonitorNotification ref pid reason 
+      postAsMessage dest $ ProcessMonitorNotification ref pid reason
     (True, Just ref, NodeIdentifier nid) ->
       postAsMessage dest $ NodeMonitorNotification ref nid reason
     (True, Just ref, SendPortIdentifier cid) ->
       postAsMessage dest $ PortMonitorNotification ref cid reason
     (True, Nothing, ProcessIdentifier pid) ->
-      throwException dest $ ProcessLinkException pid reason 
+      throwException dest $ ProcessLinkException pid reason
     (True, Nothing, NodeIdentifier pid) ->
-      throwException dest $ NodeLinkException pid reason 
+      throwException dest $ NodeLinkException pid reason
     (True, Nothing, SendPortIdentifier pid) ->
-      throwException dest $ PortLinkException pid reason 
+      throwException dest $ PortLinkException pid reason
     (False, _, _) ->
       -- The change in sender comes from [Unified: Table 10]
       liftIO $ sendBinary node
@@ -743,30 +743,30 @@ notifyDied dest src reason mRef = do
                           (NodeIdentifier $ processNodeId dest)
                           WithImplicitReconnect
         NCMsg
-          { ctrlMsgSender = NodeIdentifier (localNodeId node) 
+          { ctrlMsgSender = NodeIdentifier (localNodeId node)
           , ctrlMsgSignal = Died src reason
           }
-      
+
 -- | [Unified: Table 8]
 destNid :: ProcessSignal -> Maybe NodeId
 destNid (Link ident)    = Just $ nodeOf ident
 destNid (Unlink ident)  = Just $ nodeOf ident
 destNid (Monitor ref)   = Just $ nodeOf (monitorRefIdent ref)
 destNid (Unmonitor ref) = Just $ nodeOf (monitorRefIdent ref)
-destNid (Spawn _ _)     = Nothing 
+destNid (Spawn _ _)     = Nothing
 destNid (Register _ _ _ _) = Nothing
 destNid (WhereIs _)     = Nothing
 destNid (NamedSend _ _) = Nothing
 -- We don't need to forward 'Died' signals; if monitoring/linking is setup,
 -- then when a local process dies the monitoring/linking machinery will take
 -- care of notifying remote nodes
-destNid (Died _ _) = Nothing 
+destNid (Died _ _) = Nothing
 
 -- | Check if a process is local to our own node
-isLocal :: LocalNode -> Identifier -> Bool 
+isLocal :: LocalNode -> Identifier -> Bool
 isLocal nid ident = nodeOf ident == localNodeId nid
 
--- | Lookup a local closure 
+-- | Lookup a local closure
 unClosure :: Typeable a => Closure a -> NC (Either String a)
 unClosure closure = do
   rtable <- remoteTable <$> ask
@@ -776,13 +776,13 @@ unClosure closure = do
 isValidLocalIdentifier :: Identifier -> NC Bool
 isValidLocalIdentifier ident = do
   node <- ask
-  liftIO . withMVar (localState node) $ \nSt -> 
+  liftIO . withMVar (localState node) $ \nSt ->
     case ident of
       NodeIdentifier nid ->
         return $ nid == localNodeId node
       ProcessIdentifier pid -> do
         let mProc = nSt ^. localProcessWithId (processLocalId pid)
-        return $ isJust mProc 
+        return $ isJust mProc
       SendPortIdentifier cid -> do
         let pid   = sendPortProcessId cid
             mProc = nSt ^. localProcessWithId (processLocalId pid)
@@ -797,24 +797,24 @@ isValidLocalIdentifier ident = do
 --------------------------------------------------------------------------------
 
 postAsMessage :: Serializable a => ProcessId -> a -> NC ()
-postAsMessage pid = postMessage pid . createMessage  
+postAsMessage pid = postMessage pid . createMessage
 
 postMessage :: ProcessId -> Message -> NC ()
 postMessage pid msg = withLocalProc pid $ \p -> enqueue (processQueue p) msg
 
 throwException :: Exception e => ProcessId -> e -> NC ()
-throwException pid e = withLocalProc pid $ \p -> 
+throwException pid e = withLocalProc pid $ \p ->
   throwTo (processThread p) e
 
-withLocalProc :: ProcessId -> (LocalProcess -> IO ()) -> NC () 
+withLocalProc :: ProcessId -> (LocalProcess -> IO ()) -> NC ()
 withLocalProc pid p = do
-  node <- ask 
-  liftIO $ do 
+  node <- ask
+  liftIO $ do
     -- By [Unified: table 6, rule missing_process] messages to dead processes
     -- can silently be dropped
     let lpid = processLocalId pid
     mProc <- withMVar (localState node) $ return . (^. localProcessWithId lpid)
-    forM_ mProc p 
+    forM_ mProc p
 
 --------------------------------------------------------------------------------
 -- Accessors                                                                  --
@@ -851,23 +851,23 @@ registeredOnNodesFor ident = registeredOnNodes >>> DAC.mapMaybe ident
 -- There is a hierarchy between identifiers: failure of a node implies failure
 -- of all processes on that node, and failure of a process implies failure of
 -- all typed channels to that process. In other words, if 'ident' refers to a
--- node, then the /should trigger/ set will include 
+-- node, then the /should trigger/ set will include
 --
 -- * the notifications for the node specifically
--- * the notifications for processes on that node, and 
--- * the notifications for typed channels to processes on that node. 
+-- * the notifications for processes on that node, and
+-- * the notifications for typed channels to processes on that node.
 --
 -- Similarly, if 'ident' refers to a process, the /should trigger/ set will
--- include 
+-- include
 --
--- * the notifications for that process specifically and 
+-- * the notifications for that process specifically and
 -- * the notifications for typed channels to that process.
 --
 -- See https://github.com/haskell/containers/issues/14 for the bang on _v.
 splitNotif :: Identifier
            -> Map Identifier a
            -> (Map Identifier a, Map Identifier a)
-splitNotif ident = Map.partitionWithKey (\k !_v -> ident `impliesDeathOf` k) 
+splitNotif ident = Map.partitionWithKey (\k !_v -> ident `impliesDeathOf` k)
 
 --------------------------------------------------------------------------------
 -- Auxiliary                                                                  --

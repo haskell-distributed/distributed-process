@@ -10,7 +10,7 @@ import Remote
 counter :: ProcessM ()
 counter = go 0
   where
-    go :: Int -> ProcessM () 
+    go :: Int -> ProcessM ()
     go !n = do
       b <- expect
       case b of
@@ -25,7 +25,7 @@ count n them = do
   n' <- expect
   liftIO $ print (n == n')
 
-initialProcess :: String -> ProcessM () 
+initialProcess :: String -> ProcessM ()
 initialProcess "SERVER" = do
   us <- getSelfPid
   liftIO $ BSL.writeFile "counter.pid" (encode us)
@@ -36,4 +36,4 @@ initialProcess "CLIENT" = do
   count (read n) them
 
 main :: IO ()
-main = remoteInit (Just "config") [] initialProcess  
+main = remoteInit (Just "config") [] initialProcess

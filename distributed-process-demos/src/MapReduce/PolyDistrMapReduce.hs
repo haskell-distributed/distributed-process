@@ -26,65 +26,65 @@ sendDict SerializableDict = send
 sdictProcessIdPair :: SerializableDict (ProcessId, ProcessId)
 sdictProcessIdPair = SerializableDict
 
-mapperProcess :: forall k1 v1 k2 v2 v3. 
+mapperProcess :: forall k1 v1 k2 v2 v3.
                  SerializableDict (k1, v1)
               -> SerializableDict [(k2, v2)]
               -> (ProcessId, ProcessId)
-              -> MapReduce k1 v1 k2 v2 v3 
+              -> MapReduce k1 v1 k2 v2 v3
               -> Process ()
-mapperProcess dictIn dictOut (master, workQueue) mr = getSelfPid >>= go 
+mapperProcess dictIn dictOut (master, workQueue) mr = getSelfPid >>= go
   where
     go us = do
-      -- Ask the queue for work 
+      -- Ask the queue for work
       send workQueue us
-  
+
       -- Wait for a reply; if there is work, do it and repeat; otherwise, exit
-      receiveWait 
+      receiveWait
         [ matchDict dictIn $ \(key, val) -> do
             sendDict dictOut master (mrMap mr key val)
             go us
-        , match $ \() -> 
-            return () 
+        , match $ \() ->
+            return ()
         ]
 
 remotable ['mapperProcess, 'sdictProcessIdPair]
 
-mapperProcessClosure :: forall k1 v1 k2 v2 v3. 
+mapperProcessClosure :: forall k1 v1 k2 v2 v3.
                         (Typeable k1, Typeable v1, Typeable k2, Typeable v2, Typeable v3)
                      => Static (SerializableDict (k1, v1))
                      -> Static (SerializableDict [(k2, v2)])
-                     -> Closure (MapReduce k1 v1 k2 v2 v3) 
-                     -> ProcessId 
-                     -> ProcessId 
+                     -> Closure (MapReduce k1 v1 k2 v2 v3)
+                     -> ProcessId
+                     -> ProcessId
                      -> Closure (Process ())
-mapperProcessClosure dictIn dictOut mr master workQueue = 
+mapperProcessClosure dictIn dictOut mr master workQueue =
     closure decoder (encode (master, workQueue)) `closureApply` mr
   where
     decoder :: Static (ByteString -> MapReduce k1 v1 k2 v2 v3 -> Process ())
-    decoder = 
+    decoder =
         ($(mkStatic 'mapperProcess) `staticApply` dictIn `staticApply` dictOut)
-      `staticCompose` 
+      `staticCompose`
         staticDecode $(mkStatic 'sdictProcessIdPair)
 
-distrMapReduce :: forall k1 k2 v1 v2 v3 a. 
+distrMapReduce :: forall k1 k2 v1 v2 v3 a.
                   (Serializable k1, Serializable v1, Serializable k2, Serializable v2, Serializable v3, Ord k2)
                => Static (SerializableDict (k1, v1))
                -> Static (SerializableDict [(k2, v2)])
                -> Closure (MapReduce k1 v1 k2 v2 v3)
                -> [NodeId]
-               -> ((Map k1 v1 -> Process (Map k2 v3)) -> Process a) 
-               -> Process a 
+               -> ((Map k1 v1 -> Process (Map k2 v3)) -> Process a)
+               -> Process a
 distrMapReduce dictIn dictOut mr mappers p = do
   mr'    <- unClosure mr
   master <- getSelfPid
 
   workQueue <- spawnChannelLocal $ \queue -> do
     let go :: Process ()
-        go = do 
+        go = do
           mWork <- receiveChan queue
           case mWork of
             Just (key, val) -> do
-              -- As long there is work, make it available to the mappers 
+              -- As long there is work, make it available to the mappers
               them <- expect
               send them (key, val)
               go
@@ -100,8 +100,8 @@ distrMapReduce dictIn dictOut mr mappers p = do
 
   -- Start the mappers
   let workQueuePid = sendPortProcessId (sendPortId workQueue)
-  forM_ mappers $ \nid -> 
-    spawn nid (mapperProcessClosure dictIn dictOut mr master workQueuePid) 
+  forM_ mappers $ \nid ->
+    spawn nid (mapperProcessClosure dictIn dictOut mr master workQueuePid)
 
   let iteration :: Map k1 v1 -> Process (Map k2 v3)
       iteration input = do
@@ -109,7 +109,7 @@ distrMapReduce dictIn dictOut mr mappers p = do
         mapM_ (sendChan workQueue . Just) (Map.toList input)
 
         -- Wait for the partial results
-        partials <- replicateM (Map.size input) expect 
+        partials <- replicateM (Map.size input) expect
 
         -- We reduce on this node
         return (reducePerKey mr' . groupByKey . concat $ partials)

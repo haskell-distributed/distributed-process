@@ -17,16 +17,16 @@ mapperProcess :: (ProcessId, ProcessId, Closure (MapReduce String String String 
 mapperProcess (master, workQueue, mrClosure) = do
     us <- getSelfPid
     mr <- unClosure mrClosure
-    go us mr 
+    go us mr
   where
     go us mr = do
-      -- Ask the queue for work 
+      -- Ask the queue for work
       send workQueue us
-  
+
       -- Wait for a reply; if there is work, do it and repeat; otherwise, exit
-      receiveWait 
+      receiveWait
         [ match $ \(key, val) -> send master (mrMap mr key val) >> go us mr
-        , match $ \()         -> return () 
+        , match $ \()         -> return ()
         ]
 
 remotable ['mapperProcess]
@@ -41,7 +41,7 @@ distrMapReduce mrClosure mappers input = do
 
   workQueue <- spawnLocal $ do
     -- Return the next bit of work to be done
-    forM_ (Map.toList input) $ \(key, val) -> do 
+    forM_ (Map.toList input) $ \(key, val) -> do
       them <- expect
       send them (key, val)
 
@@ -51,10 +51,10 @@ distrMapReduce mrClosure mappers input = do
       send them ()
 
   -- Start the mappers
-  forM_ mappers $ \nid -> spawn nid ($(mkClosure 'mapperProcess) (master, workQueue, mrClosure)) 
+  forM_ mappers $ \nid -> spawn nid ($(mkClosure 'mapperProcess) (master, workQueue, mrClosure))
 
   -- Wait for the partial results
-  partials <- replicateM (Map.size input) expect 
+  partials <- replicateM (Map.size input) expect
 
   -- We reduce on this node
   return (reducePerKey mr . groupByKey . concat $ partials)

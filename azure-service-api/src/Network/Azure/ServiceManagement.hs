@@ -1,5 +1,5 @@
 {-# LANGUAGE Arrows #-}
-module Network.Azure.ServiceManagement 
+module Network.Azure.ServiceManagement
   ( -- * Data types
     CloudService
   , cloudServiceName
@@ -13,12 +13,12 @@ module Network.Azure.ServiceManagement
   , endpointPort
   , endpointVip
     -- * Pure functions
-  , vmSshEndpoint 
+  , vmSshEndpoint
     -- * Setup
   , AzureSetup(..)
   , azureSetup
     -- * High-level API
-  , cloudServices 
+  , cloudServices
   ) where
 
 import Prelude hiding (id, (.))
@@ -40,7 +40,7 @@ import qualified Crypto.Types.PubKey.RSA as RSA (PrivateKey(..))
 import Control.Monad.Trans.Resource (ResourceT)
 import Control.Monad.IO.Class (liftIO)
 import Control.Arrow.ArrowList (listA, arr2A)
-import Text.PrettyPrint 
+import Text.PrettyPrint
   ( Doc
   , text
   , (<+>)
@@ -49,7 +49,7 @@ import Text.PrettyPrint
   , hang
   , doubleQuotes
   )
-import Network.HTTP.Conduit 
+import Network.HTTP.Conduit
   ( parseUrl
   , clientCertificates
   , requestHeaders
@@ -59,7 +59,7 @@ import Network.HTTP.Conduit
   , Manager
   )
 import Data.CaseInsensitive as CI (mk)
-import Text.XML.HXT.Core 
+import Text.XML.HXT.Core
   ( runX
   , readString
   , withValidate
@@ -75,25 +75,25 @@ import Text.XML.HXT.XPath (getXPathTrees)
 -- Data types                                                                 --
 --------------------------------------------------------------------------------
 
-data HostedService = HostedService { 
-    hostedServiceName :: String 
+data HostedService = HostedService {
+    hostedServiceName :: String
   }
 
 -- | A cloud service is a bunch of virtual machines that are part of the same
--- network (i.e., can talk to each other directly using standard TCP 
+-- network (i.e., can talk to each other directly using standard TCP
 -- connections).
 data CloudService = CloudService {
     -- | Name of the service.
-    cloudServiceName :: String 
+    cloudServiceName :: String
     -- | Virtual machines that are part of this cloud service.
   , cloudServiceVMs  :: [VirtualMachine]
   }
 
 -- | Virtual machine
-data VirtualMachine = VirtualMachine { 
+data VirtualMachine = VirtualMachine {
     -- | Name of the virtual machine.
     vmName           :: String
-    -- | The /internal/ IP address of the virtual machine (that is, the 
+    -- | The /internal/ IP address of the virtual machine (that is, the
     -- IP address on the Cloud Service). For the globally accessible IP
     -- address see 'vmInputEndpoints'.
   , vmIpAddress      :: String
@@ -105,12 +105,12 @@ data VirtualMachine = VirtualMachine {
 data Endpoint = Endpoint {
     -- | Name of the endpoint (typical example: @SSH@)
     endpointName :: String
-    -- | Port number (typical examples are 22 or high numbered ports such as 53749) 
-  , endpointPort :: String 
+    -- | Port number (typical examples are 22 or high numbered ports such as 53749)
+  , endpointPort :: String
     -- | Virtual IP address (that is, globally accessible IP address).
     --
     -- This corresponds to the IP address associated with the Cloud Service
-    -- (i.e., that would be returned by a DNS lookup for @name.cloudapp.net@, 
+    -- (i.e., that would be returned by a DNS lookup for @name.cloudapp.net@,
     -- where @name@ is the name of the Cloud Service).
   , endpointVip  :: String
   }
@@ -119,7 +119,7 @@ data Endpoint = Endpoint {
 -- Pretty-printing                                                            --
 --------------------------------------------------------------------------------
 
-instance Show HostedService where 
+instance Show HostedService where
   show = show . ppHostedService
 
 instance Show CloudService where
@@ -136,7 +136,7 @@ ppHostedService = text . hostedServiceName
 
 ppCloudService :: CloudService -> Doc
 ppCloudService cs =
-    (text "Cloud Service" <+> (doubleQuotes . text . cloudServiceName $ cs)) 
+    (text "Cloud Service" <+> (doubleQuotes . text . cloudServiceName $ cs))
   `hang2`
     (   text "VIRTUAL MACHINES"
       `hang2`
@@ -144,7 +144,7 @@ ppCloudService cs =
     )
 
 ppVirtualMachine :: VirtualMachine -> Doc
-ppVirtualMachine vm = 
+ppVirtualMachine vm =
     (text "Virtual Machine" <+> (doubleQuotes . text . vmName $ vm))
   `hang2`
     (    text "IP" <+> text (vmIpAddress vm)
@@ -155,7 +155,7 @@ ppVirtualMachine vm =
     )
 
 ppEndpoint :: Endpoint -> Doc
-ppEndpoint ep = 
+ppEndpoint ep =
     (text "Input endpoint" <+> (doubleQuotes . text . endpointName $ ep))
   `hang2`
     (    text "Port" <+> text (endpointPort ep)
@@ -171,7 +171,7 @@ hang2 d1 = hang d1 2
 
 -- | Find the endpoint with name @SSH@.
 vmSshEndpoint :: VirtualMachine -> Maybe Endpoint
-vmSshEndpoint vm = listToMaybe 
+vmSshEndpoint vm = listToMaybe
   [ ep
   | ep <- vmInputEndpoints vm
   , endpointName ep == "SSH"
@@ -181,7 +181,7 @@ vmSshEndpoint vm = listToMaybe
 -- Setup                                                                      --
 --------------------------------------------------------------------------------
 
--- | Azure setup 
+-- | Azure setup
 --
 -- The documentation of "distributed-process-azure" explains in detail how
 -- to obtain the SSL client certificate and the private key for your Azure
@@ -201,7 +201,7 @@ data AzureSetup = AzureSetup
 
 -- TODO: it's dubious to be transferring private keys, but we transfer them
 -- over a secure connection and it can be argued that it's safer than actually
--- storing the private key on each remote server 
+-- storing the private key on each remote server
 
 encodePrivateKey :: PrivateKey -> ByteString
 encodePrivateKey (PrivRSA pkey) = runPut $ do
@@ -215,10 +215,10 @@ encodePrivateKey (PrivRSA pkey) = runPut $ do
   put (RSA.private_qinv pkey)
 
 decodePrivateKey :: ByteString -> PrivateKey
-decodePrivateKey = PrivRSA . runGet getPrivateKey 
+decodePrivateKey = PrivRSA . runGet getPrivateKey
   where
     getPrivateKey :: Get RSA.PrivateKey
-    getPrivateKey = 
+    getPrivateKey =
       RSA.PrivateKey <$> get <*> get <*> get <*> get <*> get <*> get <*> get <*> get
 
 instance Binary AzureSetup where
@@ -226,7 +226,7 @@ instance Binary AzureSetup where
     put sid
     put (encodeCertificate cert)
     put (encodePrivateKey pkey)
-    put url 
+    put url
   get = do
     sid  <- get
     Right cert <- decodeCertificate <$> get
@@ -253,13 +253,13 @@ azureSetup sid certPath pkeyPath = do
 -- High-level API                                                             --
 --------------------------------------------------------------------------------
 
--- | Find available cloud services 
+-- | Find available cloud services
 cloudServices :: AzureSetup -> IO [CloudService]
 cloudServices setup = azureExecute setup $ \exec -> do
   services <- exec hostedServicesRequest
   forM services $ \service -> do
     roles <- exec AzureRequest {
-        relativeUrl = "/services/hostedservices/" ++ hostedServiceName service 
+        relativeUrl = "/services/hostedservices/" ++ hostedServiceName service
                    ++ "?embed-detail=true"
       , apiVersion  = "2012-03-01"
       , parser      = proc xml -> do
@@ -273,15 +273,15 @@ cloudServices setup = azureExecute setup $ \exec -> do
     return $ CloudService (hostedServiceName service) roles
 
 hostedServicesRequest :: AzureRequest HostedService
-hostedServicesRequest = AzureRequest 
+hostedServicesRequest = AzureRequest
   { relativeUrl = "/services/hostedservices"
   , apiVersion  = "2012-03-01"
-  , parser      = arr HostedService 
-                . getText 
+  , parser      = arr HostedService
+                . getText
                 . getXPathTrees "//ServiceName/text()"
   }
 
-parseEndpoint :: ArrowXml t => t XmlTree Endpoint 
+parseEndpoint :: ArrowXml t => t XmlTree Endpoint
 parseEndpoint = proc endpoint -> do
   name <- getText . getXPathTrees "//Name/text()" -< endpoint
   port <- getText . getXPathTrees "//Port/text()" -< endpoint
@@ -299,12 +299,12 @@ data AzureRequest c = AzureRequest {
   }
 
 azureExecute :: AzureSetup -> ((forall b. AzureRequest b -> ResourceT IO [b]) -> ResourceT IO a) -> IO a
-azureExecute setup f = withManager (\manager -> f (go manager)) 
+azureExecute setup f = withManager (\manager -> f (go manager))
   where
     go :: Manager -> forall b. AzureRequest b -> ResourceT IO [b]
     go manager request = do
-      req <- parseUrl $ baseUrl setup 
-                     ++ "/" ++ subscriptionId setup 
+      req <- parseUrl $ baseUrl setup
+                     ++ "/" ++ subscriptionId setup
                      ++ "/" ++ relativeUrl request
       let req' = req {
           clientCertificates = [ (certificate setup, Just $ privateKey setup) ]
@@ -312,7 +312,7 @@ azureExecute setup f = withManager (\manager -> f (go manager))
                                , (CI.mk $ BSC.pack "content-type", BSC.pack "application/xml")
                                ]
         }
-      Response _ _ _ lbs <- httpLbs req' manager 
+      Response _ _ _ lbs <- httpLbs req' manager
       liftIO . runX $ proc _ -> do
         xml <- readString [withValidate no] (BSLC.unpack lbs) -< ()
         -- arrIO putStrLn . writeDocumentToString [withIndent yes] -< xml

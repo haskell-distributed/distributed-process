@@ -5,7 +5,7 @@ import Control.Distributed.Process.Backend.SimpleLocalnet
 import qualified WorkStealing
 
 rtable :: RemoteTable
-rtable = WorkStealing.__remoteTable initRemoteTable 
+rtable = WorkStealing.__remoteTable initRemoteTable
 
 main :: IO ()
 main = do
@@ -13,10 +13,10 @@ main = do
 
   case args of
     ["master", host, port, n] -> do
-      backend <- initializeBackend host port rtable 
+      backend <- initializeBackend host port rtable
       startMaster backend $ \slaves -> do
         result <- WorkStealing.master (read n) slaves
-        liftIO $ print result 
+        liftIO $ print result
     ["slave", host, port] -> do
-      backend <- initializeBackend host port rtable 
+      backend <- initializeBackend host port rtable
       startSlave backend

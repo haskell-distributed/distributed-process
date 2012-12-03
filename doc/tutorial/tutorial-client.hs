@@ -1,4 +1,4 @@
-import Network.Transport 
+import Network.Transport
 import Network.Transport.TCP (createTransport, defaultTCPParameters)
 import System.Environment
 import Control.Monad
@@ -13,12 +13,12 @@ main = do
   let addr = EndPointAddress (pack serverAddr)
 --  Right conn <- connect endpoint addr ReliableOrdered defaultConnectHints
   x <- connect endpoint addr ReliableOrdered defaultConnectHints
-  let conn = case x of 
+  let conn = case x of
               Right conn -> conn
               Left err -> error$ "Error connecting: "++show err
   send conn [pack "Hello world"]
   close conn
 
-  replicateM_ 3 $ receive endpoint >>= print 
+  replicateM_ 3 $ receive endpoint >>= print
 
   closeTransport transport

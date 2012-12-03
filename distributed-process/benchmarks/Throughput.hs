@@ -14,8 +14,8 @@ data SizedList a = SizedList { size :: Int , elems :: [a] }
 
 instance Binary a => Binary (SizedList a) where
   put (SizedList sz xs) = put sz >> mapM_ put xs
-  get = do 
-    sz <- get 
+  get = do
+    sz <- get
     xs <- getMany sz
     return (SizedList sz xs)
 
@@ -37,9 +37,9 @@ nats = \n -> SizedList n (aux n)
 counter :: Process ()
 counter = go 0
   where
-    go :: Int -> Process () 
+    go :: Int -> Process ()
     go !n =
-      receiveWait 
+      receiveWait
         [ match $ \xs   -> go (n + size (xs :: SizedList Int))
         , match $ \them -> send them n >> go 0
         ]
@@ -52,7 +52,7 @@ count (packets, sz) them = do
   n' <- expect
   liftIO $ print (packets * sz, n' == packets * sz)
 
-initialProcess :: String -> Process () 
+initialProcess :: String -> Process ()
 initialProcess "SERVER" = do
   us <- getSelfPid
   liftIO $ BSL.writeFile "counter.pid" (encode us)
@@ -66,5 +66,5 @@ main :: IO ()
 main = do
   [role, host, port] <- getArgs
   Right transport <- createTransport host port defaultTCPParameters
-  node <- newLocalNode transport initRemoteTable 
-  runProcess node $ initialProcess role 
+  node <- newLocalNode transport initRemoteTable
+  runProcess node $ initialProcess role

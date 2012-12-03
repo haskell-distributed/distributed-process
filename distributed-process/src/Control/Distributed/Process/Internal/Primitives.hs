@@ -1,10 +1,10 @@
 -- | Cloud Haskell primitives
 --
--- We define these in a separate module so that we don't have to rely on 
+-- We define these in a separate module so that we don't have to rely on
 -- the closure combinators
-module Control.Distributed.Process.Internal.Primitives 
+module Control.Distributed.Process.Internal.Primitives
   ( -- * Basic messaging
-    send 
+    send
   , expect
     -- * Channels
   , newChan
@@ -19,7 +19,7 @@ module Control.Distributed.Process.Internal.Primitives
   , match
   , matchIf
   , matchUnknown
-  , AbstractMessage(..) 
+  , AbstractMessage(..)
   , matchAny
     -- * Process management
   , terminate
@@ -84,13 +84,13 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Applicative ((<$>))
 import Control.Exception (Exception, throwIO, SomeException)
 import qualified Control.Exception as Ex (catch, mask)
-import Control.Distributed.Process.Internal.StrictMVar 
+import Control.Distributed.Process.Internal.StrictMVar
   ( StrictMVar
   , modifyMVar
   , modifyMVar_
   )
 import Control.Concurrent.Chan (writeChan)
-import Control.Concurrent.STM 
+import Control.Concurrent.STM
   ( STM
   , TVar
   , atomically
@@ -105,7 +105,7 @@ import Data.Accessor ((^.), (^:), (^=))
 import Control.Distributed.Static (Closure, Static)
 import Data.Rank1Typeable (Typeable)
 import qualified Control.Distributed.Static as Static (unstatic, unclosure)
-import Control.Distributed.Process.Internal.Types 
+import Control.Distributed.Process.Internal.Types
   ( NodeId(..)
   , ProcessId(..)
   , LocalNode(..)
@@ -116,7 +116,7 @@ import Control.Distributed.Process.Internal.Types
   , SpawnRef(..)
   , NCMsg(..)
   , ProcessSignal(..)
-  , monitorCounter 
+  , monitorCounter
   , spawnCounter
   , SendPort(..)
   , ReceivePort(..)
@@ -139,13 +139,13 @@ import Control.Distributed.Process.Internal.Types
   , LocalSendPortId
   , messageToPayload
   )
-import Control.Distributed.Process.Internal.Messaging 
+import Control.Distributed.Process.Internal.Messaging
   ( sendMessage
   , sendBinary
   , sendPayload
   , disconnect
-  ) 
-import Control.Distributed.Process.Internal.WeakTQueue 
+  )
+import Control.Distributed.Process.Internal.WeakTQueue
   ( newTQueueIO
   , readTQueue
   , mkWeakTQueue
@@ -160,16 +160,16 @@ send :: Serializable a => ProcessId -> a -> Process ()
 -- This requires a lookup on every send. If we want to avoid that we need to
 -- modify serializable to allow for stateful (IO) deserialization
 send them msg = do
-  proc <- ask 
-  liftIO $ sendMessage (processNode proc) 
-                       (ProcessIdentifier (processId proc)) 
+  proc <- ask
+  liftIO $ sendMessage (processNode proc)
+                       (ProcessIdentifier (processId proc))
                        (ProcessIdentifier them)
                        NoImplicitReconnect
                        msg
 
 -- | Wait for a message of a specific type
 expect :: forall a. Serializable a => Process a
-expect = receiveWait [match return] 
+expect = receiveWait [match return]
 
 --------------------------------------------------------------------------------
 -- Channels                                                                   --
@@ -178,17 +178,17 @@ expect = receiveWait [match return]
 -- | Create a new typed channel
 newChan :: Serializable a => Process (SendPort a, ReceivePort a)
 newChan = do
-    proc <- ask 
+    proc <- ask
     liftIO . modifyMVar (processState proc) $ \st -> do
       let lcid  = st ^. channelCounter
       let cid   = SendPortId { sendPortProcessId = processId proc
                              , sendPortLocalId   = lcid
                              }
-      let sport = SendPort cid 
+      let sport = SendPort cid
       chan  <- liftIO newTQueueIO
       chan' <- mkWeakTQueue chan $ finalizer (processState proc) lcid
       let rport = ReceivePort $ readTQueue chan
-      let tch   = TypedChannel chan' 
+      let tch   = TypedChannel chan'
       return ( (channelCounter ^: (+ 1))
              . (typedChannelWithId lcid ^= Just tch)
              $ st
@@ -196,7 +196,7 @@ newChan = do
              )
   where
     finalizer :: StrictMVar LocalProcessState -> LocalSendPortId -> IO ()
-    finalizer st lcid = modifyMVar_ st $ 
+    finalizer st lcid = modifyMVar_ st $
       return . (typedChannelWithId lcid ^= Nothing)
 
 -- | Send a message on a typed channel
@@ -205,24 +205,24 @@ sendChan (SendPort cid) msg = do
   proc <- ask
   liftIO $ sendBinary (processNode proc)
                       (ProcessIdentifier (processId proc))
-                      (SendPortIdentifier cid) 
+                      (SendPortIdentifier cid)
                       NoImplicitReconnect
-                      msg 
+                      msg
 
 -- | Wait for a message on a typed channel
 receiveChan :: Serializable a => ReceivePort a -> Process a
-receiveChan = liftIO . atomically . receiveSTM 
+receiveChan = liftIO . atomically . receiveSTM
 
--- | Like 'receiveChan' but with a timeout. If the timeout is 0, do a 
+-- | Like 'receiveChan' but with a timeout. If the timeout is 0, do a
 -- non-blocking check for a message.
 receiveChanTimeout :: Serializable a => Int -> ReceivePort a -> Process (Maybe a)
-receiveChanTimeout 0 ch = liftIO . atomically $ 
+receiveChanTimeout 0 ch = liftIO . atomically $
   (Just <$> receiveSTM ch) `orElse` return Nothing
-receiveChanTimeout n ch = liftIO . timeout n . atomically $ 
+receiveChanTimeout n ch = liftIO . timeout n . atomically $
   receiveSTM ch
 
 -- | Merge a list of typed channels.
--- 
+--
 -- The result port is left-biased: if there are messages available on more
 -- than one port, the first available message is returned.
 mergePortsBiased :: Serializable a => [ReceivePort a] -> Process (ReceivePort a)
@@ -233,7 +233,7 @@ mergePortsBiased = return . ReceivePort. foldr1 orElse . map receiveSTM
 mergePortsRR :: Serializable a => [ReceivePort a] -> Process (ReceivePort a)
 mergePortsRR = \ps -> do
     psVar <- liftIO . atomically $ newTVar (map receiveSTM ps)
-    return $ ReceivePort (rr psVar) 
+    return $ ReceivePort (rr psVar)
   where
     rotate :: [a] -> [a]
     rotate []     = []
@@ -242,12 +242,12 @@ mergePortsRR = \ps -> do
     rr :: TVar [STM a] -> STM a
     rr psVar = do
       ps <- readTVar psVar
-      a  <- foldr1 orElse ps 
+      a  <- foldr1 orElse ps
       writeTVar psVar (rotate ps)
       return a
 
 --------------------------------------------------------------------------------
--- Advanced messaging                                                         -- 
+-- Advanced messaging                                                         --
 --------------------------------------------------------------------------------
 
 -- | Opaque type used in 'receiveWait' and 'receiveTimeout'
@@ -261,7 +261,7 @@ receiveWait ms = do
   proc
 
 -- | Like 'receiveWait' but with a timeout.
--- 
+--
 -- If the timeout is zero do a non-blocking check for matching messages. A
 -- non-zero timeout is applied only when waiting for incoming messages (that is,
 -- /after/ we have checked the messages that are already in the mailbox).
@@ -276,16 +276,16 @@ receiveTimeout t ms = do
 
 -- | Match against any message of the right type
 match :: forall a b. Serializable a => (a -> Process b) -> Match b
-match = matchIf (const True) 
+match = matchIf (const True)
 
 -- | Match against any message of the right type that satisfies a predicate
 matchIf :: forall a b. Serializable a => (a -> Bool) -> (a -> Process b) -> Match b
-matchIf c p = Match $ \msg -> 
+matchIf c p = Match $ \msg ->
    case messageFingerprint msg == fingerprint (undefined :: a) of
      True | c decoded -> Just (p decoded)
        where
          decoded :: a
-         -- Make sure the value is fully decoded so that we don't hang to 
+         -- Make sure the value is fully decoded so that we don't hang to
          -- bytestrings when the process calling 'matchIf' doesn't process
          -- the values immediately
          !decoded = decode (messageEncoding msg)
@@ -298,7 +298,7 @@ data AbstractMessage = AbstractMessage {
 -- | Match against an arbitrary message
 matchAny :: forall b. (AbstractMessage -> Process b) -> Match b
 matchAny p = Match $ Just . p . abstract
-  where 
+  where
     abstract :: Message -> AbstractMessage
     abstract msg = AbstractMessage {
         forward = \them -> do
@@ -306,7 +306,7 @@ matchAny p = Match $ Just . p . abstract
           liftIO $ sendPayload (processNode proc)
                                (ProcessIdentifier (processId proc))
                                (ProcessIdentifier them)
-                               NoImplicitReconnect 
+                               NoImplicitReconnect
                                (messageToPayload msg)
       }
 
@@ -330,11 +330,11 @@ terminate = liftIO $ throwIO ProcessTerminationException
 
 -- | Our own process ID
 getSelfPid :: Process ProcessId
-getSelfPid = processId <$> ask 
+getSelfPid = processId <$> ask
 
 -- | Get the node ID of our local node
 getSelfNode :: Process NodeId
-getSelfNode = localNodeId . processNode <$> ask 
+getSelfNode = localNodeId . processNode <$> ask
 
 --------------------------------------------------------------------------------
 -- Monitoring and linking                                                     --
@@ -354,7 +354,7 @@ getSelfNode = localNodeId . processNode <$> ask
 -- > unlink pidB -- Unlink again
 --
 -- doesn't quite do what one might expect: if process B sends a message to
--- process A, and /subsequently terminates/, then process A might or might not 
+-- process A, and /subsequently terminates/, then process A might or might not
 -- be terminated too, depending on whether the exception is thrown before or
 -- after the 'unlink' (i.e., this code has a race condition).
 --
@@ -369,7 +369,7 @@ link = sendCtrlMsg Nothing . Link . ProcessIdentifier
 
 -- | Monitor another process (asynchronous)
 --
--- When process A monitors process B (that is, process A calls 
+-- When process A monitors process B (that is, process A calls
 -- @monitor pidB@) then process A will receive a 'ProcessMonitorNotification'
 -- when process B terminates (normally or abnormally), or when process A gets
 -- disconnected from process B. You receive this message like any other (using
@@ -377,27 +377,27 @@ link = sendCtrlMsg Nothing . Link . ProcessIdentifier
 -- 'DiedDisconnect', etc.).
 --
 -- Every call to 'monitor' returns a new monitor reference 'MonitorRef'; if
--- multiple monitors are set up, multiple notifications will be delivered 
+-- multiple monitors are set up, multiple notifications will be delivered
 -- and monitors can be disabled individually using 'unmonitor'.
-monitor :: ProcessId -> Process MonitorRef 
-monitor = monitor' . ProcessIdentifier 
+monitor :: ProcessId -> Process MonitorRef
+monitor = monitor' . ProcessIdentifier
 
--- | Remove a link 
+-- | Remove a link
 --
 -- This is synchronous in the sense that once it returns you are guaranteed
 -- that no exception will be raised if the remote process dies. However, it is
--- asynchronous in the sense that we do not wait for a response from the remote 
+-- asynchronous in the sense that we do not wait for a response from the remote
 -- node.
 unlink :: ProcessId -> Process ()
 unlink pid = do
   unlinkAsync pid
-  receiveWait [ matchIf (\(DidUnlinkProcess pid') -> pid' == pid) 
-                        (\_ -> return ()) 
+  receiveWait [ matchIf (\(DidUnlinkProcess pid') -> pid' == pid)
+                        (\_ -> return ())
               ]
 
--- | Remove a node link 
+-- | Remove a node link
 --
--- This has the same synchronous/asynchronous nature as 'unlink'. 
+-- This has the same synchronous/asynchronous nature as 'unlink'.
 unlinkNode :: NodeId -> Process ()
 unlinkNode nid = do
   unlinkNodeAsync nid
@@ -407,7 +407,7 @@ unlinkNode nid = do
 
 -- | Remove a channel (send port) link
 --
--- This has the same synchronous/asynchronous nature as 'unlink'. 
+-- This has the same synchronous/asynchronous nature as 'unlink'.
 unlinkPort :: SendPort a -> Process ()
 unlinkPort sport = do
   unlinkPortAsync sport
@@ -415,9 +415,9 @@ unlinkPort sport = do
                         (\_ -> return ())
               ]
 
--- | Remove a monitor 
+-- | Remove a monitor
 --
--- This has the same synchronous/asynchronous nature as 'unlink'. 
+-- This has the same synchronous/asynchronous nature as 'unlink'.
 unmonitor :: MonitorRef -> Process ()
 unmonitor ref = do
   unmonitorAsync ref
@@ -433,11 +433,11 @@ unmonitor ref = do
 catch :: Exception e => Process a -> (e -> Process a) -> Process a
 catch p h = do
   lproc <- ask
-  liftIO $ Ex.catch (runLocalProcess lproc p) (runLocalProcess lproc . h) 
+  liftIO $ Ex.catch (runLocalProcess lproc p) (runLocalProcess lproc . h)
 
--- | Lift 'Control.Exception.mask' 
+-- | Lift 'Control.Exception.mask'
 mask :: ((forall a. Process a -> Process a) -> Process b) -> Process b
-mask p = do 
+mask p = do
     lproc <- ask
     liftIO $ Ex.mask $ \restore ->
       runLocalProcess lproc (p (liftRestore lproc restore))
@@ -465,7 +465,7 @@ bracket_ before after thing = bracket before (const after) (const thing)
 
 -- | Lift 'Control.Exception.finally'
 finally :: Process a -> Process b -> Process a
-finally a sequel = bracket_ (return ()) sequel a 
+finally a sequel = bracket_ (return ()) sequel a
 
 --------------------------------------------------------------------------------
 -- Auxiliary API                                                              --
@@ -473,10 +473,10 @@ finally a sequel = bracket_ (return ()) sequel a
 
 -- | Like 'expect' but with a timeout
 expectTimeout :: forall a. Serializable a => Int -> Process (Maybe a)
-expectTimeout n = receiveTimeout n [match return] 
+expectTimeout n = receiveTimeout n [match return]
 
 -- | Asynchronous version of 'spawn'
--- 
+--
 -- ('spawn' is defined in terms of 'spawnAsync' and 'expect')
 spawnAsync :: NodeId -> Closure (Process ()) -> Process SpawnRef
 spawnAsync nid proc = do
@@ -486,41 +486,41 @@ spawnAsync nid proc = do
 
 -- | Monitor a node (asynchronous)
 monitorNode :: NodeId -> Process MonitorRef
-monitorNode = 
+monitorNode =
   monitor' . NodeIdentifier
 
 -- | Monitor a typed channel (asynchronous)
 monitorPort :: forall a. Serializable a => SendPort a -> Process MonitorRef
-monitorPort (SendPort cid) = 
-  monitor' (SendPortIdentifier cid) 
+monitorPort (SendPort cid) =
+  monitor' (SendPortIdentifier cid)
 
 -- | Remove a monitor (asynchronous)
 unmonitorAsync :: MonitorRef -> Process ()
-unmonitorAsync = 
+unmonitorAsync =
   sendCtrlMsg Nothing . Unmonitor
 
 -- | Link to a node (asynchronous)
 linkNode :: NodeId -> Process ()
-linkNode = link' . NodeIdentifier 
+linkNode = link' . NodeIdentifier
 
 -- | Link to a channel (asynchronous)
 linkPort :: SendPort a -> Process ()
-linkPort (SendPort cid) = 
+linkPort (SendPort cid) =
   link' (SendPortIdentifier cid)
 
 -- | Remove a process link (asynchronous)
 unlinkAsync :: ProcessId -> Process ()
-unlinkAsync = 
+unlinkAsync =
   sendCtrlMsg Nothing . Unlink . ProcessIdentifier
 
 -- | Remove a node link (asynchronous)
 unlinkNodeAsync :: NodeId -> Process ()
-unlinkNodeAsync = 
+unlinkNodeAsync =
   sendCtrlMsg Nothing . Unlink . NodeIdentifier
 
 -- | Remove a channel (send port) link (asynchronous)
 unlinkPortAsync :: SendPort a -> Process ()
-unlinkPortAsync (SendPort cid) = 
+unlinkPortAsync (SendPort cid) =
   sendCtrlMsg Nothing . Unlink $ SendPortIdentifier cid
 
 --------------------------------------------------------------------------------
@@ -573,12 +573,12 @@ registerImpl force label pid = do
 --
 -- See comments in 'whereisRemoteAsync'
 registerRemoteAsync :: NodeId -> String -> ProcessId -> Process ()
-registerRemoteAsync nid label pid = 
-  sendCtrlMsg (Just nid) (Register label nid (Just pid) False) 
+registerRemoteAsync nid label pid =
+  sendCtrlMsg (Just nid) (Register label nid (Just pid) False)
 
 reregisterRemoteAsync :: NodeId -> String -> ProcessId -> Process ()
-reregisterRemoteAsync nid label pid = 
-  sendCtrlMsg (Just nid) (Register label nid (Just pid) True) 
+reregisterRemoteAsync nid label pid =
+  sendCtrlMsg (Just nid) (Register label nid (Just pid) True)
 
 -- | Remove a process from the local registry (asynchronous).
 -- This version will wait until a response is gotten from the
@@ -594,12 +594,12 @@ unregister label = do
 -- | Deal with the result from an attempted registration or unregistration
 -- by throwing an exception if necessary
 handleRegistrationReply :: String -> Bool -> Process ()
-handleRegistrationReply label ok = 
+handleRegistrationReply label ok =
   when (not ok) $
      liftIO $ throwIO $ ProcessRegistrationException label
 
 -- | Remove a process from a remote registry (asynchronous).
--- 
+--
 -- Reply wil come in the form of a 'RegisterReply' message
 --
 -- See comments in 'whereisRemoteAsync'
@@ -617,25 +617,25 @@ whereis label = do
 
 -- | Query a remote process registry (asynchronous)
 --
--- Reply will come in the form of a 'WhereIsReply' message. 
+-- Reply will come in the form of a 'WhereIsReply' message.
 --
 -- There is currently no synchronous version of 'whereisRemoteAsync': if
 -- you implement one yourself, be sure to take into account that the remote
 -- node might die or get disconnect before it can respond (i.e. you should
--- use 'monitorNode' and take appropriate action when you receive a 
+-- use 'monitorNode' and take appropriate action when you receive a
 -- 'NodeMonitorNotification').
 whereisRemoteAsync :: NodeId -> String -> Process ()
-whereisRemoteAsync nid label = 
+whereisRemoteAsync nid label =
   sendCtrlMsg (Just nid) (WhereIs label)
 
--- | Named send to a process in the local registry (asynchronous) 
+-- | Named send to a process in the local registry (asynchronous)
 nsend :: Serializable a => String -> a -> Process ()
-nsend label msg = 
+nsend label msg =
   sendCtrlMsg Nothing (NamedSend label (createMessage msg))
 
 -- | Named send to a process in a remote registry (asynchronous)
 nsendRemote :: Serializable a => NodeId -> String -> a -> Process ()
-nsendRemote nid label msg = 
+nsendRemote nid label msg =
   sendCtrlMsg (Just nid) (NamedSend label (createMessage msg))
 
 --------------------------------------------------------------------------------
@@ -653,9 +653,9 @@ unStatic static = do
 -- | Resolve a closure
 unClosure :: Typeable a => Closure a -> Process a
 unClosure closure = do
-  rtable <- remoteTable . processNode <$> ask 
+  rtable <- remoteTable . processNode <$> ask
   case Static.unclosure rtable closure of
-    Left err -> fail $ "Could not resolve closure: " ++ err 
+    Left err -> fail $ "Could not resolve closure: " ++ err
     Right x  -> return x
 
 --------------------------------------------------------------------------------
@@ -666,11 +666,11 @@ unClosure closure = do
 -- message passing. However, when network connections get disrupted this
 -- illusion cannot always be maintained. Once a network connection breaks (even
 -- temporarily) no further communication on that connection will be possible.
--- For example, if process A sends a message to process B, and A is then 
+-- For example, if process A sends a message to process B, and A is then
 -- notified (by monitor notification) that it got disconnected from B, A will
--- not be able to send any further messages to B, /unless/ A explicitly 
+-- not be able to send any further messages to B, /unless/ A explicitly
 -- indicates that it is acceptable to attempt to reconnect to B using the
--- Cloud Haskell 'reconnect' primitive. 
+-- Cloud Haskell 'reconnect' primitive.
 --
 -- Importantly, when A calls 'reconnect' it acknowledges that some messages to
 -- B might have been lost. For instance, if A sends messages m1 and m2 to B,
@@ -690,7 +690,7 @@ reconnect them = do
 
 -- | Reconnect to a sendport. See 'reconnect' for more information.
 reconnectPort :: SendPort a -> Process ()
-reconnectPort them = do 
+reconnectPort them = do
   us <- getSelfPid
   node <- processNode <$> ask
   liftIO $ disconnect node (ProcessIdentifier us) (SendPortIdentifier (sendPortId them))
@@ -702,10 +702,10 @@ reconnectPort them = do
 getMonitorRefFor :: Identifier -> Process MonitorRef
 getMonitorRefFor ident = do
   proc <- ask
-  liftIO $ modifyMVar (processState proc) $ \st -> do 
-    let counter = st ^. monitorCounter 
+  liftIO $ modifyMVar (processState proc) $ \st -> do
+    let counter = st ^. monitorCounter
     return ( monitorCounter ^: (+ 1) $ st
-           , MonitorRef ident counter 
+           , MonitorRef ident counter
            )
 
 getSpawnRef :: Process SpawnRef
@@ -720,7 +720,7 @@ getSpawnRef = do
 -- | Monitor a process/node/channel
 monitor' :: Identifier -> Process MonitorRef
 monitor' ident = do
-  monitorRef <- getMonitorRefFor ident 
+  monitorRef <- getMonitorRefFor ident
   sendCtrlMsg Nothing $ Monitor monitorRef
   return monitorRef
 
@@ -730,17 +730,17 @@ link' = sendCtrlMsg Nothing . Link
 
 -- Send a control message
 sendCtrlMsg :: Maybe NodeId  -- ^ Nothing for the local node
-            -> ProcessSignal -- ^ Message to send 
+            -> ProcessSignal -- ^ Message to send
             -> Process ()
-sendCtrlMsg mNid signal = do            
+sendCtrlMsg mNid signal = do
   proc <- ask
-  let msg = NCMsg { ctrlMsgSender = ProcessIdentifier (processId proc) 
+  let msg = NCMsg { ctrlMsgSender = ProcessIdentifier (processId proc)
                   , ctrlMsgSignal = signal
                   }
   case mNid of
     Nothing -> do
-      ctrlChan <- localCtrlChan . processNode <$> ask 
-      liftIO $ writeChan ctrlChan msg 
+      ctrlChan <- localCtrlChan . processNode <$> ask
+      liftIO $ writeChan ctrlChan msg
     Just nid ->
       liftIO $ sendBinary (processNode proc)
                           (ProcessIdentifier (processId proc))

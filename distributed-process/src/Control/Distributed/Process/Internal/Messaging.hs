@@ -2,8 +2,8 @@ module Control.Distributed.Process.Internal.Messaging
   ( sendPayload
   , sendBinary
   , sendMessage
-  , disconnect 
-  , closeImplicitReconnections 
+  , disconnect
+  , closeImplicitReconnections
   , impliesDeathOf
   ) where
 
@@ -15,7 +15,7 @@ import qualified Data.ByteString as BSS (ByteString)
 import Control.Distributed.Process.Internal.StrictMVar (withMVar, modifyMVar_)
 import Control.Concurrent.Chan (writeChan)
 import Control.Monad (unless)
-import qualified Network.Transport as NT 
+import qualified Network.Transport as NT
   ( Connection
   , send
   , defaultConnectHints
@@ -23,7 +23,7 @@ import qualified Network.Transport as NT
   , Reliability(ReliableOrdered)
   , close
   )
-import Control.Distributed.Process.Internal.Types 
+import Control.Distributed.Process.Internal.Types
   ( LocalNode(localState, localEndPoint, localCtrlChan)
   , Identifier
   , localConnections
@@ -44,14 +44,14 @@ import Control.Distributed.Process.Internal.Types
 import Control.Distributed.Process.Serializable (Serializable)
 
 --------------------------------------------------------------------------------
--- Message sending                                                            -- 
+-- Message sending                                                            --
 --------------------------------------------------------------------------------
 
-sendPayload :: LocalNode 
+sendPayload :: LocalNode
             -> Identifier
             -> Identifier
             -> ImplicitReconnect
-            -> [BSS.ByteString] 
+            -> [BSS.ByteString]
             -> IO ()
 sendPayload node from to implicitReconnect payload = do
   mConn <- connBetween node from to implicitReconnect
@@ -59,53 +59,53 @@ sendPayload node from to implicitReconnect payload = do
     Just conn -> do
       didSend <- NT.send conn payload
       case didSend of
-        Left _err -> return False 
-        Right ()  -> return True 
+        Left _err -> return False
+        Right ()  -> return True
     Nothing -> return False
   unless didSend $ do
     writeChan (localCtrlChan node) NCMsg
-      { ctrlMsgSender = to 
+      { ctrlMsgSender = to
       , ctrlMsgSignal = Died to DiedDisconnect
       }
 
-sendBinary :: Binary a 
-           => LocalNode 
-           -> Identifier 
-           -> Identifier 
+sendBinary :: Binary a
+           => LocalNode
+           -> Identifier
+           -> Identifier
            -> ImplicitReconnect
-           -> a 
+           -> a
            -> IO ()
-sendBinary node from to implicitReconnect 
+sendBinary node from to implicitReconnect
   = sendPayload node from to implicitReconnect . BSL.toChunks . encode
 
-sendMessage :: Serializable a 
-            => LocalNode 
-            -> Identifier 
-            -> Identifier 
+sendMessage :: Serializable a
+            => LocalNode
+            -> Identifier
+            -> Identifier
             -> ImplicitReconnect
-            -> a 
+            -> a
             -> IO ()
-sendMessage node from to implicitReconnect = 
+sendMessage node from to implicitReconnect =
   sendPayload node from to implicitReconnect . messageToPayload . createMessage
 
-setupConnBetween :: LocalNode 
-                 -> Identifier 
-                 -> Identifier 
-                 -> ImplicitReconnect 
+setupConnBetween :: LocalNode
+                 -> Identifier
+                 -> Identifier
+                 -> ImplicitReconnect
                  -> IO (Maybe NT.Connection)
 setupConnBetween node from to implicitReconnect = do
-    mConn <- NT.connect endPoint 
-                        (nodeAddress . nodeOf $ to) 
-                        NT.ReliableOrdered 
+    mConn <- NT.connect endPoint
+                        (nodeAddress . nodeOf $ to)
+                        NT.ReliableOrdered
                         NT.defaultConnectHints
-    case mConn of 
+    case mConn of
       Right conn -> do
         didSend <- NT.send conn (BSL.toChunks . encode $ to)
         case didSend of
           Left _ ->
             return Nothing
           Right () -> do
-            modifyMVar_ nodeState $ return . 
+            modifyMVar_ nodeState $ return .
               (localConnectionBetween from to ^= Just (conn, implicitReconnect))
             return $ Just conn
       Left _ ->
@@ -114,33 +114,33 @@ setupConnBetween node from to implicitReconnect = do
     endPoint  = localEndPoint node
     nodeState = localState node
 
-connBetween :: LocalNode 
-            -> Identifier 
-            -> Identifier 
+connBetween :: LocalNode
+            -> Identifier
+            -> Identifier
             -> ImplicitReconnect
             -> IO (Maybe NT.Connection)
 connBetween node from to implicitReconnect = do
     mConn <- withMVar nodeState $ return . (^. localConnectionBetween from to)
     case mConn of
-      Just (conn, _) -> 
+      Just (conn, _) ->
         return $ Just conn
-      Nothing -> 
-        setupConnBetween node from to implicitReconnect 
+      Nothing ->
+        setupConnBetween node from to implicitReconnect
   where
     nodeState = localState node
 
 disconnect :: LocalNode -> Identifier -> Identifier -> IO ()
 disconnect node from to =
-  modifyMVar_ (localState node) $ \st -> 
+  modifyMVar_ (localState node) $ \st ->
     case st ^. localConnectionBetween from to of
-      Nothing -> 
+      Nothing ->
         return st
       Just (conn, _) -> do
-        NT.close conn 
+        NT.close conn
         return (localConnectionBetween from to ^= Nothing $ st)
 
 closeImplicitReconnections :: LocalNode -> Identifier -> IO ()
-closeImplicitReconnections node to = 
+closeImplicitReconnections node to =
   modifyMVar_ (localState node) $ \st -> do
     let shouldClose (_, to') (_, WithImplicitReconnect) = to `impliesDeathOf` to'
         shouldClose _ _ = False
@@ -153,7 +153,7 @@ closeImplicitReconnections node to =
 impliesDeathOf :: Identifier
                -> Identifier
                -> Bool
-NodeIdentifier nid `impliesDeathOf` NodeIdentifier nid' = 
+NodeIdentifier nid `impliesDeathOf` NodeIdentifier nid' =
   nid' == nid
 NodeIdentifier nid `impliesDeathOf` ProcessIdentifier pid =
   processNodeId pid == nid

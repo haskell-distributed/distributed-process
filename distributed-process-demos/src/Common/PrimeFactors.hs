@@ -6,7 +6,7 @@ module PrimeFactors where
 
 primes :: [Integer]
 primes = primes' (2:[3,5..])
-  where 
+  where
     primes' (x:xs) = x : primes' (filter (notDivisorOf x) xs)
     notDivisorOf d n = n `mod` d /= 0
 
@@ -15,7 +15,7 @@ factors qs@(p:ps) n
     | n <= 1 = []
     | m == 0 = p : factors qs d
     | otherwise = factors ps n
-  where 
+  where
     (d,m) = n `divMod` p
 
 primeFactors :: Integer -> [Integer]

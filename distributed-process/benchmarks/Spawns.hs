@@ -12,7 +12,7 @@ import qualified Data.ByteString.Lazy as BSL
 counter :: Process ()
 counter = go 0
   where
-    go :: Int -> Process () 
+    go :: Int -> Process ()
     go !n = do
       b <- expect
       case b of
@@ -27,7 +27,7 @@ count n them = do
   n' <- expect
   liftIO $ print (n == n')
 
-initialProcess :: String -> Process () 
+initialProcess :: String -> Process ()
 initialProcess "SERVER" = do
   us <- getSelfPid
   liftIO $ BSL.writeFile "counter.pid" (encode us)
@@ -41,5 +41,5 @@ main :: IO ()
 main = do
   [role, host, port] <- getArgs
   Right transport <- createTransport host port defaultTCPParameters
-  node <- newLocalNode transport initRemoteTable 
-  runProcess node $ initialProcess role 
+  node <- newLocalNode transport initRemoteTable
+  runProcess node $ initialProcess role

@@ -20,15 +20,15 @@ sumEuler :: Int -> Int
 sumEuler = sum . (map euler) . mkList
 
 worker :: String -> MVar () -> EndPoint -> IO ()
-worker id done endpoint = do 
-    ConnectionOpened _ _ theirAddr <- receive endpoint 
+worker id done endpoint = do
+    ConnectionOpened _ _ theirAddr <- receive endpoint
     Right replyChan <- connect endpoint theirAddr ReliableOrdered
     go replyChan
   where
     go replyChan = do
       event <- receive endpoint
       case event of
-        ConnectionClosed _ -> do 
+        ConnectionClosed _ -> do
           close replyChan
           putMVar done ()
         Received _ msg -> do
@@ -39,7 +39,7 @@ worker id done endpoint = do
 
 main :: IO ()
 main = do
-  (id:host:port:_) <- getArgs 
+  (id:host:port:_) <- getArgs
   Right transport  <- createTransport host port
   Right endpoint   <- newEndPoint transport
   workerDone       <- newEmptyMVar

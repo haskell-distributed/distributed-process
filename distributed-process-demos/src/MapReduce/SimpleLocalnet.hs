@@ -10,53 +10,53 @@ import Data.Map (Map)
 import Data.Array (Array, listArray)
 import qualified Data.Map as Map (fromList)
 
-import qualified CountWords 
+import qualified CountWords
 import qualified PolyDistrMapReduce
 import qualified MonoDistrMapReduce
 import qualified KMeans
 
 rtable :: RemoteTable
-rtable = PolyDistrMapReduce.__remoteTable 
-       . MonoDistrMapReduce.__remoteTable 
+rtable = PolyDistrMapReduce.__remoteTable
+       . MonoDistrMapReduce.__remoteTable
        . CountWords.__remoteTable
        . KMeans.__remoteTable
-       $ initRemoteTable 
+       $ initRemoteTable
 
 main :: IO ()
 main = do
   args <- getArgs
 
   case args of
-    -- Local word count 
+    -- Local word count
     "local" : "count" : files -> do
-      input <- constructInput files 
-      print $ CountWords.localCountWords input 
+      input <- constructInput files
+      print $ CountWords.localCountWords input
 
     -- Distributed word count
     "master" : host : port : "count" : files -> do
-      input   <- constructInput files 
-      backend <- initializeBackend host port rtable 
+      input   <- constructInput files
+      backend <- initializeBackend host port rtable
       startMaster backend $ \slaves -> do
-        result <- CountWords.distrCountWords slaves input 
-        liftIO $ print result 
+        result <- CountWords.distrCountWords slaves input
+        liftIO $ print result
 
     -- Local k-means
     "local" : "kmeans" : [] -> do
       points <- replicateM 50000 randomPoint
       withFile "plot.data" WriteMode $ KMeans.createGnuPlot $
-        KMeans.localKMeans (arrayFromList points) (take 5 points) 5 
+        KMeans.localKMeans (arrayFromList points) (take 5 points) 5
 
     -- Distributed k-means
     "master" : host : port : "kmeans" : [] -> do
       points  <- replicateM 50000 randomPoint
-      backend <- initializeBackend host port rtable 
+      backend <- initializeBackend host port rtable
       startMaster backend $ \slaves -> do
-        result <- KMeans.distrKMeans (arrayFromList points) (take 5 points) slaves 5 
+        result <- KMeans.distrKMeans (arrayFromList points) (take 5 points) slaves 5
         liftIO $ withFile "plot.data" WriteMode $ KMeans.createGnuPlot result
 
     -- Generic slave for distributed examples
     "slave" : host : port : [] -> do
-      backend <- initializeBackend host port rtable 
+      backend <- initializeBackend host port rtable
       startSlave backend
 
 --------------------------------------------------------------------------------
