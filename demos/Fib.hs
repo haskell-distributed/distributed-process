@@ -13,8 +13,8 @@ import Control.Distributed.Process
   , receiveChan
   , spawnLocal
   )
-import Control.Distributed.Process.Backend.Azure 
-import Control.Distributed.Process.Closure 
+import Control.Distributed.Process.Backend.Azure
+import Control.Distributed.Process.Closure
   ( remotable
   , remotableDecl
   , mkClosure
@@ -25,7 +25,7 @@ randomElement xs = do
   ix <- randomIO
   return (xs !! (ix `mod` length xs))
 
-remotableDecl [ 
+remotableDecl [
     [d| dfib :: ([NodeId], SendPort Integer, Integer) -> Process () ;
         dfib (_, reply, 0) = sendChan reply 0
         dfib (_, reply, 1) = sendChan reply 1
@@ -54,7 +54,7 @@ remotable ['remoteFib]
 printResult :: LocalProcess ()
 printResult = do
   result <- localExpect :: LocalProcess Integer
-  liftIO $ print result 
+  liftIO $ print result
 
 main :: IO ()
 main = do
@@ -62,13 +62,13 @@ main = do
   case args of
     "onvm":args' -> onVmMain (__remoteTable . __remoteTableDecl) args'
     [sid, x509, pkey, user, cloudService, n] -> do
-      params <- defaultAzureParameters sid x509 pkey 
+      params <- defaultAzureParameters sid x509 pkey
       let params' = params { azureSshUserName = user }
       backend <- initializeBackend params' cloudService
       vms <- findVMs backend
       nids <- forM vms $ \vm -> spawnNodeOnVM backend vm "8080"
-      callOnVM backend (head vms) "8081" $ 
-        ProcessPair ($(mkClosure 'remoteFib) (nids, read n :: Integer)) 
-                    printResult 
+      callOnVM backend (head vms) "8081" $
+        ProcessPair ($(mkClosure 'remoteFib) (nids, read n :: Integer))
+                    printResult
     _ ->
       error "Invalid command line arguments"
