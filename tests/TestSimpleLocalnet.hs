@@ -15,10 +15,10 @@ main = do
 
   case args of
     ["master", host, port] -> do
-      backend <- initializeBackend host port initRemoteTable 
+      backend <- initializeBackend host port initRemoteTable
       startMaster backend (master backend)
     ["slave", host, port] -> do
-      backend <- initializeBackend host port initRemoteTable 
+      backend <- initializeBackend host port initRemoteTable
       startSlave backend
-    _ -> 
+    _ ->
       putStrLn $ "usage: " ++ prog ++ " (master | slave) host port"

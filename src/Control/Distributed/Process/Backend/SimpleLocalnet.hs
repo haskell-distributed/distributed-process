@@ -3,41 +3,41 @@
 -- get you going with Cloud Haskell quickly without imposing any structure
 -- on your application.
 --
--- To simplify getting started we provide special support for /master/ and 
+-- To simplify getting started we provide special support for /master/ and
 -- /slave/ nodes (see 'startSlave' and 'startMaster'). Use of these functions
 -- is completely optional; you can use the local backend without making use
 -- of the predefined master and slave nodes.
--- 
+--
 -- [Minimal example]
 --
 -- > import System.Environment (getArgs)
 -- > import Control.Distributed.Process
 -- > import Control.Distributed.Process.Node (initRemoteTable)
 -- > import Control.Distributed.Process.Backend.SimpleLocalnet
--- > 
+-- >
 -- > master :: Backend -> [NodeId] -> Process ()
 -- > master backend slaves = do
 -- >   -- Do something interesting with the slaves
 -- >   liftIO . putStrLn $ "Slaves: " ++ show slaves
 -- >   -- Terminate the slaves when the master terminates (this is optional)
 -- >   terminateAllSlaves backend
--- > 
+-- >
 -- > main :: IO ()
 -- > main = do
 -- >   args <- getArgs
--- > 
+-- >
 -- >   case args of
 -- >     ["master", host, port] -> do
--- >       backend <- initializeBackend host port initRemoteTable 
+-- >       backend <- initializeBackend host port initRemoteTable
 -- >       startMaster backend (master backend)
 -- >     ["slave", host, port] -> do
--- >       backend <- initializeBackend host port initRemoteTable 
+-- >       backend <- initializeBackend host port initRemoteTable
 -- >       startSlave backend
--- 
+--
 -- [Compiling and Running]
 --
 -- Save to @example.hs@ and compile using
--- 
+--
 -- > ghc -threaded example.hs
 --
 -- Fire up some slave nodes (for the example, we run them on a single machine):
@@ -68,7 +68,7 @@
 -- master on a fifth node (or on any of the four machines that run the slave
 -- nodes).
 --
--- It is important that every node has a unique (hostname, port number) pair, 
+-- It is important that every node has a unique (hostname, port number) pair,
 -- and that the hostname you use to initialize the node can be resolved by
 -- peer nodes. In other words, if you start a node and pass hostname @localhost@
 -- then peer nodes won't be able to reach it because @localhost@ will resolve
@@ -79,10 +79,10 @@
 -- If you try the above example and the master process cannot find any slaves,
 -- then it might be that your firewall settings do not allow for UDP multicast
 -- (in particular, the default iptables on some Linux distributions might not
--- allow it).  
+-- allow it).
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Control.Distributed.Process.Backend.SimpleLocalnet
-  ( -- * Initialization 
+  ( -- * Initialization
     Backend(..)
   , initializeBackend
     -- * Slave nodes
@@ -128,13 +128,13 @@ import Control.Distributed.Process
   , unmonitor
   , NodeMonitorNotification(..)
   )
-import qualified Control.Distributed.Process.Node as Node 
+import qualified Control.Distributed.Process.Node as Node
   ( LocalNode
   , newLocalNode
   , localNodeId
   , runProcess
   )
-import qualified Network.Transport.TCP as NT 
+import qualified Network.Transport.TCP as NT
   ( createTransport
   , defaultTCPParameters
   )
@@ -142,7 +142,7 @@ import qualified Network.Transport as NT (Transport)
 import qualified Network.Socket as N (HostName, ServiceName, SockAddr)
 import Control.Distributed.Process.Backend.SimpleLocalnet.Internal.Multicast (initMulticast)
 
--- | Local backend 
+-- | Local backend
 data Backend = Backend {
     -- | Create a new local node
     newLocalNode :: IO Node.LocalNode
@@ -164,64 +164,64 @@ data BackendState = BackendState {
 -- | Initialize the backend
 initializeBackend :: N.HostName -> N.ServiceName -> RemoteTable -> IO Backend
 initializeBackend host port rtable = do
-  mTransport   <- NT.createTransport host port NT.defaultTCPParameters 
+  mTransport   <- NT.createTransport host port NT.defaultTCPParameters
   (recv, send) <- initMulticast  "224.0.0.99" 9999 1024
   (_, backendState) <- fixIO $ \ ~(tid, _) -> do
-    backendState <- newMVar BackendState 
-                      { _localNodes      = [] 
+    backendState <- newMVar BackendState
+                      { _localNodes      = []
                       , _peers           = Set.empty
                       ,  discoveryDaemon = tid
                       }
-    tid' <- forkIO $ peerDiscoveryDaemon backendState recv send 
+    tid' <- forkIO $ peerDiscoveryDaemon backendState recv send
     return (tid', backendState)
   case mTransport of
     Left err -> throw err
-    Right transport -> 
+    Right transport ->
       let backend = Backend {
-          newLocalNode       = apiNewLocalNode transport rtable backendState 
+          newLocalNode       = apiNewLocalNode transport rtable backendState
         , findPeers          = apiFindPeers send backendState
-        , redirectLogsHere   = apiRedirectLogsHere backend 
+        , redirectLogsHere   = apiRedirectLogsHere backend
         }
       in return backend
 
 -- | Create a new local node
-apiNewLocalNode :: NT.Transport 
-                -> RemoteTable 
+apiNewLocalNode :: NT.Transport
+                -> RemoteTable
                 -> MVar BackendState
                 -> IO Node.LocalNode
 apiNewLocalNode transport rtable backendState = do
-  localNode <- Node.newLocalNode transport rtable 
+  localNode <- Node.newLocalNode transport rtable
   modifyMVar_ backendState $ return . (localNodes ^: (localNode :))
   return localNode
 
 -- | Peer discovery
-apiFindPeers :: (PeerDiscoveryMsg -> IO ()) 
-             -> MVar BackendState 
+apiFindPeers :: (PeerDiscoveryMsg -> IO ())
+             -> MVar BackendState
              -> Int
              -> IO [NodeId]
 apiFindPeers send backendState delay = do
-  send PeerDiscoveryRequest 
-  threadDelay delay 
-  Set.toList . (^. peers) <$> readMVar backendState  
+  send PeerDiscoveryRequest
+  threadDelay delay
+  Set.toList . (^. peers) <$> readMVar backendState
 
-data PeerDiscoveryMsg = 
-    PeerDiscoveryRequest 
+data PeerDiscoveryMsg =
+    PeerDiscoveryRequest
   | PeerDiscoveryReply NodeId
 
 instance Binary PeerDiscoveryMsg where
   put PeerDiscoveryRequest     = putWord8 0
   put (PeerDiscoveryReply nid) = putWord8 1 >> put nid
   get = do
-    header <- getWord8 
+    header <- getWord8
     case header of
       0 -> return PeerDiscoveryRequest
       1 -> PeerDiscoveryReply <$> get
       _ -> fail "PeerDiscoveryMsg.get: invalid"
 
 -- | Respond to peer discovery requests sent by other nodes
-peerDiscoveryDaemon :: MVar BackendState 
+peerDiscoveryDaemon :: MVar BackendState
                     -> IO (PeerDiscoveryMsg, N.SockAddr)
-                    -> (PeerDiscoveryMsg -> IO ()) 
+                    -> (PeerDiscoveryMsg -> IO ())
                     -> IO ()
 peerDiscoveryDaemon backendState recv send = forever go
   where
@@ -230,7 +230,7 @@ peerDiscoveryDaemon backendState recv send = forever go
       case msg of
         PeerDiscoveryRequest -> do
           nodes <- (^. localNodes) <$> readMVar backendState
-          forM_ nodes $ send . PeerDiscoveryReply . Node.localNodeId 
+          forM_ nodes $ send . PeerDiscoveryReply . Node.localNodeId
         PeerDiscoveryReply nid ->
           modifyMVar_ backendState $ return . (peers ^: Set.insert nid)
 
@@ -243,7 +243,7 @@ apiRedirectLogsHere :: Backend -> Process ()
 apiRedirectLogsHere backend = do
   mLogger <- whereis "logger"
   forM_ mLogger $ \logger -> do
-    nids <- liftIO $ findPeers backend 1000000 
+    nids <- liftIO $ findPeers backend 1000000
     forM_ nids $ \nid -> reregisterRemoteAsync nid "logger" logger -- ignore async response
 
 --------------------------------------------------------------------------------
@@ -254,12 +254,12 @@ apiRedirectLogsHere backend = do
 --
 -- This datatype is not exposed; instead, we expose primitives for dealing
 -- with slaves.
-data SlaveControllerMsg = 
+data SlaveControllerMsg =
     SlaveTerminate
   deriving (Typeable, Show)
 
 instance Binary SlaveControllerMsg where
-  put SlaveTerminate = putWord8 0 
+  put SlaveTerminate = putWord8 0
   get = do
     header <- getWord8
     case header of
@@ -273,8 +273,8 @@ instance Binary SlaveControllerMsg where
 -- the process or call terminateSlave from another node.
 startSlave :: Backend -> IO ()
 startSlave backend = do
-  node <- newLocalNode backend 
-  Node.runProcess node slaveController 
+  node <- newLocalNode backend
+  Node.runProcess node slaveController
 
 -- | The slave controller interprets 'SlaveControllerMsg's
 slaveController :: Process ()
@@ -295,26 +295,26 @@ terminateSlave nid = nsendRemote nid "slaveController" SlaveTerminate
 -- | Find slave nodes
 findSlaves :: Backend -> Process [NodeId]
 findSlaves backend = do
-  nodes <- liftIO $ findPeers backend 1000000   
+  nodes <- liftIO $ findPeers backend 1000000
   -- Fire of asynchronous requests for the slave controller
   refs <- forM nodes $ \nid -> do
-    whereisRemoteAsync nid "slaveController" 
+    whereisRemoteAsync nid "slaveController"
     ref <- monitorNode nid
     return (nid, ref)
   -- Wait for the replies
-  catMaybes <$> replicateM (length nodes) ( 
-    receiveWait 
+  catMaybes <$> replicateM (length nodes) (
+    receiveWait
       [ matchIf (\(WhereIsReply label _) -> label == "slaveController")
-                (\(WhereIsReply _ mPid) -> 
+                (\(WhereIsReply _ mPid) ->
                   case mPid of
-                    Nothing -> 
+                    Nothing ->
                       return Nothing
                     Just pid -> do
                       let nid      = processNodeId pid
                           Just ref = lookup nid refs
-                      unmonitor ref 
+                      unmonitor ref
                       return (Just nid))
-      , match (\(NodeMonitorNotification {}) -> return Nothing) 
+      , match (\(NodeMonitorNotification {}) -> return Nothing)
       ])
 
 -- | Terminate all slaves
@@ -330,15 +330,15 @@ terminateAllSlaves backend = do
 
 -- | 'startMaster' finds all slaves /currently/ available on the local network,
 -- redirects all log messages to itself, and then calls the specified process,
--- passing the list of slaves nodes. 
+-- passing the list of slaves nodes.
 --
 -- Terminates when the specified process terminates. If you want to terminate
--- the slaves when the master terminates, you should manually call 
+-- the slaves when the master terminates, you should manually call
 -- 'terminateAllSlaves'.
 --
 -- If you start more slave nodes after having started the master node, you can
 -- discover them with later calls to 'findSlaves', but be aware that you will
--- need to call 'redirectLogHere' to redirect their logs to the master node.  
+-- need to call 'redirectLogHere' to redirect their logs to the master node.
 --
 -- Note that you can use functionality of "SimpleLocalnet" directly (through
 -- 'Backend'), instead of using 'startMaster'/'startSlave', if the master/slave
