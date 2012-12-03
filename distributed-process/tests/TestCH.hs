@@ -838,6 +838,70 @@ testReceiveChanFeatures transport = do
 
   takeMVar done
 
+testKillLocal :: NT.Transport -> Assertion
+testKillLocal transport = do
+  localNode <- newLocalNode transport initRemoteTable
+
+  pid <- forkProcess localNode $ do
+    liftIO $ threadDelay 100000
+
+  runProcess localNode $ do
+    ref <- monitor pid
+    kill pid "TestKill"
+    ProcessMonitorNotification ref' pid' (DiedException ex) <- expect
+    True <- return $ ref == ref' && pid == pid' && ex == "TestKill"
+    return ()
+
+testKillRemote :: NT.Transport -> Assertion
+testKillRemote transport = do
+  node1 <- newLocalNode transport initRemoteTable
+  node2 <- newLocalNode transport initRemoteTable
+
+  pid <- forkProcess node1 $ do
+    liftIO $ threadDelay 100000
+
+  runProcess node2 $ do
+    ref <- monitor pid
+    kill pid "TestKill"
+    ProcessMonitorNotification ref' pid' (DiedException ex) <- expect
+    True <- return $ ref == ref' && pid == pid' && ex == "TestKill"
+    return ()
+
+testExitLocal :: NT.Transport -> Assertion
+testExitLocal transport = do
+  localNode <- newLocalNode transport initRemoteTable
+
+  pid <- forkProcess localNode $ do
+    (liftIO $ threadDelay 100000)
+      `catchExit` \from reason -> do
+        say $ "Got " ++ reason ++ " from " ++ show from
+        return ()
+
+  runProcess localNode $ do
+    ref <- monitor pid
+    exit pid "TestExit"
+    ProcessMonitorNotification ref' pid' (DiedException ex) <- expect
+    True <- return $ ref == ref' && pid == pid' && ex == "TestExit"
+    return ()
+
+testExitRemote :: NT.Transport -> Assertion
+testExitRemote transport = do
+  node1 <- newLocalNode transport initRemoteTable
+  node2 <- newLocalNode transport initRemoteTable
+
+  pid <- forkProcess node1 $ do
+    (liftIO $ threadDelay 100000)
+      `catchExit` \from reason -> do
+        say $ "Got " ++ reason ++ " from " ++ show from
+        return ()
+
+  runProcess node2 $ do
+    ref <- monitor pid
+    exit pid "TestExit"
+    ProcessMonitorNotification ref' pid' (DiedException ex) <- expect
+    True <- return $ ref == ref' && pid == pid' && ex == "TestExit"
+    return ()
+
 tests :: (NT.Transport, TransportInternals)  -> [Test]
 tests (transport, transportInternals) = [
     testGroup "Basic features" [
@@ -855,6 +919,10 @@ tests (transport, transportInternals) = [
       , testCase "MatchAny"            (testMatchAny            transport)
       , testCase "ReceiveChanTimeout"  (testReceiveChanTimeout  transport)
       , testCase "ReceiveChanFeatures" (testReceiveChanFeatures transport)
+      , testCase "KillLocal"           (testKillLocal           transport)
+      , testCase "KillRemote"          (testKillRemote          transport)
+      , testCase "ExitLocal"           (testExitLocal           transport)
+      , testCase "ExitRemote"          (testExitRemote          transport)
       ]
   , testGroup "Monitoring and Linking" [
       -- Monitoring processes
