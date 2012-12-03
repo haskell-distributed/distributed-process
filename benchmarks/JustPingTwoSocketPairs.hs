@@ -60,7 +60,7 @@ main = do
       pongSock     <- socket (addrFamily clientAddr) Stream defaultProtocol
       N.connect pongSock (addrAddress clientAddr)
       when ("--NoDelay" `elem` args) $ setSocketOption pongSock NoDelay 1
-      forever $ readChan multiplexChannel >>= send pongSock 
+      forever $ readChan multiplexChannel >>= send pongSock
 
     -- Wait for incoming connections (pings from the client)
     putMVar serverReady ()
@@ -89,7 +89,7 @@ main = do
       putMVar clientDone ()
 
     -- Wait for incoming connections (pongs from the server)
-    putMVar clientReady () 
+    putMVar clientReady ()
     (pongSock, pongAddr) <- accept sock
     socketToChan pongSock multiplexChannel
 
@@ -107,45 +107,45 @@ socketToChan sock chan = go
 pingMessage :: ByteString
 pingMessage = pack "ping123"
 
-ping :: Socket -> Chan ByteString -> Int -> IO () 
+ping :: Socket -> Chan ByteString -> Int -> IO ()
 ping sock chan pings = go pings
   where
     go :: Int -> IO ()
-    go 0 = do 
+    go 0 = do
       putStrLn $ "client did " ++ show pings ++ " pings"
     go !i = do
       before <- getCurrentTime
-      send sock pingMessage 
-      bs <- readChan chan  
+      send sock pingMessage
+      bs <- readChan chan
       after <- getCurrentTime
       -- putStrLn $ "client received " ++ unpack bs
       let latency = (1e6 :: Double) * realToFrac (diffUTCTime after before)
-      hPutStrLn stderr $ show i ++ " " ++ show latency 
+      hPutStrLn stderr $ show i ++ " " ++ show latency
       go (i - 1)
 
--- | Receive a package 
+-- | Receive a package
 recv :: Socket -> IO ByteString
 recv sock = do
   header <- NBS.recv sock 4
-  length <- decodeLength header 
+  length <- decodeLength header
   NBS.recv sock (fromIntegral (length :: Int32))
 
 -- | Send a package
-send :: Socket -> ByteString -> IO () 
+send :: Socket -> ByteString -> IO ()
 send sock bs = do
   length <- encodeLength (fromIntegral (BS.length bs))
   NBS.sendMany sock [length, bs]
 
 -- | Encode length (manual for now)
 encodeLength :: Int32 -> IO ByteString
-encodeLength i32 = 
+encodeLength i32 =
   BSI.create 4 $ \p ->
     pokeByteOff p 0 (htonl (fromIntegral i32))
 
 -- | Decode length (manual for now)
 decodeLength :: ByteString -> IO Int32
-decodeLength bs = 
-  let (fp, _, _) = BSI.toForeignPtr bs in 
+decodeLength bs =
+  let (fp, _, _) = BSI.toForeignPtr bs in
   withForeignPtr fp $ \p -> do
-    w32 <- peekByteOff p 0 
+    w32 <- peekByteOff p 0
     return (fromIntegral (ntohl w32))

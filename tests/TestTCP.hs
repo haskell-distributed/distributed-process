@@ -2,7 +2,7 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Main where
 
-import Prelude hiding 
+import Prelude hiding
   ( (>>=)
   , return
   , fail
@@ -49,7 +49,7 @@ import Network.Transport.TCP.Internal (recvInt32, forkServer, recvWithLength)
 #ifdef USE_MOCK_NETWORK
 import qualified Network.Transport.TCP.Mock.Socket as N
 #else
-import qualified Network.Socket as N 
+import qualified Network.Socket as N
 #endif
   ( sClose
   , ServiceName
@@ -69,9 +69,9 @@ import Data.String (fromString)
 import GHC.IO.Exception (ioe_errno)
 import Foreign.C.Error (Errno(..), eADDRNOTAVAIL)
 import System.Timeout (timeout)
-import Network.Transport.Tests (testTransport) 
+import Network.Transport.Tests (testTransport)
 import Network.Transport.Tests.Auxiliary (forkTry, runTests)
-import Network.Transport.Tests.Traced 
+import Network.Transport.Tests.Traced
 
 instance Traceable ControlHeader where
   trace = traceShow
@@ -80,7 +80,7 @@ instance Traceable ConnectionRequestResponse where
   trace = traceShow
 
 instance Traceable N.Socket where
-  trace = traceShow 
+  trace = traceShow
 
 instance Traceable N.AddrInfo where
   trace = traceShow
@@ -112,17 +112,17 @@ testEarlyDisconnect nextPort = do
 
       -- TEST 1: they connect to us, then drop the connection
       do
-        ConnectionOpened _ _ addr <- receive endpoint 
+        ConnectionOpened _ _ addr <- receive endpoint
         True <- return $ addr == theirAddr
-      
-        ErrorEvent (TransportError (EventConnectionLost addr') _) <- receive endpoint 
-        True <- return $ addr' == theirAddr 
+
+        ErrorEvent (TransportError (EventConnectionLost addr') _) <- receive endpoint
+        True <- return $ addr' == theirAddr
 
         return ()
 
       -- TEST 2: after they dropped their connection to us, we now try to
       -- establish a connection to them. This should re-establish the broken
-      -- TCP connection. 
+      -- TCP connection.
       tlog "Trying to connect to client"
       Right conn <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
 
@@ -131,39 +131,39 @@ testEarlyDisconnect nextPort = do
       -- closes the socket
       do
         Right () <- send conn ["ping"]
-        
-        ConnectionOpened cid _ addr <- receive endpoint 
+
+        ConnectionOpened cid _ addr <- receive endpoint
         True <- return $ addr == theirAddr
-        
+
         Received cid' ["pong"] <- receive endpoint
         True <- return $ cid == cid'
-        
+
         ErrorEvent (TransportError (EventConnectionLost addr') _) <- receive endpoint
-        True <- return $ addr' == theirAddr 
+        True <- return $ addr' == theirAddr
 
         return ()
 
       -- TEST 4: A subsequent send on an already-open connection will now break
       Left (TransportError SendFailed _) <- send conn ["ping2"]
 
-      -- *Pfew* 
+      -- *Pfew*
       putMVar serverDone ()
 
     client :: MVar EndPointAddress -> MVar EndPointAddress -> IO ()
     client serverAddr clientAddr = do
       tlog "Client"
       clientPort <- nextPort
-      let  ourAddress = encodeEndPointAddress "127.0.0.1" clientPort 0 
-      putMVar clientAddr ourAddress 
- 
+      let  ourAddress = encodeEndPointAddress "127.0.0.1" clientPort 0
+      putMVar clientAddr ourAddress
+
       -- Listen for incoming messages
       forkServer "127.0.0.1" clientPort 5 True throwIO $ \sock -> do
-        -- Initial setup 
+        -- Initial setup
         0 <- recvInt32 sock :: IO Int
-        _ <- recvWithLength sock 
+        _ <- recvWithLength sock
         sendMany sock [encodeInt32 ConnectionRequestAccepted]
 
-        -- Server opens  a logical connection 
+        -- Server opens  a logical connection
         CreatedNewConnection <- toEnum <$> (recvInt32 sock :: IO Int)
         1024 <- recvInt32 sock :: IO LightweightConnectionId
 
@@ -171,21 +171,21 @@ testEarlyDisconnect nextPort = do
         1024 <- recvInt32 sock :: IO Int
         ["ping"] <- recvWithLength sock
 
-        -- Reply 
+        -- Reply
         sendMany sock [encodeInt32 CreatedNewConnection, encodeInt32 (10002 :: Int)]
-        sendMany sock (encodeInt32 10002 : prependLength ["pong"]) 
+        sendMany sock (encodeInt32 10002 : prependLength ["pong"])
 
         -- Close the socket
         N.sClose sock
- 
+
       -- Connect to the server
       Right (sock, ConnectionRequestAccepted) <- readMVar serverAddr >>= \addr -> socketToEndPoint ourAddress addr True Nothing
-  
+
       -- Open a new connection
       sendMany sock [encodeInt32 CreatedNewConnection, encodeInt32 (10003 :: Int)]
-  
+
       -- Close the socket without closing the connection explicitly
-      -- The server should receive an error event 
+      -- The server should receive an error event
       N.sClose sock
 
 -- | Test the behaviour of a premature CloseSocket request
@@ -211,19 +211,19 @@ testEarlyCloseSocket nextPort = do
 
       -- TEST 1: they connect to us, then send a CloseSocket. Since we don't
       -- have any outgoing connections, this means we will agree to close the
-      -- socket  
+      -- socket
       do
-        ConnectionOpened cid _ addr <- receive endpoint 
+        ConnectionOpened cid _ addr <- receive endpoint
         True <- return $ addr == theirAddr
-      
-        ConnectionClosed cid' <- receive endpoint 
+
+        ConnectionClosed cid' <- receive endpoint
         True <- return $ cid' == cid
 
         return ()
 
       -- TEST 2: after they dropped their connection to us, we now try to
       -- establish a connection to them. This should re-establish the broken
-      -- TCP connection. 
+      -- TCP connection.
       tlog "Trying to connect to client"
       Right conn <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
 
@@ -234,65 +234,65 @@ testEarlyCloseSocket nextPort = do
       -- the socket gets closed
       do
         Right () <- send conn ["ping"]
-        
+
         ConnectionOpened cid _ addr <- receive endpoint
         True <- return $ addr == theirAddr
-        
+
         Received cid' ["pong"] <- receive endpoint
         True <- return $ cid' == cid
-        
+
         ConnectionClosed cid'' <- receive endpoint
         True <- return $ cid'' == cid
-        
+
         ErrorEvent (TransportError (EventConnectionLost addr') _) <- receive endpoint
-        True <- return $ addr' == theirAddr 
-        
+        True <- return $ addr' == theirAddr
+
         return ()
 
       -- TEST 4: A subsequent send on an already-open connection will now break
       Left (TransportError SendFailed _) <- send conn ["ping2"]
 
-      -- *Pfew* 
+      -- *Pfew*
       putMVar serverDone ()
 
     client :: MVar EndPointAddress -> MVar EndPointAddress -> IO ()
     client serverAddr clientAddr = do
       tlog "Client"
       clientPort <- nextPort
-      let  ourAddress = encodeEndPointAddress "127.0.0.1" clientPort 0 
-      putMVar clientAddr ourAddress 
- 
+      let  ourAddress = encodeEndPointAddress "127.0.0.1" clientPort 0
+      putMVar clientAddr ourAddress
+
       -- Listen for incoming messages
       forkServer "127.0.0.1" clientPort 5 True throwIO $ \sock -> do
-        -- Initial setup 
+        -- Initial setup
         0 <- recvInt32 sock :: IO Int
-        _ <- recvWithLength sock 
+        _ <- recvWithLength sock
         sendMany sock [encodeInt32 ConnectionRequestAccepted]
 
-        -- Server opens a logical connection 
+        -- Server opens a logical connection
         CreatedNewConnection <- toEnum <$> (recvInt32 sock :: IO Int)
-        1024 <- recvInt32 sock :: IO LightweightConnectionId 
+        1024 <- recvInt32 sock :: IO LightweightConnectionId
 
         -- Server sends a message
         1024 <- recvInt32 sock :: IO Int
         ["ping"] <- recvWithLength sock
 
-        -- Reply 
+        -- Reply
         sendMany sock [encodeInt32 CreatedNewConnection, encodeInt32 (10002 :: Int)]
-        sendMany sock (encodeInt32 (10002 :: Int) : prependLength ["pong"]) 
+        sendMany sock (encodeInt32 (10002 :: Int) : prependLength ["pong"])
 
         -- Send a CloseSocket even though there are still connections *in both
         -- directions*
         sendMany sock [encodeInt32 CloseSocket, encodeInt32 (1024 :: Int)]
         N.sClose sock
- 
+
       -- Connect to the server
       Right (sock, ConnectionRequestAccepted) <- readMVar serverAddr >>= \addr -> socketToEndPoint ourAddress addr True Nothing
-  
+
       -- Open a new connection
       sendMany sock [encodeInt32 CreatedNewConnection, encodeInt32 (10003 :: Int)]
-  
-      -- Send a CloseSocket without sending a closeconnecton 
+
+      -- Send a CloseSocket without sending a closeconnecton
       -- The server should still receive a ConnectionClosed message
       sendMany sock [encodeInt32 CloseSocket, encodeInt32 (0 :: Int)]
       N.sClose sock
@@ -311,26 +311,26 @@ testInvalidConnect nextPort = do
   Right endpoint  <- newEndPoint transport
 
   -- Syntax error in the endpoint address
-  Left (TransportError ConnectFailed _) <- 
+  Left (TransportError ConnectFailed _) <-
     connect endpoint (EndPointAddress "InvalidAddress") ReliableOrdered defaultConnectHints
- 
+
   -- Syntax connect, but invalid hostname (TCP address lookup failure)
-  Left (TransportError ConnectNotFound _) <- 
+  Left (TransportError ConnectNotFound _) <-
     connect endpoint (encodeEndPointAddress "invalidHost" "port" 0) ReliableOrdered defaultConnectHints
- 
+
   -- TCP address correct, but nobody home at that address
-  Left (TransportError ConnectNotFound _) <- 
+  Left (TransportError ConnectNotFound _) <-
     connect endpoint (encodeEndPointAddress "127.0.0.1" "9000" 0) ReliableOrdered defaultConnectHints
- 
+
   -- Valid TCP address but invalid endpoint number
-  Left (TransportError ConnectNotFound _) <- 
+  Left (TransportError ConnectNotFound _) <-
     connect endpoint (encodeEndPointAddress "127.0.0.1" port 1) ReliableOrdered defaultConnectHints
 
   return ()
 
 -- | Test that an endpoint can ignore CloseSocket requests (in "reality" this
 -- would happen when the endpoint sends a new connection request before
--- receiving an (already underway) CloseSocket request) 
+-- receiving an (already underway) CloseSocket request)
 testIgnoreCloseSocket :: IO N.ServiceName -> IO ()
 testIgnoreCloseSocket nextPort = do
   serverAddr <- newEmptyMVar
@@ -397,7 +397,7 @@ testIgnoreCloseSocket nextPort = do
 
     -- Close it again
     tlog "Closing connection"
-    sendMany sock [encodeInt32 CloseConnection, encodeInt32 (1024 :: Int)] 
+    sendMany sock [encodeInt32 CloseConnection, encodeInt32 (1024 :: Int)]
 
     -- And close the connection completely
     tlog "Closing socket"
@@ -471,7 +471,7 @@ testBlockAfterCloseSocket nextPort = do
     unblocked <- newMVar False
 
     -- We should not hear from the server until we unblock him by
-    -- responding to the CloseSocket request (in this case, we 
+    -- responding to the CloseSocket request (in this case, we
     -- respond by sending a ConnectionRequest)
     forkTry $ do
       recvInt32 sock :: IO Int32
@@ -490,7 +490,7 @@ testBlockAfterCloseSocket nextPort = do
 
 -- | Test what happens when a remote endpoint sends a connection request to our
 -- transport for an endpoint it already has a connection to
-testUnnecessaryConnect :: IO N.ServiceName -> Int -> IO () 
+testUnnecessaryConnect :: IO N.ServiceName -> Int -> IO ()
 testUnnecessaryConnect nextPort numThreads = do
   clientDone <- newEmptyMVar
   serverAddr <- newEmptyMVar
@@ -501,22 +501,22 @@ testUnnecessaryConnect nextPort numThreads = do
     putMVar serverAddr (address endpoint)
 
   forkTry $ do
-    -- We pick an address < 127.0.0.1 so that this is not rejected purely because of the "crossed" check 
+    -- We pick an address < 127.0.0.1 so that this is not rejected purely because of the "crossed" check
     let ourAddress = EndPointAddress "126.0.0.1"
 
     -- We should only get a single 'Accepted' reply
     gotAccepted <- newEmptyMVar
     dones <- replicateM numThreads $ do
-      done <- newEmptyMVar 
+      done <- newEmptyMVar
       forkTry $ do
         -- It is possible that the remote endpoint just rejects the request by closing the socket
         -- immediately (depending on far the remote endpoint got with the initialization)
-        response <- readMVar serverAddr >>= \addr -> socketToEndPoint ourAddress addr True Nothing 
+        response <- readMVar serverAddr >>= \addr -> socketToEndPoint ourAddress addr True Nothing
         case response of
-          Right (_, ConnectionRequestAccepted) -> 
+          Right (_, ConnectionRequestAccepted) ->
             -- We don't close this socket because we want to keep this connection open
             putMVar gotAccepted ()
-          -- We might get either Invalid or Crossed (the transport does not 
+          -- We might get either Invalid or Crossed (the transport does not
           -- maintain enough history to be able to tell)
           Right (sock, ConnectionRequestInvalid) ->
             N.sClose sock
@@ -536,7 +536,7 @@ testUnnecessaryConnect nextPort numThreads = do
 testMany :: IO N.ServiceName -> IO ()
 testMany nextPort = do
   Right masterTransport <- nextPort >>= \port -> createTransport "127.0.0.1" port defaultTCPParameters
-  Right masterEndPoint  <- newEndPoint masterTransport 
+  Right masterEndPoint  <- newEndPoint masterTransport
 
   replicateM_ 10 $ do
     mTransport <- nextPort >>= \port -> createTransport "127.0.0.1" port defaultTCPParameters
@@ -544,7 +544,7 @@ testMany nextPort = do
       Left ex -> do
         putStrLn $ "IOException: " ++ show ex ++ "; errno = " ++ show (ioe_errno ex)
         case (ioe_errno ex) of
-          Just no | Errno no == eADDRNOTAVAIL -> putStrLn "(ADDRNOTAVAIL)" 
+          Just no | Errno no == eADDRNOTAVAIL -> putStrLn "(ADDRNOTAVAIL)"
           _ -> return ()
         throwIO ex
       Right transport ->
@@ -561,7 +561,7 @@ testBreakTransport nextPort = do
 
   killThread (transportThread internals) -- Uh oh
 
-  ErrorEvent (TransportError EventTransportFailed _) <- receive endpoint 
+  ErrorEvent (TransportError EventTransportFailed _) <- receive endpoint
 
   return ()
 
@@ -580,16 +580,16 @@ testReconnect nextPort = do
   endpointCreated <- newEmptyMVar
 
   -- Server
-  forkTry $ do 
+  forkTry $ do
     -- Wait for the client to do its first attempt
-    readMVar firstAttempt 
+    readMVar firstAttempt
 
-    counter <- newMVar (0 :: Int) 
+    counter <- newMVar (0 :: Int)
 
     forkServer "127.0.0.1" serverPort 5 True throwIO $ \sock -> do
-      -- Accept the connection 
+      -- Accept the connection
       Right 0  <- tryIO $ (recvInt32 sock :: IO Int)
-      Right _  <- tryIO $ recvWithLength sock 
+      Right _  <- tryIO $ recvWithLength sock
       Right () <- tryIO $ sendMany sock [encodeInt32 ConnectionRequestAccepted]
 
       -- The first time we close the socket before accepting the logical connection
@@ -604,10 +604,10 @@ testReconnect nextPort = do
         when (count > 1) $ do
           -- Client sends a message
           Right connId' <- tryIO $ (recvInt32 sock :: IO LightweightConnectionId)
-          True <- return $ connId == connId' 
+          True <- return $ connId == connId'
           Right ["ping"] <- tryIO $ recvWithLength sock
           putMVar serverDone ()
-        
+
       Right () <- tryIO $ N.sClose sock
       return ()
 
@@ -626,17 +626,17 @@ testReconnect nextPort = do
     -- The second attempt will fail because the server closes the socket before we can request a connection
     takeMVar endpointCreated
     -- This might time out or not, depending on whether the server closes the
-    -- socket before or after we can send the RequestConnectionId request 
-    resultConnect <- timeout 500000 $ connect endpoint theirAddr ReliableOrdered defaultConnectHints 
+    -- socket before or after we can send the RequestConnectionId request
+    resultConnect <- timeout 500000 $ connect endpoint theirAddr ReliableOrdered defaultConnectHints
     case resultConnect of
       Nothing -> return ()
       Just (Left (TransportError ConnectFailed _)) -> return ()
       Just (Left err) -> throwIO err
-      Just (Right _) -> throwIO $ userError "testConnect: unexpected connect success" 
+      Just (Right _) -> throwIO $ userError "testConnect: unexpected connect success"
 
     -- The third attempt succeeds
     Right conn1 <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
-    
+
     -- But a send will fail because the server has closed the connection again
     threadDelay 100000
     Left (TransportError SendFailed _) <- send conn1 ["ping"]
@@ -675,12 +675,12 @@ testUnidirectionalError nextPort = do
 
       CreatedNewConnection <- toEnum <$> (recvInt32 sock :: IO Int)
       connId <- recvInt32 sock :: IO LightweightConnectionId
-        
+
       connId' <- recvInt32 sock :: IO LightweightConnectionId
       True <- return $ connId == connId'
       ["ping"] <- recvWithLength sock
       putMVar serverGotPing ()
-    
+
   -- Client
   forkTry $ do
     Right (transport, internals) <- nextPort >>= \port -> createTransportExposeInternals "127.0.0.1" port defaultTCPParameters
@@ -693,12 +693,12 @@ testUnidirectionalError nextPort = do
     takeMVar serverGotPing
 
     -- Close the *outgoing* part of the socket only
-    sock <- socketBetween internals (address endpoint) theirAddr 
+    sock <- socketBetween internals (address endpoint) theirAddr
     N.shutdown sock N.ShutdownSend
 
     -- At this point we cannot notice the problem yet so we shouldn't receive an event yet
     Nothing <- timeout 500000 $ receive endpoint
-   
+
     -- But when we send we find the error
     Left (TransportError SendFailed _) <- send conn1 ["ping"]
     ErrorEvent (TransportError (EventConnectionLost _) _) <- receive endpoint
@@ -709,7 +709,7 @@ testUnidirectionalError nextPort = do
     takeMVar serverGotPing
 
     -- Again, close the outgoing part of the socket
-    sock' <- socketBetween internals (address endpoint) theirAddr 
+    sock' <- socketBetween internals (address endpoint) theirAddr
     N.shutdown sock' N.ShutdownSend
 
     -- We now find the error when we attempt to close the connection
@@ -720,10 +720,10 @@ testUnidirectionalError nextPort = do
     send conn3 ["ping"]
     takeMVar serverGotPing
 
-    -- We repeat once more. 
-    sock'' <- socketBetween internals (address endpoint) theirAddr 
+    -- We repeat once more.
+    sock'' <- socketBetween internals (address endpoint) theirAddr
     N.shutdown sock'' N.ShutdownSend
-   
+
     -- Now we notice the problem when we try to connect
     Nothing <- timeout 500000 $ receive endpoint
     Left (TransportError ConnectFailed _) <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
@@ -754,7 +754,7 @@ testInvalidCloseConnection nextPort = do
     -- connection
     ErrorEvent (TransportError (EventConnectionLost _) _) <- receive endpoint
 
-    putMVar serverDone () 
+    putMVar serverDone ()
 
   -- Client
   forkTry $ do
@@ -766,7 +766,7 @@ testInvalidCloseConnection nextPort = do
     Right _ <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
 
     -- Get a handle on the TCP connection and manually send an invalid CloseConnection request
-    sock <- socketBetween internals ourAddr theirAddr 
+    sock <- socketBetween internals ourAddr theirAddr
     sendMany sock [encodeInt32 CloseConnection, encodeInt32 (12345 :: Int)]
 
     putMVar clientDone ()
@@ -776,23 +776,23 @@ testInvalidCloseConnection nextPort = do
 main :: IO ()
 main = do
   portMVar <- newEmptyMVar
-  forkTry $ forM_ ([10080 ..] :: [Int]) $ putMVar portMVar . show 
-  let nextPort = takeMVar portMVar 
-  tcpResult <- tryIO $ runTests 
+  forkTry $ forM_ ([10080 ..] :: [Int]) $ putMVar portMVar . show
+  let nextPort = takeMVar portMVar
+  tcpResult <- tryIO $ runTests
            [ ("EarlyDisconnect",        testEarlyDisconnect nextPort)
            , ("EarlyCloseSocket",       testEarlyCloseSocket nextPort)
            , ("IgnoreCloseSocket",      testIgnoreCloseSocket nextPort)
            , ("BlockAfterCloseSocket",  testBlockAfterCloseSocket nextPort)
            , ("UnnecessaryConnect", testUnnecessaryConnect nextPort 10)
            , ("InvalidAddress",         testInvalidAddress nextPort)
-           , ("InvalidConnect",         testInvalidConnect nextPort) 
+           , ("InvalidConnect",         testInvalidConnect nextPort)
            , ("Many",                   testMany nextPort)
            , ("BreakTransport",         testBreakTransport nextPort)
            , ("Reconnect",              testReconnect nextPort)
            , ("UnidirectionalError",    testUnidirectionalError nextPort)
            , ("InvalidCloseConnection", testInvalidCloseConnection nextPort)
            ]
-  -- Run the generic tests even if the TCP specific tests failed.. 
+  -- Run the generic tests even if the TCP specific tests failed..
   testTransport (either (Left . show) (Right) <$> nextPort >>= \port -> createTransport "127.0.0.1" port defaultTCPParameters)
   -- ..but if the generic tests pass, still fail if the specific tests did not
   case tcpResult of

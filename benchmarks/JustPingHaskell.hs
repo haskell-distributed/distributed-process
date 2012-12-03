@@ -33,7 +33,7 @@ main = do
   -- Start the server
   forkIO $ do
     putStrLn "server: creating TCP connection"
-    serverAddrs <- getAddrInfo 
+    serverAddrs <- getAddrInfo
       (Just (defaultHints { addrFlags = [AI_PASSIVE] } ))
       Nothing
       (Just "8080")
@@ -54,15 +54,15 @@ main = do
   forkIO $ do
     takeMVar serverReady
     let pings = read pingsStr
-    serverAddrs <- getAddrInfo 
+    serverAddrs <- getAddrInfo
       Nothing
       (Just "127.0.0.1")
       (Just "8080")
     let serverAddr = head serverAddrs
     sock <- socket (addrFamily serverAddr) Stream defaultProtocol
-  
+
     N.connect sock (addrAddress serverAddr)
-  
+
     ping sock pings
     putMVar clientDone ()
 
@@ -72,20 +72,20 @@ main = do
 pingMessage :: ByteString
 pingMessage = pack "ping123"
 
-ping :: Socket -> Int -> IO () 
+ping :: Socket -> Int -> IO ()
 ping sock pings = go pings
   where
     go :: Int -> IO ()
-    go 0 = do 
+    go 0 = do
       putStrLn $ "client did " ++ show pings ++ " pings"
     go !i = do
       before <- getCurrentTime
-      send sock pingMessage 
+      send sock pingMessage
       bs <- recv sock 8
       after <- getCurrentTime
       -- putStrLn $ "client received " ++ unpack bs
       let latency = (1e6 :: Double) * realToFrac (diffUTCTime after before)
-      hPutStrLn stderr $ show i ++ " " ++ show latency 
+      hPutStrLn stderr $ show i ++ " " ++ show latency
       go (i - 1)
 
 pong :: Socket -> IO ()
@@ -96,7 +96,7 @@ pong sock = do
     send sock bs
     pong sock
 
--- | Wrapper around NBS.recv (for profiling) 
+-- | Wrapper around NBS.recv (for profiling)
 recv :: Socket -> Int -> IO ByteString
 recv = NBS.recv
 
