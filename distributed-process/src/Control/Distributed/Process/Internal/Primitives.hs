@@ -24,6 +24,11 @@ module Control.Distributed.Process.Internal.Primitives
     -- * Process management
   , terminate
   , ProcessTerminationException(..)
+  , kill
+  , ProcessKillException(..)
+  , exit
+  , catchExit
+  , ProcessExitException(..)
   , getSelfPid
   , getSelfNode
     -- * Monitoring and linking
@@ -327,6 +332,62 @@ instance Exception ProcessTerminationException
 -- | Terminate (throws a ProcessTerminationException)
 terminate :: Process a
 terminate = liftIO $ throwIO ProcessTerminationException
+
+
+-- | Forceful request to kill a process
+kill :: ProcessId -> String -> Process ()
+kill them reason = do
+  mynid <- getSelfNode
+  let nid = processNodeId them
+  if mynid == nid
+      then sendCtrlMsg Nothing (Kill them reason)
+      else sendCtrlMsg (Just nid) (Kill them reason)
+
+-- | Thrown by 'kill'
+data ProcessKillException =
+    ProcessKillException !ProcessId !String
+  deriving (Typeable)
+
+instance Exception ProcessKillException
+instance Show ProcessKillException where
+  show (ProcessKillException pid reason) = "Kill by " ++ show pid ++ " : " ++ reason
+
+
+-- | Graceful request to exit a process
+exit :: Serializable a => ProcessId -> a -> Process ()
+exit them reason = do
+  mynid <- getSelfNode
+  if mynid == nid
+      then sendCtrlMsg Nothing msg
+      else sendCtrlMsg (Just nid) msg
+  where
+    nid = processNodeId them
+    msg = Exit them (createMessage reason)
+
+
+-- | Internal exception thrown indirectly by 'exit'
+data ProcessExitException =
+    ProcessExitException !ProcessId !Message
+  deriving Typeable
+
+instance Exception ProcessExitException
+instance Show ProcessExitException where
+  show (ProcessExitException pid _) = "Exit by " ++ show pid
+
+-- | Catches ProcessExitException
+catchExit :: forall a b . (Show a, Serializable a) => Process b -> (ProcessId -> a -> Process b) -> Process b
+catchExit act exitHandler = catch act handleExit
+  where
+    handleExit ex@(ProcessExitException from msg) =
+        if messageFingerprint msg == fingerprint (undefined :: a)
+          then exitHandler from decoded
+          else liftIO $ throwIO ex
+     where
+       decoded :: a
+       -- Make sure the value is fully decoded so that we don't hang to
+       -- bytestrings when the process calling 'matchIf' doesn't process
+       -- the values immediately
+       !decoded = decode (messageEncoding msg)
 
 -- | Our own process ID
 getSelfPid :: Process ProcessId
