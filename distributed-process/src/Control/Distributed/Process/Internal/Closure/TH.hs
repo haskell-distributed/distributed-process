@@ -8,6 +8,7 @@ module Control.Distributed.Process.Internal.Closure.TH
   , functionSDict
   , functionTDict
   , mkClosure
+  , mkStaticClosure
   ) where
 
 import Prelude hiding (succ, any)
@@ -58,6 +59,7 @@ import Control.Distributed.Static
   , staticLabel
   , closure
   , staticCompose
+  , staticClosure
   )
 import Control.Distributed.Process.Internal.Types (Process)
 import Control.Distributed.Process.Serializable
@@ -145,6 +147,13 @@ mkClosure n =
   [|   closure ($(mkStatic n) `staticCompose` staticDecode $(functionSDict n))
      . encode
   |]
+
+-- | Make a 'Closure' from a static function.  This is useful for
+-- making a closure for a top-level @Process ()@ function, because
+-- using 'mkClosure' would require adding a dummy @()@ argument.
+--
+mkStaticClosure :: Name -> Q Exp
+mkStaticClosure n = [| staticClosure $( mkStatic n ) |]
 
 --------------------------------------------------------------------------------
 -- Internal (Template Haskell)                                                --
