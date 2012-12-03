@@ -43,6 +43,9 @@ module Control.Distributed.Process
   , spawn
   , call
   , terminate
+  , kill
+  , exit
+  , catchExit
   , ProcessTerminationException(..)
   , ProcessRegistrationException(..)
   , SpawnRef
@@ -184,6 +187,9 @@ import Control.Distributed.Process.Internal.Primitives
     -- Process management
   , terminate
   , ProcessTerminationException(..)
+  , exit
+  , catchExit
+  , kill
   , getSelfPid
   , getSelfNode
     -- Monitoring and linking
@@ -414,7 +420,7 @@ spawnChannelLocal proc = do
   node <- processNode <$> ask
   liftIO $ do
     mvar <- newEmptyMVar
-    forkProcess node $ do
+    _ <- forkProcess node $ do
       -- It is important that we allocate the new channel in the new process,
       -- because otherwise it will be associated with the wrong process ID
       (sport, rport) <- newChan

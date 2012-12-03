@@ -138,7 +138,14 @@ import Control.Distributed.Process.Internal.Messaging
   , impliesDeathOf
   )
 import Control.Distributed.Process.Internal.Primitives
-         (register, finally, receiveWait, match, sendChan)
+  ( register
+  , finally
+  , receiveWait
+  , match
+  , sendChan
+  , ProcessKillException(..)
+  , ProcessExitException(..)
+  )
 import Control.Distributed.Process.Internal.Types
          (SendPort)
 import qualified Control.Distributed.Process.Internal.Closure.BuiltIn as BuiltIn (remoteTable)
@@ -506,6 +513,10 @@ nodeController = do
         ncEffectWhereIs from label
       NCMsg from (NamedSend label msg') ->
         ncEffectNamedSend from label msg'
+      NCMsg (ProcessIdentifier from) (Kill to reason) ->
+        ncEffectKill from to reason
+      NCMsg (ProcessIdentifier from) (Exit to reason) ->
+        ncEffectExit from to reason
       unexpected ->
         error $ "nodeController: unexpected message " ++ show unexpected
 
@@ -712,6 +723,16 @@ ncEffectNamedSend from label msg = do
                          NoImplicitReconnect
                          (messageToPayload msg)
 
+-- [Issue #69]
+ncEffectKill :: ProcessId -> ProcessId -> String -> NC ()
+ncEffectKill from to reason =
+  throwException to $ ProcessKillException from reason
+
+-- [Issue #69]
+ncEffectExit :: ProcessId -> ProcessId -> Message -> NC ()
+ncEffectExit from to reason =
+  throwException to $ ProcessExitException from reason
+
 --------------------------------------------------------------------------------
 -- Auxiliary                                                                  --
 --------------------------------------------------------------------------------
@@ -761,6 +782,8 @@ destNid (NamedSend _ _) = Nothing
 -- then when a local process dies the monitoring/linking machinery will take
 -- care of notifying remote nodes
 destNid (Died _ _) = Nothing
+destNid (Kill pid _)        = Just $ processNodeId pid
+destNid (Exit pid _)        = Just $ processNodeId pid
 
 -- | Check if a process is local to our own node
 isLocal :: LocalNode -> Identifier -> Bool
