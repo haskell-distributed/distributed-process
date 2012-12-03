@@ -127,6 +127,11 @@ import Control.Distributed.Process
   , monitorNode
   , unmonitor
   , NodeMonitorNotification(..)
+  , finally
+  , newChan
+  , receiveChan
+  , nsend
+  , SendPort
   )
 import qualified Control.Distributed.Process.Node as Node
   ( LocalNode
@@ -349,7 +354,19 @@ startMaster backend proc = do
   Node.runProcess node $ do
     slaves <- findSlaves backend
     redirectLogsHere backend
-    proc slaves
+    proc slaves `finally` shutdownLogger
+
+--
+-- | shut down the logger process. This ensures that any pending
+-- messages are flushed before the process exits.
+--
+shutdownLogger :: Process ()
+shutdownLogger = do
+  (sport,rport) <- newChan
+  nsend "logger" (sport :: SendPort ())
+  receiveChan rport
+  -- TODO: we should monitor the logger process so we don't deadlock if
+  -- it has already died.
 
 --------------------------------------------------------------------------------
 -- Accessors                                                                  --
