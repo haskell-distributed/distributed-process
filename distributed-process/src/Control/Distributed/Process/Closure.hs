@@ -182,6 +182,7 @@ module Control.Distributed.Process.Closure
   , remotableDecl
   , mkStatic
   , mkClosure
+  , mkStaticClosure
   , functionSDict
   , functionTDict
 #endif
@@ -216,5 +217,6 @@ import Control.Distributed.Process.Internal.Closure.TH
   , functionSDict
   , functionTDict
   , mkClosure
+  , mkStaticClosure
   )
 #endif
