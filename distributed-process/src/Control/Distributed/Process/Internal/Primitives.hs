@@ -344,13 +344,13 @@ kill them reason = do
       else sendCtrlMsg (Just nid) (Kill them reason)
 
 -- | Thrown by 'kill'
-newtype ProcessKillException =
-    ProcessKillException String
+data ProcessKillException =
+    ProcessKillException !ProcessId !String
   deriving (Typeable)
 
 instance Exception ProcessKillException
 instance Show ProcessKillException where
-  show (ProcessKillException reason) = reason
+  show (ProcessKillException pid reason) = "Kill by " ++ show pid ++ " : " ++ reason
 
 
 -- | Graceful request to exit a process
@@ -372,18 +372,18 @@ data ProcessExitException =
 
 instance Exception ProcessExitException
 instance Show ProcessExitException where
-  show (ProcessExitException _ reason) = show reason
+  show (ProcessExitException pid _) = "Exit by " ++ show pid
 
 -- | Catches ProcessExitException
-catchExit :: forall a b . (Show a, Serializable a) => Process b -> (ProcessId -> a -> Process ()) -> Process b
+catchExit :: forall a b . (Show a, Serializable a) => Process b -> (ProcessId -> a -> Process b) -> Process b
 catchExit act exitHandler = catch act handleExit
   where
     handleExit ex@(ProcessExitException from msg) =
         if messageFingerprint msg == fingerprint (undefined :: a)
           then do
             let reason = decoded
-            exitHandler from reason
-            liftIO . throwIO $ ProcessKillException (show reason)
+            _ <- exitHandler from reason
+            liftIO $ throwIO ex
           else liftIO $ throwIO ex
      where
        decoded :: a

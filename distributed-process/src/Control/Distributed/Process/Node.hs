@@ -725,8 +725,8 @@ ncEffectNamedSend from label msg = do
 
 -- [Issue #69]
 ncEffectKill :: ProcessId -> ProcessId -> String -> NC ()
-ncEffectKill _ to reason =
-  throwException to $ ProcessKillException reason
+ncEffectKill from to reason =
+  throwException to $ ProcessKillException from reason
 
 -- [Issue #69]
 ncEffectExit :: ProcessId -> ProcessId -> Message -> NC ()
