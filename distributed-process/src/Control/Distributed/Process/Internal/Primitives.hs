@@ -380,10 +380,7 @@ catchExit act exitHandler = catch act handleExit
   where
     handleExit ex@(ProcessExitException from msg) =
         if messageFingerprint msg == fingerprint (undefined :: a)
-          then do
-            let reason = decoded
-            _ <- exitHandler from reason
-            liftIO $ throwIO ex
+          then exitHandler from decoded
           else liftIO $ throwIO ex
      where
        decoded :: a
