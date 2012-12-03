@@ -12,7 +12,7 @@ import qualified Data.Map as Map (fromList, elems, insert, member, empty, size, 
 chatClient :: MVar () -> EndPoint -> EndPointAddress -> IO ()
 chatClient done endpoint serverAddr = do
     connect endpoint serverAddr ReliableOrdered
-    cOut <- getPeers >>= connectToPeers 
+    cOut <- getPeers >>= connectToPeers
     cIn  <- newMVar Map.empty
 
     -- Listen for incoming messages
@@ -20,11 +20,11 @@ chatClient done endpoint serverAddr = do
       event <- receive endpoint
       case event of
         Received _ msg ->
-          putStrLn . BSC.unpack . BS.concat $ msg 
+          putStrLn . BSC.unpack . BS.concat $ msg
         ConnectionOpened cid _ addr -> do
           modifyMVar_ cIn $ return . Map.insert cid addr
           didAdd <- modifyMVar cOut $ \conns ->
-            if not (Map.member addr conns) 
+            if not (Map.member addr conns)
               then do
                 Right conn <- connect endpoint addr ReliableOrdered
                 return (Map.insert addr conn conns, True)
@@ -43,24 +43,24 @@ chatClient done endpoint serverAddr = do
 
 {-
     chatState <- newMVar (Map.fromList peerConns)
-  
+
     -- Thread to listen to incoming messages
     forkIO . forever $ do
-      event <- receive endpoint 
+      event <- receive endpoint
       case event of
         ConnectionOpened _ _ (EndPointAddress addr) -> do
-          modifyMVar_ chatState $ \peers -> 
+          modifyMVar_ chatState $ \peers ->
             if not (Map.member addr peers)
               then do
-                Right conn <- connect endpoint (EndPointAddress addr) ReliableOrdered 
+                Right conn <- connect endpoint (EndPointAddress addr) ReliableOrdered
                 return (Map.insert addr conn peers)
               else
                 return peers
         Received _ msg ->
-          putStrLn . BSC.unpack . BS.concat $ msg 
+          putStrLn . BSC.unpack . BS.concat $ msg
         ConnectionClosed _ ->
           return ()
-  
+
 -}
     -- Thread to interact with the user
     showNumPeers cOut
@@ -74,7 +74,7 @@ chatClient done endpoint serverAddr = do
 
   where
     getPeers :: IO [EndPointAddress]
-    getPeers = do 
+    getPeers = do
       ConnectionOpened _ _ _ <- receive endpoint
       Received _ msg <- receive endpoint
       ConnectionClosed _ <- receive endpoint
@@ -86,11 +86,11 @@ chatClient done endpoint serverAddr = do
         Right conn <- connect endpoint addr ReliableOrdered
         return (addr, conn)
       newMVar (Map.fromList conns)
-      
+
     showNumPeers :: MVar (Map EndPointAddress Connection) -> IO ()
-    showNumPeers cOut = 
+    showNumPeers cOut =
       readMVar cOut >>= \conns -> putStrLn $ "# " ++ show (Map.size conns) ++ " peers"
-      
+
 
 
 

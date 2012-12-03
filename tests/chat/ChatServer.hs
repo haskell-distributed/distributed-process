@@ -23,6 +23,6 @@ main = do
           Right conn <- connect endpoint addr ReliableOrdered
           send conn [BSC.pack . show . IntMap.elems $ clients]
           close conn
-        modify $ IntMap.insert cid (endPointAddressToByteString addr) 
+        modify $ IntMap.insert cid (endPointAddressToByteString addr)
       ConnectionClosed cid ->
         modify $ IntMap.delete cid

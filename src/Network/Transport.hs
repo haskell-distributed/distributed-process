@@ -1,5 +1,5 @@
--- | Network Transport 
-module Network.Transport 
+-- | Network Transport
+module Network.Transport
   ( -- * Types
     Transport(..)
   , EndPoint(..)
@@ -41,8 +41,8 @@ import Data.Word (Word64)
 data Transport = Transport {
     -- | Create a new end point (heavyweight operation)
     newEndPoint :: IO (Either (TransportError NewEndPointErrorCode) EndPoint)
-    -- | Shutdown the transport completely 
-  , closeTransport :: IO () 
+    -- | Shutdown the transport completely
+  , closeTransport :: IO ()
   }
 
 -- | Network endpoint.
@@ -50,8 +50,8 @@ data EndPoint = EndPoint {
     -- | Endpoints have a single shared receive queue.
     receive :: IO Event
     -- | EndPointAddress of the endpoint.
-  , address :: EndPointAddress 
-    -- | Create a new lightweight connection. 
+  , address :: EndPointAddress
+    -- | Create a new lightweight connection.
     --
     -- 'connect' should be as asynchronous as possible; for instance, in
     -- Transport implementations based on some heavy-weight underlying network
@@ -64,12 +64,12 @@ data EndPoint = EndPoint {
   , resolveMulticastGroup :: MulticastAddress -> IO (Either (TransportError ResolveMulticastGroupErrorCode) MulticastGroup)
     -- | Close the endpoint
   , closeEndPoint :: IO ()
-  } 
+  }
 
 -- | Lightweight connection to an endpoint.
 data Connection = Connection {
     -- | Send a message on this connection.
-    -- 
+    --
     -- 'send' provides vectored I/O, and allows multiple data segments to be
     -- sent using a single call (cf. 'Network.Socket.ByteString.sendMany').
     -- Note that this segment structure is entirely unrelated to the segment
@@ -80,7 +80,7 @@ data Connection = Connection {
   }
 
 -- | Event on an endpoint.
-data Event = 
+data Event =
     -- | Received a message
     Received {-# UNPACK #-} !ConnectionId [ByteString]
     -- | Connection closed
@@ -88,33 +88,33 @@ data Event =
     -- | Connection opened
     --
     -- 'ConnectionId's need not be allocated contiguously.
-  | ConnectionOpened {-# UNPACK #-} !ConnectionId Reliability EndPointAddress 
+  | ConnectionOpened {-# UNPACK #-} !ConnectionId Reliability EndPointAddress
     -- | Received multicast
   | ReceivedMulticast MulticastAddress [ByteString]
     -- | The endpoint got closed (manually, by a call to closeEndPoint or closeTransport)
   | EndPointClosed
-    -- | An error occurred 
-  | ErrorEvent (TransportError EventErrorCode)  
+    -- | An error occurred
+  | ErrorEvent (TransportError EventErrorCode)
   deriving (Show, Eq)
 
 -- | Connection data ConnectHintsIDs enable receivers to distinguish one connection from another.
-type ConnectionId = Word64 
+type ConnectionId = Word64
 
 -- | Reliability guarantees of a connection.
-data Reliability = 
-    ReliableOrdered 
-  | ReliableUnordered 
+data Reliability =
+    ReliableOrdered
+  | ReliableUnordered
   | Unreliable
   deriving (Show, Eq)
 
 -- | Multicast group.
 data MulticastGroup = MulticastGroup {
-    -- | EndPointAddress of the multicast group. 
+    -- | EndPointAddress of the multicast group.
     multicastAddress     :: MulticastAddress
     -- | Delete the multicast group completely.
   , deleteMulticastGroup :: IO ()
     -- | Maximum message size that we can send to this group.
-  , maxMsgSize           :: Maybe Int 
+  , maxMsgSize           :: Maybe Int
     -- | Send a message to the group.
   , multicastSend        :: [ByteString] -> IO ()
     -- | Subscribe to the given multicast group (to start receiving messages from the group).
@@ -172,13 +172,13 @@ defaultConnectHints = ConnectHints {
 --------------------------------------------------------------------------------
 
 -- | Errors returned by Network.Transport API functions consist of an error
--- code and a human readable description of the problem 
+-- code and a human readable description of the problem
 data TransportError error = TransportError error String
   deriving (Show, Typeable)
 
 -- | Although the functions in the transport API never throw TransportErrors
 -- (but return them explicitly), application code may want to turn these into
--- exceptions. 
+-- exceptions.
 instance (Typeable err, Show err) => Exception (TransportError err)
 
 -- | When comparing errors we ignore the human-readable strings
@@ -190,19 +190,19 @@ data NewEndPointErrorCode =
     -- | Not enough resources
     NewEndPointInsufficientResources
     -- | Failed for some other reason
-  | NewEndPointFailed 
+  | NewEndPointFailed
   deriving (Show, Typeable, Eq)
 
--- | Connection failure 
-data ConnectErrorCode = 
-    -- | Could not resolve the address 
+-- | Connection failure
+data ConnectErrorCode =
+    -- | Could not resolve the address
     ConnectNotFound
     -- | Insufficient resources (for instance, no more sockets available)
-  | ConnectInsufficientResources 
+  | ConnectInsufficientResources
     -- | Timeout
   | ConnectTimeout
     -- | Failed for other reasons (including syntax error)
-  | ConnectFailed                
+  | ConnectFailed
   deriving (Show, Typeable, Eq)
 
 -- | Failure during the creation of a new multicast group
@@ -221,7 +221,7 @@ data ResolveMulticastGroupErrorCode =
     ResolveMulticastGroupNotFound
     -- | Failed for some other reason (including syntax error)
   | ResolveMulticastGroupFailed
-    -- | Not all transport implementations support multicast 
+    -- | Not all transport implementations support multicast
   | ResolveMulticastGroupUnsupported
   deriving (Show, Typeable, Eq)
 
@@ -230,12 +230,12 @@ data SendErrorCode =
     -- | Connection was closed
     SendClosed
     -- | Send failed for some other reason
-  | SendFailed            
+  | SendFailed
   deriving (Show, Typeable, Eq)
 
 -- | Error codes used when reporting errors to endpoints (through receive)
-data EventErrorCode = 
-    -- | Failure of the entire endpoint 
+data EventErrorCode =
+    -- | Failure of the entire endpoint
     EventEndPointFailed
     -- | Transport-wide fatal error
   | EventTransportFailed
@@ -247,27 +247,27 @@ data EventErrorCode =
     -- both directions, must now be considered to have failed; they fail as a
     -- "bundle" of connections, with only a single "bundle" of connections per
     -- endpoint at any point in time.
-    -- 
+    --
     -- That is, suppose there are multiple connections in either direction
     -- between endpoints A and B, and A receives a notification that it has
     -- lost contact with B. Then A must not be able to send any further
-    -- messages to B on existing connections. 
+    -- messages to B on existing connections.
     --
     -- Although B may not realize /immediately/ that its connection to A has
     -- been broken, messages sent by B on existing connections should not be
     -- delivered, and B must eventually get an EventConnectionLost message,
-    -- too. 
+    -- too.
     --
     -- Moreover, this event must be posted before A has successfully
     -- reconnected (in other words, if B notices a reconnection attempt from A,
     -- it must post the EventConnectionLost before acknowledging the connection
     -- from A) so that B will not receive events about new connections or
-    -- incoming messages from A without realizing that it got disconnected. 
-    -- 
+    -- incoming messages from A without realizing that it got disconnected.
+    --
     -- If B attempts to establish another connection to A before it realized
     -- that it got disconnected from A then it's okay for this connection
     -- attempt to fail, and the EventConnectionLost to be posted at that point,
     -- or for the EventConnectionLost to be posted and for the new connection
     -- to be considered the first connection of the "new bundle".
-  | EventConnectionLost EndPointAddress 
+  | EventConnectionLost EndPointAddress
   deriving (Show, Typeable, Eq)

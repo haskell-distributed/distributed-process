@@ -11,7 +11,7 @@ import Control.Monad.IO.Class (liftIO)
 
 master :: MVar () -> EndPoint -> [String] -> IO ()
 master done endpoint workers = do
-  conns <- forM workers $ \worker -> do 
+  conns <- forM workers $ \worker -> do
     Right conn <- connect endpoint (EndPointAddress $ BSC.pack worker) ReliableOrdered
     return conn
   -- Send out requests
@@ -24,10 +24,10 @@ master done endpoint workers = do
     case event of
       Received _ msg ->
         tell [read . BSC.unpack . BS.concat $ msg]
-      _ -> 
+      _ ->
         return ()
   putStrLn $ "Replies: " ++ show (replies :: [Int])
-  putMVar done () 
+  putMVar done ()
 
 main :: IO ()
 main = do
@@ -41,4 +41,4 @@ main = do
   forkIO $ master masterDone endpoint workers
 
   takeMVar masterDone
-  
+
