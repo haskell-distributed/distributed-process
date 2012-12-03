@@ -365,9 +365,13 @@ testSendToTerminated transport = do
 testTimeout :: NT.Transport -> Assertion
 testTimeout transport = do
   localNode <- newLocalNode transport initRemoteTable
+  done <- newEmptyMVar
+
   runProcess localNode $ do
     Nothing <- receiveTimeout 1000000 [match (\(Add _ _ _) -> return ())]
-    return ()
+    liftIO $ putMVar done ()
+
+  takeMVar done
 
 -- | Test zero timeout
 testTimeout0 :: NT.Transport -> Assertion
@@ -526,6 +530,7 @@ testMergeChannels transport = do
 testTerminate :: NT.Transport -> Assertion
 testTerminate transport = do
   localNode <- newLocalNode transport initRemoteTable
+  done <- newEmptyMVar
 
   pid <- forkProcess localNode $ do
     liftIO $ threadDelay 100000
@@ -535,11 +540,14 @@ testTerminate transport = do
     ref <- monitor pid
     ProcessMonitorNotification ref' pid' (DiedException ex) <- expect
     True <- return $ ref == ref' && pid == pid' && ex == show ProcessTerminationException
-    return ()
+    liftIO $ putMVar done ()
+
+  takeMVar done
 
 testMonitorNode :: NT.Transport -> Assertion
 testMonitorNode transport = do
   [node1, node2] <- replicateM 2 $ newLocalNode transport initRemoteTable
+  done <- newEmptyMVar
 
   closeLocalNode node1
 
@@ -547,7 +555,9 @@ testMonitorNode transport = do
     ref <- monitorNode (localNodeId node1)
     NodeMonitorNotification ref' nid DiedDisconnect <- expect
     True <- return $ ref == ref' && nid == localNodeId node1
-    return ()
+    liftIO $ putMVar done ()
+
+  takeMVar done
 
 testMonitorChannel :: NT.Transport -> Assertion
 testMonitorChannel transport = do
@@ -573,6 +583,7 @@ testMonitorChannel transport = do
 testRegistry :: NT.Transport -> Assertion
 testRegistry transport = do
   node <- newLocalNode transport initRemoteTable
+  done <- newEmptyMVar
 
   pingServer <- forkProcess node ping
 
@@ -584,12 +595,15 @@ testRegistry transport = do
     nsend "ping" (Pong us)
     Ping pid' <- expect
     True <- return $ pingServer == pid'
-    return ()
+    liftIO $ putMVar done ()
+
+  takeMVar done
 
 testRemoteRegistry :: NT.Transport -> Assertion
 testRemoteRegistry transport = do
   node1 <- newLocalNode transport initRemoteTable
   node2 <- newLocalNode transport initRemoteTable
+  done <- newEmptyMVar
 
   pingServer <- forkProcess node1 ping
 
@@ -606,11 +620,14 @@ testRemoteRegistry transport = do
     nsendRemote nid1 "ping" (Pong us)
     Ping pid' <- expect
     True <- return $ pingServer == pid'
-    return ()
+    liftIO $ putMVar done ()
+
+  takeMVar done
 
 testSpawnLocal :: NT.Transport -> Assertion
 testSpawnLocal transport = do
   node <- newLocalNode transport initRemoteTable
+  done <- newEmptyMVar
 
   runProcess node $ do
     us <- getSelfPid
@@ -624,7 +641,10 @@ testSpawnLocal transport = do
       send us ()
 
     send pid sport
-    expect
+    () <- expect
+    liftIO $ putMVar done ()
+
+  takeMVar done
 
 testReconnect :: NT.Transport -> TransportInternals -> Assertion
 testReconnect transport transportInternals = do
@@ -841,66 +861,87 @@ testReceiveChanFeatures transport = do
 testKillLocal :: NT.Transport -> Assertion
 testKillLocal transport = do
   localNode <- newLocalNode transport initRemoteTable
+  done <- newEmptyMVar
 
   pid <- forkProcess localNode $ do
-    liftIO $ threadDelay 100000
+    liftIO $ threadDelay 1000000
 
   runProcess localNode $ do
     ref <- monitor pid
+    us <- getSelfPid
     kill pid "TestKill"
     ProcessMonitorNotification ref' pid' (DiedException ex) <- expect
-    True <- return $ ref == ref' && pid == pid' && ex == "TestKill"
-    return ()
+    True <- return $ ref == ref' && pid == pid' && ex == "Kill by " ++ show us ++ ": TestKill"
+    liftIO $ putMVar done ()
+
+  takeMVar done
 
 testKillRemote :: NT.Transport -> Assertion
 testKillRemote transport = do
   node1 <- newLocalNode transport initRemoteTable
   node2 <- newLocalNode transport initRemoteTable
+  done <- newEmptyMVar
 
   pid <- forkProcess node1 $ do
-    liftIO $ threadDelay 100000
+    liftIO $ threadDelay 1000000
 
   runProcess node2 $ do
     ref <- monitor pid
+    us <- getSelfPid
     kill pid "TestKill"
-    ProcessMonitorNotification ref' pid' (DiedException ex) <- expect
-    True <- return $ ref == ref' && pid == pid' && ex == "TestKill"
-    return ()
+    ProcessMonitorNotification ref' pid' (DiedException reason) <- expect
+    True <- return $ ref == ref' && pid == pid' && reason == "Kill by " ++ show us ++ ": TestKill"
+    liftIO $ putMVar done ()
+
+  takeMVar done
 
 testExitLocal :: NT.Transport -> Assertion
 testExitLocal transport = do
   localNode <- newLocalNode transport initRemoteTable
+  supervisedDone <- newEmptyMVar
+  supervisorDone <- newEmptyMVar
 
   pid <- forkProcess localNode $ do
     (liftIO $ threadDelay 100000)
-      `catchExit` \from reason -> do
-        say $ "Got " ++ reason ++ " from " ++ show from
-        return ()
+      `catchExit` \_from reason -> do
+        -- TODO: should verify that 'from' has the right value
+        True <- return $ reason == "TestExit"
+        liftIO $ putMVar supervisedDone ()
 
   runProcess localNode $ do
     ref <- monitor pid
     exit pid "TestExit"
-    ProcessMonitorNotification ref' pid' (DiedException ex) <- expect
-    True <- return $ ref == ref' && pid == pid' && ex == "TestExit"
-    return ()
+    -- This time the client catches the exception, so it dies normally
+    ProcessMonitorNotification ref' pid' DiedNormal <- expect
+    True <- return $ ref == ref' && pid == pid'
+    liftIO $ putMVar supervisorDone ()
+
+  takeMVar supervisedDone
+  takeMVar supervisorDone
 
 testExitRemote :: NT.Transport -> Assertion
 testExitRemote transport = do
   node1 <- newLocalNode transport initRemoteTable
   node2 <- newLocalNode transport initRemoteTable
+  supervisedDone <- newEmptyMVar
+  supervisorDone <- newEmptyMVar
 
   pid <- forkProcess node1 $ do
     (liftIO $ threadDelay 100000)
-      `catchExit` \from reason -> do
-        say $ "Got " ++ reason ++ " from " ++ show from
-        return ()
+      `catchExit` \_from reason -> do
+        -- TODO: should verify that 'from' has the right value
+        True <- return $ reason == "TestExit"
+        liftIO $ putMVar supervisedDone ()
 
   runProcess node2 $ do
     ref <- monitor pid
     exit pid "TestExit"
-    ProcessMonitorNotification ref' pid' (DiedException ex) <- expect
-    True <- return $ ref == ref' && pid == pid' && ex == "TestExit"
-    return ()
+    ProcessMonitorNotification ref' pid' DiedNormal <- expect
+    True <- return $ ref == ref' && pid == pid'
+    liftIO $ putMVar supervisorDone ()
+
+  takeMVar supervisedDone
+  takeMVar supervisorDone
 
 tests :: (NT.Transport, TransportInternals)  -> [Test]
 tests (transport, transportInternals) = [

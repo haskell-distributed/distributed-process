@@ -725,13 +725,17 @@ ncEffectNamedSend from label msg = do
 
 -- [Issue #69]
 ncEffectKill :: ProcessId -> ProcessId -> String -> NC ()
-ncEffectKill from to reason =
-  throwException to $ ProcessKillException from reason
+ncEffectKill from to reason = do
+  node <- ask
+  when (isLocal node (ProcessIdentifier to)) $
+    throwException to $ ProcessKillException from reason
 
 -- [Issue #69]
 ncEffectExit :: ProcessId -> ProcessId -> Message -> NC ()
-ncEffectExit from to reason =
-  throwException to $ ProcessExitException from reason
+ncEffectExit from to reason = do
+  node <- ask
+  when (isLocal node (ProcessIdentifier to)) $
+    throwException to $ ProcessExitException from reason
 
 --------------------------------------------------------------------------------
 -- Auxiliary                                                                  --

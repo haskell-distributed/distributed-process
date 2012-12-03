@@ -333,15 +333,13 @@ instance Exception ProcessTerminationException
 terminate :: Process a
 terminate = liftIO $ throwIO ProcessTerminationException
 
-
 -- | Forceful request to kill a process
 kill :: ProcessId -> String -> Process ()
-kill them reason = do
-  mynid <- getSelfNode
-  let nid = processNodeId them
-  if mynid == nid
-      then sendCtrlMsg Nothing (Kill them reason)
-      else sendCtrlMsg (Just nid) (Kill them reason)
+-- NOTE: We send the message to our local node controller, which will then
+-- forward it to a remote node controller (if applicable). Sending it directly
+-- to a remote node controller means that that the message may overtake a
+-- 'monitor' or 'link' request.
+kill them reason = sendCtrlMsg Nothing (Kill them reason)
 
 -- | Thrown by 'kill'
 data ProcessKillException =
@@ -350,20 +348,15 @@ data ProcessKillException =
 
 instance Exception ProcessKillException
 instance Show ProcessKillException where
-  show (ProcessKillException pid reason) = "Kill by " ++ show pid ++ " : " ++ reason
-
+  show (ProcessKillException pid reason) = "Kill by " ++ show pid ++ ": " ++ reason
 
 -- | Graceful request to exit a process
 exit :: Serializable a => ProcessId -> a -> Process ()
-exit them reason = do
-  mynid <- getSelfNode
-  if mynid == nid
-      then sendCtrlMsg Nothing msg
-      else sendCtrlMsg (Just nid) msg
-  where
-    nid = processNodeId them
-    msg = Exit them (createMessage reason)
-
+-- NOTE: We send the message to our local node controller, which will then
+-- forward it to a remote node controller (if applicable). Sending it directly
+-- to a remote node controller means that that the message may overtake a
+-- 'monitor' or 'link' request.
+exit them reason = sendCtrlMsg Nothing (Exit them (createMessage reason))
 
 -- | Internal exception thrown indirectly by 'exit'
 data ProcessExitException =
