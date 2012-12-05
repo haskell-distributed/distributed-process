@@ -28,7 +28,7 @@ executable dtp
 --                      , stm
                         , derive
                         , distributed-static
-                        ,  distributed-process
+                        , distributed-process
                         , distributed-process-simplelocalnet
                         , network-transport
                         , network-transport-tcp
@@ -39,21 +39,31 @@ executable dtp
     hs-source-dirs:     src
     ghc-options:        -Wall -threaded -rtsopts
     if flag(developer)
-        ghc-options:    -auto-all
+        ghc-options:    -auto-all -caf-all -fforce-recomp
 
 test-suite unit-tests
     default-language:   Haskell2010
     type:               exitcode-stdio-1.0
     hs-source-dirs:     tests
-    main-is:            Properties.hs
-    ghc-options:        -Wall -threaded -rtsopts
+    main-is:            TestMain.hs
+    ghc-options:        -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
+    default-extensions: ScopedTypeVariables,
+                        DeriveDataTypeable,
+                        GeneralizedNewtypeDeriving
     build-depends:      QuickCheck,
                         base,
+                        binary >= 0.5 && < 0.7,
                         containers,
                         bytestring,
                         template-haskell,
+                        HUnit >= 1.2 && < 1.3,
                         test-framework,
                         test-framework-quickcheck2,
+                        test-framework-hunit >= 0.2 && < 0.3,
                         text,
                         time
+                        , distributed-process
+                        , distributed-process-simplelocalnet
+                        , network-transport
+                        , network-transport-tcp
 
