@@ -1,0 +1,14 @@
+name:                dtp-benchmarks
+version:             0
+build-type:          Simple
+
+cabal-version:       >=1.8
+
+executable dtp-benchmark
+  main-is:          CallServer.hs
+  ghc-options:      -Wall -O2
+  build-depends:
+                    base,
+                    bytestring,
+                    criterion,
+                    distributed-process-platform
