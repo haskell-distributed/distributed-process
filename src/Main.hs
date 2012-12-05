@@ -1,27 +1,34 @@
 module Main where
 
-import           Control.Distributed.Naive.Kitty
 import           Control.Distributed.Examples.Counter
+import           Control.Distributed.Examples.Kitty
 
-import           Control.Exception                (SomeException)
-import           Control.Monad                    (void)
-import           System.IO.Error                  (IOError)
+import           Control.Exception                    (AsyncException (..),
+                                                       SomeException, catchJust)
+import           Control.Monad                        (void)
+import           System.IO.Error                      (IOError)
 
-import           Control.Distributed.Static       (initRemoteTable)
-import           Network.Transport.TCP            (createTransport,
-                                                   defaultTCPParameters)
+import           Control.Distributed.Static           (initRemoteTable)
+import           Network.Transport                    (closeTransport)
+import           Network.Transport.TCP                (createTransport,
+                                                       defaultTCPParameters)
+
+import           Control.Distributed.Process          (Process, ProcessId,
+                                                       getSelfPid, liftIO,
+                                                       newChan, say, spawnLocal)
+import           Control.Distributed.Process.Node     (LocalNode, newLocalNode,
+                                                       runProcess)
 import           System.IO
-import           Control.Distributed.Process      (Process, ProcessId,
-                                                   getSelfPid, liftIO, say,
-                                                   spawnLocal, newChan)
-import           Control.Distributed.Process.Node (LocalNode, newLocalNode,
-                                                   runProcess)
 
 host :: String
 host = "::ffff:127.0.0.1"
 
+
+
 port :: String
 port = "8000"
+
+
 
 main :: IO ()
 main = do
@@ -34,14 +41,17 @@ main = do
             putStrLn "Transport created."
             localNode <- newLocalNode transport initRemoteTable
             putStrLn "Local node created."
-            --runProcess localNode startApp `catch` \e -> print (e :: IOError)
-            runProcess localNode counterTest `catch` \e -> print (e :: IOError)
+            runProcess localNode (kittyTest 1000) `catch` \e -> print (e :: IOError)
+            --runProcess localNode counterTest `catch` \e -> print (e :: IOError)
+            putStrLn "Server started!"
+            getChar
+            return ()
 
-    putStrLn "Server done! Press key to exit ..."
-    void getChar
+
 
 counterTest :: Process ()
 counterTest = do
+    say "-- Starting counter test ..."
     cid <- startCounter 10
     c <- getCount cid
     say $ "c = " ++ show c
@@ -56,18 +66,24 @@ counterTest = do
     stopCounter cid
     return ()
 
-startApp :: Process ()
-startApp = do
-    say "-- Starting app ..."
+
+
+kittyTest :: Int -> Process ()
+kittyTest n = do
+    say "-- Starting kitty test ..."
     kPid <- startKitty [Cat "c1" "black" "a black cat"]
-    orders kPid 1000
+    say $ "-- Ordering " ++ show n ++  " cats ..."
+    kittyTransactions kPid n
+    say "-- Closing kitty shop ..."
     closeShop kPid
     return ()
 
-orders kPid 0 = return ()
-orders kPid n = do
+
+
+kittyTransactions kPid 0 = return ()
+kittyTransactions kPid n = do
     cat1 <- orderCat kPid "c1" "black" "a black cat"
     cat2 <- orderCat kPid "c2" "black" "a black cat"
     returnCat kPid cat1
     returnCat kPid cat2
-    orders kPid (n - 1)
+    kittyTransactions kPid (n - 1)
