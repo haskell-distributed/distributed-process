@@ -1,0 +1,9 @@
+:set -isrc -isrc
+
+:def hoogle \x -> return $ ":!hoogle " ++ x
+
+:def doc \x -> return $ ":!hoogle --info \"" ++ x ++ "\""
+
+:set -w -fwarn-unused-binds -fwarn-unused-imports
+
+:load src/Main.hs

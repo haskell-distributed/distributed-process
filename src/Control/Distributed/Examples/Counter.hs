@@ -1,28 +1,23 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE TemplateHaskell    #-}
 module Control.Distributed.Examples.Counter(
-   CounterId,
     startCounter,
     stopCounter,
     getCount,
     incCount,
     resetCount
   ) where
-import           Data.Typeable                          (Typeable)
 
 import           Control.Distributed.Platform.GenServer
-import           Control.Distributed.Process
+
 import           Data.Binary                            (Binary (..), getWord8,
                                                          putWord8)
 import           Data.DeriveTH
+import           Data.Typeable                          (Typeable)
 
 --------------------------------------------------------------------------------
--- API                                                                        --
+-- Types                                                                      --
 --------------------------------------------------------------------------------
-
-
--- | The counter server id
-type CounterId = ServerId
 
 
 -- Call request(s)
@@ -32,6 +27,8 @@ data CounterRequest
         deriving (Show, Typeable)
 $(derive makeBinary ''CounterRequest)
 
+
+
 -- Call response(s)
 data CounterResponse
     = CounterIncremented
@@ -40,10 +37,15 @@ data CounterResponse
 $(derive makeBinary ''CounterResponse)
 
 
+
 -- Cast message(s)
 data ResetCount = ResetCount deriving (Show, Typeable)
 $(derive makeBinary ''ResetCount)
 
+
+--------------------------------------------------------------------------------
+-- API                                                                        --
+--------------------------------------------------------------------------------
 
 -- | Start a counter server
 startCounter :: Int -> Process ServerId
@@ -87,20 +89,18 @@ resetCount sid = castServer sid ResetCount
 --------------------------------------------------------------------------------
 
 
-
 handleCounter IncrementCounter = do
   modifyState (+1)
   count <- getState
   if count > 10
-    then return $ CallStop CounterIncremented "Count > 10"
-    else return $ CallOk CounterIncremented
-
+    then callStop CounterIncremented "Count > 10"
+    else callOk CounterIncremented
 
 handleCounter GetCount = do
   count <- getState
-  return $ CallOk (Count count)
+  callOk (Count count)
 
 
 handleReset ResetCount = do
   putState 0
-  return $ CastOk
+  castOk
