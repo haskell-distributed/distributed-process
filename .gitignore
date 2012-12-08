@@ -7,3 +7,5 @@ cabal-dev
 *.sublime-*
 *.sublime-*
 *.lksh?
+.dist-buildwrapper
+.project
