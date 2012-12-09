@@ -6,6 +6,7 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Main where
 
+import 			 System.IO (hSetBuffering, BufferMode(..), stdin, stdout, stderr)
 import           Test.Framework          (Test, defaultMain, testGroup)
 import qualified Network.Transport as NT
 import           Network.Transport.TCP
@@ -22,6 +23,10 @@ tests transport internals = do
 
 main :: IO ()
 main = do
+  hSetBuffering stdin NoBuffering
+  hSetBuffering stdout NoBuffering
+  hSetBuffering stderr NoBuffering
+
   Right (transport, internals) <- createTransportExposeInternals
                                     "127.0.0.1" "8080" defaultTCPParameters
   testData <- tests transport internals

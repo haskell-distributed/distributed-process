@@ -3,6 +3,7 @@
 {-# LANGUAGE TemplateHaskell    #-}
 module TestGenServer where
 
+import System.IO (hPutStrLn, stderr)
 import           Data.Binary                            (Binary (..), getWord8,
                                                          putWord8)
 import Data.Typeable (Typeable)
@@ -39,6 +40,7 @@ import Test.Framework (Test, defaultMain, testGroup)
 import Test.Framework.Providers.HUnit (testCase)
 
 import Control.Distributed.Platform.GenServer
+import Control.Distributed.Platform.Internal.Types
 import GenServer.Counter
 import GenServer.Kitty
 
@@ -63,47 +65,53 @@ testPing transport = do
   pingDone <- newEmptyMVar
   pongDone <- newEmptyMVar
   terminateDone <- newEmptyMVar
+  serverAddr <- newEmptyMVar
 
   localNode <- newLocalNode transport initRemoteTable
 
-  runProcess localNode $ do
-    say "Starting ..."
-    sid <- startServer (0 :: Int) defaultServer {
-      initHandler       = do
-        trace "Init ..."
-        c <- getState
-        liftIO $ putMVar initDone c
-        initOk Infinity,
-      terminateHandler = \reason -> do
-        trace "Terminate ..."
-        c <- getState
-        liftIO $ putMVar terminateDone c
-        return (),
-      handlers          = [
-        handle (\Ping -> do
-          trace "Ping ..."
-          modifyState (1 +)
-          c <- getState
-          --liftIO $ putMVar pingDone c
-          ok Pong),
-        handle (\Pong -> do
-          trace "Pong ..."
-          modifyState (1 +)
-          c <- getState
-          --liftIO $ putMVar pongDone c
-          ok ())
-      ]
-    }
-    --liftIO $ takeMVar initDone
-    --replicateM_ 10 $ do
-    Pong <- callServer sid Infinity Ping
-      --liftIO $ takeMVar pingDone
-    castServer sid Ping
-      --liftIO $ takeMVar pongDone
-      --return ()
-    exit sid ()
-    liftIO $ takeMVar terminateDone
-    return ()
+  forkIO $ runProcess localNode $ do
+      --say "Starting ..."
+      sid <- startServer (0 :: Int) defaultServer {
+          initHandler       = do
+            --trace "Init ..."
+            c <- getState
+            liftIO $ putMVar initDone c
+            initOk Infinity,
+          terminateHandler = \reason -> do
+            --trace "Terminate ..."
+            c <- getState
+            liftIO $ putMVar terminateDone c
+            return (),
+          handlers          = [
+            handle (\Ping -> do
+              --trace "Ping ..."
+              modifyState (+1)
+              c <- getState
+              liftIO $ putMVar pingDone c
+              ok Pong),
+            handle (\Pong -> do
+              --trace "Pong ..."
+              modifyState (1 +)
+              c <- getState
+              liftIO $ putMVar pongDone c
+              ok ())
+        ]}
+      liftIO $ putMVar serverAddr sid
+      return ()
+
+  forkIO $ runProcess localNode $ do
+      sid <- liftIO $ takeMVar serverAddr
+
+      liftIO $ takeMVar initDone
+      --replicateM_ 10 $ do
+      Pong <- callServer sid (Timeout (TimeInterval Seconds 10)) Ping
+      liftIO $ takeMVar pingDone
+      castServer sid Pong
+      liftIO $ takeMVar pongDone
+      exit sid ()
+
+  liftIO $ takeMVar terminateDone
+  return ()
 
 
 
@@ -141,11 +149,11 @@ testKitty transport = do
 
   runProcess localNode $ do
       kPid <- startKitty [Cat "c1" "black" "a black cat"]
-      replicateM_ 100 $ do
-          cat1 <- orderCat kPid "c1" "black" "a black cat"
-          cat2 <- orderCat kPid "c2" "black" "a black cat"
-          returnCat kPid cat1
-          returnCat kPid cat2
+      --replicateM_ 100 $ do
+      cat1 <- orderCat kPid "c1" "black" "a black cat"
+      cat2 <- orderCat kPid "c2" "black" "a black cat"
+      returnCat kPid cat1
+      returnCat kPid cat2
       closeShop kPid
       stopKitty kPid
       liftIO $ putMVar serverDone True
@@ -159,9 +167,9 @@ testKitty transport = do
 tests :: NT.Transport -> [Test]
 tests transport = [
     testGroup "Basic features" [
-        --testCase "Ping"       (testPing transport),
         testCase "Counter"    (testCounter transport),
-        testCase "Kitty"      (testKitty transport)
+        testCase "Kitty"      (testKitty transport),
+        testCase "Ping"       (testPing transport)
       ]
   ]
 
