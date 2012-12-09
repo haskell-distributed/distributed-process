@@ -1,10 +1,11 @@
-{-# LANGUAGE DeriveDataTypeable        #-}
-{-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE FunctionalDependencies    #-}
-{-# LANGUAGE MultiParamTypeClasses     #-}
-{-# LANGUAGE Rank2Types                #-}
-{-# LANGUAGE TemplateHaskell           #-}
-{-# LANGUAGE TypeFamilies              #-}
+{-# LANGUAGE DeriveDataTypeable         #-}
+{-# LANGUAGE ExistentialQuantification  #-}
+{-# LANGUAGE FunctionalDependencies     #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MultiParamTypeClasses      #-}
+{-# LANGUAGE Rank2Types                 #-}
+{-# LANGUAGE TemplateHaskell            #-}
+{-# LANGUAGE TypeFamilies               #-}
 
 -- | Second iteration of GenServer
 module Control.Distributed.Platform.GenServer (
@@ -12,20 +13,15 @@ module Control.Distributed.Platform.GenServer (
     Timeout(..),
     initOk,
     initStop,
-    callOk,
-    callForward,
-    callStop,
-    castOk,
-    castForward,
-    castStop,
-    TerminateReason(..),
+    ok,
+    forward,
+    stop,
     InitHandler,
+    Handler,
     TerminateHandler,
     MessageDispatcher(),
-    handleCall,
-    handleCallIf,
-    handleCast,
-    handleCastIf,
+    handle,
+    handleIf,
     handleAny,
     putState,
     getState,
@@ -40,35 +36,42 @@ module Control.Distributed.Platform.GenServer (
     trace
   ) where
 
-import           Control.Distributed.Process              (AbstractMessage (forward),
-                                                           Match, MonitorRef,
-                                                           Process, ProcessId,
-                                                           expect,
-                                                           expectTimeout,
-                                                           getSelfPid, match,
-                                                           matchAny, matchIf,
-                                                           receiveTimeout,
-                                                           receiveWait, say,
-                                                           send, spawnLocal)
-import           Control.Distributed.Process.Serializable (Serializable)
-import qualified Control.Monad.State                      as ST (StateT,
-                                                                 get, lift,
-                                                                 modify, put,
-                                                                 runStateT)
+import           Control.Applicative                        (Applicative)
+import           Control.Exception                          (Exception, SomeException)
+import           Control.Distributed.Process                (AbstractMessage,
+                                                             Match, MonitorRef,
+                                                             Process, ProcessId,
+                                                             catchExit, exit,
+                                                             expect,
+                                                             expectTimeout,
+                                                             getSelfPid, link,
+                                                             match, matchAny,
+                                                             matchIf, monitor,
+                                                             receiveTimeout,
+                                                             receiveWait, say,
+                                                             send, spawnLocal,
+                                                             terminate)
+import qualified Control.Distributed.Process                as P (forward, catch)
+import           Control.Distributed.Process.Internal.Types (MonitorRef)
+import           Control.Distributed.Process.Serializable   (Serializable)
+import           Control.Monad                              (void)
+import           Control.Monad.IO.Class                     (MonadIO)
+import qualified Control.Monad.State                        as ST (MonadState,
+                                                                   MonadTrans,
+                                                                   StateT, get,
+                                                                   lift, modify,
+                                                                   put,
+                                                                   runStateT)
 
-import           Data.Binary                              (Binary (..),
-                                                           getWord8, putWord8)
+import           Data.Binary                                (Binary (..),
+                                                             getWord8, putWord8)
 import           Data.DeriveTH
-import           Data.Typeable                            (Typeable)
+import           Data.Typeable                              (Typeable)
 
 
 --------------------------------------------------------------------------------
 -- Data Types                                                                 --
 --------------------------------------------------------------------------------
-
--- | Process name
-type Name = String
-
 
 
 -- | ServerId
@@ -83,7 +86,10 @@ data Timeout = Timeout Int
 
 
 -- | Server monad
-type Server s = ST.StateT s Process
+newtype Server s a = Server {
+    unServer :: ST.StateT s Process a
+  }
+  deriving (Functor, Monad, ST.MonadState s, MonadIO, Typeable, Applicative)
 
 
 
@@ -111,61 +117,39 @@ $(derive makeBinary ''TerminateReason)
 
 
 -- | The result of a call
-data CallResult a
-    = CallOk a
-    | CallForward ServerId
-    | CallStop a String
+data Result a
+    = Ok a
+    | Forward ServerId
+    | Stop a String
         deriving (Show, Typeable)
 
-callOk :: a -> Server s (CallResult a)
-callOk resp = return (CallOk resp)
 
-callForward :: ServerId -> Server s (CallResult a)
-callForward sid = return (CallForward sid)
+ok :: (Serializable a, Show a) => a -> Server s (Result a)
+ok resp = return (Ok resp)
 
-callStop :: a -> String -> Server s (CallResult a)
-callStop resp reason = return (CallStop resp reason)
+forward :: (Serializable a, Show a) => ServerId -> Server s (Result a)
+forward sid = return (Forward sid)
 
-
-
--- | The result of a cast
-data CastResult
-    = CastOk
-    | CastForward ServerId
-    | CastStop String
-
-castOk :: Server s CastResult
-castOk = return CastOk
-
-castForward :: ServerId -> Server s CastResult
-castForward sid = return (CastForward sid)
-
-castStop :: String -> Server s CastResult
-castStop reason = return (CastStop reason)
+stop :: (Serializable a, Show a) => a -> String -> Server s (Result a)
+stop resp reason = return (Stop resp reason)
 
 
 
 -- | Handlers
-type InitHandler s           = Server s InitResult
-type TerminateHandler s       = TerminateReason -> Server s ()
-type CallHandler s a b        = a -> Server s (CallResult b)
-type CastHandler s a          = a -> Server s CastResult
-
+type InitHandler s       = Server s InitResult
+type TerminateHandler s  = TerminateReason -> Server s ()
+type Handler s a b       = a -> Server s (Result b)
 
 
 
 -- | Adds routing metadata to the actual payload
-data Message a = Message ProcessId a
+data Message a =
+    CallMessage { from :: ProcessId, payload :: a }
+  | CastMessage { from :: ProcessId, payload :: a }
     deriving (Show, Typeable)
 $(derive makeBinary ''Message)
 
 
-
--- | Management message
--- TODO is there a std way of terminating a process from another process?
-data ManageServer = TerminateServer TerminateReason
-  deriving (Show, Typeable)
-$(derive makeBinary ''ManageServer)
 
 -- | Dispatcher that knows how to dispatch messages to a handler
 -- s The server state
@@ -198,53 +182,41 @@ instance MessageMatcher MessageDispatcher where
 
 -- | Constructs a call message dispatcher
 --
-handleCall :: (Serializable a, Show a, Serializable b) => CallHandler s a b -> MessageDispatcher s
-handleCall = handleCallIf (const True)
+handle :: (Serializable a, Show a, Serializable b, Show b) => Handler s a b -> MessageDispatcher s
+handle = handleIf (const True)
 
 
 
-handleCallIf :: (Serializable a, Show a, Serializable b) => (a -> Bool) -> CallHandler s a b -> MessageDispatcher s
-handleCallIf cond handler = MessageDispatcherIf {
-  dispatcher = (\state m@(Message cid req) -> do
-      say $ "Server got CALL: [" ++ show cid ++ " / " ++ show req ++ "]"
-      (r, s') <- ST.runStateT (handler req) state
+handleIf :: (Serializable a, Show a, Serializable b, Show b) => (a -> Bool) -> Handler s a b -> MessageDispatcher s
+handleIf cond handler = MessageDispatcherIf {
+  dispatcher = (\s msg -> case msg of
+    CallMessage cid payload -> do
+      --say $ "Server got CALL: [" ++ show cid ++ " / " ++ show payload ++ "]"
+      (r, s') <- runServer (handler payload) s
       case r of
-          CallOk resp -> do
+          Ok resp -> do
+            --say $ "Server REPLY: " ++ show r
             send cid resp
             return (s', Nothing)
-          CallForward sid -> do
-            send sid m
+          Forward sid -> do
+            --say $ "Server FORWARD to: " ++ show sid
+            send sid msg
             return (s', Nothing)
-          CallStop resp reason -> do
+          Stop resp reason -> do
+            --say $ "Server REPLY: " ++ show r
             send cid resp
             return (s', Just (TerminateReason reason))
-  ),
-  dispatchIf = \state (Message _ req) -> cond req
-}
-
-
-
--- | Constructs a cast message dispatcher
---
-handleCast :: (Serializable a, Show a) => CastHandler s a -> MessageDispatcher s
-handleCast = handleCastIf (const True)
-
-
-
--- |
-handleCastIf :: (Serializable a, Show a) => (a -> Bool) -> CastHandler s a -> MessageDispatcher s
-handleCastIf cond handler = MessageDispatcherIf {
-  dispatcher = (\s m@(Message cid msg) -> do
-      say $ "Server got CAST: [" ++ show cid ++ " / " ++ show msg ++ "]"
-      (r, s') <- ST.runStateT (handler msg) s
+    CastMessage cid payload -> do
+      --say $ "Server got CAST: [" ++ show cid ++ " / " ++ show payload ++ "]"
+      (r, s') <- runServer (handler payload) s
       case r of
-          CastStop reason -> return (s', Just $ TerminateReason reason)
-          CastOk -> return (s', Nothing)
-          CastForward sid -> do
-            send sid m
+          Stop _ reason -> return (s', Just $ TerminateReason reason)
+          Ok _ -> return (s', Nothing)
+          Forward sid -> do
+            send sid msg
             return (s', Nothing)
   ),
-  dispatchIf = \state (Message _ msg) -> cond msg
+  dispatchIf = \state msg -> cond (payload msg)
 }
 
 
@@ -252,15 +224,15 @@ handleCastIf cond handler = MessageDispatcherIf {
 -- | Constructs a dispatcher for any message
 -- Note that since we don't know the type of this message it assumes the protocol of a cast
 -- i.e. no reply's
-handleAny :: (AbstractMessage -> Server s (CastResult)) -> MessageDispatcher s
+handleAny :: (Serializable a, Show a) => (AbstractMessage -> Server s (Result a)) -> MessageDispatcher s
 handleAny handler = MessageDispatcherAny {
   dispatcherAny = (\s m -> do
-      (r, s') <- ST.runStateT (handler m) s
+      (r, s') <- runServer (handler m) s
       case r of
-          CastStop reason -> return (s', Just $ TerminateReason reason)
-          CastOk -> return (s', Nothing)
-          CastForward sid -> do
-            (forward m) sid
+          Stop _ reason -> return (s', Just $ TerminateReason reason)
+          Ok _ -> return (s', Nothing)
+          Forward sid -> do
+            (P.forward m) sid
             return (s', Nothing)
   )
 }
@@ -293,28 +265,39 @@ defaultServer = LocalServer {
 
 -- | Start a new server and return it's id
 startServer :: s -> LocalServer s -> Process ServerId
-startServer state handlers = spawnLocal $ do
-  ST.runStateT (processServer handlers) state
-  return ()
+startServer s ls = spawnLocal proc
+  where
+    proc = processServer initH terminateH handlers s
+    initH = initHandler ls
+    terminateH = terminateHandler ls
+    handlers = msgHandlers ls
 
 
 
--- TODO
-startServerLink :: s -> LocalServer s -> Process (ServerId, MonitorRef)
-startServerLink handlers = undefined
-  --us   <- getSelfPid
-  --them <- spawn nid (cpLink us `seqCP` proc)
-  --ref  <- monitor them
-  --return (them, ref)
+-- | Spawn a process and link to it
+startServerLink :: s -> LocalServer s -> Process ServerId
+startServerLink s ls = do
+  pid <- startServer s ls
+  link pid
+  return pid
 
 
 
--- | call a server identified by it's ServerId
+-- | Like 'spawnServerLink', but monitor the spawned process
+startServerMonitor :: s -> LocalServer s -> Process (ServerId, MonitorRef)
+startServerMonitor s ls = do
+  pid <- startServer s ls
+  ref <- monitor pid
+  return (pid, ref)
+
+
+
+-- | Call a server identified by it's ServerId
 callServer :: (Serializable rq, Serializable rs) => ServerId -> Timeout -> rq -> Process rs
 callServer sid timeout rq = do
   cid <- getSelfPid
-  say $ "Calling server " ++ show cid
-  send sid (Message cid rq)
+  --say $ "Calling server " ++ show cid
+  send sid (CallMessage cid rq)
   case timeout of
     NoTimeout -> expect
     Timeout time -> do
@@ -329,14 +312,16 @@ callServer sid timeout rq = do
 castServer :: (Serializable a) => ServerId -> a -> Process ()
 castServer sid msg = do
   cid <- getSelfPid
-  say $ "Casting server " ++ show cid
-  send sid (Message cid msg)
+  --say $ "Casting server " ++ show cid
+  send sid (CastMessage cid msg)
 
 
 
 -- | Stops a server identified by it's ServerId
-stopServer :: ServerId -> TerminateReason -> Process ()
-stopServer sid reason = castServer sid (TerminateServer reason)
+stopServer :: Serializable a => ServerId -> a -> Process ()
+stopServer sid reason = do
+  --say $ "Stop server " ++ show sid
+  exit sid reason
 
 
 
@@ -362,34 +347,36 @@ modifyState = ST.modify
 --------------------------------------------------------------------------------
 
 -- | server process
-processServer :: LocalServer s -> Server s ()
-processServer localServer = do
-    ir <- processInit localServer
-    tr <- case ir of
-            InitOk to -> do
-              trace $ "Server ready to receive messages!"
-              processLoop localServer to
-            InitStop r -> return (TerminateReason r)
-    processTerminate localServer tr
+processServer :: InitHandler s -> TerminateHandler s -> [MessageDispatcher s] -> s -> Process ()
+processServer initH terminateH dispatchers s = do
+    (ir, s')    <- runServer initH s
+    P.catch (proc ir s') (exitHandler s')
+  where
 
+    proc ir s' = do
+      (tr, s'')   <- runServer (processLoop dispatchers ir)     s'
+      _           <- runServer (terminateH tr) s''
+      return ()
 
-
--- | initialize server
-processInit :: LocalServer s -> Server s InitResult
-processInit localServer = do
-    trace $ "Server initializing ... "
-    ir <- initHandler localServer
-    return ir
+    exitHandler s' e = do
+      let tr = TerminateReason $ show (e :: SomeException)
+      _     <- runServer (terminateH tr) s'
+      return ()
 
 
 
 -- | server loop
-processLoop :: LocalServer s -> Timeout -> Server s TerminateReason
-processLoop localServer t = do
-    mayMsg <- processReceive (msgHandlers localServer) t
-    case mayMsg of
-        Just r -> return r
-        Nothing -> processLoop localServer t
+processLoop :: [MessageDispatcher s] -> InitResult -> Server s TerminateReason
+processLoop dispatchers ir = do
+    case ir of
+      InitOk t -> loop dispatchers t
+      InitStop r -> return $ TerminateReason r
+  where
+    loop ds t = do
+        msgM <- processReceive ds t
+        case msgM of
+            Nothing -> loop ds t
+            Just r -> return r
 
 
 
@@ -400,30 +387,59 @@ processReceive ds timeout = do
     let ms = map (matchMessage s) ds
     case timeout of
         NoTimeout -> do
-            (s', r) <- ST.lift $ receiveWait ms
+            (s', r) <- lift $ receiveWait ms
             putState s'
             return r
         Timeout t -> do
-            mayResult <- ST.lift $ receiveTimeout t ms
+            mayResult <- lift $ receiveTimeout t ms
             case mayResult of
                 Just (s', r) -> do
                   putState s
                   return r
                 Nothing -> do
-                  trace "Receive timed out ..."
+                  --trace "Receive timed out ..."
                   return $ Just (TerminateReason "Receive timed out")
-
-
-
--- | terminate server
-processTerminate :: LocalServer s -> TerminateReason -> Server s ()
-processTerminate localServer reason = do
-    trace $ "Server terminating: " ++ show reason
-    (terminateHandler localServer) reason
 
 
 
 -- | Log a trace message using the underlying Process's say
 trace :: String -> Server s ()
-trace msg = ST.lift . say $ msg
+trace msg = lift . say $ msg
+
+
+
+-- | TODO MonadTrans instance? lift :: (Monad m) => m a -> t m a
+lift :: Process a -> Server s a
+lift p = Server $ ST.lift p
+
+
+
+-- |
+runServer :: Server s a -> s -> Process (a, s)
+runServer server state = ST.runStateT (unServer server) state
+
+
+
+
+--bracket :: Server s a -> (a -> Server s b) -> (a -> Server s c) -> Server s c
+--bracket = undefined
+
+--bracket_ :: Server s a -> (a -> Server s b) -> Server s c -> Server s c
+--bracket_ = undefined
+
+--finally :: Server s a -> Server s b -> Server s a
+
+--finally :: Process a -> Process b -> Process a
+--finally a sequel = bracket_ (return ()) sequel a
+
+--myserver :: Server Int ()
+--myserver = do
+--  receive (\msg ->
+--              case msg of
+--                 \ResetCount -> undefined
+--                 \IncrementCount -> undefined)
+--  receive (\DoNothing -> undefined)
+--  return ()
+
+
 
