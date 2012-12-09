@@ -27,6 +27,7 @@ executable dtp
                         , mtl
 --                      , stm
                         , derive
+                        , transformers
                         , distributed-static
                         , distributed-process
                         , distributed-process-simplelocalnet
