@@ -29,6 +29,8 @@ module Control.Distributed.Platform.GenServer (
     LocalServer(..),
     defaultServer,
     startServer,
+    startServerLink,
+    startServerMonitor,
     callServer,
     castServer,
     stopServer,
@@ -37,11 +39,11 @@ module Control.Distributed.Platform.GenServer (
   ) where
 
 import           Control.Applicative                        (Applicative)
-import           Control.Exception                          (Exception, SomeException)
+import           Control.Exception                          (SomeException)
 import           Control.Distributed.Process                (AbstractMessage,
                                                              Match, MonitorRef,
                                                              Process, ProcessId,
-                                                             catchExit, exit,
+                                                             exit,
                                                              expect,
                                                              expectTimeout,
                                                              getSelfPid, link,
@@ -49,12 +51,9 @@ import           Control.Distributed.Process                (AbstractMessage,
                                                              matchIf, monitor,
                                                              receiveTimeout,
                                                              receiveWait, say,
-                                                             send, spawnLocal,
-                                                             terminate)
+                                                             send, spawnLocal)
 import qualified Control.Distributed.Process                as P (forward, catch)
-import           Control.Distributed.Process.Internal.Types (MonitorRef)
 import           Control.Distributed.Process.Serializable   (Serializable)
-import           Control.Monad                              (void)
 import           Control.Monad.IO.Class                     (MonadIO)
 import qualified Control.Monad.State                        as ST (MonadState,
                                                                    MonadTrans,
@@ -144,8 +143,8 @@ type Handler s a b       = a -> Server s (Result b)
 
 -- | Adds routing metadata to the actual payload
 data Message a =
-    CallMessage { from :: ProcessId, payload :: a }
-  | CastMessage { from :: ProcessId, payload :: a }
+    CallMessage { msgFrom :: ProcessId, msgPayload :: a }
+  | CastMessage { msgFrom :: ProcessId, msgPayload :: a }
     deriving (Show, Typeable)
 $(derive makeBinary ''Message)
 
@@ -174,9 +173,9 @@ class MessageMatcher d where
 
 -- | Matches messages to a MessageDispatcher
 instance MessageMatcher MessageDispatcher where
-  matchMessage s (MessageDispatcher dispatcher) = match (dispatcher s)
-  matchMessage s (MessageDispatcherIf dispatcher cond) = matchIf (cond s) (dispatcher s)
-  matchMessage s (MessageDispatcherAny dispatcher) = matchAny (dispatcher s)
+  matchMessage s (MessageDispatcher d) = match (d s)
+  matchMessage s (MessageDispatcherIf d cond) = matchIf (cond s) (d s)
+  matchMessage s (MessageDispatcherAny d) = matchAny (d s)
 
 
 
@@ -206,7 +205,7 @@ handleIf cond handler = MessageDispatcherIf {
             --say $ "Server REPLY: " ++ show r
             send cid resp
             return (s', Just (TerminateReason reason))
-    CastMessage cid payload -> do
+    CastMessage _ payload -> do
       --say $ "Server got CAST: [" ++ show cid ++ " / " ++ show payload ++ "]"
       (r, s') <- runServer (handler payload) s
       case r of
@@ -216,7 +215,7 @@ handleIf cond handler = MessageDispatcherIf {
             send sid msg
             return (s', Nothing)
   ),
-  dispatchIf = \state msg -> cond (payload msg)
+  dispatchIf = \_ msg -> cond (msgPayload msg)
 }
 
 
@@ -242,7 +241,7 @@ handleAny handler = MessageDispatcherAny {
 -- | The server callbacks
 data LocalServer s = LocalServer {
     initHandler      :: InitHandler s,        -- ^ initialization handler
-    msgHandlers      :: [MessageDispatcher s],
+    handlers         :: [MessageDispatcher s],
     terminateHandler :: TerminateHandler s   -- ^ termination handler
   }
 
@@ -253,7 +252,7 @@ data LocalServer s = LocalServer {
 defaultServer :: LocalServer s
 defaultServer = LocalServer {
   initHandler = return $ InitOk NoTimeout,
-  msgHandlers = [],
+  handlers = [],
   terminateHandler = \_ -> return ()
 }
 
@@ -267,10 +266,10 @@ defaultServer = LocalServer {
 startServer :: s -> LocalServer s -> Process ServerId
 startServer s ls = spawnLocal proc
   where
-    proc = processServer initH terminateH handlers s
+    proc = processServer initH terminateH hs s
     initH = initHandler ls
     terminateH = terminateHandler ls
-    handlers = msgHandlers ls
+    hs = handlers ls
 
 
 
@@ -394,7 +393,7 @@ processReceive ds timeout = do
             mayResult <- lift $ receiveTimeout t ms
             case mayResult of
                 Just (s', r) -> do
-                  putState s
+                  putState s'
                   return r
                 Nothing -> do
                   --trace "Receive timed out ..."
