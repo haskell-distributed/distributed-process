@@ -164,6 +164,8 @@ instance MessageMatcher MessageDispatcher where
   matchMessage s (MessageDispatcherIf  d cond) = matchIf (cond s) (d s)
   matchMessage s (MessageDispatcherAny d)      = matchAny (d s)
 
+
+
 -- | Constructs a call message dispatcher
 --
 handle :: (Serializable a, Show a, Serializable b, Show b) => Handler s a b -> MessageDispatcher s
