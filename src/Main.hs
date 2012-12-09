@@ -41,8 +41,8 @@ main = do
             putStrLn "Transport created."
             localNode <- newLocalNode transport initRemoteTable
             putStrLn "Local node created."
-            runProcess localNode (kittyTest 1000) `catch` \e -> print (e :: IOError)
-            --runProcess localNode counterTest `catch` \e -> print (e :: IOError)
+            runProcess localNode (kittyTest 10) `catch` \e -> print (e :: IOError)
+            runProcess localNode counterTest `catch` \e -> print (e :: IOError)
             putStrLn "Server started!"
             getChar
             return ()
@@ -62,7 +62,6 @@ counterTest = do
     resetCount cid
     c2 <- getCount cid
     say $ "c2 = " ++ show c2
-
     stopCounter cid
     return ()
 
@@ -76,6 +75,8 @@ kittyTest n = do
     kittyTransactions kPid n
     say "-- Closing kitty shop ..."
     closeShop kPid
+    say "-- Stopping kitty shop ..."
+    stopKitty kPid
     return ()
 
 

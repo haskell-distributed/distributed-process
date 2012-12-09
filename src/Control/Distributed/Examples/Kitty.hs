@@ -7,6 +7,7 @@
 module Control.Distributed.Examples.Kitty
     (
         startKitty,
+        stopKitty,
         orderCat,
         returnCat,
         closeShop,
@@ -68,10 +69,23 @@ $( derive makeBinary ''CatEv )
 -- | Start a counter server
 startKitty :: [Cat] -> Process ServerId
 startKitty cats = startServer cats defaultServer {
-  msgHandlers = [
-    handleCall handleKitty,
-    handleCast handleReturn
+    initHandler = do
+        cs <- getState
+        trace $ "Kitty init: " ++ show cs
+        initOk NoTimeout,
+    terminateHandler = \r ->
+        trace $ "Kitty terminate: " ++ show r,
+    msgHandlers = [
+        handle handleKitty,
+        handle handleReturn
 ]}
+
+
+
+-- | Stop the kitty server
+stopKitty :: ServerId -> Process ()
+stopKitty sid = stopServer sid ()
+
 
 
 -- %% Synchronous call
@@ -106,22 +120,21 @@ closeShop sid = do
 
 handleKitty (OrderCat name color descr) = do
     cats <- getState
-    trace $ "Kitty inventory: " ++ show cats
     case cats of
         [] -> do
             let cat = Cat name color descr
             putState (cat:cats)
-            callOk (CatOrdered cat)
+            ok (CatOrdered cat)
         (x:xs) -> do -- TODO find cat with same features
             putState xs
-            callOk (CatOrdered x)
+            ok (CatOrdered x)
 
 handleKitty CloseShop = do
     putState []
-    callOk ShopClosed
+    ok ShopClosed
 
 
 
 handleReturn (ReturnCat cat) = do
     modifyState (cat :)
-    castOk
+    ok ()
