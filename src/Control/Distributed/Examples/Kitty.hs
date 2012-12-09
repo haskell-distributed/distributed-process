@@ -75,7 +75,7 @@ startKitty cats = startServer cats defaultServer {
         initOk NoTimeout,
     terminateHandler = \r ->
         trace $ "Kitty terminate: " ++ show r,
-    msgHandlers = [
+    handlers = [
         handle handleKitty,
         handle handleReturn
 ]}
