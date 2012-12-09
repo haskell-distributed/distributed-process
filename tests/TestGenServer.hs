@@ -1,9 +1,9 @@
+{-# LANGUAGE GeneralizedNewtypeDeriving, DeriveDataTypeable #-}
 module TestGenServer where
 
 import Data.Binary (Binary(..))
 import Data.Typeable (Typeable)
-import Data.Foldable (forM_)
-import Control.Concurrent (forkIO, threadDelay, myThreadId, throwTo, ThreadId)
+import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar 
   ( MVar
   , newEmptyMVar
