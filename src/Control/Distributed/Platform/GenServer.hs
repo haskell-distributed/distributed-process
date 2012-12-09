@@ -345,7 +345,7 @@ processReceive ds timeout = do
             mayResult <- ST.lift $ receiveTimeout t ms
             case mayResult of
                 Just (s', r) -> do
-                  putState s
+                  putState s'
                   return r
                 Nothing -> do
                   trace "Receive timed out ..."
