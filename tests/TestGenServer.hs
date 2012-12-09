@@ -81,10 +81,13 @@ testPing transport = do
 
   takeMVar clientDone
 
-
-genServerTests :: (NT.Transport, TransportInternals) -> [Test]
-genServerTests (transport, _) = [
+tests :: NT.Transport -> [Test]
+tests transport = [
     testGroup "Basic features" [
-        testCase "Ping"                (testPing                transport)
+        testCase "Ping" (testPing transport)
       ]
   ]
+
+genServerTests :: NT.Transport -> TransportInternals -> IO [Test]
+genServerTests transport _ = do
+  return (tests transport)
