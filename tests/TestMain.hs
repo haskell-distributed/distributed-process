@@ -8,20 +8,8 @@ module Main where
 
 import           Control.Applicative
 import           Control.Monad
-import           Data.Data                            (Data, Typeable)
-import qualified Data.Map                             as Map
-import           Data.Text                            (Text)
-import qualified Data.Text                            as T
-import           Data.Time                            (Day (..), LocalTime (..),
-                                                       TimeOfDay (..),
-                                                       TimeZone (..),
-                                                       ZonedTime (..),
-                                                       hoursToTimeZone)
 import           Test.Framework                       (Test, defaultMain,
                                                        testGroup)
-import           Test.Framework.Providers.QuickCheck2 (testProperty)
-import           Test.QuickCheck                      (Arbitrary (..), Gen,
-                                                       choose)
 
 import qualified Network.Transport as NT (Transport, closeEndPoint)
 import Network.Transport.TCP 
@@ -41,7 +29,7 @@ import TestGenServer
 
 tests :: (NT.Transport, TransportInternals)  -> [Test]
 tests (transport, transportInternals) = [
-	 testGroup "GenServer" (genServerTests transport)
+     testGroup "GenServer" (genServerTests transport)
   ]
 
 main :: IO ()
