@@ -71,11 +71,9 @@ import           Data.Binary                              (Binary (..),
 import           Data.DeriveTH
 import           Data.Typeable                              (Typeable)
 
-
 --------------------------------------------------------------------------------
 -- Data Types                                                                 --
 --------------------------------------------------------------------------------
-
 
 -- | ServerId
 type ServerId = ProcessId
@@ -112,7 +110,6 @@ data Result a
     | Stop a String
         deriving (Show, Typeable)
 
-
 ok :: (Serializable a, Show a) => a -> Server s (Result a)
 ok resp = return (Ok resp)
 
@@ -122,14 +119,10 @@ forward sid = return (Forward sid)
 stop :: (Serializable a, Show a) => a -> String -> Server s (Result a)
 stop resp reason = return (Stop resp reason)
 
-
-
 -- | Handlers
 type InitHandler s       = Server s InitResult
 type TerminateHandler s  = TerminateReason -> Server s ()
 type Handler s a b       = a -> Server s (Result b)
-
-
 
 -- | Adds routing metadata to the actual payload
 data Message a =
@@ -137,8 +130,6 @@ data Message a =
   | CastMessage { msgFrom :: ProcessId, msgPayload :: a }
     deriving (Show, Typeable)
 $(derive makeBinary ''Message)
-
-
 
 -- | Dispatcher that knows how to dispatch messages to a handler
 -- s The server state
@@ -164,14 +155,10 @@ instance MessageMatcher MessageDispatcher where
   matchMessage s (MessageDispatcherIf  d cond) = matchIf (cond s) (d s)
   matchMessage s (MessageDispatcherAny d)      = matchAny (d s)
 
-
-
 -- | Constructs a call message dispatcher
 --
 handle :: (Serializable a, Show a, Serializable b, Show b) => Handler s a b -> MessageDispatcher s
 handle = handleIf (const True)
-
-
 
 handleIf :: (Serializable a, Show a, Serializable b, Show b) => (a -> Bool) -> Handler s a b -> MessageDispatcher s
 handleIf cond handler = MessageDispatcherIf {
@@ -250,16 +237,12 @@ startServer s ls = spawnLocal proc
     terminateH = terminateHandler ls
     hs = handlers ls
 
-
-
 -- | Spawn a process and link to it
 startServerLink :: s -> LocalServer s -> Process ServerId
 startServerLink s ls = do
   pid <- startServer s ls
   link pid
   return pid
-
-
 
 -- | Like 'spawnServerLink', but monitor the spawned process
 startServerMonitor :: s -> LocalServer s -> Process (ServerId, MonitorRef)
@@ -268,13 +251,11 @@ startServerMonitor s ls = do
   ref <- monitor pid
   return (pid, ref)
 
-
-
 -- | Call a server identified by it's ServerId
 callServer :: (Serializable rq, Serializable rs) => ServerId -> Timeout -> rq -> Process rs
 callServer sid timeout rq = do
   cid <- getSelfPid
-  --say $ "Calling server " ++ show cid
+  say $ "Calling server " ++ show cid
   send sid (CallMessage cid rq)
   case timeout of
     Infinity -> expect
@@ -319,18 +300,14 @@ processServer initH terminateH dispatchers s = do
     (ir, s')    <- runServer initH s
     P.catch (proc ir s') (exitHandler s')
   where
-
     proc ir s' = do
       (tr, s'')   <- runServer (processLoop dispatchers ir)     s'
       _           <- runServer (terminateH tr) s''
       return ()
-
     exitHandler s' e = do
       let tr = TerminateReason $ show (e :: SomeException)
       _     <- runServer (terminateH tr) s'
       return ()
-
-
 
 -- | server loop
 processLoop :: [MessageDispatcher s] -> InitResult -> Server s TerminateReason
@@ -344,8 +321,6 @@ processLoop dispatchers ir = do
         case msgM of
             Nothing -> loop ds t
             Just r -> return r
-
-
 
 -- |
 processReceive :: [MessageDispatcher s] -> Timeout -> Server s (Maybe TerminateReason)
@@ -367,19 +342,13 @@ processReceive ds timeout = do
                   --trace "Receive timed out ..."
                   return $ Just (TerminateReason "Receive timed out")
 
-
-
 -- | Log a trace message using the underlying Process's say
 trace :: String -> Server s ()
 trace msg = lift . say $ msg
 
-
-
 -- | TODO MonadTrans instance? lift :: (Monad m) => m a -> t m a
 lift :: Process a -> Server s a
 lift p = Server $ ST.lift p
-
-
 
 -- |
 runServer :: Server s a -> s -> Process (a, s)
