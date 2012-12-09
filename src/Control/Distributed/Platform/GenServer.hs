@@ -81,7 +81,7 @@ import           Data.Typeable                              (Typeable)
 type ServerId = ProcessId
 
 -- | Server monad
-newtype Server s m a = Server {
+newtype Server s a = Server {
     unServer :: ST.StateT s Process a
   }
   deriving (Functor, Monad, ST.MonadState s, MonadIO, Typeable, Applicative)
