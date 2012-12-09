@@ -56,7 +56,7 @@ startCounter count = startServer count defaultServer {
       initOk NoTimeout,
     terminateHandler = \r ->
       trace $ "Counter terminate: " ++ show r,
-    msgHandlers = [
+    handlers = [
       handle handleCounter,
       handle handleReset
     ]
