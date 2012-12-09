@@ -86,7 +86,7 @@ data Timeout = Timeout Int
 
 
 -- | Server monad
-newtype Server s a = Server {
+newtype Server s m a = Server {
     unServer :: ST.StateT s Process a
   }
   deriving (Functor, Monad, ST.MonadState s, MonadIO, Typeable, Applicative)
@@ -417,29 +417,5 @@ lift p = Server $ ST.lift p
 -- |
 runServer :: Server s a -> s -> Process (a, s)
 runServer server state = ST.runStateT (unServer server) state
-
-
-
-
---bracket :: Server s a -> (a -> Server s b) -> (a -> Server s c) -> Server s c
---bracket = undefined
-
---bracket_ :: Server s a -> (a -> Server s b) -> Server s c -> Server s c
---bracket_ = undefined
-
---finally :: Server s a -> Server s b -> Server s a
-
---finally :: Process a -> Process b -> Process a
---finally a sequel = bracket_ (return ()) sequel a
-
---myserver :: Server Int ()
---myserver = do
---  receive (\msg ->
---              case msg of
---                 \ResetCount -> undefined
---                 \IncrementCount -> undefined)
---  receive (\DoNothing -> undefined)
---  return ()
-
 
 
