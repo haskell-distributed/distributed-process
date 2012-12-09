@@ -69,23 +69,15 @@ import           Data.Typeable                            (Typeable)
 -- | Process name
 type Name = String
 
-
-
 -- | ServerId
 type ServerId = ProcessId
-
-
 
 -- | Timeout
 data Timeout = Timeout Int
              | NoTimeout
 
-
-
 -- | Server monad
 type Server s = ST.StateT s Process
-
-
 
 -- | Initialize handler result
 data InitResult
@@ -98,8 +90,6 @@ initOk t = return (InitOk t)
 initStop :: String -> Server s InitResult
 initStop reason = return (InitStop reason)
 
-
-
 -- | Terminate reason
 data TerminateReason
   = TerminateNormal
@@ -107,8 +97,6 @@ data TerminateReason
   | TerminateReason String
     deriving (Show, Typeable)
 $(derive makeBinary ''TerminateReason)
-
-
 
 -- | The result of a call
 data CallResult a
@@ -126,8 +114,6 @@ callForward sid = return (CallForward sid)
 callStop :: a -> String -> Server s (CallResult a)
 callStop resp reason = return (CallStop resp reason)
 
-
-
 -- | The result of a cast
 data CastResult
     = CastOk
@@ -143,23 +129,16 @@ castForward sid = return (CastForward sid)
 castStop :: String -> Server s CastResult
 castStop reason = return (CastStop reason)
 
-
-
 -- | Handlers
 type InitHandler s           = Server s InitResult
 type TerminateHandler s       = TerminateReason -> Server s ()
 type CallHandler s a b        = a -> Server s (CallResult b)
 type CastHandler s a          = a -> Server s CastResult
 
-
-
-
 -- | Adds routing metadata to the actual payload
 data Message a = Message ProcessId a
     deriving (Show, Typeable)
 $(derive makeBinary ''Message)
-
-
 
 -- | Management message
 -- TODO is there a std way of terminating a process from another process?
@@ -169,8 +148,8 @@ $(derive makeBinary ''ManageServer)
 
 -- | Dispatcher that knows how to dispatch messages to a handler
 -- s The server state
-data MessageDispatcher s
-  = forall a . (Serializable a) => MessageDispatcher {
+data MessageDispatcher s =
+    forall a . (Serializable a) => MessageDispatcher {
         dispatcher :: s -> Message a -> Process (s, Maybe TerminateReason)
       }
   | forall a . (Serializable a) => MessageDispatcherIf {
@@ -181,12 +160,9 @@ data MessageDispatcher s
         dispatcherAny :: s -> AbstractMessage -> Process (s, Maybe TerminateReason)
       }
 
-
 -- | Matches messages using a dispatcher
 class MessageMatcher d where
     matchMessage :: s -> d s -> Match (s, Maybe TerminateReason)
-
-
 
 -- | Matches messages to a MessageDispatcher
 instance MessageMatcher MessageDispatcher where
@@ -194,14 +170,9 @@ instance MessageMatcher MessageDispatcher where
   matchMessage s (MessageDispatcherIf dispatcher cond) = matchIf (cond s) (dispatcher s)
   matchMessage s (MessageDispatcherAny dispatcher) = matchAny (dispatcher s)
 
-
-
 -- | Constructs a call message dispatcher
---
 handleCall :: (Serializable a, Show a, Serializable b) => CallHandler s a b -> MessageDispatcher s
 handleCall = handleCallIf (const True)
-
-
 
 handleCallIf :: (Serializable a, Show a, Serializable b) => (a -> Bool) -> CallHandler s a b -> MessageDispatcher s
 handleCallIf cond handler = MessageDispatcherIf {
@@ -222,14 +193,10 @@ handleCallIf cond handler = MessageDispatcherIf {
   dispatchIf = \state (Message _ req) -> cond req
 }
 
-
-
 -- | Constructs a cast message dispatcher
 --
 handleCast :: (Serializable a, Show a) => CastHandler s a -> MessageDispatcher s
 handleCast = handleCastIf (const True)
-
-
 
 -- |
 handleCastIf :: (Serializable a, Show a) => (a -> Bool) -> CastHandler s a -> MessageDispatcher s
@@ -247,8 +214,6 @@ handleCastIf cond handler = MessageDispatcherIf {
   dispatchIf = \state (Message _ msg) -> cond msg
 }
 
-
-
 -- | Constructs a dispatcher for any message
 -- Note that since we don't know the type of this message it assumes the protocol of a cast
 -- i.e. no reply's
@@ -265,16 +230,12 @@ handleAny handler = MessageDispatcherAny {
   )
 }
 
-
-
 -- | The server callbacks
 data LocalServer s = LocalServer {
     initHandler      :: InitHandler s,        -- ^ initialization handler
     msgHandlers      :: [MessageDispatcher s],
     terminateHandler :: TerminateHandler s   -- ^ termination handler
   }
-
-
 
 ---- | Default record
 ---- Starting point for creating new servers
@@ -284,8 +245,6 @@ defaultServer = LocalServer {
   msgHandlers = [],
   terminateHandler = \_ -> return ()
 }
-
-
 
 --------------------------------------------------------------------------------
 -- API                                                                        --
@@ -297,8 +256,6 @@ startServer state handlers = spawnLocal $ do
   ST.runStateT (processServer handlers) state
   return ()
 
-
-
 -- TODO
 startServerLink :: s -> LocalServer s -> Process (ServerId, MonitorRef)
 startServerLink handlers = undefined
@@ -306,8 +263,6 @@ startServerLink handlers = undefined
   --them <- spawn nid (cpLink us `seqCP` proc)
   --ref  <- monitor them
   --return (them, ref)
-
-
 
 -- | call a server identified by it's ServerId
 callServer :: (Serializable rq, Serializable rs) => ServerId -> Timeout -> rq -> Process rs
@@ -323,8 +278,6 @@ callServer sid timeout rq = do
         Just msg -> return msg
         Nothing -> error $ "timeout! value = " ++ show time
 
-
-
 -- | Cast a message to a server identified by it's ServerId
 castServer :: (Serializable a) => ServerId -> a -> Process ()
 castServer sid msg = do
@@ -332,30 +285,21 @@ castServer sid msg = do
   say $ "Casting server " ++ show cid
   send sid (Message cid msg)
 
-
-
 -- | Stops a server identified by it's ServerId
 stopServer :: ServerId -> TerminateReason -> Process ()
 stopServer sid reason = castServer sid (TerminateServer reason)
-
-
 
 -- | Get the server state
 getState :: Server s s
 getState = ST.get
 
-
-
 -- | Put the server state
 putState :: s -> Server s ()
 putState = ST.put
 
-
-
 -- | Modify the server state
 modifyState :: (s -> s) -> Server s ()
 modifyState = ST.modify
-
 
 --------------------------------------------------------------------------------
 -- Implementation                                                             --
@@ -372,16 +316,12 @@ processServer localServer = do
             InitStop r -> return (TerminateReason r)
     processTerminate localServer tr
 
-
-
 -- | initialize server
 processInit :: LocalServer s -> Server s InitResult
 processInit localServer = do
     trace $ "Server initializing ... "
     ir <- initHandler localServer
     return ir
-
-
 
 -- | server loop
 processLoop :: LocalServer s -> Timeout -> Server s TerminateReason
@@ -390,8 +330,6 @@ processLoop localServer t = do
     case mayMsg of
         Just r -> return r
         Nothing -> processLoop localServer t
-
-
 
 -- |
 processReceive :: [MessageDispatcher s] -> Timeout -> Server s (Maybe TerminateReason)
@@ -413,17 +351,12 @@ processReceive ds timeout = do
                   trace "Receive timed out ..."
                   return $ Just (TerminateReason "Receive timed out")
 
-
-
 -- | terminate server
 processTerminate :: LocalServer s -> TerminateReason -> Server s ()
 processTerminate localServer reason = do
     trace $ "Server terminating: " ++ show reason
     (terminateHandler localServer) reason
 
-
-
 -- | Log a trace message using the underlying Process's say
 trace :: String -> Server s ()
 trace msg = ST.lift . say $ msg
-
