@@ -255,7 +255,7 @@ startServerMonitor s ls = do
 callServer :: (Serializable rq, Serializable rs) => ServerId -> Timeout -> rq -> Process rs
 callServer sid timeout rq = do
   cid <- getSelfPid
-  say $ "Calling server " ++ show cid
+  --say $ "Calling server " ++ show cid
   send sid (CallMessage cid rq)
   case timeout of
     Infinity -> expect
