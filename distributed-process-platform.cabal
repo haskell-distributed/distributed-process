@@ -1,69 +1,57 @@
-name:                   distributed-process-platform
-version:                0.1.0
-cabal-version:          >=1.10
-build-type:             Simple
-license:                BSD3
-license-file:           LICENSE
-stability:              experimental
-homepage:               http://github.com/hyperthunk/distributed-process-platform
-synopsis:               TODO
-description:            TODO
-category:               Control
-tested-with:            GHC ==7.4.1
-data-dir:               ""
+name:           distributed-process-platform
+version:        0.1.0
+cabal-version:  >=1.8
+build-type:     Simple
+license:        BSD3
+license-file:   LICENCE
+stability:      experimental
+homepage:       http://github.com/hyperthunk/distributed-process-platform
+synopsis:       TODO
+description:    TODO
+category:       Control
+tested-with:    GHC ==7.4.1
+data-dir:       ""
 
-source-repository       head
-    type:               git
-    location:           https://github.com/hyperthunk/distributed-process-platform
+source-repository head
+  type:      git
+  location:  https://github.com/hyperthunk/distributed-process-platform
 
-flag developer
-  description:          operate in developer mode
-  default:              True
+library 
+  build-depends:    
+                   base >= 4,
+                   distributed-process,
+                   derive,
+                   distributed-static,
+                   binary,
+                   mtl,
+                   transformers
+  hs-source-dirs:   src
+  ghc-options:      -Wall
+  exposed-modules:  Control.Distributed.Platform.GenProcess,
+                   Control.Distributed.Platform.GenServer
+  other-modules:   Control.Distributed.Platform.Timer
 
-executable dtp
-    default-language:  Haskell2010
-    main-is:            Main.hs
-    build-depends:      base >=4.4 && <5, binary >=0.5 && <0.6
-                        , mtl
---                      , stm
-                        , derive
-                        , distributed-static
-                        , distributed-process
-                        , distributed-process-simplelocalnet
-                        , network-transport
-                        , network-transport-tcp
-    buildable:          True
-    default-extensions: UndecidableInstances ExistentialQuantification
-                        ScopedTypeVariables FlexibleInstances CPP BangPatterns
-                        GeneralizedNewtypeDeriving GADTs DeriveDataTypeable
-    hs-source-dirs:     src
-    ghc-options:        -Wall -threaded -rtsopts
-    if flag(developer)
-        ghc-options:    -auto-all -caf-all -fforce-recomp
-
-test-suite unit-tests
-    default-language:   Haskell2010
-    type:               exitcode-stdio-1.0
-    hs-source-dirs:     tests
-    main-is:            TestMain.hs
-    ghc-options:        -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
-    default-extensions: ScopedTypeVariables,
-                        DeriveDataTypeable,
-                        GeneralizedNewtypeDeriving
-    build-depends:      QuickCheck,
-                        base,
-                        binary >= 0.5 && < 0.7,
-                        containers,
-                        bytestring,
-                        template-haskell,
-                        HUnit >= 1.2 && < 1.3,
-                        test-framework,
-                        test-framework-quickcheck2,
-                        test-framework-hunit >= 0.2 && < 0.3,
-                        text,
-                        time
-                        , distributed-process
-                        , distributed-process-simplelocalnet
-                        , network-transport
-                        , network-transport-tcp
+test-suite TestTimer
+  type:            exitcode-stdio-1.0
+  x-uses-tf:       true
+  build-depends:    
+                   base >= 4.4 && < 5,
+                   ansi-terminal >= 0.5 && < 0.6,
+                   distributed-process,
+                   derive,
+                   network-transport >= 0.3 && < 0.4,
+                   network-transport-tcp >= 0.3 && < 0.4,
+                   binary >= 0.5 && < 0.7,
+                   network >= 2.3 && < 2.5,
+                   HUnit >= 1.2 && < 2,
+                   test-framework >= 0.6 && < 0.7,
+                   test-framework-hunit,
+                   transformers
+  hs-source-dirs:  
+                   src, 
+                   tests
+  ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
+  other-modules:   Control.Distributed.Platform.Timer
+  extensions:      CPP
+  main-is:         TestMain.hs
 
