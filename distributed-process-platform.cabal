@@ -16,8 +16,8 @@ source-repository head
   type:      git
   location:  https://github.com/hyperthunk/distributed-process-platform
 
-library 
-  build-depends:    
+library
+  build-depends:
                    base >= 4,
                    distributed-process,
                    derive,
@@ -27,19 +27,20 @@ library
                    transformers
   hs-source-dirs:   src
   ghc-options:      -Wall
-  exposed-modules:  
+  exposed-modules:
                    Control.Distributed.Platform.GenServer
   other-modules:   Control.Distributed.Platform.Timer
 
 test-suite TestTimer
   type:            exitcode-stdio-1.0
   x-uses-tf:       true
-  build-depends:    
+  build-depends:
                    base >= 4.4 && < 5,
                    ansi-terminal >= 0.5 && < 0.6,
                    distributed-process,
                    derive,
                    network-transport >= 0.3 && < 0.4,
+                   mtl,
                    network-transport-tcp >= 0.3 && < 0.4,
                    binary >= 0.5 && < 0.7,
                    network >= 2.3 && < 2.5,
@@ -47,11 +48,10 @@ test-suite TestTimer
                    test-framework >= 0.6 && < 0.7,
                    test-framework-hunit,
                    transformers
-  hs-source-dirs:  
-                   src, 
+  hs-source-dirs:
+                   src,
                    tests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   other-modules:   Control.Distributed.Platform.Timer
   extensions:      CPP
   main-is:         TestMain.hs
-

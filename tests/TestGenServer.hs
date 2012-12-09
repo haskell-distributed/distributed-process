@@ -1,10 +1,15 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving, DeriveDataTypeable #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE TemplateHaskell    #-}
 module TestGenServer where
 
-import Data.Binary (Binary(..))
+import           Data.Binary                            (Binary (..), getWord8,
+                                                         putWord8)
 import Data.Typeable (Typeable)
-import Control.Concurrent (forkIO)
-import Control.Concurrent.MVar 
+import Data.DeriveTH
+import Data.Foldable (forM_)
+import Control.Concurrent (forkIO, threadDelay, myThreadId, throwTo, ThreadId)
+import Control.Concurrent.MVar
   ( MVar
   , newEmptyMVar
   , putMVar
@@ -16,14 +21,14 @@ import Control.Exception (SomeException, throwIO)
 import qualified Control.Exception as Ex (catch)
 import Control.Applicative ((<$>), (<*>), pure, (<|>))
 import qualified Network.Transport as NT (Transport, closeEndPoint)
-import Network.Transport.TCP 
+import Network.Transport.TCP
   ( createTransportExposeInternals
   , TransportInternals(socketBetween)
   , defaultTCPParameters
   )
 import Control.Distributed.Process
-import Control.Distributed.Process.Internal.Types 
-  ( NodeId(nodeAddress) 
+import Control.Distributed.Process.Internal.Types
+  ( NodeId(nodeAddress)
   , LocalNode(localEndPoint)
   )
 import Control.Distributed.Process.Node
@@ -33,58 +38,130 @@ import Test.HUnit (Assertion)
 import Test.Framework (Test, defaultMain, testGroup)
 import Test.Framework.Providers.HUnit (testCase)
 
+import Control.Distributed.Platform.GenServer
+import GenServer.Counter
+import GenServer.Kitty
+
 --------------------------------------------------------------------------------
 -- The tests proper                                                           --
 --------------------------------------------------------------------------------
 
-newtype Ping = Ping ProcessId
-  deriving (Typeable, Binary, Show)
+data Ping = Ping
+  deriving (Typeable, Show)
+$(derive makeBinary ''Ping)
 
-newtype Pong = Pong ProcessId
-  deriving (Typeable, Binary, Show)
+data Pong = Pong
+  deriving (Typeable, Show)
+$(derive makeBinary ''Pong)
 
--- | The ping server from the paper
-ping :: Process ()
-ping = do
-  Pong partner <- expect
-  self <- getSelfPid
-  send partner (Ping self)
-  ping
 
--- | Basic ping test
-testPing :: NT.Transport -> Assertion 
+-- | Test ping server
+-- TODO fix this test!
+testPing :: NT.Transport -> Assertion
 testPing transport = do
-  serverAddr <- newEmptyMVar
-  clientDone <- newEmptyMVar
+  initDone <- newEmptyMVar
+  pingDone <- newEmptyMVar
+  pongDone <- newEmptyMVar
+  terminateDone <- newEmptyMVar
 
-  -- Server
-  forkIO $ do
-    localNode <- newLocalNode transport initRemoteTable
-    addr <- forkProcess localNode ping
-    putMVar serverAddr addr
+  localNode <- newLocalNode transport initRemoteTable
 
-  -- Client
-  forkIO $ do
-    localNode <- newLocalNode transport initRemoteTable
-    pingServer <- readMVar serverAddr
+  runProcess localNode $ do
+    say "Starting ..."
+    sid <- startServer (0 :: Int) defaultServer {
+      initHandler       = do
+        trace "Init ..."
+        c <- getState
+        liftIO $ putMVar initDone c
+        initOk Infinity,
+      terminateHandler = \reason -> do
+        trace "Terminate ..."
+        c <- getState
+        liftIO $ putMVar terminateDone c
+        return (),
+      handlers          = [
+        handle (\Ping -> do
+          trace "Ping ..."
+          modifyState (1 +)
+          c <- getState
+          --liftIO $ putMVar pingDone c
+          ok Pong),
+        handle (\Pong -> do
+          trace "Pong ..."
+          modifyState (1 +)
+          c <- getState
+          --liftIO $ putMVar pongDone c
+          ok ())
+      ]
+    }
+    --liftIO $ takeMVar initDone
+    --replicateM_ 10 $ do
+    Pong <- callServer sid Infinity Ping
+      --liftIO $ takeMVar pingDone
+    castServer sid Ping
+      --liftIO $ takeMVar pongDone
+      --return ()
+    exit sid ()
+    liftIO $ takeMVar terminateDone
+    return ()
 
-    let numPings = 10000
 
-    runProcess localNode $ do
-      pid <- getSelfPid
-      replicateM_ numPings $ do
-        send pingServer (Pong pid)
-        Ping _ <- expect
-        return ()
 
-    putMVar clientDone ()
+-- | Test counter server
+-- TODO split me!
+testCounter :: NT.Transport -> Assertion
+testCounter transport = do
+  serverDone <- newEmptyMVar
 
-  takeMVar clientDone
+  localNode <- newLocalNode transport initRemoteTable
+
+  runProcess localNode $ do
+    cid <- startCounter 0
+    c <- getCount cid
+    incCount cid
+    incCount cid
+    c <- getCount cid
+    resetCount cid
+    c2 <- getCount cid
+    stopCounter cid
+    liftIO $ putMVar serverDone True
+    return ()
+
+  liftIO $ takeMVar serverDone
+  return ()
+
+
+-- | Test kitty server
+-- TODO split me!
+testKitty :: NT.Transport -> Assertion
+testKitty transport = do
+  serverDone <- newEmptyMVar
+
+  localNode <- newLocalNode transport initRemoteTable
+
+  runProcess localNode $ do
+      kPid <- startKitty [Cat "c1" "black" "a black cat"]
+      replicateM_ 100 $ do
+          cat1 <- orderCat kPid "c1" "black" "a black cat"
+          cat2 <- orderCat kPid "c2" "black" "a black cat"
+          returnCat kPid cat1
+          returnCat kPid cat2
+      closeShop kPid
+      stopKitty kPid
+      liftIO $ putMVar serverDone True
+      return ()
+
+  liftIO $ takeMVar serverDone
+  return ()
+
+
 
 tests :: NT.Transport -> [Test]
 tests transport = [
     testGroup "Basic features" [
-        testCase "Ping" (testPing transport)
+        --testCase "Ping"       (testPing transport),
+        testCase "Counter"    (testCounter transport),
+        testCase "Kitty"      (testKitty transport)
       ]
   ]
 
