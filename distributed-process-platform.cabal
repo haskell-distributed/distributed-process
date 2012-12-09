@@ -27,7 +27,7 @@ library
                    transformers
   hs-source-dirs:   src
   ghc-options:      -Wall
-  exposed-modules:  Control.Distributed.Platform.GenProcess,
+  exposed-modules:  
                    Control.Distributed.Platform.GenServer
   other-modules:   Control.Distributed.Platform.Timer
 

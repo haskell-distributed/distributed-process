@@ -52,6 +52,8 @@ import           Control.Distributed.Process              (AbstractMessage (forw
                                                            receiveWait, say,
                                                            send, spawnLocal)
 import           Control.Distributed.Process.Serializable (Serializable)
+import           Control.Distributed.Platform.Internal.Types
+import           Control.Distributed.Platform.Timer
 import qualified Control.Monad.State                      as ST (StateT,
                                                                  get, lift,
                                                                  modify, put,
@@ -69,10 +71,6 @@ import           Data.Typeable                            (Typeable)
 
 -- | ServerId
 type ServerId = ProcessId
-
--- | Timeout
-data Timeout = Timeout Int
-             | NoTimeout
 
 -- | Server monad
 type Server s = ST.StateT s Process
@@ -239,7 +237,7 @@ data LocalServer s = LocalServer {
 ---- Starting point for creating new servers
 defaultServer :: LocalServer s
 defaultServer = LocalServer {
-  initHandler = return $ InitOk NoTimeout,
+  initHandler = return $ InitOk Infinity,
   msgHandlers = [],
   terminateHandler = \_ -> return ()
 }
@@ -261,9 +259,9 @@ callServer sid timeout rq = do
   say $ "Calling server " ++ show cid
   send sid (Message cid rq)
   case timeout of
-    NoTimeout -> expect
+    Infinity -> expect
     Timeout time -> do
-      mayResp <- expectTimeout time
+      mayResp <- expectTimeout (intervalToMs time)
       case mayResp of
         Just msg -> return msg
         Nothing -> error $ "timeout! value = " ++ show time
@@ -327,12 +325,12 @@ processReceive ds timeout = do
     s <- getState
     let ms = map (matchMessage s) ds
     case timeout of
-        NoTimeout -> do
+        Infinity -> do
             (s', r) <- ST.lift $ receiveWait ms
             putState s'
             return r
         Timeout t -> do
-            mayResult <- ST.lift $ receiveTimeout t ms
+            mayResult <- ST.lift $ receiveTimeout (intervalToMs t) ms
             case mayResult of
                 Just (s', r) -> do
                   putState s'
