@@ -41,8 +41,9 @@ module Control.Distributed.Platform.GenServer (
   ) where
 
 import           Control.Distributed.Process              (AbstractMessage (forward),
-                                                           Match, MonitorRef,
-                                                           Process, ProcessId,
+                                                           Match,
+                                                           Process,
+                                                           ProcessId,
                                                            expect,
                                                            expectTimeout,
                                                            getSelfPid, match,
@@ -65,9 +66,6 @@ import           Data.Typeable                            (Typeable)
 --------------------------------------------------------------------------------
 -- Data Types                                                                 --
 --------------------------------------------------------------------------------
-
--- | Process name
-type Name = String
 
 -- | ServerId
 type ServerId = ProcessId
@@ -166,9 +164,9 @@ class MessageMatcher d where
 
 -- | Matches messages to a MessageDispatcher
 instance MessageMatcher MessageDispatcher where
-  matchMessage s (MessageDispatcher dispatcher) = match (dispatcher s)
-  matchMessage s (MessageDispatcherIf dispatcher cond) = matchIf (cond s) (dispatcher s)
-  matchMessage s (MessageDispatcherAny dispatcher) = matchAny (dispatcher s)
+  matchMessage s (MessageDispatcher    d)      = match (d s)
+  matchMessage s (MessageDispatcherIf  d cond) = matchIf (cond s) (d s)
+  matchMessage s (MessageDispatcherAny d)      = matchAny (d s)
 
 -- | Constructs a call message dispatcher
 handleCall :: (Serializable a, Show a, Serializable b) => CallHandler s a b -> MessageDispatcher s
@@ -190,7 +188,7 @@ handleCallIf cond handler = MessageDispatcherIf {
             send cid resp
             return (s', Just (TerminateReason reason))
   ),
-  dispatchIf = \state (Message _ req) -> cond req
+  dispatchIf = \_ (Message _ req) -> cond req
 }
 
 -- | Constructs a cast message dispatcher
@@ -211,7 +209,7 @@ handleCastIf cond handler = MessageDispatcherIf {
             send sid m
             return (s', Nothing)
   ),
-  dispatchIf = \state (Message _ msg) -> cond msg
+  dispatchIf = \_ (Message _ msg) -> cond msg
 }
 
 -- | Constructs a dispatcher for any message
@@ -253,16 +251,8 @@ defaultServer = LocalServer {
 -- | Start a new server and return it's id
 startServer :: s -> LocalServer s -> Process ServerId
 startServer state handlers = spawnLocal $ do
-  ST.runStateT (processServer handlers) state
+  _ <- ST.runStateT (processServer handlers) state
   return ()
-
--- TODO
-startServerLink :: s -> LocalServer s -> Process (ServerId, MonitorRef)
-startServerLink handlers = undefined
-  --us   <- getSelfPid
-  --them <- spawn nid (cpLink us `seqCP` proc)
-  --ref  <- monitor them
-  --return (them, ref)
 
 -- | call a server identified by it's ServerId
 callServer :: (Serializable rq, Serializable rs) => ServerId -> Timeout -> rq -> Process rs
