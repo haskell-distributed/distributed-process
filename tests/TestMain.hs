@@ -28,8 +28,8 @@ import Control.Distributed.Process.Serializable (Serializable)
 import TestGenServer
 
 tests :: (NT.Transport, TransportInternals)  -> [Test]
-tests (transport, transportInternals) = [
-     testGroup "GenServer" (genServerTests transport)
+tests transportConfig = [
+     testGroup "GenServer" (genServerTests transportConfig)
   ]
 
 main :: IO ()
