@@ -31,8 +31,6 @@ library
                    Control.Distributed.Platform,
                    Control.Distributed.Platform.GenServer,
                    Control.Distributed.Platform.Timer
-  other-modules:   
-                   Control.Distributed.Platform.Utils
 
 test-suite PlatformTests
   type:            exitcode-stdio-1.0
@@ -57,7 +55,6 @@ test-suite PlatformTests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   other-modules:   
                    Control.Distributed.Platform.Timer,
-                   Control.Distributed.Platform,
-                   Control.Distributed.Platform.Utils
+                   Control.Distributed.Platform
   extensions:      CPP
   main-is:         TestMain.hs
