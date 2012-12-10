@@ -14,8 +14,8 @@ import Control.Concurrent.MVar
   )
 import qualified Network.Transport as NT (Transport)
 import Network.Transport.TCP (TransportInternals)
-import Control.Distributed.Process
 import Control.Distributed.Process.Internal.Types()
+import Control.Distributed.Process (say, liftIO, exit)
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable()
 
@@ -55,7 +55,7 @@ testPing transport = do
 
   forkIO $ runProcess localNode $ do
       say "Starting ..."
-      sid <- startServer (0 :: Int) defaultServer {
+      sid <- start (0 :: Int) defaultServer {
           initHandler       = do
             --trace "Init ..."
             c <- getState
@@ -88,9 +88,9 @@ testPing transport = do
 
       liftIO $ takeMVar initDone
       --replicateM_ 10 $ do
-      Pong <- callServer sid (Timeout (TimeInterval Seconds 10)) Ping
+      Just Pong <- callTimeout sid (Timeout (TimeInterval Seconds 10)) Ping
       liftIO $ takeMVar pingDone
-      castServer sid Pong
+      cast sid Pong
       liftIO $ takeMVar pongDone
       exit sid ()
 
@@ -115,7 +115,7 @@ testCounter transport = do
     _ <- getCount cid
     resetCount cid
     _ <- getCount cid
-    stopCounter cid
+    terminateCounter cid
     liftIO $ putMVar serverDone True
     return ()
 
@@ -139,7 +139,7 @@ testKitty transport = do
       returnCat kPid cat1
       returnCat kPid cat2
       closeShop kPid
-      stopKitty kPid
+      terminateKitty kPid
       liftIO $ putMVar serverDone True
       return ()
 
