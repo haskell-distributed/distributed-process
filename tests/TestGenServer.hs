@@ -70,7 +70,7 @@ testPing transport = do
   localNode <- newLocalNode transport initRemoteTable
 
   forkIO $ runProcess localNode $ do
-      --say "Starting ..."
+      say "Starting ..."
       sid <- startServer (0 :: Int) defaultServer {
           initHandler       = do
             --trace "Init ..."

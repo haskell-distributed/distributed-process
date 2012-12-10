@@ -1,4 +1,4 @@
-:set -isrc -isrc
+:set -isrc -itests
 
 :def hoogle \x -> return $ ":!hoogle " ++ x
 
@@ -6,4 +6,4 @@
 
 :set -w -fwarn-unused-binds -fwarn-unused-imports
 
-:load src/Main.hs
+:load tests/Main.hs
