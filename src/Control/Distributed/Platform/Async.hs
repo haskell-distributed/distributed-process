@@ -6,8 +6,7 @@ module Control.Distributed.Platform.Async (
     waitTimeout
   ) where
 import           Control.Concurrent.MVar
-import           Control.Distributed.Platform.Internal.Types
-import           Control.Distributed.Platform.Timer
+import           Control.Distributed.Platform
 import           Control.Distributed.Process                 (Process,
                                                               ProcessId, ProcessMonitorNotification (..),
                                                               finally, liftIO,

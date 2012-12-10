@@ -1,10 +1,9 @@
 {-# LANGUAGE DeriveDataTypeable        #-}
 {-# LANGUAGE TemplateHaskell           #-}
 
-module Control.Distributed.Platform.Timer (
+module Control.Distributed.Platform.Timer 
+  (
     TimerRef
-  , TimeInterval(..)
-  , TimeUnit(..)
   , Tick(Tick)
   , sleep
   , sendAfter
@@ -15,18 +14,12 @@ module Control.Distributed.Platform.Timer (
   , resetTimer
   , cancelTimer
   , flushTimer
-  -- time interval handling
-  , milliseconds
-  , seconds
-  , minutes
-  , hours
-  , intervalToMs
-  , timeToMs
   ) where
 
 import Control.Distributed.Process
 import Control.Distributed.Process.Serializable
 import Control.Distributed.Platform.Internal.Types
+import Control.Distributed.Platform.Utils
 import Data.Binary
 import Data.DeriveTH
 import Data.Typeable                               (Typeable)
@@ -52,38 +45,6 @@ $(derive makeBinary ''SleepingPill)
 --------------------------------------------------------------------------------
 -- API                                                                        --
 --------------------------------------------------------------------------------
-
--- time interval/unit handling
-
--- | converts the supplied TimeInterval to milliseconds
-intervalToMs :: TimeInterval -> Int
-intervalToMs (TimeInterval u v) = timeToMs u v
-
--- | given a number, produces a `TimeInterval' of milliseconds
-milliseconds :: Int -> TimeInterval
-milliseconds = TimeInterval Millis
-
--- | given a number, produces a `TimeInterval' of seconds
-seconds :: Int -> TimeInterval
-seconds = TimeInterval Seconds
-
--- | given a number, produces a `TimeInterval' of minutes
-minutes :: Int -> TimeInterval
-minutes = TimeInterval Minutes
-
--- | given a number, produces a `TimeInterval' of hours
-hours :: Int -> TimeInterval
-hours = TimeInterval Hours
-
--- TODO: timeToMs is not exactly efficient and we need to scale it up to
---       deal with days, months, years, etc
-
--- | converts the supplied TimeUnit to milliseconds
-timeToMs :: TimeUnit -> Int -> Int
-timeToMs Millis  ms   = ms
-timeToMs Seconds sec  = sec * 1000
-timeToMs Minutes mins = (mins * 60) * 1000
-timeToMs Hours   hrs  = ((hrs * 60) * 60) * 1000
 
 -- | blocks the calling Process for the specified TimeInterval. Note that this
 -- function assumes that a blocking receive is the most efficient approach to
@@ -131,14 +92,21 @@ cancelTimer = (flip send) Cancel
 -- | cancels a running timer and flushes any viable timer messages from the
 -- process' message queue. This function should only be called by the process
 -- expecting to receive the timer's messages!
-flushTimer :: (Serializable a, Eq a) => TimerRef -> a -> TimeInterval -> Process () 
+flushTimer :: (Serializable a, Eq a) => TimerRef -> a -> Timeout -> Process () 
 flushTimer ref ignore t = do
+    mRef <- monitor ref
     cancelTimer ref
     -- TODO: monitor the timer ref (pid) and ensure it's gone before finishing
-    _ <- receiveTimeout (intervalToMs t) [
-                matchIf (\x -> x == ignore)
-                        (\_ -> return ()) ]
+    performFlush mRef t
     return ()
+  where performFlush mRef Infinity    = receiveWait $ filters mRef
+        performFlush mRef (Timeout i) =
+            receiveTimeout (intervalToMs i) (filters mRef) >> return ()
+        filters mRef = [
+                matchIf (\x -> x == ignore)
+                        (\_ -> return ())
+              , matchIf (\(ProcessMonitorNotification mRef' _ _) -> mRef == mRef')
+                        (\_ -> return ()) ]
 
 -- | sets up a timer that sends `Tick' repeatedly at intervals of `t'
 ticker :: TimeInterval -> ProcessId -> Process TimerRef
