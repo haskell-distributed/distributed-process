@@ -20,7 +20,7 @@ import qualified Control.Monad.State         as ST (StateT, get,
 
 import Control.Distributed.Process.Serializable
 import Control.Distributed.Platform.Internal.Types
-import Control.Distributed.Platform.Timer          (intervalToMs)
+import Control.Distributed.Platform
 import Data.Binary
 import Data.DeriveTH
 import Data.Typeable                               (Typeable)
