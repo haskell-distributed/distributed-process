@@ -240,5 +240,5 @@ trace msg = ST.lift . BaseProcess.say $ msg
 
 -- data Upgrade = ???
 -- TODO: can we use 'Static (SerializableDict a)' to pass a Behaviour spec to
--- a remote pid? if so then we may hot server-code loading quite easily...
+-- a remote pid? if so then we may handle hot server-code loading quite easily...
 
