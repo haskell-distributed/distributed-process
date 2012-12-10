@@ -1,6 +1,6 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE TemplateHaskell    #-}
-module Control.Distributed.Examples.Counter(
+module GenServer.Counter(
     startCounter,
     stopCounter,
     getCount,
@@ -31,7 +31,7 @@ $(derive makeBinary ''CounterRequest)
 
 -- Call response(s)
 data CounterResponse
-    = CounterIncremented
+    = CounterIncremented Int
     | Count Int
         deriving (Show, Typeable)
 $(derive makeBinary ''CounterResponse)
@@ -50,32 +50,40 @@ $(derive makeBinary ''ResetCount)
 -- | Start a counter server
 startCounter :: Int -> Process ServerId
 startCounter count = startServer count defaultServer {
-  msgHandlers = [
-    handleCall handleCounter,
-    handleCast handleReset
-]}
+    initHandler = do
+      --c <- getState
+      --trace $ "Counter init: " ++ show c
+      initOk Infinity,
+    terminateHandler = \r ->
+      --const (return ()),
+      trace $ "Counter terminate: " ++ show r,
+    handlers = [
+      handle handleCounter,
+      handle handleReset
+    ]
+}
 
 
 
 -- | Stop the counter server
 stopCounter :: ServerId -> Process ()
-stopCounter sid = stopServer sid TerminateNormal
+stopCounter sid = stopServer sid ()
 
 
 
 -- | Increment count
-incCount :: ServerId -> Process ()
+incCount :: ServerId -> Process Int
 incCount sid = do
-  CounterIncremented <- callServer sid NoTimeout IncrementCounter
-  return ()
+    CounterIncremented c <- callServer sid Infinity IncrementCounter
+    return c
 
 
 
 -- | Get the current count
 getCount :: ServerId -> Process Int
 getCount sid = do
-  Count c <- callServer sid NoTimeout GetCount
-  return c
+    Count c <- callServer sid Infinity GetCount
+    return c
 
 
 
@@ -88,19 +96,19 @@ resetCount sid = castServer sid ResetCount
 -- IMPL                                                                       --
 --------------------------------------------------------------------------------
 
-
+handleCounter :: Handler Int CounterRequest CounterResponse
 handleCounter IncrementCounter = do
-  modifyState (+1)
-  count <- getState
-  if count > 10
-    then callStop CounterIncremented "Count > 10"
-    else callOk CounterIncremented
-
+    modifyState (+1)
+    count <- getState
+    if count > 10
+      then stop (CounterIncremented count) "Stopping because 'Count > 10'"
+      else ok (CounterIncremented count)
 handleCounter GetCount = do
-  count <- getState
-  callOk (Count count)
+    count <- getState
+    ok (Count count)
 
 
+handleReset :: Handler Int ResetCount ()
 handleReset ResetCount = do
-  putState 0
-  castOk
+    putState 0
+    ok ()

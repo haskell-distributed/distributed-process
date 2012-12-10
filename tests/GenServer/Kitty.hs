@@ -4,9 +4,10 @@
 --
 -- -module(kitty_server).
 -- -export([start_link/0, order_cat/4, return_cat/2, close_shop/1]).
-module Control.Distributed.Examples.Kitty
+module GenServer.Kitty
     (
         startKitty,
+        stopKitty,
         orderCat,
         returnCat,
         closeShop,
@@ -68,16 +69,29 @@ $( derive makeBinary ''CatEv )
 -- | Start a counter server
 startKitty :: [Cat] -> Process ServerId
 startKitty cats = startServer cats defaultServer {
-  msgHandlers = [
-    handleCall handleKitty,
-    handleCast handleReturn
+    initHandler         = do
+        --cs <- getState
+        --trace $ "Kitty init: " ++ show cs
+        initOk Infinity,
+    terminateHandler    = const $ return (),
+        --trace $ "Kitty terminate: " ++ show r,
+    handlers            = [
+        handle handleKitty,
+        handle handleReturn
 ]}
+
+
+
+-- | Stop the kitty server
+stopKitty :: ServerId -> Process ()
+stopKitty sid = stopServer sid ()
+
 
 
 -- %% Synchronous call
 orderCat :: ServerId -> Name -> Color -> Description -> Process Cat
 orderCat sid name color descr = do
-    result <- callServer sid NoTimeout (OrderCat name color descr)
+    result <- callServer sid Infinity (OrderCat name color descr)
     case result of
         CatOrdered c -> return c
         _ -> error $ "Unexpected result " ++ show result
@@ -93,7 +107,7 @@ returnCat sid cat = castServer sid (ReturnCat cat)
 -- %% sync call
 closeShop :: ServerId -> Process ()
 closeShop sid = do
-    result <- callServer sid NoTimeout CloseShop
+    result <- callServer sid Infinity CloseShop
     case result of
         ShopClosed -> return ()
         _ -> error $ "Unexpected result " ++ show result
@@ -104,24 +118,25 @@ closeShop sid = do
 -- %%% Server functions
 
 
+handleKitty :: Handler [Cat] CatCmd CatEv
 handleKitty (OrderCat name color descr) = do
     cats <- getState
-    trace $ "Kitty inventory: " ++ show cats
     case cats of
         [] -> do
             let cat = Cat name color descr
             putState (cat:cats)
-            callOk (CatOrdered cat)
+            ok (CatOrdered cat)
         (x:xs) -> do -- TODO find cat with same features
             putState xs
-            callOk (CatOrdered x)
+            ok (CatOrdered x)
 
 handleKitty CloseShop = do
     putState []
-    callOk ShopClosed
+    ok ShopClosed
 
 
 
+handleReturn :: Handler [Cat] ReturnCat ()
 handleReturn (ReturnCat cat) = do
     modifyState (cat :)
-    castOk
+    ok ()
