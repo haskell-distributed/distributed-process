@@ -7,8 +7,9 @@
 module GenServer.Kitty
     (
         startKitty,
-        stopKitty,
+        terminateKitty,
         orderCat,
+        orderCatAsync,
         returnCat,
         closeShop,
         Cat(..)
@@ -29,8 +30,6 @@ type Color = String
 type Description = String
 type Name = String
 
-
-
 data Cat = Cat {
     catName  :: Name,
     catColor :: Color,
@@ -38,22 +37,16 @@ data Cat = Cat {
         deriving (Show, Typeable)
 $( derive makeBinary ''Cat )
 
-
-
 data CatCmd
     = OrderCat String String String
     | CloseShop
         deriving (Show, Typeable)
 $( derive makeBinary ''CatCmd )
 
-
-
 data ReturnCat
     = ReturnCat Cat
         deriving (Show, Typeable)
 $( derive makeBinary ''ReturnCat )
-
-
 
 data CatEv
     = CatOrdered Cat
@@ -61,14 +54,12 @@ data CatEv
         deriving (Show, Typeable)
 $( derive makeBinary ''CatEv )
 
-
-
 --
 -- %% Client API
 -- start_link() -> spawn_link(fun init/0).
 -- | Start a counter server
 startKitty :: [Cat] -> Process ServerId
-startKitty cats = startServer cats defaultServer {
+startKitty cats = start cats defaultServer {
     initHandler         = do
         --cs <- getState
         --trace $ "Kitty init: " ++ show cs
@@ -80,43 +71,36 @@ startKitty cats = startServer cats defaultServer {
         handle handleReturn
 ]}
 
-
-
 -- | Stop the kitty server
-stopKitty :: ServerId -> Process ()
-stopKitty sid = stopServer sid ()
-
-
+terminateKitty :: ServerId -> Process ()
+terminateKitty sid = terminate sid ()
 
 -- %% Synchronous call
 orderCat :: ServerId -> Name -> Color -> Description -> Process Cat
 orderCat sid name color descr = do
-    result <- callServer sid Infinity (OrderCat name color descr)
+    result <- call sid Infinity (OrderCat name color descr)
     case result of
         CatOrdered c -> return c
         _ -> error $ "Unexpected result " ++ show result
 
+-- | Async call
+orderCatAsync :: ServerId -> Name -> Color -> Description -> Process (Async Cat)
+orderCatAsync sid name color descr = callAsync sid (OrderCat name color descr)
 
-
--- %% async call
+-- %% cast
 returnCat :: ServerId -> Cat -> Process ()
-returnCat sid cat = castServer sid (ReturnCat cat)
-
-
+returnCat sid cat = cast sid (ReturnCat cat)
 
 -- %% sync call
 closeShop :: ServerId -> Process ()
 closeShop sid = do
-    result <- callServer sid Infinity CloseShop
+    result <- call sid Infinity CloseShop
     case result of
         ShopClosed -> return ()
         _ -> error $ "Unexpected result " ++ show result
 
-
-
 --
 -- %%% Server functions
-
 
 handleKitty :: Handler [Cat] CatCmd CatEv
 handleKitty (OrderCat name color descr) = do
@@ -133,8 +117,6 @@ handleKitty (OrderCat name color descr) = do
 handleKitty CloseShop = do
     putState []
     ok ShopClosed
-
-
 
 handleReturn :: Handler [Cat] ReturnCat ()
 handleReturn (ReturnCat cat) = do
