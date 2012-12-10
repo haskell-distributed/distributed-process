@@ -41,13 +41,13 @@ module Control.Distributed.Platform.GenServer (
     Process,
     trace
   ) where
-
+import Control.Concurrent.MVar
 import           Control.Applicative                        (Applicative)
 import           Control.Exception                          (SomeException)
 import           Control.Monad.IO.Class                     (MonadIO)
 import qualified Control.Distributed.Process                as P (forward, catch)
 import           Control.Distributed.Process              (AbstractMessage,
-                                                           Match,
+                                                           Match, liftIO,
                                                            Process,
                                                            ProcessId,
                                                            expectTimeout,
@@ -256,52 +256,56 @@ startMonitor s ls = do
   ref <- monitor pid
   return (pid, ref)
 
+-- | Async data type
+data Async a = Async MonitorRef (MVar a)
 
-data Async a = Async MonitorRef
-
-
+-- | Sync call to a server
 call :: (Serializable rq, Show rq, Serializable rs, Show rs) => ServerId -> Timeout -> rq -> Process rs
 call sid timeout rq = do
   a1 <- callAsync sid rq
   waitTimeout a1 timeout
 
--- | Call a server identified by it's ServerId
+-- | Async call to a server
 callAsync :: (Serializable rq, Show rq, Serializable rs, Show rs) => ServerId -> rq -> Process (Async rs)
 callAsync sid rq = do
     cid <- getSelfPid
+    ref <- monitor sid
     --say $ "Calling server " ++ show cid ++ " - " ++ show rq
     send sid (CallMessage cid rq)
-    async sid
+    respMVar <- liftIO newEmptyMVar
+    return $ Async ref respMVar
 
-async :: ProcessId -> Process (Async a)
-async pid = do
-  ref <- monitor pid
-  return $ Async ref
-
+-- | Wait for the call response
 wait :: (Serializable a, Show a) => Async a -> Process a
 wait a = waitTimeout a Infinity
 
+-- | Wait for the call response given a timeout
 waitTimeout :: (Serializable a, Show a) => Async a -> Timeout -> Process a
-waitTimeout (Async ref) timeout = do
-    respM <- finally (receive timeout) (unmonitor ref)
-    case respM of
-      Just resp -> return resp
-      Nothing -> error "Response-receive timeout"
-  where
+waitTimeout (Async ref respMVar) timeout =
+  let
     receive to = case to of
         Infinity -> do
           resp <- receiveWait matches
           return $ Just resp
         Timeout t -> receiveTimeout (intervalToMs t) matches
     matches = [
-      match (\resp -> return resp),
+      match return,
       match (\(ProcessMonitorNotification _ _ reason) -> do
-        mayResp <- expectTimeout 0
+        mayResp <- receiveTimeout 0 [match return]
         case mayResp of
           Just resp -> return resp
           Nothing -> error $ "Server died: " ++ show reason)]
-
-
+  in do
+    respM <- liftIO $ tryTakeMVar respMVar
+    case respM of
+      Just resp -> return resp
+      Nothing -> do
+        respM <- finally (receive timeout) (unmonitor ref)
+        case respM of
+          Just resp -> do
+            liftIO $ putMVar respMVar resp
+            return resp
+          Nothing -> error "Response-receive timeout"
 
 -- | Cast a message to a server identified by it's ServerId
 cast :: (Serializable a) => ServerId -> a -> Process ()
