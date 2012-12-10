@@ -35,31 +35,30 @@ module Control.Distributed.Platform.GenServer (
     cast,
     Async(),
     call,
+    callTimeout,
     callAsync,
     wait,
     waitTimeout,
     Process,
     trace
   ) where
-import Control.Concurrent.MVar
+import Data.Maybe(fromJust)
 import           Control.Applicative                        (Applicative)
 import           Control.Exception                          (SomeException)
 import           Control.Monad.IO.Class                     (MonadIO)
 import qualified Control.Distributed.Process                as P (forward, catch)
 import           Control.Distributed.Process              (AbstractMessage,
-                                                           Match, liftIO,
+                                                           Match,
                                                            Process,
                                                            ProcessId,
-                                                           expectTimeout,
-                                                           monitor, unmonitor,
-                                                           link, finally,
+                                                           monitor,
+                                                           link,
                                                            exit,
                                                            getSelfPid, match,
                                                            matchAny, matchIf,
                                                            receiveTimeout,
                                                            receiveWait, say,
-                                                           send, spawnLocal,
-                                                           ProcessMonitorNotification(..))
+                                                           send, spawnLocal)
 import           Control.Distributed.Process.Internal.Types (MonitorRef)
 import           Control.Distributed.Process.Serializable (Serializable)
 import           Control.Distributed.Platform.Internal.Types
@@ -75,6 +74,7 @@ import           Data.Binary                              (Binary (..),
                                                            getWord8, putWord8)
 import           Data.DeriveTH
 import           Data.Typeable                              (Typeable)
+import Control.Distributed.Platform.Async
 
 --------------------------------------------------------------------------------
 -- Data Types                                                                 --
@@ -256,56 +256,22 @@ startMonitor s ls = do
   ref <- monitor pid
   return (pid, ref)
 
--- | Async data type
-data Async a = Async MonitorRef (MVar a)
+-- | Sync call with no timeout
+call :: (Serializable rq, Show rq, Serializable rs, Show rs) => ServerId -> rq -> Process rs
+call sid rq = callTimeout sid Infinity rq >>= return . fromJust
 
--- | Sync call to a server
-call :: (Serializable rq, Show rq, Serializable rs, Show rs) => ServerId -> Timeout -> rq -> Process rs
-call sid timeout rq = do
+-- | Sync call
+callTimeout :: (Serializable rq, Show rq, Serializable rs, Show rs) => ServerId -> Timeout -> rq -> Process (Maybe rs)
+callTimeout sid timeout rq = do
   a1 <- callAsync sid rq
   waitTimeout a1 timeout
 
 -- | Async call to a server
 callAsync :: (Serializable rq, Show rq, Serializable rs, Show rs) => ServerId -> rq -> Process (Async rs)
-callAsync sid rq = do
-    cid <- getSelfPid
-    ref <- monitor sid
-    --say $ "Calling server " ++ show cid ++ " - " ++ show rq
-    send sid (CallMessage cid rq)
-    respMVar <- liftIO newEmptyMVar
-    return $ Async ref respMVar
-
--- | Wait for the call response
-wait :: (Serializable a, Show a) => Async a -> Process a
-wait a = waitTimeout a Infinity
-
--- | Wait for the call response given a timeout
-waitTimeout :: (Serializable a, Show a) => Async a -> Timeout -> Process a
-waitTimeout (Async ref respMVar) timeout =
-  let
-    receive to = case to of
-        Infinity -> do
-          resp <- receiveWait matches
-          return $ Just resp
-        Timeout t -> receiveTimeout (intervalToMs t) matches
-    matches = [
-      match return,
-      match (\(ProcessMonitorNotification _ _ reason) -> do
-        mayResp <- receiveTimeout 0 [match return]
-        case mayResp of
-          Just resp -> return resp
-          Nothing -> error $ "Server died: " ++ show reason)]
-  in do
-    respM <- liftIO $ tryTakeMVar respMVar
-    case respM of
-      Just resp -> return resp
-      Nothing -> do
-        respM <- finally (receive timeout) (unmonitor ref)
-        case respM of
-          Just resp -> do
-            liftIO $ putMVar respMVar resp
-            return resp
-          Nothing -> error "Response-receive timeout"
+callAsync sid rq = async sid $ do
+  cid <- getSelfPid
+  --say $ "Calling server " ++ show cid ++ " - " ++ show rq
+  send sid (CallMessage cid rq)
 
 -- | Cast a message to a server identified by it's ServerId
 cast :: (Serializable a) => ServerId -> a -> Process ()
