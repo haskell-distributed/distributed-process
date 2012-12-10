@@ -54,7 +54,7 @@ counterTest = do
     resetCount cid
     c2 <- getCount cid
     say $ "c2 = " ++ show c2
-    stopCounter cid
+    terminateCounter cid
     return ()
 
 
@@ -68,7 +68,7 @@ kittyTest n = do
     say "-- Closing kitty shop ..."
     closeShop kPid
     say "-- Stopping kitty shop ..."
-    stopKitty kPid
+    terminateKitty kPid
     closeShop kPid
     return ()
 
