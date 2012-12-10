@@ -31,7 +31,7 @@ library
                    Control.Distributed.Platform.GenServer
   other-modules:   Control.Distributed.Platform.Timer
 
-test-suite TestTimer
+test-suite PlatformTests
   type:            exitcode-stdio-1.0
   x-uses-tf:       true
   build-depends:
