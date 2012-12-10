@@ -100,7 +100,7 @@ testPing transport = do
 
       liftIO $ takeMVar initDone
       --replicateM_ 10 $ do
-      Pong <- call sid (Timeout (TimeInterval Seconds 10)) Ping
+      Just Pong <- callTimeout sid (Timeout (TimeInterval Seconds 10)) Ping
       liftIO $ takeMVar pingDone
       cast sid Pong
       liftIO $ takeMVar pongDone

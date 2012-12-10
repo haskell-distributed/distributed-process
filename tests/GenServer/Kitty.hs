@@ -19,7 +19,7 @@ module GenServer.Kitty
     ) where
 
 import           Control.Distributed.Platform.GenServer
-
+import Control.Monad(void)
 import           Data.Binary                            (Binary (..), getWord8,
                                                          putWord8)
 import           Data.DeriveTH
@@ -80,11 +80,7 @@ terminateKitty sid = terminate sid ()
 
 -- %% Synchronous call
 orderCat :: ServerId -> Name -> Color -> Description -> Process Cat
-orderCat sid name color descr = do
-    result <- call sid Infinity (OrderCat name color descr)
-    case result of
-        CatOrdered c -> return c
-        _ -> error $ "Unexpected result " ++ show result
+orderCat sid name color descr = call sid (OrderCat name color descr) >>= \(CatOrdered c) -> return c
 
 -- | Async call
 orderCatAsync :: ServerId -> Name -> Color -> Description -> Process (Async Cat)
@@ -96,11 +92,7 @@ returnCat sid cat = cast sid (ReturnCat cat)
 
 -- %% sync call
 closeShop :: ServerId -> Process ()
-closeShop sid = do
-    result <- call sid Infinity CloseShop
-    case result of
-        ShopClosed -> return ()
-        _ -> error $ "Unexpected result " ++ show result
+closeShop sid = call sid CloseShop >>= \CloseShop -> return ()
 
 --
 -- %%% Server functions

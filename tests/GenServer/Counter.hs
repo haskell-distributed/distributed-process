@@ -67,13 +67,13 @@ terminateCounter sid = terminate sid ()
 -- | Increment count
 incCount :: ServerId -> Process Int
 incCount sid = do
-    CounterIncremented c <- call sid Infinity IncrementCounter
+    CounterIncremented c <- call sid IncrementCounter
     return c
 
 -- | Get the current count
 getCount :: ServerId -> Process Int
 getCount sid = do
-    Count c <- call sid Infinity GetCount
+    Count c <- call sid GetCount
     return c
 
 -- | Get the current count asynchronously
