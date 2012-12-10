@@ -19,7 +19,7 @@ module Control.Distributed.Platform.Timer
 import Control.Distributed.Process
 import Control.Distributed.Process.Serializable
 import Control.Distributed.Platform.Internal.Types
-import Control.Distributed.Platform.Utils
+import Control.Distributed.Platform
 import Data.Binary
 import Data.DeriveTH
 import Data.Typeable                               (Typeable)
