@@ -38,39 +38,39 @@ module Control.Distributed.Platform.GenServer (
     trace
   ) where
 
-import           Control.Applicative                        (Applicative)
-import           Control.Exception                          (SomeException)
-import           Control.Monad.IO.Class                     (MonadIO)
-import qualified Control.Distributed.Process                as P (forward, catch)
-import           Control.Distributed.Process              (AbstractMessage,
-                                                           Match,
-                                                           Process,
-                                                           ProcessId,
-                                                           expectTimeout,
-                                                           monitor, unmonitor,
-                                                           link, finally,
-                                                           exit,
-                                                           getSelfPid, match,
-                                                           matchAny, matchIf,
-                                                           receiveTimeout,
-                                                           receiveWait, say,
-                                                           send, spawnLocal,
-                                                           ProcessMonitorNotification(..))
-import           Control.Distributed.Process.Internal.Types (MonitorRef)
-import           Control.Distributed.Process.Serializable (Serializable)
-import           Control.Distributed.Platform.Internal.Types
-import           Control.Distributed.Platform.Timer
-import qualified Control.Monad.State                        as ST (MonadState,
-                                                                   MonadTrans,
-                                                                   StateT, get,
-                                                                   lift, modify,
-                                                                   put,
-                                                                   runStateT)
+import qualified Control.Distributed.Process as P (forward, catch)
+import qualified Control.Monad.State as ST (MonadState,
+                                            MonadTrans,
+                                            StateT, get,
+                                            lift, modify,
+                                            put,
+                                            runStateT)
 
-import           Data.Binary                              (Binary (..),
-                                                           getWord8, putWord8)
-import           Data.DeriveTH
-import           Data.Typeable                              (Typeable)
+import Control.Applicative (Applicative)
+import Control.Exception (SomeException)
+import Control.Monad.IO.Class (MonadIO)
+
+import Control.Distributed.Process (AbstractMessage,
+                                    Match,
+                                    Process,
+                                    ProcessId,
+                                    expectTimeout,
+                                    monitor, unmonitor,
+                                    link, finally,
+                                    exit, getSelfPid, match,
+                                    matchAny, matchIf,
+                                    receiveTimeout,
+                                    receiveWait, say,
+                                    send, spawnLocal,
+                                    ProcessMonitorNotification(..))
+import Control.Distributed.Process.Internal.Types (MonitorRef)
+import Control.Distributed.Process.Serializable (Serializable)
+import Control.Distributed.Platform.Internal.Types
+import Control.Distributed.Platform.Timer
+
+import Data.Binary (Binary (..), getWord8, putWord8)
+import Data.DeriveTH
+import Data.Typeable (Typeable)
 
 --------------------------------------------------------------------------------
 -- Data Types                                                                 --
@@ -180,7 +180,7 @@ handleIf cond handler = MessageDispatcherIf {
             --say $ "Server REPLY: " ++ show r
             send cid resp
             return (s', Just (TerminateReason reason))
-    CastMessage cid payload -> do
+    CastMessage _ payload -> do
       --say $ "Server got CAST: [" ++ show cid ++ " / " ++ show payload ++ "]"
       (r, s') <- runServer (handler payload) s
       case r of
@@ -275,7 +275,7 @@ callServer sid timeout rq = do
       --say $ "Matched: " ++ show resp
       return resp)
 
-    matchDied = match (\n@(ProcessMonitorNotification _ _ reason) -> do
+    matchDied = match (\(ProcessMonitorNotification _ _ reason) -> do
       --say $ "Matched: " ++ show n
       mayResp <- expectTimeout 0
       case mayResp of

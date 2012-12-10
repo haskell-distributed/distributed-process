@@ -3,40 +3,24 @@
 {-# LANGUAGE TemplateHaskell    #-}
 module TestGenServer where
 
-import System.IO (hPutStrLn, stderr)
-import           Data.Binary                            (Binary (..), getWord8,
-                                                         putWord8)
+import Data.Binary (Binary (..))
 import Data.Typeable (Typeable)
 import Data.DeriveTH
-import Data.Foldable (forM_)
-import Control.Concurrent (forkIO, threadDelay, myThreadId, throwTo, ThreadId)
+import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar
-  ( MVar
-  , newEmptyMVar
+  ( newEmptyMVar
   , putMVar
   , takeMVar
-  , readMVar
   )
-import Control.Monad (replicateM_, replicateM, forever)
-import Control.Exception (SomeException, throwIO)
-import qualified Control.Exception as Ex (catch)
-import Control.Applicative ((<$>), (<*>), pure, (<|>))
-import qualified Network.Transport as NT (Transport, closeEndPoint)
-import Network.Transport.TCP
-  ( createTransportExposeInternals
-  , TransportInternals(socketBetween)
-  , defaultTCPParameters
-  )
+import qualified Network.Transport as NT (Transport)
+import Network.Transport.TCP (TransportInternals)
 import Control.Distributed.Process
-import Control.Distributed.Process.Internal.Types
-  ( NodeId(nodeAddress)
-  , LocalNode(localEndPoint)
-  )
+import Control.Distributed.Process.Internal.Types()
 import Control.Distributed.Process.Node
-import Control.Distributed.Process.Serializable (Serializable)
+import Control.Distributed.Process.Serializable()
 
 import Test.HUnit (Assertion)
-import Test.Framework (Test, defaultMain, testGroup)
+import Test.Framework (Test, testGroup)
 import Test.Framework.Providers.HUnit (testCase)
 
 import Control.Distributed.Platform.GenServer
@@ -77,7 +61,7 @@ testPing transport = do
             c <- getState
             liftIO $ putMVar initDone c
             initOk Infinity,
-          terminateHandler = \reason -> do
+          terminateHandler = \_ -> do
             --trace "Terminate ..."
             c <- getState
             liftIO $ putMVar terminateDone c
@@ -125,12 +109,12 @@ testCounter transport = do
 
   runProcess localNode $ do
     cid <- startCounter 0
-    c <- getCount cid
+    _ <- getCount cid
     incCount cid
     incCount cid
-    c <- getCount cid
+    _ <- getCount cid
     resetCount cid
-    c2 <- getCount cid
+    _ <- getCount cid
     stopCounter cid
     liftIO $ putMVar serverDone True
     return ()
