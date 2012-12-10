@@ -26,7 +26,7 @@ all: build
 
 .PHONY: test
 test: build
-	cabal test
+	cabal test --show-details=always
 
 .PHONY: build
 build: configure
