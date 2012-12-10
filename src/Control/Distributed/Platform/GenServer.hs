@@ -43,18 +43,19 @@ import           Control.Exception                          (SomeException)
 import           Control.Monad.IO.Class                     (MonadIO)
 import qualified Control.Distributed.Process                as P (forward, catch)
 import           Control.Distributed.Process              (AbstractMessage,
-                                                           Match, MonitorRef,
+                                                           Match,
                                                            Process,
                                                            ProcessId,
-                                                           expect,
                                                            expectTimeout,
-                                                           monitor, link,
+                                                           monitor, unmonitor,
+                                                           link, finally,
                                                            exit,
                                                            getSelfPid, match,
                                                            matchAny, matchIf,
                                                            receiveTimeout,
                                                            receiveWait, say,
-                                                           send, spawnLocal)
+                                                           send, spawnLocal,
+                                                           ProcessMonitorNotification(..))
 import           Control.Distributed.Process.Internal.Types (MonitorRef)
 import           Control.Distributed.Process.Serializable (Serializable)
 import           Control.Distributed.Platform.Internal.Types
@@ -179,7 +180,7 @@ handleIf cond handler = MessageDispatcherIf {
             --say $ "Server REPLY: " ++ show r
             send cid resp
             return (s', Just (TerminateReason reason))
-    CastMessage _ payload -> do
+    CastMessage cid payload -> do
       --say $ "Server got CAST: [" ++ show cid ++ " / " ++ show payload ++ "]"
       (r, s') <- runServer (handler payload) s
       case r of
@@ -252,18 +253,34 @@ startServerMonitor s ls = do
   return (pid, ref)
 
 -- | Call a server identified by it's ServerId
-callServer :: (Serializable rq, Serializable rs) => ServerId -> Timeout -> rq -> Process rs
+callServer :: (Serializable rq, Show rq, Serializable rs, Show rs) => ServerId -> Timeout -> rq -> Process rs
 callServer sid timeout rq = do
-  cid <- getSelfPid
-  --say $ "Calling server " ++ show cid
-  send sid (CallMessage cid rq)
-  case timeout of
-    Infinity -> expect
-    Timeout time -> do
-      mayResp <- expectTimeout (intervalToMs time)
+    cid <- getSelfPid
+    ref <- monitor sid
+    finally (doCall cid) (unmonitor ref)
+  where
+    doCall cid = do
+        --say $ "Calling server " ++ show cid ++ " - " ++ show rq
+        send sid (CallMessage cid rq)
+        case timeout of
+          Infinity -> do
+            receiveWait [matchDied, matchResponse]
+          Timeout t -> do
+              mayResp <- receiveTimeout (intervalToMs t) [matchDied, matchResponse]
+              case mayResp of
+                Just resp -> return resp
+                Nothing -> error $ "timeout! value = " ++ show t
+
+    matchResponse = match (\resp -> do
+      --say $ "Matched: " ++ show resp
+      return resp)
+
+    matchDied = match (\n@(ProcessMonitorNotification _ _ reason) -> do
+      --say $ "Matched: " ++ show n
+      mayResp <- expectTimeout 0
       case mayResp of
-        Just msg -> return msg
-        Nothing -> error $ "timeout! value = " ++ show time
+        Just resp -> return resp
+        Nothing -> error $ "Server died: " ++ show reason)
 
 -- | Cast a message to a server identified by it's ServerId
 castServer :: (Serializable a) => ServerId -> a -> Process ()

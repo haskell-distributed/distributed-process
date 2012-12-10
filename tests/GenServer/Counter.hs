@@ -31,7 +31,7 @@ $(derive makeBinary ''CounterRequest)
 
 -- Call response(s)
 data CounterResponse
-    = CounterIncremented
+    = CounterIncremented Int
     | Count Int
         deriving (Show, Typeable)
 $(derive makeBinary ''CounterResponse)
@@ -54,8 +54,9 @@ startCounter count = startServer count defaultServer {
       --c <- getState
       --trace $ "Counter init: " ++ show c
       initOk Infinity,
-    terminateHandler = const (return ()),
-      --trace $ "Counter terminate: " ++ show r,
+    terminateHandler = \r ->
+      --const (return ()),
+      trace $ "Counter terminate: " ++ show r,
     handlers = [
       handle handleCounter,
       handle handleReset
@@ -71,10 +72,10 @@ stopCounter sid = stopServer sid ()
 
 
 -- | Increment count
-incCount :: ServerId -> Process ()
+incCount :: ServerId -> Process Int
 incCount sid = do
-    CounterIncremented <- callServer sid Infinity IncrementCounter
-    return ()
+    CounterIncremented c <- callServer sid Infinity IncrementCounter
+    return c
 
 
 
@@ -97,11 +98,11 @@ resetCount sid = castServer sid ResetCount
 
 handleCounter :: Handler Int CounterRequest CounterResponse
 handleCounter IncrementCounter = do
-    count <- getState
     modifyState (+1)
+    count <- getState
     if count > 10
-      then stop CounterIncremented "Stopping because 'Count > 10'"
-      else ok CounterIncremented
+      then stop (CounterIncremented count) "Stopping because 'Count > 10'"
+      else ok (CounterIncremented count)
 handleCounter GetCount = do
     count <- getState
     ok (Count count)
