@@ -14,11 +14,11 @@ import           TestTimer               (timerTests)
 
 tests :: NT.Transport -> TransportInternals -> IO [Test]
 tests transport internals = do
-  gsTestGroup    <- genServerTests transport internals
+  -- gsTestGroup    <- genServerTests transport internals
   timerTestGroup <- timerTests     transport internals
   return [
-       testGroup "GenServer" gsTestGroup
-     , testGroup "Timer"     timerTestGroup ]
+       testGroup "Timer"     timerTestGroup ]
+     -- , testGroup "GenServer" gsTestGroup ]
 
 main :: IO ()
 main = do
