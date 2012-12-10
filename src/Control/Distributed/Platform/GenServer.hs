@@ -71,8 +71,7 @@ import Control.Distributed.Process (AbstractMessage,
 
 import Control.Distributed.Process.Internal.Types (MonitorRef)
 import Control.Distributed.Process.Serializable (Serializable)
-import Control.Distributed.Platform.Internal.Types
-import Control.Distributed.Platform.Timer
+import Control.Distributed.Platform
 import Control.Distributed.Platform.Async
 
 import Data.Binary (Binary (..), getWord8, putWord8)
