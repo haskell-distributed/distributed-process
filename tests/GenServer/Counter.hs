@@ -6,7 +6,10 @@ module GenServer.Counter(
     getCount,
     getCountAsync,
     incCount,
-    resetCount
+    resetCount,
+    wait,
+    waitTimeout,
+    Timeout(..)
   ) where
 
 import           Control.Distributed.Platform.GenServer

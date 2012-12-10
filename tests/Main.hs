@@ -3,7 +3,6 @@ module Main where
 import Prelude hiding (catch)
 import           GenServer.Counter
 import           GenServer.Kitty
-
 import           Control.Exception                    (SomeException)
 import           Control.Distributed.Static           (initRemoteTable)
 import           Network.Transport.TCP                (createTransport,
@@ -76,8 +75,12 @@ kittyTest n = do
 
 kittyTransactions kPid 0 = return ()
 kittyTransactions kPid n = do
+    say "ca1"
     cat1 <- orderCat kPid "c1" "black" "a black cat"
-    cat2 <- orderCat kPid "c2" "black" "a black cat"
+    say "a2"
+    a2 <- orderCatAsync kPid "c2" "black" "a black cat"
+    say "cat2"
+    cat2 <- waitTimeout a2 Infinity
     returnCat kPid cat1
     returnCat kPid cat2
     kittyTransactions kPid (n - 1)

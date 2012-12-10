@@ -12,7 +12,10 @@ module GenServer.Kitty
         orderCatAsync,
         returnCat,
         closeShop,
-        Cat(..)
+        Cat(..),
+        wait,
+        waitTimeout,
+        Timeout(..)
     ) where
 
 import           Control.Distributed.Platform.GenServer
