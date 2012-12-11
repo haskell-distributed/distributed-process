@@ -30,7 +30,8 @@ library
   exposed-modules:
                    Control.Distributed.Platform,
                    Control.Distributed.Platform.GenServer,
-                   Control.Distributed.Platform.Timer
+                   Control.Distributed.Platform.Timer,
+                   Control.Distributed.Platform.Async
 
 test-suite PlatformTests
   type:            exitcode-stdio-1.0
@@ -54,7 +55,10 @@ test-suite PlatformTests
                    tests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   other-modules:   
+                   Control.Distributed.Platform.Async,
                    Control.Distributed.Platform.Timer,
-                   Control.Distributed.Platform
+                   Control.Distributed.Platform,
+                   TestAsync,
+                   TestUtils
   extensions:      CPP
   main-is:         TestMain.hs

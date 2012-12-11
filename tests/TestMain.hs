@@ -9,7 +9,7 @@ module Main where
 import           Test.Framework          (Test, defaultMain, testGroup)
 import qualified Network.Transport as NT
 import           Network.Transport.TCP
-import           TestGenServer           (genServerTests)
+-- import           TestGenServer           (genServerTests)
 import           TestTimer               (timerTests)
 
 tests :: NT.Transport -> TransportInternals -> IO [Test]
