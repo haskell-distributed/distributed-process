@@ -14,7 +14,8 @@
 module Control.Distributed.Platform.Internal.Types (
     TimeUnit(..)
   , TimeInterval(..)
-  , Timeout(..) 
+  , Timeout(..)
+  , CancelWait(..) 
   ) where
 
 import Data.Binary
@@ -36,3 +37,7 @@ $(derive makeBinary ''TimeInterval)
 data Timeout = Timeout TimeInterval | Infinity
     deriving (Typeable, Show)
 $(derive makeBinary ''Timeout)
+
+data CancelWait = CancelWait
+    deriving (Typeable)
+$(derive makeBinary ''CancelWait)
