@@ -125,8 +125,10 @@ async spawnF = do
 -- return value from the worker or a cancellation from the coordinating process.
 
 -- | Check whether an 'Async' has completed yet. The status of the asynchronous
--- action is encoded in the returned 'AsyncResult', If not, the result is
--- 'AsyncPending', or one of the other constructors otherwise.
+-- action is encoded in the returned 'AsyncResult'. If the action has not
+-- completed, the result will be 'AsyncPending', or one of the other
+-- constructors otherwise. This function does not block waiting for the result.
+-- Use 'wait' or 'waitTimeout' if you need blocking/waiting semantics.
 -- See 'Async'.
 poll :: (Serializable a) => Async a -> Process (AsyncResult a)
 poll (Async _ _ d) = do
@@ -136,13 +138,17 @@ poll (Async _ _ d) = do
     Just v  -> return v
 
 -- | Like 'poll' but returns 'Nothing' if @(poll hAsync) == AsyncPending@.
+-- See 'poll'.
 check :: (Serializable a) => Async a -> Process (Maybe (AsyncResult a))
 check hAsync = poll hAsync >>= \r -> case r of
     AsyncPending -> return Nothing
     ar           -> return (Just ar)  
 
 -- | Wait for an asynchronous operation to complete or timeout. Returns
--- @Nothing@ if no result is available within the specified delay.
+-- @Nothing@ if the 'AsyncResult' does not change from @AsyncPending@ within
+-- the specified delay, otherwise @Just asyncResult@ is returned. If you want
+-- to wait/block on the 'AsyncResult' without the indirection of @Maybe@ then
+-- consider using 'waitCheck' or 'waitCheckTimeout' instead. 
 waitTimeout :: (Serializable a) =>
                TimeInterval -> Async a -> Process (Maybe (AsyncResult a))
 waitTimeout t hAsync = do
