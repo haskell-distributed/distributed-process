@@ -62,6 +62,7 @@ module Control.Distributed.Process
   , monitorNode
   , monitorPort
   , unmonitor
+  , withMonitor
   , MonitorRef
   , ProcessLinkException(..)
   , NodeLinkException(..)
@@ -92,8 +93,10 @@ module Control.Distributed.Process
   , whereisRemoteAsync
   , nsendRemote
   , WhereIsReply(..)
+  , RegisterReply(..)
     -- * Exception handling
   , catch
+  , try
   , mask
   , onException
   , bracket
@@ -150,6 +153,7 @@ import Control.Distributed.Process.Internal.Types
   , ReceivePort(..)
   , SendPortId(..)
   , WhereIsReply(..)
+  , RegisterReply(..)
   , LocalProcess(processNode)
   , nullProcessId
   )
@@ -204,6 +208,7 @@ import Control.Distributed.Process.Internal.Primitives
   , monitorNode
   , monitorPort
   , unmonitor
+  , withMonitor
     -- Logging
   , say
     -- Registry
@@ -222,6 +227,7 @@ import Control.Distributed.Process.Internal.Primitives
   , unClosure
     -- Exception handling
   , catch
+  , try
   , mask
   , onException
   , bracket
