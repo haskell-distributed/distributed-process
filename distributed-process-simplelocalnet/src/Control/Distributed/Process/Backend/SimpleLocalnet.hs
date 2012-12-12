@@ -104,7 +104,7 @@ import Data.Foldable (forM_)
 import Data.Typeable (Typeable)
 import Control.Applicative ((<$>))
 import Control.Exception (throw)
-import Control.Monad (forever, forM, replicateM)
+import Control.Monad (forever, forM, replicateM, when, replicateM_)
 import Control.Monad.IO.Class (liftIO)
 import Control.Concurrent (forkIO, threadDelay, ThreadId)
 import Control.Concurrent.MVar (MVar, newMVar, readMVar, modifyMVar_)
@@ -112,26 +112,36 @@ import Control.Distributed.Process
   ( RemoteTable
   , NodeId
   , Process
+  , ProcessId
   , WhereIsReply(..)
   , whereis
   , whereisRemoteAsync
+  , registerRemoteAsync
   , reregisterRemoteAsync
   , getSelfPid
   , register
+  , reregister
   , expect
   , nsendRemote
   , receiveWait
+  , receiveTimeout
   , match
   , matchIf
   , processNodeId
   , monitorNode
+  , monitor
   , unmonitor
   , NodeMonitorNotification(..)
+  , ProcessRegistrationException
   , finally
   , newChan
   , receiveChan
   , nsend
   , SendPort
+  , RegisterReply(..)
+  , bracket
+  , try
+  , send
   )
 import qualified Control.Distributed.Process.Node as Node
   ( LocalNode
@@ -157,7 +167,7 @@ data Backend = Backend {
   , findPeers :: Int -> IO [NodeId]
     -- | Make sure that all log messages are printed by the logger on the
     -- current node
-  , redirectLogsHere :: Process ()
+  , redirectLogsHere :: [ProcessId] -> Process ()
   }
 
 data BackendState = BackendState {
@@ -244,12 +254,27 @@ peerDiscoveryDaemon backendState recv send = forever go
 --------------------------------------------------------------------------------
 
 -- | Make sure that all log messages are printed by the logger on this node
-apiRedirectLogsHere :: Backend -> Process ()
-apiRedirectLogsHere backend = do
+apiRedirectLogsHere :: Backend -> [ProcessId] -> Process ()
+apiRedirectLogsHere _backend slavecontrollers = do
   mLogger <- whereis "logger"
+  myPid <- getSelfPid
+
   forM_ mLogger $ \logger -> do
-    nids <- liftIO $ findPeers backend 1000000
-    forM_ nids $ \nid -> reregisterRemoteAsync nid "logger" logger -- ignore async response
+
+  bracket
+   (mapM monitor slavecontrollers)
+   (mapM unmonitor)
+   $ \_ -> do
+
+   -- fire off redirect requests
+   forM_ slavecontrollers $ \pid -> send pid (RedirectLogsTo logger myPid)
+
+   -- Wait for the replies
+   replicateM_ (length slavecontrollers) $ do
+     receiveWait
+       [ match (\(RedirectLogsReply from ok) -> return ())
+       , match (\m@(NodeMonitorNotification {}) -> return ())
+       ]
 
 --------------------------------------------------------------------------------
 -- Slaves                                                                     --
@@ -259,17 +284,30 @@ apiRedirectLogsHere backend = do
 --
 -- This datatype is not exposed; instead, we expose primitives for dealing
 -- with slaves.
-data SlaveControllerMsg =
-    SlaveTerminate
+data SlaveControllerMsg
+   = SlaveTerminate
+   | RedirectLogsTo ProcessId ProcessId
   deriving (Typeable, Show)
 
 instance Binary SlaveControllerMsg where
   put SlaveTerminate = putWord8 0
+  put (RedirectLogsTo a b) = do putWord8 1; put (a,b)
   get = do
     header <- getWord8
     case header of
       0 -> return SlaveTerminate
+      1 -> do (a,b) <- get; return (RedirectLogsTo a b)
       _ -> fail "SlaveControllerMsg.get: invalid"
+
+data RedirectLogsReply
+  = RedirectLogsReply ProcessId Bool
+  deriving (Typeable, Show)
+
+instance Binary RedirectLogsReply where
+  put (RedirectLogsReply from ok) = put (from,ok)
+  get = do
+    (from,ok) <- get
+    return (RedirectLogsReply from ok)
 
 -- | Calling 'slave' sets up a new local node and then waits. You start
 -- processes on the slave by calling 'spawn' from other nodes.
@@ -292,41 +330,49 @@ slaveController = do
       msg <- expect
       case msg of
         SlaveTerminate -> return ()
+        RedirectLogsTo loggerPid from -> do
+          r <- try (reregister "logger" loggerPid)
+          ok <- case (r :: Either ProcessRegistrationException ()) of
+                  Right _ -> return True
+                  Left _  -> do
+                    r <- try (register "logger" loggerPid)
+                    case (r :: Either ProcessRegistrationException ()) of
+                      Right _ -> return True
+                      Left _  -> return False
+          pid <- getSelfPid
+          send from (RedirectLogsReply pid ok)
+          go
 
 -- | Terminate the slave at the given node ID
 terminateSlave :: NodeId -> Process ()
 terminateSlave nid = nsendRemote nid "slaveController" SlaveTerminate
 
 -- | Find slave nodes
-findSlaves :: Backend -> Process [NodeId]
+findSlaves :: Backend -> Process [ProcessId]
 findSlaves backend = do
   nodes <- liftIO $ findPeers backend 1000000
-  -- Fire of asynchronous requests for the slave controller
-  refs <- forM nodes $ \nid -> do
-    whereisRemoteAsync nid "slaveController"
-    ref <- monitorNode nid
-    return (nid, ref)
-  -- Wait for the replies
-  catMaybes <$> replicateM (length nodes) (
-    receiveWait
-      [ matchIf (\(WhereIsReply label _) -> label == "slaveController")
-                (\(WhereIsReply _ mPid) ->
-                  case mPid of
-                    Nothing ->
-                      return Nothing
-                    Just pid -> do
-                      let nid      = processNodeId pid
-                          Just ref = lookup nid refs
-                      unmonitor ref
-                      return (Just nid))
-      , match (\(NodeMonitorNotification {}) -> return Nothing)
-      ])
+  -- Fire off asynchronous requests for the slave controller
+
+  bracket
+   (mapM monitorNode nodes)
+   (mapM unmonitor)
+   $ \_ -> do
+
+   -- fire off whereis requests
+   forM nodes $ \nid -> whereisRemoteAsync nid "slaveController"
+
+   -- Wait for the replies
+   catMaybes <$> replicateM (length nodes) (
+     receiveWait
+       [ match (\(WhereIsReply "slaveController" mPid) -> return mPid)
+       , match (\(NodeMonitorNotification {}) -> return Nothing)
+       ])
 
 -- | Terminate all slaves
 terminateAllSlaves :: Backend -> Process ()
 terminateAllSlaves backend = do
   slaves <- findSlaves backend
-  forM_ slaves terminateSlave
+  forM_ slaves $ \pid -> send pid SlaveTerminate
   liftIO $ threadDelay 1000000
 
 --------------------------------------------------------------------------------
@@ -353,8 +399,8 @@ startMaster backend proc = do
   node <- newLocalNode backend
   Node.runProcess node $ do
     slaves <- findSlaves backend
-    redirectLogsHere backend
-    proc slaves `finally` shutdownLogger
+    redirectLogsHere backend slaves
+    proc (map processNodeId slaves) `finally` shutdownLogger
 
 --
 -- | shut down the logger process. This ensures that any pending

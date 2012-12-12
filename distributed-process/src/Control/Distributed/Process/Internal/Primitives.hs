@@ -36,6 +36,7 @@ module Control.Distributed.Process.Internal.Primitives
   , unlink
   , monitor
   , unmonitor
+  , withMonitor
     -- * Logging
   , say
     -- * Registry
@@ -54,6 +55,7 @@ module Control.Distributed.Process.Internal.Primitives
   , unStatic
     -- * Exception handling
   , catch
+  , try
   , mask
   , onException
   , bracket
@@ -88,7 +90,7 @@ import Control.Monad.Reader (ask)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Applicative ((<$>))
 import Control.Exception (Exception, throwIO, SomeException)
-import qualified Control.Exception as Ex (catch, mask)
+import qualified Control.Exception as Ex (catch, mask, try)
 import Control.Distributed.Process.Internal.StrictMVar
   ( StrictMVar
   , modifyMVar
@@ -436,6 +438,20 @@ link = sendCtrlMsg Nothing . Link . ProcessIdentifier
 monitor :: ProcessId -> Process MonitorRef
 monitor = monitor' . ProcessIdentifier
 
+-- | Establishes temporary monitoring of another process.
+--
+-- @withMonitor pid code@ sets up monitoring of @pid@ for the duration
+-- of @code@.  Note: although monitoring is no longer active when
+-- @withMonitor@ returns, there might still be unreceived monitor
+-- messages in the queue.
+--
+withMonitor :: ProcessId -> Process a -> Process a
+withMonitor pid code = bracket (monitor pid) unmonitor (\_ -> code)
+  -- unmonitor blocks waiting for the response, so there's a possibility
+  -- that an exception might interrupt withMonitor before the unmonitor
+  -- has completed.  I think that's better than making the unmonitor
+  -- uninterruptible.
+
 -- | Remove a link
 --
 -- This is synchronous in the sense that once it returns you are guaranteed
@@ -489,7 +505,13 @@ catch p h = do
   lproc <- ask
   liftIO $ Ex.catch (runLocalProcess lproc p) (runLocalProcess lproc . h)
 
--- | Lift 'Control.Exception.mask'
+-- | Lift 'Control.Exception.try'
+try :: Exception e => Process a -> Process (Either e a)
+try p = do
+  lproc <- ask
+  liftIO $ Ex.try (runLocalProcess lproc p)
+
+-- | Lift 'Control.Exception.mask' 
 mask :: ((forall a. Process a -> Process a) -> Process b) -> Process b
 mask p = do
     lproc <- ask
@@ -793,8 +815,7 @@ sendCtrlMsg mNid signal = do
                   }
   case mNid of
     Nothing -> do
-      ctrlChan <- localCtrlChan . processNode <$> ask
-      liftIO $ writeChan ctrlChan msg
+      liftIO $ writeChan (localCtrlChan (processNode proc)) msg
     Just nid ->
       liftIO $ sendBinary (processNode proc)
                           (ProcessIdentifier (processId proc))
