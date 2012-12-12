@@ -3,7 +3,8 @@
 {-# LANGUAGE EmptyDataDecls           #-}
 
 module Control.Distributed.Platform.Async
-  ( AsyncRef
+  ( -- types/data
+    AsyncRef
   , AsyncWorkerId
   , AsyncGathererId
   , SpawnAsync
@@ -11,13 +12,16 @@ module Control.Distributed.Platform.Async
   , AsyncData
   , Async()
   , AsyncResult(..)
+  -- functions for starting/spawning
   , async
-  , poll
-  , check
-  , waitTimeout
+  -- and stopping/killing
   , cancel
   , cancelAsync
   , cancelWait
+  -- functions to query an async-result
+  , poll
+  , check
+  , waitTimeout
   , waitCheckTimeout
   ) where
 
@@ -107,7 +111,7 @@ async spawnF = do
         proxy  <- getSelfPid
         worker <- sp proxy
         
-        send root worker
+        send root worker   -- let the parent process know the worker pid
         
         monRef <- monitor worker
         finally (pollUntilExit worker monRef ad) (unmonitor monRef)
