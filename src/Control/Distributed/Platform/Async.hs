@@ -2,7 +2,23 @@
 {-# LANGUAGE TemplateHaskell           #-}
 {-# LANGUAGE EmptyDataDecls           #-}
 
-module Control.Distributed.Platform.Async where
+module Control.Distributed.Platform.Async
+  ( AsyncRef
+  , AsyncWorkerId
+  , AsyncGathererId
+  , SpawnAsync
+  , AsyncCancel
+  , AsyncData
+  , Async()
+  , AsyncResult(..)
+  , async
+  , poll
+  , check
+  , waitTimeout
+  , cancel
+  , cancelAsync
+  , cancelWait
+  ) where
 
 import Control.Concurrent.MVar
 import Control.Distributed.Platform
