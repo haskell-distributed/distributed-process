@@ -30,7 +30,11 @@ import Data.DeriveTH
 import Data.Typeable (Typeable)
 import Prelude hiding (init)
 
--- | an opaque reference to a timer
+--------------------------------------------------------------------------------
+-- API                                                                        --
+--------------------------------------------------------------------------------
+
+-- | An opaque reference to a timer.
 type TimerRef = ProcessId
 
 -- | cancellation message sent to timers
@@ -38,18 +42,15 @@ data TimerConfig = Reset | Cancel
     deriving (Typeable, Show)
 $(derive makeBinary ''TimerConfig)
 
--- | represents a 'tick' event that timers can generate
+-- | Represents a 'tick' event that timers can generate
 data Tick = Tick
     deriving (Typeable, Eq)
 $(derive makeBinary ''Tick)
 
+-- | Private data type used to guarantee that 'sleep' blocks on receive.
 data SleepingPill = SleepingPill
     deriving (Typeable)
 $(derive makeBinary ''SleepingPill)
-
---------------------------------------------------------------------------------
--- API                                                                        --
---------------------------------------------------------------------------------
 
 -- time interval/unit handling
 
@@ -85,7 +86,7 @@ timeToMs Hours   hrs  = ((hrs * 60) * 60) * 1000
 
 -- process implementations
 
--- | blocks the calling Process for the specified TimeInterval. Note that this
+-- | Blocks the calling Process for the specified TimeInterval. Note that this
 -- function assumes that a blocking receive is the most efficient approach to
 -- acheiving this, so expect the runtime semantics (particularly with regards
 -- scheduling) to differ from threadDelay and/or operating system specific 
