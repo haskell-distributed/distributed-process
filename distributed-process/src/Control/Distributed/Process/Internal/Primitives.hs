@@ -739,8 +739,7 @@ sendCtrlMsg mNid signal = do
                   }
   case mNid of
     Nothing -> do
-      ctrlChan <- localCtrlChan . processNode <$> ask 
-      liftIO $ writeChan ctrlChan msg 
+      liftIO $ writeChan (localCtrlChan (processNode proc)) msg
     Just nid ->
       liftIO $ sendBinary (processNode proc)
                           (ProcessIdentifier (processId proc))
