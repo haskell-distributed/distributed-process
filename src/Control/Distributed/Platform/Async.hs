@@ -23,6 +23,7 @@ module Control.Distributed.Platform.Async
 import Control.Concurrent.MVar
 import Control.Distributed.Platform
   ( sendAfter
+  , cancelTimer
   , TimerRef
   , TimeInterval()
   )
@@ -112,12 +113,12 @@ async spawnF = do
           , match (\x -> return (Left x))
           ]
         case r of
+            Left  a          -> liftIO $ putMVar ad (AsyncDone a)   
             Right DiedNormal -> pollUntilExit pid ref ad -- note [recursion]
             Right d          -> liftIO $ putMVar ad (AsyncFailed d)
-            Left  a          -> liftIO $ putMVar ad (AsyncDone a)   
-
+            
 -- note [recursion]
--- We recurse *just once* if we've seen a normal exit from worker. We're
+-- We recurse /just once/ if we've seen a normal exit from our worker. We're
 -- absolutely sure about this, because once we've seen DiedNormal for the
 -- monitored process, it's not possible to see another monitor signal for it.
 -- Based on this, the only other kinds of message that can arrive are the
@@ -145,28 +146,46 @@ check hAsync = poll hAsync >>= \r -> case r of
 waitTimeout :: (Serializable a) =>
                TimeInterval -> Async a -> Process (Maybe (AsyncResult a))
 waitTimeout t hAsync = do
+  -- TODO: this implementation is just nonsense - we should spawn a worker to
+  --       handle the loop and simply timeout if it doesn't return quickly 
   self <- getSelfPid
   ar <- poll hAsync
   case ar of
-    AsyncPending -> sendAfter t self CancelWait >>= waitOnMailBox t hAsync
-    _            -> return (Just ar)
+      AsyncPending -> sendAfter t self CancelWait >>= waitAux hAsync
+      _            -> return (Just ar)
   where
-    waitOnMailBox :: (Serializable a) => TimeInterval ->
-            Async a -> TimerRef -> Process (Maybe (AsyncResult a))
-    waitOnMailBox t' a ref = do
-        m <- receiveTimeout 0 [
-            match (\CancelWait -> return AsyncPending) 
-          ]
-        -- TODO: this is pretty disgusting - sprinkle with applicative or some such
+    waitAux :: (Serializable a) =>
+               Async a -> TimerRef -> Process (Maybe (AsyncResult a))
+    waitAux a ref =
+        getSelfPid >>= spawnWait a ref >> (do "finished" <- expect; check a)  
+    
+    spawnWait :: (Serializable a) => 
+                 Async a -> TimerRef -> ProcessId -> Process (ProcessId)
+    spawnWait a ref pid = spawnLocal $ waitLoop a ref pid
+    
+    waitLoop :: (Serializable a) =>
+         Async a -> TimerRef -> ProcessId -> Process ()
+    waitLoop asyncHandle ref wAuxPid = do
+        m <- waitOne asyncHandle        -- note [wait loop]
         case m of
-            Nothing -> do
-                r <- check a
-                case r of
-                    -- this isn't tail recursive, so we're likely to overflow fast
-                    Nothing -> waitOnMailBox t' a ref
-                    Just _  -> return r
-            Just _  ->
-                return m
+            Just _  -> finally (send wAuxPid "finished") (cancelTimer ref)
+            Nothing -> waitLoop asyncHandle ref wAuxPid 
+    
+    waitOne :: (Serializable a) => Async a -> Process (Maybe (AsyncResult a))
+    waitOne a = do
+        m <- receiveTimeout 0 [
+            match (\CancelWait -> return AsyncPending)]
+        case m of
+            Nothing -> check a      -- if we timed out, check the result again
+            Just _  -> return m     -- (Just CancelWait) means we're done here
+
+-- note [wait loop]
+-- This logic is a bit spaghetti-like so a little explanation:
+-- Firstly, we spawn a /waiter/ process so that timing out is simple.
+-- Doing this by creating a loop in the caller's process is just a mess,
+-- as should be obvious from the necessary type signature once you try it.
+-- Instead, the /waiter/ queries its mailbox continually and defers to 'check'
+-- to see if the AsyncResult is ready yet.   
 
 -- | Cancel an asynchronous operation. The cancellation method to be used
 -- is passed in @asyncCancel@ and can be synchronous (see 'cancelWait') or
