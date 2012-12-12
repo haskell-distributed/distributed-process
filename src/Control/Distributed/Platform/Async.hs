@@ -146,16 +146,16 @@ spawnWorkers task = do
     -- blocking receive until we see an input message
     pollUntilExit :: (Serializable a) =>
                      ProcessId -> MonitorRef -> InternalChannel a -> Process ()
-    pollUntilExit pid ref (replyTo, _) = do
+    pollUntilExit pid ref chan@(replyTo, _) = do
         r <- receiveWait [
             matchIf
                 (\(ProcessMonitorNotification ref' pid' _) ->
                     ref' == ref && pid == pid')
                 (\(ProcessMonitorNotification _    _ r) -> return (Right r))
-          , match (\c@(CancelWait) -> kill pid "cancel" >> return (Left c))
+          , match (\c@(CancelWait) -> return (Left c))
           ]
         case r of
-            Left  CancelWait -> sendChan replyTo AsyncCancelled   
+            Left  CancelWait -> kill pid "cancel" >> pollUntilExit pid ref chan   
             Right DiedNormal -> return ()
             Right d          -> sendChan replyTo (AsyncFailed d)
             
