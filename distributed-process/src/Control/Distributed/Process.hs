@@ -89,6 +89,7 @@ module Control.Distributed.Process
   , whereisRemoteAsync
   , nsendRemote
   , WhereIsReply(..)
+  , RegisterReply(..)
     -- * Exception handling
   , catch
   , mask
@@ -147,6 +148,7 @@ import Control.Distributed.Process.Internal.Types
   , ReceivePort(..)
   , SendPortId(..)
   , WhereIsReply(..)
+  , RegisterReply(..)
   , LocalProcess(processNode)
   , nullProcessId
   )
