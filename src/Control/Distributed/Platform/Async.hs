@@ -16,6 +16,10 @@ import Control.Distributed.Platform.Internal.Types
 import Control.Distributed.Process
 import Control.Distributed.Process.Serializable
 
+--------------------------------------------------------------------------------
+-- Cloud Haskell Async Process API                                            --
+--------------------------------------------------------------------------------
+
 -- | A reference to an asynchronous action
 type AsyncRef = ProcessId
 
@@ -25,9 +29,9 @@ type AsyncWorkerId   = AsyncRef
 -- | A reference to an asynchronous "gatherer"
 type AsyncGathererId = AsyncRef
 
--- | A function that takes an @AsyncGathererId@ (to which replies should be
+-- | A function that takes an 'AsyncGathererId' (to which replies should be
 -- sent) and spawns an asynchronous (user defined) action, returning the
--- spawned actions @AsyncWorkerId@ in the @Process@ monad. 
+-- spawned actions 'AsyncWorkerId' in the @Process@ monad. 
 type SpawnAsync = AsyncGathererId -> Process AsyncWorkerId
 
 type AsyncData a = MVar (AsyncResult a)
@@ -46,11 +50,16 @@ data AsyncResult a =
   | AsyncCancelled          -- | a cancelled action
   | AsyncPending            -- | a pending action (that is still running)
 
--- | An async cancellation takes an @AsyncRef@ and does some cancellation
+-- | An async cancellation takes an 'AsyncRef' and does some cancellation
 -- operation in the @Process@ monad.
 type AsyncCancel = AsyncRef -> Process ()
 
--- TODO: Document me please!
+-- | An asynchronous action spawned by 'async' or 'withAsync'.
+-- Asynchronous actions are executed in a separate @Process@, and
+-- operations are provided for waiting for asynchronous actions to
+-- complete and obtaining their results (see e.g. 'wait').
+--
+-- There is currently a contract between async workers and 
 async :: (Serializable a) => SpawnAsync -> Process (Async a)
 async spawnF = do
     mv  <- liftIO $ newEmptyMVar
@@ -96,10 +105,10 @@ async spawnF = do
 -- Based on this, the only other kinds of message that can arrive are the
 -- return value from the worker or a cancellation from the coordinating process.
 
--- | Check whether an @Async@ has completed yet. The status of the asynchronous
--- action is encoded in the returned @AsyncResult@. If not, the result is
--- @AsyncPending@, or one of the other constructors otherwise.
--- See @Async@.
+-- | Check whether an 'Async' has completed yet. The status of the asynchronous
+-- action is encoded in the returned 'AsyncResult', If not, the result is
+-- 'AsyncPending', or one of the other constructors otherwise.
+-- See 'Async'.
 poll :: (Serializable a) => Async a -> Process (AsyncResult a)
 poll (Async _ _ d) = do
   mv <- liftIO $ tryTakeMVar d
@@ -107,7 +116,7 @@ poll (Async _ _ d) = do
     Nothing -> return AsyncPending
     Just v  -> return v
 
--- | Like @poll@ but returns @Nothing@ if @poll@ returns @AsyncPending@.
+-- | Like 'poll' but returns 'Nothing' if @(poll hAsync) == AsyncPending@.
 check :: (Serializable a) => Async a -> Process (Maybe (AsyncResult a))
 check hAsync = poll hAsync >>= \r -> case r of
     AsyncPending -> return Nothing
