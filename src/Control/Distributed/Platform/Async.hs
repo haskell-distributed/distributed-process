@@ -21,6 +21,7 @@ module Control.Distributed.Platform.Async
   -- functions to query an async-result
   , poll
   , check
+  , wait
   , waitTimeout
   , waitCheckTimeout
   ) where
@@ -36,6 +37,9 @@ import Control.Distributed.Platform.Internal.Types
   ( CancelWait(..)
   )
 import Control.Distributed.Process
+import Control.Distributed.Process.Internal.Types
+  ( nullProcessId
+  )
 import Control.Distributed.Process.Serializable
 
 import Data.Maybe
@@ -159,16 +163,30 @@ check hAsync = poll hAsync >>= \r -> case r of
     AsyncPending -> return Nothing
     ar           -> return (Just ar)  
 
+-- | Wait for an asynchronous operation to complete or timeout. This variant
+-- returns the 'AsyncResult' itself, which will be 'AsyncPending' if the
+-- result has not been made available, otherwise one of the other constructors.
 waitCheckTimeout :: (Serializable a) =>
                     TimeInterval -> Async a -> Process (AsyncResult a)
 waitCheckTimeout t hAsync =
   waitTimeout t hAsync >>= return . fromMaybe (AsyncPending)
 
+-- | Wait for an asynchronous action to complete, and return its
+-- value. The outcome of the action is encoded as an 'AsyncResult'.
+--
+wait :: (Serializable a) => Async a -> Process (AsyncResult a)
+wait hAsync =
+    nullTimerRef >>= waitAux hAsync >>= return . fromMaybe (AsyncPending)
+  where nullTimerRef :: Process TimerRef
+        nullTimerRef = do
+          nid <- getSelfNode
+          return (nullProcessId nid)
+
 -- | Wait for an asynchronous operation to complete or timeout. Returns
 -- @Nothing@ if the 'AsyncResult' does not change from @AsyncPending@ within
 -- the specified delay, otherwise @Just asyncResult@ is returned. If you want
 -- to wait/block on the 'AsyncResult' without the indirection of @Maybe@ then
--- consider using 'waitCheck' or 'waitCheckTimeout' instead. 
+-- consider using 'wait' or 'waitCheckTimeout' instead. 
 waitTimeout :: (Serializable a) =>
                TimeInterval -> Async a -> Process (Maybe (AsyncResult a))
 waitTimeout t hAsync = do
@@ -177,30 +195,31 @@ waitTimeout t hAsync = do
   case ar of
       AsyncPending -> sendAfter t self CancelWait >>= waitAux hAsync
       _            -> return (Just ar)
-  where
-    waitAux :: (Serializable a) =>
-               Async a -> TimerRef -> Process (Maybe (AsyncResult a))
-    waitAux a ref =
-        getSelfPid >>= spawnWait a ref >> (do "finished" <- expect; check a)  
-    
-    spawnWait :: (Serializable a) => 
-                 Async a -> TimerRef -> ProcessId -> Process (ProcessId)
-    spawnWait a ref pid = spawnLocal $ waitLoop a ref pid
-    
-    waitLoop :: (Serializable a) =>
-         Async a -> TimerRef -> ProcessId -> Process ()
-    waitLoop asyncHandle ref wAuxPid = do
+
+-- | Private /wait/ implementation. 
+waitAux :: (Serializable a) =>
+           Async a -> TimerRef -> Process (Maybe (AsyncResult a))
+waitAux a ref =
+  getSelfPid >>= spawnWait a ref >> (do "finished" <- expect; check a)  
+    where
+      spawnWait :: (Serializable a) => 
+                   Async a -> TimerRef -> ProcessId -> Process (ProcessId)
+      spawnWait a' ref' pid = spawnLocal $ waitLoop a' ref' pid
+      -------------------
+      waitLoop :: (Serializable a) =>
+                  Async a -> TimerRef -> ProcessId -> Process ()
+      waitLoop asyncHandle tRef wAuxPid = do
         m <- waitOne asyncHandle        -- note [wait loop]
         case m of
-            Just _  -> finally (send wAuxPid "finished") (cancelTimer ref)
+            Just _  -> finally (send wAuxPid "finished") (cancelTimer tRef)
             Nothing -> waitLoop asyncHandle ref wAuxPid 
-    
-    waitOne :: (Serializable a) => Async a -> Process (Maybe (AsyncResult a))
-    waitOne a = do
+      -------------------    
+      waitOne :: (Serializable a) => Async a -> Process (Maybe (AsyncResult a))
+      waitOne a' = do
         m <- receiveTimeout 0 [
             match (\CancelWait -> return AsyncPending)]
         case m of
-            Nothing -> check a      -- if we timed out, check the result again
+            Nothing -> check a'     -- if we timed out, check the result again
             Just _  -> return m     -- (Just CancelWait) means we're done here
 
 -- note [wait loop]
@@ -208,8 +227,16 @@ waitTimeout t hAsync = do
 -- Firstly, we spawn a /waiter/ process so that timing out is simple.
 -- Doing this by creating a loop in the caller's process is just a mess,
 -- as should be obvious from the necessary type signature once you try it.
+--
 -- Instead, the /waiter/ queries its mailbox continually and defers to 'check'
--- to see if the AsyncResult is ready yet.   
+-- to see if the AsyncResult is ready yet. Once we finally get a result back
+-- from 'check', we signal the caller's process with "finished" after which
+-- they can pull the results without delay by calling 'check' again.
+--
+-- This logic can easily be made to block indefinitely by simply not setting up
+-- a timer to signal us with @CancelWait@ - remember to pass an /empty/
+-- process identifier (i.e., nullProcessId) in that case however, otherwise
+-- the call to 'cancelTimer' might crash.
 
 -- | Cancel an asynchronous operation. The cancellation method to be used
 -- is passed in @asyncCancel@ and can be synchronous (see 'cancelWait') or
