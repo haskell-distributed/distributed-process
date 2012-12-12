@@ -96,6 +96,7 @@ module Control.Distributed.Process
   , RegisterReply(..)
     -- * Exception handling
   , catch
+  , try
   , mask
   , onException
   , bracket
@@ -226,6 +227,7 @@ import Control.Distributed.Process.Internal.Primitives
   , unClosure
     -- Exception handling
   , catch
+  , try
   , mask
   , onException
   , bracket

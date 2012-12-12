@@ -55,6 +55,7 @@ module Control.Distributed.Process.Internal.Primitives
   , unStatic
     -- * Exception handling
   , catch
+  , try
   , mask
   , onException
   , bracket
@@ -89,7 +90,7 @@ import Control.Monad.Reader (ask)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Applicative ((<$>))
 import Control.Exception (Exception, throwIO, SomeException)
-import qualified Control.Exception as Ex (catch, mask)
+import qualified Control.Exception as Ex (catch, mask, try)
 import Control.Distributed.Process.Internal.StrictMVar
   ( StrictMVar
   , modifyMVar
@@ -504,7 +505,13 @@ catch p h = do
   lproc <- ask
   liftIO $ Ex.catch (runLocalProcess lproc p) (runLocalProcess lproc . h)
 
--- | Lift 'Control.Exception.mask'
+-- | Lift 'Control.Exception.try'
+try :: Exception e => Process a -> Process (Either e a)
+try p = do
+  lproc <- ask
+  liftIO $ Ex.try (runLocalProcess lproc p)
+
+-- | Lift 'Control.Exception.mask' 
 mask :: ((forall a. Process a -> Process a) -> Process b) -> Process b
 mask p = do
     lproc <- ask
