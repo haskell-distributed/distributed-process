@@ -21,11 +21,11 @@ import TestUtils
 
 testAsyncPoll :: TestResult (AsyncResult ()) -> Process ()
 testAsyncPoll result = do
-    hAsync <- async $ runTestProcess $ say "task is running" >> return ()
+    hAsync <- async $ do "go" <- expect; say "task is running" >> return ()
     ar <- poll hAsync
     case ar of
       AsyncPending ->
-        testProcessGo (worker hAsync) >> wait hAsync >>= stash result
+        send (worker hAsync) "go" >> wait hAsync >>= stash result
       _ -> stash result ar >> return ()
 
 testAsyncCancel :: TestResult (AsyncResult ()) -> Process ()
@@ -35,20 +35,20 @@ testAsyncCancel result = do
     
     p <- poll hAsync -- nasty kind of assertion: use assertEquals?
     case p of
-        AsyncPending -> cancel hAsync >> wait hAsync >>= \x -> do say (show x); stash result x
+        AsyncPending -> cancel hAsync >> wait hAsync >>= stash result
         _            -> say (show p) >> stash result p
       
 tests :: LocalNode  -> [Test]
 tests localNode = [
     testGroup "Handling async results" [
---        testCase "testAsyncPoll"
---            (delayedAssertion
---             "expected poll to return something useful"
---             localNode (AsyncDone ()) testAsyncPoll)
-        testCase "testAsyncCancel"
+          testCase "testAsyncCancel"
             (delayedAssertion
              "expected async task to have been cancelled"
              localNode (AsyncCancelled) testAsyncCancel)
+        , testCase "testAsyncPoll"
+            (delayedAssertion
+             "expected poll to return something useful"
+             localNode (AsyncDone ()) testAsyncPoll) 
       ]
   ]
 
