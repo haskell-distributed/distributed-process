@@ -152,8 +152,6 @@ check hAsync = poll hAsync >>= \r -> case r of
 waitTimeout :: (Serializable a) =>
                TimeInterval -> Async a -> Process (Maybe (AsyncResult a))
 waitTimeout t hAsync = do
-  -- TODO: this implementation is just nonsense - we should spawn a worker to
-  --       handle the loop and simply timeout if it doesn't return quickly 
   self <- getSelfPid
   ar <- poll hAsync
   case ar of
