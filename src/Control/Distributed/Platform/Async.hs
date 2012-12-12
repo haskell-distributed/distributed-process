@@ -131,11 +131,8 @@ async spawnF = do
 -- Use 'wait' or 'waitTimeout' if you need blocking/waiting semantics.
 -- See 'Async'.
 poll :: (Serializable a) => Async a -> Process (AsyncResult a)
-poll (Async _ _ d) = do
-  mv <- liftIO $ tryTakeMVar d
-  case mv of
-    Nothing -> return AsyncPending
-    Just v  -> return v
+poll (Async _ _ d) =
+  liftIO $ tryTakeMVar d >>= return . fromMaybe (AsyncPending)
 
 -- | Like 'poll' but returns 'Nothing' if @(poll hAsync) == AsyncPending@.
 -- See 'poll'.
