@@ -10,7 +10,6 @@ module Control.Distributed.Platform.Async
   , AsyncGathererId
   , AsyncTask
   , AsyncCancel
-  , AsyncData
   , Async(worker)
   , AsyncResult(..)
   -- functions for starting/spawning
@@ -28,19 +27,13 @@ module Control.Distributed.Platform.Async
 
 import Control.Concurrent.MVar
 import Control.Distributed.Platform.Timer
-  ( sendAfter
-  , cancelTimer
-  , intervalToMs
-  , TimerRef
+  ( intervalToMs
   )
 import Control.Distributed.Platform.Internal.Types
   ( CancelWait(..)
   , TimeInterval()
   )
 import Control.Distributed.Process
-import Control.Distributed.Process.Internal.Types
-  ( nullProcessId
-  )
 import Control.Distributed.Process.Serializable
 
 import Data.Binary
@@ -69,8 +62,7 @@ type AsyncGathererId = AsyncRef
 -- spawned - in the @Process a@ case the task is spawned on the local node
 type AsyncTask a = Process a
 
-type AsyncData a = MVar (AsyncResult a)
-
+-- | Private channel used to synchronise task results
 type InternalChannel a = (SendPort (AsyncResult a), ReceivePort (AsyncResult a))
 
 -- | An asynchronous action spawned by 'async'.
@@ -94,19 +86,17 @@ data AsyncResult a =
 $(derive makeBinary ''AsyncResult)
 
 deriving instance Eq a => Eq (AsyncResult a)
-
 deriving instance Show a => Show (AsyncResult a)
-
---instance (Eq a) => Eq (AsyncResult a) where
---  (AsyncDone   x) == (AsyncDone   x') = x == x'
---  (AsyncFailed r) == (AsyncFailed r') = r == r'
---  AsyncCancelled  == AsyncCancelled   = True
---  AsyncPending    == AsyncPending     = True
---  _               == _                = False
 
 -- | An async cancellation takes an 'AsyncRef' and does some cancellation
 -- operation in the @Process@ monad.
-type AsyncCancel = AsyncRef -> Process ()
+type AsyncCancel = AsyncRef -> Process () -- note [local cancel only]
+
+-- note [local cancel only]
+-- The cancellation is only ever sent to the insulator process, which is always
+-- run on the local node. That could be a limitation, as there's nothing in
+-- 'Async' data profile to stop it being sent remotely. At *that* point, we'd
+-- need to make the cancellation remote-able too however.   
 
 -- | An asynchronous action spawned by 'async' or 'withAsync'.
 -- Asynchronous actions are executed in a separate @Process@, and
