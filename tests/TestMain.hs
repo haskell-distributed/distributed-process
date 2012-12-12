@@ -6,18 +6,25 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Main where
 
-import           Test.Framework          (Test, defaultMain, testGroup)
 import qualified Network.Transport as NT
-import           Network.Transport.TCP
--- import           TestGenServer           (genServerTests)
-import           TestTimer               (timerTests)
+import Test.Framework
+  ( Test
+  , defaultMain
+  , testGroup
+  )
+import Network.Transport.TCP
+-- import TestGenServer (genServerTests)
+import TestTimer (timerTests)
+import TestAsync (asyncTests)
 
 tests :: NT.Transport -> TransportInternals -> IO [Test]
 tests transport internals = do
   -- gsTestGroup    <- genServerTests transport internals
-  timerTestGroup <- timerTests     transport internals
+  asyncTestGroup <- asyncTests transport internals
+  timerTestGroup <- timerTests transport internals
   return [
-       testGroup "Timer"     timerTestGroup ]
+        testGroup "Async"     asyncTestGroup
+      , testGroup "Timer"     timerTestGroup ]
      -- , testGroup "GenServer" gsTestGroup ]
 
 main :: IO ()

@@ -4,49 +4,39 @@
 module TestAsync where
 
 import Prelude hiding (catch)
-import Data.Binary (Binary(..))
-import Data.Typeable (Typeable)
-import Data.DeriveTH
-import Control.Monad (forever)
-import Data.Maybe (fromMaybe)
-import Control.Concurrent.MVar
-  ( MVar
-  , newEmptyMVar
-  , putMVar
-  , takeMVar
-  , withMVar
-  , tryTakeMVar
-  )
--- import Control.Applicative ((<$>), (<*>), pure, (<|>))
+import Data.Binary()
+import Data.Typeable()
 import qualified Network.Transport as NT (Transport)
 import Network.Transport.TCP (TransportInternals)
 import Control.Distributed.Process
-import Control.Distributed.Platform
 import Control.Distributed.Process.Node
-import Control.Distributed.Process.Serializable(Serializable)
-import Control.Distributed.Platform.Async
+import Control.Distributed.Process.Serializable()
 import Control.Distributed.Platform
+import Control.Distributed.Platform.Async
 
-import Test.HUnit (Assertion)
 import Test.Framework (Test, testGroup)
 import Test.Framework.Providers.HUnit (testCase)
-import Test.HUnit.Base (assertBool)
 
 import TestUtils
 
-testAsyncPoll :: TestResult Bool -> Process ()
-testAsyncPoll = do
-  self <- getSelfPid
-  async $ do
-    return ()
-
+testAsyncPoll :: TestResult (AsyncResult Ping) -> Process ()
+testAsyncPoll result = do
+    hAsync <- async $ say "task is running" >> return Ping
+    sleep $ seconds 1
+    
+    ar <- poll hAsync
+    case ar of
+      AsyncPending ->
+        testProcessGo (worker hAsync) >> wait hAsync >>= \x -> stash result x
+      _ -> stash result ar >> return ()
+      
 tests :: LocalNode  -> [Test]
 tests localNode = [
     testGroup "Async Tests" [
         testCase "testAsyncPoll"
             (delayedAssertion
              "expected poll to return something useful"
-             localNode True testAsyncPoll)
+             localNode (AsyncDone Ping) testAsyncPoll)
       ]
   ]
 
