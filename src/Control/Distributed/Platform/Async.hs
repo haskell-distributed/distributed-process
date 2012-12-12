@@ -18,6 +18,7 @@ module Control.Distributed.Platform.Async
   , cancel
   , cancelAsync
   , cancelWait
+  , waitCheckTimeout
   ) where
 
 import Control.Concurrent.MVar
@@ -32,6 +33,10 @@ import Control.Distributed.Platform.Internal.Types
   )
 import Control.Distributed.Process
 import Control.Distributed.Process.Serializable
+
+import Data.Maybe
+  ( fromMaybe
+  )
 
 --------------------------------------------------------------------------------
 -- Cloud Haskell Async Process API                                            --
@@ -149,6 +154,11 @@ check :: (Serializable a) => Async a -> Process (Maybe (AsyncResult a))
 check hAsync = poll hAsync >>= \r -> case r of
     AsyncPending -> return Nothing
     ar           -> return (Just ar)  
+
+waitCheckTimeout :: (Serializable a) =>
+                    TimeInterval -> Async a -> Process (AsyncResult a)
+waitCheckTimeout t hAsync =
+  waitTimeout t hAsync >>= return . fromMaybe (AsyncPending)
 
 -- | Wait for an asynchronous operation to complete or timeout. Returns
 -- @Nothing@ if the 'AsyncResult' does not change from @AsyncPending@ within
