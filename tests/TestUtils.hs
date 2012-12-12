@@ -12,6 +12,7 @@ module TestUtils
   , TestProcessControl
   , startTestProcess
   , runTestProcess
+  , withTestProcess
   , testProcessGo
   , testProcessStop
   , testProcessReport
@@ -67,6 +68,9 @@ runTestProcess proc = forever $ do
     Stop     -> terminate
     Go       -> proc
     Report p -> receiveWait [matchAny (\m -> forward m p)] >> return ()
+
+withTestProcess :: ProcessId -> Process () -> Process ()
+withTestProcess pid proc = testProcessGo pid >> proc >> testProcessStop pid 
 
 -- | Tell a /test process/ to continue executing 
 testProcessGo :: ProcessId -> Process ()

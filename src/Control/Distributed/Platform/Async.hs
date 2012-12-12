@@ -25,7 +25,6 @@ module Control.Distributed.Platform.Async
   , waitCheckTimeout
   ) where
 
-import Control.Concurrent.MVar
 import Control.Distributed.Platform.Timer
   ( intervalToMs
   )
@@ -133,6 +132,7 @@ spawnWorkers task = do
     insulatorPid <- spawnLocal $ do
         workerPid <- spawnLocal $ do
             r <- task
+            say "task complete"
             sendChan (fst chan) (AsyncDone r)
     
         send root workerPid   -- let the parent process know the worker pid
@@ -146,16 +146,16 @@ spawnWorkers task = do
     -- blocking receive until we see an input message
     pollUntilExit :: (Serializable a) =>
                      ProcessId -> MonitorRef -> InternalChannel a -> Process ()
-    pollUntilExit pid ref chan@(replyTo, _) = do
+    pollUntilExit pid ref (replyTo, _) = do
         r <- receiveWait [
             matchIf
                 (\(ProcessMonitorNotification ref' pid' _) ->
                     ref' == ref && pid == pid')
                 (\(ProcessMonitorNotification _    _ r) -> return (Right r))
-          , match (\c@(CancelWait) -> return (Left c))
+          , match (\c@(CancelWait) -> kill pid "cancel" >> return (Left c))
           ]
         case r of
-            Left  CancelWait -> kill pid "cancel" >> pollUntilExit pid ref chan   
+            Left  CancelWait -> sendChan replyTo AsyncCancelled   
             Right DiedNormal -> return ()
             Right d          -> sendChan replyTo (AsyncFailed d)
             
