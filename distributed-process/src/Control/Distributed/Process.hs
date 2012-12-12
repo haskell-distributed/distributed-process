@@ -59,6 +59,7 @@ module Control.Distributed.Process
   , monitorNode
   , monitorPort
   , unmonitor
+  , withMonitor
   , ProcessLinkException(..)
   , NodeLinkException(..)
   , PortLinkException(..)
@@ -197,6 +198,7 @@ import Control.Distributed.Process.Internal.Primitives
   , monitorNode
   , monitorPort
   , unmonitor
+  , withMonitor
     -- Logging
   , say
     -- Registry

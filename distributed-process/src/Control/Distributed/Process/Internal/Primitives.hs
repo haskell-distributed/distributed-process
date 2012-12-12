@@ -31,6 +31,7 @@ module Control.Distributed.Process.Internal.Primitives
   , unlink
   , monitor
   , unmonitor
+  , withMonitor
     -- * Logging
   , say
     -- * Registry
@@ -382,7 +383,21 @@ link = sendCtrlMsg Nothing . Link . ProcessIdentifier
 monitor :: ProcessId -> Process MonitorRef 
 monitor = monitor' . ProcessIdentifier 
 
--- | Remove a link 
+-- | Establishes temporary monitoring of another process.
+--
+-- @withMonitor pid code@ sets up monitoring of @pid@ for the duration
+-- of @code@.  Note: although monitoring is no longer active when
+-- @withMonitor@ returns, there might still be unreceived monitor
+-- messages in the queue.
+--
+withMonitor :: ProcessId -> Process a -> Process a
+withMonitor pid code = bracket (monitor pid) unmonitor (\_ -> code)
+  -- unmonitor blocks waiting for the response, so there's a possibility
+  -- that an exception might interrupt withMonitor before the unmonitor
+  -- has completed.  I think that's better than making the unmonitor
+  -- uninterruptible.
+
+-- | Remove a link
 --
 -- This is synchronous in the sense that once it returns you are guaranteed
 -- that no exception will be raised if the remote process dies. However, it is
