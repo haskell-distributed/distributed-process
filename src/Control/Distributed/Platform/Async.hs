@@ -82,7 +82,8 @@ async spawnF = do
     (wpid, gpid) <- spawnWorkers spawnF mv
     return (Async wpid gpid mv)
   where
-    spawnWorkers :: (Serializable a) => SpawnAsync -> AsyncData a -> Process (AsyncRef, AsyncRef)
+    spawnWorkers :: (Serializable a) =>
+                    SpawnAsync -> AsyncData a -> Process (AsyncRef, AsyncRef)
     spawnWorkers sp ad = do
       root <- getSelfPid
       
@@ -100,7 +101,8 @@ async spawnF = do
       return (wpid, gpid)
     
     -- blocking receive until we see an input message
-    pollUntilExit :: (Serializable a) => ProcessId -> MonitorRef -> AsyncData a -> Process ()
+    pollUntilExit :: (Serializable a) =>
+                     ProcessId -> MonitorRef -> AsyncData a -> Process ()
     pollUntilExit pid ref ad = do
         r <- receiveWait [
             matchIf
@@ -140,8 +142,8 @@ check hAsync = poll hAsync >>= \r -> case r of
 
 -- | Wait for an asynchronous operation to complete or timeout. Returns
 -- @Nothing@ if no result is available within the specified delay.
-waitTimeout :: (Serializable a) => TimeInterval ->
-            Async a -> Process (Maybe (AsyncResult a))
+waitTimeout :: (Serializable a) =>
+               TimeInterval -> Async a -> Process (Maybe (AsyncResult a))
 waitTimeout t hAsync = do
   self <- getSelfPid
   ar <- poll hAsync
