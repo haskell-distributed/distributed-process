@@ -2,6 +2,14 @@
 {-# OPTIONS_GHC -Wall #-}
 import Control.Distributed.Process
 import Control.Distributed.Process.Closure
+import Control.Distributed.Process.Node
+
+import Network.Transport (Transport)
+import Network.Transport.TCP
+  ( createTransportExposeInternals
+  , defaultTCPParameters
+  , TransportInternals(socketBetween)
+  )
 
 import Control.Monad
 import Text.Printf
@@ -9,11 +17,9 @@ import Data.DeriveTH
 import Data.Binary
 import Data.Typeable
 
-import DistribUtils
-
-import Test.Framework (defaultMain, testGroup)
-import Test.Framework.Providers.HUnit
-import Test.HUnit
+import Test.HUnit (Assertion, (@?=))
+import Test.Framework (Test, defaultMain)
+import Test.Framework.Providers.HUnit (testCase)
 
 -- Tests:
 
@@ -76,8 +82,8 @@ recTest4 wait sync r1 r2 = do
     sendChan sync r
 
 
-master :: [NodeId] -> Process ()
-master peers = do
+master :: Process ()
+master = do
 
   (waits,waitr) <- newChan
   (syncs,syncr) <- newChan
@@ -142,8 +148,21 @@ master peers = do
   terminate
 
 
+testReceive :: Transport -> RemoteTable -> Assertion
+testReceive transport rtable = do
+  node <- newLocalNode transport rtable
+  runProcess node $ master
+
+tests :: (Transport, TransportInternals) -> RemoteTable -> [Test]
+tests (transport, transportInternals) rtable = [
+      testCase "testReceive" (testReceive transport rtable)
+    ]
+
 -- NB. test doesn't work, because failure exceptions don't get
--- propagated.
+-- propagated.  The test always claims to succeed, even if it failed.
 
 main :: IO ()
-main = defaultMain [ testCase "all" $ distribMain master id ]
+main = do
+  Right transport <- createTransportExposeInternals "127.0.0.1" "8080" defaultTCPParameters
+  let rtable = initRemoteTable
+  defaultMain (tests transport rtable)
