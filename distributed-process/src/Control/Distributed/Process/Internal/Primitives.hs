@@ -21,6 +21,7 @@ module Control.Distributed.Process.Internal.Primitives
   , matchUnknown
   , AbstractMessage(..)
   , matchAny
+  , matchChan
     -- * Process management
   , terminate
   , ProcessTerminationException(..)
@@ -106,7 +107,11 @@ import Control.Concurrent.STM
   , readTVar
   , writeTVar
   )
-import Control.Distributed.Process.Internal.CQueue (dequeue, BlockSpec(..))
+import Control.Distributed.Process.Internal.CQueue
+  ( dequeue
+  , BlockSpec(..)
+  , MatchOn(..)
+  )
 import Control.Distributed.Process.Serializable (Serializable, fingerprint)
 import Data.Accessor ((^.), (^:), (^=))
 import Control.Distributed.Static (Closure, Static)
@@ -258,7 +263,7 @@ mergePortsRR = \ps -> do
 --------------------------------------------------------------------------------
 
 -- | Opaque type used in 'receiveWait' and 'receiveTimeout'
-newtype Match b = Match { unMatch :: Message -> Maybe (Process b) }
+newtype Match b = Match { unMatch :: MatchOn Message (Process b) }
 
 -- | Test the matches in order against each message in the queue
 receiveWait :: [Match b] -> Process b
@@ -281,13 +286,16 @@ receiveTimeout t ms = do
     Nothing   -> return Nothing
     Just proc -> Just <$> proc
 
+matchChan :: ReceivePort a -> (a -> Process b) -> Match b
+matchChan p fn = Match $ MatchChan (fmap fn (receiveSTM p))
+
 -- | Match against any message of the right type
 match :: forall a b. Serializable a => (a -> Process b) -> Match b
 match = matchIf (const True)
 
 -- | Match against any message of the right type that satisfies a predicate
 matchIf :: forall a b. Serializable a => (a -> Bool) -> (a -> Process b) -> Match b
-matchIf c p = Match $ \msg ->
+matchIf c p = Match $ MatchMsg $ \msg ->
    case messageFingerprint msg == fingerprint (undefined :: a) of
      True | c decoded -> Just (p decoded)
        where
@@ -304,7 +312,7 @@ data AbstractMessage = AbstractMessage {
 
 -- | Match against an arbitrary message
 matchAny :: forall b. (AbstractMessage -> Process b) -> Match b
-matchAny p = Match $ Just . p . abstract
+matchAny p = Match $ MatchMsg $ Just . p . abstract
   where
     abstract :: Message -> AbstractMessage
     abstract msg = AbstractMessage {
@@ -319,7 +327,7 @@ matchAny p = Match $ Just . p . abstract
 
 -- | Remove any message from the queue
 matchUnknown :: Process b -> Match b
-matchUnknown = Match . const . Just
+matchUnknown p = Match $ MatchMsg (const (Just p))
 
 --------------------------------------------------------------------------------
 -- Process management                                                         --
