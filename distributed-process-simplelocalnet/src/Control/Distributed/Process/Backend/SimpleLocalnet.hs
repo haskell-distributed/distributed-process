@@ -104,7 +104,7 @@ import Data.Foldable (forM_)
 import Data.Typeable (Typeable)
 import Control.Applicative ((<$>))
 import Control.Exception (throw)
-import Control.Monad (forever, forM, replicateM, when, replicateM_)
+import Control.Monad (forever, replicateM, replicateM_)
 import Control.Monad.IO.Class (liftIO)
 import Control.Concurrent (forkIO, threadDelay, ThreadId)
 import Control.Concurrent.MVar (MVar, newMVar, readMVar, modifyMVar_)
@@ -116,17 +116,13 @@ import Control.Distributed.Process
   , WhereIsReply(..)
   , whereis
   , whereisRemoteAsync
-  , registerRemoteAsync
-  , reregisterRemoteAsync
   , getSelfPid
   , register
   , reregister
   , expect
   , nsendRemote
   , receiveWait
-  , receiveTimeout
   , match
-  , matchIf
   , processNodeId
   , monitorNode
   , monitor
@@ -138,7 +134,6 @@ import Control.Distributed.Process
   , receiveChan
   , nsend
   , SendPort
-  , RegisterReply(..)
   , bracket
   , try
   , send
@@ -180,21 +175,21 @@ data BackendState = BackendState {
 initializeBackend :: N.HostName -> N.ServiceName -> RemoteTable -> IO Backend
 initializeBackend host port rtable = do
   mTransport   <- NT.createTransport host port NT.defaultTCPParameters
-  (recv, send) <- initMulticast  "224.0.0.99" 9999 1024
+  (recv, sendp) <- initMulticast  "224.0.0.99" 9999 1024
   (_, backendState) <- fixIO $ \ ~(tid, _) -> do
     backendState <- newMVar BackendState
                       { _localNodes      = []
                       , _peers           = Set.empty
                       ,  discoveryDaemon = tid
                       }
-    tid' <- forkIO $ peerDiscoveryDaemon backendState recv send
+    tid' <- forkIO $ peerDiscoveryDaemon backendState recv sendp
     return (tid', backendState)
   case mTransport of
     Left err -> throw err
     Right transport ->
       let backend = Backend {
           newLocalNode       = apiNewLocalNode transport rtable backendState
-        , findPeers          = apiFindPeers send backendState
+        , findPeers          = apiFindPeers sendp backendState
         , redirectLogsHere   = apiRedirectLogsHere backend
         }
       in return backend
@@ -214,8 +209,8 @@ apiFindPeers :: (PeerDiscoveryMsg -> IO ())
              -> MVar BackendState
              -> Int
              -> IO [NodeId]
-apiFindPeers send backendState delay = do
-  send PeerDiscoveryRequest
+apiFindPeers sendfn backendState delay = do
+  sendfn PeerDiscoveryRequest
   threadDelay delay
   Set.toList . (^. peers) <$> readMVar backendState
 
@@ -238,14 +233,14 @@ peerDiscoveryDaemon :: MVar BackendState
                     -> IO (PeerDiscoveryMsg, N.SockAddr)
                     -> (PeerDiscoveryMsg -> IO ())
                     -> IO ()
-peerDiscoveryDaemon backendState recv send = forever go
+peerDiscoveryDaemon backendState recv sendfn = forever go
   where
     go = do
       (msg, _) <- recv
       case msg of
         PeerDiscoveryRequest -> do
           nodes <- (^. localNodes) <$> readMVar backendState
-          forM_ nodes $ send . PeerDiscoveryReply . Node.localNodeId
+          forM_ nodes $ sendfn . PeerDiscoveryReply . Node.localNodeId
         PeerDiscoveryReply nid ->
           modifyMVar_ backendState $ return . (peers ^: Set.insert nid)
 
@@ -272,8 +267,8 @@ apiRedirectLogsHere _backend slavecontrollers = do
    -- Wait for the replies
    replicateM_ (length slavecontrollers) $ do
      receiveWait
-       [ match (\(RedirectLogsReply from ok) -> return ())
-       , match (\m@(NodeMonitorNotification {}) -> return ())
+       [ match (\(RedirectLogsReply {}) -> return ())
+       , match (\(NodeMonitorNotification {}) -> return ())
        ]
 
 --------------------------------------------------------------------------------
@@ -335,8 +330,8 @@ slaveController = do
           ok <- case (r :: Either ProcessRegistrationException ()) of
                   Right _ -> return True
                   Left _  -> do
-                    r <- try (register "logger" loggerPid)
-                    case (r :: Either ProcessRegistrationException ()) of
+                    s <- try (register "logger" loggerPid)
+                    case (s :: Either ProcessRegistrationException ()) of
                       Right _ -> return True
                       Left _  -> return False
           pid <- getSelfPid
@@ -359,7 +354,7 @@ findSlaves backend = do
    $ \_ -> do
 
    -- fire off whereis requests
-   forM nodes $ \nid -> whereisRemoteAsync nid "slaveController"
+   forM_ nodes $ \nid -> whereisRemoteAsync nid "slaveController"
 
    -- Wait for the replies
    catMaybes <$> replicateM (length nodes) (

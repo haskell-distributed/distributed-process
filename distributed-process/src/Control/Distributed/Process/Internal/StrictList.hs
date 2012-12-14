@@ -1,25 +1,27 @@
 -- | Spine and element strict list
 module Control.Distributed.Process.Internal.StrictList
-  ( StrictList(Cons, Nil)
-  , length
-  , reverse
-  , reverse'
+  ( StrictList(..)
+  , append
+  , foldr
   ) where
 
-import Prelude hiding (length, reverse)
+import Prelude hiding (length, reverse, foldr)
 
 -- | Strict list
-data StrictList a = Cons !a !(StrictList a) | Nil
+data StrictList a
+   = Cons !a !(StrictList a)
+   | Nil
+   | Snoc !(StrictList a) !a
+   | Append !(StrictList a) !(StrictList a)
 
-length :: StrictList a -> Int
-length Nil         = 0
-length (Cons _ xs) = 1 + length xs
+append :: StrictList a -> StrictList a -> StrictList a
+append Nil l = l
+append l Nil = l
+append l1 l2 = l1 `Append` l2
 
--- | Reverse a strict list
-reverse :: StrictList a -> StrictList a
-reverse xs = reverse' xs Nil
-
--- | @reverseStrict' xs ys@ is 'reverse xs ++ ys' if they were lists
-reverse' :: StrictList a -> StrictList a -> StrictList a
-reverse' Nil         ys = ys
-reverse' (Cons x xs) ys = reverse' xs (Cons x ys)
+foldr :: (a -> b -> b) -> b -> StrictList a -> b
+foldr f c0 xs0 = go xs0 c0
+  where go Nil            c = c
+        go (Cons x xs)    c = f x (go xs c)
+        go (Snoc xs x)    c = go xs (f x c)
+        go (Append xs ys) c = go xs (go ys c)
