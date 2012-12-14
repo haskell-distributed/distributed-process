@@ -229,9 +229,8 @@ dequeue (CQueue arrived incoming) blockSpec matchons =
         go (Append xs ys) tl = go xs (append ys tl)
         go (Snoc xs x)    tl = go xs (Cons x tl)
         go (Cons x xs)    tl
-          | Just y <- checkMatches matches x = (Append xs tl, Just y)
-          | otherwise                        = (Cons x rest, r)
-          where !(rest,r) = go xs tl
+          | Just y <- checkMatches matches x = (append xs tl, Just y)
+          | otherwise = let !(rest,r) = go xs tl in (Cons x rest, r)
 
     checkMatches :: [m -> Maybe a] -> m -> Maybe a
     checkMatches []     _ = Nothing
