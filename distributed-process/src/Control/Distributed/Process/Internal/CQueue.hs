@@ -97,7 +97,7 @@ dequeue :: forall m a.
         -> IO (Maybe a)      -- ^ 'Nothing' only on timeout
 dequeue (CQueue arrived incoming) blockSpec matchons =
   case blockSpec of
-    Timeout n -> timeout n $ fmap fromJust go
+    Timeout n -> timeout n $ fmap fromJust run
     _other    ->
        case chunks of
          [Right ports] -> -- channels only, this is easy:
@@ -105,11 +105,11 @@ dequeue (CQueue arrived incoming) blockSpec matchons =
              NonBlocking -> atomically $ waitChans ports (return Nothing)
              _           -> atomically $ waitChans ports retry
                               -- no onException needed
-         _other -> go
+         _other -> run
   where
     chunks = chunkMatches matchons
 
-    go = mask_ $ do
+    run = mask_ $ do
            arr <- takeMVar arrived
            let grabNew xs = do
                  r <- atomically $ tryReadTChan incoming
