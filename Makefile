@@ -2,26 +2,36 @@
 
 GHC ?= $(shell which ghc)
 CABAL ?= $(shell which cabal)
+CABAL_DEV ?= $(shell which cabal-fav)
 
 BASE_GIT := git://github.com/haskell-distributed
 REPOS=$(shell cat REPOS | sed '/^$$/d')
 
 .PHONY: all
-all: $(REPOS)
+all: dev-install
 
-$(REPOS):
-	git clone $(BASE_GIT)/$@.git
+.PHONY: dev-install
+ifneq (,$(CABAL_DEV))
+dev-install:
+	$(CABAL_DEV) install
+else
+dev-install:
+	$(error install cabal-dev to proceed)
+endif
 
-.PHONY: install
-install: $(REPOS)
+.PHONY: ci
+ci: travis-install travis-test
+
+.PHONY: travis-install
+travis-install: $(REPOS)
 	$(CABAL) install --with-ghc=$(GHC) $(REPOS) --force-reinstalls
 	$(CABAL) install
 
-.PHONY: ci
-ci: install test
-
-.PHONY: test
-test:
+.PHONY: travis-test
+travis-test:
 	$(CABAL) configure --enable-tests
 	$(CABAL) build
 	$(CABAL) test --show-details=always
+
+$(REPOS):
+	git clone $(BASE_GIT)/$@.git

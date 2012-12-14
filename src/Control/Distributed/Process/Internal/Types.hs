@@ -30,6 +30,7 @@ module Control.Distributed.Process.Internal.Types
     -- * Messages
   , Message(..)
   , createMessage
+  , createUnencodedMessage
   , messageToPayload
   , payloadToMessage
     -- * Node controller user-visible data types
@@ -83,6 +84,7 @@ import qualified Data.ByteString.Lazy as BSL
   , toChunks
   , splitAt
   , fromChunks
+  , length
   )
 import qualified Data.ByteString.Lazy.Internal as BSL (ByteString(..))
 import Data.Accessor (Accessor, accessor)
@@ -303,26 +305,40 @@ data ReceivePort a =
 --------------------------------------------------------------------------------
 
 -- | Messages consist of their typeRep fingerprint and their encoding
-data Message = Message
+data Message =
+  EncodedMessage
   { messageFingerprint :: !Fingerprint
   , messageEncoding    :: !BSL.ByteString
+  } |
+  forall a . Serializable a =>
+  UnencodedMessage
+  {
+    messageFingerprint :: !Fingerprint
+  , messagePayload     :: !a
   }
   deriving (Typeable)
 
 instance Show Message where
-  show (Message fp enc) = show enc ++ " :: " ++ showFingerprint fp []
+  show (EncodedMessage fp enc) = show enc ++ " :: " ++ showFingerprint fp []
+  show (UnencodedMessage fp _) = "[unencoded message] :: " ++ (showFingerprint fp [])
 
 -- | Turn any serialiable term into a message
 createMessage :: Serializable a => a -> Message
-createMessage a = Message (fingerprint a) (encode a)
+createMessage a = EncodedMessage (fingerprint a) (encode a)
+
+-- | Turn any serializable term into an unencoded/local message
+createUnencodedMessage :: Serializable a => a -> Message
+createUnencodedMessage a =
+  let encoded = encode a in BSL.length encoded `seq` UnencodedMessage (fingerprint a) a
 
 -- | Serialize a message
 messageToPayload :: Message -> [BSS.ByteString]
-messageToPayload (Message fp enc) = encodeFingerprint fp : BSL.toChunks enc
+messageToPayload (EncodedMessage fp enc) = encodeFingerprint fp : BSL.toChunks enc
+messageToPayload (UnencodedMessage fp m) = messageToPayload ((EncodedMessage fp (encode m)))
 
 -- | Deserialize a message
 payloadToMessage :: [BSS.ByteString] -> Message
-payloadToMessage payload = Message fp (copy msg)
+payloadToMessage payload = EncodedMessage fp (copy msg)
   where
     encFp :: BSL.ByteString
     msg   :: BSL.ByteString
@@ -481,6 +497,8 @@ data ProcessSignal =
   | WhereIs !String
   | Register !String !NodeId !(Maybe ProcessId) !Bool -- Use 'Nothing' to unregister, use True to force reregister
   | NamedSend !String !Message
+  | LocalSend !ProcessId !Message
+  | LocalPortSend !SendPortId !Message
   | Kill !ProcessId !String
   | Exit !ProcessId !Message
   | GetInfo !ProcessId
@@ -523,18 +541,20 @@ instance Binary MonitorRef where
   get     = MonitorRef <$> get <*> get
 
 instance Binary ProcessSignal where
-  put (Link pid)            = putWord8 0 >> put pid
-  put (Unlink pid)          = putWord8 1 >> put pid
-  put (Monitor ref)         = putWord8 2 >> put ref
-  put (Unmonitor ref)       = putWord8 3 >> put ref
-  put (Died who reason)     = putWord8 4 >> put who >> put reason
-  put (Spawn proc ref)      = putWord8 5 >> put proc >> put ref
-  put (WhereIs label)       = putWord8 6 >> put label
+  put (Link pid)              = putWord8 0 >> put pid
+  put (Unlink pid)            = putWord8 1 >> put pid
+  put (Monitor ref)           = putWord8 2 >> put ref
+  put (Unmonitor ref)         = putWord8 3 >> put ref
+  put (Died who reason)       = putWord8 4 >> put who >> put reason
+  put (Spawn proc ref)        = putWord8 5 >> put proc >> put ref
+  put (WhereIs label)         = putWord8 6 >> put label
   put (Register label nid pid force) = putWord8 7 >> put label >> put nid >> put pid >> put force
-  put (NamedSend label msg) = putWord8 8 >> put label >> put (messageToPayload msg)
-  put (Kill pid reason)     = putWord8 9 >> put pid >> put reason
-  put (Exit pid reason)     = putWord8 10 >> put pid >> put (messageToPayload reason)
-  put (GetInfo about)       = putWord8 30 >> put about
+  put (NamedSend label msg)   = putWord8 8 >> put label >> put (messageToPayload msg)
+  put (Kill pid reason)       = putWord8 9 >> put pid >> put reason
+  put (Exit pid reason)       = putWord8 10 >> put pid >> put (messageToPayload reason)
+  put (LocalSend pid msg)     = putWord8 11 >> put pid >> put (messageToPayload msg)
+  put (LocalPortSend sid msg) = putWord8 12 >> put sid >> put (messageToPayload msg)
+  put (GetInfo about)         = putWord8 30 >> put about
   get = do
     header <- getWord8
     case header of
@@ -549,6 +569,8 @@ instance Binary ProcessSignal where
       8  -> NamedSend <$> get <*> (payloadToMessage <$> get)
       9  -> Kill <$> get <*> get
       10 -> Exit <$> get <*> (payloadToMessage <$> get)
+      11 -> LocalSend <$> get <*> (payloadToMessage <$> get)
+      12 -> LocalPortSend <$> get <*> (payloadToMessage <$> get)
       30 -> GetInfo <$> get
       _ -> fail "ProcessSignal.get: invalid"
 

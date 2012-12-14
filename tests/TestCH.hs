@@ -32,7 +32,6 @@ import Control.Distributed.Process.Internal.Types
   , LocalNode(localEndPoint)
   , ProcessExitException(..)
   , nullProcessId
-  , Message
   )
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable (Serializable)

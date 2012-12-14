@@ -163,6 +163,7 @@ import Control.Distributed.Process.Internal.Types
   , ProcessInfo(..)
   , ProcessInfoNone(..)
   , createMessage
+  , createUnencodedMessage
   , runLocalProcess
   , ImplicitReconnect(WithImplicitReconnect, NoImplicitReconnect)
   , LocalProcessState
@@ -181,6 +182,7 @@ import Control.Distributed.Process.Internal.WeakTQueue
   , readTQueue
   , mkWeakTQueue
   )
+import Unsafe.Coerce
 
 --------------------------------------------------------------------------------
 -- Basic messaging                                                            --
@@ -192,11 +194,15 @@ send :: Serializable a => ProcessId -> a -> Process ()
 -- modify serializable to allow for stateful (IO) deserialization
 send them msg = do
   proc <- ask
-  liftIO $ sendMessage (processNode proc)
-                       (ProcessIdentifier (processId proc))
-                       (ProcessIdentifier them)
-                       NoImplicitReconnect
-                       msg
+  let node     = localNodeId (processNode proc)
+      destNode = (processNodeId them) in do
+  case destNode == node of
+    True  -> sendLocal them msg
+    False -> liftIO $ sendMessage (processNode proc)
+                                  (ProcessIdentifier (processId proc))
+                                  (ProcessIdentifier them)
+                                  NoImplicitReconnect
+                                  msg
 
 -- | Wait for a message of a specific type
 expect :: forall a. Serializable a => Process a
@@ -234,11 +240,16 @@ newChan = do
 sendChan :: Serializable a => SendPort a -> a -> Process ()
 sendChan (SendPort cid) msg = do
   proc <- ask
-  liftIO $ sendBinary (processNode proc)
-                      (ProcessIdentifier (processId proc))
-                      (SendPortIdentifier cid)
-                      NoImplicitReconnect
-                      msg
+  let node     = localNodeId (processNode proc)
+      destNode = processNodeId (sendPortProcessId cid) in do
+  case destNode == node of
+    True  -> sendChanLocal cid msg
+    False -> do
+      liftIO $ sendBinary (processNode proc)
+                          (ProcessIdentifier (processId proc))
+                          (SendPortIdentifier cid)
+                          NoImplicitReconnect
+                          msg
 
 -- | Wait for a message on a typed channel
 receiveChan :: Serializable a => ReceivePort a -> Process a
@@ -315,15 +326,22 @@ match = matchIf (const True)
 -- | Match against any message of the right type that satisfies a predicate
 matchIf :: forall a b. Serializable a => (a -> Bool) -> (a -> Process b) -> Match b
 matchIf c p = Match $ MatchMsg $ \msg ->
-   case messageFingerprint msg == fingerprint (undefined :: a) of
-     True | c decoded -> Just (p decoded)
-       where
-         decoded :: a
-         -- Make sure the value is fully decoded so that we don't hang to
-         -- bytestrings when the process calling 'matchIf' doesn't process
-         -- the values immediately
-         !decoded = decode (messageEncoding msg)
-     _ -> Nothing
+  case messageFingerprint msg == fingerprint (undefined :: a) of
+    False -> Nothing
+    True  -> case msg of
+      (UnencodedMessage _ m) ->
+        let m' = unsafeCoerce m :: a in
+        case (c m') of
+          True  -> Just (p m')
+          False -> Nothing
+      (EncodedMessage _ _) ->
+        if (c decoded) then Just (p decoded) else Nothing
+        where
+          decoded :: a
+            -- Make sure the value is fully decoded so that we don't hang to
+            -- bytestrings when the process calling 'matchIf' doesn't process
+            -- the values immediately
+          !decoded = decode (messageEncoding msg)
 
 -- | Match against any message, regardless of the underlying (contained) type
 matchMessage :: (Message -> Process Message) -> Match Message
@@ -340,11 +358,16 @@ matchMessageIf c p = Match $ MatchMsg $ \msg ->
 forward :: Message -> ProcessId -> Process ()
 forward msg them = do
   proc <- ask
-  liftIO $ sendPayload (processNode proc)
-                       (ProcessIdentifier (processId proc))
-                       (ProcessIdentifier them)
-                       NoImplicitReconnect
-                       (messageToPayload msg)
+  let node     = localNodeId (processNode proc)
+      destNode = (processNodeId them) in do
+  case destNode == node of
+    True  -> sendCtrlMsg Nothing (LocalSend them msg)
+    False -> liftIO $ sendPayload (processNode proc)
+                                  (ProcessIdentifier (processId proc))
+                                  (ProcessIdentifier them)
+                                  NoImplicitReconnect
+                                  (messageToPayload msg)
+
 
 -- | Wrap a 'Serializable' value in a 'Message'. Note that 'Message's are
 -- 'Serializable' - like the datum they contain - but remember that deserializing
@@ -357,11 +380,11 @@ forward msg them = do
 --     send self (wrapMessage "blah")
 --     Nothing  <- expectTimeout 1000000 :: Process (Maybe String)
 --     (Just m) <- expectTimeout 1000000 :: Process (Maybe Message)
---     "blah" <- unwrapMessage m :: Process (Maybe String)
+--     (Just "blah") <- unwrapMessage m :: Process (Maybe String)
 -- @
 --
 wrapMessage :: Serializable a => a -> Message
-wrapMessage = createMessage 
+wrapMessage = createMessage
 
 -- | Attempt to unwrap a raw 'Message'.
 -- If the type of the decoded message payload matches the expected type, the
@@ -377,13 +400,16 @@ wrapMessage = createMessage
 unwrapMessage :: forall a. Serializable a => Message -> Process (Maybe a)
 unwrapMessage msg =
   case messageFingerprint msg == fingerprint (undefined :: a) of
-    True -> return (Just (decoded))
-       where
-         decoded :: a
-         -- Make sure the value is fully decoded so that we don't hang to
-         -- bytestrings when the calling process doesn't evaluate immediately
-         !decoded = decode (messageEncoding msg)
-    _ -> return Nothing
+    False -> return Nothing
+    True  -> case msg of
+      (UnencodedMessage _ m) ->
+        let m' = unsafeCoerce m :: a
+        in return (Just m')
+      (EncodedMessage _ _) ->
+        return (Just (decoded))
+        where
+          decoded :: a -- note [decoding]
+          !decoded = decode (messageEncoding msg)
 
 -- | Attempt to handle a raw 'Message'.
 -- If the type of the message matches the type of the first argument to
@@ -393,23 +419,28 @@ unwrapMessage msg =
 -- evaluation proceeds, the resulting value with be wrapped with @Just@.
 --
 -- Intended for use in `catchesExit` and `matchAny` primitives.
--- 
+--
 handleMessage :: forall a b. (Serializable a)
                    => Message -> (a -> Process b) -> Process (Maybe b)
 handleMessage msg proc = do
-      case messageFingerprint msg == fingerprint (undefined :: a) of
-        True -> do { r <- proc (decoded :: a); return (Just r) }
-          where
-            decoded :: a
-            !decoded = decode (messageEncoding msg)
-        _ -> return Nothing
+  case messageFingerprint msg == fingerprint (undefined :: a) of
+    False -> return Nothing
+    True  -> case msg of
+      (UnencodedMessage _ m) ->
+        let m' = unsafeCoerce m :: a  -- note [decoding]
+        in do { r <- proc m'; return (Just r) }
+      (EncodedMessage _ _) ->
+        do { r <- proc (decoded :: a); return (Just r) }
+        where
+          decoded :: a -- note [decoding]
+          !decoded = decode (messageEncoding msg)
 
 -- | Match against an arbitrary message. 'matchAny' removes the first available
 -- message from the process mailbox. To handle arbitrary /raw/ messages once
 -- removed from the mailbox, see 'handleMessage' and 'unwrapMessage'.
 --
 matchAny :: forall b. (Message -> Process b) -> Match b
-matchAny p = Match $ MatchMsg $ \msg -> Just (p msg) 
+matchAny p = Match $ MatchMsg $ \msg -> Just (p msg)
 
 -- | Match against an arbitrary message. Intended for use with 'handleMessage'
 -- and 'unwrapMessage', this function /only/ removes a message from the process
@@ -425,14 +456,25 @@ matchAnyIf :: forall a b. (Serializable a)
                        -> (Message -> Process b)
                        -> Match b
 matchAnyIf c p = Match $ MatchMsg $ \msg ->
-   case messageFingerprint msg == fingerprint (undefined :: a) of
-     True | c decoded -> Just (p msg)
+  case messageFingerprint msg == fingerprint (undefined :: a) of
+     True | check -> Just (p msg)
        where
-         decoded :: a
-         -- Make sure the value is fully decoded so that we don't hang to
-         -- bytestrings when the calling process doesn't evaluate immediately
+         check :: Bool
+         !check =
+           case msg of
+             (EncodedMessage _ _)    -> c decoded
+             (UnencodedMessage _ m') -> c (unsafeCoerce m')
+
+         decoded :: a -- note [decoding]
          !decoded = decode (messageEncoding msg)
      _ -> Nothing
+
+{- note [decoding]
+For an EncodedMessage, we need to ensure the value is fully decoded so that
+we don't hang to bytestrings if the calling process doesn't evaluate
+immediately. For UnencodedMessage we know (because the fingerprint comparison
+succeeds) that unsafeCoerce will not fail.
+-}
 
 -- | Remove any message from the queue
 matchUnknown :: Process b -> Match b
@@ -992,6 +1034,17 @@ trace s = do
 --------------------------------------------------------------------------------
 -- Auxiliary functions                                                        --
 --------------------------------------------------------------------------------
+
+sendLocal :: (Serializable a) => ProcessId -> a -> Process ()
+sendLocal pid msg =
+  sendCtrlMsg Nothing $ LocalSend pid (createUnencodedMessage msg)
+
+sendChanLocal :: (Serializable a) => SendPortId -> a -> Process ()
+sendChanLocal spId msg =
+  -- we *must* fully serialize/encode the message here, because
+  -- attempting to use `unsafeCoerce' in the node controller
+  -- won't work since we know nothing about the required type
+  sendCtrlMsg Nothing $ LocalPortSend spId (createUnencodedMessage msg)
 
 getMonitorRefFor :: Identifier -> Process MonitorRef
 getMonitorRefFor ident = do
