@@ -33,8 +33,8 @@ import Control.Distributed.Process.Internal.StrictMVar
   )
 import Control.Distributed.Process.Internal.StrictList
   ( StrictList(..)
+  , append
   )
-import qualified Control.Distributed.Process.Internal.StrictList as S
 import Data.Maybe (fromJust)
 import GHC.MVar (MVar(MVar))
 import GHC.IO (IO(IO))
@@ -146,8 +146,8 @@ dequeue (CQueue arrived incoming) blockSpec matchons =
            -- of passing around restore and setting up exception handlers is
            -- high.  So just don't use expensive matchIfs!
       case checkArrived matches old of
-        (old', Just r) -> returnOld old' (Just r)
-        (old', Nothing)   -> goCheck rest old'
+        (old', Just r)  -> returnOld old' (Just r)
+        (old', Nothing) -> goCheck rest old'
           -- use the result list, which is now left-biased
 
     --
@@ -222,11 +222,16 @@ dequeue (CQueue arrived incoming) blockSpec matchons =
 
     -- as a side-effect, this left-biases the list
     checkArrived :: [m -> Maybe a] -> StrictList m -> (StrictList m, Maybe a)
-    checkArrived matches list = S.foldr f (Nil, Nothing) list
+    checkArrived matches list = go list Nil
       where
-        f x (rest,r)
-          | Just y <- checkMatches matches x = (rest, Just y)
+        go Nil Nil           = (Nil, Nothing)
+        go Nil r             = go r Nil
+        go (Append xs ys) tl = go xs (append ys tl)
+        go (Snoc xs x)    tl = go xs (Cons x tl)
+        go (Cons x xs)    tl
+          | Just y <- checkMatches matches x = (Append xs tl, Just y)
           | otherwise                        = (Cons x rest, r)
+          where !(rest,r) = go xs tl
 
     checkMatches :: [m -> Maybe a] -> m -> Maybe a
     checkMatches []     _ = Nothing
