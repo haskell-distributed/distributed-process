@@ -49,7 +49,14 @@ module Control.Distributed.Process.Internal.Types
   , DidSpawn(..)
   , WhereIsReply(..)
   , RegisterReply(..)
+  , ProcessInfo(..)
+  , ProcessInfoKey
+  , ProcessInfoNone(..)
+    -- * Node controller entities required for primatives
+  , toMarshalledPInfoKey
+  , toPInfoKey
     -- * Node controller internal data types
+  , SerializedProcessInfoKey
   , NCMsg(..)
   , ProcessSignal(..)
     -- * Accessors
@@ -68,6 +75,7 @@ module Control.Distributed.Process.Internal.Types
 
 import System.Mem.Weak (Weak)
 import Data.Map (Map)
+import Data.Set (Set)
 import Data.Int (Int32)
 import Data.Typeable (Typeable)
 import Data.Binary (Binary(put, get), putWord8, getWord8, encode)
@@ -420,6 +428,66 @@ data WhereIsReply = WhereIsReply String (Maybe ProcessId)
 data RegisterReply = RegisterReply String Bool
   deriving (Show, Typeable)
 
+data ProcessInfoKey =
+    ProcessInfoAll
+  | ProcessInfoNode
+  | ProcessInfoRegisteredNames
+  | ProcessInfoMessageQueueLength
+  | ProcessInfoMonitors
+  | ProcessInfoLinks
+  deriving (Show, Typeable, Eq)
+
+data SerializedProcessInfoKey = SerializedProcessInfoKey Int
+
+instance Binary SerializedProcessInfoKey where
+  put (SerializedProcessInfoKey n) = put n
+  get = SerializedProcessInfoKey <$> get
+
+-- | Convert 'ProcessInfoKey' to/from 'SerializedProcessInfoKey'
+toMarshalledPInfoKey :: ProcessInfoKey -> SerializedProcessInfoKey
+toMarshalledPInfoKey ProcessInfoAll                = SerializedProcessInfoKey 1
+toMarshalledPInfoKey ProcessInfoNode               = SerializedProcessInfoKey 2
+toMarshalledPInfoKey ProcessInfoRegisteredNames    = SerializedProcessInfoKey 3
+toMarshalledPInfoKey ProcessInfoMessageQueueLength = SerializedProcessInfoKey 4
+toMarshalledPInfoKey ProcessInfoMonitors           = SerializedProcessInfoKey 5
+toMarshalledPInfoKey ProcessInfoLinks              = SerializedProcessInfoKey 6
+
+-- | Convert 'SerializedProcessInfoKey' back into 'ProcessInfoKey' 
+toPInfoKey :: SerializedProcessInfoKey -> ProcessInfoKey
+toPInfoKey (SerializedProcessInfoKey n)
+  | n == 1 = ProcessInfoAll
+  | n == 2 = ProcessInfoNode
+  | n == 3 = ProcessInfoRegisteredNames
+  | n == 4 = ProcessInfoMessageQueueLength
+  | n == 5 = ProcessInfoMonitors
+  | n == 6 = ProcessInfoLinks
+  -- using error is usually madness, but here represents a bit of complete
+  -- stupidity or a deliberate attack, so how *should* we handle this?
+  | otherwise = error "Illegal ProcessInfoKey Value"
+
+data ProcessInfo = ProcessInfo {
+    infoNode               :: NodeId
+  , infoRegisteredNames    :: [String]
+  , infoMessageQueueLength :: Maybe Int
+  , infoMonitors           :: Set (ProcessId, MonitorRef)
+  , infoLinks              :: Set ProcessId
+  } deriving (Show, Typeable)
+
+instance Binary ProcessInfo where
+  get = ProcessInfo <$> get <*> get <*> get <*> get <*> get
+  put = put . infoNode
+     >> put . infoRegisteredNames
+     >> put . infoMessageQueueLength
+     >> put . infoMonitors
+     >> put . infoLinks
+
+data ProcessInfoNone = ProcessInfoNone DiedReason
+    deriving (Show, Typeable)
+
+instance Binary ProcessInfoNone where
+  get = ProcessInfoNone <$> get
+  put (ProcessInfoNone r) = put r 
+
 --------------------------------------------------------------------------------
 -- Node controller internal data types                                        --
 --------------------------------------------------------------------------------
@@ -444,6 +512,7 @@ data ProcessSignal =
   | NamedSend !String !Message
   | Kill !ProcessId !String
   | Exit !ProcessId !Message
+  | GetInfo !ProcessId
   deriving Show
 
 --------------------------------------------------------------------------------
@@ -490,6 +559,7 @@ instance Binary ProcessSignal where
   put (NamedSend label msg) = putWord8 8 >> put label >> put (messageToPayload msg)
   put (Kill pid reason)     = putWord8 9 >> put pid >> put reason
   put (Exit pid reason)     = putWord8 10 >> put pid >> put (messageToPayload reason)
+  put (GetInfo about)       = putWord8 30 >> put about
   get = do
     header <- getWord8
     case header of
@@ -504,6 +574,7 @@ instance Binary ProcessSignal where
       8 -> NamedSend <$> get <*> (payloadToMessage <$> get)
       9 -> Kill <$> get <*> get
       10 -> Exit <$> get <*> (payloadToMessage <$> get)
+      30 -> GetInfo <$> get
       _ -> fail "ProcessSignal.get: invalid"
 
 instance Binary DiedReason where

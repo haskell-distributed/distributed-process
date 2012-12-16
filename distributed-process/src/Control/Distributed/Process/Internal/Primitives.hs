@@ -32,6 +32,8 @@ module Control.Distributed.Process.Internal.Primitives
   , ProcessExitException(..)
   , getSelfPid
   , getSelfNode
+  , ProcessInfo(..)
+  , getProcessInfo
     -- * Monitoring and linking
   , link
   , unlink
@@ -97,6 +99,7 @@ import Control.Distributed.Process.Internal.StrictMVar
   , modifyMVar
   , modifyMVar_
   )
+import Control.Concurrent (ThreadId)
 import Control.Concurrent.Chan (writeChan)
 import Control.Concurrent.STM
   ( STM
@@ -144,6 +147,8 @@ import Control.Distributed.Process.Internal.Types
   , WhereIsReply(..)
   , RegisterReply(..)
   , ProcessRegistrationException(..)
+  , ProcessInfo(..)
+  , ProcessInfoNone(..)
   , createMessage
   , runLocalProcess
   , ImplicitReconnect(WithImplicitReconnect, NoImplicitReconnect)
@@ -399,6 +404,22 @@ getSelfPid = processId <$> ask
 -- | Get the node ID of our local node
 getSelfNode :: Process NodeId
 getSelfNode = localNodeId . processNode <$> ask
+
+-- | Get information about the specified process
+getProcessInfo :: ProcessId -> Process (Maybe ProcessInfo)
+getProcessInfo pid = 
+  let them = processNodeId pid in do
+  us <- getSelfNode
+  dest <- mkNode them us
+  sendCtrlMsg dest $ GetInfo pid
+  receiveWait [
+      match (\x@(ProcessInfo _ _ _ _ _) -> return (Just x))
+    , match (\(ProcessInfoNone _) -> return Nothing) 
+    ]
+  where mkNode :: NodeId -> NodeId -> Process (Maybe NodeId)
+        mkNode them us = case them == us of
+                           True -> return Nothing
+                           _    -> return $ Just them
 
 --------------------------------------------------------------------------------
 -- Monitoring and linking                                                     --

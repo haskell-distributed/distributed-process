@@ -29,9 +29,11 @@ import qualified Data.Map as Map
   , partitionWithKey
   , elems
   , filterWithKey
+  , foldlWithKey
+  , keys
   )
 import Data.Set (Set)
-import qualified Data.Set as Set (empty, insert, delete, member)
+import qualified Data.Set as Set (empty, insert, delete, member, foldl')
 import Data.Foldable (forM_)
 import Data.Maybe (isJust, isNothing, catMaybes)
 import Data.Typeable (Typeable)
@@ -61,6 +63,9 @@ import Control.Distributed.Process.Internal.CQueue
   , enqueue
   , newCQueue
   , mkWeakCQueue
+  )
+import qualified Control.Distributed.Process.Internal.CQueue as Mailbox
+  ( length
   )
 import qualified Network.Transport as NT
   ( Transport
@@ -118,6 +123,7 @@ import Control.Distributed.Process.Internal.Types
   , TypedChannel(..)
   , Identifier(..)
   , nodeOf
+  , ProcessInfo(..)
   , SendPortId(..)
   , typedChannelWithId
   , RegisterReply(..)
@@ -517,6 +523,8 @@ nodeController = do
         ncEffectKill from to reason
       NCMsg (ProcessIdentifier from) (Exit to reason) ->
         ncEffectExit from to reason
+      NCMsg (ProcessIdentifier from) (GetInfo pid) ->
+        ncEffectGetInfo from pid
       unexpected ->
         error $ "nodeController: unexpected message " ++ show unexpected
 
@@ -737,6 +745,67 @@ ncEffectExit from to reason = do
   when (isLocal node (ProcessIdentifier to)) $
     throwException to $ ProcessExitException from reason
 
+-- [Issue #89]
+ncEffectGetInfo :: ProcessId -> ProcessId -> NC ()
+ncEffectGetInfo from pid =
+  let lpid = processLocalId pid 
+      them = (ProcessIdentifier pid)
+  in do
+  node <- ask
+  mProc <- liftIO $ withMVar (localState node) $ return . (^. localProcessWithId lpid)
+  case mProc of
+    Nothing   -> return () -- send a response to the caller
+    Just proc -> do
+        itsLinks    <- gets (^. linksFor    them)
+        itsMons     <- gets (^. monitorsFor them)
+        registered  <- gets (^. registeredHere)
+        sendInfo pid
+                 (isLocal node (ProcessIdentifier from))
+                 proc node itsLinks itsMons (registeredNames registered) 
+  
+  where sendInfo :: ProcessId
+                 -> Bool
+                 -> LocalProcess
+                 -> LocalNode
+                 -> Set ProcessId
+                 -> Set (ProcessId, MonitorRef)
+                 -> [String]
+                 -> NC ()
+        sendInfo d lc lp n l m r = do
+          qLen <- qLength lp
+          dispatch lc d n ProcessInfo { 
+                              infoNode               = localNodeId n
+                            , infoRegisteredNames    = r
+                            , infoMessageQueueLength = qLen
+                            , infoMonitors           = m
+                            , infoLinks              = l 
+                            }
+        
+        dispatch :: Bool
+                 -> ProcessId
+                 -> LocalNode
+                 -> ProcessInfo
+                 -> NC ()
+        dispatch True  dest _    pInfo = postAsMessage dest $ pInfo
+        dispatch False dest node pInfo =
+            liftIO $ sendMessage node
+                                 (NodeIdentifier (localNodeId node))
+                                 (ProcessIdentifier dest)
+                                 WithImplicitReconnect
+                                 pInfo
+        
+        -- TODO: make this available to other functions?
+        qLength :: LocalProcess -> NC (Maybe Int)
+        qLength lp = do
+          qRef <- liftIO $ deRefWeak (processWeakQ lp) 
+          case qRef of
+            Nothing -> return $ Nothing
+            Just qr -> liftIO $ Mailbox.length qr >>= return . Just
+        
+        registeredNames = Map.foldlWithKey (\ks k v -> if v == pid 
+                                                 then (k:ks)
+                                                 else ks) []
+
 --------------------------------------------------------------------------------
 -- Auxiliary                                                                  --
 --------------------------------------------------------------------------------
@@ -788,6 +857,7 @@ destNid (NamedSend _ _) = Nothing
 destNid (Died _ _) = Nothing
 destNid (Kill pid _)        = Just $ processNodeId pid
 destNid (Exit pid _)        = Just $ processNodeId pid
+destNid (GetInfo pid)       = Just $ processNodeId pid
 
 -- | Check if a process is local to our own node
 isLocal :: LocalNode -> Identifier -> Bool
