@@ -748,7 +748,7 @@ ncEffectExit from to reason = do
 -- [Issue #89]
 ncEffectGetInfo :: ProcessId -> ProcessId -> NC ()
 ncEffectGetInfo from pid =
-  let lpid = processLocalId pid 
+  let lpid = processLocalId pid
       them = (ProcessIdentifier pid)
   in do
   node <- ask
@@ -761,8 +761,8 @@ ncEffectGetInfo from pid =
         registered  <- gets (^. registeredHere)
         sendInfo pid
                  (isLocal node (ProcessIdentifier from))
-                 proc node itsLinks itsMons (registeredNames registered) 
-  
+                 proc node itsLinks itsMons (registeredNames registered)
+
   where sendInfo :: ProcessId
                  -> Bool
                  -> LocalProcess
@@ -773,14 +773,14 @@ ncEffectGetInfo from pid =
                  -> NC ()
         sendInfo d lc lp n l m r = do
           qLen <- qLength lp
-          dispatch lc d n ProcessInfo { 
+          dispatch lc d n ProcessInfo {
                               infoNode               = localNodeId n
                             , infoRegisteredNames    = r
                             , infoMessageQueueLength = qLen
                             , infoMonitors           = m
-                            , infoLinks              = l 
+                            , infoLinks              = l
                             }
-        
+
         dispatch :: Bool
                  -> ProcessId
                  -> LocalNode
@@ -793,16 +793,16 @@ ncEffectGetInfo from pid =
                                  (ProcessIdentifier dest)
                                  WithImplicitReconnect
                                  pInfo
-        
+
         -- TODO: make this available to other functions?
         qLength :: LocalProcess -> NC (Maybe Int)
         qLength lp = do
-          qRef <- liftIO $ deRefWeak (processWeakQ lp) 
+          qRef <- liftIO $ deRefWeak (processWeakQ lp)
           case qRef of
             Nothing -> return $ Nothing
             Just qr -> liftIO $ Mailbox.length qr >>= return . Just
-        
-        registeredNames = Map.foldlWithKey (\ks k v -> if v == pid 
+
+        registeredNames = Map.foldlWithKey (\ks k v -> if v == pid
                                                  then (k:ks)
                                                  else ks) []
 
