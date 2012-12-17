@@ -86,6 +86,7 @@ import Prelude hiding (catch)
 import Data.Binary (decode)
 import Data.Time.Clock (getCurrentTime)
 import Data.Time.Format (formatTime)
+import System.IO (hPutStrLn, stderr)
 import System.Locale (defaultTimeLocale)
 import System.Timeout (timeout)
 import Control.Monad (when)
@@ -407,14 +408,16 @@ getSelfNode = localNodeId . processNode <$> ask
 
 -- | Get information about the specified process
 getProcessInfo :: ProcessId -> Process (Maybe ProcessInfo)
-getProcessInfo pid = 
+getProcessInfo pid =
   let them = processNodeId pid in do
   us <- getSelfNode
   dest <- mkNode them us
+  liftIO . putStrLn $ "sending getInfo req to " ++ (show dest)
+
   sendCtrlMsg dest $ GetInfo pid
   receiveWait [
       match (\x@(ProcessInfo _ _ _ _ _) -> return (Just x))
-    , match (\(ProcessInfoNone _) -> return Nothing) 
+    , match (\(ProcessInfoNone _) -> return Nothing)
     ]
   where mkNode :: NodeId -> NodeId -> Process (Maybe NodeId)
         mkNode them us = case them == us of
@@ -540,7 +543,7 @@ try p = do
   lproc <- ask
   liftIO $ Ex.try (runLocalProcess lproc p)
 
--- | Lift 'Control.Exception.mask' 
+-- | Lift 'Control.Exception.mask'
 mask :: ((forall a. Process a -> Process a) -> Process b) -> Process b
 mask p = do
     lproc <- ask

@@ -124,6 +124,7 @@ import Control.Distributed.Process.Internal.Types
   , Identifier(..)
   , nodeOf
   , ProcessInfo(..)
+  , ProcessInfoNone(..)
   , SendPortId(..)
   , typedChannelWithId
   , RegisterReply(..)
@@ -751,10 +752,13 @@ ncEffectGetInfo from pid =
   let lpid = processLocalId pid
       them = (ProcessIdentifier pid)
   in do
+  liftIO . putStrLn $ "processing get info"
   node <- ask
   mProc <- liftIO $ withMVar (localState node) $ return . (^. localProcessWithId lpid)
   case mProc of
-    Nothing   -> return () -- send a response to the caller
+    Nothing   -> do
+        dispatch (isLocal node (ProcessIdentifier from))
+                 from node (ProcessInfoNone DiedUnknownId)
     Just proc -> do
         itsLinks    <- gets (^. linksFor    them)
         itsMons     <- gets (^. monitorsFor them)
@@ -781,10 +785,11 @@ ncEffectGetInfo from pid =
                             , infoLinks              = l
                             }
 
-        dispatch :: Bool
+        dispatch :: (Serializable a)
+                 => Bool
                  -> ProcessId
                  -> LocalNode
-                 -> ProcessInfo
+                 -> a
                  -> NC ()
         dispatch True  dest _    pInfo = postAsMessage dest $ pInfo
         dispatch False dest node pInfo =

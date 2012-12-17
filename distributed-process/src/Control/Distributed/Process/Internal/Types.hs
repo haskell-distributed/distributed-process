@@ -452,7 +452,7 @@ toMarshalledPInfoKey ProcessInfoMessageQueueLength = SerializedProcessInfoKey 4
 toMarshalledPInfoKey ProcessInfoMonitors           = SerializedProcessInfoKey 5
 toMarshalledPInfoKey ProcessInfoLinks              = SerializedProcessInfoKey 6
 
--- | Convert 'SerializedProcessInfoKey' back into 'ProcessInfoKey' 
+-- | Convert 'SerializedProcessInfoKey' back into 'ProcessInfoKey'
 toPInfoKey :: SerializedProcessInfoKey -> ProcessInfoKey
 toPInfoKey (SerializedProcessInfoKey n)
   | n == 1 = ProcessInfoAll
@@ -471,7 +471,7 @@ data ProcessInfo = ProcessInfo {
   , infoMessageQueueLength :: Maybe Int
   , infoMonitors           :: Set (ProcessId, MonitorRef)
   , infoLinks              :: Set ProcessId
-  } deriving (Show, Typeable)
+  } deriving (Show, Eq, Typeable)
 
 instance Binary ProcessInfo where
   get = ProcessInfo <$> get <*> get <*> get <*> get <*> get
@@ -486,7 +486,7 @@ data ProcessInfoNone = ProcessInfoNone DiedReason
 
 instance Binary ProcessInfoNone where
   get = ProcessInfoNone <$> get
-  put (ProcessInfoNone r) = put r 
+  put (ProcessInfoNone r) = put r
 
 --------------------------------------------------------------------------------
 -- Node controller internal data types                                        --
