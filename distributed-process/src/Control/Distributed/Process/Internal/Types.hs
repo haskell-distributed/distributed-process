@@ -461,25 +461,25 @@ toPInfoKey (SerializedProcessInfoKey n)
   | n == 4 = ProcessInfoMessageQueueLength
   | n == 5 = ProcessInfoMonitors
   | n == 6 = ProcessInfoLinks
-  -- using error is usually madness, but here represents a bit of complete
-  -- stupidity or a deliberate attack, so how *should* we handle this?
+  -- using error is usually madness, but here represents either a silly mistake
+  -- or a deliberate attack, because only *we* actually construct these!
   | otherwise = error "Illegal ProcessInfoKey Value"
 
 data ProcessInfo = ProcessInfo {
     infoNode               :: NodeId
   , infoRegisteredNames    :: [String]
   , infoMessageQueueLength :: Maybe Int
-  , infoMonitors           :: Set (ProcessId, MonitorRef)
-  , infoLinks              :: Set ProcessId
+  , infoMonitors           :: [(ProcessId, MonitorRef)]
+  , infoLinks              :: [ProcessId]
   } deriving (Show, Eq, Typeable)
 
 instance Binary ProcessInfo where
   get = ProcessInfo <$> get <*> get <*> get <*> get <*> get
-  put = put . infoNode
-     >> put . infoRegisteredNames
-     >> put . infoMessageQueueLength
-     >> put . infoMonitors
-     >> put . infoLinks
+  put pInfo = put (infoNode pInfo)
+           >> put (infoRegisteredNames pInfo)
+           >> put (infoMessageQueueLength pInfo)
+           >> put (infoMonitors pInfo)
+           >> put (infoLinks pInfo)
 
 data ProcessInfoNone = ProcessInfoNone DiedReason
     deriving (Show, Typeable)

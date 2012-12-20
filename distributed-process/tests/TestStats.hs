@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveDataTypeable        #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Main where
 
@@ -10,6 +11,7 @@ import Test.Framework
   )
 import Network.Transport.TCP
 import Control.Distributed.Process
+import Control.Distributed.Process.Internal.Types ( MonitorRef(..) )
 import Control.Distributed.Process.Node
   ( forkProcess
   , newLocalNode
@@ -22,6 +24,9 @@ import Control.Concurrent.MVar
   , putMVar
   , takeMVar
   )
+import qualified Data.Set as Set
+import Data.Binary
+import Data.Typeable()
 import Test.HUnit (Assertion)
 import Test.HUnit.Base (assertBool)
 import Test.Framework.Providers.HUnit (testCase)
@@ -62,14 +67,61 @@ testLocalDeadProcessInfo result = do
   say "waiting for process info...."
   getProcessInfo pid >>= stash result
 
+testLocalLiveProcessInfo :: TestResult Bool -> Process ()
+testLocalLiveProcessInfo result = do
+  self <- getSelfPid
+  node <- getSelfNode
+  register "foobar" self
+
+  mon <- liftIO $ newEmptyMVar
+  mapM (send self) ["hello", "there", "mr", "process"]
+  pid <- spawnLocal $ do
+       me <- getSelfPid
+       link self
+       mRef <- monitor self
+       stash mon mRef
+       "die" <- expect
+       return ()
+
+  monRef <- liftIO $ takeMVar mon
+
+  xlog ("grabbing process-info for " ++ (show self))
+  mpInfo <- getProcessInfo self
+
+  xlog "checking pInfo"
+  case Just mpInfo of
+    Nothing -> stash result False
+    Just _  -> stash result True
+  -- where verifyPInfo :: ProcessInfo
+  --                   -> ProcessId
+  --                   -> MonitorRef
+  --                   -> NodeId
+  --                   -> Process ()
+  --       verifyPInfo pInfo pid mref node =
+  --         stash result $ infoNode pInfo       == node           &&
+  --                        verifyLinks pInfo    == [pid]          &&
+  --                        verifyMonitors pInfo == [(pid, mref)]  &&
+  --                        infoMessageQueueLength pInfo == Just 4 &&
+  --                        infoRegisteredNames pInfo == ["foobar"]
+  --       verifyLinks    = Set.toList . infoLinks
+  --       verifyMonitors = Set.toList . infoMonitors
+
+xlog :: String -> Process ()
+xlog s = liftIO $ putStrLn s
+
 tests :: LocalNode -> IO [Test]
 tests node1 = do
   return [
     testGroup "Process Info" [
-      testCase "testLocalDeadProcessInfo"
+       --  testCase "testLocalDeadProcessInfo"
+      --       (delayedAssertion
+      --        "expected dead process-info to be ProcessInfoNone"
+      --        node1 (Nothing) testLocalDeadProcessInfo)
+      -- ,
+        testCase "testLocalLiveProcessInfo"
             (delayedAssertion
-             "expected dead process-info to be ProcessInfoNone"
-             node1 (Nothing) testLocalDeadProcessInfo)
+             "expected process-info to be correctly populated"
+             node1 True testLocalLiveProcessInfo)
     ] ]
 
 mkNode :: String -> IO LocalNode

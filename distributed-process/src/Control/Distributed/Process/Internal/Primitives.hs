@@ -415,10 +415,11 @@ getProcessInfo pid =
   liftIO . putStrLn $ "sending getInfo req to " ++ (show dest)
 
   sendCtrlMsg dest $ GetInfo pid
+  liftIO . putStrLn $ "waiting for response"
   receiveWait [
-      match (\x@(ProcessInfo _ _ _ _ _) -> return (Just x))
-    , match (\(ProcessInfoNone _) -> return Nothing)
-    ]
+       match (\(p :: ProcessInfo)     -> return $ Just p)
+     , match (\(n :: ProcessInfoNone) -> return Nothing)
+     ]
   where mkNode :: NodeId -> NodeId -> Process (Maybe NodeId)
         mkNode them us = case them == us of
                            True -> return Nothing
