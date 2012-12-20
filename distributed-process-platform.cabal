@@ -5,7 +5,12 @@ build-type:     Simple
 license:        BSD3
 license-file:   LICENCE
 stability:      experimental
-homepage:       http://github.com/hyperthunk/distributed-process-platform
+Copyright:      Tim Watson
+Author:         Tim Watson
+Maintainer:     watson.timothy@gmail.com
+Stability:      experimental
+Homepage:       http://github.com/haskell-distributed/distributed-process-platform
+Bug-Reports:    mailto:watson.timothy@gmail.com
 synopsis:       TODO
 description:    TODO
 category:       Control
