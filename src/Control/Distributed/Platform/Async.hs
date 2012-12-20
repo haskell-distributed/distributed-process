@@ -102,15 +102,10 @@ type AsyncCancel = AsyncRef -> Process () -- note [local cancel only]
 -- operations are provided for waiting for asynchronous actions to
 -- complete and obtaining their results (see e.g. 'wait').
 --
--- There is currently a contract between async workers and their coordinating
--- processes (including the caller to functions such as 'wait'). Given the
--- process identifier of a gatherer, a worker that wishes to publish some
--- results should send these to the gatherer process when it is finished.
--- Workers that do not return anything should simply exit normally (i.e., they
--- should not call @exit selfPid reason@ not @terminate@ in the base Cloud
--- Haskell APIs) and providing the type of the 'Async' action is @Async ()@
--- then the 'AsyncResult' will be @AsyncDone ()@ instead of the usual
--- @AsyncFailed DiedNormal@ which would normally result from this scenario.
+-- There is currently a contract for async workers which is that they should
+-- exit normally (i.e., they should not call the @exit selfPid reason@ nor
+-- @terminate@ primitives), otherwise the 'AsyncResult' will end up being
+-- @AsyncFailed DiedException@ instead of containing the result.
 --
 async :: (Serializable a) => AsyncTask a -> Process (Async a)
 async t = do
