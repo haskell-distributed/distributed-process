@@ -1,7 +1,31 @@
 {-# LANGUAGE DeriveDataTypeable        #-}
 {-# LANGUAGE TemplateHaskell           #-}
-{-# LANGUAGE EmptyDataDecls            #-}
 {-# LANGUAGE StandaloneDeriving        #-}
+
+-----------------------------------------------------------------------------
+-- |
+-- Module      :  Control.Distributed.Platform.Async
+-- Copyright   :  (c) Tim Watson 2012
+-- License     :  BSD3 (see the file LICENSE)
+--
+-- Maintainer  :  Tim Watson <watson.timothy@gmail.com>
+-- Stability   :  experimental
+-- Portability :  non-portable (requires concurrency)
+--
+-- This module provides a set of operations for spawning Process operations
+-- and waiting for their results.  It is a thin layer over the basic
+-- concurrency operations provided by "Control.Distributed.Process".
+-- The main feature it provides is a pre-canned set of APIs for waiting on the
+-- result of one or more asynchronously running (and potentially distributed)
+-- processes.
+--
+-- The basic type is @'Async' a@, which represents an asynchronous
+-- @Process@ that will return a value of type @a@, or exit with a failure
+-- reason. An @Async@ corresponds logically to a worker @Process@, and its
+-- 'ProcessId' can be obtained with 'worker', although that should rarely
+-- be necessary.
+--
+-----------------------------------------------------------------------------
 
 module Control.Distributed.Platform.Async
   ( -- types/data
@@ -74,13 +98,13 @@ data Async a = Async {
   , channel   :: (InternalChannel a)
   }
 
--- | Represents the result of an asynchronous action, which can be in several
--- states at any given time.
+-- | Represents the result of an asynchronous action, which can be in one of 
+-- several states at any given time.
 data AsyncResult a =
-    AsyncDone a             -- | a completed action and its result
-  | AsyncFailed DiedReason  -- | a failed action and the failure reason
-  | AsyncCancelled          -- | a cancelled action
-  | AsyncPending            -- | a pending action (that is still running)
+    AsyncDone a             -- ^ a completed action and its result
+  | AsyncFailed DiedReason  -- ^ a failed action and the failure reason
+  | AsyncCancelled          -- ^ a cancelled action
+  | AsyncPending            -- ^ a pending action (that is still running)
     deriving (Typeable)
 $(derive makeBinary ''AsyncResult)
 
