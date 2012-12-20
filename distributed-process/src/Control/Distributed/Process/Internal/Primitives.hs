@@ -412,10 +412,7 @@ getProcessInfo pid =
   let them = processNodeId pid in do
   us <- getSelfNode
   dest <- mkNode them us
-  liftIO . putStrLn $ "sending getInfo req to " ++ (show dest)
-
   sendCtrlMsg dest $ GetInfo pid
-  liftIO . putStrLn $ "waiting for response"
   receiveWait [
        match (\(p :: ProcessInfo)     -> return $ Just p)
      , match (\(n :: ProcessInfoNone) -> return Nothing)

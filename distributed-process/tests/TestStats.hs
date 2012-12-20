@@ -3,7 +3,6 @@
 module Main where
 
 import Prelude hiding (catch)
-import qualified Network.Transport as NT
 import Test.Framework
   ( Test
   , defaultMain
@@ -11,7 +10,6 @@ import Test.Framework
   )
 import Network.Transport.TCP
 import Control.Distributed.Process
-import Control.Distributed.Process.Internal.Types ( MonitorRef(..) )
 import Control.Distributed.Process.Node
   ( forkProcess
   , newLocalNode
@@ -24,8 +22,7 @@ import Control.Concurrent.MVar
   , putMVar
   , takeMVar
   )
-import qualified Data.Set as Set
-import Data.Binary
+import Data.Binary()
 import Data.Typeable()
 import Test.HUnit (Assertion)
 import Test.HUnit.Base (assertBool)
@@ -64,7 +61,6 @@ testLocalDeadProcessInfo result = do
                     ref' == mref && pid' == pid && r == DiedNormal)
               (\p -> return p)
     ]
-  say "waiting for process info...."
   getProcessInfo pid >>= stash result
 
 testLocalLiveProcessInfo :: TestResult Bool -> Process ()
@@ -74,9 +70,9 @@ testLocalLiveProcessInfo result = do
   register "foobar" self
 
   mon <- liftIO $ newEmptyMVar
-  mapM (send self) ["hello", "there", "mr", "process"]
+  -- TODO: we can't get the mailbox's length
+  -- mapM (send self) ["hello", "there", "mr", "process"]
   pid <- spawnLocal $ do
-       me <- getSelfPid
        link self
        mRef <- monitor self
        stash mon mRef
@@ -85,40 +81,31 @@ testLocalLiveProcessInfo result = do
 
   monRef <- liftIO $ takeMVar mon
 
-  xlog ("grabbing process-info for " ++ (show self))
   mpInfo <- getProcessInfo self
-
-  xlog "checking pInfo"
-  case Just mpInfo of
+  case mpInfo of
     Nothing -> stash result False
-    Just _  -> stash result True
-  -- where verifyPInfo :: ProcessInfo
-  --                   -> ProcessId
-  --                   -> MonitorRef
-  --                   -> NodeId
-  --                   -> Process ()
-  --       verifyPInfo pInfo pid mref node =
-  --         stash result $ infoNode pInfo       == node           &&
-  --                        verifyLinks pInfo    == [pid]          &&
-  --                        verifyMonitors pInfo == [(pid, mref)]  &&
-  --                        infoMessageQueueLength pInfo == Just 4 &&
-  --                        infoRegisteredNames pInfo == ["foobar"]
-  --       verifyLinks    = Set.toList . infoLinks
-  --       verifyMonitors = Set.toList . infoMonitors
-
-xlog :: String -> Process ()
-xlog s = liftIO $ putStrLn s
+    Just p  -> verifyPInfo p pid monRef node
+  where verifyPInfo :: ProcessInfo
+                    -> ProcessId
+                    -> MonitorRef
+                    -> NodeId
+                    -> Process ()
+        verifyPInfo pInfo pid mref node =
+          stash result $ infoNode pInfo     == node           &&
+                         infoLinks pInfo    == [pid]          &&
+                         infoMonitors pInfo == [(pid, mref)]  &&
+--                         infoMessageQueueLength pInfo == Just 4 &&
+                         infoRegisteredNames pInfo == ["foobar"]
 
 tests :: LocalNode -> IO [Test]
 tests node1 = do
   return [
     testGroup "Process Info" [
-       --  testCase "testLocalDeadProcessInfo"
-      --       (delayedAssertion
-      --        "expected dead process-info to be ProcessInfoNone"
-      --        node1 (Nothing) testLocalDeadProcessInfo)
-      -- ,
-        testCase "testLocalLiveProcessInfo"
+        testCase "testLocalDeadProcessInfo"
+            (delayedAssertion
+             "expected dead process-info to be ProcessInfoNone"
+             node1 (Nothing) testLocalDeadProcessInfo)
+      , testCase "testLocalLiveProcessInfo"
             (delayedAssertion
              "expected process-info to be correctly populated"
              node1 True testLocalLiveProcessInfo)

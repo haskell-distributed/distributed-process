@@ -30,7 +30,6 @@ import qualified Data.Map as Map
   , elems
   , filterWithKey
   , foldlWithKey
-  , keys
   )
 import Data.Set (Set)
 import qualified Data.Set as Set
@@ -38,7 +37,6 @@ import qualified Data.Set as Set
   , insert
   , delete
   , member
-  , foldl'
   , toList
   )
 import Data.Foldable (forM_)
@@ -70,9 +68,6 @@ import Control.Distributed.Process.Internal.CQueue
   , enqueue
   , newCQueue
   , mkWeakCQueue
-  )
-import qualified Control.Distributed.Process.Internal.CQueue as Mailbox
-  ( length
   )
 import qualified Network.Transport as NT
   ( Transport
@@ -759,75 +754,42 @@ ncEffectGetInfo from pid =
   let lpid = processLocalId pid
       them = (ProcessIdentifier pid)
   in do
-  liftIO . putStrLn $ "processing get info"
   node <- ask
-  mProc <- liftIO $ withMVar (localState node) $ return . (^. localProcessWithId lpid)
+  mProc <- liftIO $
+            withMVar (localState node) $ return . (^. localProcessWithId lpid)
   case mProc of
     Nothing   -> dispatch (isLocal node (ProcessIdentifier from))
                           from node (ProcessInfoNone DiedUnknownId)
-    Just proc -> do
-      liftIO . putStrLn $ "getting links"
+    Just _    -> do
       itsLinks    <- gets (^. linksFor    them)
-      liftIO . putStrLn $ "getting monitors"
       itsMons     <- gets (^. monitorsFor them)
-      liftIO . putStrLn $ "getting registered names"
       registered  <- gets (^. registeredHere)
-      sendInfo pid
-               (isLocal node (ProcessIdentifier from))
-               proc
+
+      let reg = registeredNames registered
+      dispatch (isLocal node (ProcessIdentifier from))
+               pid
                node
-               (Set.toList itsLinks)
-               (Set.toList itsMons)
-               (registeredNames registered)
-
-  where sendInfo :: ProcessId
-                 -> Bool
-                 -> LocalProcess
-                 -> LocalNode
-                 -> [ProcessId]
-                 -> [(ProcessId, MonitorRef)]
-                 -> [String]
-                 -> NC ()
-        sendInfo d lc lp n l m r =
-          let n' = processNodeId pid
-          in do
-          qLen <- qLength lp
-          dispatch lc d n ProcessInfo {
-                              infoNode               = n'
-                            , infoRegisteredNames    = r
-                            , infoMessageQueueLength = qLen
-                            , infoMonitors           = m
-                            , infoLinks              = l
-                            }
-
-        dispatch :: (Serializable a, Show a)
+               ProcessInfo {
+                   infoNode               = (processNodeId pid)
+                 , infoRegisteredNames    = reg
+                   -- we cannot populate this field
+                 , infoMessageQueueLength = Nothing
+                 , infoMonitors       = Set.toList itsMons
+                 , infoLinks          = Set.toList itsLinks
+                 }
+  where dispatch :: (Serializable a, Show a)
                  => Bool
                  -> ProcessId
                  -> LocalNode
                  -> a
                  -> NC ()
-        dispatch True  dest _    pInfo = do
-            -- liftIO $ putStrLn $ "posting " ++ (show pInfo) ++ " to " ++ (show dest)
-            postAsMessage dest $ pInfo
+        dispatch True  dest _    pInfo = postAsMessage dest $ pInfo
         dispatch False dest node pInfo = do
-            -- liftIO $ putStrLn $ "posting pinfo to node of " ++ (show dest)
             liftIO $ sendMessage node
                                  (NodeIdentifier (localNodeId node))
                                  (ProcessIdentifier dest)
                                  WithImplicitReconnect
                                  pInfo
-
-        -- TODO: make this available to other functions?
-        qLength :: LocalProcess -> NC (Maybe Int)
-        qLength lp = do
-          liftIO $ putStrLn "getting qLen"
-          qRef <- liftIO $ deRefWeak (processWeakQ lp)
-          liftIO $ putStrLn "checking length..."
-          case qRef of
-            Nothing -> return $ Nothing
-            Just q  -> do
-              len <- liftIO $ Mailbox.length q
-              return $ Just len
 
         registeredNames = Map.foldlWithKey (\ks k v -> if v == pid
                                                  then (k:ks)
@@ -925,7 +887,6 @@ postAsMessage pid = postMessage pid . createMessage
 
 postMessage :: ProcessId -> Message -> NC ()
 postMessage pid msg = do
-  liftIO $ putStrLn ("posting message to " ++ show pid)
   withLocalProc pid $ \p -> enqueue (processQueue p) msg
 
 throwException :: Exception e => ProcessId -> e -> NC ()

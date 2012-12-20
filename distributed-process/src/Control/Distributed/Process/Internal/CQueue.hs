@@ -5,7 +5,6 @@ module Control.Distributed.Process.Internal.CQueue
   , BlockSpec(..)
   , MatchOn(..)
   , newCQueue
-  , length
   , enqueue
   , dequeue
   , mkWeakCQueue
@@ -36,9 +35,6 @@ import Control.Distributed.Process.Internal.StrictList
   ( StrictList(..)
   , append
   )
-import qualified Control.Distributed.Process.Internal.StrictList as StrictList
-  ( foldr
-  )
 import Data.Maybe (fromJust)
 import GHC.MVar (MVar(MVar))
 import GHC.IO (IO(IO))
@@ -51,12 +47,6 @@ data CQueue a = CQueue (StrictMVar (StrictList a)) -- Arrived
 
 newCQueue :: IO (CQueue a)
 newCQueue = CQueue <$> newMVar Nil <*> atomically newTChan
-
-length :: CQueue a -> IO Int
-length (CQueue arrived _) = do
-  arr <- takeMVar arrived
-  let len = StrictList.foldr (\_ i -> i+1) 0 arr
-  return len
 
 -- | Enqueue an element
 --
