@@ -2,8 +2,11 @@
 --
 module Control.Distributed.Platform
   (
+    -- extra primitives
+    spawnLinkLocal
+  , spawnMonitorLocal
     -- time interval handling
-    milliseconds
+  , milliseconds
   , seconds
   , minutes
   , hours
@@ -15,6 +18,7 @@ module Control.Distributed.Platform
   ) where
 
 import Control.Distributed.Platform.Internal.Types
+import Control.Distributed.Platform.Internal.Primitives
 
 --------------------------------------------------------------------------------
 -- API                                                                        --
