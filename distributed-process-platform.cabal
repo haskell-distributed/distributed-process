@@ -29,13 +29,16 @@ library
                    distributed-static,
                    binary,
                    mtl,
+                   stm >= 2.3 && < 2.5,
                    transformers
   hs-source-dirs:   src
   ghc-options:      -Wall
   exposed-modules:
                    Control.Distributed.Platform,
                    Control.Distributed.Platform.GenServer,
-                   Control.Distributed.Platform.Timer
+                   Control.Distributed.Platform.Timer,
+                   Control.Distributed.Platform.Async
+  other-modules:   Control.Distributed.Platform.Internal.Primitives
 
 test-suite PlatformTests
   type:            exitcode-stdio-1.0
@@ -61,5 +64,6 @@ test-suite PlatformTests
   other-modules:   
                    Control.Distributed.Platform.Timer,
                    Control.Distributed.Platform
+                   Control.Distributed.Platform.Internal.Primitives
   extensions:      CPP
   main-is:         TestMain.hs
