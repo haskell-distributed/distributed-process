@@ -34,19 +34,20 @@ module Control.Distributed.Platform.Async
   , AsyncGathererId
   , AsyncTask
   , AsyncCancel
-  , Async(worker)
+  , AsyncChan(worker)
   , AsyncResult(..)
   -- functions for starting/spawning
-  , async
+  , asyncChan
+  , asyncChanLinked
   -- and stopping/killing
-  , cancel
-  , cancelWait
+  , cancelChan
+  , cancelChanWait
   -- functions to query an async-result
-  , poll
-  , check
-  , wait
-  , waitTimeout
-  , waitCheckTimeout
+  , pollChan
+  , checkChan
+  , waitChan
+  , waitChanTimeout
+  , waitChanCheckTimeout
   ) where
 
 import Control.Distributed.Platform.Timer
@@ -88,11 +89,13 @@ type AsyncTask a = Process a
 -- | Private channel used to synchronise task results
 type InternalChannel a = (SendPort (AsyncResult a), ReceivePort (AsyncResult a))
 
--- | An asynchronous action spawned by 'async'.
+-- | An handle for an asynchronous action spawned by 'async'.
 -- Asynchronous operations are run in a separate process, and
 -- operations are provided for waiting for asynchronous actions to
 -- complete and obtaining their results (see e.g. 'wait').
-data Async a = Async {
+--
+-- Handles of this type cannot cross remote boundaries.
+data AsyncChan a = AsyncChan {
     worker    :: AsyncWorkerId
   , insulator :: AsyncGathererId
   , channel   :: (InternalChannel a)
@@ -101,10 +104,11 @@ data Async a = Async {
 -- | Represents the result of an asynchronous action, which can be in one of 
 -- several states at any given time.
 data AsyncResult a =
-    AsyncDone a             -- ^ a completed action and its result
-  | AsyncFailed DiedReason  -- ^ a failed action and the failure reason
-  | AsyncCancelled          -- ^ a cancelled action
-  | AsyncPending            -- ^ a pending action (that is still running)
+    AsyncDone a                 -- ^ a completed action and its result
+  | AsyncFailed DiedReason      -- ^ a failed action and the failure reason
+  | AsyncLinkFailed DiedReason  -- ^ a link failure and the reason
+  | AsyncCancelled              -- ^ a cancelled action
+  | AsyncPending                -- ^ a pending action (that is still running)
     deriving (Typeable)
 $(derive makeBinary ''AsyncResult)
 
@@ -121,29 +125,40 @@ type AsyncCancel = AsyncRef -> Process () -- note [local cancel only]
 -- 'Async' data profile to stop it being sent remotely. At *that* point, we'd
 -- need to make the cancellation remote-able too however.   
 
--- | An asynchronous action spawned by 'async' or 'withAsync'.
--- Asynchronous actions are executed in a separate @Process@, and
--- operations are provided for waiting for asynchronous actions to
--- complete and obtaining their results (see e.g. 'wait').
+-- | Spawns an asynchronous action in a new process.
 --
 -- There is currently a contract for async workers which is that they should
 -- exit normally (i.e., they should not call the @exit selfPid reason@ nor
 -- @terminate@ primitives), otherwise the 'AsyncResult' will end up being
 -- @AsyncFailed DiedException@ instead of containing the result.
 --
-async :: (Serializable a) => AsyncTask a -> Process (Async a)
-async t = do
-    (wpid, gpid, chan) <- spawnWorkers t
-    return Async {
+asyncChan :: (Serializable a) => AsyncTask a -> Process (AsyncChan a)
+asyncChan = asyncChanDo False
+
+-- | This is a useful variant of 'asyncChan' that ensures an @AsyncChan@ is
+-- never left running unintentionally. We ensure that if the caller's process
+-- exits, that the worker is killed. Because an @AsyncChan@ can only be used
+-- by the initial caller's process, if that process dies then the result
+-- (if any) is discarded.
+--
+asyncChanLinked :: (Serializable a) => AsyncTask a -> Process (AsyncChan a)
+asyncChanLinked = asyncChanDo True
+
+asyncChanDo :: (Serializable a) => Bool -> AsyncTask a -> Process (AsyncChan a) 
+asyncChanDo shouldLink task = do
+    (wpid, gpid, chan) <- spawnWorkers task shouldLink
+    return AsyncChan {
         worker    = wpid
       , insulator = gpid
       , channel   = chan
       }
 
-spawnWorkers :: (Serializable a) =>
-                AsyncTask a ->
-                Process (AsyncRef, AsyncRef, (InternalChannel a))
-spawnWorkers task = do
+spawnWorkers :: (Serializable a)
+             => AsyncTask a
+             -> Bool
+             -> Process (AsyncRef, AsyncRef,
+                        (SendPort (AsyncResult a), ReceivePort (AsyncResult a)))
+spawnWorkers task shouldLink = do
     root <- getSelfPid
     chan <- newChan
   
@@ -151,84 +166,91 @@ spawnWorkers task = do
     insulatorPid <- spawnLocal $ do
         workerPid <- spawnLocal $ do
             r <- task
-            say "task complete"
             sendChan (fst chan) (AsyncDone r)
-    
+                
         send root workerPid   -- let the parent process know the worker pid
     
-        monRef <- monitor workerPid
-        finally (pollUntilExit workerPid monRef chan) (unmonitor monRef)
+        wref <- monitor workerPid
+        rref <- case shouldLink of
+                    True  -> monitor root >>= return . Just
+                    False -> return Nothing
+        finally (pollUntilExit workerPid chan)
+                (unmonitor wref >>
+                    return (maybe (return ()) unmonitor rref))
   
     workerPid <- expect
     return (workerPid, insulatorPid, chan)
   where  
     -- blocking receive until we see an input message
-    pollUntilExit :: (Serializable a) =>
-                     ProcessId -> MonitorRef -> InternalChannel a -> Process ()
-    pollUntilExit pid ref (replyTo, _) = do
-        r <- receiveWait [
-            matchIf
-                (\(ProcessMonitorNotification ref' pid' _) ->
-                    ref' == ref && pid == pid')
-                (\(ProcessMonitorNotification _    _ r) -> return (Right r))
-          , match (\c@(CancelWait) -> kill pid "cancel" >> return (Left c))
-          ]
-        case r of
-            Left  CancelWait -> sendChan replyTo AsyncCancelled   
-            Right DiedNormal -> return ()
-            Right d          -> sendChan replyTo (AsyncFailed d)
-            
--- | Check whether an 'Async' has completed yet. The status of the asynchronous
+    pollUntilExit :: (Serializable a)
+                  => ProcessId
+                  -> (SendPort (AsyncResult a), ReceivePort (AsyncResult a))
+                  -> Process ()
+    pollUntilExit wpid (replyTo, _) = do
+      r <- receiveWait [
+          match (\(ProcessMonitorNotification _ pid' r) ->
+                return (Right (pid', r)))
+        , match (\c@(CancelWait) -> kill wpid "cancel" >> return (Left c))
+        ]
+      case r of
+          Left  CancelWait -> sendChan replyTo AsyncCancelled
+          Right (fpid, d)
+            | fpid == wpid -> case d of 
+                                  DiedNormal -> return ()
+                                  _          -> sendChan replyTo (AsyncFailed d)
+            | otherwise    -> kill wpid "linkFailed"
+
+-- | Check whether an 'AsyncChan' has completed yet. The status of the
 -- action is encoded in the returned 'AsyncResult'. If the action has not
 -- completed, the result will be 'AsyncPending', or one of the other
 -- constructors otherwise. This function does not block waiting for the result.
 -- Use 'wait' or 'waitTimeout' if you need blocking/waiting semantics.
 -- See 'Async'.
-poll :: (Serializable a) => Async a -> Process (AsyncResult a)
-poll hAsync = do
+pollChan :: (Serializable a) => AsyncChan a -> Process (AsyncResult a)
+pollChan hAsync = do
   r <- receiveChanTimeout 0 $ snd (channel hAsync)
   return $ fromMaybe (AsyncPending) r
 
 -- | Like 'poll' but returns 'Nothing' if @(poll hAsync) == AsyncPending@.
 -- See 'poll'.
-check :: (Serializable a) => Async a -> Process (Maybe (AsyncResult a))
-check hAsync = poll hAsync >>= \r -> case r of
+checkChan :: (Serializable a) => AsyncChan a -> Process (Maybe (AsyncResult a))
+checkChan hAsync = pollChan hAsync >>= \r -> case r of
   AsyncPending -> return Nothing
   ar           -> return (Just ar)  
 
 -- | Wait for an asynchronous operation to complete or timeout. This variant
 -- returns the 'AsyncResult' itself, which will be 'AsyncPending' if the
 -- result has not been made available, otherwise one of the other constructors.
-waitCheckTimeout :: (Serializable a) =>
-                    TimeInterval -> Async a -> Process (AsyncResult a)
-waitCheckTimeout t hAsync =
-  waitTimeout t hAsync >>= return . fromMaybe (AsyncPending)
+waitChanCheckTimeout :: (Serializable a) =>
+                    TimeInterval -> AsyncChan a -> Process (AsyncResult a)
+waitChanCheckTimeout t hAsync =
+  waitChanTimeout t hAsync >>= return . fromMaybe (AsyncPending)
 
 -- | Wait for an asynchronous action to complete, and return its
 -- value. The outcome of the action is encoded as an 'AsyncResult'.
 --
-wait :: (Serializable a) => Async a -> Process (AsyncResult a)
-wait hAsync = receiveChan $ snd (channel hAsync)
+waitChan :: (Serializable a) => AsyncChan a -> Process (AsyncResult a)
+waitChan hAsync = receiveChan $ snd (channel hAsync)
 
 -- | Wait for an asynchronous operation to complete or timeout. Returns
 -- @Nothing@ if the 'AsyncResult' does not change from @AsyncPending@ within
 -- the specified delay, otherwise @Just asyncResult@ is returned. If you want
 -- to wait/block on the 'AsyncResult' without the indirection of @Maybe@ then
 -- consider using 'wait' or 'waitCheckTimeout' instead. 
-waitTimeout :: (Serializable a) =>
-               TimeInterval -> Async a -> Process (Maybe (AsyncResult a))
-waitTimeout t hAsync =
+waitChanTimeout :: (Serializable a) =>
+               TimeInterval -> AsyncChan a -> Process (Maybe (AsyncResult a))
+waitChanTimeout t hAsync =
   receiveChanTimeout (intervalToMs t) $ snd (channel hAsync)
 
 -- | Cancel an asynchronous operation. To wait for cancellation to complete, use
 -- 'cancelWait' instead.
-cancel :: Async a -> Process ()
-cancel (Async _ g _) = send g CancelWait
+cancelChan :: AsyncChan a -> Process ()
+cancelChan (AsyncChan _ g _) = send g CancelWait
 
 -- | Cancel an asynchronous operation and wait for the cancellation to complete.
 -- Because of the asynchronous nature of message passing, the instruction to
 -- cancel will race with the asynchronous worker, so it is /entirely possible/
 -- that the 'AsyncResult' returned will not necessarily be 'AsyncCancelled'.
 --
-cancelWait :: (Serializable a) => Async a -> Process (AsyncResult a)
-cancelWait hAsync = cancel hAsync >> wait hAsync 
+cancelChanWait :: (Serializable a) => AsyncChan a -> Process (AsyncResult a)
+cancelChanWait hAsync = cancelChan hAsync >> waitChan hAsync 
