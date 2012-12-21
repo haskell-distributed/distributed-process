@@ -40,7 +40,7 @@ library
                    Control.Distributed.Platform.Async
   other-modules:   Control.Distributed.Platform.Internal.Primitives
 
-test-suite PlatformTests
+test-suite TimerTests
   type:            exitcode-stdio-1.0
   x-uses-tf:       true
   build-depends:
@@ -65,5 +65,6 @@ test-suite PlatformTests
                    Control.Distributed.Platform.Timer,
                    Control.Distributed.Platform
                    Control.Distributed.Platform.Internal.Primitives
+                   TestUtils
   extensions:      CPP
-  main-is:         TestMain.hs
+  main-is:         TestTimer.hs
