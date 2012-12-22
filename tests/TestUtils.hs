@@ -18,6 +18,8 @@ module TestUtils
   , testProcessReport
   , delayedAssertion
   , assertComplete
+  -- runners
+  , testMain
   ) where
 
 import Prelude hiding (catch)
@@ -38,6 +40,10 @@ import Control.Monad (forever)
 
 import Test.HUnit (Assertion)
 import Test.HUnit.Base (assertBool)
+import Test.Framework (Test, defaultMain)
+
+import Network.Transport.TCP
+import qualified Network.Transport as NT
 
 -- | A mutable cell containing a test result.
 type TestResult a = MVar a
@@ -110,3 +116,9 @@ noop = return ()
 stash :: TestResult a -> a -> Process ()
 stash mvar x = liftIO $ putMVar mvar x
 
+testMain :: (NT.Transport -> IO [Test]) -> IO ()
+testMain builder = do
+  Right (transport, _) <- createTransportExposeInternals
+                                    "127.0.0.1" "8080" defaultTCPParameters
+  testData <- builder transport
+  defaultMain testData
