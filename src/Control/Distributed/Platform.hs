@@ -2,14 +2,16 @@
 --
 module Control.Distributed.Platform
   (
-    -- exported time interval handling
-    milliseconds
+    -- extra primitives
+    spawnLinkLocal
+  , spawnMonitorLocal
+    -- time interval handling
+  , milliseconds
   , seconds
   , minutes
   , hours
   , intervalToMs
   , timeToMs
-    -- timeouts and time interval types
   , Timeout(..)
   , TimeInterval
   , TimeUnit
@@ -22,6 +24,7 @@ module Control.Distributed.Platform
   , cancelTimer
   ) where
 
+import Control.Distributed.Platform.Internal.Primitives
 import Control.Distributed.Platform.Internal.Types
 import Control.Distributed.Platform.Timer
   ( milliseconds

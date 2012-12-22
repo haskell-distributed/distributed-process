@@ -2,7 +2,7 @@
 {-# LANGUAGE TemplateHaskell           #-}
 {-# LANGUAGE ScopedTypeVariables       #-}
 
-module TestAsync where
+module Main where
 
 import Control.Concurrent.MVar
   ( newEmptyMVar
@@ -16,7 +16,6 @@ import Control.Distributed.Platform.Async
 import Data.Binary()
 import Data.Typeable()
 import qualified Network.Transport as NT (Transport)
-import Network.Transport.TCP (TransportInternals)
 import Prelude hiding (catch)
 
 import Test.Framework (Test, testGroup)
@@ -118,9 +117,11 @@ tests localNode = [
       ]
   ]
 
-asyncTests :: NT.Transport -> TransportInternals -> IO [Test]
-asyncTests transport _ = do
+asyncTests :: NT.Transport -> IO [Test]
+asyncTests transport = do
   localNode <- newLocalNode transport initRemoteTable
   let testData = tests localNode
   return testData
 
+main :: IO ()
+main = testMain $ asyncTests
