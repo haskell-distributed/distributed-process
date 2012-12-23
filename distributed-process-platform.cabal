@@ -71,7 +71,7 @@ test-suite AsyncTests
                    TestUtils,
                    Control.Distributed.Platform.Async
   extensions:      CPP
-  main-is:         TestAsync.hs
+  main-is:         TestAsyncChan.hs
 
 test-suite TimerTests
   type:            exitcode-stdio-1.0
