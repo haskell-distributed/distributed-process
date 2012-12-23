@@ -41,6 +41,7 @@ module Control.Distributed.Platform.Async.AsyncChan
   , asyncLinked
   -- and stopping/killing
   , cancel
+  , cancelWith
   , cancelWait
   -- functions to query an async-result
   , poll
@@ -217,6 +218,7 @@ waitAny asyncs =
   let ports = map (snd . channel) asyncs
   in mergePortsBiased ports >>= receiveChan  
 
+-- | Like 'waitAny' but times out after the specified delay.
 waitAnyTimeout :: (Serializable a)
                => TimeInterval
                -> [AsyncChan a]
@@ -225,10 +227,31 @@ waitAnyTimeout delay asyncs =
   let ports = map (snd . channel) asyncs
   in mergePortsBiased ports >>= receiveChanTimeout (intervalToMs delay)
 
--- | Cancel an asynchronous operation. To wait for cancellation to complete, use
--- 'cancelWait' instead.
+-- | Cancel an asynchronous operation. Cancellation is achieved using message
+-- passing, and is therefore asynchronous in nature. To wait for cancellation
+-- to complete, use 'cancelWait' instead. The notes about the asynchronous
+-- nature of 'cancelWait' apply here also.
+--
+-- See 'Control.Distributed.Process'
 cancel :: AsyncChan a -> Process ()
 cancel (AsyncChan _ g _) = send g CancelWait
+
+-- | Cancels an asynchronous operation using the supplied exit reason.
+-- The notes about the asynchronous nature of 'cancel' and 'cancelWait' do
+-- apply here, but more importantly this function sends an /exit signal/ to the
+-- asynchronous worker, which leads to the following semantics:
+--
+-- 1. if the worker already completed, this function does nothing
+-- 2. the worker might complete after this call, but before the signal arrives
+-- 3. the worker might ignore the exit signal using @catchExit@
+--
+-- In case of (3), this function will have no effect. You should use 'cancel'
+-- if you need to guarantee that the asynchronous task is unable to ignore
+-- the cancellation instruction.
+--
+-- See 'Control.Distributed.Process.exit'
+cancelWith :: (Serializable b) => b -> AsyncChan a -> Process ()
+cancelWith reason = (flip exit) reason . worker 
 
 -- | Cancel an asynchronous operation and wait for the cancellation to complete.
 -- Because of the asynchronous nature of message passing, the instruction to
