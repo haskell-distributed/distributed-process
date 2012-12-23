@@ -12,7 +12,7 @@ import Control.Distributed.Process
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable()
 import Control.Distributed.Platform
-import Control.Distributed.Platform.Async
+import Control.Distributed.Platform.Async.AsyncChan
 import Data.Binary()
 import Data.Typeable()
 import qualified Network.Transport as NT (Transport)
@@ -24,34 +24,34 @@ import TestUtils
 
 testAsyncPoll :: TestResult (AsyncResult ()) -> Process ()
 testAsyncPoll result = do
-    hAsync <- asyncChan $ do "go" <- expect; say "running" >> return ()
-    ar <- pollChan hAsync
+    hAsync <- async $ do "go" <- expect; say "running" >> return ()
+    ar <- poll hAsync
     case ar of
       AsyncPending ->
-        send (worker hAsync) "go" >> waitChan hAsync >>= stash result
+        send (worker hAsync) "go" >> wait hAsync >>= stash result
       _ -> stash result ar >> return ()
 
 testAsyncCancel :: TestResult (AsyncResult ()) -> Process ()
 testAsyncCancel result = do
-    hAsync <- asyncChan $ runTestProcess $ say "running" >> return ()
+    hAsync <- async $ runTestProcess $ say "running" >> return ()
     sleep $ milliseconds 100
     
-    p <- pollChan hAsync -- nasty kind of assertion: use assertEquals?
+    p <- poll hAsync -- nasty kind of assertion: use assertEquals?
     case p of
-        AsyncPending -> cancelChan hAsync >> waitChan hAsync >>= stash result
+        AsyncPending -> cancel hAsync >> wait hAsync >>= stash result
         _            -> say (show p) >> stash result p
 
 testAsyncCancelWait :: TestResult (Maybe (AsyncResult ())) -> Process ()
 testAsyncCancelWait result = do
     testPid <- getSelfPid
     p <- spawnLocal $ do
-      hAsync <- asyncChan $ runTestProcess $ say "running" >> (sleep $ seconds 60)
+      hAsync <- async $ runTestProcess $ say "running" >> (sleep $ seconds 60)
       sleep $ milliseconds 100
 
       send testPid "running"
 
-      AsyncPending <- pollChan hAsync
-      cancelChanWait hAsync >>= send testPid
+      AsyncPending <- poll hAsync
+      cancelWait hAsync >>= send testPid
     
     "running" <- expect
     d <- expectTimeout (intervalToMs $ seconds 5)
@@ -63,15 +63,15 @@ testAsyncWaitTimeout :: TestResult (Maybe (AsyncResult ())) -> Process ()
 testAsyncWaitTimeout result = 
     let delay = seconds 1
     in do
-    hAsync <- asyncChan $ sleep $ seconds 20
-    waitChanTimeout delay hAsync >>= stash result
-    cancelChanWait hAsync >> return () 
+    hAsync <- async $ sleep $ seconds 20
+    waitTimeout delay hAsync >>= stash result
+    cancelWait hAsync >> return () 
       
 testAsyncLinked :: TestResult Bool -> Process ()
 testAsyncLinked result = do
     mv :: MVar (AsyncChan ()) <- liftIO $ newEmptyMVar
     pid <- spawnLocal $ do
-        h <- asyncChanLinked $ do
+        h <- asyncLinked $ do
             "waiting" <- expect
             return ()
         stash mv h
@@ -90,6 +90,19 @@ testAsyncLinked result = do
     -- ReceivePort is no longer valid, so we can't wait on it! We have to ensure
     -- that the worker is really dead then....
     stash result $ mref == mref'
+
+testAsyncWaitAny :: TestResult String -> Process ()
+testAsyncWaitAny result = do
+  p1 <- async $ expect >>= return
+  p2 <- async $ expect >>= return
+  p3 <- async $ expect >>= return
+  send (worker p3) "c"
+  AsyncDone r1 <- waitAny [p1, p2, p3]
+  send (worker p1) "a"
+  AsyncDone r2 <- waitAny [p1, p2, p3]
+  send (worker p2) "b"
+  AsyncDone r3 <- waitAny [p1, p2, p3]
+  stash result $ foldl (++) "" [r1, r2, r3]
       
 tests :: LocalNode  -> [Test]
 tests localNode = [
@@ -114,6 +127,10 @@ tests localNode = [
             (delayedAssertion
              "expected linked process to die with originator"
              localNode True testAsyncLinked)
+        , testCase "testAsyncWaitAny"
+            (delayedAssertion
+             "expected waitAny to mimic mergePortsBiased"
+             localNode "cab" testAsyncWaitAny)
       ]
   ]
 
