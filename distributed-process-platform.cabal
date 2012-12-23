@@ -37,8 +37,10 @@ library
                    Control.Distributed.Platform,
                    Control.Distributed.Platform.GenServer,
                    Control.Distributed.Platform.Timer,
+                   Control.Distributed.Platform.Async.AsyncChan
+  other-modules:   
+                   Control.Distributed.Platform.Internal.Primitives,
                    Control.Distributed.Platform.Async
-  other-modules:   Control.Distributed.Platform.Internal.Primitives
 
 
 test-suite AsyncTests
@@ -66,7 +68,8 @@ test-suite AsyncTests
                    Control.Distributed.Platform.Timer,
                    Control.Distributed.Platform
                    Control.Distributed.Platform.Internal.Primitives
-                   TestUtils
+                   TestUtils,
+                   Control.Distributed.Platform.Async
   extensions:      CPP
   main-is:         TestAsync.hs
 
@@ -95,6 +98,7 @@ test-suite TimerTests
                    Control.Distributed.Platform.Timer,
                    Control.Distributed.Platform
                    Control.Distributed.Platform.Internal.Primitives
-                   TestUtils
+                   TestUtils,
+                   Control.Distributed.Platform.Async
   extensions:      CPP
   main-is:         TestTimer.hs
