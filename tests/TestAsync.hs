@@ -103,7 +103,14 @@ testAsyncWaitAny result = do
   send (worker p2) "b"
   AsyncDone r3 <- waitAny [p1, p2, p3]
   stash result $ foldl (++) "" [r1, r2, r3]
-      
+
+testAsyncWaitAnyTimeout :: TestResult (Maybe (AsyncResult String)) -> Process ()
+testAsyncWaitAnyTimeout result = do
+  p1 <- asyncLinked $ expect >>= return
+  p2 <- asyncLinked $ expect >>= return
+  p3 <- asyncLinked $ expect >>= return
+  waitAnyTimeout (seconds 1) [p1, p2, p3] >>= stash result
+
 tests :: LocalNode  -> [Test]
 tests localNode = [
     testGroup "Handling async results" [
@@ -131,6 +138,10 @@ tests localNode = [
             (delayedAssertion
              "expected waitAny to mimic mergePortsBiased"
              localNode "cab" testAsyncWaitAny)
+        , testCase "testAsyncWaitAnyTimeout"
+            (delayedAssertion
+             "expected waitAnyTimeout to handle idle channels properly"
+             localNode Nothing testAsyncWaitAnyTimeout)
       ]
   ]
 
