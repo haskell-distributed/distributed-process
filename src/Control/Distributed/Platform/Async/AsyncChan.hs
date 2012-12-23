@@ -47,6 +47,7 @@ module Control.Distributed.Platform.Async.AsyncChan
   , check
   , wait
   , waitAny
+  , waitAnyTimeout
   , waitTimeout
   , waitCheckTimeout
   ) where
@@ -215,6 +216,14 @@ waitAny :: (Serializable a)
 waitAny asyncs =
   let ports = map (snd . channel) asyncs
   in mergePortsBiased ports >>= receiveChan  
+
+waitAnyTimeout :: (Serializable a)
+               => TimeInterval
+               -> [AsyncChan a]
+               -> Process (Maybe (AsyncResult a))
+waitAnyTimeout delay asyncs =
+  let ports = map (snd . channel) asyncs
+  in mergePortsBiased ports >>= receiveChanTimeout (intervalToMs delay)
 
 -- | Cancel an asynchronous operation. To wait for cancellation to complete, use
 -- 'cancelWait' instead.
