@@ -12,18 +12,12 @@
 -- Stability   :  experimental
 -- Portability :  non-portable (requires concurrency)
 --
--- This module provides a set of operations for spawning Process operations
--- and waiting for their results.  It is a thin layer over the basic
+-- The modules herein provides a set of operations for spawning Processes
+-- and waiting for theie results.  It is a thin layer over the basic
 -- concurrency operations provided by "Control.Distributed.Process".
 -- The main feature it provides is a pre-canned set of APIs for waiting on the
 -- result of one or more asynchronously running (and potentially distributed)
 -- processes.
---
--- The basic type is @'Async' a@, which represents an asynchronous
--- @Process@ that will return a value of type @a@, or exit with a failure
--- reason. An @Async@ corresponds logically to a worker @Process@, and its
--- 'ProcessId' can be obtained with 'worker', although that should rarely
--- be necessary.
 --
 -----------------------------------------------------------------------------
 
