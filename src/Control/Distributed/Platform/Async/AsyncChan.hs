@@ -4,7 +4,7 @@
 
 -----------------------------------------------------------------------------
 -- |
--- Module      :  Control.Distributed.Platform.Async
+-- Module      :  Control.Distributed.Platform.Async.AsyncChan
 -- Copyright   :  (c) Tim Watson 2012
 -- License     :  BSD3 (see the file LICENSE)
 --
@@ -18,12 +18,6 @@
 -- The main feature it provides is a pre-canned set of APIs for waiting on the
 -- result of one or more asynchronously running (and potentially distributed)
 -- processes.
---
--- The basic type is @'Async' a@, which represents an asynchronous
--- @Process@ that will return a value of type @a@, or exit with a failure
--- reason. An @Async@ corresponds logically to a worker @Process@, and its
--- 'ProcessId' can be obtained with 'worker', although that should rarely
--- be necessary.
 --
 -----------------------------------------------------------------------------
 

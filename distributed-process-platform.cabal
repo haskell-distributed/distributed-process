@@ -40,7 +40,8 @@ library
                    Control.Distributed.Platform.Async.AsyncChan
   other-modules:   
                    Control.Distributed.Platform.Internal.Primitives,
-                   Control.Distributed.Platform.Async
+                   Control.Distributed.Platform.Async,
+                   Control.Distributed.Platform.Async.AsyncSTM
 
 
 test-suite AsyncTests
@@ -57,6 +58,7 @@ test-suite AsyncTests
                    binary >= 0.5 && < 0.7,
                    network >= 2.3 && < 2.5,
                    HUnit >= 1.2 && < 2,
+                   stm >= 2.3 && < 2.5,
                    test-framework >= 0.6 && < 0.7,
                    test-framework-hunit,
                    transformers
@@ -69,9 +71,12 @@ test-suite AsyncTests
                    Control.Distributed.Platform
                    Control.Distributed.Platform.Internal.Primitives
                    TestUtils,
-                   Control.Distributed.Platform.Async
+                   Control.Distributed.Platform.Async,
+                   Control.Distributed.Platform.Async.AsyncSTM,
+                   TestAsyncSTM,
+                   TestAsync
   extensions:      CPP
-  main-is:         TestAsyncChan.hs
+  main-is:         TestAsync.hs
 
 test-suite TimerTests
   type:            exitcode-stdio-1.0
@@ -99,6 +104,9 @@ test-suite TimerTests
                    Control.Distributed.Platform
                    Control.Distributed.Platform.Internal.Primitives
                    TestUtils,
-                   Control.Distributed.Platform.Async
+                   Control.Distributed.Platform.Async,
+                   Control.Distributed.Platform.Async.AsyncSTM,
+                   TestAsyncSTM,
+                   TestAsync
   extensions:      CPP
   main-is:         TestTimer.hs
