@@ -51,8 +51,8 @@ import GHC.Conc
 --
 -- Handles of this type cannot cross remote boundaries.
 data AsyncSTM a = AsyncSTM {
-    worker    :: AsyncWorkerId
-  , insulator :: AsyncGathererId
+    worker    :: AsyncRef
+  , insulator :: AsyncRef
   , hWait     :: STM a
   }
 
