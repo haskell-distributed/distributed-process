@@ -121,6 +121,7 @@ spawnWorkers task shouldLink = do
     -- listener/response proxy
     insulatorPid <- spawnLocal $ do
         workerPid <- spawnLocal $ do
+            () <- expect
             r <- task
             sendChan (fst chan) (AsyncDone r)
                 
@@ -135,6 +136,7 @@ spawnWorkers task shouldLink = do
                     return (maybe (return ()) unmonitor rref))
   
     workerPid <- expect
+    send workerPid ()
     return (workerPid, insulatorPid, chan)
   where  
     -- blocking receive until we see an input message
@@ -209,8 +211,9 @@ waitAny :: (Serializable a)
         => [AsyncChan a]
         -> Process (AsyncResult a)
 waitAny asyncs =
-  let ports = map (snd . channel) asyncs
-  in mergePortsBiased ports >>= receiveChan  
+  let ports = map (snd . channel) asyncs in recv ports
+  where recv :: (Serializable a) => [ReceivePort a] -> Process a
+        recv ps = mergePortsBiased ps >>= receiveChan  
 
 -- | Like 'waitAny' but times out after the specified delay.
 waitAnyTimeout :: (Serializable a)
