@@ -12,22 +12,18 @@
 -- Stability   :  experimental
 -- Portability :  non-portable (requires concurrency)
 --
--- The modules herein provides a set of operations for spawning Processes
--- and waiting for theie results.  It is a thin layer over the basic
--- concurrency operations provided by "Control.Distributed.Process".
--- The main feature it provides is a pre-canned set of APIs for waiting on the
--- result of one or more asynchronously running (and potentially distributed)
--- processes.
---
+-- The modules in the @Async@ package provide operations for spawning Processes,
+-- waiting for their results, cancelling them and various other utilities. The
+-- two primary implementation are @AsyncChan@ which provides an API which is
+-- scoped to the calling process, and @AsyncSTM@ which provides a mechanism that
+-- can be used by (as in shared across) multiple processes on a local node.
+-- Both abstractions can run asynchronous operations on remote node.  
 -----------------------------------------------------------------------------
 
 module Control.Distributed.Platform.Async 
  ( -- types/data
     AsyncRef
-  , AsyncWorkerId
-  , AsyncGathererId
   , AsyncTask
-  , AsyncCancel
   , AsyncResult(..)
   ) where
 
@@ -43,12 +39,6 @@ import Data.Typeable (Typeable)
 
 -- | A reference to an asynchronous action
 type AsyncRef = ProcessId
-
--- | A reference to an asynchronous worker
-type AsyncWorkerId   = AsyncRef
-
--- | A reference to an asynchronous "gatherer"
-type AsyncGathererId = AsyncRef
 
 -- | A task to be performed asynchronously. This can either take the
 -- form of an action that runs over some type @a@ in the @Process@ monad,
@@ -69,13 +59,3 @@ $(derive makeBinary ''AsyncResult)
 
 deriving instance Eq a => Eq (AsyncResult a)
 deriving instance Show a => Show (AsyncResult a)
-
--- | An async cancellation takes an 'AsyncRef' and does some cancellation
--- operation in the @Process@ monad.
-type AsyncCancel = AsyncRef -> Process () -- note [local cancel only]
-
--- note [local cancel only]
--- The cancellation is only ever sent to the insulator process, which is always
--- run on the local node. That could be a limitation, as there's nothing in
--- 'Async' data profile to stop it being sent remotely. At *that* point, we'd
--- need to make the cancellation remote-able too however.   
