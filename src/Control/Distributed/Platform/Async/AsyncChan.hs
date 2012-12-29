@@ -19,15 +19,14 @@
 -- result of one or more asynchronously running (and potentially distributed)
 -- processes.
 --
+-- 
+--
 -----------------------------------------------------------------------------
 
 module Control.Distributed.Platform.Async.AsyncChan
   ( -- types/data
     AsyncRef
-  , AsyncWorkerId
-  , AsyncGathererId
   , AsyncTask
-  , AsyncCancel
   , AsyncChan(worker)
   , AsyncResult(..)
   -- functions for starting/spawning
@@ -35,8 +34,9 @@ module Control.Distributed.Platform.Async.AsyncChan
   , asyncLinked
   -- and stopping/killing
   , cancel
-  , cancelWith
   , cancelWait
+  , cancelWith
+  , cancelKill
   -- functions to query an async-result
   , poll
   , check
@@ -62,40 +62,54 @@ import Data.Maybe
   ( fromMaybe
   )
 
---------------------------------------------------------------------------------
--- Cloud Haskell Async Process API                                            --
---------------------------------------------------------------------------------
-
 -- | Private channel used to synchronise task results
 type InternalChannel a = (SendPort (AsyncResult a), ReceivePort (AsyncResult a))
 
--- | An handle for an asynchronous action spawned by 'async'.
--- Asynchronous operations are run in a separate process, and
+-- | A handle for an asynchronous action spawned by 'async'.
+-- Asynchronous actions are run in a separate process, and
 -- operations are provided for waiting for asynchronous actions to
 -- complete and obtaining their results (see e.g. 'wait').
 --
--- Handles of this type cannot cross remote boundaries.
+-- Handles of this type cannot cross remote boundaries. Furthermore, handles
+-- of this type /must not/ be passed to functions in this module by processes
+-- other than the caller of 'async' - that is, this module provides asynchronous
+-- actions whose results are accessible *only* by the initiating process.
+--
+-- See 'async'
 data AsyncChan a = AsyncChan {
-    worker    :: AsyncWorkerId
-  , insulator :: AsyncGathererId
+    worker    :: AsyncRef
+  , insulator :: AsyncRef
   , channel   :: (InternalChannel a)
   }
 
 -- | Spawns an asynchronous action in a new process.
+-- We ensure that if the caller's process exits, that the worker is killed.
+-- Because an @AsyncChan@ can only be used by the initial caller's process, if
+-- that process dies then the result (if any) is discarded. If a process other
+-- than the initial caller attempts to obtain the result of an asynchronous
+-- action, the behaviour is undefined. It is /highly likely/ that such a
+-- process will block indefinitely, quite possible that such behaviour could lead
+-- to deadlock and almost certain that resource starvation will occur. /Do Not/
+-- share the handles returned by this function across multiple processes.
 --
--- There is currently a contract for async workers which is that they should
--- exit normally (i.e., they should not call the @exit selfPid reason@ nor
--- @terminate@ primitives), otherwise the 'AsyncResult' will end up being
--- @AsyncFailed DiedException@ instead of containing the result.
+-- If you need to spawn an asynchronous operation whose handle can be shared by
+-- multiple processes then use the 'AsyncSTM' module instead.
+--
+-- There is currently a contract for async workers, that they should
+-- exit normally (i.e., they should not call the @exit@ or @kill@ with their own
+-- 'ProcessId' nor use the @terminate@ primitive to cease functining), otherwise
+-- the 'AsyncResult' will end up being @AsyncFailed DiedException@ instead of
+-- containing the desired result.
 --
 async :: (Serializable a) => AsyncTask a -> Process (AsyncChan a)
 async = asyncDo True
 
--- | This is a useful variant of 'async' that ensures an @AsyncChan@ is
--- never left running unintentionally. We ensure that if the caller's process
--- exits, that the worker is killed. Because an @AsyncChan@ can only be used
--- by the initial caller's process, if that process dies then the result
--- (if any) is discarded.
+-- | For *AsyncChan*, 'async' already ensures an @AsyncChan@ is
+-- never left running unintentionally. This function is provided for compatibility
+-- with other /async/ implementations that may offer different semantics for
+-- @async@ with regards linking.
+-- 
+-- @asyncLinked = async@ 
 --
 asyncLinked :: (Serializable a) => AsyncTask a -> Process (AsyncChan a)
 asyncLinked = async
@@ -112,8 +126,7 @@ asyncDo shouldLink task = do
 spawnWorkers :: (Serializable a)
              => AsyncTask a
              -> Bool
-             -> Process (AsyncRef, AsyncRef,
-                        (SendPort (AsyncResult a), ReceivePort (AsyncResult a)))
+             -> Process (AsyncRef, AsyncRef, InternalChannel a)
 spawnWorkers task shouldLink = do
     root <- getSelfPid
     chan <- newChan
@@ -224,36 +237,52 @@ waitAnyTimeout delay asyncs =
   let ports = map (snd . channel) asyncs
   in mergePortsBiased ports >>= receiveChanTimeout (intervalToMs delay)
 
--- | Cancel an asynchronous operation. Cancellation is achieved using message
--- passing, and is therefore asynchronous in nature. To wait for cancellation
--- to complete, use 'cancelWait' instead. The notes about the asynchronous
--- nature of 'cancelWait' apply here also.
+-- | Cancel an asynchronous operation. Cancellation is asynchronous in nature.
+-- To wait for cancellation to complete, use 'cancelWait' instead. The notes
+-- about the asynchronous nature of 'cancelWait' apply here also.
 --
 -- See 'Control.Distributed.Process'
 cancel :: AsyncChan a -> Process ()
 cancel (AsyncChan _ g _) = send g CancelWait
 
--- | Cancels an asynchronous operation using the supplied exit reason.
--- The notes about the asynchronous nature of 'cancel' and 'cancelWait' do
--- apply here, but more importantly this function sends an /exit signal/ to the
--- asynchronous worker, which leads to the following semantics:
+-- | Cancel an asynchronous operation and wait for the cancellation to complete.
+-- Because of the asynchronous nature of message passing, the instruction to
+-- cancel will race with the asynchronous worker, so it is /entirely possible/
+-- that the 'AsyncResult' returned will not necessarily be 'AsyncCancelled'. For
+-- example, the worker may complete its task after this function is called, but
+-- before the cancellation instruction is acted upon.
+-- 
+-- If you wish to stop an asychronous operation /immediately/ (with caveats) then
+-- consider using 'cancelWith' or 'cancelKill' instead.
 --
--- 1. if the worker already completed, this function does nothing
+cancelWait :: (Serializable a) => AsyncChan a -> Process (AsyncResult a)
+cancelWait hAsync = cancel hAsync >> wait hAsync
+
+-- | Cancel an asynchronous operation immediately.
+-- This operation is performed by sending an /exit signal/ to the asynchronous
+-- worker, which leads to the following semantics:
+--
+-- 1. if the worker already completed, this function has no effect
 -- 2. the worker might complete after this call, but before the signal arrives
 -- 3. the worker might ignore the exit signal using @catchExit@
 --
--- In case of (3), this function will have no effect. You should use 'cancel'
+-- In case of (3), this function has no effect. You should use 'cancel'
 -- if you need to guarantee that the asynchronous task is unable to ignore
 -- the cancellation instruction.
+--
+-- You should also consider that when sending exit signals to a process, the
+-- definition of 'immediately' is somewhat vague and a scheduler might take
+-- time to handle the request, which can lead to situations similar to (1) as
+-- listed above, if the scheduler to which the calling process' thread is bound
+-- decides to GC whilst another scheduler on which the worker is running is able
+-- to continue.    
 --
 -- See 'Control.Distributed.Process.exit'
 cancelWith :: (Serializable b) => b -> AsyncChan a -> Process ()
 cancelWith reason = (flip exit) reason . worker 
 
--- | Cancel an asynchronous operation and wait for the cancellation to complete.
--- Because of the asynchronous nature of message passing, the instruction to
--- cancel will race with the asynchronous worker, so it is /entirely possible/
--- that the 'AsyncResult' returned will not necessarily be 'AsyncCancelled'.
---
-cancelWait :: (Serializable a) => AsyncChan a -> Process (AsyncResult a)
-cancelWait hAsync = cancel hAsync >> wait hAsync 
+-- | Like 'cancelWith' but sends a @kill@ instruction instead of an exit.
+-- 
+-- See 'Control.Distributed.Process.kill'
+cancelKill :: String -> AsyncChan a -> Process ()
+cancelKill reason = (flip kill) reason . worker
