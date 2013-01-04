@@ -5,6 +5,7 @@ module Control.Distributed.Platform
     -- extra primitives
     spawnLinkLocal
   , spawnMonitorLocal
+  , linkOnFailure
     -- time interval handling
   , milliseconds
   , seconds
