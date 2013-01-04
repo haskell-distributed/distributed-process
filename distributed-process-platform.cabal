@@ -39,6 +39,7 @@ library
                    Control.Distributed.Process.Platform.Timer,
                    Control.Distributed.Process.Platform.Async
   other-modules:   Control.Distributed.Process.Platform.Internal.Primitives
+                   Control.Distributed.Process.Platform.Internal.Types
 
 test-suite TimerTests
   type:            exitcode-stdio-1.0
@@ -65,6 +66,7 @@ test-suite TimerTests
                    Control.Distributed.Platform.Timer,
                    Control.Distributed.Platform
                    Control.Distributed.Platform.Internal.Primitives
+                   Control.Distributed.Platform.Internal.Types
                    TestUtils
   extensions:      CPP
   main-is:         TestTimer.hs
