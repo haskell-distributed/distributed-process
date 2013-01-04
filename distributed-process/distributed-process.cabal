@@ -1,8 +1,8 @@
-Name:          distributed-process 
+Name:          distributed-process
 Version:       0.4.1
 Cabal-Version: >=1.8
 Build-Type:    Simple
-License:       BSD3 
+License:       BSD3
 License-File:  LICENSE
 Copyright:     Well-Typed LLP
 Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
@@ -10,19 +10,19 @@ Maintainer:    edsko@well-typed.com, duncan@well-typed.com
 Stability:     experimental
 Homepage:      http://github.com/haskell-distributed/distributed-process
 Bug-Reports:   mailto:edsko@well-typed.com
-Synopsis:      Cloud Haskell: Erlang-style concurrency in Haskell 
+Synopsis:      Cloud Haskell: Erlang-style concurrency in Haskell
 Description:   This is an implementation of Cloud Haskell, as described in
                /Towards Haskell in the Cloud/ by Jeff Epstein, Andrew Black,
                and Simon Peyton Jones
                (<http://research.microsoft.com/en-us/um/people/simonpj/papers/parallel/>),
                although some of the details are different. The precise message
                passing semantics are based on /A unified semantics for future Erlang/
-               by	Hans Svensson, Lars-Åke Fredlund and Clara Benac Earle.
+               by       Hans Svensson, Lars-Åke Fredlund and Clara Benac Earle.
 
                You will probably also want to install a Cloud Haskell backend such
                as distributed-process-simplelocalnet.
 Tested-With:   GHC==7.2.2 GHC==7.4.1 GHC==7.4.2
-Category:      Control 
+Category:      Control
 
 Source-Repository head
   Type:     git
@@ -102,8 +102,8 @@ Test-Suite TestCH
                      ScopedTypeVariables,
                      DeriveDataTypeable,
                      GeneralizedNewtypeDeriving
-  ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind 
-  HS-Source-Dirs:    tests 
+  ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
+  HS-Source-Dirs:    tests
 
 Test-Suite TestClosure
   Type:              exitcode-stdio-1.0
@@ -122,10 +122,10 @@ Test-Suite TestClosure
                      test-framework-hunit >= 0.2 && < 0.3
   Extensions:        CPP, 
                      ScopedTypeVariables
-  ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind 
-  HS-Source-Dirs:    tests 
+  ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
+  HS-Source-Dirs:    tests
 
-Executable distributed-process-throughput 
+Executable distributed-process-throughput
   if flag(benchmarks)
     Build-Depends:   base >= 4.4 && < 5,
                      distributed-process,
