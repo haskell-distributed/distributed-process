@@ -1,8 +1,8 @@
 {-# LANGUAGE DeriveDataTypeable        #-}
-{-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# OPTIONS_GHC -fno-warn-orphans      #-}
 module Main where
 
-import Prelude hiding (catch)
+import Prelude hiding (catch, log)
 import Test.Framework
   ( Test
   , defaultMain
@@ -97,6 +97,40 @@ testLocalLiveProcessInfo result = do
 --                         infoMessageQueueLength pInfo == Just 4 &&
                          infoRegisteredNames pInfo == ["foobar"]
 
+testRemoteLiveProcessInfo :: LocalNode -> Assertion
+testRemoteLiveProcessInfo node1 = do
+  serverAddr <- liftIO $ newEmptyMVar :: IO (MVar ProcessId)
+  liftIO $ launchRemote serverAddr
+  serverPid <- liftIO $ takeMVar serverAddr
+  withActiveRemote node1 $ \result -> do
+    self <- getSelfPid
+    link serverPid
+    -- our send op shouldn't overtake link or monitor requests AFAICT
+    -- so a little table tennis should get us synchronised properly
+    send serverPid (self, "ping")
+    "pong" <- expect
+    pInfo <- getProcessInfo serverPid
+    stash result $ pInfo /= Nothing
+  where 
+    launchRemote :: MVar ProcessId -> IO ()
+    launchRemote locMV = do
+        node2 <- liftIO $ mkNode "8082"
+        _ <- liftIO $ forkProcess node2 $ do
+            self <- getSelfPid
+            liftIO $ putMVar locMV self
+            _ <- receiveWait [
+                  match (\(pid, "ping") -> send pid "pong") 
+                ]
+            "stop" <- expect
+            return ()
+        return ()
+
+    withActiveRemote :: LocalNode
+                     -> ((TestResult Bool -> Process ()) -> Assertion)
+    withActiveRemote n = do
+      a <- delayedAssertion "getProcessInfo remotePid failed" n True
+      return a
+
 tests :: LocalNode -> IO [Test]
 tests node1 = do
   return [
@@ -109,6 +143,8 @@ tests node1 = do
             (delayedAssertion
              "expected process-info to be correctly populated"
              node1 True testLocalLiveProcessInfo)
+      , testCase "testRemoveLiveProcessInfo"
+                 (testRemoteLiveProcessInfo node1)
     ] ]
 
 mkNode :: String -> IO LocalNode
@@ -124,4 +160,3 @@ main = do
   defaultMain testData
   closeLocalNode node1
   return ()
-
