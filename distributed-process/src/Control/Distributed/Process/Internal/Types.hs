@@ -50,13 +50,8 @@ module Control.Distributed.Process.Internal.Types
   , WhereIsReply(..)
   , RegisterReply(..)
   , ProcessInfo(..)
-  , ProcessInfoKey
   , ProcessInfoNone(..)
-    -- * Node controller entities required for primatives
-  , toMarshalledPInfoKey
-  , toPInfoKey
     -- * Node controller internal data types
-  , SerializedProcessInfoKey
   , NCMsg(..)
   , ProcessSignal(..)
     -- * Accessors
@@ -427,43 +422,6 @@ data WhereIsReply = WhereIsReply String (Maybe ProcessId)
 -- | (Asynchronous) reply from 'register' and 'unregister'
 data RegisterReply = RegisterReply String Bool
   deriving (Show, Typeable)
-
-data ProcessInfoKey =
-    ProcessInfoAll
-  | ProcessInfoNode
-  | ProcessInfoRegisteredNames
-  | ProcessInfoMessageQueueLength
-  | ProcessInfoMonitors
-  | ProcessInfoLinks
-  deriving (Show, Typeable, Eq)
-
-data SerializedProcessInfoKey = SerializedProcessInfoKey Int
-
-instance Binary SerializedProcessInfoKey where
-  put (SerializedProcessInfoKey n) = put n
-  get = SerializedProcessInfoKey <$> get
-
--- | Convert 'ProcessInfoKey' to/from 'SerializedProcessInfoKey'
-toMarshalledPInfoKey :: ProcessInfoKey -> SerializedProcessInfoKey
-toMarshalledPInfoKey ProcessInfoAll                = SerializedProcessInfoKey 1
-toMarshalledPInfoKey ProcessInfoNode               = SerializedProcessInfoKey 2
-toMarshalledPInfoKey ProcessInfoRegisteredNames    = SerializedProcessInfoKey 3
-toMarshalledPInfoKey ProcessInfoMessageQueueLength = SerializedProcessInfoKey 4
-toMarshalledPInfoKey ProcessInfoMonitors           = SerializedProcessInfoKey 5
-toMarshalledPInfoKey ProcessInfoLinks              = SerializedProcessInfoKey 6
-
--- | Convert 'SerializedProcessInfoKey' back into 'ProcessInfoKey'
-toPInfoKey :: SerializedProcessInfoKey -> ProcessInfoKey
-toPInfoKey (SerializedProcessInfoKey n)
-  | n == 1 = ProcessInfoAll
-  | n == 2 = ProcessInfoNode
-  | n == 3 = ProcessInfoRegisteredNames
-  | n == 4 = ProcessInfoMessageQueueLength
-  | n == 5 = ProcessInfoMonitors
-  | n == 6 = ProcessInfoLinks
-  -- using error is usually madness, but here represents either a silly mistake
-  -- or a deliberate attack, because only *we* actually construct these!
-  | otherwise = error "Illegal ProcessInfoKey Value"
 
 data ProcessInfo = ProcessInfo {
     infoNode               :: NodeId
