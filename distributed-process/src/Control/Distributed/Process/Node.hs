@@ -767,7 +767,7 @@ ncEffectGetInfo from pid =
 
       let reg = registeredNames registered
       dispatch (isLocal node (ProcessIdentifier from))
-               pid
+               from
                node
                ProcessInfo {
                    infoNode               = (processNodeId pid)
