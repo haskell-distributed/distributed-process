@@ -415,7 +415,7 @@ getProcessInfo pid =
   sendCtrlMsg dest $ GetInfo pid
   receiveWait [
        match (\(p :: ProcessInfo)     -> return $ Just p)
-     , match (\(n :: ProcessInfoNone) -> return Nothing)
+     , match (\(_ :: ProcessInfoNone) -> return Nothing)
      ]
   where mkNode :: NodeId -> NodeId -> Process (Maybe NodeId)
         mkNode them us = case them == us of
