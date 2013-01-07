@@ -29,9 +29,16 @@ import qualified Data.Map as Map
   , partitionWithKey
   , elems
   , filterWithKey
+  , foldlWithKey
   )
 import Data.Set (Set)
-import qualified Data.Set as Set (empty, insert, delete, member)
+import qualified Data.Set as Set
+  ( empty
+  , insert
+  , delete
+  , member
+  , toList
+  )
 import Data.Foldable (forM_)
 import Data.Maybe (isJust, isNothing, catMaybes)
 import Data.Typeable (Typeable)
@@ -118,6 +125,8 @@ import Control.Distributed.Process.Internal.Types
   , TypedChannel(..)
   , Identifier(..)
   , nodeOf
+  , ProcessInfo(..)
+  , ProcessInfoNone(..)
   , SendPortId(..)
   , typedChannelWithId
   , RegisterReply(..)
@@ -517,6 +526,8 @@ nodeController = do
         ncEffectKill from to reason
       NCMsg (ProcessIdentifier from) (Exit to reason) ->
         ncEffectExit from to reason
+      NCMsg (ProcessIdentifier from) (GetInfo pid) ->
+        ncEffectGetInfo from pid
       unexpected ->
         error $ "nodeController: unexpected message " ++ show unexpected
 
@@ -737,6 +748,53 @@ ncEffectExit from to reason = do
   when (isLocal node (ProcessIdentifier to)) $
     throwException to $ ProcessExitException from reason
 
+-- [Issue #89]
+ncEffectGetInfo :: ProcessId -> ProcessId -> NC ()
+ncEffectGetInfo from pid =
+  let lpid = processLocalId pid
+      them = (ProcessIdentifier pid)
+  in do
+  node <- ask
+  mProc <- liftIO $
+            withMVar (localState node) $ return . (^. localProcessWithId lpid)
+  case mProc of
+    Nothing   -> dispatch (isLocal node (ProcessIdentifier from))
+                          from node (ProcessInfoNone DiedUnknownId)
+    Just _    -> do
+      itsLinks    <- gets (^. linksFor    them)
+      itsMons     <- gets (^. monitorsFor them)
+      registered  <- gets (^. registeredHere)
+
+      let reg = registeredNames registered
+      dispatch (isLocal node (ProcessIdentifier from))
+               from
+               node
+               ProcessInfo {
+                   infoNode               = (processNodeId pid)
+                 , infoRegisteredNames    = reg
+                   -- we cannot populate this field
+                 , infoMessageQueueLength = Nothing
+                 , infoMonitors       = Set.toList itsMons
+                 , infoLinks          = Set.toList itsLinks
+                 }
+  where dispatch :: (Serializable a, Show a)
+                 => Bool
+                 -> ProcessId
+                 -> LocalNode
+                 -> a
+                 -> NC ()
+        dispatch True  dest _    pInfo = postAsMessage dest $ pInfo
+        dispatch False dest node pInfo = do
+            liftIO $ sendMessage node
+                                 (NodeIdentifier (localNodeId node))
+                                 (ProcessIdentifier dest)
+                                 WithImplicitReconnect
+                                 pInfo
+
+        registeredNames = Map.foldlWithKey (\ks k v -> if v == pid
+                                                 then (k:ks)
+                                                 else ks) []
+
 --------------------------------------------------------------------------------
 -- Auxiliary                                                                  --
 --------------------------------------------------------------------------------
@@ -788,6 +846,7 @@ destNid (NamedSend _ _) = Nothing
 destNid (Died _ _) = Nothing
 destNid (Kill pid _)        = Just $ processNodeId pid
 destNid (Exit pid _)        = Just $ processNodeId pid
+destNid (GetInfo pid)       = Just $ processNodeId pid
 
 -- | Check if a process is local to our own node
 isLocal :: LocalNode -> Identifier -> Bool
@@ -827,7 +886,8 @@ postAsMessage :: Serializable a => ProcessId -> a -> NC ()
 postAsMessage pid = postMessage pid . createMessage
 
 postMessage :: ProcessId -> Message -> NC ()
-postMessage pid msg = withLocalProc pid $ \p -> enqueue (processQueue p) msg
+postMessage pid msg = do
+  withLocalProc pid $ \p -> enqueue (processQueue p) msg
 
 throwException :: Exception e => ProcessId -> e -> NC ()
 throwException pid e = withLocalProc pid $ \p ->

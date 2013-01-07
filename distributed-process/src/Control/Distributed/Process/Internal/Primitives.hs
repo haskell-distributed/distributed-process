@@ -32,6 +32,8 @@ module Control.Distributed.Process.Internal.Primitives
   , ProcessExitException(..)
   , getSelfPid
   , getSelfNode
+  , ProcessInfo(..)
+  , getProcessInfo
     -- * Monitoring and linking
   , link
   , unlink
@@ -84,6 +86,7 @@ import Prelude hiding (catch)
 import Data.Binary (decode)
 import Data.Time.Clock (getCurrentTime)
 import Data.Time.Format (formatTime)
+import System.IO (hPutStrLn, stderr)
 import System.Locale (defaultTimeLocale)
 import System.Timeout (timeout)
 import Control.Monad (when)
@@ -97,6 +100,7 @@ import Control.Distributed.Process.Internal.StrictMVar
   , modifyMVar
   , modifyMVar_
   )
+import Control.Concurrent (ThreadId)
 import Control.Concurrent.Chan (writeChan)
 import Control.Concurrent.STM
   ( STM
@@ -144,6 +148,8 @@ import Control.Distributed.Process.Internal.Types
   , WhereIsReply(..)
   , RegisterReply(..)
   , ProcessRegistrationException(..)
+  , ProcessInfo(..)
+  , ProcessInfoNone(..)
   , createMessage
   , runLocalProcess
   , ImplicitReconnect(WithImplicitReconnect, NoImplicitReconnect)
@@ -400,6 +406,22 @@ getSelfPid = processId <$> ask
 getSelfNode :: Process NodeId
 getSelfNode = localNodeId . processNode <$> ask
 
+-- | Get information about the specified process
+getProcessInfo :: ProcessId -> Process (Maybe ProcessInfo)
+getProcessInfo pid =
+  let them = processNodeId pid in do
+  us <- getSelfNode
+  dest <- mkNode them us
+  sendCtrlMsg dest $ GetInfo pid
+  receiveWait [
+       match (\(p :: ProcessInfo)     -> return $ Just p)
+     , match (\(_ :: ProcessInfoNone) -> return Nothing)
+     ]
+  where mkNode :: NodeId -> NodeId -> Process (Maybe NodeId)
+        mkNode them us = case them == us of
+                           True -> return Nothing
+                           _    -> return $ Just them
+
 --------------------------------------------------------------------------------
 -- Monitoring and linking                                                     --
 --------------------------------------------------------------------------------
@@ -519,7 +541,7 @@ try p = do
   lproc <- ask
   liftIO $ Ex.try (runLocalProcess lproc p)
 
--- | Lift 'Control.Exception.mask' 
+-- | Lift 'Control.Exception.mask'
 mask :: ((forall a. Process a -> Process a) -> Process b) -> Process b
 mask p = do
     lproc <- ask

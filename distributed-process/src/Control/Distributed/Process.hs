@@ -52,6 +52,8 @@ module Control.Distributed.Process
   , SpawnRef
   , getSelfPid
   , getSelfNode
+  , ProcessInfo(..)
+  , getProcessInfo
     -- * Monitoring and linking
   , link
   , linkNode
@@ -198,6 +200,8 @@ import Control.Distributed.Process.Internal.Primitives
   , kill
   , getSelfPid
   , getSelfNode
+  , ProcessInfo(..)
+  , getProcessInfo
     -- Monitoring and linking
   , link
   , linkNode
