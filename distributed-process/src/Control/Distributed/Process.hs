@@ -64,11 +64,10 @@ module Control.Distributed.Process
   , monitorPort
   , unmonitor
   , withMonitor
-  , MonitorRef
+  , MonitorRef -- opaque
   , ProcessLinkException(..)
   , NodeLinkException(..)
   , PortLinkException(..)
-  , MonitorRef -- opaque
   , ProcessMonitorNotification(..)
   , NodeMonitorNotification(..)
   , PortMonitorNotification(..)
@@ -400,7 +399,7 @@ spawnChannel :: forall a. Typeable a => Static (SerializableDict a)
              -> Process (SendPort a)
 spawnChannel dict nid proc = do
     us <- getSelfPid
-    spawn nid (go us)
+    _ <- spawn nid (go us)
     expect
   where
     go :: ProcessId -> Closure (Process ())

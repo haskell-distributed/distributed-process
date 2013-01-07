@@ -31,7 +31,6 @@ import Control.Distributed.Process
 import Control.Distributed.Process.Internal.Types
   ( NodeId(nodeAddress)
   , LocalNode(localEndPoint)
-  , RegisterReply(..)
   )
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable (Serializable)
