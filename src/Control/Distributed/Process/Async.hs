@@ -7,6 +7,7 @@ module Control.Distributed.Process.Platform.Async (
   ) where
 import           Control.Concurrent.MVar
 import           Control.Distributed.Process.Platform
+import           Control.Distributed.Process.Platform.Time
 import           Control.Distributed.Process                 (Process,
                                                               ProcessId, ProcessMonitorNotification (..),
                                                               finally, liftIO,
@@ -35,12 +36,12 @@ wait :: (Serializable a, Show a) => Async a -> Process a
 wait a = waitTimeout a Infinity >>= return . fromMaybe (error "Receive wait timeout")
 
 -- | Wait for the call response given a timeout
-waitTimeout :: (Serializable a, Show a) => Async a -> Timeout -> Process (Maybe a)
-waitTimeout (Async ref respMVar) timeout = do
+waitTimeout :: (Serializable a, Show a) => Async a -> Delay -> Process (Maybe a)
+waitTimeout (Async ref respMVar) t = do
     respM <- liftIO $ tryTakeMVar respMVar
     case respM of
       Nothing -> do
-        respM' <- finally (receive timeout) (unmonitor ref)
+        respM' <- finally (receive t) (unmonitor ref)
         case respM' of
           Just resp -> do
             liftIO $ putMVar respMVar resp
@@ -50,7 +51,7 @@ waitTimeout (Async ref respMVar) timeout = do
   where
     receive to = case to of
         Infinity -> receiveWait matches >>= return . Just
-        Timeout t -> receiveTimeout (intervalToMs t) matches
+        Delay t' -> receiveTimeout (intervalToMs t') matches
     matches = [
       match return,
       match (\(ProcessMonitorNotification _ _ reason) ->
