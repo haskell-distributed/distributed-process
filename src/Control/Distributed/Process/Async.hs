@@ -6,7 +6,6 @@ module Control.Distributed.Process.Platform.Async (
     waitTimeout
   ) where
 import           Control.Concurrent.MVar
-import           Control.Distributed.Process.Platform
 import           Control.Distributed.Process.Platform.Time
 import           Control.Distributed.Process                 (Process,
                                                               ProcessId, ProcessMonitorNotification (..),
