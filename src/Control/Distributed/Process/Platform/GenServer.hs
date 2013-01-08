@@ -10,7 +10,6 @@
 -- | Second iteration of GenServer
 module Control.Distributed.Process.Platform.GenServer (
     ServerId,
-    Timeout(..),
     initOk,
     initStop,
     ok,
@@ -59,19 +58,16 @@ import Control.Distributed.Process (AbstractMessage,
                                     Match,
                                     Process,
                                     ProcessId,
-                                    expectTimeout,
-                                    monitor, unmonitor,
-                                    link, finally,
+                                    monitor,
+                                    link,
                                     exit, getSelfPid, match,
                                     matchAny, matchIf,
                                     receiveTimeout,
                                     receiveWait, say,
-                                    send, spawnLocal,
-                                    ProcessMonitorNotification(..))
+                                    send, spawnLocal)
 
 import Control.Distributed.Process.Internal.Types (MonitorRef)
 import Control.Distributed.Process.Serializable (Serializable)
-import Control.Distributed.Process.Platform
 import Control.Distributed.Process.Platform.Time
 import Control.Distributed.Process.Platform.Async
 
@@ -336,16 +332,16 @@ processLoop dispatchers ir = do
 
 -- |
 processReceive :: [MessageDispatcher s] -> Delay -> Server s (Maybe TerminateReason)
-processReceive ds timeout = do
+processReceive ds t = do
     s <- getState
     let ms = map (matchMessage s) ds
-    case timeout of
+    case t of
         Infinity -> do
             (s', r) <- lift $ receiveWait ms
             putState s'
             return r
-        Delay t -> do
-            mayResult <- lift $ receiveTimeout (intervalToMs t) ms
+        Delay t' -> do
+            mayResult <- lift $ receiveTimeout (intervalToMs t') ms
             case mayResult of
                 Just (s', r) -> do
                   putState s'
