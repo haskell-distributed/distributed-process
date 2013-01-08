@@ -29,6 +29,7 @@ library
                    distributed-static,
                    binary,
                    mtl,
+                   containers >= 0.4 && < 0.6,
                    stm >= 2.3 && < 2.5,
                    transformers
   hs-source-dirs:   src
@@ -38,7 +39,10 @@ library
                    Control.Distributed.Process.Platform.GenServer,
                    Control.Distributed.Process.Platform.Timer,
                    Control.Distributed.Process.Platform.Async
-  other-modules:   Control.Distributed.Process.Platform.Internal.Primitives
+  other-modules:   
+                   Control.Distributed.Process.Platform.Internal.Primitives,
+                   Control.Distributed.Process.Platform.Call,
+                   Control.Distributed.Process.Platform.Time
 
 test-suite TimerTests
   type:            exitcode-stdio-1.0
@@ -63,9 +67,10 @@ test-suite TimerTests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   other-modules:   
                    Control.Distributed.Process.Platform.Timer,
-                   Control.Distributed.Process.Platform
-                   Control.Distributed.Process.Platform.Internal.Primitives
-                   TestUtils
+                   Control.Distributed.Process.Platform,
+                   Control.Distributed.Process.Platform.Internal.Primitives,
+                   TestUtils,
+                   Control.Distributed.Process.Platform.Time
   extensions:      CPP
   main-is:         TestTimer.hs
 
@@ -91,9 +96,10 @@ test-suite PrimitivesTests
                    tests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   other-modules:   
-                   Control.Distributed.Process.Platform
-                   Control.Distributed.Process.Platform.Internal.Primitives
-                   TestUtils
+                   Control.Distributed.Process.Platform,
+                   Control.Distributed.Process.Platform.Internal.Primitives,
+                   TestUtils,
+                   Control.Distributed.Process.Platform.Time
   extensions:      CPP
   main-is:         TestPrimitives.hs
 

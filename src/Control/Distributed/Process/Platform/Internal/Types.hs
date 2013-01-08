@@ -1,38 +1,31 @@
-{-# LANGUAGE DeriveDataTypeable        #-}
-{-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE FlexibleContexts          #-}
-{-# LANGUAGE FunctionalDependencies    #-}
-{-# LANGUAGE MultiParamTypeClasses     #-}
-{-# LANGUAGE Rank2Types                #-}
-{-# LANGUAGE RankNTypes                #-}
-{-# LANGUAGE ScopedTypeVariables       #-}
-{-# LANGUAGE TemplateHaskell           #-}
-{-# LANGUAGE TypeFamilies              #-}
-
 -- | Types used throughout the Cloud Haskell framework
 --
-module Control.Distributed.Process.Platform.Internal.Types (
-    TimeUnit(..)
-  , TimeInterval(..)
-  , Timeout(..) 
+module Control.Distributed.Process.Platform.Internal.Types
+  ( Tag
+  , TagPool
+  , newTagPool
+  , getTag
   ) where
 
-import Data.Binary
-import Data.DeriveTH
-import Data.Typeable (Typeable)
-import Prelude       hiding (init)
+import Control.Distributed.Process
+import Control.Concurrent.MVar (MVar, newMVar, modifyMVar)
 
--- | Defines the time unit for a Timeout value
-data TimeUnit = Hours | Minutes | Seconds | Millis
-    deriving (Typeable, Show)
-$(derive makeBinary ''TimeUnit)
+-- | Tags provide uniqueness for messages, so that they can be
+-- matched with their response.
+type Tag = Int
 
-data TimeInterval = TimeInterval TimeUnit Int
-    deriving (Typeable, Show)
-$(derive makeBinary ''TimeInterval)
+-- | Generates unique 'Tag' for messages and response pairs.
+-- Each process that depends, directly or indirectly, on
+-- the call mechanisms in "Control.Distributed.Process.Global.Call"
+-- should have at most one TagPool on which to draw unique message
+-- tags.
+type TagPool = MVar Tag
 
--- | Defines a Timeout value (and unit of measure) or
---   sets it to infinity (no timeout)
-data Timeout = Timeout TimeInterval | Infinity
-    deriving (Typeable, Show)
-$(derive makeBinary ''Timeout)
+-- | Create a new per-process source of unique
+-- message identifiers.
+newTagPool :: Process TagPool
+newTagPool = liftIO $ newMVar 0
+
+-- | Extract a new identifier from a 'TagPool'.
+getTag :: TagPool -> Process Tag
+getTag tp = liftIO $ modifyMVar tp (\tag -> return (tag+1,tag))

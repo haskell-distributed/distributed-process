@@ -18,8 +18,7 @@ module Control.Distributed.Process.Platform.Timer
 
 import Control.Distributed.Process
 import Control.Distributed.Process.Serializable
-import Control.Distributed.Process.Platform.Internal.Types
-import Control.Distributed.Process.Platform
+import Control.Distributed.Process.Platform.Time
 import Data.Binary
 import Data.DeriveTH
 import Data.Typeable                               (Typeable)
@@ -92,7 +91,7 @@ cancelTimer = (flip send) Cancel
 -- | cancels a running timer and flushes any viable timer messages from the
 -- process' message queue. This function should only be called by the process
 -- expecting to receive the timer's messages!
-flushTimer :: (Serializable a, Eq a) => TimerRef -> a -> Timeout -> Process () 
+flushTimer :: (Serializable a, Eq a) => TimerRef -> a -> Delay -> Process () 
 flushTimer ref ignore t = do
     mRef <- monitor ref
     cancelTimer ref
@@ -100,7 +99,7 @@ flushTimer ref ignore t = do
     performFlush mRef t
     return ()
   where performFlush mRef Infinity    = receiveWait $ filters mRef
-        performFlush mRef (Timeout i) =
+        performFlush mRef (Delay i) =
             receiveTimeout (intervalToMs i) (filters mRef) >> return ()
         filters mRef = [
                 matchIf (\x -> x == ignore)
