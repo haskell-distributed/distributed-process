@@ -75,7 +75,7 @@ instance Binary TimeoutNotification where
        get = fmap TimeoutNotification $ get
        put (TimeoutNotification n) = put n
 
--- time interval/unit handling
+-- time interval/unit handling (milliseconds)
 
 -- | converts the supplied @TimeInterval@ to milliseconds
 intervalToMs :: TimeInterval -> Int
@@ -107,7 +107,7 @@ timeToMs Minutes mins = (mins * 60) * 1000
 timeToMs Hours   hrs  = ((hrs * 60) * 60) * 1000
 timeToMs Days    days = (((days * 24) * 60) * 60) * 1000
 
--- timeouts/delays
+-- timeouts/delays (microseconds)
 
 -- | Constructs an inifinite 'Timeout'.
 infiniteWait :: Timeout

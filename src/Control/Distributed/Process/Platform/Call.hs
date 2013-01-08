@@ -1,4 +1,5 @@
 {-# LANGUAGE ScopedTypeVariables, DeriveDataTypeable #-}
+
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  Control.Distributed.Process.Platform.Call
@@ -9,7 +10,9 @@
 -- Stability   :  experimental
 -- Portability :  non-portable (requires concurrency)
 --
--- This module provides a Remote Procedure Call (rpc) style facility.
+-- This module provides a facility for Remote Procedure Call (rpc) style
+-- interactions with Cloud Haskell processes.
+--
 -- Clients make synchronous calls to a running process (i.e., server) using the
 -- 'callAt', 'callTimeout' and 'multicall' functions. Processes acting as the
 -- server are constructed using Cloud Haskell's 'receive' family of primitives
