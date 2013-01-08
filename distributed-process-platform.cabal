@@ -26,7 +26,6 @@ library
                    base >= 4,
                    distributed-process,
                    derive,
-                   distributed-static,
                    binary,
                    mtl,
                    containers >= 0.4 && < 0.6,
