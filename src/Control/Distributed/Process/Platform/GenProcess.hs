@@ -9,7 +9,7 @@
 {-# LANGUAGE TemplateHaskell           #-}
 {-# LANGUAGE TypeFamilies              #-}
 
-module Control.Distributed.Platform.GenProcess where
+module Control.Distributed.Process.Platform.GenProcess where
 
 -- TODO: define API and hide internals...
 
@@ -19,8 +19,8 @@ import qualified Control.Monad.State         as ST (StateT, get,
                                                     put, runStateT)
 
 import Control.Distributed.Process.Serializable
-import Control.Distributed.Platform.Internal.Types
-import Control.Distributed.Platform
+import Control.Distributed.Process.Platform.Internal.Types
+import Control.Distributed.Process.Platform
 import Data.Binary
 import Data.DeriveTH
 import Data.Typeable                               (Typeable)
