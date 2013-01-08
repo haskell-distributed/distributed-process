@@ -1,12 +1,12 @@
 {-# LANGUAGE DeriveDataTypeable #-}
-module Control.Distributed.Platform.Async (
+module Control.Distributed.Process.Platform.Async (
     Async(),
     async,
     wait,
     waitTimeout
   ) where
 import           Control.Concurrent.MVar
-import           Control.Distributed.Platform
+import           Control.Distributed.Process.Platform
 import           Control.Distributed.Process                 (Process,
                                                               ProcessId, ProcessMonitorNotification (..),
                                                               finally, liftIO,

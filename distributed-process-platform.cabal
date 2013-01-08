@@ -34,11 +34,11 @@ library
   hs-source-dirs:   src
   ghc-options:      -Wall
   exposed-modules:
-                   Control.Distributed.Platform,
-                   Control.Distributed.Platform.GenServer,
-                   Control.Distributed.Platform.Timer,
-                   Control.Distributed.Platform.Async
-  other-modules:   Control.Distributed.Platform.Internal.Primitives
+                   Control.Distributed.Process.Platform,
+                   Control.Distributed.Process.Platform.GenServer,
+                   Control.Distributed.Process.Platform.Timer,
+                   Control.Distributed.Process.Platform.Async
+  other-modules:   Control.Distributed.Process.Platform.Internal.Primitives
 
 test-suite TimerTests
   type:            exitcode-stdio-1.0
@@ -62,9 +62,9 @@ test-suite TimerTests
                    tests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   other-modules:   
-                   Control.Distributed.Platform.Timer,
-                   Control.Distributed.Platform
-                   Control.Distributed.Platform.Internal.Primitives
+                   Control.Distributed.Process.Platform.Timer,
+                   Control.Distributed.Process.Platform
+                   Control.Distributed.Process.Platform.Internal.Primitives
                    TestUtils
   extensions:      CPP
   main-is:         TestTimer.hs
@@ -91,8 +91,8 @@ test-suite PrimitivesTests
                    tests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   other-modules:   
-                   Control.Distributed.Platform
-                   Control.Distributed.Platform.Internal.Primitives
+                   Control.Distributed.Process.Platform
+                   Control.Distributed.Process.Platform.Internal.Primitives
                    TestUtils
   extensions:      CPP
   main-is:         TestPrimitives.hs
