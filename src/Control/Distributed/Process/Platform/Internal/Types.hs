@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveDataTypeable #-}
+
 -- | Types used throughout the Cloud Haskell framework
 --
 module Control.Distributed.Process.Platform.Internal.Types
@@ -5,10 +7,19 @@ module Control.Distributed.Process.Platform.Internal.Types
   , TagPool
   , newTagPool
   , getTag
+  , RegisterSelf(..)
   ) where
 
 import Control.Distributed.Process
 import Control.Concurrent.MVar (MVar, newMVar, modifyMVar)
+import Data.Binary (Binary,get,put)
+import Data.Typeable (Typeable)
+
+-- | Used internally in whereisOrStart. Send as (RegisterSelf,ProcessId).
+data RegisterSelf = RegisterSelf deriving Typeable
+instance Binary RegisterSelf where
+  put _ = return ()
+  get = return RegisterSelf
 
 -- | Tags provide uniqueness for messages, so that they can be
 -- matched with their response.
