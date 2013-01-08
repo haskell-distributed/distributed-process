@@ -72,6 +72,7 @@ import Control.Distributed.Process (AbstractMessage,
 import Control.Distributed.Process.Internal.Types (MonitorRef)
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Platform
+import Control.Distributed.Process.Platform.Time
 import Control.Distributed.Process.Platform.Async
 
 import Data.Binary (Binary (..), getWord8, putWord8)
@@ -94,10 +95,10 @@ newtype Server s a = Server {
 
 -- | Initialize handler result
 data InitResult
-  = InitOk Timeout
+  = InitOk Delay
   | InitStop String
 
-initOk :: Timeout -> Server s InitResult
+initOk :: Delay -> Server s InitResult
 initOk t = return (InitOk t)
 
 initStop :: String -> Server s InitResult
@@ -264,10 +265,10 @@ call :: (Serializable rq, Show rq, Serializable rs, Show rs) => ServerId -> rq -
 call sid rq = callTimeout sid Infinity rq >>= return . fromJust
 
 -- | Sync call
-callTimeout :: (Serializable rq, Show rq, Serializable rs, Show rs) => ServerId -> Timeout -> rq -> Process (Maybe rs)
-callTimeout sid timeout rq = do
+callTimeout :: (Serializable rq, Show rq, Serializable rs, Show rs) => ServerId -> Delay -> rq -> Process (Maybe rs)
+callTimeout sid t rq = do
   a1 <- callAsync sid rq
-  waitTimeout a1 timeout
+  waitTimeout a1 t
 
 -- | Async call to a server
 callAsync :: (Serializable rq, Show rq, Serializable rs, Show rs) => ServerId -> rq -> Process (Async rs)
@@ -334,7 +335,7 @@ processLoop dispatchers ir = do
             Just r -> return r
 
 -- |
-processReceive :: [MessageDispatcher s] -> Timeout -> Server s (Maybe TerminateReason)
+processReceive :: [MessageDispatcher s] -> Delay -> Server s (Maybe TerminateReason)
 processReceive ds timeout = do
     s <- getState
     let ms = map (matchMessage s) ds
@@ -343,7 +344,7 @@ processReceive ds timeout = do
             (s', r) <- lift $ receiveWait ms
             putState s'
             return r
-        Timeout t -> do
+        Delay t -> do
             mayResult <- lift $ receiveTimeout (intervalToMs t) ms
             case mayResult of
                 Just (s', r) -> do
