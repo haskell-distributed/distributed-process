@@ -1,6 +1,6 @@
 -- | [Cloud Haskell Platform]
 --
-module Control.Distributed.Platform
+module Control.Distributed.Process.Platform
   (
     -- extra primitives
     spawnLinkLocal
@@ -18,8 +18,8 @@ module Control.Distributed.Platform
   , TimeUnit
   ) where
 
-import Control.Distributed.Platform.Internal.Types
-import Control.Distributed.Platform.Internal.Primitives
+import Control.Distributed.Process.Platform.Internal.Types
+import Control.Distributed.Process.Platform.Internal.Primitives
 
 --------------------------------------------------------------------------------
 -- API                                                                        --

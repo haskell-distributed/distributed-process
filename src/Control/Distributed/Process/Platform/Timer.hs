@@ -1,7 +1,7 @@
 {-# LANGUAGE DeriveDataTypeable        #-}
 {-# LANGUAGE TemplateHaskell           #-}
 
-module Control.Distributed.Platform.Timer 
+module Control.Distributed.Process.Platform.Timer 
   (
     TimerRef
   , Tick(Tick)
@@ -18,8 +18,8 @@ module Control.Distributed.Platform.Timer
 
 import Control.Distributed.Process
 import Control.Distributed.Process.Serializable
-import Control.Distributed.Platform.Internal.Types
-import Control.Distributed.Platform
+import Control.Distributed.Process.Platform.Internal.Types
+import Control.Distributed.Process.Platform
 import Data.Binary
 import Data.DeriveTH
 import Data.Typeable                               (Typeable)

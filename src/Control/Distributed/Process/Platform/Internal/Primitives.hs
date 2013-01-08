@@ -1,7 +1,7 @@
 -- | Common Entities used throughout -platform.
 -- NB: Please DO NOT use this module as a dumping ground.
 --
-module Control.Distributed.Platform.Internal.Primitives
+module Control.Distributed.Process.Platform.Internal.Primitives
   ( spawnLinkLocal
   , spawnMonitorLocal
   , linkOnFailure

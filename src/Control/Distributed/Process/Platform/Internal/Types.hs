@@ -11,7 +11,7 @@
 
 -- | Types used throughout the Cloud Haskell framework
 --
-module Control.Distributed.Platform.Internal.Types (
+module Control.Distributed.Process.Platform.Internal.Types (
     TimeUnit(..)
   , TimeInterval(..)
   , Timeout(..) 
