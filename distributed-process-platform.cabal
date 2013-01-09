@@ -37,8 +37,18 @@ library
                    Control.Distributed.Process.Platform,
                    Control.Distributed.Process.Platform.GenServer,
                    Control.Distributed.Process.Platform.Timer,
+<<<<<<< Updated upstream
                    Control.Distributed.Process.Platform.Async
   other-modules:   Control.Distributed.Process.Platform.Internal.Primitives
+=======
+                   Control.Distributed.Process.Platform.Async,
+                   Control.Distributed.Process.Platform.Call,
+                   Control.Distributed.Process.Platform.Time,
+                   Control.Distributed.Process.Platform.Test
+  other-modules:   
+                   Control.Distributed.Process.Platform.Internal.Primitives
+                   Control.Distributed.Process.Platform.Internal.Types
+>>>>>>> Stashed changes
 
 test-suite TimerTests
   type:            exitcode-stdio-1.0
