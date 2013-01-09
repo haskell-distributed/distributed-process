@@ -19,7 +19,7 @@ data-dir:       ""
 
 source-repository head
   type:      git
-  location:  https://github.com/hyperthunk/distributed-process-platform
+  location:  https://github.com/haskell-distributed/distributed-process-platform
 
 library
   build-depends:
@@ -41,7 +41,8 @@ library
   other-modules:   
                    Control.Distributed.Process.Platform.Internal.Primitives,
                    Control.Distributed.Process.Platform.Call,
-                   Control.Distributed.Process.Platform.Time
+                   Control.Distributed.Process.Platform.Time,
+                   Control.Distributed.Process.Platform.Test
 
 test-suite TimerTests
   type:            exitcode-stdio-1.0
@@ -51,6 +52,7 @@ test-suite TimerTests
                    ansi-terminal >= 0.5 && < 0.6,
                    distributed-process,
                    derive,
+                   containers >= 0.4 && < 0.6,
                    network-transport >= 0.3 && < 0.4,
                    mtl,
                    network-transport-tcp >= 0.3 && < 0.4,
@@ -68,8 +70,9 @@ test-suite TimerTests
                    Control.Distributed.Process.Platform.Timer,
                    Control.Distributed.Process.Platform,
                    Control.Distributed.Process.Platform.Internal.Primitives,
+                   Control.Distributed.Process.Platform.Time,
                    TestUtils,
-                   Control.Distributed.Process.Platform.Time
+                   Control.Distributed.Process.Platform.Test
   extensions:      CPP
   main-is:         TestTimer.hs
 
@@ -83,6 +86,7 @@ test-suite PrimitivesTests
                    derive,
                    network-transport >= 0.3 && < 0.4,
                    mtl,
+                   containers >= 0.4 && < 0.6,
                    network-transport-tcp >= 0.3 && < 0.4,
                    binary >= 0.5 && < 0.7,
                    network >= 2.3 && < 2.5,
@@ -97,8 +101,9 @@ test-suite PrimitivesTests
   other-modules:   
                    Control.Distributed.Process.Platform,
                    Control.Distributed.Process.Platform.Internal.Primitives,
+                   Control.Distributed.Process.Platform.Time,
                    TestUtils,
-                   Control.Distributed.Process.Platform.Time
+                   Control.Distributed.Process.Platform.Test
   extensions:      CPP
   main-is:         TestPrimitives.hs
 
