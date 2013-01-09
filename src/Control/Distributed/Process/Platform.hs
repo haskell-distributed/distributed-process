@@ -7,13 +7,20 @@ module Control.Distributed.Process.Platform
   , spawnMonitorLocal
   , linkOnFailure
 
+  -- registration/start
+  , whereisOrStart
+  , whereisOrStartRemote
+
+  -- matching
+  , matchCond
+
     -- tags
   , Tag
   , TagPool
   , newTagPool
   , getTag
 
-  -- * Remote call table
+  -- remote call table
   , __remoteTable
   ) where
 
