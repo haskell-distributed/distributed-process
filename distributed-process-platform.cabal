@@ -63,10 +63,10 @@ test-suite TimerTests
                    tests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   other-modules:
-                   Control.Distributed.Platform.Timer,
-                   Control.Distributed.Platform
-                   Control.Distributed.Platform.Internal.Primitives
-                   Control.Distributed.Platform.Internal.Types
+                   Control.Distributed.Process.Platform.Timer,
+                   Control.Distributed.Process.Platform
+                   Control.Distributed.Process.Platform.Internal.Primitives
+                   Control.Distributed.Process.Platform.Internal.Types
                    TestUtils
   extensions:      CPP
   main-is:         TestTimer.hs
