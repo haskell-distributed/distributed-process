@@ -14,7 +14,7 @@
 module Control.Distributed.Process.Platform.Internal.Types (
     TimeUnit(..)
   , TimeInterval(..)
-  , Timeout(..) 
+  , Timeout(..)
   ) where
 
 import Data.Binary

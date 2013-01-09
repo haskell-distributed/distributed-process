@@ -1,7 +1,7 @@
 {-# LANGUAGE DeriveDataTypeable        #-}
 {-# LANGUAGE TemplateHaskell           #-}
 
-module Control.Distributed.Process.Platform.Timer 
+module Control.Distributed.Process.Platform.Timer
   (
     TimerRef
   , Tick(Tick)
@@ -49,7 +49,7 @@ $(derive makeBinary ''SleepingPill)
 -- | blocks the calling Process for the specified TimeInterval. Note that this
 -- function assumes that a blocking receive is the most efficient approach to
 -- acheiving this, so expect the runtime semantics (particularly with regards
--- scheduling) to differ from threadDelay and/or operating system specific 
+-- scheduling) to differ from threadDelay and/or operating system specific
 -- functions that offer the same results.
 sleep :: TimeInterval -> Process ()
 sleep t = do
@@ -63,9 +63,9 @@ sleep t = do
 sendAfter :: (Serializable a) => TimeInterval -> ProcessId -> a -> Process TimerRef
 sendAfter t pid msg = runAfter t (mkSender pid msg)
 
--- | runs the supplied process action(s) after `t' has elapsed 
+-- | runs the supplied process action(s) after `t' has elapsed
 runAfter :: TimeInterval -> Process () -> Process TimerRef
-runAfter t p = spawnLocal $ runTimer t p True   
+runAfter t p = spawnLocal $ runTimer t p True
 
 -- | starts a timer that repeatedly sends the supplied message to the destination
 -- process each time the specified time interval elapses. To stop messages from
@@ -92,7 +92,7 @@ cancelTimer = (flip send) Cancel
 -- | cancels a running timer and flushes any viable timer messages from the
 -- process' message queue. This function should only be called by the process
 -- expecting to receive the timer's messages!
-flushTimer :: (Serializable a, Eq a) => TimerRef -> a -> Timeout -> Process () 
+flushTimer :: (Serializable a, Eq a) => TimerRef -> a -> Timeout -> Process ()
 flushTimer ref ignore t = do
     mRef <- monitor ref
     cancelTimer ref
