@@ -54,7 +54,7 @@ test-suite TimerTests
                    binary >= 0.5 && < 0.7,
                    network >= 2.3 && < 2.5,
                    HUnit >= 1.2 && < 2,
-                   test-framework >= 0.6 && < 0.7,
+                   test-framework >= 0.6 && < 0.9,
                    test-framework-hunit,
                    transformers
   hs-source-dirs:
@@ -83,7 +83,7 @@ test-suite PrimitivesTests
                    binary >= 0.5 && < 0.7,
                    network >= 2.3 && < 2.5,
                    HUnit >= 1.2 && < 2,
-                   test-framework >= 0.6 && < 0.7,
+                   test-framework >= 0.6 && < 0.9,
                    test-framework-hunit,
                    transformers
   hs-source-dirs:
