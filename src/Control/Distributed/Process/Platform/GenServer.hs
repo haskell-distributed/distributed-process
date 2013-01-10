@@ -56,11 +56,7 @@ import Control.Distributed.Process (AbstractMessage,
                                     Match,
                                     Process,
                                     ProcessId,
-                                    monitor,
-                                    link,
-                                    expect, expectTimeout,
-                                    monitor, unmonitor,
-                                    finally,
+                                    monitor, link,
                                     exit, getSelfPid, match,
                                     matchAny, matchIf,
                                     receiveTimeout,
@@ -70,7 +66,6 @@ import Control.Distributed.Process (AbstractMessage,
 import Control.Distributed.Process.Internal.Types (MonitorRef)
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Platform.Time
-import Control.Distributed.Process.Platform.Async
 import Control.Distributed.Process.Platform.Async.AsyncChan
 
 import Data.Binary (Binary (..), getWord8, putWord8)
