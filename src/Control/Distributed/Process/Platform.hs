@@ -56,4 +56,3 @@ timeToMs Millis  ms   = ms
 timeToMs Seconds sec  = sec * 1000
 timeToMs Minutes mins = (mins * 60) * 1000
 timeToMs Hours   hrs  = ((hrs * 60) * 60) * 1000
-
