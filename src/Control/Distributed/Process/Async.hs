@@ -8,7 +8,8 @@ module Control.Distributed.Process.Platform.Async (
 import           Control.Concurrent.MVar
 import           Control.Distributed.Process.Platform
 import           Control.Distributed.Process                 (Process,
-                                                              ProcessId, ProcessMonitorNotification (..),
+                                                              ProcessId,
+                                                              ProcessMonitorNotification (..),
                                                               finally, liftIO,
                                                               match, monitor,
                                                               receiveTimeout,
