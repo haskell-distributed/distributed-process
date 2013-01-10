@@ -16,10 +16,10 @@
 -- Clients make synchronous calls to a running process (i.e., server) using the
 -- 'callAt', 'callTimeout' and 'multicall' functions. Processes acting as the
 -- server are constructed using Cloud Haskell's 'receive' family of primitives
--- and the 'callResponse' family of functions in this module.   
+-- and the 'callResponse' family of functions in this module.
 -----------------------------------------------------------------------------
 
-module Control.Distributed.Process.Platform.Call 
+module Control.Distributed.Process.Platform.Call
   ( -- client API
     callAt
   , callTimeout
@@ -54,8 +54,8 @@ import Control.Distributed.Process.Platform.Time
 -- The tag is per-process unique identifier of the transaction. If the timeout expires
 -- or the target process dies, Nothing will be returned.
 callTimeout :: (Serializable a, Serializable b) => ProcessId -> a -> Tag -> Timeout -> Process (Maybe b)
-callTimeout pid msg tag time = 
-  do res <- multicall [pid] msg tag time 
+callTimeout pid msg tag time =
+  do res <- multicall [pid] msg tag time
      return $ join (listToMaybe res)
 
 -- | Like 'callTimeout', but with no timeout. Returns Nothing if the target process dies.
@@ -85,11 +85,11 @@ multicall nodes msg tag time =
                  (\_ -> error "multicall: unexpected termination of worker process")
        ]
    where
-         recv nodes' monitortags mon_caller = 
-           do 
+         recv nodes' monitortags mon_caller =
+           do
               let
                   ordered [] _ = []
-                  ordered (x:xs) m = 
+                  ordered (x:xs) m =
                       M.lookup x m : ordered xs m
                   recv1 ([],_,results) = return results
                   recv1 (_,[],results) = return results
@@ -98,12 +98,12 @@ multicall nodes msg tag time =
                          [
                             matchIf (\(ProcessMonitorNotification ref _ _) -> ref == mon_caller)
                                     (\_ -> return Nothing),
-                            matchIf (\(ProcessMonitorNotification ref pid reason) -> 
+                            matchIf (\(ProcessMonitorNotification ref pid reason) ->
                                         ref `elem` monitortagsleft && pid `elem` nodesleft && reason /= DiedNormal)
-                                    (\(ProcessMonitorNotification ref pid _reason) -> 
+                                    (\(ProcessMonitorNotification ref pid _reason) ->
                                         return $ Just (delete pid nodesleft, delete ref monitortagsleft, results)),
                             matchIf (\(MulticallResponse,mtag,_,_) -> mtag == tag)
-                                    (\(MulticallResponse,_,responder,msgx) -> 
+                                    (\(MulticallResponse,_,responder,msgx) ->
                                         return $ Just (delete responder nodesleft, monitortagsleft, M.insert responder (msgx::b) results)),
                             matchIf (\(TimeoutNotification mtag) -> mtag == tag )
                                     (\_ -> return Nothing)
@@ -117,14 +117,14 @@ data MulticallResponseType a =
        | MulticallForward ProcessId a
        | MulticallReject deriving Eq
 
-callResponseImpl :: (Serializable a,Serializable b) => (a -> MulticallResponseType c) -> 
+callResponseImpl :: (Serializable a,Serializable b) => (a -> MulticallResponseType c) ->
                          (a -> (b -> Process())-> Process c) -> Match c
-callResponseImpl cond proc = 
-    matchIf (\(Multicall,_responder,_,_,msg) -> 
+callResponseImpl cond proc =
+    matchIf (\(Multicall,_responder,_,_,msg) ->
                  case cond msg of
                     MulticallReject -> False
-                    _ -> True) 
-            (\wholemsg@(Multicall,responder,sender,tag,msg) -> 
+                    _ -> True)
+            (\wholemsg@(Multicall,responder,sender,tag,msg) ->
                  case cond msg of
                    MulticallForward target ret -> -- TODO sender should get a ProcessMonitorNotification if target dies, or we should link target
                      do send target wholemsg
@@ -138,7 +138,7 @@ callResponseImpl cond proc =
 -- callResponse will respond to a message of type a sent by 'callTimeout', and will respond with
 -- a value of type b.
 callResponse :: (Serializable a,Serializable b) => (a -> Process (b,c)) -> Match c
-callResponse = 
+callResponse =
     callResponseIf (const True)
 
 callResponseDeferIf  :: (Serializable a,Serializable b) => (a -> Bool) -> (a -> (b -> Process())-> Process c) -> Match c
@@ -154,8 +154,8 @@ callResponseDefer = callResponseDeferIf (const True)
 -- responsibility to ensure that the forwarding process is linked to the destination process, so that if
 -- it fails, the sender will be notified.
 callForward :: Serializable a => (a -> (ProcessId, c)) -> Match c
-callForward proc = 
-   callResponseImpl 
+callForward proc =
+   callResponseImpl
      (\msg -> let (pid, ret) = proc msg
                in MulticallForward pid ret )
      (\_ sender -> (sender::(() -> Process ())) `mention` error "multicallForward: Indecisive condition")
@@ -165,28 +165,28 @@ callForward proc =
 -- handling thread dies, you'll need to call link yourself.
 callResponseAsync :: (Serializable a,Serializable b) => (a -> Maybe c) -> (a -> Process b) -> Match c
 callResponseAsync cond proc =
-   callResponseImpl 
-         (\msg -> 
+   callResponseImpl
+         (\msg ->
             case cond msg of
               Nothing -> MulticallReject
               Just _ -> MulticallAccept)
-         (\msg sender -> 
+         (\msg sender ->
             do _ <- spawnLocal $ -- TODO linkOnFailure to spawned procss
                  do val <- proc msg
                     sender val
                case cond msg of
                  Nothing -> error "multicallResponseAsync: Indecisive condition"
-                 Just ret -> return ret )  
+                 Just ret -> return ret )
 
 callResponseIf :: (Serializable a,Serializable b) => (a -> Bool) -> (a -> Process (b,c)) -> Match c
-callResponseIf cond proc = 
+callResponseIf cond proc =
     callResponseImpl
-             (\msg -> 
+             (\msg ->
                  case cond msg of
                    True -> MulticallAccept
-                   False -> MulticallReject) 
-             (\msg sender -> 
-                 do (tosend,toreturn) <- proc msg 
+                   False -> MulticallReject)
+             (\msg sender ->
+                 do (tosend,toreturn) <- proc msg
                     sender tosend
                     return toreturn)
 
@@ -211,4 +211,3 @@ data MulticallResponse = MulticallResponse
 instance Binary MulticallResponse where
        get = return MulticallResponse
        put _ = return ()
-

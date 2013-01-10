@@ -19,8 +19,6 @@ import qualified Control.Monad.State         as ST (StateT, get,
                                                     put, runStateT)
 
 import Control.Distributed.Process.Serializable
-import Control.Distributed.Process.Platform.Internal.Types
-import Control.Distributed.Process.Platform
 import Control.Distributed.Process.Platform.Time
 import Data.Binary
 import Data.DeriveTH
@@ -61,12 +59,12 @@ data ProcessAction =
     deriving (Typeable)
 $(derive makeBinary ''ProcessAction)
 
-type Process s = ST.StateT s BaseProcess.Process
+type GenProcess s = ST.StateT s BaseProcess.Process
 
 -- | Handlers
-type InitHandler      s   = Process s InitResult
-type TerminateHandler s   = TerminateReason -> Process s ()
-type RequestHandler   s a = Message a -> Process s ProcessAction
+type InitHandler      s   = GenProcess s InitResult
+type TerminateHandler s   = TerminateReason -> GenProcess s ()
+type RequestHandler   s a = Message a -> GenProcess s ProcessAction
 
 -- | Contains the actual payload and possibly additional routing metadata
 data Message a = Message ReplyTo a
@@ -168,15 +166,15 @@ handleRequestIf cond handler = DispatchIf {
 -- process state management
 
 -- | gets the process state
-getState :: Process s s
+getState :: GenProcess s s
 getState = ST.get
 
 -- | sets the process state
-putState :: s -> Process s ()
+putState :: s -> GenProcess s ()
 putState = ST.put
 
 -- | modifies the server state
-modifyState :: (s -> s) -> Process s ()
+modifyState :: (s -> s) -> GenProcess s ()
 modifyState = ST.modify
 
 --------------------------------------------------------------------------------
@@ -184,7 +182,7 @@ modifyState = ST.modify
 --------------------------------------------------------------------------------
 
 -- | server process
-runProc :: Behaviour s -> Process s ()
+runProc :: Behaviour s -> GenProcess s ()
 runProc s = do
     ir <- init s
     tr <- case ir of
@@ -195,23 +193,23 @@ runProc s = do
     terminate s tr
 
 -- | initialize server
-init :: Behaviour s -> Process s InitResult
+init :: Behaviour s -> GenProcess s InitResult
 init s = do
     trace $ "Server initializing ... "
     ir <- initHandler s
     return ir
 
-loop :: Behaviour s -> Delay -> Process s TerminateReason
+loop :: Behaviour s -> Delay -> GenProcess s TerminateReason
 loop s t = do
     s' <- processReceive (dispatchers s) t
     nextAction s s'
     where nextAction :: Behaviour s -> ProcessAction ->
-                            Process s TerminateReason
+                            GenProcess s TerminateReason
           nextAction b ProcessContinue     = loop b t
           nextAction b (ProcessTimeout t') = loop b t'
           nextAction _ (ProcessStop r)     = return (TerminateReason r)
 
-processReceive :: [Dispatcher s] -> Delay -> Process s ProcessAction
+processReceive :: [Dispatcher s] -> Delay -> GenProcess s ProcessAction
 processReceive ds t = do
     s <- getState
     let ms = map (matchMessage s) ds
@@ -230,13 +228,13 @@ processReceive ds t = do
                 Nothing -> do
                   return $ ProcessStop "timed out"
 
-terminate :: Behaviour s -> TerminateReason -> Process s ()
+terminate :: Behaviour s -> TerminateReason -> GenProcess s ()
 terminate s reason = do
     trace $ "Server terminating: " ++ show reason
     (terminateHandler s) reason
 
 -- | Log a trace message using the underlying Process's say
-trace :: String -> Process s ()
+trace :: String -> GenProcess s ()
 trace msg = ST.lift . BaseProcess.say $ msg
 
 -- data Upgrade = ???
