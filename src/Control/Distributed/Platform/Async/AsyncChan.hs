@@ -19,7 +19,6 @@
 -- result of one or more asynchronously running (and potentially distributed)
 -- processes.
 --
--- 
 --
 -----------------------------------------------------------------------------
 
@@ -108,13 +107,13 @@ async = asyncDo True
 -- never left running unintentionally. This function is provided for compatibility
 -- with other /async/ implementations that may offer different semantics for
 -- @async@ with regards linking.
--- 
--- @asyncLinked = async@ 
+--
+-- @asyncLinked = async@
 --
 asyncLinked :: (Serializable a) => AsyncTask a -> Process (AsyncChan a)
 asyncLinked = async
 
-asyncDo :: (Serializable a) => Bool -> AsyncTask a -> Process (AsyncChan a) 
+asyncDo :: (Serializable a) => Bool -> AsyncTask a -> Process (AsyncChan a)
 asyncDo shouldLink task = do
     (wpid, gpid, chan) <- spawnWorkers task shouldLink
     return AsyncChan {
@@ -130,16 +129,16 @@ spawnWorkers :: (Serializable a)
 spawnWorkers task shouldLink = do
     root <- getSelfPid
     chan <- newChan
-  
+
     -- listener/response proxy
     insulatorPid <- spawnLocal $ do
         workerPid <- spawnLocal $ do
             () <- expect
             r <- task
             sendChan (fst chan) (AsyncDone r)
-                
+
         send root workerPid   -- let the parent process know the worker pid
-    
+
         wref <- monitor workerPid
         rref <- case shouldLink of
                     True  -> monitor root >>= return . Just
@@ -147,11 +146,11 @@ spawnWorkers task shouldLink = do
         finally (pollUntilExit workerPid chan)
                 (unmonitor wref >>
                     return (maybe (return ()) unmonitor rref))
-  
+
     workerPid <- expect
     send workerPid ()
     return (workerPid, insulatorPid, chan)
-  where  
+  where
     -- blocking receive until we see an input message
     pollUntilExit :: (Serializable a)
                   => ProcessId
@@ -166,7 +165,7 @@ spawnWorkers task shouldLink = do
       case r of
           Left  CancelWait -> sendChan replyTo AsyncCancelled
           Right (fpid, d)
-            | fpid == wpid -> case d of 
+            | fpid == wpid -> case d of
                                   DiedNormal -> return ()
                                   _          -> sendChan replyTo (AsyncFailed d)
             | otherwise    -> kill wpid "linkFailed"
@@ -187,7 +186,7 @@ poll hAsync = do
 check :: (Serializable a) => AsyncChan a -> Process (Maybe (AsyncResult a))
 check hAsync = poll hAsync >>= \r -> case r of
   AsyncPending -> return Nothing
-  ar           -> return (Just ar)  
+  ar           -> return (Just ar)
 
 -- | Wait for an asynchronous operation to complete or timeout. This variant
 -- returns the 'AsyncResult' itself, which will be 'AsyncPending' if the
@@ -207,7 +206,7 @@ wait hAsync = receiveChan $ snd (channel hAsync)
 -- @Nothing@ if the 'AsyncResult' does not change from @AsyncPending@ within
 -- the specified delay, otherwise @Just asyncResult@ is returned. If you want
 -- to wait/block on the 'AsyncResult' without the indirection of @Maybe@ then
--- consider using 'wait' or 'waitCheckTimeout' instead. 
+-- consider using 'wait' or 'waitCheckTimeout' instead.
 waitTimeout :: (Serializable a) =>
                TimeInterval -> AsyncChan a -> Process (Maybe (AsyncResult a))
 waitTimeout t hAsync =
@@ -216,7 +215,7 @@ waitTimeout t hAsync =
 -- | Wait for any of the supplied @AsyncChans@s to complete. If multiple
 -- 'Async's complete, then the value returned corresponds to the first
 -- completed 'Async' in the list. Only /unread/ 'Async's are of value here,
--- because 'AsyncChan' does not hold on to its result after it has been read! 
+-- because 'AsyncChan' does not hold on to its result after it has been read!
 --
 -- This function is analagous to the @mergePortsBiased@ primitive.
 -- See 'Control.Distibuted.Process.mergePortsBiased'
@@ -226,7 +225,7 @@ waitAny :: (Serializable a)
 waitAny asyncs =
   let ports = map (snd . channel) asyncs in recv ports
   where recv :: (Serializable a) => [ReceivePort a] -> Process a
-        recv ps = mergePortsBiased ps >>= receiveChan  
+        recv ps = mergePortsBiased ps >>= receiveChan
 
 -- | Like 'waitAny' but times out after the specified delay.
 waitAnyTimeout :: (Serializable a)
@@ -251,7 +250,7 @@ cancel (AsyncChan _ g _) = send g CancelWait
 -- that the 'AsyncResult' returned will not necessarily be 'AsyncCancelled'. For
 -- example, the worker may complete its task after this function is called, but
 -- before the cancellation instruction is acted upon.
--- 
+--
 -- If you wish to stop an asychronous operation /immediately/ (with caveats) then
 -- consider using 'cancelWith' or 'cancelKill' instead.
 --
@@ -275,14 +274,14 @@ cancelWait hAsync = cancel hAsync >> wait hAsync
 -- time to handle the request, which can lead to situations similar to (1) as
 -- listed above, if the scheduler to which the calling process' thread is bound
 -- decides to GC whilst another scheduler on which the worker is running is able
--- to continue.    
+-- to continue.
 --
 -- See 'Control.Distributed.Process.exit'
 cancelWith :: (Serializable b) => b -> AsyncChan a -> Process ()
-cancelWith reason = (flip exit) reason . worker 
+cancelWith reason = (flip exit) reason . worker
 
 -- | Like 'cancelWith' but sends a @kill@ instruction instead of an exit.
--- 
+--
 -- See 'Control.Distributed.Process.kill'
 cancelKill :: String -> AsyncChan a -> Process ()
 cancelKill reason = (flip kill) reason . worker
