@@ -11,8 +11,9 @@
 
 -- | Types used throughout the Cloud Haskell framework
 --
-module Control.Distributed.Process.Platform.Internal.Types (
-    TimeUnit(..)
+module Control.Distributed.Process.Platform.Internal.Types 
+  ( CancelWait(..)
+  , TimeUnit(..)
   , TimeInterval(..)
   , Timeout(..)
   ) where
@@ -36,3 +37,8 @@ $(derive makeBinary ''TimeInterval)
 data Timeout = Timeout TimeInterval | Infinity
     deriving (Typeable, Show)
 $(derive makeBinary ''Timeout)
+
+data CancelWait = CancelWait
+    deriving (Typeable)
+$(derive makeBinary ''CancelWait)
+
