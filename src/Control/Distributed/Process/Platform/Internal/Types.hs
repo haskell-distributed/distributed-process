@@ -11,11 +11,11 @@
 
 -- | Types used throughout the Cloud Haskell framework
 --
-module Control.Distributed.Platform.Internal.Types (
-    TimeUnit(..)
+module Control.Distributed.Process.Platform.Internal.Types 
+  ( CancelWait(..)
+  , TimeUnit(..)
   , TimeInterval(..)
   , Timeout(..)
-  , CancelWait(..) 
   ) where
 
 import Data.Binary
@@ -41,3 +41,4 @@ $(derive makeBinary ''Timeout)
 data CancelWait = CancelWait
     deriving (Typeable)
 $(derive makeBinary ''CancelWait)
+

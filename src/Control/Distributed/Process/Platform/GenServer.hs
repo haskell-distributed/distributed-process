@@ -8,7 +8,7 @@
 {-# LANGUAGE TypeFamilies               #-}
 
 -- | Second iteration of GenServer
-module Control.Distributed.Platform.GenServer (
+module Control.Distributed.Process.Platform.GenServer (
     ServerId,
     Timeout(..),
     initOk,
@@ -28,12 +28,15 @@ module Control.Distributed.Platform.GenServer (
     modifyState,
     LocalServer(..),
     defaultServer,
-    startServer,
-    startServerLink,
-    startServerMonitor,
-    callServer,
-    castServer,
-    stopServer,
+    start,
+    startLink,
+    startMonitor,
+    terminate,
+    cast,
+    call,
+    callTimeout,
+    wait,
+    waitTimeout,
     Process,
     trace
   ) where
@@ -54,7 +57,7 @@ import Control.Distributed.Process (AbstractMessage,
                                     Match,
                                     Process,
                                     ProcessId,
-                                    expectTimeout,
+                                    expect, expectTimeout,
                                     monitor, unmonitor,
                                     link, finally,
                                     exit, getSelfPid, match,
@@ -63,12 +66,15 @@ import Control.Distributed.Process (AbstractMessage,
                                     receiveWait, say,
                                     send, spawnLocal,
                                     ProcessMonitorNotification(..))
+
 import Control.Distributed.Process.Internal.Types (MonitorRef)
 import Control.Distributed.Process.Serializable (Serializable)
-import Control.Distributed.Platform.Internal.Types
-import Control.Distributed.Platform
+import Control.Distributed.Process.Platform
+import Control.Distributed.Process.Platform.Async
+import Control.Distributed.Process.Platform.Async.AsyncChan
 
 import Data.Binary (Binary (..), getWord8, putWord8)
+import Data.Maybe (fromJust)
 import Data.DeriveTH
 import Data.Typeable (Typeable)
 
@@ -230,8 +236,8 @@ defaultServer = LocalServer {
 --------------------------------------------------------------------------------
 
 -- | Start a new server and return it's id
-startServer :: s -> LocalServer s -> Process ServerId
-startServer s ls = spawnLocal proc
+start :: s -> LocalServer s -> Process ServerId
+start s ls = spawnLocal proc
   where
     proc = processServer initH terminateH hs s
     initH = initHandler ls
@@ -239,59 +245,37 @@ startServer s ls = spawnLocal proc
     hs = handlers ls
 
 -- | Spawn a process and link to it
-startServerLink :: s -> LocalServer s -> Process ServerId
-startServerLink s ls = do
-  pid <- startServer s ls
+startLink :: s -> LocalServer s -> Process ServerId
+startLink s ls = do
+  pid <- start s ls
   link pid
   return pid
 
 -- | Like 'spawnServerLink', but monitor the spawned process
-startServerMonitor :: s -> LocalServer s -> Process (ServerId, MonitorRef)
-startServerMonitor s ls = do
-  pid <- startServer s ls
+startMonitor :: s -> LocalServer s -> Process (ServerId, MonitorRef)
+startMonitor s ls = do
+  pid <- start s ls
   ref <- monitor pid
   return (pid, ref)
 
--- | Call a server identified by it's ServerId
-callServer :: (Serializable rq, Show rq, Serializable rs, Show rs) => ServerId -> Timeout -> rq -> Process rs
-callServer sid timeout rq = do
-    cid <- getSelfPid
-    ref <- monitor sid
-    finally (doCall cid) (unmonitor ref)
-  where
-    doCall cid = do
-        --say $ "Calling server " ++ show cid ++ " - " ++ show rq
-        send sid (CallMessage cid rq)
-        case timeout of
-          Infinity -> do
-            receiveWait [matchDied, matchResponse]
-          Timeout t -> do
-              mayResp <- receiveTimeout (intervalToMs t) [matchDied, matchResponse]
-              case mayResp of
-                Just resp -> return resp
-                Nothing -> error $ "timeout! value = " ++ show t
+-- | Sync call with no timeout
+call :: (Serializable rq, Show rq, Serializable rs, Show rs) => ServerId -> rq -> Process rs
+call sid rq = callTimeout sid Infinity rq >>= return . fromJust
 
-    matchResponse = match (\resp -> do
-      --say $ "Matched: " ++ show resp
-      return resp)
-
-    matchDied = match (\(ProcessMonitorNotification _ _ reason) -> do
-      --say $ "Matched: " ++ show n
-      mayResp <- expectTimeout 0
-      case mayResp of
-        Just resp -> return resp
-        Nothing -> error $ "Server died: " ++ show reason)
+-- | Sync call
+callTimeout :: (Serializable rq, Show rq, Serializable rs, Show rs) => ServerId -> Timeout -> rq -> Process (Maybe rs)
+callTimeout sid (Timeout t) rq = undefined
 
 -- | Cast a message to a server identified by it's ServerId
-castServer :: (Serializable a) => ServerId -> a -> Process ()
-castServer sid msg = do
+cast :: (Serializable a) => ServerId -> a -> Process ()
+cast sid msg = do
   cid <- getSelfPid
   --say $ "Casting server " ++ show cid
   send sid (CastMessage cid msg)
 
 -- | Stops a server identified by it's ServerId
-stopServer :: Serializable a => ServerId -> a -> Process ()
-stopServer sid reason = do
+terminate :: Serializable a => ServerId -> a -> Process ()
+terminate sid reason = do
   --say $ "Stop server " ++ show sid
   exit sid reason
 
