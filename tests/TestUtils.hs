@@ -12,11 +12,17 @@ module TestUtils
   , TestProcessControl
   , startTestProcess
   , runTestProcess
+  , withTestProcess
   , testProcessGo
   , testProcessStop
   , testProcessReport
   , delayedAssertion
   , assertComplete
+  -- logging
+  , Logger()
+  , newLogger
+  , putLogMsg
+  , stopLogger
   -- runners
   , testMain
   ) where
@@ -25,17 +31,30 @@ import Prelude hiding (catch)
 import Data.Binary
 import Data.Typeable (Typeable)
 import Data.DeriveTH
+import Control.Concurrent
+  ( ThreadId
+  , myThreadId
+  , forkIO
+  )
+import Control.Concurrent.STM
+  ( TQueue
+  , newTQueueIO
+  , readTQueue
+  , writeTQueue
+  )
 import Control.Concurrent.MVar
   ( MVar
   , newEmptyMVar
   , putMVar
   , takeMVar
   )
+import Control.Exception
+import Control.Monad (forever)
+import Control.Monad.STM (atomically)
+  
 import Control.Distributed.Process
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable()
-
-import Control.Monad (forever)
 
 import Test.HUnit (Assertion)
 import Test.HUnit.Base (assertBool)
@@ -73,6 +92,9 @@ runTestProcess proc = forever $ do
     Stop     -> terminate
     Go       -> proc
     Report p -> receiveWait [matchAny (\m -> forward m p)] >> return ()
+
+withTestProcess :: ProcessId -> Process () -> Process ()
+withTestProcess pid proc = testProcessGo pid >> proc >> testProcessStop pid 
 
 -- | Tell a /test process/ to continue executing 
 testProcessGo :: ProcessId -> Process ()
@@ -112,10 +134,34 @@ noop = return ()
 stash :: TestResult a -> a -> Process ()
 stash mvar x = liftIO $ putMVar mvar x
 
+-- synchronised logging 
+
+data Logger = Logger { _tid :: ThreadId, msgs :: TQueue String } 
+
+-- | Create a new Logger.
+-- Logger uses a 'TQueue' to receive and process messages on a worker thread.  
+newLogger :: IO Logger
+newLogger = do
+  tid <- liftIO $ myThreadId
+  q <- liftIO $ newTQueueIO
+  forkIO $ logger q
+  return $ Logger tid q
+  where logger q' = forever $ do
+        msg <- atomically $ readTQueue q'
+        putStrLn msg
+
+-- | Send a message to the Logger
+putLogMsg :: Logger -> String -> Process ()
+putLogMsg logger msg = liftIO $ atomically $ writeTQueue (msgs logger) msg
+
+-- | Stop the worker thread for the given Logger
+stopLogger :: Logger -> IO ()
+stopLogger = (flip throwTo) ThreadKilled . _tid 
+
+-- | Given a @builder@ function, make and run a test suite on a single transport
 testMain :: (NT.Transport -> IO [Test]) -> IO ()
 testMain builder = do
   Right (transport, _) <- createTransportExposeInternals
                                     "127.0.0.1" "8080" defaultTCPParameters
   testData <- builder transport
-  defaultMain testData 
-
+  defaultMain testData

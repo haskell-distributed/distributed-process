@@ -33,10 +33,8 @@ module Control.Distributed.Process.Platform.GenServer (
     startMonitor,
     terminate,
     cast,
-    Async(),
     call,
     callTimeout,
-    callAsync,
     wait,
     waitTimeout,
     Process,
@@ -59,7 +57,7 @@ import Control.Distributed.Process (AbstractMessage,
                                     Match,
                                     Process,
                                     ProcessId,
-                                    expectTimeout,
+                                    expect, expectTimeout,
                                     monitor, unmonitor,
                                     link, finally,
                                     exit, getSelfPid, match,
@@ -73,6 +71,7 @@ import Control.Distributed.Process.Internal.Types (MonitorRef)
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Platform
 import Control.Distributed.Process.Platform.Async
+import Control.Distributed.Process.Platform.Async.AsyncChan
 
 import Data.Binary (Binary (..), getWord8, putWord8)
 import Data.Maybe (fromJust)
@@ -265,16 +264,7 @@ call sid rq = callTimeout sid Infinity rq >>= return . fromJust
 
 -- | Sync call
 callTimeout :: (Serializable rq, Show rq, Serializable rs, Show rs) => ServerId -> Timeout -> rq -> Process (Maybe rs)
-callTimeout sid timeout rq = do
-  a1 <- callAsync sid rq
-  waitTimeout a1 timeout
-
--- | Async call to a server
-callAsync :: (Serializable rq, Show rq, Serializable rs, Show rs) => ServerId -> rq -> Process (Async rs)
-callAsync sid rq = async sid $ do
-  cid <- getSelfPid
-  --say $ "Calling server " ++ show cid ++ " - " ++ show rq
-  send sid (CallMessage cid rq)
+callTimeout sid (Timeout t) rq = undefined
 
 -- | Cast a message to a server identified by it's ServerId
 cast :: (Serializable a) => ServerId -> a -> Process ()
