@@ -3,9 +3,7 @@
 
 module TestUtils
   ( TestResult
-  , noop
-  , stash
-  -- ping !
+    -- ping !
   , Ping(Ping)
   , ping
   -- test process utilities
@@ -17,17 +15,37 @@ module TestUtils
   , testProcessReport
   , delayedAssertion
   , assertComplete
+  -- logging
+  , Logger()
+  , newLogger
+  , putLogMsg
+  , stopLogger
   -- runners
   , tryRunProcess
   , testMain
   ) where
 
 import Prelude hiding (catch)
+import Control.Concurrent
+  ( ThreadId
+  , myThreadId
+  , forkIO
+  )
+import Control.Concurrent.STM
+  ( TQueue
+  , newTQueueIO
+  , readTQueue
+  , writeTQueue
+  )
 import Control.Concurrent.MVar
   ( MVar
   , newEmptyMVar
   , takeMVar
   )
+import Control.Exception
+import Control.Monad (forever)
+import Control.Monad.STM (atomically)
+  
 import Control.Distributed.Process
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable()
@@ -55,10 +73,34 @@ assertComplete msg mv a = do
   b <- takeMVar mv
   assertBool msg (a == b)
 
+-- synchronised logging 
+
+data Logger = Logger { _tid :: ThreadId, msgs :: TQueue String } 
+
+-- | Create a new Logger.
+-- Logger uses a 'TQueue' to receive and process messages on a worker thread.  
+newLogger :: IO Logger
+newLogger = do
+  tid <- liftIO $ myThreadId
+  q <- liftIO $ newTQueueIO
+  forkIO $ logger q
+  return $ Logger tid q
+  where logger q' = forever $ do
+        msg <- atomically $ readTQueue q'
+        putStrLn msg
+
+-- | Send a message to the Logger
+putLogMsg :: Logger -> String -> Process ()
+putLogMsg logger msg = liftIO $ atomically $ writeTQueue (msgs logger) msg
+
+-- | Stop the worker thread for the given Logger
+stopLogger :: Logger -> IO ()
+stopLogger = (flip throwTo) ThreadKilled . _tid 
+
+-- | Given a @builder@ function, make and run a test suite on a single transport
 testMain :: (NT.Transport -> IO [Test]) -> IO ()
 testMain builder = do
   Right (transport, _) <- createTransportExposeInternals
                                     "127.0.0.1" "8080" defaultTCPParameters
   testData <- builder transport
-  defaultMain testData 
-
+  defaultMain testData

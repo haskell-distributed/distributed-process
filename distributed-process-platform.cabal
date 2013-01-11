@@ -11,10 +11,10 @@ Maintainer:     watson.timothy@gmail.com
 Stability:      experimental
 Homepage:       http://github.com/haskell-distributed/distributed-process-platform
 Bug-Reports:    mailto:watson.timothy@gmail.com
-synopsis:       TODO
-description:    TODO
+synopsis:       The Cloud Haskell Application Platform
+description:    TBD
 category:       Control
-tested-with:    GHC ==7.4.1
+tested-with:    GHC == 7.4.2
 data-dir:       ""
 
 source-repository head
@@ -35,14 +35,18 @@ library
   ghc-options:      -Wall
   exposed-modules:
                    Control.Distributed.Process.Platform,
-                   Control.Distributed.Process.Platform.GenServer,
-                   Control.Distributed.Process.Platform.Timer,
                    Control.Distributed.Process.Platform.Async
-  other-modules:   
-                   Control.Distributed.Process.Platform.Internal.Primitives,
+                   Control.Distributed.Process.Platform.Async.AsyncChan
+                   Control.Distributed.Process.Platform.Async.AsyncSTM
                    Control.Distributed.Process.Platform.Call,
+                   Control.Distributed.Process.Platform.GenProcess,
+                   Control.Distributed.Process.Platform.GenServer,
+                   Control.Distributed.Process.Platform.Test,
                    Control.Distributed.Process.Platform.Time,
-                   Control.Distributed.Process.Platform.Test
+                   Control.Distributed.Process.Platform.Timer
+  other-modules:
+                   Control.Distributed.Process.Platform.Internal.Primitives,
+                   Control.Distributed.Process.Platform.Internal.Types
 
 test-suite TimerTests
   type:            exitcode-stdio-1.0
@@ -59,20 +63,22 @@ test-suite TimerTests
                    binary >= 0.5 && < 0.7,
                    network >= 2.3 && < 2.5,
                    HUnit >= 1.2 && < 2,
-                   test-framework >= 0.6 && < 0.7,
+                   stm >= 2.3 && < 2.5,
+                   test-framework >= 0.6 && < 0.9,
                    test-framework-hunit,
                    transformers
   hs-source-dirs:
                    src,
                    tests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
-  other-modules:   
-                   Control.Distributed.Process.Platform.Timer,
+  other-modules:
                    Control.Distributed.Process.Platform,
                    Control.Distributed.Process.Platform.Internal.Primitives,
                    Control.Distributed.Process.Platform.Time,
+                   Control.Distributed.Process.Platform.Timer,
                    TestUtils,
                    Control.Distributed.Process.Platform.Test
+                   Control.Distributed.Process.Platform.Internal.Types
   extensions:      CPP
   main-is:         TestTimer.hs
 
@@ -91,14 +97,15 @@ test-suite PrimitivesTests
                    binary >= 0.5 && < 0.7,
                    network >= 2.3 && < 2.5,
                    HUnit >= 1.2 && < 2,
-                   test-framework >= 0.6 && < 0.7,
+                   stm >= 2.3 && < 2.5,
+                   test-framework >= 0.6 && < 0.9,
                    test-framework-hunit,
                    transformers
   hs-source-dirs:
                    src,
                    tests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
-  other-modules:   
+  other-modules:
                    Control.Distributed.Process.Platform,
                    Control.Distributed.Process.Platform.Internal.Primitives,
                    Control.Distributed.Process.Platform.Time,
@@ -107,3 +114,29 @@ test-suite PrimitivesTests
   extensions:      CPP
   main-is:         TestPrimitives.hs
 
+test-suite AsyncTests
+  type:            exitcode-stdio-1.0
+  x-uses-tf:       true
+  build-depends:
+                   base >= 4.4 && < 5,
+                   ansi-terminal >= 0.5 && < 0.6,
+                   distributed-process,
+                   derive,
+                   network-transport >= 0.3 && < 0.4,
+                   mtl,
+                   network-transport-tcp >= 0.3 && < 0.4,
+                   binary >= 0.5 && < 0.7,
+                   network >= 2.3 && < 2.5,
+                   HUnit >= 1.2 && < 2,
+                   stm >= 2.3 && < 2.5,
+                   test-framework >= 0.6 && < 0.9,
+                   test-framework-hunit,
+                   transformers
+  hs-source-dirs:
+                   src,
+                   tests
+  ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
+  other-modules:
+                   TestUtils
+  extensions:      CPP
+  main-is:         TestAsync.hs
