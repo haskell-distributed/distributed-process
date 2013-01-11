@@ -62,6 +62,8 @@ data TimeInterval = TimeInterval TimeUnit Int
 $(derive makeBinary ''TimeInterval)
 
 data Delay = Delay TimeInterval | Infinity
+    deriving (Typeable, Show)
+$(derive makeBinary ''Delay)
 
 -- | Represents a /timeout/ in terms of microseconds, where 'Nothing' stands for
 -- infinity and @Just 0@, no-delay.

@@ -1,5 +1,5 @@
 {-# LANGUAGE DeriveDataTypeable #-}
-
+{-# LANGUAGE TemplateHaskell    #-}
 -- | Types used throughout the Cloud Haskell framework
 --
 module Control.Distributed.Process.Platform.Internal.Types
@@ -8,11 +8,13 @@ module Control.Distributed.Process.Platform.Internal.Types
   , newTagPool
   , getTag
   , RegisterSelf(..)
+  , CancelWait(..)
   ) where
 
 import Control.Distributed.Process
 import Control.Concurrent.MVar (MVar, newMVar, modifyMVar)
-import Data.Binary (Binary,get,put)
+import Data.Binary
+import Data.DeriveTH
 import Data.Typeable (Typeable)
 
 -- | Used internally in whereisOrStart. Send as (RegisterSelf,ProcessId).
@@ -40,3 +42,7 @@ newTagPool = liftIO $ newMVar 0
 -- | Extract a new identifier from a 'TagPool'.
 getTag :: TagPool -> Process Tag
 getTag tp = liftIO $ modifyMVar tp (\tag -> return (tag+1,tag))
+
+data CancelWait = CancelWait
+    deriving (Typeable)
+$(derive makeBinary ''CancelWait)
