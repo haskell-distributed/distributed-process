@@ -9,6 +9,7 @@ module Control.Distributed.Process.Platform.Internal.Types
   , getTag
   , RegisterSelf(..)
   , CancelWait(..)
+  , Channel
   ) where
 
 import Control.Distributed.Process
@@ -16,6 +17,8 @@ import Control.Concurrent.MVar (MVar, newMVar, modifyMVar)
 import Data.Binary
 import Data.DeriveTH
 import Data.Typeable (Typeable)
+
+type Channel a = (SendPort a, ReceivePort a)
 
 -- | Used internally in whereisOrStart. Send as (RegisterSelf,ProcessId).
 data RegisterSelf = RegisterSelf deriving Typeable
