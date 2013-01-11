@@ -55,6 +55,7 @@ test-suite TimerTests
                    binary >= 0.5 && < 0.7,
                    network >= 2.3 && < 2.5,
                    HUnit >= 1.2 && < 2,
+                   stm >= 2.3 && < 2.5,
                    test-framework >= 0.6 && < 0.9,
                    test-framework-hunit,
                    transformers
@@ -85,6 +86,7 @@ test-suite PrimitivesTests
                    binary >= 0.5 && < 0.7,
                    network >= 2.3 && < 2.5,
                    HUnit >= 1.2 && < 2,
+                   stm >= 2.3 && < 2.5,
                    test-framework >= 0.6 && < 0.9,
                    test-framework-hunit,
                    transformers
@@ -98,3 +100,31 @@ test-suite PrimitivesTests
                    TestUtils
   extensions:      CPP
   main-is:         TestPrimitives.hs
+
+test-suite AsyncTests
+  type:            exitcode-stdio-1.0
+  x-uses-tf:       true
+  build-depends:
+                   base >= 4.4 && < 5,
+                   ansi-terminal >= 0.5 && < 0.6,
+                   distributed-process,
+                   derive,
+                   network-transport >= 0.3 && < 0.4,
+                   mtl,
+                   network-transport-tcp >= 0.3 && < 0.4,
+                   binary >= 0.5 && < 0.7,
+                   network >= 2.3 && < 2.5,
+                   HUnit >= 1.2 && < 2,
+                   stm >= 2.3 && < 2.5,
+                   test-framework >= 0.6 && < 0.9,
+                   test-framework-hunit,
+                   transformers
+  hs-source-dirs:
+                   src,
+                   tests
+  ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
+  other-modules:
+                   TestUtils
+  extensions:      CPP
+  main-is:         TestAsync.hs
+
