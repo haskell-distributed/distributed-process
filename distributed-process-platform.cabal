@@ -37,18 +37,9 @@ library
                    Control.Distributed.Process.Platform,
                    Control.Distributed.Process.Platform.GenServer,
                    Control.Distributed.Process.Platform.Timer,
-<<<<<<< Updated upstream
                    Control.Distributed.Process.Platform.Async
   other-modules:   Control.Distributed.Process.Platform.Internal.Primitives
-=======
-                   Control.Distributed.Process.Platform.Async,
-                   Control.Distributed.Process.Platform.Call,
-                   Control.Distributed.Process.Platform.Time,
-                   Control.Distributed.Process.Platform.Test
-  other-modules:   
-                   Control.Distributed.Process.Platform.Internal.Primitives
                    Control.Distributed.Process.Platform.Internal.Types
->>>>>>> Stashed changes
 
 test-suite TimerTests
   type:            exitcode-stdio-1.0
@@ -64,17 +55,18 @@ test-suite TimerTests
                    binary >= 0.5 && < 0.7,
                    network >= 2.3 && < 2.5,
                    HUnit >= 1.2 && < 2,
-                   test-framework >= 0.6 && < 0.7,
+                   test-framework >= 0.6 && < 0.9,
                    test-framework-hunit,
                    transformers
   hs-source-dirs:
                    src,
                    tests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
-  other-modules:   
+  other-modules:
                    Control.Distributed.Process.Platform.Timer,
                    Control.Distributed.Process.Platform
                    Control.Distributed.Process.Platform.Internal.Primitives
+                   Control.Distributed.Process.Platform.Internal.Types
                    TestUtils
   extensions:      CPP
   main-is:         TestTimer.hs
@@ -93,17 +85,16 @@ test-suite PrimitivesTests
                    binary >= 0.5 && < 0.7,
                    network >= 2.3 && < 2.5,
                    HUnit >= 1.2 && < 2,
-                   test-framework >= 0.6 && < 0.7,
+                   test-framework >= 0.6 && < 0.9,
                    test-framework-hunit,
                    transformers
   hs-source-dirs:
                    src,
                    tests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
-  other-modules:   
+  other-modules:
                    Control.Distributed.Process.Platform
                    Control.Distributed.Process.Platform.Internal.Primitives
                    TestUtils
   extensions:      CPP
   main-is:         TestPrimitives.hs
-
