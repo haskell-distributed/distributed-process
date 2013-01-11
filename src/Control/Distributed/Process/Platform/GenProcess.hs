@@ -74,7 +74,7 @@ $(derive makeBinary ''Message)
 
 data Rpc a b = ProcessRpc (Message a) b | PortRpc a (BaseProcess.SendPort b)
     deriving (Typeable)
-$(derive makeBinary ''Rpc) 
+$(derive makeBinary ''Rpc)
 
 -- | Dispatcher that knows how to dispatch messages to a handler
 data Dispatcher s =
@@ -130,10 +130,10 @@ replyVia p m = BaseProcess.sendChan p m
 -- starts a new server and return its id. The spawn function is typically
 -- one taken from "Control.Distributed.Process".
 -- see 'Control.Distributed.Process.spawn'
---     'Control.Distributed.Process.spawnLocal' 
+--     'Control.Distributed.Process.spawnLocal'
 --     'Control.Distributed.Process.spawnLink'
 --     'Control.Distributed.Process.spawnMonitor'
---     'Control.Distributed.Process.spawnSupervised' 
+--     'Control.Distributed.Process.spawnSupervised'
 start ::
   s -> Behaviour s ->
   (BaseProcess.Process () -> BaseProcess.Process BaseProcess.ProcessId) ->
@@ -146,7 +146,7 @@ send :: (Serializable m) => ServerId -> m -> BaseProcess.Process ()
 send s m = do
     let msg = (Message None m)
     case s of
-        ServerProcess pid  -> BaseProcess.send  pid  msg 
+        ServerProcess pid  -> BaseProcess.send  pid  msg
         NamedServer   name -> BaseProcess.nsend name msg
 
 -- process request handling
@@ -203,12 +203,12 @@ init s = do
 loop :: Behaviour s -> Timeout -> Process s TerminateReason
 loop s t = do
     s' <- processReceive (dispatchers s) t
-    nextAction s s' 
+    nextAction s s'
     where nextAction :: Behaviour s -> ProcessAction ->
                             Process s TerminateReason
           nextAction b ProcessContinue     = loop b t
           nextAction b (ProcessTimeout t') = loop b t'
-          nextAction _ (ProcessStop r)     = return (TerminateReason r) 
+          nextAction _ (ProcessStop r)     = return (TerminateReason r)
 
 processReceive :: [Dispatcher s] -> Timeout -> Process s ProcessAction
 processReceive ds timeout = do
@@ -241,4 +241,3 @@ trace msg = ST.lift . BaseProcess.say $ msg
 -- data Upgrade = ???
 -- TODO: can we use 'Static (SerializableDict a)' to pass a Behaviour spec to
 -- a remote pid? if so then we may handle hot server-code loading quite easily...
-
