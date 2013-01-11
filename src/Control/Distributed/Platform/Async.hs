@@ -15,12 +15,20 @@
 -- The modules in the @Async@ package provide operations for spawning Processes,
 -- waiting for their results, cancelling them and various other utilities. The
 -- two primary implementation are @AsyncChan@ which provides an API which is
--- scoped to the calling process, and @AsyncSTM@ which provides a mechanism that
--- can be used by (as in shared across) multiple processes on a local node.
--- Both abstractions can run asynchronous operations on remote node.  
+-- scoped to the calling process, and @Async@ which provides a mechanism that
+-- can be used by (i.e., shared across) multiple processes either locally or
+-- situation on remote nodes.
+--
+-- Both abstractions can run asynchronous operations on remote nodes.
+--
+-- Despite providing an API at a higher level than the basic primitives in
+-- distributed-process, this API is still quite low level and it is
+-- recommended that you read the documentation carefully to understand its
+-- constraints. For a much higher level API, consider using the
+-- 'Control.Distributed.Platform.Task' layer.
 -----------------------------------------------------------------------------
 
-module Control.Distributed.Platform.Async 
+module Control.Distributed.Platform.Async
  ( -- types/data
     AsyncRef
   , AsyncTask
@@ -46,7 +54,7 @@ type AsyncRef = ProcessId
 -- spawned - in the @Process a@ case the task is spawned on the local node
 type AsyncTask a = Process a
 
--- | Represents the result of an asynchronous action, which can be in one of 
+-- | Represents the result of an asynchronous action, which can be in one of
 -- several states at any given time.
 data AsyncResult a =
     AsyncDone a                 -- ^ a completed action and its result

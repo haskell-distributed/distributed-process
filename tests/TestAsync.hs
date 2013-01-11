@@ -1,8 +1,7 @@
 module Main where
 
-import Test.Framework (Test, defaultMain, testGroup)
+import Test.Framework (Test, testGroup)
 import qualified Network.Transport as NT
-import Network.Transport.TCP
 import TestAsyncChan
 import TestAsyncSTM
 import TestUtils

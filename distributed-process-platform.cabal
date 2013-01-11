@@ -68,13 +68,13 @@ test-suite AsyncTests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   other-modules:   
                    Control.Distributed.Platform.Timer,
-                   Control.Distributed.Platform
-                   Control.Distributed.Platform.Internal.Primitives
+                   Control.Distributed.Platform,
+                   Control.Distributed.Platform.Internal.Primitives,
                    Control.Distributed.Platform.Async,
-                   Control.Distributed.Platform.Async.AsyncSTM,
                    TestUtils,
                    TestAsyncSTM,
-                   TestAsync
+                   TestAsync,
+                   Control.Distributed.Platform.Async.AsyncSTM
   extensions:      CPP
   main-is:         TestAsync.hs
 
@@ -102,12 +102,12 @@ test-suite TimerTests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   other-modules:   
                    Control.Distributed.Platform.Timer,
-                   Control.Distributed.Platform
-                   Control.Distributed.Platform.Internal.Primitives
+                   Control.Distributed.Platform,
+                   Control.Distributed.Platform.Internal.Primitives,
                    Control.Distributed.Platform.Async,
-                   Control.Distributed.Platform.Async.AsyncSTM,
                    TestUtils,
                    TestAsyncSTM,
-                   TestAsync
+                   TestAsync,
+                   Control.Distributed.Platform.Async.AsyncSTM
   extensions:      CPP
   main-is:         TestTimer.hs
