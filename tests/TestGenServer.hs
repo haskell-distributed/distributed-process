@@ -23,8 +23,8 @@ import Test.HUnit (Assertion)
 import Test.Framework (Test, testGroup)
 import Test.Framework.Providers.HUnit (testCase)
 
-import Control.Distributed.Platform.GenServer
-import Control.Distributed.Platform.Internal.Types
+import Control.Distributed.Process.Platform.GenServer
+import Control.Distributed.Process.Platform.Internal.Types
 import GenServer.Counter
 import GenServer.Kitty
 

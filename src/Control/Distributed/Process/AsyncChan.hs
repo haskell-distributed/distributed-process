@@ -22,7 +22,7 @@
 --
 -----------------------------------------------------------------------------
 
-module Control.Distributed.Platform.Async.AsyncChan
+module Control.Distributed.Process.Platform.Async.AsyncChan
   ( -- types/data
     AsyncRef
   , AsyncTask
@@ -43,20 +43,17 @@ module Control.Distributed.Platform.Async.AsyncChan
   , waitAny
   , waitAnyTimeout
   , waitTimeout
+  , waitCancelTimeout
   , waitCheckTimeout
   ) where
 
-import Control.Distributed.Platform.Async
-import Control.Distributed.Platform.Timer
+import Control.Distributed.Process.Platform.Async
+import Control.Distributed.Process.Platform
   ( intervalToMs
   )
-import Control.Distributed.Platform.Internal.Types
-  ( CancelWait(..)
-  , TimeInterval()
-  )
+import Control.Distributed.Process.Platform.Internal.Types
 import Control.Distributed.Process
 import Control.Distributed.Process.Serializable
-
 import Data.Maybe
   ( fromMaybe
   )
@@ -211,6 +208,19 @@ waitTimeout :: (Serializable a) =>
                TimeInterval -> AsyncChan a -> Process (Maybe (AsyncResult a))
 waitTimeout t hAsync =
   receiveChanTimeout (intervalToMs t) $ snd (channel hAsync)
+
+-- | Wait for an asynchronous operation to complete or timeout. If it times out,
+-- then 'cancelWait' the async handle instead.
+--
+waitCancelTimeout :: (Serializable a)
+                  => TimeInterval
+                  -> AsyncChan a
+                  -> Process (AsyncResult a)
+waitCancelTimeout t hAsync = do
+  r <- waitTimeout t hAsync
+  case r of
+    Nothing -> cancelWait hAsync
+    Just ar -> return ar 
 
 -- | Wait for any of the supplied @AsyncChans@s to complete. If multiple
 -- 'Async's complete, then the value returned corresponds to the first

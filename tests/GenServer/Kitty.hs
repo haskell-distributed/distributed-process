@@ -18,7 +18,7 @@ module GenServer.Kitty
         Timeout(..)
     ) where
 
-import           Control.Distributed.Platform.GenServer
+import           Control.Distributed.Process.Platform.GenServer
 import           Data.Binary                            (Binary (..), getWord8,
                                                          putWord8)
 import           Data.DeriveTH

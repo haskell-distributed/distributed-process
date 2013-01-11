@@ -1,7 +1,6 @@
 {-# LANGUAGE DeriveDataTypeable        #-}
 {-# LANGUAGE TemplateHaskell           #-}
 {-# LANGUAGE StandaloneDeriving        #-}
-
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  Control.Distributed.Platform.Async
@@ -28,7 +27,7 @@
 -- 'Control.Distributed.Platform.Task' layer.
 -----------------------------------------------------------------------------
 
-module Control.Distributed.Platform.Async
+module Control.Distributed.Process.Platform.Async
  ( -- types/data
     AsyncRef
   , AsyncTask
