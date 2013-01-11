@@ -10,7 +10,6 @@
 -- | Second iteration of GenServer
 module Control.Distributed.Process.Platform.GenServer (
     ServerId,
-    Timeout(..),
     initOk,
     initStop,
     ok,
@@ -57,19 +56,20 @@ import Control.Distributed.Process (AbstractMessage,
                                     Match,
                                     Process,
                                     ProcessId,
+                                    monitor,
+                                    link,
                                     expect, expectTimeout,
                                     monitor, unmonitor,
-                                    link, finally,
+                                    finally,
                                     exit, getSelfPid, match,
                                     matchAny, matchIf,
                                     receiveTimeout,
                                     receiveWait, say,
-                                    send, spawnLocal,
-                                    ProcessMonitorNotification(..))
+                                    send, spawnLocal)
 
 import Control.Distributed.Process.Internal.Types (MonitorRef)
 import Control.Distributed.Process.Serializable (Serializable)
-import Control.Distributed.Process.Platform
+import Control.Distributed.Process.Platform.Time
 import Control.Distributed.Process.Platform.Async
 import Control.Distributed.Process.Platform.Async.AsyncChan
 
@@ -93,10 +93,10 @@ newtype Server s a = Server {
 
 -- | Initialize handler result
 data InitResult
-  = InitOk Timeout
+  = InitOk Delay
   | InitStop String
 
-initOk :: Timeout -> Server s InitResult
+initOk :: Delay -> Server s InitResult
 initOk t = return (InitOk t)
 
 initStop :: String -> Server s InitResult
@@ -263,8 +263,8 @@ call :: (Serializable rq, Show rq, Serializable rs, Show rs) => ServerId -> rq -
 call sid rq = callTimeout sid Infinity rq >>= return . fromJust
 
 -- | Sync call
-callTimeout :: (Serializable rq, Show rq, Serializable rs, Show rs) => ServerId -> Timeout -> rq -> Process (Maybe rs)
-callTimeout sid (Timeout t) rq = undefined
+callTimeout :: (Serializable rq, Show rq, Serializable rs, Show rs) => ServerId -> Delay -> rq -> Process (Maybe rs)
+callTimeout sid t rq = undefined
 
 -- | Cast a message to a server identified by it's ServerId
 cast :: (Serializable a) => ServerId -> a -> Process ()
@@ -324,17 +324,17 @@ processLoop dispatchers ir = do
             Just r -> return r
 
 -- |
-processReceive :: [MessageDispatcher s] -> Timeout -> Server s (Maybe TerminateReason)
-processReceive ds timeout = do
+processReceive :: [MessageDispatcher s] -> Delay -> Server s (Maybe TerminateReason)
+processReceive ds t = do
     s <- getState
     let ms = map (matchMessage s) ds
-    case timeout of
+    case t of
         Infinity -> do
             (s', r) <- lift $ receiveWait ms
             putState s'
             return r
-        Timeout t -> do
-            mayResult <- lift $ receiveTimeout (intervalToMs t) ms
+        Delay t' -> do
+            mayResult <- lift $ receiveTimeout (intervalToMs t') ms
             case mayResult of
                 Just (s', r) -> do
                   putState s'

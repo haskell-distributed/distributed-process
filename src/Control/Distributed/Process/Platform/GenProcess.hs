@@ -21,6 +21,7 @@ import qualified Control.Monad.State         as ST (StateT, get,
 import Control.Distributed.Process.Serializable
 import Control.Distributed.Process.Platform.Internal.Types
 import Control.Distributed.Process.Platform
+import Control.Distributed.Process.Platform.Time
 import Data.Binary
 import Data.DeriveTH
 import Data.Typeable                               (Typeable)
@@ -37,7 +38,7 @@ data Recipient a = SendToPid BaseProcess.ProcessId |
 
 -- | Initialize handler result
 data InitResult =
-    InitOk Timeout
+    InitOk Delay
   | InitStop String
 
 -- | Terminate reason
@@ -55,7 +56,7 @@ $(derive makeBinary ''ReplyTo)
 -- | The result of a call
 data ProcessAction =
     ProcessContinue
-  | ProcessTimeout Timeout
+  | ProcessTimeout Delay
   | ProcessStop String
     deriving (Typeable)
 $(derive makeBinary ''ProcessAction)
@@ -200,7 +201,7 @@ init s = do
     ir <- initHandler s
     return ir
 
-loop :: Behaviour s -> Timeout -> Process s TerminateReason
+loop :: Behaviour s -> Delay -> Process s TerminateReason
 loop s t = do
     s' <- processReceive (dispatchers s) t
     nextAction s s'
@@ -210,7 +211,7 @@ loop s t = do
           nextAction b (ProcessTimeout t') = loop b t'
           nextAction _ (ProcessStop r)     = return (TerminateReason r)
 
-processReceive :: [Dispatcher s] -> Timeout -> Process s ProcessAction
+processReceive :: [Dispatcher s] -> Delay -> Process s ProcessAction
 processReceive ds timeout = do
     s <- getState
     let ms = map (matchMessage s) ds
@@ -220,7 +221,7 @@ processReceive ds timeout = do
             (s', r) <- ST.lift $ BaseProcess.receiveWait ms
             putState s'
             return r
-        Timeout t -> do
+        Delay t -> do
             result <- ST.lift $ BaseProcess.receiveTimeout (intervalToMs t) ms
             case result of
                 Just (s', r) -> do
