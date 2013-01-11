@@ -48,9 +48,7 @@ module Control.Distributed.Process.Platform.Async.AsyncChan
   ) where
 
 import Control.Distributed.Process.Platform.Async
-import Control.Distributed.Process.Platform
-  ( intervalToMs
-  )
+import Control.Distributed.Process.Platform.Time
 import Control.Distributed.Process.Platform.Internal.Types
 import Control.Distributed.Process
 import Control.Distributed.Process.Serializable

@@ -33,7 +33,6 @@ module Control.Distributed.Process.Platform.Async
   , AsyncTask
   , AsyncResult(..)
   ) where
-
 import Control.Distributed.Process
 
 import Data.Binary
