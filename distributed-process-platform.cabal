@@ -34,15 +34,72 @@ library
   hs-source-dirs:   src
   ghc-options:      -Wall
   exposed-modules:
-                   Control.Distributed.Platform,
-                   Control.Distributed.Platform.GenServer,
-                   Control.Distributed.Platform.Timer,
-                   Control.Distributed.Platform.Async.AsyncChan
-  other-modules:   
-                   Control.Distributed.Platform.Internal.Primitives,
-                   Control.Distributed.Platform.Async,
-                   Control.Distributed.Platform.Async.AsyncSTM
+                   Control.Distributed.Process.Platform,
+                   Control.Distributed.Process.Platform.GenServer,
+                   Control.Distributed.Process.Platform.Timer,
+                   Control.Distributed.Process.Platform.Async
+  other-modules:   Control.Distributed.Process.Platform.Internal.Primitives
+                   Control.Distributed.Process.Platform.Internal.Types
 
+test-suite TimerTests
+  type:            exitcode-stdio-1.0
+  x-uses-tf:       true
+  build-depends:
+                   base >= 4.4 && < 5,
+                   ansi-terminal >= 0.5 && < 0.6,
+                   distributed-process,
+                   derive,
+                   network-transport >= 0.3 && < 0.4,
+                   mtl,
+                   network-transport-tcp >= 0.3 && < 0.4,
+                   binary >= 0.5 && < 0.7,
+                   network >= 2.3 && < 2.5,
+                   HUnit >= 1.2 && < 2,
+                   stm >= 2.3 && < 2.5,
+                   test-framework >= 0.6 && < 0.9,
+                   test-framework-hunit,
+                   transformers
+  hs-source-dirs:
+                   src,
+                   tests
+  ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
+  other-modules:
+                   Control.Distributed.Process.Platform.Timer,
+                   Control.Distributed.Process.Platform
+                   Control.Distributed.Process.Platform.Internal.Primitives
+                   Control.Distributed.Process.Platform.Internal.Types
+                   TestUtils
+  extensions:      CPP
+  main-is:         TestTimer.hs
+
+test-suite PrimitivesTests
+  type:            exitcode-stdio-1.0
+  x-uses-tf:       true
+  build-depends:
+                   base >= 4.4 && < 5,
+                   ansi-terminal >= 0.5 && < 0.6,
+                   distributed-process,
+                   derive,
+                   network-transport >= 0.3 && < 0.4,
+                   mtl,
+                   network-transport-tcp >= 0.3 && < 0.4,
+                   binary >= 0.5 && < 0.7,
+                   network >= 2.3 && < 2.5,
+                   HUnit >= 1.2 && < 2,
+                   stm >= 2.3 && < 2.5,
+                   test-framework >= 0.6 && < 0.9,
+                   test-framework-hunit,
+                   transformers
+  hs-source-dirs:
+                   src,
+                   tests
+  ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
+  other-modules:
+                   Control.Distributed.Process.Platform
+                   Control.Distributed.Process.Platform.Internal.Primitives
+                   TestUtils
+  extensions:      CPP
+  main-is:         TestPrimitives.hs
 
 test-suite AsyncTests
   type:            exitcode-stdio-1.0
@@ -59,55 +116,15 @@ test-suite AsyncTests
                    network >= 2.3 && < 2.5,
                    HUnit >= 1.2 && < 2,
                    stm >= 2.3 && < 2.5,
-                   test-framework >= 0.6 && < 0.7,
+                   test-framework >= 0.6 && < 0.9,
                    test-framework-hunit,
                    transformers
   hs-source-dirs:
                    src,
                    tests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
-  other-modules:   
-                   Control.Distributed.Platform.Timer,
-                   Control.Distributed.Platform,
-                   Control.Distributed.Platform.Internal.Primitives,
-                   Control.Distributed.Platform.Async,
-                   TestUtils,
-                   TestAsyncSTM,
-                   TestAsync,
-                   Control.Distributed.Platform.Async.AsyncSTM
+  other-modules:
+                   TestUtils
   extensions:      CPP
   main-is:         TestAsync.hs
 
-test-suite TimerTests
-  type:            exitcode-stdio-1.0
-  x-uses-tf:       true
-  build-depends:
-                   base >= 4.4 && < 5,
-                   ansi-terminal >= 0.5 && < 0.6,
-                   distributed-process,
-                   derive,
-                   network-transport >= 0.3 && < 0.4,
-                   mtl,
-                   stm >= 2.3 && < 2.5,
-                   network-transport-tcp >= 0.3 && < 0.4,
-                   binary >= 0.5 && < 0.7,
-                   network >= 2.3 && < 2.5,
-                   HUnit >= 1.2 && < 2,
-                   test-framework >= 0.6 && < 0.7,
-                   test-framework-hunit,
-                   transformers
-  hs-source-dirs:
-                   src,
-                   tests
-  ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
-  other-modules:   
-                   Control.Distributed.Platform.Timer,
-                   Control.Distributed.Platform,
-                   Control.Distributed.Platform.Internal.Primitives,
-                   Control.Distributed.Platform.Async,
-                   TestUtils,
-                   TestAsyncSTM,
-                   TestAsync,
-                   Control.Distributed.Platform.Async.AsyncSTM
-  extensions:      CPP
-  main-is:         TestTimer.hs
