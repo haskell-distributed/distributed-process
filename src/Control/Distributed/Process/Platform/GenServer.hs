@@ -334,7 +334,7 @@ processReceive ds t = do
             putState s'
             return r
         Delay t' -> do
-            mayResult <- lift $ receiveTimeout (intervalToMs t') ms
+            mayResult <- lift $ receiveTimeout (asTimeout t') ms
             case mayResult of
                 Just (s', r) -> do
                   putState s'
