@@ -28,9 +28,11 @@ module Control.Distributed.Process.Platform.Time
   , minutes
   , hours
   , asTimeout
+  , after
+  , within
   , timeToMs
   , TimeInterval
-  , TimeUnit
+  , TimeUnit(..)
   , Delay(..)
   
   -- timeouts
@@ -83,6 +85,20 @@ instance Binary TimeoutNotification where
 -- | converts the supplied @TimeInterval@ to milliseconds
 asTimeout :: TimeInterval -> Int
 asTimeout (TimeInterval u v) = timeToMs u v
+
+-- | Convenience for making timeouts; e.g.,
+-- 
+-- > receiveTimeout (after 3 Seconds) [ match (\"ok" -> return ()) ] 
+--
+after :: Int -> TimeUnit -> Int
+after n m = timeToMs m n
+
+-- | Convenience for making 'TimeInterval'; e.g.,
+--
+-- > let ti = within 5 Seconds in .....
+--
+within :: Int -> TimeUnit -> TimeInterval
+within n m = TimeInterval m n
 
 microSeconds :: Int -> TimeInterval
 microSeconds = TimeInterval Micros
