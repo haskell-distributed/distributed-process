@@ -51,8 +51,9 @@ $(derive makeBinary ''SleepingPill)
 -- scheduling) to differ from threadDelay and/or operating system specific
 -- functions that offer the same results.
 sleep :: TimeInterval -> Process ()
-sleep t = do
-  let ms = intervalToMs t
+sleep t =
+  let ms = asTimeout t in do
+  -- liftIO $ putStrLn $ "sleeping for " ++ (show ms) ++ "micros"
   _ <- receiveTimeout ms [matchIf (\SleepingPill -> True)
                                   (\_ -> return ())]
   return ()
@@ -60,7 +61,8 @@ sleep t = do
 -- | starts a timer which sends the supplied message to the destination process
 -- after the specified time interval.
 sendAfter :: (Serializable a) => TimeInterval -> ProcessId -> a -> Process TimerRef
-sendAfter t pid msg = runAfter t (mkSender pid msg)
+sendAfter t pid msg = runAfter t proc
+  where proc = do { send pid msg }
 
 -- | runs the supplied process action(s) after `t' has elapsed
 runAfter :: TimeInterval -> Process () -> Process TimerRef
@@ -70,7 +72,7 @@ runAfter t p = spawnLocal $ runTimer t p True
 -- process each time the specified time interval elapses. To stop messages from
 -- being sent in future, cancelTimer can be called.
 startTimer :: (Serializable a) => TimeInterval -> ProcessId -> a -> Process TimerRef
-startTimer t pid msg = periodically t (mkSender pid msg)
+startTimer t pid msg = periodically t (send pid msg)
 
 -- | runs the supplied process action(s) repeatedly at intervals of `t'
 periodically :: TimeInterval -> Process () -> Process TimerRef
@@ -100,7 +102,7 @@ flushTimer ref ignore t = do
     return ()
   where performFlush mRef Infinity    = receiveWait $ filters mRef
         performFlush mRef (Delay i) =
-            receiveTimeout (intervalToMs i) (filters mRef) >> return ()
+            receiveTimeout (asTimeout i) (filters mRef) >> return ()
         filters mRef = [
                 matchIf (\x -> x == ignore)
                         (\_ -> return ())
@@ -118,7 +120,7 @@ ticker t pid = startTimer t pid Tick
 -- runs the timer process
 runTimer :: TimeInterval -> Process () -> Bool -> Process ()
 runTimer t proc cancelOnReset = do
-    cancel <- expectTimeout (intervalToMs t)
+    cancel <- expectTimeout (asTimeout t)
     -- say $ "cancel = " ++ (show cancel) ++ "\n"
     case cancel of
         Nothing     -> runProc cancelOnReset
@@ -127,9 +129,3 @@ runTimer t proc cancelOnReset = do
                                         else runTimer t proc cancelOnReset
   where runProc True  = proc
         runProc False = proc >> runTimer t proc cancelOnReset
-
--- create a 'sender' action for dispatching `msg' to `pid'
-mkSender :: (Serializable a) => ProcessId -> a -> Process ()
-mkSender pid msg = do
-  -- say "sending\n"
-  send pid msg

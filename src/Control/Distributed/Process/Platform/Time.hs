@@ -22,11 +22,12 @@
 
 module Control.Distributed.Process.Platform.Time 
   ( -- time interval handling
-    milliseconds
+    microSeconds
+  , milliSeconds
   , seconds
   , minutes
   , hours
-  , intervalToMs
+  , asTimeout
   , timeToMs
   , TimeInterval
   , TimeUnit
@@ -53,7 +54,7 @@ import Data.Typeable (Typeable)
 --------------------------------------------------------------------------------
 
 -- | Defines the time unit for a Timeout value
-data TimeUnit = Days | Hours | Minutes | Seconds | Millis
+data TimeUnit = Days | Hours | Minutes | Seconds | Millis | Micros
     deriving (Typeable, Show)
 $(derive makeBinary ''TimeUnit)
 
@@ -80,12 +81,15 @@ instance Binary TimeoutNotification where
 -- time interval/unit handling (milliseconds)
 
 -- | converts the supplied @TimeInterval@ to milliseconds
-intervalToMs :: TimeInterval -> Int
-intervalToMs (TimeInterval u v) = timeToMs u v
+asTimeout :: TimeInterval -> Int
+asTimeout (TimeInterval u v) = timeToMs u v
+
+microSeconds :: Int -> TimeInterval
+microSeconds = TimeInterval Micros
 
 -- | given a number, produces a @TimeInterval@ of milliseconds
-milliseconds :: Int -> TimeInterval
-milliseconds = TimeInterval Millis
+milliSeconds :: Int -> TimeInterval
+milliSeconds = TimeInterval Millis
 
 -- | given a number, produces a @TimeInterval@ of seconds
 seconds :: Int -> TimeInterval
@@ -101,13 +105,14 @@ hours = TimeInterval Hours
 
 -- TODO: timeToMs is not exactly efficient and we may want to scale it up
 
--- | converts the supplied @TimeUnit@ to milliseconds
+-- | converts the supplied @TimeUnit@ to microseconds
 timeToMs :: TimeUnit -> Int -> Int
-timeToMs Millis  ms   = ms
-timeToMs Seconds sec  = sec * 1000
-timeToMs Minutes mins = (mins * 60) * 1000
-timeToMs Hours   hrs  = ((hrs * 60) * 60) * 1000
-timeToMs Days    days = (((days * 24) * 60) * 60) * 1000
+timeToMs Micros  us   = us
+timeToMs Millis  ms   = ms  * (10 ^ (3 :: Int))
+timeToMs Seconds sec  = sec * (10 ^ (6 :: Int))
+timeToMs Minutes mins = (mins * 60) * (10 ^ (6 :: Int))
+timeToMs Hours   hrs  = ((hrs * 60) * 60) * (10 ^ (6 :: Int))
+timeToMs Days    days = (((days * 24) * 60) * 60) * (10 ^ (6 :: Int))
 
 -- timeouts/delays (microseconds)
 

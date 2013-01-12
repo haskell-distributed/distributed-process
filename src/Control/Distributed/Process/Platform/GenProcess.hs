@@ -212,17 +212,17 @@ loop s t = do
           nextAction _ (ProcessStop r)     = return (TerminateReason r)
 
 processReceive :: [Dispatcher s] -> Delay -> Process s ProcessAction
-processReceive ds timeout = do
+processReceive ds t = do
     s <- getState
     let ms = map (matchMessage s) ds
     -- TODO: should we drain the message queue to avoid selective receive here?
-    case timeout of
+    case t of
         Infinity -> do
             (s', r) <- ST.lift $ BaseProcess.receiveWait ms
             putState s'
             return r
-        Delay t -> do
-            result <- ST.lift $ BaseProcess.receiveTimeout (intervalToMs t) ms
+        Delay t' -> do
+            result <- ST.lift $ BaseProcess.receiveTimeout (asTimeout t') ms
             case result of
                 Just (s', r) -> do
                   putState s'
