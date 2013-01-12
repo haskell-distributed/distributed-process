@@ -85,7 +85,7 @@ multicall nodes msg tag time =
                  (\_ -> error "multicall: unexpected termination of worker process")
        ]
    where
-         recv nodes monitortags mon_caller = 
+         recv nodes' monitortags mon_caller = 
            do 
               let
                   ordered [] _ = []
@@ -109,8 +109,8 @@ multicall nodes msg tag time =
                                     (\_ -> return Nothing)
                          ]
                             >>= maybe (return results) recv1
-              resultmap <- recv1 (nodes, monitortags, M.empty) :: Process (M.Map ProcessId b)
-              return $ ordered nodes resultmap
+              resultmap <- recv1 (nodes', monitortags, M.empty) :: Process (M.Map ProcessId b)
+              return $ ordered nodes' resultmap
 
 data MulticallResponseType a =
          MulticallAccept
