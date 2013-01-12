@@ -30,11 +30,12 @@
 module Control.Distributed.Process.Platform.Async
  ( -- types/data
     AsyncRef
-  , AsyncTask
+  , AsyncTask(..)
   , AsyncResult(..)
+  , asyncDo
   ) where
 import Control.Distributed.Process
-
+import Control.Distributed.Process.Serializable (SerializableDict)
 import Data.Binary
 import Data.DeriveTH
 import Data.Typeable (Typeable)
@@ -48,9 +49,15 @@ type AsyncRef = ProcessId
 
 -- | A task to be performed asynchronously. This can either take the
 -- form of an action that runs over some type @a@ in the @Process@ monad,
--- or a tuple that adds the node on which the asynchronous task should be
--- spawned - in the @Process a@ case the task is spawned on the local node
-type AsyncTask a = Process a
+-- or a static 'SerializableDict' and @Closure (Process a)@ neccessary for the
+-- task to be spawned on a remote node.
+data AsyncTask a =
+    AsyncTask { asyncTask :: Process a }
+  | AsyncRemoteTask {
+        asyncTaskDict :: Static (SerializableDict a)
+      , asyncTaskNode :: NodeId
+      , asyncTaskProc :: Closure (Process a)
+      }
 
 -- | Represents the result of an asynchronous action, which can be in one of
 -- several states at any given time.
@@ -65,3 +72,6 @@ $(derive makeBinary ''AsyncResult)
 
 deriving instance Eq a => Eq (AsyncResult a)
 deriving instance Show a => Show (AsyncResult a)
+
+asyncDo :: Process a -> AsyncTask a
+asyncDo = AsyncTask

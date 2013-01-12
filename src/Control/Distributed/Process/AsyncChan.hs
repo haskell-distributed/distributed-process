@@ -47,7 +47,7 @@ module Control.Distributed.Process.Platform.Async.AsyncChan
   , waitCheckTimeout
   ) where
 
-import Control.Distributed.Process.Platform.Async
+import Control.Distributed.Process.Platform.Async hiding (asyncDo)
 import Control.Distributed.Process.Platform.Time
 import Control.Distributed.Process.Platform.Internal.Types
 import Control.Distributed.Process
@@ -67,7 +67,9 @@ type InternalChannel a = (SendPort (AsyncResult a), ReceivePort (AsyncResult a))
 -- Handles of this type cannot cross remote boundaries. Furthermore, handles
 -- of this type /must not/ be passed to functions in this module by processes
 -- other than the caller of 'async' - that is, this module provides asynchronous
--- actions whose results are accessible *only* by the initiating process.
+-- actions whose results are accessible *only* by the initiating process. This
+-- limitation is imposed becuase of the use of type channels, for which the
+-- @ReceivePort@ component is effectively /thread local/. 
 --
 -- See 'async'
 data AsyncChan a = AsyncChan {
@@ -109,8 +111,10 @@ asyncLinked :: (Serializable a) => AsyncTask a -> Process (AsyncChan a)
 asyncLinked = async
 
 asyncDo :: (Serializable a) => Bool -> AsyncTask a -> Process (AsyncChan a)
-asyncDo shouldLink task = do
-    (wpid, gpid, chan) <- spawnWorkers task shouldLink
+asyncDo shouldLink (AsyncRemoteTask d n c) =
+  let proc = call d n c in asyncDo shouldLink AsyncTask { asyncTask = proc }
+asyncDo shouldLink (AsyncTask proc) = do
+    (wpid, gpid, chan) <- spawnWorkers proc shouldLink
     return AsyncChan {
         worker    = wpid
       , insulator = gpid
@@ -118,7 +122,7 @@ asyncDo shouldLink task = do
       }
 
 spawnWorkers :: (Serializable a)
-             => AsyncTask a
+             => Process a
              -> Bool
              -> Process (AsyncRef, AsyncRef, InternalChannel a)
 spawnWorkers task shouldLink = do
