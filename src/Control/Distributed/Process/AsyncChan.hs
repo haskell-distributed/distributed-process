@@ -205,7 +205,7 @@ wait hAsync = receiveChan $ snd (channel hAsync)
 waitTimeout :: (Serializable a) =>
                TimeInterval -> AsyncChan a -> Process (Maybe (AsyncResult a))
 waitTimeout t hAsync =
-  receiveChanTimeout (intervalToMs t) $ snd (channel hAsync)
+  receiveChanTimeout (asTimeout t) $ snd (channel hAsync)
 
 -- | Wait for an asynchronous operation to complete or timeout. If it times out,
 -- then 'cancelWait' the async handle instead.
@@ -242,7 +242,7 @@ waitAnyTimeout :: (Serializable a)
                -> Process (Maybe (AsyncResult a))
 waitAnyTimeout delay asyncs =
   let ports = map (snd . channel) asyncs
-  in mergePortsBiased ports >>= receiveChanTimeout (intervalToMs delay)
+  in mergePortsBiased ports >>= receiveChanTimeout (asTimeout delay)
 
 -- | Cancel an asynchronous operation. Cancellation is asynchronous in nature.
 -- To wait for cancellation to complete, use 'cancelWait' instead. The notes
