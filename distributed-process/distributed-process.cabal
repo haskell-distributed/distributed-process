@@ -96,8 +96,8 @@ Test-Suite TestCH
                      binary >= 0.5 && < 0.7,
                      network >= 2.3 && < 2.5,
                      HUnit >= 1.2 && < 1.3,
-                     test-framework == 0.6.* || == 0.8.*,
-                     test-framework-hunit == 0.2.* && == 0.4.*
+                     test-framework >= 0.6 && < 0.9,
+                     test-framework-hunit >= 0.2.0 && < 0.4
   Extensions:        CPP,
                      ScopedTypeVariables,
                      DeriveDataTypeable,
@@ -118,8 +118,8 @@ Test-Suite TestClosure
                      bytestring >= 0.9 && < 0.11,
                      network >= 2.3 && < 2.5,
                      HUnit >= 1.2 && < 1.3,
-                     test-framework == 0.6.* || == 0.8.*,
-                     test-framework-hunit == 0.2.* || == 0.4.*
+                     test-framework >= 0.6 && < 0.9,
+                     test-framework-hunit >= 0.2.0 && < 0.4
   Extensions:        CPP,
                      ScopedTypeVariables
   ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
