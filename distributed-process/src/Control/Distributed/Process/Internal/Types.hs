@@ -49,6 +49,8 @@ module Control.Distributed.Process.Internal.Types
   , DidSpawn(..)
   , WhereIsReply(..)
   , RegisterReply(..)
+  , ProcessInfo(..)
+  , ProcessInfoNone(..)
     -- * Node controller internal data types
   , NCMsg(..)
   , ProcessSignal(..)
@@ -420,6 +422,29 @@ data WhereIsReply = WhereIsReply String (Maybe ProcessId)
 data RegisterReply = RegisterReply String Bool
   deriving (Show, Typeable)
 
+data ProcessInfo = ProcessInfo {
+    infoNode               :: NodeId
+  , infoRegisteredNames    :: [String]
+  , infoMessageQueueLength :: Maybe Int
+  , infoMonitors           :: [(ProcessId, MonitorRef)]
+  , infoLinks              :: [ProcessId]
+  } deriving (Show, Eq, Typeable)
+
+instance Binary ProcessInfo where
+  get = ProcessInfo <$> get <*> get <*> get <*> get <*> get
+  put pInfo = put (infoNode pInfo)
+           >> put (infoRegisteredNames pInfo)
+           >> put (infoMessageQueueLength pInfo)
+           >> put (infoMonitors pInfo)
+           >> put (infoLinks pInfo)
+
+data ProcessInfoNone = ProcessInfoNone DiedReason
+    deriving (Show, Typeable)
+
+instance Binary ProcessInfoNone where
+  get = ProcessInfoNone <$> get
+  put (ProcessInfoNone r) = put r
+
 --------------------------------------------------------------------------------
 -- Node controller internal data types                                        --
 --------------------------------------------------------------------------------
@@ -444,6 +469,7 @@ data ProcessSignal =
   | NamedSend !String !Message
   | Kill !ProcessId !String
   | Exit !ProcessId !Message
+  | GetInfo !ProcessId
   deriving Show
 
 --------------------------------------------------------------------------------
@@ -490,6 +516,7 @@ instance Binary ProcessSignal where
   put (NamedSend label msg) = putWord8 8 >> put label >> put (messageToPayload msg)
   put (Kill pid reason)     = putWord8 9 >> put pid >> put reason
   put (Exit pid reason)     = putWord8 10 >> put pid >> put (messageToPayload reason)
+  put (GetInfo about)       = putWord8 30 >> put about
   get = do
     header <- getWord8
     case header of
@@ -504,6 +531,7 @@ instance Binary ProcessSignal where
       8 -> NamedSend <$> get <*> (payloadToMessage <$> get)
       9 -> Kill <$> get <*> get
       10 -> Exit <$> get <*> (payloadToMessage <$> get)
+      30 -> GetInfo <$> get
       _ -> fail "ProcessSignal.get: invalid"
 
 instance Binary DiedReason where

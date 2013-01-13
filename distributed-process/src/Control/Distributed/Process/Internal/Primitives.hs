@@ -32,6 +32,8 @@ module Control.Distributed.Process.Internal.Primitives
   , ProcessExitException(..)
   , getSelfPid
   , getSelfNode
+  , ProcessInfo(..)
+  , getProcessInfo
     -- * Monitoring and linking
   , link
   , unlink
@@ -144,6 +146,8 @@ import Control.Distributed.Process.Internal.Types
   , WhereIsReply(..)
   , RegisterReply(..)
   , ProcessRegistrationException(..)
+  , ProcessInfo(..)
+  , ProcessInfoNone(..)
   , createMessage
   , runLocalProcess
   , ImplicitReconnect(WithImplicitReconnect, NoImplicitReconnect)
@@ -400,6 +404,22 @@ getSelfPid = processId <$> ask
 getSelfNode :: Process NodeId
 getSelfNode = localNodeId . processNode <$> ask
 
+-- | Get information about the specified process
+getProcessInfo :: ProcessId -> Process (Maybe ProcessInfo)
+getProcessInfo pid =
+  let them = processNodeId pid in do
+  us <- getSelfNode
+  dest <- mkNode them us
+  sendCtrlMsg dest $ GetInfo pid
+  receiveWait [
+       match (\(p :: ProcessInfo)     -> return $ Just p)
+     , match (\(_ :: ProcessInfoNone) -> return Nothing)
+     ]
+  where mkNode :: NodeId -> NodeId -> Process (Maybe NodeId)
+        mkNode them us = case them == us of
+                           True -> return Nothing
+                           _    -> return $ Just them
+
 --------------------------------------------------------------------------------
 -- Monitoring and linking                                                     --
 --------------------------------------------------------------------------------
@@ -519,7 +539,7 @@ try p = do
   lproc <- ask
   liftIO $ Ex.try (runLocalProcess lproc p)
 
--- | Lift 'Control.Exception.mask' 
+-- | Lift 'Control.Exception.mask'
 mask :: ((forall a. Process a -> Process a) -> Process b) -> Process b
 mask p = do
     lproc <- ask

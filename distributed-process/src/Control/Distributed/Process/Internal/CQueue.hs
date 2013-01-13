@@ -52,7 +52,7 @@ newCQueue = CQueue <$> newMVar Nil <*> atomically newTChan
 --
 -- Enqueue is strict.
 enqueue :: CQueue a -> a -> IO ()
-enqueue (CQueue _arrived incoming) !a = atomically $ writeTChan incoming a
+enqueue (CQueue _arrived incoming) !a = atomically $ writeTChan incoming a 
 
 data BlockSpec =
     NonBlocking
