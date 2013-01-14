@@ -126,9 +126,9 @@ timeToMs :: TimeUnit -> Int -> Int
 timeToMs Micros  us   = us
 timeToMs Millis  ms   = ms  * (10 ^ (3 :: Int))
 timeToMs Seconds sec  = sec * (10 ^ (6 :: Int))
-timeToMs Minutes mins = (mins * 60) * (10 ^ (6 :: Int))
-timeToMs Hours   hrs  = ((hrs * 60) * 60) * (10 ^ (6 :: Int))
-timeToMs Days    days = (((days * 24) * 60) * 60) * (10 ^ (6 :: Int))
+timeToMs Minutes sec  = (sec * 60) * (10 ^ (6 :: Int))
+timeToMs Hours   mins = ((mins * 60) * 60) * (10 ^ (6 :: Int))
+timeToMs Days    hrs  = (((hrs * 24) * 60) * 60) * (10 ^ (6 :: Int))
 
 -- timeouts/delays (microseconds)
 
