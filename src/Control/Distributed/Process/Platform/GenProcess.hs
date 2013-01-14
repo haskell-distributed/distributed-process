@@ -19,6 +19,8 @@ module Control.Distributed.Process.Platform.GenProcess
     -- interaction with the process
   , start
   , call
+  , callAsync
+  , callTimeout
   , cast
     -- interaction inside the process
   , reply
@@ -39,6 +41,9 @@ import Control.Concurrent (threadDelay)
 import Control.Distributed.Process hiding (call)
 import Control.Distributed.Process.Serializable
 import Control.Distributed.Process.Platform.Time
+import Control.Distributed.Process.Platform.Async (asyncDo)
+import Control.Distributed.Process.Platform.Async.AsyncChan
+
 import Data.Binary
 import Data.DeriveTH
 import Data.Typeable (Typeable)
@@ -58,6 +63,10 @@ data Message a =
   | CallMessage a Recipient
   deriving (Typeable)
 $(derive makeBinary ''Message)
+  
+data CallResponse a = CallResponse a
+  deriving (Typeable)
+$(derive makeBinary ''CallResponse)
   
 -- | Terminate reason
 data TerminateReason =
@@ -138,8 +147,42 @@ start args init behave = do
     InitOk initState initDelay -> initLoop behave initState initDelay
     InitFail why -> return $ TerminateOther why
 
-call :: Process ()
-call = undefined
+-- | Make a syncrhonous call
+call :: forall a b . (Serializable a, Serializable b)
+                 => ProcessId -> a -> Process b
+call sid msg = callAsync sid msg >>= wait >>= unpack
+  where unpack :: AsyncResult b -> Process b
+        unpack (AsyncDone r) = return r
+        unpack _             = fail "boo hoo"
+
+callTimeout :: forall a b . (Serializable a, Serializable b)
+                 => ProcessId -> a -> TimeInterval -> Process (Maybe b) 
+callTimeout s m d = callAsync s m >>= waitTimeout d >>= unpack
+  where unpack :: (Serializable b) => Maybe (AsyncResult b) -> Process (Maybe b)
+        unpack Nothing              = return Nothing
+        unpack (Just (AsyncDone r)) = return $ Just r
+        unpack (Just other)         = getSelfPid >>= (flip exit) other >> terminate  
+-- TODO: https://github.com/haskell-distributed/distributed-process/issues/110
+
+callAsync :: forall a b . (Serializable a, Serializable b)
+                 => ProcessId -> a -> Process (AsyncChan b)
+callAsync sid msg = do
+  self <- getSelfPid
+  mRef <- monitor sid
+-- TODO: use a unified async API here if possible
+-- https://github.com/haskell-distributed/distributed-process-platform/issues/55
+  async $ asyncDo $ do
+    sendTo (SendToPid sid) (CallMessage msg (SendToPid self))
+    r <- receiveWait [
+            match (\((CallResponse m) :: CallResponse b) -> return (Right m))
+          , matchIf (\(ProcessMonitorNotification ref _ _) -> ref == mRef)
+              (\(ProcessMonitorNotification _ _ reason) -> return (Left reason))
+        ]
+    case r of
+      Right m -> return m
+      Left err -> fail $ "call: remote process died: " ++ show err 
+    
+
 
 cast :: Process ()
 cast = undefined
@@ -220,7 +263,7 @@ handleCallIf cond handler = DispatchIf {
         mkReply :: (Serializable b)
                 => Recipient -> ProcessReply s b -> Process (ProcessAction s)
         mkReply _ (NoReply a) = return a
-        mkReply c (ProcessReply r' a) = replyTo c r' >> return a
+        mkReply c (ProcessReply r' a) = sendTo c (CallResponse r') >> return a
 
 -- | Constructs a 'cast' handler from an ordinary function in the 'Process'
 -- monad. Given a function @f :: (s -> a -> Process (ProcessAction s))@,
@@ -348,7 +391,7 @@ processReceive ms h s t = do
 
 -- internal/utility
 
-replyTo :: (Serializable m) => Recipient -> m -> Process ()
-replyTo (SendToPid p) m             = send p m
-replyTo (SendToService s) m         = nsend s m
-replyTo (SendToRemoteService s n) m = nsendRemote n s m
+sendTo :: (Serializable m) => Recipient -> m -> Process ()
+sendTo (SendToPid p) m             = send p m
+sendTo (SendToService s) m         = nsend s m
+sendTo (SendToRemoteService s n) m = nsendRemote n s m
