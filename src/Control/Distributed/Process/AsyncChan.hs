@@ -59,6 +59,10 @@ import Data.Maybe
 -- | Private channel used to synchronise task results
 type InternalChannel a = (SendPort (AsyncResult a), ReceivePort (AsyncResult a))
 
+--------------------------------------------------------------------------------
+-- Cloud Haskell Typed Channel Async API                                      --
+--------------------------------------------------------------------------------
+
 -- | A handle for an asynchronous action spawned by 'async'.
 -- Asynchronous actions are run in a separate process, and
 -- operations are provided for waiting for asynchronous actions to
