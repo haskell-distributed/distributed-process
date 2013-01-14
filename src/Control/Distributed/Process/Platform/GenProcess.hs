@@ -190,7 +190,7 @@ cast sid msg = send sid (CastMessage msg)
 
 -- Constructing Handlers from *ordinary* functions
 
--- | INstructs the process to send a reply and continue working. 
+-- | Instructs the process to send a reply and continue working. 
 -- > reply reply' state = replyWith reply' (continue state)
 reply :: (Serializable r) => r -> s -> Process (ProcessReply s r)
 reply r s = continue s >>= replyWith r
