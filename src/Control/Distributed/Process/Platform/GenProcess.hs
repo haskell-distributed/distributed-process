@@ -1,242 +1,228 @@
-{-# LANGUAGE DeriveDataTypeable        #-}
-{-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE FlexibleContexts          #-}
-{-# LANGUAGE FunctionalDependencies    #-}
-{-# LANGUAGE MultiParamTypeClasses     #-}
-{-# LANGUAGE Rank2Types                #-}
-{-# LANGUAGE RankNTypes                #-}
-{-# LANGUAGE ScopedTypeVariables       #-}
-{-# LANGUAGE TemplateHaskell           #-}
-{-# LANGUAGE TypeFamilies              #-}
+{-# LANGUAGE DeriveDataTypeable         #-}
+{-# LANGUAGE ExistentialQuantification  #-}
+{-# LANGUAGE FlexibleContexts           #-}
+{-# LANGUAGE FunctionalDependencies     #-}
+{-# LANGUAGE MultiParamTypeClasses      #-}
+{-# LANGUAGE Rank2Types                 #-}
+{-# LANGUAGE RankNTypes                 #-}
+{-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE TemplateHaskell            #-}
+{-# LANGUAGE TypeFamilies               #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImpredicativeTypes         #-}
 
 module Control.Distributed.Process.Platform.GenProcess where
 
 -- TODO: define API and hide internals...
 
-import qualified Control.Distributed.Process as BaseProcess
-import qualified Control.Monad.State         as ST (StateT, get,
-                                                    lift, modify,
-                                                    put, runStateT)
-
+import Control.Applicative
+import Control.Distributed.Process
 import Control.Distributed.Process.Serializable
 import Control.Distributed.Process.Platform.Time
+import qualified Control.Monad.State as ST
+  ( StateT
+  , get
+  , lift
+  , modify
+  , put
+  , runStateT
+  )
 import Data.Binary
 import Data.DeriveTH
-import Data.Typeable                               (Typeable)
-import Prelude                                     hiding (init)
+import Data.Typeable (Typeable)
+import Prelude hiding (init)
 
+data ServerId = ServerId ProcessId | ServerName String
 
-type ServerName = String
-type ServerPid  = BaseProcess.ProcessId
+data Recipient =
+    SendToPid ProcessId
+  | SendToService String
+  | SendToRemoteService String NodeId
+  deriving (Typeable)
+$(derive makeBinary ''Recipient)
 
-data ServerId = ServerProcess ServerPid | NamedServer ServerName
-
-data Recipient a = SendToPid BaseProcess.ProcessId |
-                   SendToPort (BaseProcess.SendPort a)
-
--- | Initialize handler result
-data InitResult =
-    InitOk Delay
-  | InitStop String
-
+data Message a =
+    CastMessage { payload :: a }
+  | CallMessage { payload :: a, sender :: Recipient }
+  deriving (Typeable)
+$(derive makeBinary ''Message)
+  
 -- | Terminate reason
 data TerminateReason =
     TerminateNormal
   | TerminateShutdown
-  | TerminateReason String
-    deriving (Show, Typeable)
-$(derive makeBinary ''TerminateReason)
+  | forall r. (Serializable r) =>
+    TerminateOther r
+      deriving (Typeable)
 
-data ReplyTo = ReplyTo BaseProcess.ProcessId | None
-    deriving (Typeable, Show)
-$(derive makeBinary ''ReplyTo)
+-- | Initialization
+data InitResult s =
+    InitOk s Delay
+  | forall r. (Serializable r) => InitStop r
 
--- | The result of a call
-data ProcessAction =
-    ProcessContinue
-  | ProcessTimeout Delay
-  | ProcessStop String
-    deriving (Typeable)
-$(derive makeBinary ''ProcessAction)
+data ProcessAction s =
+    ProcessContinue { nextState :: s }
+  | ProcessTimeout  { delay :: Delay, nextState :: s }
+  | ProcessHibernate { delay :: Delay, nextState :: s }
+  | ProcessStop     { reason :: TerminateReason } 
 
-type GenProcess s = ST.StateT s BaseProcess.Process
+data ProcessReply s a =
+    ProcessReply { response :: a
+                 , action :: ProcessAction s }
+  | NoReply { action :: ProcessAction s}          
 
--- | Handlers
-type InitHandler      s   = GenProcess s InitResult
-type TerminateHandler s   = TerminateReason -> GenProcess s ()
-type RequestHandler   s a = Message a -> GenProcess s ProcessAction
+type InitHandler      a s   = a -> InitResult s
+type TerminateHandler s     = s -> TerminateReason -> Process ()
+type TimeoutHandler   s     = s -> Delay -> Process (ProcessAction s)
+type CallHandler      s a b = s -> a -> Process (ProcessReply s b)
+type CastHandler      s a   = s -> a -> Process (ProcessAction s)
 
--- | Contains the actual payload and possibly additional routing metadata
-data Message a = Message ReplyTo a
-    deriving (Show, Typeable)
-$(derive makeBinary ''Message)
-
-data Rpc a b = ProcessRpc (Message a) b | PortRpc a (BaseProcess.SendPort b)
-    deriving (Typeable)
-$(derive makeBinary ''Rpc)
-
--- | Dispatcher that knows how to dispatch messages to a handler
-data Dispatcher s =
-  forall a . (Serializable a) =>
-    Dispatch    { dispatch  :: s -> Message a ->
-                               BaseProcess.Process (s, ProcessAction) } |
-  forall a . (Serializable a) =>
-    DispatchIf  { dispatch  :: s -> Message a ->
-                               BaseProcess.Process (s, ProcessAction),
-                  condition :: s -> Message a -> Bool }
+data Req a b = Req a b 
 
 -- dispatching to implementation callbacks
 
+-- | Dispatcher that knows how to dispatch messages to a handler
+-- s The server state
+data Dispatcher s =
+    forall a . (Serializable a) => Dispatch {
+        dispatch :: s -> Message a -> Process (ProcessAction s)
+      }
+  | forall a . (Serializable a) => DispatchIf {
+        dispatch   :: s -> Message a -> Process (ProcessAction s)
+      , dispatchIf :: s -> Message a -> Bool
+      }
+  | forall a . (Serializable a) => DispatchReply {
+        handle   :: s -> Message a -> Process (ProcessAction s)
+      }
+  | forall a . (Serializable a) => DispatchReplyIf {
+        handle   :: s -> Message a -> Process (ProcessAction s)
+      , handleIf :: s -> Message a -> Bool
+      }
+
 -- | Matches messages using a dispatcher
-class Dispatchable d where
-    matchMessage :: s -> d s -> BaseProcess.Match (s, ProcessAction)
+class MessageMatcher d where
+    matchMessage :: s -> d s -> Match (ProcessAction s)
 
 -- | Matches messages to a MessageDispatcher
-instance Dispatchable Dispatcher where
-  matchMessage s (Dispatch   d  ) = BaseProcess.match (d s)
-  matchMessage s (DispatchIf d c) = BaseProcess.matchIf (c s) (d s)
-
+instance MessageMatcher Dispatcher where
+  matchMessage s (Dispatch        d)      = match (d s)
+  matchMessage s (DispatchIf      d cond) = matchIf (cond s) (d s)
+  matchMessage s (DispatchReply   d)      = match (d s)
+  matchMessage s (DispatchReplyIf d cond) = matchIf (cond s) (d s)
 
 data Behaviour s = Behaviour {
-    initHandler      :: InitHandler s        -- ^ initialization handler
-  , dispatchers      :: [Dispatcher s]
-  , terminateHandler :: TerminateHandler s    -- ^ termination handler
+    dispatchers      :: [Dispatcher s]
+  , timeoutHandler   :: TimeoutHandler s
+  , terminateHandler :: TerminateHandler s   -- ^ termination handler
+  }
+
+-- sending replies
+
+replyTo :: (Serializable m) => Recipient -> m -> Process ()
+replyTo (SendToPid p) m = send p m
+replyTo (SendToService s) m = nsend s m
+replyTo (SendToRemoteService s n) m = nsendRemote n s m
+
+--------------------------------------------------------------------------------
+-- Cloud Haskell Generic Process API                                          --
+--------------------------------------------------------------------------------
+
+start :: Process ()
+start = undefined
+
+stop :: Process ()
+stop = undefined 
+
+call :: Process ()
+call = undefined
+
+cast :: Process ()
+cast = undefined
+
+--------------------------------------------------------------------------------
+-- Constructing Handlers from *ordinary* functions                            --
+--------------------------------------------------------------------------------
+
+reply :: (Serializable r) => r -> s -> ProcessReply s r
+reply r s = replyWith r (ProcessContinue s)
+
+replyWith :: (Serializable m) => m -> ProcessAction s -> ProcessReply s m
+replyWith msg state = ProcessReply msg state 
+
+-- | Constructs a 'call' handler from an ordinary function in the 'Process'
+-- monad. Given a function @f :: (s -> a -> Process (ProcessReply s b))@,
+-- the expression @handleCall f@ will yield a 'Dispatcher' for inclusion
+-- in a 'Behaviour' specification for the /GenProcess/.
+--
+handleCall :: (Serializable a, Serializable b)
+           => (s -> a -> Process (ProcessReply s b)) -> Dispatcher s
+handleCall handler = DispatchReplyIf {
+      handle = doHandle handler
+    , handleIf = doCheck 
+    }
+  where doHandle :: (Serializable a, Serializable b)
+                 => (s -> a -> Process (ProcessReply s b)) -> s
+                 -> Message a -> Process (ProcessAction s)
+        doHandle h s (CallMessage p c) = (h s p) >>= mkReply c
+        doHandle _ _ _ = error "illegal input"  
+        -- TODO: standard 'this cannot happen' error message
+        
+        doCheck _ (CallMessage _ _) = True
+        doCheck _ _                 = False        
+        
+        mkReply :: (Serializable b)
+                => Recipient -> ProcessReply s b -> Process (ProcessAction s)
+        mkReply _ (NoReply a) = return a
+        mkReply c (ProcessReply r' a) = replyTo c r' >> return a
+
+-- | Constructs a 'cast' handler from an ordinary function in the 'Process'
+-- monad. Given a function @f :: (s -> a -> Process (ProcessAction s))@,
+-- the expression @handleCall f@ will yield a 'Dispatcher' for inclusion
+-- in a 'Behaviour' specification for the /GenProcess/.
+--
+handleCast :: (Serializable a)
+           => CastHandler s a -> Dispatcher s
+handleCast h = Dispatch {
+    dispatch = (\s (CastMessage p) -> h s p)
+  }            
+
+loop :: Behaviour s -> s -> Delay -> Process TerminateReason
+loop b s t = do
+    ac <- processReceive s b t
+    nextAction b ac
+    where nextAction :: Behaviour s -> ProcessAction s -> Process TerminateReason
+          nextAction b (ProcessContinue s')   = loop b s' t
+          nextAction b (ProcessTimeout t' s') = loop b s' t'
+          nextAction _ (ProcessStop r)        = return (r :: TerminateReason)
+
+processReceive :: s -> Behaviour s -> Delay -> Process (ProcessAction s)
+processReceive s b t =
+    let ms = map (matchMessage s) (dispatchers b) in do
+    next <- recv ms t
+    case next of
+        Nothing -> (timeoutHandler b) s t
+        Just pa -> return pa
+  where
+    recv :: [Match (ProcessAction s)] -> Delay -> Process (Maybe (ProcessAction s))
+    recv matches d =
+        case d of
+            Infinity -> receiveWait matches >>= return . Just
+            Delay t' -> receiveTimeout (asTimeout t') matches
+
+demo :: Behaviour [String]
+demo =
+  Behaviour {
+      dispatchers = [
+          handleCall add
+      ]
+    , terminateHandler = undefined
     }
 
--- | Management message
--- TODO is there a std way of terminating a process from another process?
-data Termination = Terminate TerminateReason
-    deriving (Show, Typeable)
-$(derive makeBinary ''Termination)
+add :: [String] -> String -> Process (ProcessReply [String] String)
+add s x =
+  let s' = (x:s)
+  in return $ reply "ok" s'
 
---------------------------------------------------------------------------------
--- API                                                                        --
---------------------------------------------------------------------------------
+onTimeout :: TimeoutHandler [String]
+onTimeout _ _ = return ProcessStop { reason = (TerminateOther "timeout") }
 
--- | Start a new server and return it's id
--- start :: Behaviour s -> Process ProcessId
--- start handlers = spawnLocal $ runProcess handlers
-
-reply :: (Serializable m) => ReplyTo -> m -> BaseProcess.Process ()
-reply (ReplyTo pid) m = BaseProcess.send pid m
-reply _             _ = return ()
-
-replyVia :: (Serializable m) => BaseProcess.SendPort m -> m ->
-                                BaseProcess.Process ()
-replyVia p m = BaseProcess.sendChan p m
-
--- | Given a state, behaviour specificiation and spawn function,
--- starts a new server and return its id. The spawn function is typically
--- one taken from "Control.Distributed.Process".
--- see 'Control.Distributed.Process.spawn'
---     'Control.Distributed.Process.spawnLocal'
---     'Control.Distributed.Process.spawnLink'
---     'Control.Distributed.Process.spawnMonitor'
---     'Control.Distributed.Process.spawnSupervised'
-start ::
-  s -> Behaviour s ->
-  (BaseProcess.Process () -> BaseProcess.Process BaseProcess.ProcessId) ->
-  BaseProcess.Process BaseProcess.ProcessId
-start state handlers spawn = spawn $ do
-  _ <- ST.runStateT (runProc handlers) state
-  return ()
-
-send :: (Serializable m) => ServerId -> m -> BaseProcess.Process ()
-send s m = do
-    let msg = (Message None m)
-    case s of
-        ServerProcess pid  -> BaseProcess.send  pid  msg
-        NamedServer   name -> BaseProcess.nsend name msg
-
--- process request handling
-
-handleRequest :: (Serializable m) => RequestHandler s m -> Dispatcher s
-handleRequest = handleRequestIf (const True)
-
-handleRequestIf :: (Serializable a) => (a -> Bool) ->
-                RequestHandler s a -> Dispatcher s
-handleRequestIf cond handler = DispatchIf {
-  dispatch = (\state m@(Message _ _) -> do
-      (r, s') <- ST.runStateT (handler m) state
-      return (s', r)
-  ),
-  condition = \_ (Message _ req) -> cond req
-}
-
--- process state management
-
--- | gets the process state
-getState :: GenProcess s s
-getState = ST.get
-
--- | sets the process state
-putState :: s -> GenProcess s ()
-putState = ST.put
-
--- | modifies the server state
-modifyState :: (s -> s) -> GenProcess s ()
-modifyState = ST.modify
-
---------------------------------------------------------------------------------
--- Implementation                                                             --
---------------------------------------------------------------------------------
-
--- | server process
-runProc :: Behaviour s -> GenProcess s ()
-runProc s = do
-    ir <- init s
-    tr <- case ir of
-            InitOk t -> do
-              trace $ "Server ready to receive messages!"
-              loop s t
-            InitStop r -> return (TerminateReason r)
-    terminate s tr
-
--- | initialize server
-init :: Behaviour s -> GenProcess s InitResult
-init s = do
-    trace $ "Server initializing ... "
-    ir <- initHandler s
-    return ir
-
-loop :: Behaviour s -> Delay -> GenProcess s TerminateReason
-loop s t = do
-    s' <- processReceive (dispatchers s) t
-    nextAction s s'
-    where nextAction :: Behaviour s -> ProcessAction ->
-                            GenProcess s TerminateReason
-          nextAction b ProcessContinue     = loop b t
-          nextAction b (ProcessTimeout t') = loop b t'
-          nextAction _ (ProcessStop r)     = return (TerminateReason r)
-
-processReceive :: [Dispatcher s] -> Delay -> GenProcess s ProcessAction
-processReceive ds t = do
-    s <- getState
-    let ms = map (matchMessage s) ds
-    -- TODO: should we drain the message queue to avoid selective receive here?
-    case t of
-        Infinity -> do
-            (s', r) <- ST.lift $ BaseProcess.receiveWait ms
-            putState s'
-            return r
-        Delay t' -> do
-            result <- ST.lift $ BaseProcess.receiveTimeout (asTimeout t') ms
-            case result of
-                Just (s', r) -> do
-                  putState s'
-                  return r
-                Nothing -> do
-                  return $ ProcessStop "timed out"
-
-terminate :: Behaviour s -> TerminateReason -> GenProcess s ()
-terminate s reason = do
-    trace $ "Server terminating: " ++ show reason
-    (terminateHandler s) reason
-
--- | Log a trace message using the underlying Process's say
-trace :: String -> GenProcess s ()
-trace msg = ST.lift . BaseProcess.say $ msg
-
--- data Upgrade = ???
--- TODO: can we use 'Static (SerializableDict a)' to pass a Behaviour spec to
--- a remote pid? if so then we may handle hot server-code loading quite easily...
