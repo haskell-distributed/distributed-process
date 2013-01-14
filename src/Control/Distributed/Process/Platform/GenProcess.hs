@@ -98,7 +98,7 @@ instance MessageMatcher Dispatcher where
 data UnhandledMessagePolicy =
     Terminate
   | DeadLetter ProcessId
-  | Drop 
+  | Drop
 
 data Behaviour s = Behaviour {
     dispatchers      :: [Dispatcher s]
@@ -197,10 +197,15 @@ handleCast h = Dispatch { dispatch = (\s (CastMessage p) -> h s p) }
 
 handleInfo :: forall s a. (Serializable a)
            => (s -> a -> Process (ProcessAction s))
-           -> s
-           -> AbstractMessage
-           -> Process (Maybe (ProcessAction s))
-handleInfo h' s msg = maybeHandleMessage msg (h' s)
+           -> InfoDispatcher s
+handleInfo h = InfoDispatcher { dispatchInfo = doHandleInfo h }
+  where 
+    doHandleInfo :: forall s2 a2. (Serializable a2)
+                             => (s2 -> a2 -> Process (ProcessAction s2))
+                             -> s2
+                             -> AbstractMessage
+                             -> Process (Maybe (ProcessAction s2))
+    doHandleInfo h' s msg = maybeHandleMessage msg (h' s)
 
 -- Process Implementation
 
@@ -299,20 +304,35 @@ replyTo (SendToPid p) m             = send p m
 replyTo (SendToService s) m         = nsend s m
 replyTo (SendToRemoteService s n) m = nsendRemote n s m
 
-demo :: Behaviour [String]
+data Reset = Reset 
+    deriving (Typeable)
+$(derive makeBinary ''Reset) 
+
+type MyState = [String]
+
+demo :: Behaviour MyState
 demo = Behaviour {
      dispatchers = [
          handleCall add
+       , handleCast reset
        ]
-   , infoHandlers = []
+   , infoHandlers = [handleInfo handleMonitorSignal]
+   , timeoutHandler = onTimeout
    , terminateHandler = undefined
+   , unhandledMessagePolicy = Drop 
    }
 
-add :: [String] -> String -> Process (ProcessReply [String] String)
+add :: MyState -> String -> Process (ProcessReply MyState String)
 add s x =
   let s' = (x:s)
   in return $ reply "ok" s'
 
-onTimeout :: TimeoutHandler [String]
+reset :: MyState -> Reset -> Process (ProcessAction MyState)
+reset _ Reset = return $ continue []
+
+handleMonitorSignal :: MyState -> ProcessMonitorNotification -> Process (ProcessAction MyState)
+handleMonitorSignal s (ProcessMonitorNotification _ _ _) = return $ continue s
+
+onTimeout :: TimeoutHandler MyState
 onTimeout _ _ = return ProcessStop { reason = (TerminateOther "timeout") }
 
