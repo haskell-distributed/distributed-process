@@ -78,12 +78,10 @@ data Dispatcher s =
         dispatch   :: s -> Message a -> Process (ProcessAction s)
       , dispatchIf :: s -> Message a -> Bool
       }
-  | DispatchInfo {
-      dispatchInfo :: UnhandledMessagePolicy
-                   -> s
-                   -> AbstractMessage
-                   -> Process (ProcessAction s)
-    }
+
+data InfoDispatcher s = InfoDispatcher {
+    dispatchInfo :: s -> AbstractMessage -> Process (Maybe (ProcessAction s))
+  }
 
 -- | matches messages of specific types using a dispatcher
 class MessageMatcher d where
@@ -93,7 +91,6 @@ class MessageMatcher d where
 instance MessageMatcher Dispatcher where
   matchMessage _ s (Dispatch        d)      = match (d s)
   matchMessage _ s (DispatchIf      d cond) = matchIf (cond s) (d s)
-  matchMessage p s (DispatchInfo    d)      = matchAny (d p s)
 
 -- | Policy for handling unexpected messages, i.e., messages which are not
 -- sent using the 'call' or 'cast' APIs, and which are not handled by any of the
@@ -105,7 +102,7 @@ data UnhandledMessagePolicy =
 
 data Behaviour s = Behaviour {
     dispatchers      :: [Dispatcher s]
-  , infoHandlers     :: [Dispatcher s]
+  , infoHandlers     :: [InfoDispatcher s]
   , timeoutHandler   :: TimeoutHandler s
   , terminateHandler :: TerminateHandler s   -- ^ termination handler
   , unhandledMessagePolicy :: UnhandledMessagePolicy
@@ -199,20 +196,11 @@ handleCast :: (Serializable a)
 handleCast h = Dispatch { dispatch = (\s (CastMessage p) -> h s p) }            
 
 handleInfo :: forall s a. (Serializable a)
-           => (s -> a -> Process (ProcessAction s)) -> Dispatcher s
-handleInfo h = DispatchInfo {
-    dispatchInfo = dispatchIt h
-  }
-  where dispatchIt :: (Serializable a) 
-                   => (s -> a -> Process (ProcessAction s))
-                   -> UnhandledMessagePolicy
-                   -> s
-                   -> AbstractMessage -> Process (ProcessAction s)
-        dispatchIt h' pol s msg = do
-            m <- maybeHandleMessage msg (h' s)
-            case m of
-                Nothing -> applyPolicy s pol msg 
-                Just act -> return (act :: ProcessAction s) 
+           => (s -> a -> Process (ProcessAction s))
+           -> s
+           -> AbstractMessage
+           -> Process (Maybe (ProcessAction s))
+handleInfo h' s msg = maybeHandleMessage msg (h' s)
 
 -- Process Implementation
 
@@ -240,19 +228,35 @@ initLoop b s =
                     -> [Match (ProcessAction s)]
                     -> [Match (ProcessAction s)] 
     addInfoHandlers b' s' p rms =
-        rms ++ addInfoAux p s' (infoHandlers b') []
+        rms ++ addInfoAux p s' (infoHandlers b')
     
-    -- if there's more than one info handler then we /do not/ want to apply the
-    -- policy until we reach the last one, otherwise we'll miss out the others
     addInfoAux :: UnhandledMessagePolicy
                -> s
-               -> [Dispatcher s]
+               -> [InfoDispatcher s]
                -> [Match (ProcessAction s)]
-               -> [Match (ProcessAction s)]
-    addInfoAux _ _ [] _ = []
-    addInfoAux p s'' (d:ds :: [Dispatcher s]) acc
-        | length ds == 0  = reverse ((matchMessage p s'' d):acc)
-        | otherwise = ((matchMessage Drop s'' d):(addInfoAux p s'' ds acc))
+    addInfoAux _ _  [] = []
+    addInfoAux p ps ds = [matchAny (infoHandler p ps ds)] 
+        
+    infoHandler :: UnhandledMessagePolicy
+                -> s
+                -> [InfoDispatcher s]
+                -> AbstractMessage
+                -> Process (ProcessAction s)
+    infoHandler _   _  [] _ = error "addInfoAux doest not permit this"
+    infoHandler pol st (d:ds :: [InfoDispatcher s]) msg
+        | length ds > 0  = let dh = dispatchInfo d in do 
+            -- NB: we *do not* want to terminate/dead-letter messages until
+            -- we've exhausted all the possible info handlers
+            m <- dh st msg
+            case m of
+              Nothing  -> infoHandler pol st ds msg
+              Just act -> return act
+          -- but here we *do* let the policy kick in
+        | otherwise = let dh = dispatchInfo d in do
+            m <- dh st msg
+            case m of
+              Nothing -> applyPolicy st pol msg
+              Just act -> return act 
     
 loop :: [Match (ProcessAction s)]
      -> TimeoutHandler s
