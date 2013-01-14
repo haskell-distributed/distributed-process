@@ -4,7 +4,8 @@
 {-# LANGUAGE TemplateHaskell            #-}
 
 module Control.Distributed.Process.Platform.GenProcess 
-  ( ServerId(..)
+  ( -- exported data types
+    ServerId(..)
   , Recipient(..)
   , TerminateReason(..)
   , InitResult(..)
@@ -15,23 +16,24 @@ module Control.Distributed.Process.Platform.GenProcess
   , TimeoutHandler
   , UnhandledMessagePolicy(..)
   , Behaviour(..)
+    -- interaction with the process
   , start
   , call
   , cast
+    -- interaction inside the process
   , reply
   , replyWith
   , continue
   , timeoutAfter
   , hibernate
   , stop
+    -- callback creation
   , handleCall
   , handleCallIf
   , handleCast
   , handleCastIf
   , handleInfo
   ) where
-
--- TODO: define API and hide internals...
 
 import Control.Concurrent (threadDelay)
 import Control.Distributed.Process hiding (call)
