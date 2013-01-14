@@ -158,17 +158,23 @@ hibernate d s = return $ ProcessHibernate d s
 stop :: TerminateReason -> Process (ProcessAction s)
 stop r = return $ ProcessStop r
 
+handleCall :: (Serializable a, Serializable b)
+           => (s -> a -> Process (ProcessReply s b))
+           -> Dispatcher s
+handleCall handler = handleCallIf (const True) handler           
+
 -- | Constructs a 'call' handler from an ordinary function in the 'Process'
 -- monad. Given a function @f :: (s -> a -> Process (ProcessReply s b))@,
 -- the expression @handleCall f@ will yield a 'Dispatcher' for inclusion
 -- in a 'Behaviour' specification for the /GenProcess/.
 --
-handleCall :: (Serializable a, Serializable b)
-           => (s -> a -> Process (ProcessReply s b))
+handleCallIf :: (Serializable a, Serializable b)
+           => (a -> Bool)
+           -> (s -> a -> Process (ProcessReply s b))
            -> Dispatcher s
-handleCall handler = DispatchIf {
+handleCallIf cond handler = DispatchIf {
       dispatch = doHandle handler
-    , dispatchIf = doCheck 
+    , dispatchIf = doCheck cond
     }
   where doHandle :: (Serializable a, Serializable b)
                  => (s -> a -> Process (ProcessReply s b))
@@ -179,8 +185,10 @@ handleCall handler = DispatchIf {
         doHandle _ _ _ = error "illegal input"  
         -- TODO: standard 'this cannot happen' error message
         
-        doCheck _ (CallMessage _ _) = True
-        doCheck _ _                 = False        
+        doCheck :: forall s a. (Serializable a)
+                            => (a -> Bool) -> s -> Message a -> Bool
+        doCheck c _ (CallMessage m _) = c m
+        doCheck _ _ _                 = False  
         
         -- handling 'reply-to' in the main process loop is awkward at best,
         -- so we handle it here instead and return the 'action' to the loop
@@ -196,7 +204,18 @@ handleCall handler = DispatchIf {
 --
 handleCast :: (Serializable a)
            => (s -> a -> Process (ProcessAction s)) -> Dispatcher s
-handleCast h = Dispatch { dispatch = (\s (CastMessage p) -> h s p) }            
+handleCast h = Dispatch { dispatch = (\s (CastMessage p) -> h s p) }
+
+-- | Constructs a 'handleCast' handler, matching on the supplied condition.
+--
+handleCastIf :: (Serializable a)
+           => (a -> Bool)
+           -> (s -> a -> Process (ProcessAction s))
+           -> Dispatcher s
+handleCastIf cond h = DispatchIf {
+      dispatch = (\s (CastMessage p) -> h s p)
+    , dispatchIf = \_ msg -> cond (payload msg)
+    }
 
 handleInfo :: forall s a. (Serializable a)
            => (s -> a -> Process (ProcessAction s))
@@ -274,10 +293,10 @@ loop :: [Match (ProcessAction s)]
 loop ms h s t = do
     ac <- processReceive ms h s t
     case ac of
-      (ProcessContinue s') -> loop ms h s' t
-      (ProcessTimeout t' s') -> loop ms h s' (Delay t')
+      (ProcessContinue s')     -> loop ms h s' t
+      (ProcessTimeout t' s')   -> loop ms h s' (Delay t')
       (ProcessHibernate d' s') -> block d' >> loop ms h s' t
-      (ProcessStop r) -> return (r :: TerminateReason)
+      (ProcessStop r)          -> return (r :: TerminateReason)
   where block :: TimeInterval -> Process ()
         block i = liftIO $ threadDelay (asTimeout i)
 
