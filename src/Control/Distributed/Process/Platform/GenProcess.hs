@@ -155,6 +155,8 @@ call sid msg = callAsync sid msg >>= wait >>= unpack
         unpack (AsyncDone r) = return r
         unpack _             = fail "boo hoo"
 
+-- TODO: provide version of call that will throw/exit on failure
+
 callTimeout :: forall a b . (Serializable a, Serializable b)
                  => ProcessId -> a -> TimeInterval -> Process (Maybe b) 
 callTimeout s m d = callAsync s m >>= waitTimeout d >>= unpack
@@ -178,6 +180,7 @@ callAsync sid msg = do
           , matchIf (\(ProcessMonitorNotification ref _ _) -> ref == mRef)
               (\(ProcessMonitorNotification _ _ reason) -> return (Left reason))
         ]
+    -- TODO: better failure API
     case r of
       Right m -> return m
       Left err -> fail $ "call: remote process died: " ++ show err 
