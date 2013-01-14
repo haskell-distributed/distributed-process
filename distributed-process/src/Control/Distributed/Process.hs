@@ -39,6 +39,7 @@ module Control.Distributed.Process
   , matchUnknown
   , AbstractMessage(..)
   , matchAny
+  , matchAnyIf
   , matchChan
     -- * Process management
   , spawn
@@ -192,6 +193,7 @@ import Control.Distributed.Process.Internal.Primitives
   , matchUnknown
   , AbstractMessage(..)
   , matchAny
+  , matchAnyIf
   , matchChan
     -- Process management
   , terminate
