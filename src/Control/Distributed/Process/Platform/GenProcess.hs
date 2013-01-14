@@ -125,35 +125,38 @@ cast = undefined
 
 -- | INstructs the process to send a reply and continue working. 
 -- > reply reply' state = replyWith reply' (continue state)
-reply :: (Serializable r) => r -> s -> ProcessReply s r
-reply r s = replyWith r (continue s)
+reply :: (Serializable r) => r -> s -> Process (ProcessReply s r)
+reply r s = continue s >>= replyWith r
 
 -- | Instructs the process to send a reply and evaluate the 'ProcessAction'
 -- thereafter. 
-replyWith :: (Serializable m) => m -> ProcessAction s -> ProcessReply s m
-replyWith msg state = ProcessReply msg state 
+replyWith :: (Serializable m)
+          => m
+          -> ProcessAction s
+          -> Process (ProcessReply s m)
+replyWith msg state = return $ ProcessReply msg state 
 
 -- | Instructs the process to continue running and receiving messages.
-continue :: s -> ProcessAction s
-continue s = ProcessContinue s
+continue :: s -> Process (ProcessAction s)
+continue s = return $ ProcessContinue s
 
 -- | Instructs the process to wait for incoming messages until 'TimeInterval'
 -- is exceeded. If no messages are handled during this period, the /timeout/
 -- handler will be called. Note that this alters the process timeout permanently
 -- such that the given @TimeInterval@ will remain in use until changed.  
-timeoutAfter :: TimeInterval -> s -> ProcessAction s
-timeoutAfter d s = ProcessTimeout d s
+timeoutAfter :: TimeInterval -> s -> Process (ProcessAction s)
+timeoutAfter d s = return $ ProcessTimeout d s
 
 -- | Instructs the process to /hibernate/ for the given 'TimeInterval'. Note
 -- that no messages will be removed from the mailbox until after hibernation has
 -- ceased. This is equivalent to calling @threadDelay@.
 -- 
-hibernate :: TimeInterval -> s -> ProcessAction s
-hibernate d s = ProcessHibernate d s
+hibernate :: TimeInterval -> s -> Process (ProcessAction s)
+hibernate d s = return $ ProcessHibernate d s
 
 -- | Instructs the process to cease, giving the supplied reason for termination.
-stop :: TerminateReason -> ProcessAction s
-stop r = ProcessStop r
+stop :: TerminateReason -> Process (ProcessAction s)
+stop r = return $ ProcessStop r
 
 -- | Constructs a 'call' handler from an ordinary function in the 'Process'
 -- monad. Given a function @f :: (s -> a -> Process (ProcessReply s b))@,
@@ -215,9 +218,9 @@ applyPolicy :: s
             -> Process (ProcessAction s)
 applyPolicy s p m = do
   case p of
-    Terminate -> return $ stop (TerminateOther "unexpected-input")
-    DeadLetter pid -> forward m pid >> return (continue s)
-    Drop -> return (continue s)      
+    Terminate      -> stop (TerminateOther "unexpected-input")
+    DeadLetter pid -> forward m pid >> continue s
+    Drop           -> continue s
 
 initLoop :: Behaviour s -> s -> Process TerminateReason
 initLoop b s =
@@ -325,14 +328,13 @@ demo = Behaviour {
 add :: MyState -> String -> Process (ProcessReply MyState String)
 add s x =
   let s' = (x:s)
-  in return $ reply "ok" s'
+  in reply "ok" s'
 
 reset :: MyState -> Reset -> Process (ProcessAction MyState)
-reset _ Reset = return $ continue []
+reset _ Reset = continue []
 
 handleMonitorSignal :: MyState -> ProcessMonitorNotification -> Process (ProcessAction MyState)
-handleMonitorSignal s (ProcessMonitorNotification _ _ _) = return $ continue s
+handleMonitorSignal s (ProcessMonitorNotification _ _ _) = continue s
 
 onTimeout :: TimeoutHandler MyState
-onTimeout _ _ = return ProcessStop { reason = (TerminateOther "timeout") }
-
+onTimeout _ _ = stop $ TerminateOther "timeout"
