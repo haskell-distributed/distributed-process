@@ -3,12 +3,38 @@
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE TemplateHaskell            #-}
 
-module Control.Distributed.Process.Platform.GenProcess where
+module Control.Distributed.Process.Platform.GenProcess 
+  ( ServerId(..)
+  , Recipient(..)
+  , TerminateReason(..)
+  , InitResult(..)
+  , ProcessAction
+  , ProcessReply
+  , InitHandler
+  , TerminateHandler
+  , TimeoutHandler
+  , UnhandledMessagePolicy(..)
+  , Behaviour(..)
+  , start
+  , call
+  , cast
+  , reply
+  , replyWith
+  , continue
+  , timeoutAfter
+  , hibernate
+  , stop
+  , handleCall
+  , handleCallIf
+  , handleCast
+  , handleCastIf
+  , handleInfo
+  ) where
 
 -- TODO: define API and hide internals...
 
 import Control.Concurrent (threadDelay)
-import Control.Distributed.Process
+import Control.Distributed.Process hiding (call)
 import Control.Distributed.Process.Serializable
 import Control.Distributed.Process.Platform.Time
 import Data.Binary
@@ -26,8 +52,8 @@ data Recipient =
 $(derive makeBinary ''Recipient)
 
 data Message a =
-    CastMessage { payload :: a }
-  | CallMessage { payload :: a, sender :: Recipient }
+    CastMessage a
+  | CallMessage a Recipient
   deriving (Typeable)
 $(derive makeBinary ''Message)
   
@@ -42,20 +68,19 @@ data TerminateReason =
 -- | Initialization
 data InitResult s =
     InitOk s Delay
-  | forall r. (Serializable r) => InitStop r
+  | forall r. (Serializable r) => InitFail r
 
 data ProcessAction s =
-    ProcessContinue  { nextState :: s }
-  | ProcessTimeout   { delay :: TimeInterval, nextState :: s }
-  | ProcessHibernate { duration :: TimeInterval, nextState :: s }
-  | ProcessStop      { reason :: TerminateReason } 
+    ProcessContinue  s
+  | ProcessTimeout   TimeInterval s
+  | ProcessHibernate TimeInterval s
+  | ProcessStop      TerminateReason 
 
 data ProcessReply s a =
-    ProcessReply { response :: a
-                 , action :: ProcessAction s }
-  | NoReply { action :: ProcessAction s}          
+    ProcessReply a (ProcessAction s)
+  | NoReply (ProcessAction s)          
 
-type InitHandler      a s   = a -> InitResult s
+type InitHandler      a s   = a -> Process (InitResult s)
 type TerminateHandler s     = s -> TerminateReason -> Process ()
 type TimeoutHandler   s     = s -> Delay -> Process (ProcessAction s)
 
@@ -104,8 +129,12 @@ data Behaviour s = Behaviour {
 -- Cloud Haskell Generic Process API                                          --
 --------------------------------------------------------------------------------
 
-start :: Process ()
-start = undefined
+start :: a -> InitHandler a s -> Behaviour s -> Process TerminateReason
+start args init behave = do
+  ir <- init args
+  case ir of 
+    InitOk initState initDelay -> initLoop behave initState initDelay
+    InitFail why -> return $ TerminateOther why
 
 call :: Process ()
 call = undefined
@@ -149,6 +178,8 @@ hibernate d s = return $ ProcessHibernate d s
 -- | Instructs the process to cease, giving the supplied reason for termination.
 stop :: TerminateReason -> Process (ProcessAction s)
 stop r = return $ ProcessStop r
+
+-- wrapping /normal/ functions with Dispatcher
 
 handleCall :: (Serializable a, Serializable b)
            => (s -> a -> Process (ProcessReply s b))
@@ -206,8 +237,10 @@ handleCastIf :: (Serializable a)
            -> Dispatcher s
 handleCastIf cond h = DispatchIf {
       dispatch = (\s (CastMessage p) -> h s p)
-    , dispatchIf = \_ msg -> cond (payload msg)
+    , dispatchIf = \_ (CastMessage msg) -> cond msg
     }
+
+-- wrapping /normal/ functions with InfoDispatcher
 
 handleInfo :: forall s a. (Serializable a)
            => (s -> a -> Process (ProcessAction s))
@@ -233,13 +266,13 @@ applyPolicy s p m =
     DeadLetter pid -> forward m pid >> continue s
     Drop           -> continue s
 
-initLoop :: Behaviour s -> s -> Process TerminateReason
-initLoop b s =
+initLoop :: Behaviour s -> s -> Delay -> Process TerminateReason
+initLoop b s w =
   let p   = unhandledMessagePolicy b
       t   = timeoutHandler b 
       ms  = map (matchMessage p s) (dispatchers b)
       ms' = addInfoHandlers b s p ms
-  in loop ms' t s Infinity
+  in loop ms' t s w
   where
     addInfoHandlers :: Behaviour s
                     -> s
@@ -317,35 +350,3 @@ replyTo :: (Serializable m) => Recipient -> m -> Process ()
 replyTo (SendToPid p) m             = send p m
 replyTo (SendToService s) m         = nsend s m
 replyTo (SendToRemoteService s n) m = nsendRemote n s m
-
-data Reset = Reset 
-    deriving (Typeable)
-$(derive makeBinary ''Reset) 
-
-type MyState = [String]
-
-demo :: Behaviour MyState
-demo = Behaviour {
-     dispatchers = [
-         handleCall add
-       , handleCast reset
-       ]
-   , infoHandlers = [handleInfo handleMonitorSignal]
-   , timeoutHandler = onTimeout
-   , terminateHandler = undefined
-   , unhandledMessagePolicy = Drop 
-   }
-
-add :: MyState -> String -> Process (ProcessReply MyState String)
-add s x =
-  let s' = (x:s)
-  in reply "ok" s'
-
-reset :: MyState -> Reset -> Process (ProcessAction MyState)
-reset _ Reset = continue []
-
-handleMonitorSignal :: MyState -> ProcessMonitorNotification -> Process (ProcessAction MyState)
-handleMonitorSignal s (ProcessMonitorNotification _ _ _) = continue s
-
-onTimeout :: TimeoutHandler MyState
-onTimeout _ _ = stop $ TerminateOther "timeout"
