@@ -235,7 +235,7 @@ applyPolicy :: s
             -> UnhandledMessagePolicy
             -> AbstractMessage
             -> Process (ProcessAction s)
-applyPolicy s p m = do
+applyPolicy s p m =
   case p of
     Terminate      -> stop (TerminateOther "unexpected-input")
     DeadLetter pid -> forward m pid >> continue s
