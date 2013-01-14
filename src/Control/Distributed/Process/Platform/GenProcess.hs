@@ -1,15 +1,7 @@
 {-# LANGUAGE DeriveDataTypeable         #-}
 {-# LANGUAGE ExistentialQuantification  #-}
-{-# LANGUAGE FlexibleContexts           #-}
-{-# LANGUAGE FunctionalDependencies     #-}
-{-# LANGUAGE MultiParamTypeClasses      #-}
-{-# LANGUAGE Rank2Types                 #-}
-{-# LANGUAGE RankNTypes                 #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE TemplateHaskell            #-}
-{-# LANGUAGE TypeFamilies               #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE ImpredicativeTypes         #-}
 
 module Control.Distributed.Process.Platform.GenProcess where
 
@@ -29,7 +21,7 @@ data ServerId = ServerId ProcessId | ServerName String
 data Recipient =
     SendToPid ProcessId
   | SendToService String
-  | SendToRemoteService String NodeId
+  | SendToRemoteService String NodeId 
   deriving (Typeable)
 $(derive makeBinary ''Recipient)
 
