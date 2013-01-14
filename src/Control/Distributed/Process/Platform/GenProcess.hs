@@ -181,11 +181,12 @@ callAsync sid msg = do
     case r of
       Right m -> return m
       Left err -> fail $ "call: remote process died: " ++ show err 
-    
 
-
-cast :: Process ()
-cast = undefined
+-- | Sends a /cast/ message to the server identified by 'ServerId'. The server
+-- will not send a response.
+cast :: forall a . (Serializable a)
+                 => ProcessId -> a -> Process ()
+cast sid msg = send sid (CastMessage msg)
 
 -- Constructing Handlers from *ordinary* functions
 
