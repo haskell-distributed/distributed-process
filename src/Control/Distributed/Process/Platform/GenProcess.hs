@@ -153,10 +153,11 @@ start args init behave = do
 -- | Make a syncrhonous call
 call :: forall a b . (Serializable a, Serializable b)
                  => ProcessId -> a -> Process b
-call sid msg = callAsync sid msg >>= wait >>= unpack
-  where unpack :: AsyncResult b -> Process b
-        unpack (AsyncDone r) = return r
-        unpack _             = fail "boo hoo"
+call sid msg = do
+  r <- safeCall sid msg
+  case r of
+    Nothing -> fail "call failed" -- TODO: exit protocol !?
+    Just ar -> return ar
 
 -- | Safe version of 'call' that returns 'Nothing' if the operation fails.
 safeCall :: forall a b . (Serializable a, Serializable b)
