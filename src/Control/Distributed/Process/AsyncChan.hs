@@ -4,7 +4,7 @@
 
 -----------------------------------------------------------------------------
 -- |
--- Module      :  Control.Distributed.Platform.Async.AsyncChan
+-- Module      :  Control.Distributed.Process.Platform.Async.AsyncChan
 -- Copyright   :  (c) Tim Watson 2012
 -- License     :  BSD3 (see the file LICENSE)
 --
