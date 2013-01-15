@@ -72,9 +72,13 @@ sleep t =
                                   (\_ -> return ())]
   return ()
 
--- | starts a timer which sends the supplied message to the destination process
--- after the specified time interval.
-sendAfter :: (Serializable a) => TimeInterval -> ProcessId -> a -> Process TimerRef
+-- | starts a timer which sends the supplied message to the destination
+-- process after the specified time interval.
+sendAfter :: (Serializable a)
+          => TimeInterval
+          -> ProcessId
+          -> a
+          -> Process TimerRef
 sendAfter t pid msg = runAfter t proc
   where proc = do { send pid msg }
 
@@ -84,8 +88,12 @@ runAfter t p = spawnLocal $ runTimer t p True
 
 -- | starts a timer that repeatedly sends the supplied message to the destination
 -- process each time the specified time interval elapses. To stop messages from
--- being sent in future, cancelTimer can be called.
-startTimer :: (Serializable a) => TimeInterval -> ProcessId -> a -> Process TimerRef
+-- being sent in future, 'cancelTimer' can be called.
+startTimer :: (Serializable a)
+           => TimeInterval
+           -> ProcessId
+           -> a
+           -> Process TimerRef
 startTimer t pid msg = periodically t (send pid msg)
 
 -- | runs the supplied process action(s) repeatedly at intervals of @t@
@@ -101,6 +109,7 @@ periodically t p = spawnLocal $ runTimer t p False
 resetTimer :: TimerRef -> Process ()
 resetTimer = (flip send) Reset
 
+-- | permanently cancels a timer
 cancelTimer :: TimerRef -> Process ()
 cancelTimer = (flip send) Cancel
 
@@ -111,7 +120,6 @@ flushTimer :: (Serializable a, Eq a) => TimerRef -> a -> Delay -> Process ()
 flushTimer ref ignore t = do
     mRef <- monitor ref
     cancelTimer ref
-    -- TODO: monitor the timer ref (pid) and ensure it's gone before finishing
     performFlush mRef t
     return ()
   where performFlush mRef Infinity    = receiveWait $ filters mRef
