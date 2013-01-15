@@ -330,22 +330,13 @@ initLoop b s w =
   let p   = unhandledMessagePolicy b
       t   = timeoutHandler b 
       ms  = map (matchMessage p s) (dispatchers b)
-      ms' = addInfoHandlers b s p ms
+      ms' = ms ++ addInfoAux p s (infoHandlers b)
   in loop ms' t s w
   where
-    addInfoHandlers :: Behaviour s
-                    -> s
-                    -> UnhandledMessagePolicy
-                    -> [Match (ProcessAction s)]
-                    -> [Match (ProcessAction s)] 
-    addInfoHandlers b' s' p rms =
-        rms ++ addInfoAux p s' (infoHandlers b')
-    
     addInfoAux :: UnhandledMessagePolicy
                -> s
                -> [InfoDispatcher s]
                -> [Match (ProcessAction s)]
-    addInfoAux _ _  [] = []
     addInfoAux p ps ds = [matchAny (infoHandler p ps ds)] 
         
     infoHandler :: UnhandledMessagePolicy
@@ -353,7 +344,7 @@ initLoop b s w =
                 -> [InfoDispatcher s]
                 -> AbstractMessage
                 -> Process (ProcessAction s)
-    infoHandler _   _  [] _ = error "addInfoAux doest not permit this"
+    infoHandler pol st [] msg = applyPolicy st pol msg
     infoHandler pol st (d:ds :: [InfoDispatcher s]) msg
         | length ds > 0  = let dh = dispatchInfo d in do 
             -- NB: we *do not* want to terminate/dead-letter messages until
