@@ -19,6 +19,7 @@ module Control.Distributed.Process.Platform.GenProcess
     -- interaction with the process
   , start
   , call
+  , safeCall
   , callAsync
   , callTimeout
   , cast
@@ -140,6 +141,8 @@ data Behaviour s = Behaviour {
 -- Cloud Haskell Generic Process API                                          --
 --------------------------------------------------------------------------------
 
+-- TODO: automatic registration
+
 start :: a -> InitHandler a s -> Behaviour s -> Process TerminateReason
 start args init behave = do
   ir <- init args
@@ -154,6 +157,13 @@ call sid msg = callAsync sid msg >>= wait >>= unpack
   where unpack :: AsyncResult b -> Process b
         unpack (AsyncDone r) = return r
         unpack _             = fail "boo hoo"
+
+-- | Safe version of 'call' that returns 'Nothing' if the operation fails.
+safeCall :: forall a b . (Serializable a, Serializable b)
+                 => ProcessId -> a -> Process (Maybe b)
+safeCall s m = callAsync s m >>= wait >>= unpack
+  where unpack (AsyncDone r) = return $ Just r
+        unpack _             = return Nothing
 
 -- TODO: provide version of call that will throw/exit on failure
 
