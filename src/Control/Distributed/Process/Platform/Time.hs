@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP                       #-}
 {-# LANGUAGE DeriveDataTypeable        #-}
 {-# LANGUAGE TemplateHaskell           #-}
 
@@ -119,17 +120,34 @@ minutes = TimeInterval Minutes
 hours :: Int -> TimeInterval
 hours = TimeInterval Hours
 
--- TODO: timeToMs is not exactly efficient and we may want to scale it up
+-- TODO: is timeToMs efficient?
 
 -- | converts the supplied @TimeUnit@ to microseconds
+{-# INLINE timeToMs #-}
 timeToMs :: TimeUnit -> Int -> Int
 timeToMs Micros  us   = us
-timeToMs Millis  ms   = ms  * (10 ^ (3 :: Int))
-timeToMs Seconds sec  = sec * (10 ^ (6 :: Int))
-timeToMs Minutes sec  = (sec * 60) * (10 ^ (6 :: Int))
-timeToMs Hours   mins = ((mins * 60) * 60) * (10 ^ (6 :: Int))
-timeToMs Days    hrs  = (((hrs * 24) * 60) * 60) * (10 ^ (6 :: Int))
+timeToMs Millis  ms   = ms  * (10 ^ (3 :: Int)) -- (1000µs == 1ms)
+timeToMs Seconds secs = timeToMs Millis  (secs * milliSecondsPerSecond)
+timeToMs Minutes mins = timeToMs Seconds (mins * secondsPerMinute)
+timeToMs Hours   hrs  = timeToMs Minutes (hrs  * minutesPerHour)
+timeToMs Days    days = timeToMs Hours   (days * hoursPerDay)
 
+{-# INLINE hoursPerDay #-}
+hoursPerDay :: Int
+hoursPerDay = 60
+
+{-# INLINE minutesPerHour #-}
+minutesPerHour :: Int
+minutesPerHour = 60
+
+{-# INLINE secondsPerMinute #-}
+secondsPerMinute :: Int
+secondsPerMinute = 60
+
+{-# INLINE milliSecondsPerSecond #-}
+milliSecondsPerSecond :: Int
+milliSecondsPerSecond = 1000
+ 
 -- timeouts/delays (microseconds)
 
 -- | Constructs an inifinite 'Timeout'.
