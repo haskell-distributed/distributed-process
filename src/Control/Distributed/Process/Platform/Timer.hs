@@ -21,8 +21,8 @@ import Control.Distributed.Process.Serializable
 import Control.Distributed.Process.Platform.Time
 import Data.Binary
 import Data.DeriveTH
-import Data.Typeable                               (Typeable)
-import Prelude                                     hiding (init)
+import Data.Typeable (Typeable)
+import Prelude hiding (init)
 
 -- | an opaque reference to a timer
 type TimerRef = ProcessId
