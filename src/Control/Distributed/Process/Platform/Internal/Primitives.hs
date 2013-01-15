@@ -66,7 +66,7 @@ spawnMonitorLocal p = do
 
 -- | CH's 'link' primitive, unlike Erlang's, will trigger when the target
 -- process dies for any reason. linkOnFailure has semantics like Erlang's:
--- it will trigger only when the target function dies abnormally.
+-- it will trigger only when the target dies abnormally.
 linkOnFailure :: ProcessId -> Process ()
 linkOnFailure them = do
   us <- getSelfPid

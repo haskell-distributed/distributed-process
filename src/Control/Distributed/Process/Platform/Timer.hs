@@ -1,6 +1,21 @@
 {-# LANGUAGE DeriveDataTypeable        #-}
 {-# LANGUAGE TemplateHaskell           #-}
 
+-----------------------------------------------------------------------------
+-- |
+-- Module      :  Control.Distributed.Process.Platform.Timer
+-- Copyright   :  (c) Tim Watson 2012
+-- License     :  BSD3 (see the file LICENSE)
+--
+-- Maintainer  :  Tim Watson <watson.timothy@gmail.com>
+-- Stability   :  experimental
+-- Portability :  non-portable (requires concurrency)
+--
+-- Provides an API for running code or sending messages, either after some
+-- initial delay or periodically, and for cancelling, re-setting and/or
+-- flushing pending /timers/. 
+-----------------------------------------------------------------------------
+
 module Control.Distributed.Process.Platform.Timer
   (
     TimerRef
@@ -47,9 +62,8 @@ $(derive makeBinary ''SleepingPill)
 
 -- | blocks the calling Process for the specified TimeInterval. Note that this
 -- function assumes that a blocking receive is the most efficient approach to
--- acheiving this, so expect the runtime semantics (particularly with regards
--- scheduling) to differ from threadDelay and/or operating system specific
--- functions that offer the same results.
+-- acheiving this, however the runtime semantics (particularly with regards
+-- scheduling) should not differ from threadDelay in practise.
 sleep :: TimeInterval -> Process ()
 sleep t =
   let ms = asTimeout t in do
@@ -64,7 +78,7 @@ sendAfter :: (Serializable a) => TimeInterval -> ProcessId -> a -> Process Timer
 sendAfter t pid msg = runAfter t proc
   where proc = do { send pid msg }
 
--- | runs the supplied process action(s) after `t' has elapsed
+-- | runs the supplied process action(s) after @t@ has elapsed
 runAfter :: TimeInterval -> Process () -> Process TimerRef
 runAfter t p = spawnLocal $ runTimer t p True
 
@@ -74,16 +88,16 @@ runAfter t p = spawnLocal $ runTimer t p True
 startTimer :: (Serializable a) => TimeInterval -> ProcessId -> a -> Process TimerRef
 startTimer t pid msg = periodically t (send pid msg)
 
--- | runs the supplied process action(s) repeatedly at intervals of `t'
+-- | runs the supplied process action(s) repeatedly at intervals of @t@
 periodically :: TimeInterval -> Process () -> Process TimerRef
 periodically t p = spawnLocal $ runTimer t p False
 
 -- | resets a running timer. Note: Cancelling a timer does not guarantee that
--- a timer's messages are prevented from being delivered to the target process.
--- Also note that resetting an ongoing timer (started using the `startTimer' or
--- `periodically' functions) will only cause the current elapsed period to time
+-- all its messages are prevented from being delivered to the target process.
+-- Also note that resetting an ongoing timer (started using the 'startTimer' or
+-- 'periodically' functions) will only cause the current elapsed period to time
 -- out, after which the timer will continue running. To stop a long-running
--- timer, you should use `cancelTimer' instead.
+-- timer permanently, you should use 'cancelTimer' instead.
 resetTimer :: TimerRef -> Process ()
 resetTimer = (flip send) Reset
 
@@ -109,7 +123,7 @@ flushTimer ref ignore t = do
               , matchIf (\(ProcessMonitorNotification mRef' _ _) -> mRef == mRef')
                         (\_ -> return ()) ]
 
--- | sets up a timer that sends `Tick' repeatedly at intervals of `t'
+-- | sets up a timer that sends 'Tick' repeatedly at intervals of @t@
 ticker :: TimeInterval -> ProcessId -> Process TimerRef
 ticker t pid = startTimer t pid Tick
 
