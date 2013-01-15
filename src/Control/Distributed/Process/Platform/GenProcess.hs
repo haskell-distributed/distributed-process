@@ -180,10 +180,10 @@ callAsync :: forall a b . (Serializable a, Serializable b)
                  => ProcessId -> a -> Process (AsyncChan b)
 callAsync sid msg = do
   self <- getSelfPid
-  mRef <- monitor sid
 -- TODO: use a unified async API here if possible
 -- https://github.com/haskell-distributed/distributed-process-platform/issues/55
   async $ asyncDo $ do
+    mRef <- monitor sid
     sendTo (SendToPid sid) (CallMessage msg (SendToPid self))
     r <- receiveWait [
             match (\((CallResponse m) :: CallResponse b) -> return (Right m))
