@@ -23,6 +23,8 @@ module Control.Distributed.Process.Platform.Timer
   , sleep
   , sendAfter
   , runAfter
+  , exitAfter
+  , killAfter
   , startTimer
   , ticker
   , periodically
@@ -85,6 +87,18 @@ sendAfter t pid msg = runAfter t proc
 -- | runs the supplied process action(s) after @t@ has elapsed
 runAfter :: TimeInterval -> Process () -> Process TimerRef
 runAfter t p = spawnLocal $ runTimer t p True
+
+-- | calls @exit pid reason@ after @t@ has elapsed
+exitAfter :: (Serializable a)
+             => TimeInterval
+             -> ProcessId
+             -> a
+             -> Process TimerRef
+exitAfter delay pid reason = runAfter delay $ exit pid reason
+
+-- | kills the specified process after @t@ has elapsed
+killAfter :: TimeInterval -> ProcessId -> String -> Process TimerRef
+killAfter delay pid why = runAfter delay $ kill pid why
 
 -- | starts a timer that repeatedly sends the supplied message to the destination
 -- process each time the specified time interval elapses. To stop messages from
