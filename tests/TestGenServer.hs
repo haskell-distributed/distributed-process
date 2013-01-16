@@ -34,7 +34,7 @@ opDiv = Div (/)
 
 expr :: Op -> OpExpr
 expr (Add f) = f
-expr (Div f) = f 
+expr (Div f) = f
 
 mathTest :: String
          -> String
@@ -65,20 +65,20 @@ server =
         dispatchers = [
               handleCall    (\s' (m :: String) -> reply m s')  -- state passed
             , handleCall_   (\(n :: Int) -> return (n * 2))    -- "stateless"
-            
+
             , handleCast    (\s' ("ping",                      -- regular cast
                                     pid :: ProcessId) ->
                                         send pid "pong" >> continue s')
-            
+
                                                                -- "stateless"
             , handleCastIf_ (\(c :: String, _ :: Delay) -> c == "timeout")
                             (\("timeout", Delay d) -> timeoutAfter_ d)
-    
-            , action        (\"stop" -> stop_ TerminateNormal) 
+
+            , action        (\"stop" -> stop_ TerminateNormal)
           ]
       , infoHandlers = []
       , unhandledMessagePolicy = Terminate
-      , timeoutHandler   = \_ _ -> stop $ TerminateOther "timeout" 
+      , timeoutHandler   = \_ _ -> stop $ TerminateOther "timeout"
     }
   in spawnLocal $ start () startup s >> return ()
   where startup :: InitHandler () ()
@@ -103,9 +103,9 @@ tests transport = do
             (delayedAssertion
              "expected n * 2 back from the server"
              localNode (Just 4) testBasicCall_)
-            
+
         ]
       ]
 
 main :: IO ()
-main = testMain $ tests 
+main = testMain $ tests
