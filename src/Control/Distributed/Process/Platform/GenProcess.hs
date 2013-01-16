@@ -568,3 +568,4 @@ sendTo :: (Serializable m) => Recipient -> m -> Process ()
 sendTo (SendToPid p) m             = send p m
 sendTo (SendToService s) m         = nsend s m
 sendTo (SendToRemoteService s n) m = nsendRemote n s m
+
