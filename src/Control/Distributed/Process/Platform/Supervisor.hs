@@ -3,7 +3,7 @@
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE TemplateHaskell            #-}
 
-module Control.Distributed.Process.Platform.Supervisor 
+module Control.Distributed.Process.Platform.Supervisor
   ( SupervisorStats(..)
   , ChildId
   , Child(..)
@@ -120,13 +120,13 @@ toPid :: ChildKey -> ProcessId
 toPid (ChildKey _ (Child p)) = p
 
 statistics :: ProcessId -> Process (Maybe SupervisorStats)
-statistics = (flip safeCall) ApiCallStats
+statistics = (flip tryCall) ApiCallStats
 
 lookupChild :: ProcessId -> ChildKey -> Process (Maybe ChildSpec)
-lookupChild sid = safeCall sid . Just . ApiCallFind
+lookupChild sid = tryCall sid . Just . ApiCallFind
 
 addChild :: ProcessId -> ChildSpec -> Process (Maybe ChildKey)
-addChild sid = safeCall sid . Just . ApiCallAdd
+addChild sid = tryCall sid . Just . ApiCallAdd
 
 -- callback API
 
@@ -134,7 +134,7 @@ handleLookupChild :: State
                   -> ApiCallFind
                   -> Process (ProcessReply State (Maybe ChildSpec))
 handleLookupChild state (ApiCallFind key) = reply (spec state key) state
-  where spec :: State -> ChildKey -> Maybe ChildSpec 
+  where spec :: State -> ChildKey -> Maybe ChildSpec
         spec s k = Map.lookup k (specs s)
 
 handleAddChild :: State
@@ -145,11 +145,11 @@ handleAddChild state (ApiCallAdd spec) =
       key      = ChildKey childId' emptyChildPid
       spec'    = spec{ childId = key }
   in store key spec' state >>= reply (Just key)
-  
+
 --  child <- tryStartChild state spec
 --  case child of
 --    err@(Left _) -> reply Nothing state
---    Right key -> markActive key spec state >>= reply (Just key)              
+--    Right key -> markActive key spec state >>= reply (Just key)
 
 handleGetStats :: State -> ApiCallStats -> Process (ProcessReply State SupervisorStats)
 handleGetStats s ApiCallStats = reply (stats s) s
@@ -161,8 +161,8 @@ handleMonitorSignal :: State
                     -> Process (ProcessAction State)
 handleMonitorSignal state (ProcessMonitorNotification _ pid _reason) =
   let m = active state
-      (cId, active') = Map.updateLookupWithKey (\_ _ -> Nothing) pid m 
-  in handleChildDown cId active' state  
+      (cId, active') = Map.updateLookupWithKey (\_ _ -> Nothing) pid m
+  in handleChildDown cId active' state
 
 -- internal/aux APIs
 
@@ -242,8 +242,8 @@ emptyStats = SupervisorStats {
   }
   -- TODO: usage/restart/freq stats
 
-supServer :: Behaviour State
-supServer = Behaviour {
+supServer :: ProcessDefinition State
+supServer = ProcessDefinition {
      dispatchers = [
          handleCall handleLookupChild
        , handleCall handleAddChild
@@ -252,5 +252,5 @@ supServer = Behaviour {
    , infoHandlers = [handleInfo handleMonitorSignal]
    , timeoutHandler = undefined
    , terminateHandler = undefined
-   , unhandledMessagePolicy = Drop 
+   , unhandledMessagePolicy = Drop
    }
