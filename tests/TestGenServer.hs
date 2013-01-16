@@ -24,32 +24,6 @@ import TestUtils
 
 import qualified Network.Transport as NT
 
-type OpExpr = (Double -> Double -> Double)
-data Op = Add OpExpr | Div OpExpr
-
-opAdd :: Op
-opAdd = Add (+)
-
-opDiv :: Op
-opDiv = Div (/)
-
-expr :: Op -> OpExpr
-expr (Add f) = f
-expr (Div f) = f
-
-mathTest :: String
-         -> String
-         -> LocalNode
-         -> ProcessId
-         -> Double
-         -> Double
-         -> Op
-         -> Test
-mathTest t n l sid x y op = let fn = expr op in do
-    testCase t (delayedAssertion n l (x `fn` y) (proc sid x y op))
-  where proc s x' y' (Add _) result = add s x' y' >>= stash result
-        proc s x' y' (Div _) result = divide s x' y' >>= stash result
-
 testBasicCall :: TestResult (Maybe String) -> Process ()
 testBasicCall result = do
   (pid, _) <- server
@@ -113,6 +87,11 @@ testDeadLetterPolicy result = do
     (after 5 Seconds)
     [ match (\m@(_ :: String, _ :: Int) -> return m) ] >>= stash result
 
+testDivByZero :: ProcessId -> TestResult (Either DivByZero Double) -> Process ()
+testDivByZero pid result = divide pid 125 0 >>= stash result
+
+-- utilities
+
 waitForExit :: MVar (Either (InitResult ()) TerminateReason)
             -> Process (Maybe TerminateReason)
 waitForExit exitReason = do
@@ -156,7 +135,9 @@ mkServer policy =
 tests :: NT.Transport  -> IO [Test]
 tests transport = do
   localNode <- newLocalNode transport initRemoteTable
-  -- _ <- forkProcess localNode $ launchMathServer >>= stash mv
+  mpid <- newEmptyMVar
+  _ <- forkProcess localNode $ launchMathServer >>= stash mpid
+  pid <- takeMVar mpid
   return [
         testGroup "basic server functionality" [
             testCase "basic call with explicit server reply"
@@ -190,7 +171,14 @@ tests transport = do
              localNode (Just ("UNSOLICITED_MAIL", 500 :: Int))
              testDeadLetterPolicy)
           ]
+        , testGroup "math server examples" [
+            testCase "error (Left) returned from x / 0"
+              (delayedAssertion
+               "expected the server to return DivByZero"
+               localNode (Left DivByZero) (testDivByZero pid))
+          ]
       ]
 
 main :: IO ()
 main = testMain $ tests
+

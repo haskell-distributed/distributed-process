@@ -4,6 +4,7 @@ module MathsDemo
   ( add
   , divide
   , launchMathServer
+  , DivByZero(..)
   ) where
 
 import Control.Applicative
@@ -16,7 +17,7 @@ import Data.Typeable (Typeable)
 
 data Add       = Add    Double Double deriving (Typeable)
 data Divide    = Divide Double Double deriving (Typeable)
-data DivByZero = DivByZero deriving (Typeable)
+data DivByZero = DivByZero deriving (Typeable, Eq)
 
 instance Binary Add where
   put (Add x y) = put x >> put y
@@ -35,7 +36,8 @@ instance Binary DivByZero where
 add :: ProcessId -> Double -> Double -> Process Double
 add sid x y = call sid (Add x y)
 
-divide :: ProcessId -> Double -> Double -> Process Double
+divide :: ProcessId -> Double -> Double
+          -> Process (Either DivByZero Double)
 divide sid x y = call sid (Divide x y )
 
 launchMathServer :: Process ProcessId
@@ -43,13 +45,17 @@ launchMathServer =
   let server = statelessProcess {
       dispatchers = [
           handleCall_   (\(Add    x y) -> return (x + y))
-        , handleCallIf_ (\(Divide _ y) -> y /= 0)
-                        (\(Divide x y) -> return (x / y))
-        , handleCall_   (\(Divide _ _) -> return DivByZero)
-
+        , handleCallIf_ (\(Divide _ y) -> y /= 0) handleDivide
+        , handleCall_   (\(Divide _ _) -> divByZero)
         , action        (\("stop") -> stop_ TerminateNormal)
         ]
     } :: Behaviour ()
   in spawnLocal $ start () startup server >> return ()
   where startup :: InitHandler () ()
         startup _ = return $ InitOk () Infinity
+
+        handleDivide :: Divide -> Process (Either DivByZero Double)
+        handleDivide (Divide x y) = return $ Right $ x / y
+
+        divByZero :: Process (Either DivByZero Double)
+        divByZero = return $ Left DivByZero
