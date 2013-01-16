@@ -343,7 +343,7 @@ data ProcessTerminationException = ProcessTerminationException
 
 instance Exception ProcessTerminationException
 
--- | Terminate (throws a ProcessTerminationException)
+-- | Terminate immediately (throws a ProcessTerminationException)
 terminate :: Process a
 terminate = liftIO $ throwIO ProcessTerminationException
 
