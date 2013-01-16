@@ -4,7 +4,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  Control.Distributed.Process.Platform.Test
--- Copyright   :  (c) Tim Watson, Jeff Epstein 2013 
+-- Copyright   :  (c) Tim Watson, Jeff Epstein 2013
 -- License     :  BSD3 (see the file LICENSE)
 --
 -- Maintainer  :  Tim Watson
@@ -45,7 +45,7 @@ import Control.Distributed.Process
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable()
 import Control.Exception (SomeException)
-import Control.Monad (forever)          
+import Control.Monad (forever)
 import Data.Binary
 import Data.DeriveTH
 import Data.Typeable (Typeable)
@@ -82,7 +82,7 @@ runTestProcess proc = forever $ do
     Go       -> proc
     Report p -> receiveWait [matchAny (\m -> forward m p)] >> return ()
 
--- | Tell a /test process/ to continue executing 
+-- | Tell a /test process/ to continue executing
 testProcessGo :: ProcessId -> Process ()
 testProcessGo pid = (say $ (show pid) ++ " go!") >> send pid Go
 
