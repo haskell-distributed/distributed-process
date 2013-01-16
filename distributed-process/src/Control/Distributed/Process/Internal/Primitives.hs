@@ -25,6 +25,7 @@ module Control.Distributed.Process.Internal.Primitives
     -- * Process management
   , terminate
   , ProcessTerminationException(..)
+  , die
   , kill
   , exit
   , catchExit
@@ -345,6 +346,13 @@ instance Exception ProcessTerminationException
 -- | Terminate (throws a ProcessTerminationException)
 terminate :: Process a
 terminate = liftIO $ throwIO ProcessTerminationException
+
+-- [Issue #110]
+-- | Die immediately - throws a 'ProcessExitException' with the given @reason@
+die :: Serializable a => a -> Process b
+die reason = do
+  pid <- getSelfPid
+  liftIO $ throwIO (ProcessExitException pid (createMessage reason))
 
 -- | Forceful request to kill a process
 kill :: ProcessId -> String -> Process ()
