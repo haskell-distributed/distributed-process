@@ -870,7 +870,7 @@ testKillLocal transport = do
     us <- getSelfPid
     kill pid "TestKill"
     ProcessMonitorNotification ref' pid' (DiedException ex) <- expect
-    True <- return $ ref == ref' && pid == pid' && ex == "Kill by " ++ show us ++ ": TestKill"
+    True <- return $ ref == ref' && pid == pid' && ex == "killed-by=" ++ show us ++ ",reason=TestKill"
     liftIO $ putMVar done ()
 
   takeMVar done
@@ -889,7 +889,7 @@ testKillRemote transport = do
     us <- getSelfPid
     kill pid "TestKill"
     ProcessMonitorNotification ref' pid' (DiedException reason) <- expect
-    True <- return $ ref == ref' && pid == pid' && reason == "Kill by " ++ show us ++ ": TestKill"
+    True <- return $ ref == ref' && pid == pid' && reason == "killed-by=" ++ show us ++ ",reason=TestKill"
     liftIO $ putMVar done ()
 
   takeMVar done
