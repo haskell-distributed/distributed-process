@@ -14,7 +14,6 @@ import Control.Distributed.Process.Platform.Test
 import Control.Distributed.Process.Platform.Time
 import Control.Distributed.Process.Platform.Timer
 
-
 import Data.Binary()
 import Data.Typeable()
 import MathsDemo
@@ -102,10 +101,22 @@ testDropPolicy result = do
     Nothing -> stash result Nothing
     _       -> return ()
 
+testDeadLetterPolicy :: TestResult (Maybe (String, Int)) -> Process ()
+testDeadLetterPolicy result = do
+  self <- getSelfPid
+  (pid, _) <- mkServer (DeadLetter self)
+  
+  send pid ("UNSOLICITED_MAIL", 500 :: Int)
+  cast pid "stop"
+  
+  receiveTimeout
+    (after 5 Seconds)
+    [ match (\m@(_ :: String, _ :: Int) -> return m) ] >>= stash result 
+
 waitForExit :: MVar (Either (InitResult ()) TerminateReason)
             -> Process (Maybe TerminateReason)
 waitForExit exitReason = do
-    -- we *might* end up blocked here, so ensure the test suite doesn't jam!
+    -- we *might* end up blocked here, so ensure the test doesn't jam up!
   self <- getSelfPid
   tref <- killAfter (within 10 Seconds) self "testcast timed out"
   tr <- liftIO $ takeMVar exitReason
@@ -173,6 +184,11 @@ tests transport = do
             (delayedAssertion
              "expected the server to ignore unhandled input and exit normally"
              localNode (Just TerminateNormal) testDropPolicy)
+          , testCase "unhandled input when policy = Drop"
+            (delayedAssertion
+             "expected the server to forward unhandled messages"
+             localNode (Just ("UNSOLICITED_MAIL", 500 :: Int))
+             testDeadLetterPolicy)
           ]
       ]
 
