@@ -59,6 +59,13 @@ testBasicCall_ result = do
   pid <- server
   callTimeout pid (2 :: Int) (within 5 Seconds) >>= stash result
 
+testBasicCast :: TestResult (Maybe String) -> Process ()
+testBasicCast result = do
+  self <- getSelfPid
+  pid <- server
+  cast pid ("ping", self)
+  expectTimeout (after 3 Seconds) >>= stash result
+
 server :: Process ProcessId
 server =
   let s = statelessProcess {
@@ -103,7 +110,10 @@ tests transport = do
             (delayedAssertion
              "expected n * 2 back from the server"
              localNode (Just 4) testBasicCall_)
-
+          , testCase "basic cast"
+            (delayedAssertion
+             "expected pong back from the server"
+             localNode (Just "pong") testBasicCast)
         ]
       ]
 
