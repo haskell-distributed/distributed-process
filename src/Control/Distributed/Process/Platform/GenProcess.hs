@@ -485,7 +485,7 @@ applyPolicy :: s
             -> Process (ProcessAction s)
 applyPolicy s p m =
   case p of
-    Terminate      -> stop $ TerminateOther "unexpected-input"
+    Terminate      -> stop $ TerminateOther "UNHANDLED_INPUT"
     DeadLetter pid -> forward m pid >> continue s
     Drop           -> continue s
 
