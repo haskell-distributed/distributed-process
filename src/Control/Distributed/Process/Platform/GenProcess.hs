@@ -21,6 +21,7 @@ module Control.Distributed.Process.Platform.GenProcess
     -- interaction with the process
   , start
   , statelessProcess
+  , statelessInit
   , call
   , safeCall
   , callAsync
@@ -184,6 +185,9 @@ statelessProcess = Behaviour {
   , terminateHandler       = \_ _ -> return ()
   , unhandledMessagePolicy = Terminate
   }
+
+statelessInit :: Delay -> InitHandler () ()
+statelessInit d () = return $ InitOk () d
 
 -- | Make a syncrhonous call - will block until a reply is received.
 call :: forall a b . (Serializable a, Serializable b)
