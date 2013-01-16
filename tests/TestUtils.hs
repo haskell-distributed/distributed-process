@@ -46,7 +46,7 @@ import Control.Concurrent.MVar
 import Control.Exception
 import Control.Monad (forever)
 import Control.Monad.STM (atomically)
-  
+
 import Control.Distributed.Process
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable()
@@ -80,12 +80,12 @@ assertComplete msg mv a = do
   b <- takeMVar mv
   assertBool msg (a == b)
 
--- synchronised logging 
+-- synchronised logging
 
-data Logger = Logger { _tid :: ThreadId, msgs :: TQueue String } 
+data Logger = Logger { _tid :: ThreadId, msgs :: TQueue String }
 
 -- | Create a new Logger.
--- Logger uses a 'TQueue' to receive and process messages on a worker thread.  
+-- Logger uses a 'TQueue' to receive and process messages on a worker thread.
 newLogger :: IO Logger
 newLogger = do
   tid <- liftIO $ myThreadId
@@ -102,7 +102,7 @@ putLogMsg logger msg = liftIO $ atomically $ writeTQueue (msgs logger) msg
 
 -- | Stop the worker thread for the given Logger
 stopLogger :: Logger -> IO ()
-stopLogger = (flip throwTo) ThreadKilled . _tid 
+stopLogger = (flip throwTo) ThreadKilled . _tid
 
 -- | Given a @builder@ function, make and run a test suite on a single transport
 testMain :: (NT.Transport -> IO [Test]) -> IO ()
