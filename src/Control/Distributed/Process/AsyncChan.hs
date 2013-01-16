@@ -4,7 +4,7 @@
 
 -----------------------------------------------------------------------------
 -- |
--- Module      :  Control.Distributed.Platform.Async.AsyncChan
+-- Module      :  Control.Distributed.Process.Platform.Async.AsyncChan
 -- Copyright   :  (c) Tim Watson 2012
 -- License     :  BSD3 (see the file LICENSE)
 --
@@ -59,6 +59,10 @@ import Data.Maybe
 -- | Private channel used to synchronise task results
 type InternalChannel a = (SendPort (AsyncResult a), ReceivePort (AsyncResult a))
 
+--------------------------------------------------------------------------------
+-- Cloud Haskell Typed Channel Async API                                      --
+--------------------------------------------------------------------------------
+
 -- | A handle for an asynchronous action spawned by 'async'.
 -- Asynchronous actions are run in a separate process, and
 -- operations are provided for waiting for asynchronous actions to
@@ -69,7 +73,7 @@ type InternalChannel a = (SendPort (AsyncResult a), ReceivePort (AsyncResult a))
 -- other than the caller of 'async' - that is, this module provides asynchronous
 -- actions whose results are accessible *only* by the initiating process. This
 -- limitation is imposed becuase of the use of type channels, for which the
--- @ReceivePort@ component is effectively /thread local/. 
+-- @ReceivePort@ component is effectively /thread local/.
 --
 -- See 'async'
 data AsyncChan a = AsyncChan {
@@ -222,7 +226,7 @@ waitCancelTimeout t hAsync = do
   r <- waitTimeout t hAsync
   case r of
     Nothing -> cancelWait hAsync
-    Just ar -> return ar 
+    Just ar -> return ar
 
 -- | Wait for any of the supplied @AsyncChans@s to complete. If multiple
 -- 'Async's complete, then the value returned corresponds to the first

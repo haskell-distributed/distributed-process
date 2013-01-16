@@ -1,9 +1,10 @@
 {-# LANGUAGE DeriveDataTypeable        #-}
 {-# LANGUAGE TemplateHaskell           #-}
 {-# LANGUAGE StandaloneDeriving        #-}
+
 -----------------------------------------------------------------------------
 -- |
--- Module      :  Control.Distributed.Platform.Async
+-- Module      :  Control.Distributed.Process.Platform.Async
 -- Copyright   :  (c) Tim Watson 2012
 -- License     :  BSD3 (see the file LICENSE)
 --
