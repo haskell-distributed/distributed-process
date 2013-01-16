@@ -147,7 +147,7 @@ secondsPerMinute = 60
 {-# INLINE milliSecondsPerSecond #-}
 milliSecondsPerSecond :: Int
 milliSecondsPerSecond = 1000
- 
+
 -- timeouts/delays (microseconds)
 
 -- | Constructs an inifinite 'Timeout'.
