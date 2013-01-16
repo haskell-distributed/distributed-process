@@ -70,33 +70,56 @@ testBasicCast result = do
 
 testControlledTimeout :: TestResult (Maybe TerminateReason) -> Process ()
 testControlledTimeout result = do
-  self <- getSelfPid
   (pid, exitReason) <- server
   cast pid ("timeout", Delay $ within 1 Seconds)
-
-  -- we *might* end up blocked here, so ensure the test suite doesn't jam!
-  killAfter (within 10 Seconds) self "testcast timed out"
-
-  tr <- liftIO $ takeMVar exitReason
-  case tr of
-    Right r -> stash result (Just r)
-    _       -> stash result Nothing
+  waitForExit exitReason >>= stash result
 
 testTerminatePolicy :: TestResult (Maybe TerminateReason) -> Process ()
 testTerminatePolicy result = do
-  self <- getSelfPid
   (pid, exitReason) <- server
   send pid ("UNSOLICITED_MAIL", 500 :: Int)
+  waitForExit exitReason >>= stash result
 
-  killAfter (within 10 Seconds) self "testcase timed out"
+testDropPolicy :: TestResult (Maybe TerminateReason) -> Process ()
+testDropPolicy result = do
+  (pid, exitReason) <- mkServer Drop
 
+  send pid ("UNSOLICITED_MAIL", 500 :: Int)
+
+  sleep $ seconds 1
+  mref <- monitor pid
+
+  cast pid "stop"
+
+  r <- receiveTimeout (after 10 Seconds) [
+      matchIf (\(ProcessMonitorNotification ref _ _) -> ref == mref)
+              (\(ProcessMonitorNotification _ _ r) ->
+                case r of
+                  DiedUnknownId -> stash result Nothing
+                  _ -> waitForExit exitReason >>= stash result)
+    ]
+  case r of
+    Nothing -> stash result Nothing
+    _       -> return ()
+
+waitForExit :: MVar (Either (InitResult ()) TerminateReason)
+            -> Process (Maybe TerminateReason)
+waitForExit exitReason = do
+    -- we *might* end up blocked here, so ensure the test suite doesn't jam!
+  self <- getSelfPid
+  tref <- killAfter (within 10 Seconds) self "testcast timed out"
   tr <- liftIO $ takeMVar exitReason
+  cancelTimer tref
   case tr of
-    Right r -> stash result (Just r)
-    Left  _ -> stash result Nothing
+    Right r -> return (Just r)
+    Left  _ -> return Nothing
 
 server :: Process ((ProcessId, MVar (Either (InitResult ()) TerminateReason)))
-server =
+server = mkServer Terminate
+
+mkServer :: UnhandledMessagePolicy
+         -> Process (ProcessId, MVar (Either (InitResult ()) TerminateReason))
+mkServer policy =
   let s = statelessProcess {
         dispatchers = [
               -- note: state is passed here, as a 'stateless' server is a
@@ -110,7 +133,7 @@ server =
                             (\("timeout", Delay d) -> timeoutAfter_ d)
             , action        (\("stop") -> stop_ TerminateNormal)
           ]
-      , unhandledMessagePolicy = Terminate
+      , unhandledMessagePolicy = policy
       , timeoutHandler         = \_ _ -> stop $ TerminateOther "timeout"
     }
   in do
@@ -147,7 +170,11 @@ tests transport = do
              "expected the server to stop upon receiving unhandled input"
              localNode (Just (TerminateOther "UNHANDLED_INPUT"))
              testTerminatePolicy)
-        ]
+          , testCase "unhandled input when policy = Drop"
+            (delayedAssertion
+             "expected the server to ignore unhandled input and exit normally"
+             localNode (Just TerminateNormal) testDropPolicy)
+          ]
       ]
 
 main :: IO ()
