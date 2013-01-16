@@ -3,7 +3,7 @@
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE TemplateHaskell            #-}
 
-module Control.Distributed.Process.Platform.GenProcess 
+module Control.Distributed.Process.Platform.GenProcess
   ( -- exported data types
     ServerId(..)
   , Recipient(..)
@@ -68,7 +68,7 @@ data ServerId = ServerId ProcessId | ServerName String
 data Recipient =
     SendToPid ProcessId
   | SendToService String
-  | SendToRemoteService String NodeId 
+  | SendToRemoteService String NodeId
   deriving (Typeable)
 $(derive makeBinary ''Recipient)
 
@@ -77,11 +77,11 @@ data Message a =
   | CallMessage a Recipient
   deriving (Typeable)
 $(derive makeBinary ''Message)
-  
+
 data CallResponse a = CallResponse a
   deriving (Typeable)
 $(derive makeBinary ''CallResponse)
-  
+
 -- | Terminate reason
 data TerminateReason =
     TerminateNormal
@@ -99,11 +99,11 @@ data ProcessAction s =
     ProcessContinue  s
   | ProcessTimeout   TimeInterval s
   | ProcessHibernate TimeInterval s
-  | ProcessStop      TerminateReason 
+  | ProcessStop      TerminateReason
 
 data ProcessReply s a =
     ProcessReply a (ProcessAction s)
-  | NoReply (ProcessAction s)          
+  | NoReply (ProcessAction s)
 
 type InitHandler      a s   = a -> Process (InitResult s)
 type TerminateHandler s     = s -> TerminateReason -> Process ()
@@ -167,7 +167,7 @@ start :: a
       -> Process (Either (InitResult s) TerminateReason)
 start args init behave = do
   ir <- init args
-  case ir of 
+  case ir of
     InitOk s d -> initLoop behave s d >>= return . Right
     f@(InitFail _) -> return $ Left f
 
@@ -178,12 +178,12 @@ statelessProcess :: Behaviour ()
 statelessProcess = Behaviour {
     dispatchers            = []
   , infoHandlers           = []
-  , timeoutHandler         = \s _ -> continue s 
+  , timeoutHandler         = \s _ -> continue s
   , terminateHandler       = \_ _ -> return ()
   , unhandledMessagePolicy = Terminate
   }
 
--- | Make a syncrhonous call
+-- | Make a syncrhonous call - will block until a reply is received.
 call :: forall a b . (Serializable a, Serializable b)
                  => ProcessId -> a -> Process b
 call sid msg = do
@@ -192,7 +192,9 @@ call sid msg = do
     Nothing -> fail "call failed" -- TODO: exit protocol !?
     Just ar -> return ar
 
--- | Safe version of 'call' that returns 'Nothing' if the operation fails.
+-- | Safe version of 'call' that returns 'Nothing' if the operation fails. If
+-- you need information about *why* a call has failed then you should use
+-- 'call' instead.
 safeCall :: forall a b . (Serializable a, Serializable b)
                  => ProcessId -> a -> Process (Maybe b)
 safeCall s m = callAsync s m >>= wait >>= unpack
@@ -202,12 +204,12 @@ safeCall s m = callAsync s m >>= wait >>= unpack
 -- TODO: provide version of call that will throw/exit on failure
 
 callTimeout :: forall a b . (Serializable a, Serializable b)
-                 => ProcessId -> a -> TimeInterval -> Process (Maybe b) 
+                 => ProcessId -> a -> TimeInterval -> Process (Maybe b)
 callTimeout s m d = callAsync s m >>= waitTimeout d >>= unpack
   where unpack :: (Serializable b) => Maybe (AsyncResult b) -> Process (Maybe b)
         unpack Nothing              = return Nothing
         unpack (Just (AsyncDone r)) = return $ Just r
-        unpack (Just other)         = getSelfPid >>= (flip exit) other >> terminate  
+        unpack (Just other)         = getSelfPid >>= (flip exit) other >> terminate
 -- TODO: https://github.com/haskell-distributed/distributed-process/issues/110
 
 callAsync :: forall a b . (Serializable a, Serializable b)
@@ -227,7 +229,7 @@ callAsync sid msg = do
     -- TODO: better failure API
     case r of
       Right m -> return m
-      Left err -> fail $ "call: remote process died: " ++ show err 
+      Left err -> fail $ "call: remote process died: " ++ show err
 
 -- | Sends a /cast/ message to the server identified by 'ServerId'. The server
 -- will not send a response.
@@ -237,18 +239,18 @@ cast sid msg = send sid (CastMessage msg)
 
 -- Constructing Handlers from *ordinary* functions
 
--- | Instructs the process to send a reply and continue working. 
+-- | Instructs the process to send a reply and continue working.
 -- > reply reply' state = replyWith reply' (continue state)
 reply :: (Serializable r) => r -> s -> Process (ProcessReply s r)
 reply r s = continue s >>= replyWith r
 
 -- | Instructs the process to send a reply and evaluate the 'ProcessAction'
--- thereafter. 
+-- thereafter.
 replyWith :: (Serializable m)
           => m
           -> ProcessAction s
           -> Process (ProcessReply s m)
-replyWith msg state = return $ ProcessReply msg state 
+replyWith msg state = return $ ProcessReply msg state
 
 -- | Instructs the process to continue running and receiving messages.
 continue :: s -> Process (ProcessAction s)
@@ -260,7 +262,7 @@ continue_ = return . ProcessContinue
 -- | Instructs the process to wait for incoming messages until 'TimeInterval'
 -- is exceeded. If no messages are handled during this period, the /timeout/
 -- handler will be called. Note that this alters the process timeout permanently
--- such that the given @TimeInterval@ will remain in use until changed.  
+-- such that the given @TimeInterval@ will remain in use until changed.
 timeoutAfter :: TimeInterval -> s -> Process (ProcessAction s)
 timeoutAfter d s = return $ ProcessTimeout d s
 
@@ -271,7 +273,7 @@ timeoutAfter_ d = return . ProcessTimeout d
 -- | Instructs the process to /hibernate/ for the given 'TimeInterval'. Note
 -- that no messages will be removed from the mailbox until after hibernation has
 -- ceased. This is equivalent to calling @threadDelay@.
--- 
+--
 hibernate :: TimeInterval -> s -> Process (ProcessAction s)
 hibernate d s = return $ ProcessHibernate d s
 
@@ -289,7 +291,7 @@ stop_ r _ = stop r
 
 -- | Constructs a 'call' handler from a function in the 'Process' monad.
 --
--- > handleCall_ = handleCallIf_ (const True) 
+-- > handleCall_ = handleCallIf_ (const True)
 --
 handleCall_ :: (Serializable a, Serializable b)
            => (a -> Process b)
@@ -315,9 +317,9 @@ handleCallIf_ cond handler = DispatchIf {
                  -> Message a
                  -> Process (ProcessAction s)
         doHandle h s (CallMessage p c) = (h p) >>= mkReply c s
-        doHandle _ _ _ = error "illegal input"  
+        doHandle _ _ _ = error "illegal input"
         -- TODO: standard 'this cannot happen' error message
-        
+
         -- handling 'reply-to' in the main process loop is awkward at best,
         -- so we handle it here instead and return the 'action' to the loop
         mkReply :: (Serializable b)
@@ -330,7 +332,7 @@ handleCallIf_ cond handler = DispatchIf {
 handleCall :: (Serializable a, Serializable b)
            => (s -> a -> Process (ProcessReply s b))
            -> Dispatcher s
-handleCall = handleCallIf (const True)           
+handleCall = handleCallIf (const True)
 
 -- | Constructs a 'call' handler from an ordinary function in the 'Process'
 -- monad. Given a function @f :: (s -> a -> Process (ProcessReply s b))@,
@@ -354,7 +356,7 @@ handleCallIf cond handler = DispatchIf {
         doHandle h s (CallMessage p c) = (h s p) >>= mkReply c
         doHandle _ _ _ = error "illegal input"
         -- TODO: standard 'this cannot happen' error message
-        
+
         -- handling 'reply-to' in the main process loop is awkward at best,
         -- so we handle it here instead and return the 'action' to the loop
         mkReply :: (Serializable b)
@@ -364,7 +366,7 @@ handleCallIf cond handler = DispatchIf {
 
 -- | Constructs a 'cast' handler from an ordinary function in the 'Process'
 -- monad.
--- > handleCast = handleCastIf (const True) 
+-- > handleCast = handleCastIf (const True)
 --
 handleCast :: (Serializable a)
            => (s -> a -> Process (ProcessAction s)) -> Dispatcher s
@@ -445,7 +447,7 @@ handleDispatchIf cond handler = DispatchIf {
             case msg of
                 (CallMessage p _) -> (h s p)
                 (CastMessage p)   -> (h s p)
-        
+
         doCheck :: forall s a. (Serializable a)
                             => (a -> Bool) -> s -> Message a -> Bool
         doCheck c _ (CallMessage m _) = c m
@@ -460,7 +462,7 @@ handleInfo :: forall s a. (Serializable a)
            => (s -> a -> Process (ProcessAction s))
            -> InfoDispatcher s
 handleInfo h = InfoDispatcher { dispatchInfo = doHandleInfo h }
-  where 
+  where
     doHandleInfo :: forall s2 a2. (Serializable a2)
                              => (s2 -> a2 -> Process (ProcessAction s2))
                              -> s2
@@ -488,7 +490,7 @@ applyPolicy s p m =
 initLoop :: Behaviour s -> s -> Delay -> Process TerminateReason
 initLoop b s w =
   let p   = unhandledMessagePolicy b
-      t   = timeoutHandler b 
+      t   = timeoutHandler b
       ms  = map (matchMessage p s) (dispatchers b)
       ms' = ms ++ addInfoAux p s (infoHandlers b)
   in loop ms' t s w
@@ -497,8 +499,8 @@ initLoop b s w =
                -> s
                -> [InfoDispatcher s]
                -> [Match (ProcessAction s)]
-    addInfoAux p ps ds = [matchAny (infoHandler p ps ds)] 
-        
+    addInfoAux p ps ds = [matchAny (infoHandler p ps ds)]
+
     infoHandler :: UnhandledMessagePolicy
                 -> s
                 -> [InfoDispatcher s]
@@ -506,7 +508,7 @@ initLoop b s w =
                 -> Process (ProcessAction s)
     infoHandler pol st [] msg = applyPolicy st pol msg
     infoHandler pol st (d:ds :: [InfoDispatcher s]) msg
-        | length ds > 0  = let dh = dispatchInfo d in do 
+        | length ds > 0  = let dh = dispatchInfo d in do
             -- NB: we *do not* want to terminate/dead-letter messages until
             -- we've exhausted all the possible info handlers
             m <- dh st msg
@@ -519,7 +521,7 @@ initLoop b s w =
             case m of
               Nothing -> applyPolicy st pol msg
               Just act -> return act
-    
+
 loop :: [Match (ProcessAction s)]
      -> TimeoutHandler s
      -> s
@@ -552,7 +554,7 @@ processReceive ms h s t = do
     recv matches d =
         case d of
             Infinity -> receiveWait matches >>= return . Just
-            Delay t' -> receiveTimeout (asTimeout t') matches  
+            Delay t' -> receiveTimeout (asTimeout t') matches
 
 -- internal/utility
 
