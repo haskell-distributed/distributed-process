@@ -372,7 +372,10 @@ instance Show ProcessExitException where
   show (ProcessExitException pid _) = "exit-from=" ++ show pid
 
 -- | Catches ProcessExitException
-catchExit :: forall a b . (Show a, Serializable a) => Process b -> (ProcessId -> a -> Process b) -> Process b
+catchExit :: forall a b . (Show a, Serializable a)
+                       => Process b
+                       -> (ProcessId -> a -> Process b)
+                       -> Process b
 catchExit act exitHandler = catch act handleExit
   where
     handleExit ex@(ProcessExitException from msg) =

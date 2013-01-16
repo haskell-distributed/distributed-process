@@ -154,8 +154,7 @@ import Control.Distributed.Process.Internal.Primitives
   , sendChan
   , ProcessExitException(..)
   )
-import Control.Distributed.Process.Internal.Types
-         (SendPort)
+import Control.Distributed.Process.Internal.Types (SendPort)
 import qualified Control.Distributed.Process.Internal.Closure.BuiltIn as BuiltIn (remoteTable)
 import Control.Distributed.Process.Internal.WeakTQueue (writeTQueue)
 import qualified Control.Distributed.Process.Internal.StrictContainerAccessors as DAC
