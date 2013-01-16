@@ -13,7 +13,7 @@
 --
 -- Provides an API for running code or sending messages, either after some
 -- initial delay or periodically, and for cancelling, re-setting and/or
--- flushing pending /timers/. 
+-- flushing pending /timers/.
 -----------------------------------------------------------------------------
 
 module Control.Distributed.Process.Platform.Timer
