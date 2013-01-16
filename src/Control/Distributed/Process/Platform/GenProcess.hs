@@ -2,6 +2,8 @@
 {-# LANGUAGE ExistentialQuantification  #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE TemplateHaskell            #-}
+{-# LANGUAGE Rank2Types                 #-}
+{-# LANGUAGE ImpredicativeTypes  #-}
 
 module Control.Distributed.Process.Platform.GenProcess
   ( -- exported data types
@@ -86,9 +88,9 @@ $(derive makeBinary ''CallResponse)
 data TerminateReason =
     TerminateNormal
   | TerminateShutdown
-  | forall r. (Serializable r) =>
-    TerminateOther r
-      deriving (Typeable)
+  | TerminateOther String
+  deriving (Typeable, Eq, Show)
+$(derive makeBinary ''TerminateReason)
 
 -- | Initialization
 data InitResult s =
@@ -483,7 +485,7 @@ applyPolicy :: s
             -> Process (ProcessAction s)
 applyPolicy s p m =
   case p of
-    Terminate      -> stop (TerminateOther "unexpected-input")
+    Terminate      -> stop $ TerminateOther "unexpected-input"
     DeadLetter pid -> forward m pid >> continue s
     Drop           -> continue s
 
