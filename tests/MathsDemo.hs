@@ -47,7 +47,7 @@ launchMathServer =
                         (\(Divide x y) -> return (x / y))
         , handleCall_   (\(Divide _ _) -> return DivByZero)
 
-        , action        (\"stop" -> stop_ TerminateNormal)
+        , action        (\("stop") -> stop_ TerminateNormal)
         ]
     } :: Behaviour ()
   in spawnLocal $ start () startup server >> return ()
