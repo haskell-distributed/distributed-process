@@ -21,6 +21,7 @@ module TestUtils
   , putLogMsg
   , stopLogger
   -- runners
+  , mkNode
   , tryRunProcess
   , testMain
   ) where
@@ -57,7 +58,13 @@ import Test.Framework (Test, defaultMain)
 
 import Network.Transport.TCP
 import qualified Network.Transport as NT
-          
+
+mkNode :: String -> IO LocalNode
+mkNode port = do
+  Right (transport1, _) <- createTransportExposeInternals
+                                    "127.0.0.1" port defaultTCPParameters
+  newLocalNode transport1 initRemoteTable
+
 -- | Run the supplied @testProc@ using an @MVar@ to collect and assert
 -- against its result. Uses the supplied @note@ if the assertion fails.
 delayedAssertion :: (Eq a) => String -> LocalNode -> a ->
