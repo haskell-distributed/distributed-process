@@ -17,7 +17,6 @@ import Control.Distributed.Process.Platform.Timer
 
 import Data.Binary()
 import Data.Typeable()
-
 import MathsDemo
 
 import Test.Framework (Test, testGroup)
@@ -83,6 +82,19 @@ testControlledTimeout result = do
     Right r -> stash result (Just r)
     _       -> stash result Nothing
 
+testTerminatePolicy :: TestResult (Maybe TerminateReason) -> Process ()
+testTerminatePolicy result = do
+  self <- getSelfPid
+  (pid, exitReason) <- server
+  send pid ("UNSOLICITED_MAIL", 500 :: Int)
+
+  killAfter (within 10 Seconds) self "testcase timed out"
+
+  tr <- liftIO $ takeMVar exitReason
+  case tr of
+    Right r -> stash result (Just r)
+    Left  _ -> stash result Nothing
+
 server :: Process ((ProcessId, MVar (Either (InitResult ()) TerminateReason)))
 server =
   let s = statelessProcess {
@@ -130,6 +142,11 @@ tests transport = do
             (delayedAssertion
              "expected the server to stop after the timeout"
              localNode (Just (TerminateOther "timeout")) testControlledTimeout)
+          , testCase "unhandled input when policy = Terminate"
+            (delayedAssertion
+             "expected the server to stop upon receiving unhandled input"
+             localNode (Just (TerminateOther "UNHANDLED_INPUT"))
+             testTerminatePolicy)
         ]
       ]
 
