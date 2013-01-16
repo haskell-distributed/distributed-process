@@ -1,6 +1,6 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 
-module MathsDemo 
+module MathsDemo
   ( add
   , divide
   , launchMathServer
@@ -33,20 +33,20 @@ instance Binary DivByZero where
 -- public API
 
 add :: ProcessId -> Double -> Double -> Process Double
-add sid x y = call sid (Add x y)   
+add sid x y = call sid (Add x y)
 
 divide :: ProcessId -> Double -> Double -> Process Double
 divide sid x y = call sid (Divide x y )
 
 launchMathServer :: Process ProcessId
-launchMathServer = 
+launchMathServer =
   let server = statelessProcess {
       dispatchers = [
           handleCall_   (\(Add    x y) -> return (x + y))
         , handleCallIf_ (\(Divide _ y) -> y /= 0)
                         (\(Divide x y) -> return (x / y))
         , handleCall_   (\(Divide _ _) -> return DivByZero)
-        
+
         , action        (\"stop" -> stop_ TerminateNormal)
         ]
     } :: Behaviour ()
