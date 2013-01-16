@@ -122,8 +122,8 @@ mkServer :: UnhandledMessagePolicy
 mkServer policy =
   let s = statelessProcess {
         dispatchers = [
-              -- note: state is passed here, as a 'stateless' server is a
-              -- server with state = ()
+              -- note: state is passed here, as a 'stateless' process is
+              -- in fact process definition whose state is ()
               handleCall    (\s' (m :: String) -> reply m s')
             , handleCall_   (\(n :: Int) -> return (n * 2))    -- "stateless"
 
@@ -138,10 +138,9 @@ mkServer policy =
     }
   in do
     exitReason <- liftIO $ newEmptyMVar
-    pid <- spawnLocal $ (start () startup s) >>= stash exitReason
+    pid <- spawnLocal $ do
+      start () (statelessInit Infinity) s >>= stash exitReason
     return (pid, exitReason)
-  where startup :: InitHandler () ()
-        startup _ = return $ InitOk () Infinity
 
 tests :: NT.Transport  -> IO [Test]
 tests transport = do
