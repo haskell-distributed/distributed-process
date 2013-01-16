@@ -105,13 +105,13 @@ testDeadLetterPolicy :: TestResult (Maybe (String, Int)) -> Process ()
 testDeadLetterPolicy result = do
   self <- getSelfPid
   (pid, _) <- mkServer (DeadLetter self)
-  
+
   send pid ("UNSOLICITED_MAIL", 500 :: Int)
   cast pid "stop"
-  
+
   receiveTimeout
     (after 5 Seconds)
-    [ match (\m@(_ :: String, _ :: Int) -> return m) ] >>= stash result 
+    [ match (\m@(_ :: String, _ :: Int) -> return m) ] >>= stash result
 
 waitForExit :: MVar (Either (InitResult ()) TerminateReason)
             -> Process (Maybe TerminateReason)
@@ -184,7 +184,7 @@ tests transport = do
             (delayedAssertion
              "expected the server to ignore unhandled input and exit normally"
              localNode (Just TerminateNormal) testDropPolicy)
-          , testCase "unhandled input when policy = Drop"
+          , testCase "unhandled input when policy = DeadLetter"
             (delayedAssertion
              "expected the server to forward unhandled messages"
              localNode (Just ("UNSOLICITED_MAIL", 500 :: Int))
