@@ -362,7 +362,8 @@ data ProcessKillException =
 
 instance Exception ProcessKillException
 instance Show ProcessKillException where
-  show (ProcessKillException pid reason) = "Kill by " ++ show pid ++ ": " ++ reason
+  show (ProcessKillException pid reason) =
+    "killed-by=" ++ show pid ++ ",reason=" ++ reason
 
 -- | Graceful request to exit a process
 exit :: Serializable a => ProcessId -> a -> Process ()
@@ -379,7 +380,7 @@ data ProcessExitException =
 
 instance Exception ProcessExitException
 instance Show ProcessExitException where
-  show (ProcessExitException pid _) = "Exit by " ++ show pid
+  show (ProcessExitException pid _) = "exit-from=" ++ show pid
 
 -- | Catches ProcessExitException
 catchExit :: forall a b . (Show a, Serializable a) => Process b -> (ProcessId -> a -> Process b) -> Process b
