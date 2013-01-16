@@ -87,6 +87,25 @@ testDeadLetterPolicy result = do
     (after 5 Seconds)
     [ match (\m@(_ :: String, _ :: Int) -> return m) ] >>= stash result
 
+testHibernation :: TestResult Bool -> Process ()
+testHibernation result = do
+  (pid, _) <- server
+  mref <- monitor pid
+
+  cast pid ("hibernate", (within 3 Seconds))
+  cast pid "stop"
+
+  -- the process mustn't stop whilst it's supposed to be hibernating
+  r <- receiveTimeout (after 2 Seconds) [
+      matchIf (\(ProcessMonitorNotification ref _ _) -> ref == mref)
+              (\_ -> return ())
+    ]
+  case r of
+    Nothing -> kill pid "done" >> stash result True
+    Just _  -> stash result False
+
+-- MathDemo test
+
 testDivByZero :: ProcessId -> TestResult (Either DivByZero Double) -> Process ()
 testDivByZero pid result = divide pid 125 0 >>= stash result
 
@@ -121,7 +140,9 @@ mkServer policy =
                                  send pid "pong" >> continue s')
             , handleCastIf_ (\(c :: String, _ :: Delay) -> c == "timeout")
                             (\("timeout", Delay d) -> timeoutAfter_ d)
+
             , action        (\("stop") -> stop_ TerminateNormal)
+            , action        (\("hibernate", d :: TimeInterval) -> hibernate_ d)
           ]
       , unhandledMessagePolicy = policy
       , timeoutHandler         = \_ _ -> stop $ TerminateOther "timeout"
@@ -170,6 +191,10 @@ tests transport = do
              "expected the server to forward unhandled messages"
              localNode (Just ("UNSOLICITED_MAIL", 500 :: Int))
              testDeadLetterPolicy)
+          , testCase "incoming messages are ignored whilst hibernating"
+            (delayedAssertion
+             "expected the server to remain in hibernation"
+             localNode True testHibernation)
           ]
         , testGroup "math server examples" [
             testCase "error (Left) returned from x / 0"
