@@ -21,6 +21,10 @@
 ## IN THE SOFTWARE.
 ## ----------------------------------------------------------------------------
 
+CONF=./dist/setup-config
+CABAL=distributed-process-platform.cabal
+BUILD_DEPENDS=$(CONF) $(CABAL)
+
 .PHONY: all
 all: build
 
@@ -33,9 +37,9 @@ build: configure
 	cabal build
 
 .PHONY: configure
-configure: ./dist/setup-config
+configure: $(BUILD_DEPENDS)
 
-./dist/setup-config:
+$(BUILD_DEPENDS):
 	cabal configure --enable-tests
 
 .PHONY: clean
