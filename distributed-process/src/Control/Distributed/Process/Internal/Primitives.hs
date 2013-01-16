@@ -26,7 +26,6 @@ module Control.Distributed.Process.Internal.Primitives
   , terminate
   , ProcessTerminationException(..)
   , kill
-  , ProcessKillException(..)
   , exit
   , catchExit
   , ProcessExitException(..)
@@ -354,16 +353,6 @@ kill :: ProcessId -> String -> Process ()
 -- to a remote node controller means that that the message may overtake a
 -- 'monitor' or 'link' request.
 kill them reason = sendCtrlMsg Nothing (Kill them reason)
-
--- | Thrown by 'kill'
-data ProcessKillException =
-    ProcessKillException !ProcessId !String
-  deriving (Typeable)
-
-instance Exception ProcessKillException
-instance Show ProcessKillException where
-  show (ProcessKillException pid reason) =
-    "killed-by=" ++ show pid ++ ",reason=" ++ reason
 
 -- | Graceful request to exit a process
 exit :: Serializable a => ProcessId -> a -> Process ()

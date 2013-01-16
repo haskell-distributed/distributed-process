@@ -152,7 +152,6 @@ import Control.Distributed.Process.Internal.Primitives
   , receiveWait
   , match
   , sendChan
-  , ProcessKillException(..)
   , ProcessExitException(..)
   )
 import Control.Distributed.Process.Internal.Types
@@ -480,6 +479,17 @@ initNCState = NCState { _links    = Map.empty
                       , _registeredHere = Map.empty
                       , _registeredOnNodes = Map.empty
                       }
+
+-- | Thrown in response to the user invoking 'kill' (see Primitives.hs). This
+-- type is deliberately not exported so it cannot be caught explicitly.
+data ProcessKillException =
+    ProcessKillException !ProcessId !String
+  deriving (Typeable)
+
+instance Exception ProcessKillException
+instance Show ProcessKillException where
+  show (ProcessKillException pid reason) =
+    "killed-by=" ++ show pid ++ ",reason=" ++ reason
 
 --------------------------------------------------------------------------------
 -- Core functionality                                                         --
