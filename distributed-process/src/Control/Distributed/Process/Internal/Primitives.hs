@@ -393,8 +393,7 @@ catchExit act exitHandler = catch act handleExit
      where
        decoded :: a
        -- Make sure the value is fully decoded so that we don't hang to
-       -- bytestrings when the process calling 'matchIf' doesn't process
-       -- the values immediately
+       -- bytestrings if the caller doesn't use the value immediately
        !decoded = decode (messageEncoding msg)
 
 -- | Our own process ID
