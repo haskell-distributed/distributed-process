@@ -422,6 +422,7 @@ data WhereIsReply = WhereIsReply String (Maybe ProcessId)
 data RegisterReply = RegisterReply String Bool
   deriving (Show, Typeable)
 
+-- | Provide information about a running process 
 data ProcessInfo = ProcessInfo {
     infoNode               :: NodeId
   , infoRegisteredNames    :: [String]
