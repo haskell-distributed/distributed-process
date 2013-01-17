@@ -894,6 +894,20 @@ testKillRemote transport = do
 
   takeMVar done
 
+testDie :: NT.Transport -> Assertion
+testDie transport = do
+  localNode <- newLocalNode transport initRemoteTable
+  done <- newEmptyMVar
+  
+  _ <- forkProcess localNode $ do
+      (die ("foobar", 123 :: Int))
+      `catchExit` \_from reason -> do
+        -- TODO: should verify that 'from' has the right value
+        True <- return $ reason == ("foobar", 123 :: Int)
+        liftIO $ putMVar done ()
+
+  takeMVar done
+
 testExitLocal :: NT.Transport -> Assertion
 testExitLocal transport = do
   localNode <- newLocalNode transport initRemoteTable
@@ -961,6 +975,7 @@ tests (transport, transportInternals) = [
       , testCase "ReceiveChanFeatures" (testReceiveChanFeatures transport)
       , testCase "KillLocal"           (testKillLocal           transport)
       , testCase "KillRemote"          (testKillRemote          transport)
+      , testCase "Die"                 (testDie                 transport)
       , testCase "ExitLocal"           (testExitLocal           transport)
       , testCase "ExitRemote"          (testExitRemote          transport)
       ]

@@ -44,6 +44,7 @@ module Control.Distributed.Process
   , spawn
   , call
   , terminate
+  , die
   , kill
   , exit
   , catchExit
@@ -195,6 +196,7 @@ import Control.Distributed.Process.Internal.Primitives
     -- Process management
   , terminate
   , ProcessTerminationException(..)
+  , die
   , exit
   , catchExit
   , kill
