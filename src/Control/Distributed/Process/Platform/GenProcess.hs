@@ -78,8 +78,8 @@ import Control.Concurrent (threadDelay)
 import Control.Distributed.Process hiding (call)
 import Control.Distributed.Process.Serializable
 import Control.Distributed.Process.Platform.Time
-import Control.Distributed.Process.Platform.Async (asyncDo)
-import Control.Distributed.Process.Platform.Async.AsyncChan
+import Control.Distributed.Process.Platform.Async
+import Control.Distributed.Process.Platform.Async.AsyncSTM
 
 import Data.Binary
 import Data.DeriveTH
@@ -253,7 +253,7 @@ callTimeout s m d = callAsync s m >>= waitTimeout d >>= unpack
 -- see 'Control.Distributed.Process.Platform.Async' 
 -- 
 callAsync :: forall a b . (Serializable a, Serializable b)
-                 => ProcessId -> a -> Process (AsyncChan b)
+                 => ProcessId -> a -> Process (AsyncSTM b)
 callAsync sid msg = do
 -- TODO: use a unified async API here if possible
 -- https://github.com/haskell-distributed/distributed-process-platform/issues/55
