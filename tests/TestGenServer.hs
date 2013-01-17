@@ -9,6 +9,8 @@ import Control.Concurrent.MVar
 import Control.Distributed.Process hiding (call)
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable()
+import Control.Distributed.Process.Platform.Async
+import Control.Distributed.Process.Platform.Async.AsyncChan
 import Control.Distributed.Process.Platform.GenProcess
 import Control.Distributed.Process.Platform.Test
 import Control.Distributed.Process.Platform.Time
@@ -104,6 +106,15 @@ testHibernation result = do
     Nothing -> kill pid "done" >> stash result True
     Just _  -> stash result False
 
+testKillMidCall :: TestResult Bool -> Process ()
+testKillMidCall result = do
+  (pid, _) <- server
+  cast pid ("hibernate", (within 3 Seconds))
+  callAsync pid "hello-world" >>= cancelWait >>= unpack result pid
+  where unpack :: TestResult Bool -> ProcessId -> AsyncResult () -> Process ()
+        unpack res sid AsyncCancelled = kill sid "stop" >> stash res True
+        unpack res sid _              = kill sid "stop" >> stash res False 
+
 -- MathDemo test
 
 testDivByZero :: ProcessId -> TestResult (Either DivByZero Double) -> Process ()
@@ -195,6 +206,9 @@ tests transport = do
             (delayedAssertion
              "expected the server to remain in hibernation"
              localNode True testHibernation)
+          , testCase "long running call cancellation"
+            (delayedAssertion "expected to get AsyncCancelled"
+             localNode True testKillMidCall)
           ]
         , testGroup "math server examples" [
             testCase "error (Left) returned from x / 0"

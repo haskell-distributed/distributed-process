@@ -2,8 +2,28 @@
 {-# LANGUAGE ExistentialQuantification  #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE TemplateHaskell            #-}
-{-# LANGUAGE Rank2Types                 #-}
-{-# LANGUAGE ImpredicativeTypes  #-}
+
+-----------------------------------------------------------------------------
+-- |
+-- Module      :  Control.Distributed.Process.Platform.GenProcess
+-- Copyright   :  (c) Tim Watson 2012
+-- License     :  BSD3 (see the file LICENSE)
+--
+-- Maintainer  :  Tim Watson <watson.timothy@gmail.com>
+-- Stability   :  experimental
+-- Portability :  non-portable (requires concurrency)
+--
+-- This module provides a high(er) level API for building complex 'Process'
+-- implementations by abstracting out the management of the process' mailbox,
+-- reply/response handling, timeouts, process hiberation, error handling
+-- and shutdown/stop procedures. Whilst this API is intended to provide a
+-- higher level of abstraction that vanilla Cloud Haskell, it is intended
+-- for use primarilly as a building block.
+--
+-- [API Overview]
+--
+-- 
+-----------------------------------------------------------------------------
 
 module Control.Distributed.Process.Platform.GenProcess
   ( -- exported data types
@@ -17,7 +37,7 @@ module Control.Distributed.Process.Platform.GenProcess
   , TerminateHandler
   , TimeoutHandler
   , UnhandledMessagePolicy(..)
-  , Behaviour(..)
+  , ProcessDefinition(..)
     -- interaction with the process
   , start
   , statelessProcess
@@ -63,7 +83,7 @@ import Control.Distributed.Process.Platform.Async.AsyncChan
 
 import Data.Binary
 import Data.DeriveTH
-import Data.Typeable (Typeable)
+import Data.Typeable (Typeable, typeOf)
 import Prelude hiding (init)
 
 data ServerId = ServerId ProcessId | ServerName String
@@ -124,6 +144,7 @@ data Dispatcher s =
       , dispatchIf :: s -> Message a -> Bool
       }
 
+-- | 
 data InfoDispatcher s = InfoDispatcher {
     dispatchInfo :: s -> AbstractMessage -> Process (Maybe (ProcessAction s))
   }
@@ -141,16 +162,23 @@ instance MessageMatcher Dispatcher where
 -- sent using the 'call' or 'cast' APIs, and which are not handled by any of the
 -- 'handleInfo' handlers.
 data UnhandledMessagePolicy =
-    Terminate
-  | DeadLetter ProcessId
-  | Drop
+    Terminate  -- ^ stop immediately, giving @TerminateOther "UNHANDLED_INPUT"@ as the reason
+  | DeadLetter ProcessId -- ^ forward the message to the given recipient
+  | Drop                 -- ^ dequeue and then drop/ignore the message
 
-data Behaviour s = Behaviour {
-    dispatchers            :: [Dispatcher s]
-  , infoHandlers           :: [InfoDispatcher s]
-  , timeoutHandler         :: TimeoutHandler s
-  , terminateHandler       :: TerminateHandler s   -- ^ termination handler
-  , unhandledMessagePolicy :: UnhandledMessagePolicy
+-- | Stores the functions that determine runtime behaviour in response to
+-- incoming messages and a policy for responding to unhandled messages. 
+data ProcessDefinition s = ProcessDefinition {
+    dispatchers
+    :: [Dispatcher s]     -- ^ functions that handle call/cast messages
+  , infoHandlers
+    :: [InfoDispatcher s] -- ^ functions that handle non call/cast messages  
+  , timeoutHandler
+    :: TimeoutHandler s   -- ^ a function that handles timeouts    
+  , terminateHandler
+    :: TerminateHandler s -- ^ a function that is run just before the process exits
+  , unhandledMessagePolicy
+    :: UnhandledMessagePolicy -- ^ how to deal with unhandled messages
   }
 
 --------------------------------------------------------------------------------
@@ -166,7 +194,7 @@ data Behaviour s = Behaviour {
 -- @InitFail why@.
 start :: a
       -> InitHandler a s
-      -> Behaviour s
+      -> ProcessDefinition s
       -> Process (Either (InitResult s) TerminateReason)
 start args init behave = do
   ir <- init args
@@ -177,8 +205,8 @@ start args init behave = do
 -- | A basic, stateless process definition, where the unhandled message policy
 -- is set to 'Terminate', the default timeout handlers does nothing (i.e., the
 -- same as calling @continue ()@ and the terminate handler is a no-op.
-statelessProcess :: Behaviour ()
-statelessProcess = Behaviour {
+statelessProcess :: ProcessDefinition ()
+statelessProcess = ProcessDefinition {
     dispatchers            = []
   , infoHandlers           = []
   , timeoutHandler         = \s _ -> continue s
@@ -192,11 +220,11 @@ statelessInit d () = return $ InitOk () d
 -- | Make a syncrhonous call - will block until a reply is received.
 call :: forall a b . (Serializable a, Serializable b)
                  => ProcessId -> a -> Process b
-call sid msg = do
-  r <- safeCall sid msg
-  case r of
-    Nothing -> fail "call failed" -- TODO: exit protocol !?
-    Just ar -> return ar
+call sid msg = callAsync sid msg >>= wait >>= unpack
+  where unpack :: AsyncResult b -> Process b
+        unpack (AsyncDone   r) = return r
+        unpack (AsyncFailed r) = die $ "CALL_FAILED;" ++ show r
+        unpack ar              = die $ show (typeOf ar)
 
 -- | Safe version of 'call' that returns 'Nothing' if the operation fails. If
 -- you need information about *why* a call has failed then you should use
@@ -218,6 +246,12 @@ callTimeout s m d = callAsync s m >>= waitTimeout d >>= unpack
         unpack (Just other)         = getSelfPid >>= (flip exit) other >> terminate
 -- TODO: https://github.com/haskell-distributed/distributed-process/issues/110
 
+-- | Performs a synchronous 'call' to the the given server address, however the
+-- call is made /out of band/ and an async handle is returned immediately. This
+-- can be passed to functions in the /Async/ API in order to obtain the result.
+--
+-- see 'Control.Distributed.Process.Platform.Async' 
+-- 
 callAsync :: forall a b . (Serializable a, Serializable b)
                  => ProcessId -> a -> Process (AsyncChan b)
 callAsync sid msg = do
@@ -238,7 +272,9 @@ callAsync sid msg = do
       Left err -> fail $ "call: remote process died: " ++ show err
 
 -- | Sends a /cast/ message to the server identified by 'ServerId'. The server
--- will not send a response.
+-- will not send a response. Like Cloud Haskell's 'send' primitive, cast is
+-- fully asynchronous and /never fails/ - therefore 'cast'ing to a non-existent
+-- (e.g., dead) process will not generate any errors.
 cast :: forall a . (Serializable a)
                  => ProcessId -> a -> Process ()
 cast sid msg = send sid (CastMessage msg)
@@ -250,8 +286,7 @@ cast sid msg = send sid (CastMessage msg)
 reply :: (Serializable r) => r -> s -> Process (ProcessReply s r)
 reply r s = continue s >>= replyWith r
 
--- | Instructs the process to send a reply and evaluate the 'ProcessAction'
--- thereafter.
+-- | Instructs the process to send a reply /and/ evaluate the 'ProcessAction'.
 replyWith :: (Serializable m)
           => m
           -> ProcessAction s
@@ -262,6 +297,8 @@ replyWith msg state = return $ ProcessReply msg state
 continue :: s -> Process (ProcessAction s)
 continue = return . ProcessContinue
 
+-- | Version of 'continue' that can be used in handlers that ignore process state.
+-- 
 continue_ :: (s -> Process (ProcessAction s))
 continue_ = return . ProcessContinue
 
@@ -272,7 +309,10 @@ continue_ = return . ProcessContinue
 timeoutAfter :: TimeInterval -> s -> Process (ProcessAction s)
 timeoutAfter d s = return $ ProcessTimeout d s
 
--- | Version of 'timeoutAfter' that ignores the process state.
+-- | Version of 'timeoutAfter' that can be used in handlers that ignore process state.
+--
+-- > action (\(TimeoutPlease duration) -> timeoutAfter_ duration)
+--
 timeoutAfter_ :: TimeInterval -> (s -> Process (ProcessAction s))
 timeoutAfter_ d = return . ProcessTimeout d
 
@@ -283,6 +323,10 @@ timeoutAfter_ d = return . ProcessTimeout d
 hibernate :: TimeInterval -> s -> Process (ProcessAction s)
 hibernate d s = return $ ProcessHibernate d s
 
+-- | Version of 'hibernate' that can be used in handlers that ignore process state.
+--
+-- > action (\(HibernatePlease delay) -> hibernate_ delay) 
+--
 hibernate_ :: TimeInterval -> (s -> Process (ProcessAction s))
 hibernate_ d = return . ProcessHibernate d
 
@@ -290,6 +334,10 @@ hibernate_ d = return . ProcessHibernate d
 stop :: TerminateReason -> Process (ProcessAction s)
 stop r = return $ ProcessStop r
 
+-- | Version of 'stop' that can be used in handlers that ignore process state.
+--
+-- > action (\ClientError -> stop_ TerminateNormal) 
+--
 stop_ :: TerminateReason -> (s -> Process (ProcessAction s))
 stop_ r _ = stop r
 
@@ -416,7 +464,7 @@ handleCastIf_ cond h = DispatchIf {
 -- need only decide to stop, as the terminate handler can deal with state
 -- cleanup etc). For example:
 --
--- > action (\MyStopSignal -> stop_ TerminateNormal)
+-- > action (\MyCriticalErrorSignal -> stop_ TerminateNormal)
 --
 action :: forall s a . (Serializable a)
                  => (a -> (s -> Process (ProcessAction s)))
@@ -493,7 +541,7 @@ applyPolicy s p m =
     DeadLetter pid -> forward m pid >> continue s
     Drop           -> continue s
 
-initLoop :: Behaviour s -> s -> Delay -> Process TerminateReason
+initLoop :: ProcessDefinition s -> s -> Delay -> Process TerminateReason
 initLoop b s w =
   let p   = unhandledMessagePolicy b
       t   = timeoutHandler b
