@@ -235,16 +235,13 @@ safeCall s m = callAsync s m >>= wait >>= unpack    -- note [call using async]
   where unpack (AsyncDone r) = return $ Just r
         unpack _             = return Nothing
 
--- TODO: provide version of call that will throw/exit on failure
-
 callTimeout :: forall a b . (Serializable a, Serializable b)
                  => ProcessId -> a -> TimeInterval -> Process (Maybe b)
 callTimeout s m d = callAsync s m >>= waitTimeout d >>= unpack
   where unpack :: (Serializable b) => Maybe (AsyncResult b) -> Process (Maybe b)
         unpack Nothing              = return Nothing
         unpack (Just (AsyncDone r)) = return $ Just r
-        unpack (Just other)         = getSelfPid >>= (flip exit) other >> terminate
--- TODO: https://github.com/haskell-distributed/distributed-process/issues/110
+        unpack (Just other)         = die other
 
 -- | Performs a synchronous 'call' to the the given server address, however the
 -- call is made /out of band/ and an async handle is returned immediately. This
