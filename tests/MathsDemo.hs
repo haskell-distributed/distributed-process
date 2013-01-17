@@ -49,12 +49,9 @@ launchMathServer =
         , handleCall_   (\(Divide _ _) -> divByZero)
         , action        (\("stop") -> stop_ TerminateNormal)
         ]
-    } :: Behaviour ()
-  in spawnLocal $ start () startup server >> return ()
-  where startup :: InitHandler () ()
-        startup _ = return $ InitOk () Infinity
-
-        handleDivide :: Divide -> Process (Either DivByZero Double)
+    }
+  in spawnLocal $ start () (statelessInit Infinity) server >> return ()
+  where handleDivide :: Divide -> Process (Either DivByZero Double)
         handleDivide (Divide x y) = return $ Right $ x / y
 
         divByZero :: Process (Either DivByZero Double)
