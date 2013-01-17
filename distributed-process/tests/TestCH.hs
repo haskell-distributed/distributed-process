@@ -33,6 +33,7 @@ import Control.Distributed.Process.Internal.Types
   , LocalNode(localEndPoint)
   )
 import Control.Distributed.Process.Node
+import Control.Distributed.Process.Internal.Primitives
 import Control.Distributed.Process.Serializable (Serializable)
 
 import Test.HUnit (Assertion)
@@ -908,6 +909,22 @@ testDie transport = do
 
   takeMVar done
 
+testPrettyExit :: NT.Transport -> Assertion
+testPrettyExit transport = do
+  localNode <- newLocalNode transport initRemoteTable
+  done <- newEmptyMVar
+  
+  _ <- forkProcess localNode $ do
+      (die "timeout")
+      `catch` \ex@(ProcessExitException from _) ->
+        let expected = "origin=" ++ (show from) ++
+                       ",reason=timeout"
+        in do
+          True <- return $ (show ex) == expected
+          liftIO $ putMVar done ()
+
+  takeMVar done
+
 testExitLocal :: NT.Transport -> Assertion
 testExitLocal transport = do
   localNode <- newLocalNode transport initRemoteTable
@@ -976,6 +993,7 @@ tests (transport, transportInternals) = [
       , testCase "KillLocal"           (testKillLocal           transport)
       , testCase "KillRemote"          (testKillRemote          transport)
       , testCase "Die"                 (testDie                 transport)
+      , testCase "PrettyExit"          (testPrettyExit          transport)
       , testCase "ExitLocal"           (testExitLocal           transport)
       , testCase "ExitRemote"          (testExitRemote          transport)
       ]
