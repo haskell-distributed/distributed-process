@@ -382,8 +382,8 @@ instance Show ProcessExitException where
 showProcessExit :: ProcessExitException -> String
 showProcessExit (ProcessExitException pid reason) =
   case messageFingerprint reason == fingerprint (undefined :: String) of
-    True  -> "exit-from=" ++ (show pid) ++ ",reason=" ++ decoded
-    False -> "exit-from=" ++ show pid
+    True  -> "origin=" ++ (show pid) ++ ",reason=" ++ decoded
+    False -> "origin=" ++ show pid
   where decoded :: String
         !decoded = decode (messageEncoding reason)
 
