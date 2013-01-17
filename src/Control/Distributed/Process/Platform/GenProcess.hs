@@ -220,7 +220,7 @@ statelessInit d () = return $ InitOk () d
 -- | Make a syncrhonous call - will block until a reply is received.
 call :: forall a b . (Serializable a, Serializable b)
                  => ProcessId -> a -> Process b
-call sid msg = callAsync sid msg >>= wait >>= unpack
+call sid msg = callAsync sid msg >>= wait >>= unpack -- note [call using async]
   where unpack :: AsyncResult b -> Process b
         unpack (AsyncDone   r) = return r
         unpack (AsyncFailed r) = die $ "CALL_FAILED;" ++ show r
@@ -231,7 +231,7 @@ call sid msg = callAsync sid msg >>= wait >>= unpack
 -- 'call' instead.
 safeCall :: forall a b . (Serializable a, Serializable b)
                  => ProcessId -> a -> Process (Maybe b)
-safeCall s m = callAsync s m >>= wait >>= unpack
+safeCall s m = callAsync s m >>= wait >>= unpack    -- note [call using async]
   where unpack (AsyncDone r) = return $ Just r
         unpack _             = return Nothing
 
@@ -257,7 +257,7 @@ callAsync :: forall a b . (Serializable a, Serializable b)
 callAsync sid msg = do
 -- TODO: use a unified async API here if possible
 -- https://github.com/haskell-distributed/distributed-process-platform/issues/55
-  async $ asyncDo $ do
+  async $ asyncDo $ do  -- note [call using async]
     mRef <- monitor sid
     wpid <- getSelfPid
     sendTo (SendToPid sid) (CallMessage msg (SendToPid wpid))
@@ -270,6 +270,25 @@ callAsync sid msg = do
     case r of
       Right m -> return m
       Left err -> fail $ "call: remote process died: " ++ show err
+
+-- note [call using async]
+-- One problem with using plain expect/receive primitives to perform a
+-- synchronous (round trip) call is that a reply matching the expected type
+-- could come from anywhere! The Call.hs module uses a unique integer tag to
+-- distinguish between inputs but this is easy to forge, as is tagging the
+-- response with the sender's pid. 
+--
+-- The approach we take here is to rely on AsyncSTM to insulate us from
+-- erroneous incoming messages without the need for tagging. The /async handle/
+-- returned uses an @STM (AsyncResult a)@ field to handle the response /and/
+-- the implementation spawns a new process to perform the actual call and
+-- await the reply before atomically updating the result. Whilst in theory,
+-- given a hypothetical 'listAllProcesses' primitive, it might be possible for
+-- malacious code to obtain the ProcessId of the worker and send a false reply, 
+-- the likelihood of this is small enough that it seems reasonable to assume
+-- we've solved the problem without the need for tags or globally unique
+-- identifiers.
+--
 
 -- | Sends a /cast/ message to the server identified by 'ServerId'. The server
 -- will not send a response. Like Cloud Haskell's 'send' primitive, cast is
