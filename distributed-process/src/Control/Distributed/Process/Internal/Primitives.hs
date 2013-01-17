@@ -377,7 +377,15 @@ data ProcessExitException =
 
 instance Exception ProcessExitException
 instance Show ProcessExitException where
-  show (ProcessExitException pid _) = "exit-from=" ++ show pid
+  show = showProcessExit
+
+showProcessExit :: ProcessExitException -> String
+showProcessExit (ProcessExitException pid reason) =
+  case messageFingerprint reason == fingerprint (undefined :: String) of
+    True  -> "origin=" ++ (show pid) ++ ",reason=" ++ decoded
+    False -> "origin=" ++ show pid
+  where decoded :: String
+        !decoded = decode (messageEncoding reason)
 
 -- | Catches ProcessExitException
 catchExit :: forall a b . (Show a, Serializable a)
