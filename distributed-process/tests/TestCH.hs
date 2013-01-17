@@ -4,7 +4,6 @@ module Main where
 import Prelude hiding (catch)
 #endif
 
-
 import Data.Binary (Binary(..))
 import Data.Typeable (Typeable)
 import Data.Foldable (forM_)
@@ -31,9 +30,9 @@ import Control.Distributed.Process
 import Control.Distributed.Process.Internal.Types
   ( NodeId(nodeAddress)
   , LocalNode(localEndPoint)
+  , ProcessExitException(..)
   )
 import Control.Distributed.Process.Node
-import Control.Distributed.Process.Internal.Primitives
 import Control.Distributed.Process.Serializable (Serializable)
 
 import Test.HUnit (Assertion)

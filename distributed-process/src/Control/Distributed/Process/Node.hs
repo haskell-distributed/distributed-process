@@ -112,6 +112,7 @@ import Control.Distributed.Process.Internal.Types
   , ProcessMonitorNotification(..)
   , NodeMonitorNotification(..)
   , PortMonitorNotification(..)
+  , ProcessExitException(..)
   , ProcessLinkException(..)
   , NodeLinkException(..)
   , PortLinkException(..)
@@ -152,7 +153,6 @@ import Control.Distributed.Process.Internal.Primitives
   , receiveWait
   , match
   , sendChan
-  , ProcessExitException(..)
   )
 import Control.Distributed.Process.Internal.Types (SendPort)
 import qualified Control.Distributed.Process.Internal.Closure.BuiltIn as BuiltIn (remoteTable)

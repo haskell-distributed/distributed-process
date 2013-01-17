@@ -29,7 +29,7 @@ module Control.Distributed.Process.Internal.Primitives
   , kill
   , exit
   , catchExit
-  , ProcessExitException(..)
+  , ProcessExitException()
   , getSelfPid
   , getSelfNode
   , ProcessInfo(..)
@@ -139,6 +139,7 @@ import Control.Distributed.Process.Internal.Types
   , TypedChannel(..)
   , SendPortId(..)
   , Identifier(..)
+  , ProcessExitException(..)
   , DidUnmonitor(..)
   , DidUnlinkProcess(..)
   , DidUnlinkNode(..)
@@ -369,23 +370,6 @@ exit :: Serializable a => ProcessId -> a -> Process ()
 -- to a remote node controller means that that the message may overtake a
 -- 'monitor' or 'link' request.
 exit them reason = sendCtrlMsg Nothing (Exit them (createMessage reason))
-
--- | Internal exception thrown indirectly by 'exit'
-data ProcessExitException =
-    ProcessExitException !ProcessId !Message
-  deriving Typeable
-
-instance Exception ProcessExitException
-instance Show ProcessExitException where
-  show = showProcessExit
-
-showProcessExit :: ProcessExitException -> String
-showProcessExit (ProcessExitException pid reason) =
-  case messageFingerprint reason == fingerprint (undefined :: String) of
-    True  -> "origin=" ++ (show pid) ++ ",reason=" ++ decoded
-    False -> "origin=" ++ show pid
-  where decoded :: String
-        !decoded = decode (messageEncoding reason)
 
 -- | Catches ProcessExitException
 catchExit :: forall a b . (Show a, Serializable a)
