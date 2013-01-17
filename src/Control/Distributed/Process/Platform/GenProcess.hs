@@ -217,7 +217,7 @@ statelessProcess = ProcessDefinition {
 statelessInit :: Delay -> InitHandler () ()
 statelessInit d () = return $ InitOk () d
 
--- | Make a syncrhonous call - will block until a reply is received.
+-- | Make a synchronous call - will block until a reply is received.
 call :: forall a b . (Serializable a, Serializable b)
                  => ProcessId -> a -> Process b
 call sid msg = callAsync sid msg >>= wait >>= unpack -- note [call using async]
@@ -235,6 +235,13 @@ safeCall s m = callAsync s m >>= wait >>= unpack    -- note [call using async]
   where unpack (AsyncDone r) = return $ Just r
         unpack _             = return Nothing
 
+-- | Make a synchronous calls, but timeout and return @Nothing@ if the reply
+-- is not received within the specified time interval. The reply may be sent
+-- later on, or the call can be cancelled using the async @cancel@ API.
+-- 
+-- If the 'AsyncResult' for the call indicates a failure (or cancellation) then
+-- the calling process will exit, with the 'AsyncResult' given as the reason.
+--
 callTimeout :: forall a b . (Serializable a, Serializable b)
                  => ProcessId -> a -> TimeInterval -> Process (Maybe b)
 callTimeout s m d = callAsync s m >>= waitTimeout d >>= unpack
