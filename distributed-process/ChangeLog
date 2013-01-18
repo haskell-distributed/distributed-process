@@ -1,3 +1,7 @@
+
+* Expose deferred type checking for AbstractMessage
+* Provide improved exception handling for deferred type checked exit reasons
+
 2012-11-22  Edsko de Vries  <edsko@well-typed.com>  0.4.1
 
 * Make behaviour of 'register' more Erlang-like (register will now fail if the
