@@ -32,7 +32,7 @@ module Control.Distributed.Process.Internal.Primitives
   , catchExit
   , catchesExit
     -- keep the exception constructor hidden, so that handling exit
-    -- reasons must take place via the 'catchExit' family of primitives
+    -- reasons /must/ take place via the 'catchExit' family of primitives
   , ProcessExitException()
   , getSelfPid
   , getSelfNode

@@ -17,7 +17,7 @@ Description:   This is an implementation of Cloud Haskell, as described in
                (<http://research.microsoft.com/en-us/um/people/simonpj/papers/parallel/>),
                although some of the details are different. The precise message
                passing semantics are based on /A unified semantics for future Erlang/
-               by       Hans Svensson, Lars-Åke Fredlund and Clara Benac Earle.
+               by Hans Svensson, Lars-Åke Fredlund and Clara Benac Earle.
 
                You will probably also want to install a Cloud Haskell backend such
                as distributed-process-simplelocalnet.
