@@ -86,7 +86,7 @@ linkOnFailure them = do
       DiedNormal -> return ()
       _ -> liftIO $ throwTo tid (ProcessLinkException us reason)
 
--- | Returns the pid of the process that has been registered 
+-- | Returns the pid of the process that has been registered
 -- under the given name. This refers to a local, per-node registration,
 -- not @global@ registration. If that name is unregistered, a process
 -- is started. This is a handy way to start per-node named servers.
