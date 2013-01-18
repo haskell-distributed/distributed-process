@@ -19,7 +19,20 @@
 -- result of one or more asynchronously running (and potentially distributed)
 -- processes.
 --
+-- The async handles returned by this module cannot be used by processes other
+-- than the caller of 'async', and are not 'Serializable'. Specifically, calls
+-- that block until an async worker completes (i.e., all variants of 'wait')
+-- will /never return/ if called from a different process.
 --
+-- > h <- newEmptyMVar
+-- > outer <- spawnLocal $ async runMyAsyncTask >>= liftIO $ putMVar h
+-- > hAsync <- liftIO $ takeMVar h
+-- > say "this expression will never return, because hAsync belongs to 'outer'"
+-- > wait hAsync 
+--
+-- As with 'Control.Distributed.Platform.Async.AsyncChan', workers can be
+-- started on a local or remote node.
+-- See 'Control.Distributed.Platform.Async.AsyncTask'.
 -----------------------------------------------------------------------------
 
 module Control.Distributed.Process.Platform.Async.AsyncChan

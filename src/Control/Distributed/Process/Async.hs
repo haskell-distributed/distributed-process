@@ -42,7 +42,7 @@ import Data.DeriveTH
 import Data.Typeable (Typeable)
 
 --------------------------------------------------------------------------------
--- Cloud Haskell Async Process API                                            --
+-- API                                                                        --
 --------------------------------------------------------------------------------
 
 -- | A reference to an asynchronous action
