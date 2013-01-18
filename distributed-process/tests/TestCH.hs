@@ -757,6 +757,121 @@ testMatchAny transport = do
 
   takeMVar clientDone
 
+-- | Test 'matchAny'. This repeats the 'testMath' but with a proxy server
+-- in between, however we block 'Divide' requests ....
+testMatchAnyHandle :: NT.Transport -> Assertion
+testMatchAnyHandle transport = do
+  proxyAddr <- newEmptyMVar
+  clientDone <- newEmptyMVar
+
+  -- Math server
+  forkIO $ do
+    localNode <- newLocalNode transport initRemoteTable
+    mathServer <- forkProcess localNode math
+    proxyServer <- forkProcess localNode $ forever $ do
+        receiveWait [
+            matchAny (maybeForward mathServer)
+          ] 
+    putMVar proxyAddr proxyServer
+
+  -- Client
+  forkIO $ do
+    localNode <- newLocalNode transport initRemoteTable
+    mathServer <- readMVar proxyAddr
+
+    runProcess localNode $ do
+      pid <- getSelfPid
+      send mathServer (Add pid 1 2)
+      3 <- expect :: Process Double
+      send mathServer (Divide pid 8 2)
+      Nothing <- (expectTimeout 100000) :: Process (Maybe Double)
+      liftIO $ putMVar clientDone ()
+
+  takeMVar clientDone
+  where maybeForward :: ProcessId -> AbstractMessage -> Process (Maybe ())
+        maybeForward s msg =
+            maybeHandleMessage msg (\m@(Add _ _ _) -> send s m)
+
+testMatchAnyNoHandle :: NT.Transport -> Assertion
+testMatchAnyNoHandle transport = do
+  addr <- newEmptyMVar
+  clientDone <- newEmptyMVar
+  serverDone <- newEmptyMVar
+
+  -- Math server
+  forkIO $ do
+    localNode <- newLocalNode transport initRemoteTable
+    server <- forkProcess localNode $ forever $ do
+        receiveWait [
+          matchAnyIf
+            -- the condition has type `Add -> Bool`
+            (\(Add _ _ _) -> True)
+            -- the match `AbstractMessage -> Process ()` will succeed!
+            (\m -> do
+              -- `String -> Process ()` does *not* match the input types however 
+              r <- (maybeHandleMessage m (\(_ :: String) -> die "NONSENSE" ))
+              case r of
+                Nothing -> return ()
+                Just _  -> die "NONSENSE")
+          ] 
+        -- we *must* have removed the message from our mailbox though!!! 
+        Nothing <- receiveTimeout 100000 [ match (\(Add _ _ _) -> return ()) ]
+        liftIO $ putMVar serverDone ()
+    putMVar addr server
+
+  -- Client
+  forkIO $ do
+    localNode <- newLocalNode transport initRemoteTable
+    server <- readMVar addr
+
+    runProcess localNode $ do
+      pid <- getSelfPid
+      send server (Add pid 1 2)
+      -- we only care about the client having sent a message, so we're done
+      liftIO $ putMVar clientDone ()
+
+  takeMVar clientDone
+  takeMVar serverDone
+
+-- | Test 'matchAnyIf'. We provide an /echo/ server, but it ignores requests
+-- unless the text body @/= "bar"@ - this case should time out rather than
+-- removing the message from the process mailbox. 
+testMatchAnyIf :: NT.Transport -> Assertion
+testMatchAnyIf transport = do
+  echoAddr <- newEmptyMVar
+  clientDone <- newEmptyMVar
+
+  -- echo server
+  forkIO $ do
+    localNode <- newLocalNode transport initRemoteTable
+    echoServer <- forkProcess localNode $ forever $ do
+        receiveWait [
+            matchAnyIf (\(_ :: ProcessId, (s :: String)) -> s /= "bar")
+                       handleMessage
+          ] 
+    putMVar echoAddr echoServer
+
+  -- Client
+  forkIO $ do
+    localNode <- newLocalNode transport initRemoteTable
+    server <- readMVar echoAddr
+
+    runProcess localNode $ do
+      pid <- getSelfPid
+      send server (pid, "foo")
+      "foo" <- expect
+      send server (pid, "baz")
+      "baz" <- expect
+      send server (pid, "bar")
+      Nothing <- (expectTimeout 100000) :: Process (Maybe Double)
+      liftIO $ putMVar clientDone ()
+
+  takeMVar clientDone
+  where handleMessage :: AbstractMessage -> Process (Maybe ())
+        handleMessage msg =
+          maybeHandleMessage msg (\(pid :: ProcessId, (m :: String))
+                                  -> do { send pid m; return () })
+
 -- Test 'receiveChanTimeout'
 testReceiveChanTimeout :: NT.Transport -> Assertion
 testReceiveChanTimeout transport = do
@@ -894,6 +1009,22 @@ testKillRemote transport = do
 
   takeMVar done
 
+testCatchesExit :: NT.Transport -> Assertion
+testCatchesExit transport = do
+  localNode <- newLocalNode transport initRemoteTable
+  done <- newEmptyMVar
+  
+  _ <- forkProcess localNode $ do
+      (die ("foobar", 123 :: Int))
+      `catchesExit` [
+           (\_ m -> maybeHandleMessage m (\(_ :: String) -> return ()))
+         , (\_ m -> maybeHandleMessage m (\(_ :: Maybe Int) -> return ()))
+         , (\_ m -> maybeHandleMessage m (\(_ :: String, _ :: Int)
+                    -> (liftIO $ putMVar done ()) >> return ()))
+         ]
+
+  takeMVar done
+
 testDie :: NT.Transport -> Assertion
 testDie transport = do
   localNode <- newLocalNode transport initRemoteTable
@@ -987,12 +1118,16 @@ tests (transport, transportInternals) = [
       , testCase "RemoteRegistry"      (testRemoteRegistry      transport)
       , testCase "SpawnLocal"          (testSpawnLocal          transport)
       , testCase "MatchAny"            (testMatchAny            transport)
+      , testCase "MatchAnyHandle"      (testMatchAnyHandle      transport)
+      , testCase "MatchAnyNoHandle"    (testMatchAnyNoHandle    transport)
+      , testCase "MatchAnyIf"          (testMatchAnyIf          transport)
       , testCase "ReceiveChanTimeout"  (testReceiveChanTimeout  transport)
       , testCase "ReceiveChanFeatures" (testReceiveChanFeatures transport)
       , testCase "KillLocal"           (testKillLocal           transport)
       , testCase "KillRemote"          (testKillRemote          transport)
       , testCase "Die"                 (testDie                 transport)
       , testCase "PrettyExit"          (testPrettyExit          transport)
+      , testCase "CatchesExit"         (testCatchesExit         transport)
       , testCase "ExitLocal"           (testExitLocal           transport)
       , testCase "ExitRemote"          (testExitRemote          transport)
       ]
