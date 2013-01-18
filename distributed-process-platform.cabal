@@ -78,7 +78,8 @@ test-suite TimerTests
                    Control.Distributed.Process.Platform.Timer,
                    TestUtils,
                    Control.Distributed.Process.Platform.Test
-                   Control.Distributed.Process.Platform.Internal.Types
+                   Control.Distributed.Process.Platform.Internal.Types,
+                   TestGenServer
   extensions:      CPP
   main-is:         TestTimer.hs
 
@@ -110,11 +111,12 @@ test-suite PrimitivesTests
                    Control.Distributed.Process.Platform.Internal.Primitives,
                    Control.Distributed.Process.Platform.Time,
                    TestUtils,
-                   Control.Distributed.Process.Platform.Test
+                   Control.Distributed.Process.Platform.Test,
+                   TestGenServer
   extensions:      CPP
   main-is:         TestPrimitives.hs
 
-test-suite AsyncTests
+test-suite Tests
   type:            exitcode-stdio-1.0
   x-uses-tf:       true
   build-depends:
@@ -137,6 +139,35 @@ test-suite AsyncTests
                    tests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   other-modules:
-                   TestUtils
+                   TestUtils,
+                   TestGenServer
   extensions:      CPP
   main-is:         TestAsync.hs
+
+test-suite GenServerTests
+  type:            exitcode-stdio-1.0
+  x-uses-tf:       true
+  build-depends:
+                   base >= 4.4 && < 5,
+                   ansi-terminal >= 0.5 && < 0.6,
+                   distributed-process,
+                   derive,
+                   network-transport >= 0.3 && < 0.4,
+                   mtl,
+                   network-transport-tcp >= 0.3 && < 0.4,
+                   binary >= 0.5 && < 0.7,
+                   network >= 2.3 && < 2.5,
+                   HUnit >= 1.2 && < 2,
+                   stm >= 2.3 && < 2.5,
+                   test-framework >= 0.6 && < 0.9,
+                   test-framework-hunit,
+                   transformers
+  hs-source-dirs:
+                   src,
+                   tests
+  ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
+  other-modules:
+                TestUtils,
+                MathsDemo
+  extensions:      CPP
+  main-is:         TestGenServer.hs
