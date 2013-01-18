@@ -28,7 +28,7 @@
 -- > outer <- spawnLocal $ async runMyAsyncTask >>= liftIO $ putMVar h
 -- > hAsync <- liftIO $ takeMVar h
 -- > say "this expression will never return, because hAsync belongs to 'outer'"
--- > wait hAsync 
+-- > wait hAsync
 --
 -- As with 'Control.Distributed.Platform.Async.AsyncChan', workers can be
 -- started on a local or remote node.
@@ -41,6 +41,7 @@ module Control.Distributed.Process.Platform.Async.AsyncChan
   , AsyncTask
   , AsyncChan(worker)
   , AsyncResult(..)
+  , Async(asyncWorker)
   -- functions for starting/spawning
   , async
   , asyncLinked
@@ -60,10 +61,10 @@ module Control.Distributed.Process.Platform.Async.AsyncChan
   , waitCheckTimeout
   ) where
 
-import Control.Distributed.Process.Platform.Async hiding (asyncDo)
+import Control.Distributed.Process
+import Control.Distributed.Process.Platform.Async.Types
 import Control.Distributed.Process.Platform.Time
 import Control.Distributed.Process.Platform.Internal.Types
-import Control.Distributed.Process
 import Control.Distributed.Process.Serializable
 import Data.Maybe
   ( fromMaybe
