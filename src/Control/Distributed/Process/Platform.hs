@@ -41,5 +41,5 @@ import qualified Control.Distributed.Process.Platform.Internal.Primitives (__rem
 -- remote table
 
 __remoteTable :: RemoteTable -> RemoteTable
-__remoteTable = 
+__remoteTable =
    Control.Distributed.Process.Platform.Internal.Primitives.__remoteTable

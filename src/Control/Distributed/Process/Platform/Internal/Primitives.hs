@@ -1,9 +1,6 @@
 {-# LANGUAGE DeriveDataTypeable     #-}
 {-# LANGUAGE TemplateHaskell        #-}
 
--- Common Entities used throughout -platform.
--- NB: Please DO NOT use this module as a dumping ground.
-
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  Control.Distributed.Process.Platform.Internal.Primitives
@@ -23,14 +20,14 @@ module Control.Distributed.Process.Platform.Internal.Primitives
     spawnLinkLocal
   , spawnMonitorLocal
   , linkOnFailure
-  
+
   -- registration/start
   , whereisOrStart
   , whereisOrStartRemote
-  
+
   -- matching
   , matchCond
-  
+
   -- remote table
   , __remoteTable
   )
@@ -95,9 +92,9 @@ whereisOrStart name proc =
   do mpid <- whereis name
      case mpid of
        Just pid -> return pid
-       Nothing -> 
+       Nothing ->
          do caller <- getSelfPid
-            pid <- spawnLocal $ 
+            pid <- spawnLocal $
                  do self <- getSelfPid
                     register name self
                     send caller (RegisterSelf,self)
@@ -112,7 +109,7 @@ whereisOrStart name proc =
                ]
             case ret of
               Nothing -> whereisOrStart name proc
-              Just somepid -> 
+              Just somepid ->
                 do unmonitor ref
                    send somepid ()
                    return somepid
@@ -134,7 +131,7 @@ whereisOrStartRemote :: NodeId -> String -> Closure (Process ()) -> Process (May
 whereisOrStartRemote nid name proc =
      do mRef <- monitorNode nid
         whereisRemoteAsync nid name
-        res <- receiveWait 
+        res <- receiveWait
           [ matchIf (\(WhereIsReply label _) -> label == name)
                     (\(WhereIsReply _ mPid) -> return (Just mPid)),
             matchIf (\(NodeMonitorNotification aref _ _) -> aref == mRef)
@@ -143,14 +140,14 @@ whereisOrStartRemote nid name proc =
         case res of
            Nothing -> return Nothing
            Just (Just pid) -> unmonitor mRef >> return (Just pid)
-           Just Nothing -> 
+           Just Nothing ->
               do self <- getSelfPid
-                 sRef <- spawnAsync nid ($(mkClosure 'registerSelf) (name,self) `seqCP` proc)    
+                 sRef <- spawnAsync nid ($(mkClosure 'registerSelf) (name,self) `seqCP` proc)
                  ret <- receiveWait [
                       matchIf (\(NodeMonitorNotification ref _ _) -> ref == mRef)
                               (\(NodeMonitorNotification _ _ _) -> return Nothing),
                       matchIf (\(DidSpawn ref _) -> ref==sRef )
-                              (\(DidSpawn _ pid) -> 
+                              (\(DidSpawn _ pid) ->
                                   do pRef <- monitor pid
                                      receiveWait
                                        [ matchIf (\(RegisterSelf, apid) -> apid == pid)
@@ -166,15 +163,14 @@ whereisOrStartRemote nid name proc =
                  unmonitor mRef
                  case ret of
                    Nothing -> whereisOrStartRemote nid name proc
-                   Just pid -> return $ Just pid 
+                   Just pid -> return $ Just pid
 
 -- advanced messaging/matching
 
 -- | An alternative to 'matchIf' that allows both predicate and action
 -- to be expressed in one parameter.
 matchCond :: (Serializable a) => (a -> Maybe (Process b)) -> Match b
-matchCond cond = 
+matchCond cond =
    let v n = (isJust n, fromJust n)
        res = v . cond
     in matchIf (fst . res) (snd . res)
-
