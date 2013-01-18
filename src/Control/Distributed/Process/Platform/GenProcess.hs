@@ -179,7 +179,7 @@ import Control.Concurrent (threadDelay)
 import Control.Distributed.Process hiding (call)
 import Control.Distributed.Process.Serializable
 import Control.Distributed.Process.Platform.Async
-import Control.Distributed.Process.Platform.Async.AsyncSTM
+-- import Control.Distributed.Process.Platform.Async.AsyncSTM
 import Control.Distributed.Process.Platform.Internal.Types
   ( TerminateReason(..))
 import Control.Distributed.Process.Platform.Time
@@ -378,11 +378,11 @@ callTimeout s m d = callAsync s m >>= waitTimeout d >>= unpack
 -- see "Control.Distributed.Process.Platform.Async"
 --
 callAsync :: forall a b . (Serializable a, Serializable b)
-                 => ProcessId -> a -> Process (AsyncSTM b)
+                 => ProcessId -> a -> Process (Async b)
 callAsync sid msg = do
 -- TODO: use a unified async API here if possible
 -- https://github.com/haskell-distributed/distributed-process-platform/issues/55
-  async $ asyncDo $ do  -- note [call using async]
+  async $ do  -- note [call using async]
     mRef <- monitor sid
     wpid <- getSelfPid
     sendTo (SendToPid sid) (CallMessage msg (SendToPid wpid))
