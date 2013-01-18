@@ -117,7 +117,12 @@
 -- asynchronous exceptions are supported by the API, so /error/ handling
 -- code is the responsibility of the programmer.
 --
--- The API provides several scopes for error handling.
+-- The API provides several scopes for error handling. There is obviously
+-- nothing to stop the programmer from catching exceptions in various
+-- handlers, and this is fine, as is using the 'catchExit' API from
+-- 'Control.Distributed.Process'.
+--
+-- 
 -----------------------------------------------------------------------------
 
 module Control.Distributed.Process.Platform.GenProcess
