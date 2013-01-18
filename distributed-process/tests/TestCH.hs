@@ -1009,6 +1009,22 @@ testKillRemote transport = do
 
   takeMVar done
 
+testCatchesExit :: NT.Transport -> Assertion
+testCatchesExit transport = do
+  localNode <- newLocalNode transport initRemoteTable
+  done <- newEmptyMVar
+  
+  _ <- forkProcess localNode $ do
+      (die ("foobar", 123 :: Int))
+      `catchesExit` [
+           (\_ m -> maybeHandleMessage m (\(_ :: String) -> return ()))
+         , (\_ m -> maybeHandleMessage m (\(_ :: Maybe Int) -> return ()))
+         , (\_ m -> maybeHandleMessage m (\(_ :: String, _ :: Int)
+                    -> (liftIO $ putMVar done ()) >> return ()))
+         ]
+
+  takeMVar done
+
 testDie :: NT.Transport -> Assertion
 testDie transport = do
   localNode <- newLocalNode transport initRemoteTable
@@ -1111,6 +1127,7 @@ tests (transport, transportInternals) = [
       , testCase "KillRemote"          (testKillRemote          transport)
       , testCase "Die"                 (testDie                 transport)
       , testCase "PrettyExit"          (testPrettyExit          transport)
+      , testCase "CatchesExit"         (testCatchesExit         transport)
       , testCase "ExitLocal"           (testExitLocal           transport)
       , testCase "ExitRemote"          (testExitRemote          transport)
       ]

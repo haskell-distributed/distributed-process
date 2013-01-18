@@ -5,7 +5,7 @@
 -- Peyton Jones
 -- (<http://research.microsoft.com/en-us/um/people/simonpj/papers/parallel/>),
 -- although some of the details are different. The precise message passing
--- semantics are based on /A unified semantics for future Erlang/ by	Hans
+-- semantics are based on /A unified semantics for future Erlang/ by    Hans
 -- Svensson, Lars-Åke Fredlund and Clara Benac Earle.
 module Control.Distributed.Process
   ( -- * Basic types
@@ -49,6 +49,7 @@ module Control.Distributed.Process
   , kill
   , exit
   , catchExit
+  , catchesExit
   , ProcessTerminationException(..)
   , ProcessRegistrationException(..)
   , SpawnRef
@@ -201,6 +202,7 @@ import Control.Distributed.Process.Internal.Primitives
   , die
   , exit
   , catchExit
+  , catchesExit
   , kill
   , getSelfPid
   , getSelfNode
@@ -363,7 +365,11 @@ spawnMonitor nid proc = do
 -- "Control.Distributed.Process.Closure".
 --
 -- See also 'spawn'.
-call :: Serializable a => Static (SerializableDict a) -> NodeId -> Closure (Process a) -> Process a
+call :: Serializable a
+        => Static (SerializableDict a)
+        -> NodeId
+        -> Closure (Process a)
+        -> Process a
 call dict nid proc = do
   us <- getSelfPid
   (pid, mRef) <- spawnMonitor nid (proc `bindCP` cpSend dict us)
