@@ -14,29 +14,34 @@
 -- Stability   :  experimental
 -- Portability :  non-portable (requires concurrency)
 --
--- The modules in the @Async@ package provide operations for spawning Processes,
--- waiting for their results, cancelling them and various other utilities. The
--- two primary implementation are @AsyncChan@ which provides an API which is
--- scoped to the calling process, and @Async@ which provides a mechanism that
--- can be used by (i.e., shared across) multiple processes either locally or
--- situation on remote nodes.
+-- The /async/ APIs provided by distributed-process-platform provide means
+-- for spawning asynchronous operations, waiting for their results, cancelling
+-- them and various other utilities. The two primary implementation are
+-- @AsyncChan@ which provides a handle which is scoped to the calling process,
+-- and @AsyncSTM@, whose async mechanism can be used by (i.e., shared across)
+-- multiple local processes.
 --
 -- Both abstractions can run asynchronous operations on remote nodes.
 --
--- Despite providing an API at a higher level than the basic primitives in
--- distributed-process, this API is still quite low level and it is
--- recommended that you read the documentation carefully to understand its
--- constraints. For a much higher level API, consider using the
--- 'Control.Distributed.Platform.Task' layer.
+-- There is an implicit contract for async workers; Workers must exit
+-- normally (i.e., should not call the 'exit', 'die' or 'terminate'
+-- Cloud Haskell primitives), otherwise the 'AsyncResult' will end up being
+-- @AsyncFailed DiedException@ instead of containing the result.
+--
+-- See "Control.Distributed.Process.Platform.Async.AsyncSTM",
+--     "Control.Distributed.Process.Platform.Async.AsyncChan".
+--
+-- See "Control.Distributed.Platform.Task" for a high level layer built
+-- on these capabilities.
 -----------------------------------------------------------------------------
 
 module Control.Distributed.Process.Platform.Async
- ( -- types/data
+ ( -- * Exported Types
     Async(asyncWorker)
   , AsyncRef
   , AsyncTask(..)
   , AsyncResult(..)
-  -- functions for starting/spawning
+  -- * Spawning asynchronous operations
   , async
   , asyncLinked
   , asyncSTM
@@ -46,7 +51,7 @@ module Control.Distributed.Process.Platform.Async
   , cancelWait
   , cancelWith
   , cancelKill
-  -- functions to query an async-result
+    -- * Querying for results
   , poll
   , check
   , wait
@@ -72,12 +77,22 @@ import Control.Distributed.Process.Platform.Time
 -- API                                                                        --
 --------------------------------------------------------------------------------
 
+-- | Spawn an 'AsyncTask' and return the 'Async' handle to it.
+-- See 'asyncSTM'.
 async :: (Serializable a) => Process a -> Process (Async a)
 async t = asyncSTM (AsyncTask t)
 
+-- | Spawn an 'AsyncTask' (linked to the calling process) and
+-- return the 'Async' handle to it.
+-- See 'asyncSTM'.
 asyncLinked :: (Serializable a) => Process a -> Process (Async a)
 asyncLinked p = AsyncSTM.newAsync AsyncSTM.asyncLinked (AsyncTask p)
 
+-- | Spawn an 'AsyncTask' and return the 'Async' handle to it.
+-- Uses the STM implementation, whose handles can be read by other
+-- processes, though they're not @Serializable@.
+--
+-- See 'Control.Distributed.Process.Platform.Async.AsyncSTM'.
 asyncSTM :: (Serializable a) => AsyncTask a -> Process (Async a)
 asyncSTM = AsyncSTM.newAsync AsyncSTM.async
 
@@ -155,9 +170,11 @@ cancelWait = h_cancelWait
 -- This operation is performed by sending an /exit signal/ to the asynchronous
 -- worker, which leads to the following semantics:
 --
--- 1. if the worker already completed, this function has no effect
--- 2. the worker might complete after this call, but before the signal arrives
--- 3. the worker might ignore the exit signal using @catchExit@
+--     1. If the worker already completed, this function has no effect.
+--
+--     2. The worker might complete after this call, but before the signal arrives.
+--
+--     3. The worker might ignore the exit signal using @catchExit@.
 --
 -- In case of (3), this function has no effect. You should use 'cancel'
 -- if you need to guarantee that the asynchronous task is unable to ignore
@@ -175,7 +192,7 @@ cancelWait = h_cancelWait
 cancelWith :: (Serializable b) => b -> Async a -> Process ()
 cancelWith = flip h_cancelWith
 
--- | Like 'cancelWith' but sends a @kill@ instruction instead of an exit.
+-- | Like 'cancelWith' but sends a @kill@ instruction instead of an exit signal.
 --
 -- See 'Control.Distributed.Process.kill'
 {-# INLINE cancelKill #-}

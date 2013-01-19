@@ -30,15 +30,16 @@
 -- > say "this expression will never return, because hAsync belongs to 'outer'"
 -- > wait hAsync
 --
--- As with 'Control.Distributed.Platform.Async.AsyncChan', workers can be
+-- As with 'Control.Distributed.Platform.Async.Async', workers can be
 -- started on a local or remote node.
--- See 'Control.Distributed.Platform.Async.AsyncTask'.
+--
+-- See "Control.Distributed.Platform.Async".
 -----------------------------------------------------------------------------
 
 module Control.Distributed.Process.Platform.Async.AsyncChan
-  ( -- types/data
+  ( -- * Exported types
     AsyncRef
-  , AsyncTask
+  , AsyncTask(..)
   , AsyncChan(worker)
   , AsyncResult(..)
   , Async(asyncWorker)
@@ -50,11 +51,12 @@ module Control.Distributed.Process.Platform.Async.AsyncChan
   , cancelWait
   , cancelWith
   , cancelKill
-  -- functions to query an async-result
+    -- * Querying for results
   , poll
   , check
   , wait
   , waitAny
+    -- * Waiting with timeouts
   , waitAnyTimeout
   , waitTimeout
   , waitCancelTimeout
@@ -139,6 +141,7 @@ asyncDo shouldLink (AsyncTask proc) = do
       , channel   = chan
       }
 
+-- private API
 spawnWorkers :: (Serializable a)
              => Process a
              -> Bool
@@ -187,27 +190,25 @@ spawnWorkers task shouldLink = do
                                   _          -> sendChan replyTo (AsyncFailed d)
             | otherwise    -> kill wpid "linkFailed"
 
--- | Check whether an 'AsyncChan' has completed yet. The status of the
--- action is encoded in the returned 'AsyncResult'. If the action has not
--- completed, the result will be 'AsyncPending', or one of the other
--- constructors otherwise. This function does not block waiting for the result.
--- Use 'wait' or 'waitTimeout' if you need blocking/waiting semantics.
--- See 'Async'.
+-- | Check whether an 'AsyncChan' has completed yet.
+--
+-- See "Control.Distributed.Process.Platform.Async".
 poll :: (Serializable a) => AsyncChan a -> Process (AsyncResult a)
 poll hAsync = do
   r <- receiveChanTimeout 0 $ snd (channel hAsync)
   return $ fromMaybe (AsyncPending) r
 
 -- | Like 'poll' but returns 'Nothing' if @(poll hAsync) == AsyncPending@.
--- See 'poll'.
+--
+-- See "Control.Distributed.Process.Platform.Async".
 check :: (Serializable a) => AsyncChan a -> Process (Maybe (AsyncResult a))
 check hAsync = poll hAsync >>= \r -> case r of
   AsyncPending -> return Nothing
   ar           -> return (Just ar)
 
--- | Wait for an asynchronous operation to complete or timeout. This variant
--- returns the 'AsyncResult' itself, which will be 'AsyncPending' if the
--- result has not been made available, otherwise one of the other constructors.
+-- | Wait for an asynchronous operation to complete or timeout.
+--
+-- See "Control.Distributed.Process.Platform.Async".
 waitCheckTimeout :: (Serializable a) =>
                     TimeInterval -> AsyncChan a -> Process (AsyncResult a)
 waitCheckTimeout t hAsync =
@@ -216,14 +217,13 @@ waitCheckTimeout t hAsync =
 -- | Wait for an asynchronous action to complete, and return its
 -- value. The outcome of the action is encoded as an 'AsyncResult'.
 --
+-- See "Control.Distributed.Process.Platform.Async".
 wait :: (Serializable a) => AsyncChan a -> Process (AsyncResult a)
 wait hAsync = receiveChan $ snd (channel hAsync)
 
--- | Wait for an asynchronous operation to complete or timeout. Returns
--- @Nothing@ if the 'AsyncResult' does not change from @AsyncPending@ within
--- the specified delay, otherwise @Just asyncResult@ is returned. If you want
--- to wait/block on the 'AsyncResult' without the indirection of @Maybe@ then
--- consider using 'wait' or 'waitCheckTimeout' instead.
+-- | Wait for an asynchronous operation to complete or timeout.
+--
+-- See "Control.Distributed.Process.Platform.Async".
 waitTimeout :: (Serializable a) =>
                TimeInterval -> AsyncChan a -> Process (Maybe (AsyncResult a))
 waitTimeout t hAsync =
@@ -248,7 +248,8 @@ waitCancelTimeout t hAsync = do
 -- because 'AsyncChan' does not hold on to its result after it has been read!
 --
 -- This function is analagous to the @mergePortsBiased@ primitive.
--- See 'Control.Distibuted.Process.mergePortsBiased'
+--
+-- See "Control.Distibuted.Process.mergePortsBiased".
 waitAny :: (Serializable a)
         => [AsyncChan a]
         -> Process (AsyncResult a)
@@ -267,51 +268,25 @@ waitAnyTimeout delay asyncs =
   in mergePortsBiased ports >>= receiveChanTimeout (asTimeout delay)
 
 -- | Cancel an asynchronous operation. Cancellation is asynchronous in nature.
--- To wait for cancellation to complete, use 'cancelWait' instead. The notes
--- about the asynchronous nature of 'cancelWait' apply here also.
 --
--- See 'Control.Distributed.Process'
+-- See "Control.Distributed.Process.Platform.Async".
 cancel :: AsyncChan a -> Process ()
 cancel (AsyncChan _ g _) = send g CancelWait
 
 -- | Cancel an asynchronous operation and wait for the cancellation to complete.
--- Because of the asynchronous nature of message passing, the instruction to
--- cancel will race with the asynchronous worker, so it is /entirely possible/
--- that the 'AsyncResult' returned will not necessarily be 'AsyncCancelled'. For
--- example, the worker may complete its task after this function is called, but
--- before the cancellation instruction is acted upon.
 --
--- If you wish to stop an asychronous operation /immediately/ (with caveats) then
--- consider using 'cancelWith' or 'cancelKill' instead.
---
+-- See "Control.Distributed.Process.Platform.Async".
 cancelWait :: (Serializable a) => AsyncChan a -> Process (AsyncResult a)
 cancelWait hAsync = cancel hAsync >> wait hAsync
 
 -- | Cancel an asynchronous operation immediately.
--- This operation is performed by sending an /exit signal/ to the asynchronous
--- worker, which leads to the following semantics:
 --
--- 1. if the worker already completed, this function has no effect
--- 2. the worker might complete after this call, but before the signal arrives
--- 3. the worker might ignore the exit signal using @catchExit@
---
--- In case of (3), this function has no effect. You should use 'cancel'
--- if you need to guarantee that the asynchronous task is unable to ignore
--- the cancellation instruction.
---
--- You should also consider that when sending exit signals to a process, the
--- definition of 'immediately' is somewhat vague and a scheduler might take
--- time to handle the request, which can lead to situations similar to (1) as
--- listed above, if the scheduler to which the calling process' thread is bound
--- decides to GC whilst another scheduler on which the worker is running is able
--- to continue.
---
--- See 'Control.Distributed.Process.exit'
+-- See "Control.Distributed.Process.Platform.Async".
 cancelWith :: (Serializable b) => b -> AsyncChan a -> Process ()
 cancelWith reason = (flip exit) reason . worker
 
 -- | Like 'cancelWith' but sends a @kill@ instruction instead of an exit.
 --
--- See 'Control.Distributed.Process.kill'
+-- See "Control.Distributed.Process.Platform.Async".
 cancelKill :: String -> AsyncChan a -> Process ()
 cancelKill reason = (flip kill) reason . worker
