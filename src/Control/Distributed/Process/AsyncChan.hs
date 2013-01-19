@@ -89,7 +89,7 @@ type InternalChannel a = (SendPort (AsyncResult a), ReceivePort (AsyncResult a))
 -- of this type /must not/ be passed to functions in this module by processes
 -- other than the caller of 'async' - that is, this module provides asynchronous
 -- actions whose results are accessible *only* by the initiating process. This
--- limitation is imposed becuase of the use of type channels, for which the
+-- limitation is imposed becuase of the use of typed channels, for which the
 -- @ReceivePort@ component is effectively /thread local/.
 --
 -- See 'async'
