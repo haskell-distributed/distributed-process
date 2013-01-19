@@ -15,7 +15,11 @@
 -- and @AsyncSTM@, whose async mechanism can be used by (i.e., shared across)
 -- multiple local processes.
 --
--- Both abstractions can run asynchronous operations on remote nodes.
+-- Both abstractions can run asynchronous operations on remote nodes. The STM
+-- based implementation provides a slightly richer API. The API defined in
+-- /this/ module only supports a subset of operations on async handles,
+-- and (specifically) does not support mixing handles initialised via
+-- different implementations.
 --
 -- There is an implicit contract for async workers; Workers must exit
 -- normally (i.e., should not call the 'exit', 'die' or 'terminate'
@@ -23,7 +27,7 @@
 -- @AsyncFailed DiedException@ instead of containing the result.
 --
 -- See "Control.Distributed.Process.Platform.Async.AsyncSTM",
---     "Control.Distributed.Process.Platform.Async.AsyncChan".
+-- "Control.Distributed.Process.Platform.Async.AsyncChan".
 --
 -- See "Control.Distributed.Platform.Task" for a high level layer built
 -- on these capabilities.
@@ -53,8 +57,6 @@ module Control.Distributed.Process.Platform.Async
   , poll
   , check
   , wait
--- , waitAny
--- , waitAnyTimeout
     -- * Waiting with timeouts
   , waitTimeout
   , waitCancelTimeout
