@@ -508,11 +508,10 @@ handleCall_ = handleCallIf_ (const True)
 --
 -- See 'handleCall'
 handleCallIf_ :: (Serializable a, Serializable b)
-              => (a -> Bool)
-              -> (a -> Process b)
-              -> Dispatcher s
-handleCallIf_ cond    -- ^ predicate that must be satisfied for the handler to run
-              handler -- ^ a function from an input message to a reply
+    => (a -> Bool) -- ^ predicate that must be satisfied for the handler to run
+    -> (a -> Process b) -- ^ a function from an input message to a reply
+    -> Dispatcher s
+handleCallIf_ cond handler
   = DispatchIf {
       dispatch   = doHandle handler
     , dispatchIf = doCheckCall cond
@@ -547,11 +546,11 @@ handleCall = handleCallIf (const True)
 -- dispatched to the handler if the supplied condition evaluates to @True@
 --
 handleCallIf :: (Serializable a, Serializable b)
-           => (a -> Bool)
-           -> (s -> a -> Process (ProcessReply s b))
-           -> Dispatcher s
-handleCallIf cond    -- ^ predicate that must be satisfied for the handler to run
-             handler -- ^ a reply yielding function over the process state and input message
+    => (a -> Bool) -- ^ predicate that must be satisfied for the handler to run
+    -> (s -> a -> Process (ProcessReply s b))
+        -- ^ a reply yielding function over the process state and input message
+    -> Dispatcher s
+handleCallIf cond handler
   = DispatchIf {
       dispatch   = doHandle handler
     , dispatchIf = doCheckCall cond
@@ -586,11 +585,11 @@ handleCast = handleCastIf (const True)
 -- in a 'Behaviour' specification for the /GenProcess/.
 --
 handleCastIf :: (Serializable a)
-           => (a -> Bool)
-           -> (s -> a -> Process (ProcessAction s))
-           -> Dispatcher s
-handleCastIf cond -- ^ predicate that must be satisfied for the handler to run
-             h    -- ^ an action yielding function over the process state and input message
+    => (a -> Bool) -- ^ predicate that must be satisfied for the handler to run
+    -> (s -> a -> Process (ProcessAction s))
+       -- ^ an action yielding function over the process state and input message
+    -> Dispatcher s
+handleCastIf cond h
   = DispatchIf {
       dispatch   = (\s (CastMessage p) -> h s p)
     , dispatchIf = \_ (CastMessage msg) -> cond msg
@@ -605,11 +604,11 @@ handleCast_ = handleCastIf_ (const True)
 -- | Version of 'handleCastIf' that ignores the server state.
 --
 handleCastIf_ :: (Serializable a)
-           => (a -> Bool)
-           -> (a -> (s -> Process (ProcessAction s)))
-           -> Dispatcher s
-handleCastIf_ cond -- ^ predicate that must be satisfied for the handler to run
-              h    -- ^ a function from the input message to a /stateless action/, cf 'continue_'
+    => (a -> Bool) -- ^ predicate that must be satisfied for the handler to run
+    -> (a -> (s -> Process (ProcessAction s)))
+        -- ^ a function from the input message to a /stateless action/, cf 'continue_'
+    -> Dispatcher s
+handleCastIf_ cond h
   = DispatchIf {
       dispatch   = (\s (CastMessage p) -> h p $ s)
     , dispatchIf = \_ (CastMessage msg) -> cond msg
@@ -625,10 +624,10 @@ handleCastIf_ cond -- ^ predicate that must be satisfied for the handler to run
 -- @action (\MyCriticalErrorSignal -> stop_ TerminateNormal)@
 --
 action :: forall s a . (Serializable a)
-                 => (a -> (s -> Process (ProcessAction s)))
-                 -> Dispatcher s
-action h -- ^ a function from the input message to a /stateless action/, cf 'continue_'
-  = handleDispatch perform
+    => (a -> (s -> Process (ProcessAction s)))
+          -- ^ a function from the input message to a /stateless action/, cf 'continue_'
+    -> Dispatcher s
+action h = handleDispatch perform
   where perform :: (s -> a -> Process (ProcessAction s))
         perform s a = let f = h a in f s
 
