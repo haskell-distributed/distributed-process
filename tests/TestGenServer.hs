@@ -10,7 +10,6 @@ import Control.Distributed.Process hiding (call)
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable()
 import Control.Distributed.Process.Platform.Async
-import Control.Distributed.Process.Platform.Async.AsyncSTM
 import Control.Distributed.Process.Platform.GenProcess
 import Control.Distributed.Process.Platform.Test
 import Control.Distributed.Process.Platform.Time

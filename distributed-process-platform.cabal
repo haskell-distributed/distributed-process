@@ -46,7 +46,8 @@ library
                    Control.Distributed.Process.Platform.Timer
   other-modules:
                    Control.Distributed.Process.Platform.Internal.Primitives,
-                   Control.Distributed.Process.Platform.Internal.Types
+                   Control.Distributed.Process.Platform.Internal.Types,
+                   Control.Distributed.Process.Platform.Async.Types
 
 test-suite TimerTests
   type:            exitcode-stdio-1.0
@@ -79,7 +80,8 @@ test-suite TimerTests
                    TestUtils,
                    Control.Distributed.Process.Platform.Test
                    Control.Distributed.Process.Platform.Internal.Types,
-                   TestGenServer
+                   TestGenServer,
+                   Control.Distributed.Process.Platform.Async.Types
   extensions:      CPP
   main-is:         TestTimer.hs
 
@@ -112,7 +114,8 @@ test-suite PrimitivesTests
                    Control.Distributed.Process.Platform.Time,
                    TestUtils,
                    Control.Distributed.Process.Platform.Test,
-                   TestGenServer
+                   TestGenServer,
+                   Control.Distributed.Process.Platform.Async.Types
   extensions:      CPP
   main-is:         TestPrimitives.hs
 
@@ -140,7 +143,8 @@ test-suite Tests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   other-modules:
                    TestUtils,
-                   TestGenServer
+                   TestGenServer,
+                   Control.Distributed.Process.Platform.Async.Types
   extensions:      CPP
   main-is:         TestAsync.hs
 
@@ -168,6 +172,7 @@ test-suite GenServerTests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   other-modules:
                 TestUtils,
-                MathsDemo
+                MathsDemo,
+                Control.Distributed.Process.Platform.Async.Types
   extensions:      CPP
   main-is:         TestGenServer.hs
