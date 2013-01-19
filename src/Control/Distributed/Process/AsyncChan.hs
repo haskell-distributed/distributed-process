@@ -57,6 +57,7 @@ module Control.Distributed.Process.Platform.Async.AsyncChan
   , check
   , wait
   , waitAny
+  , waitAnyCancel
     -- * Waiting with timeouts
   , waitAnyTimeout
   , waitTimeout
@@ -274,6 +275,14 @@ waitAny asyncs =
   let ports = map (snd . channel) asyncs in recv ports
   where recv :: (Serializable a) => [ReceivePort a] -> Process a
         recv ps = mergePortsBiased ps >>= receiveChan
+
+-- | Like 'waitAny', but also cancels the other asynchronous
+-- operations as soon as one has completed.
+--
+waitAnyCancel :: (Serializable a)
+              => [AsyncChan a] -> Process (AsyncResult a)
+waitAnyCancel asyncs =
+  waitAny asyncs `finally` mapM_ cancel asyncs
 
 -- | Like 'waitAny' but times out after the specified delay.
 waitAnyTimeout :: (Serializable a)
