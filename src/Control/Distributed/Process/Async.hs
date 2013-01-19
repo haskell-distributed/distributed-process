@@ -1,9 +1,3 @@
-{-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE TemplateHaskell    #-}
-{-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE RankNTypes         #-}
-{-# LANGUAGE ExistentialQuantification   #-}
-
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  Control.Distributed.Process.Platform.Async
