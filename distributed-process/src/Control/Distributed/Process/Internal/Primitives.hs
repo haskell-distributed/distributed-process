@@ -446,11 +446,12 @@ catchExit act exitHandler = catch act handleExit
        -- bytestrings if the caller doesn't use the value immediately
        !decoded = decode (messageEncoding msg)
 
--- | As 'Control.Exception.catches' but allows for multiple handlers. Because
--- 'ProcessExitException' stores the exit @reason@ as a typed, encoded message,
--- a handler must accept an input of the expected type. In order to handle
--- a list of potentially different handlers (and therefore input types), a
--- handler passed to 'catchesExit' must accept 'AbstractMessage' and return
+-- | Lift 'Control.Exception.catches' (almost).
+--
+-- As 'ProcessExitException' stores the exit @reason@ as a typed, encoded
+-- message, a handler must accept an input of the expected type. In order to
+-- handle a list of potentially different handlers (and therefore input types),
+-- a handler passed to 'catchesExit' must accept 'AbstractMessage' and return
 -- @Maybe@ (i.e., @Just p@ if it handled the exit reason, otherwise @Nothing@).
 --
 -- See 'maybeHandleMessage' and 'AsbtractMessage' for more details. 
