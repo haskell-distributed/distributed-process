@@ -43,10 +43,11 @@ module Control.Distributed.Process.Platform.Async.AsyncChan
   , AsyncChan(worker)
   , AsyncResult(..)
   , Async(asyncWorker)
-  -- functions for starting/spawning
+    -- * Spawning asynchronous operations
   , async
   , asyncLinked
-  -- and stopping/killing
+  , newAsync
+    -- * Cancelling asynchronous operations
   , cancel
   , cancelWait
   , cancelWith
@@ -97,6 +98,22 @@ data AsyncChan a = AsyncChan {
   , insulator :: AsyncRef
   , channel   :: (InternalChannel a)
   }
+
+-- | Create a new 'AsyncChane' and wrap it in an 'Async' record.
+--
+-- Used by "Control.Distributed.Process.Platform.Async".
+newAsync :: (Serializable a)
+         => (AsyncTask a -> Process (AsyncChan a))
+         -> AsyncTask a -> Process (Async a)
+newAsync new t = do
+  hAsync <- new t
+  return Async {
+      hPoll = poll hAsync
+    , hWait = wait hAsync
+    , hWaitTimeout = (flip waitTimeout) hAsync
+    , hCancel = cancel hAsync
+    , asyncWorker = worker hAsync
+    }
 
 -- | Spawns an asynchronous action in a new process.
 -- We ensure that if the caller's process exits, that the worker is killed.

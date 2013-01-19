@@ -39,8 +39,12 @@ module Control.Distributed.Process.Platform.Async
   , async
   , asyncLinked
   , asyncSTM
-  , asyncDo
-  -- and stopping/killing
+  , asyncLinkedSTM
+  , asyncChan
+  , asyncLinkedChan
+  , task
+  , remoteTask
+  -- * Cancelling asynchronous operations
   , cancel
   , cancelWait
   , cancelWith
@@ -51,12 +55,17 @@ module Control.Distributed.Process.Platform.Async
   , wait
 -- , waitAny
 -- , waitAnyTimeout
+    -- * Waiting with timeouts
   , waitTimeout
+  , waitCancelTimeout
   , waitCheckTimeout
   ) where
 
 import Control.Distributed.Process
-import Control.Distributed.Process.Serializable (Serializable)
+import Control.Distributed.Process.Serializable
+  ( Serializable
+  , SerializableDict
+  )
 import Control.Distributed.Process.Platform.Async.Types
   ( Async(..)
   , AsyncRef
@@ -64,8 +73,11 @@ import Control.Distributed.Process.Platform.Async.Types
   , AsyncResult(..)
   )
 import qualified Control.Distributed.Process.Platform.Async.AsyncSTM as AsyncSTM
--- import qualified Control.Distributed.Process.Platform.Async.AsyncChan as AsyncChan
+import qualified Control.Distributed.Process.Platform.Async.AsyncChan as AsyncChan
 import Control.Distributed.Process.Platform.Time
+import Data.Maybe
+  ( fromMaybe
+  )
 
 --------------------------------------------------------------------------------
 -- API                                                                        --
@@ -90,24 +102,56 @@ asyncLinked p = AsyncSTM.newAsync AsyncSTM.asyncLinked (AsyncTask p)
 asyncSTM :: (Serializable a) => AsyncTask a -> Process (Async a)
 asyncSTM = AsyncSTM.newAsync AsyncSTM.async
 
-asyncDo :: Process a -> AsyncTask a
-asyncDo = AsyncTask
+-- | Spawn an 'AsyncTask' (linked to the calling process) and return the
+-- 'Async' handle to it. Uses the STM based implementation, whose handles
+-- can be read by other processes, though they're not @Serializable@.
+--
+-- See 'Control.Distributed.Process.Platform.Async.AsyncSTM'.
+asyncLinkedSTM :: (Serializable a) => AsyncTask a -> Process (Async a)
+asyncLinkedSTM = AsyncSTM.newAsync AsyncSTM.asyncLinked
 
--- | Check whether an 'AsyncSTM' has completed yet. The status of the
+-- | Spawn an 'AsyncTask' and return the 'Async' handle to it.
+-- Uses the channel based implementation, whose handles can be read by other
+-- processes, though they're not @Serializable@.
+--
+-- See 'Control.Distributed.Process.Platform.Async.AsyncSTM'.
+asyncChan :: (Serializable a) => AsyncTask a -> Process (Async a)
+asyncChan = AsyncChan.newAsync AsyncChan.async
+
+-- | Spawn an 'AsyncTask' (linked to the calling process) and return the
+-- 'Async' handle to it. Uses the channel based implementation, whose handles
+-- can be read by other processes, though they're not @Serializable@.
+--
+-- See 'Control.Distributed.Process.Platform.Async.AsyncChan'.
+asyncLinkedChan :: (Serializable a) => AsyncTask a -> Process (Async a)
+asyncLinkedChan = AsyncChan.newAsync AsyncChan.asyncLinked
+
+-- | Wraps a regular @Process a@ as an 'AsyncTask'.
+task :: Process a -> AsyncTask a
+task = AsyncTask
+
+-- | Wraps the components required and builds a remote 'AsyncTask'.
+remoteTask :: Static (SerializableDict a)
+              -> NodeId
+              -> Closure (Process a)
+              -> AsyncTask a
+remoteTask = AsyncRemoteTask
+
+-- | Check whether an 'Async' handle has completed yet. The status of the
 -- action is encoded in the returned 'AsyncResult'. If the action has not
 -- completed, the result will be 'AsyncPending', or one of the other
 -- constructors otherwise. This function does not block waiting for the result.
 -- Use 'wait' or 'waitTimeout' if you need blocking/waiting semantics.
--- See 'Async'.
 {-# INLINE poll #-}
 poll :: (Serializable a) => Async a -> Process (AsyncResult a)
-poll = h_poll
+poll = hPoll
 
 -- | Like 'poll' but returns 'Nothing' if @(poll hAsync) == AsyncPending@.
 -- See 'poll'.
-{-# INLINE check #-}
 check :: (Serializable a) => Async a -> Process (Maybe (AsyncResult a))
-check = h_check
+check hAsync = poll hAsync >>= \r -> case r of
+  AsyncPending -> return Nothing
+  ar           -> return (Just ar)
 
 -- | Wait for an asynchronous operation to complete or timeout. This variant
 -- returns the 'AsyncResult' itself, which will be 'AsyncPending' if the
@@ -115,17 +159,15 @@ check = h_check
 {-# INLINE waitCheckTimeout #-}
 waitCheckTimeout :: (Serializable a) =>
                     TimeInterval -> Async a -> Process (AsyncResult a)
-waitCheckTimeout = flip h_waitCheckTimeout
+waitCheckTimeout t hAsync =
+  waitTimeout t hAsync >>= return . fromMaybe (AsyncPending)
 
 -- | Wait for an asynchronous action to complete, and return its
 -- value. The result (which can include failure and/or cancellation) is
 -- encoded by the 'AsyncResult' type.
---
--- > wait = liftIO . atomically . waitSTM
---
 {-# INLINE wait #-}
 wait :: Async a -> Process (AsyncResult a)
-wait = h_wait
+wait = hWait
 
 -- | Wait for an asynchronous operation to complete or timeout. Returns
 -- @Nothing@ if the 'AsyncResult' does not change from @AsyncPending@ within
@@ -135,7 +177,20 @@ wait = h_wait
 {-# INLINE waitTimeout #-}
 waitTimeout :: (Serializable a) =>
                TimeInterval -> Async a -> Process (Maybe (AsyncResult a))
-waitTimeout = flip h_waitTimeout
+waitTimeout = flip hWaitTimeout
+
+-- | Wait for an asynchronous operation to complete or timeout. If it times out,
+-- then 'cancelWait' the async handle instead.
+--
+waitCancelTimeout :: (Serializable a)
+                  => TimeInterval
+                  -> Async a
+                  -> Process (AsyncResult a)
+waitCancelTimeout t hAsync = do
+  r <- waitTimeout t hAsync
+  case r of
+    Nothing -> cancelWait hAsync
+    Just ar -> return ar
 
 -- | Cancel an asynchronous operation. Cancellation is asynchronous in nature.
 -- To wait for cancellation to complete, use 'cancelWait' instead. The notes
@@ -144,7 +199,7 @@ waitTimeout = flip h_waitTimeout
 -- See 'Control.Distributed.Process'
 {-# INLINE cancel #-}
 cancel :: Async a -> Process ()
-cancel = h_cancel
+cancel = hCancel
 
 -- | Cancel an asynchronous operation and wait for the cancellation to complete.
 -- Because of the asynchronous nature of message passing, the instruction to
@@ -158,7 +213,7 @@ cancel = h_cancel
 --
 {-# INLINE cancelWait #-}
 cancelWait :: (Serializable a) => Async a -> Process (AsyncResult a)
-cancelWait = h_cancelWait
+cancelWait hAsync = cancel hAsync >> wait hAsync
 
 -- | Cancel an asynchronous operation immediately.
 -- This operation is performed by sending an /exit signal/ to the asynchronous
@@ -184,11 +239,12 @@ cancelWait = h_cancelWait
 -- See 'Control.Distributed.Process.exit'
 {-# INLINE cancelWith #-}
 cancelWith :: (Serializable b) => b -> Async a -> Process ()
-cancelWith = flip h_cancelWith
+cancelWith reason = (flip exit) reason . asyncWorker
 
 -- | Like 'cancelWith' but sends a @kill@ instruction instead of an exit signal.
 --
 -- See 'Control.Distributed.Process.kill'
 {-# INLINE cancelKill #-}
 cancelKill :: String -> Async a -> Process ()
-cancelKill = flip h_cancelKill
+cancelKill reason = (flip kill) reason . asyncWorker
+
