@@ -21,7 +21,7 @@ module Control.Distributed.Process.Platform
   , getTag
 
     -- common type
-  , TerminateReason
+  , TerminateReason(..)
 
   -- remote call table
   , __remoteTable

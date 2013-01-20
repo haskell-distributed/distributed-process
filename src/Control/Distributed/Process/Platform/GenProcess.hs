@@ -122,7 +122,7 @@
 -- handlers, and this is fine, as is using the 'catchExit' API from
 -- 'Control.Distributed.Process'.
 --
--- 
+--
 -----------------------------------------------------------------------------
 
 module Control.Distributed.Process.Platform.GenProcess
@@ -133,6 +133,8 @@ module Control.Distributed.Process.Platform.GenProcess
   , InitResult(..)
   , ProcessAction(..)
   , ProcessReply
+  , CallHandler
+  , CastHandler
   , InitHandler
   , TerminateHandler
   , TimeoutHandler
@@ -140,6 +142,7 @@ module Control.Distributed.Process.Platform.GenProcess
   , ProcessDefinition(..)
     -- * Client interaction with the process
   , start
+  , defaultProcess
   , statelessProcess
   , statelessInit
   , call
@@ -149,8 +152,13 @@ module Control.Distributed.Process.Platform.GenProcess
   , callTimeout
   , cast
     -- * Handler interaction inside the process
+  , condition
+  , state
+  , input
   , reply
   , replyWith
+  , noReply
+  , noReply_
   , continue
   , continue_
   , timeoutAfter
@@ -178,15 +186,15 @@ module Control.Distributed.Process.Platform.GenProcess
 import Control.Concurrent (threadDelay)
 import Control.Distributed.Process hiding (call)
 import Control.Distributed.Process.Serializable
-import Control.Distributed.Process.Platform.Async
--- import Control.Distributed.Process.Platform.Async.AsyncSTM
+import Control.Distributed.Process.Platform.Async hiding (check)
 import Control.Distributed.Process.Platform.Internal.Types
   ( TerminateReason(..))
+import Control.Distributed.Process.Platform.Internal.Common
 import Control.Distributed.Process.Platform.Time
 
-import Data.Binary
+import Data.Binary hiding (decode)
 import Data.DeriveTH
-import Data.Typeable (Typeable, typeOf)
+import Data.Typeable (Typeable)
 import Prelude hiding (init)
 
 --------------------------------------------------------------------------------
@@ -237,6 +245,17 @@ data ProcessAction s =
 data ProcessReply s a =
     ProcessReply a (ProcessAction s)
   | NoReply (ProcessAction s)
+
+type CallHandler a s = s -> a -> Process (ProcessReply s a)
+
+type CastHandler s = s -> Process ()
+
+-- type InfoHandler a = forall a b. (Serializable a, Serializable b) => a -> Process b
+
+data Condition s m =
+    Condition (s -> m -> Bool)
+  | State (s -> Bool)
+  | Input (m -> Bool)
 
 -- | An expression used to initialise a process with its state.
 type InitHandler a s = a -> Process (InitResult s)
@@ -310,6 +329,15 @@ start args init behave = do
     InitOk s d -> initLoop behave s d >>= return . Right
     f@(InitFail _) -> return $ Left f
 
+defaultProcess :: ProcessDefinition s
+defaultProcess = ProcessDefinition {
+    dispatchers      = []
+  , infoHandlers     = []
+  , timeoutHandler   = \s _ -> continue s
+  , terminateHandler = \_ _ -> return ()
+  , unhandledMessagePolicy = Terminate
+  } :: ProcessDefinition s
+
 -- | A basic, stateless process definition, where the unhandled message policy
 -- is set to 'Terminate', the default timeout handlers does nothing (i.e., the
 -- same as calling @continue ()@ and the terminate handler is a no-op.
@@ -335,7 +363,7 @@ call sid msg = callAsync sid msg >>= wait >>= unpack -- note [call using async]
   where unpack :: AsyncResult b -> Process b
         unpack (AsyncDone   r) = return r
         unpack (AsyncFailed r) = die $ TerminateOther $ "CALL_FAILED;" ++ show r
-        unpack ar              = die $ TerminateOther $ show (typeOf ar)
+        unpack ar              = die $ TerminateOther $ showTypeRep ar
 
 -- | Safe version of 'call' that returns information about the error
 -- if the operation fails. If an error occurs then the explanation will be
@@ -345,7 +373,7 @@ safeCall :: forall a b . (Serializable a, Serializable b)
 safeCall s m = callAsync s m >>= wait >>= unpack    -- note [call using async]
   where unpack (AsyncDone   r) = return $ Right r
         unpack (AsyncFailed r) = return $ Left $ TerminateOther $ show r
-        unpack ar              = return $ Left $ TerminateOther $ show (typeOf ar)
+        unpack ar              = return $ Left $ TerminateOther $ showTypeRep ar
 
 -- | Version of 'safeCall' that returns 'Nothing' if the operation fails. If
 -- you need information about *why* a call has failed then you should use
@@ -426,8 +454,18 @@ cast sid msg = send sid (CastMessage msg)
 -- Producing ProcessAction and ProcessReply from inside handler expressions   --
 --------------------------------------------------------------------------------
 
+condition :: forall a b. (Serializable a, Serializable b)
+          => (a -> b -> Bool)
+          -> Condition a b
+condition = Condition
+
+state :: forall s m. (Serializable m) => (s -> Bool) -> Condition s m
+state = State
+
+input :: forall s m. (Serializable m) => (m -> Bool) -> Condition s m
+input = Input
+
 -- | Instructs the process to send a reply and continue running.
--- > reply reply' state = replyWith reply' (continue state)
 reply :: (Serializable r) => r -> s -> Process (ProcessReply s r)
 reply r s = continue s >>= replyWith r
 
@@ -436,7 +474,15 @@ replyWith :: (Serializable m)
           => m
           -> ProcessAction s
           -> Process (ProcessReply s m)
-replyWith msg state = return $ ProcessReply msg state
+replyWith msg st = return $ ProcessReply msg st
+
+-- | Instructs the process to skip sending a reply /and/ evaluate a 'ProcessAction'
+noReply :: (Serializable r) => ProcessAction s -> Process (ProcessReply s r)
+noReply = return . NoReply
+
+-- | Halt a call handler without regard for the expected return type.
+noReply_ :: TerminateReason -> Process (ProcessReply s TerminateReason)
+noReply_ r = stop r >>= noReply
 
 -- | Instructs the process to continue running and receiving messages.
 continue :: s -> Process (ProcessAction s)
@@ -499,7 +545,7 @@ stop_ r _ = stop r
 handleCall_ :: (Serializable a, Serializable b)
            => (a -> Process b)
            -> Dispatcher s
-handleCall_ = handleCallIf_ (const True)
+handleCall_ = handleCallIf_ $ input (const True)
 
 -- | Constructs a 'call' handler from an ordinary function in the 'Process'
 -- monad. This variant ignores the state argument present in 'handleCall' and
@@ -507,14 +553,14 @@ handleCall_ = handleCallIf_ (const True)
 -- only dispatched to the handler if the supplied condition evaluates to @True@
 --
 -- See 'handleCall'
-handleCallIf_ :: (Serializable a, Serializable b)
-    => (a -> Bool) -- ^ predicate that must be satisfied for the handler to run
+handleCallIf_ :: forall s a b . (Serializable a, Serializable b)
+    => Condition s a -- ^ predicate that must be satisfied for the handler to run
     -> (a -> Process b) -- ^ a function from an input message to a reply
     -> Dispatcher s
 handleCallIf_ cond handler
   = DispatchIf {
       dispatch   = doHandle handler
-    , dispatchIf = doCheckCall cond
+    , dispatchIf = checkCall cond
     }
   where doHandle :: (Serializable a, Serializable b)
                  => (a -> Process b)
@@ -522,8 +568,7 @@ handleCallIf_ cond handler
                  -> Message a
                  -> Process (ProcessAction s)
         doHandle h s (CallMessage p c) = (h p) >>= mkReply c s
-        doHandle _ _ _ = error "illegal input"
-        -- TODO: standard 'this cannot happen' error message
+        doHandle _ _ m = failUnexpectedType "CALL_HANDLER_TYPE_MISMATCH :- " m
 
         -- handling 'reply-to' in the main process loop is awkward at best,
         -- so we handle it here instead and return the 'action' to the loop
@@ -537,7 +582,7 @@ handleCallIf_ cond handler
 handleCall :: (Serializable a, Serializable b)
            => (s -> a -> Process (ProcessReply s b))
            -> Dispatcher s
-handleCall = handleCallIf (const True)
+handleCall = handleCallIf $ state (const True)
 
 -- | Constructs a 'call' handler from an ordinary function in the 'Process'
 -- monad. Given a function @f :: (s -> a -> Process (ProcessReply s b))@,
@@ -545,15 +590,15 @@ handleCall = handleCallIf (const True)
 -- in a 'Behaviour' specification for the /GenProcess/. Messages are only
 -- dispatched to the handler if the supplied condition evaluates to @True@
 --
-handleCallIf :: (Serializable a, Serializable b)
-    => (a -> Bool) -- ^ predicate that must be satisfied for the handler to run
+handleCallIf :: forall s a b . (Serializable a, Serializable b)
+    => Condition s a -- ^ predicate that must be satisfied for the handler to run
     -> (s -> a -> Process (ProcessReply s b))
         -- ^ a reply yielding function over the process state and input message
     -> Dispatcher s
 handleCallIf cond handler
   = DispatchIf {
       dispatch   = doHandle handler
-    , dispatchIf = doCheckCall cond
+    , dispatchIf = checkCall cond
     }
   where doHandle :: (Serializable a, Serializable b)
                  => (s -> a -> Process (ProcessReply s b))
@@ -561,8 +606,7 @@ handleCallIf cond handler
                  -> Message a
                  -> Process (ProcessAction s)
         doHandle h s (CallMessage p c) = (h s p) >>= mkReply c
-        doHandle _ _ _ = error "illegal input"
-        -- TODO: standard 'this cannot happen' error message
+        doHandle _ _ m = failUnexpectedType "CALL_HANDLER_TYPE_MISMATCH :- " m
 
         -- handling 'reply-to' in the main process loop is awkward at best,
         -- so we handle it here instead and return the 'action' to the loop
@@ -576,42 +620,43 @@ handleCallIf cond handler
 -- > handleCast = handleCastIf (const True)
 --
 handleCast :: (Serializable a)
-           => (s -> a -> Process (ProcessAction s)) -> Dispatcher s
-handleCast = handleCastIf (const True)
+           => (s -> a -> Process (ProcessAction s))
+           -> Dispatcher s
+handleCast = handleCastIf $ input (const True)
 
 -- | Constructs a 'cast' handler from an ordinary function in the 'Process'
 -- monad. Given a function @f :: (s -> a -> Process (ProcessAction s))@,
 -- the expression @handleCall f@ will yield a 'Dispatcher' for inclusion
 -- in a 'Behaviour' specification for the /GenProcess/.
 --
-handleCastIf :: (Serializable a)
-    => (a -> Bool) -- ^ predicate that must be satisfied for the handler to run
+handleCastIf :: forall s a . (Serializable a)
+    => Condition s a -- ^ predicate that must be satisfied for the handler to run
     -> (s -> a -> Process (ProcessAction s))
        -- ^ an action yielding function over the process state and input message
     -> Dispatcher s
 handleCastIf cond h
   = DispatchIf {
       dispatch   = (\s (CastMessage p) -> h s p)
-    , dispatchIf = \_ (CastMessage msg) -> cond msg
+    , dispatchIf = checkCast cond
     }
 
 -- | Version of 'handleCast' that ignores the server state.
 --
 handleCast_ :: (Serializable a)
-           => (a -> (s -> Process (ProcessAction s))) -> Dispatcher s
-handleCast_ = handleCastIf_ (const True)
+            => (a -> (s -> Process (ProcessAction s))) -> Dispatcher s
+handleCast_ = handleCastIf_ $ input (const True)
 
 -- | Version of 'handleCastIf' that ignores the server state.
 --
-handleCastIf_ :: (Serializable a)
-    => (a -> Bool) -- ^ predicate that must be satisfied for the handler to run
+handleCastIf_ :: forall s a . (Serializable a)
+    => Condition s a -- ^ predicate that must be satisfied for the handler to run
     -> (a -> (s -> Process (ProcessAction s)))
         -- ^ a function from the input message to a /stateless action/, cf 'continue_'
     -> Dispatcher s
 handleCastIf_ cond h
   = DispatchIf {
       dispatch   = (\s (CastMessage p) -> h p $ s)
-    , dispatchIf = \_ (CastMessage msg) -> cond msg
+    , dispatchIf = checkCast cond
     }
 
 -- | Constructs an /action/ handler. Like 'handleDispatch' this can handle both
@@ -637,18 +682,18 @@ action h = handleDispatch perform
 handleDispatch :: (Serializable a)
                => (s -> a -> Process (ProcessAction s))
                -> Dispatcher s
-handleDispatch = handleDispatchIf (const True)
+handleDispatch = handleDispatchIf $ input (const True)
 
 -- | Constructs a handler for both /call/ and /cast/ messages. Messages are only
 -- dispatched to the handler if the supplied condition evaluates to @True@.
 --
-handleDispatchIf :: (Serializable a)
-                 => (a -> Bool)
+handleDispatchIf :: forall s a . (Serializable a)
+                 => Condition s a
                  -> (s -> a -> Process (ProcessAction s))
                  -> Dispatcher s
 handleDispatchIf cond handler = DispatchIf {
       dispatch = doHandle handler
-    , dispatchIf = doCheck cond
+    , dispatchIf = check cond
     }
   where doHandle :: (Serializable a)
                  => (s -> a -> Process (ProcessAction s))
@@ -659,13 +704,6 @@ handleDispatchIf cond handler = DispatchIf {
             case msg of
                 (CallMessage p _) -> (h s p)
                 (CastMessage p)   -> (h s p)
-
-        doCheck :: forall s a. (Serializable a)
-                            => (a -> Bool) -> s -> Message a -> Bool
-        doCheck c _ (CallMessage m _) = c m
-        doCheck c _ (CastMessage m)   = c m
-
--- wrapping /normal/ functions with InfoDispatcher
 
 -- | Creates a generic input handler (i.e., for recieved messages that are /not/
 -- sent using the 'cast' or 'call' APIs) from an ordinary function in the
@@ -682,10 +720,36 @@ handleInfo h = InfoDispatcher { dispatchInfo = doHandleInfo h }
                              -> Process (Maybe (ProcessAction s2))
     doHandleInfo h' s msg = maybeHandleMessage msg (h' s)
 
-doCheckCall :: forall s a. (Serializable a)
-                    => (a -> Bool) -> s -> Message a -> Bool
-doCheckCall c _ (CallMessage m _) = c m
-doCheckCall _ _ _                 = False
+check :: forall s m . (Serializable m)
+            => Condition s m
+            -> s
+            -> Message m
+            -> Bool
+check (Condition c) st msg = c st $ decode msg
+check (State     c) st _   = c st
+check (Input     c) _  msg = c $ decode msg
+
+checkCall :: forall s m . (Serializable m)
+             => Condition s m
+             -> s
+             -> Message m
+             -> Bool
+checkCall cond st msg@(CallMessage _ _) = check cond st msg
+checkCall _    _     _                  = False
+
+checkCast :: forall s m . (Serializable m)
+             => Condition s m
+             -> s
+             -> Message m
+             -> Bool
+checkCast cond st msg@(CastMessage _) = check cond st msg
+checkCast _    _     _                = False
+
+decode :: Message a -> a
+decode (CallMessage a _) = a
+decode (CastMessage a)   = a
+
+-- wrapping /normal/ functions with InfoDispatcher
 
 --------------------------------------------------------------------------------
 -- Process Implementation                                                     --
@@ -740,26 +804,26 @@ loop :: [Match (ProcessAction s)]
      -> s
      -> Delay
      -> Process TerminateReason
-loop ms def state t =
+loop ms def st t =
   let handleTimeout = timeoutHandler def
       handleStop    = terminateHandler def
   in do
-    ac <- processReceive ms handleTimeout state t
+    ac <- processReceive ms handleTimeout st t
     case ac of
       (ProcessContinue s')     -> loop ms def s' t
       (ProcessTimeout t' s')   -> loop ms def s' (Delay t')
       (ProcessHibernate d' s') -> block d' >> loop ms def s' t
-      (ProcessStop r) -> handleStop state r >> return (r :: TerminateReason)
+      (ProcessStop r) -> handleStop st r >> return (r :: TerminateReason)
   where block :: TimeInterval -> Process ()
         block i = liftIO $ threadDelay (asTimeout i)
 
 processReceive :: [Match (ProcessAction s)]
                -> TimeoutHandler s -> s
                -> Delay -> Process (ProcessAction s)
-processReceive ms handleTimeout state d = do
+processReceive ms handleTimeout st d = do
     next <- recv ms d
     case next of
-        Nothing -> handleTimeout state d
+        Nothing -> handleTimeout st d
         Just pa -> return pa
   where
     recv :: [Match (ProcessAction s)]
