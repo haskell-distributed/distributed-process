@@ -119,7 +119,7 @@ test-suite PrimitivesTests
   extensions:      CPP
   main-is:         TestPrimitives.hs
 
-test-suite Tests
+test-suite AsyncTests
   type:            exitcode-stdio-1.0
   x-uses-tf:       true
   build-depends:
@@ -173,6 +173,7 @@ test-suite GenServerTests
   other-modules:
                 TestUtils,
                 MathsDemo,
+                Counter,
                 Control.Distributed.Process.Platform.Async.Types
   extensions:      CPP
   main-is:         TestGenServer.hs

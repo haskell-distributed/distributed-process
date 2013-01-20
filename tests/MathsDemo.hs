@@ -45,7 +45,7 @@ launchMathServer =
   let server = statelessProcess {
       dispatchers = [
           handleCall_   (\(Add    x y) -> return (x + y))
-        , handleCallIf_ (\(Divide _ y) -> y /= 0) handleDivide
+        , handleCallIf_ (input (\(Divide _ y) -> y /= 0)) handleDivide
         , handleCall_   (\(Divide _ _) -> divByZero)
         , action        (\("stop") -> stop_ TerminateNormal)
         ]
