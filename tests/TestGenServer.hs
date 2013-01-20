@@ -6,6 +6,7 @@
 module Main where
 
 import Control.Concurrent.MVar
+import Control.Exception (SomeException)
 import Control.Distributed.Process hiding (call)
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable()
@@ -18,6 +19,8 @@ import Control.Distributed.Process.Platform.Timer
 import Data.Binary()
 import Data.Typeable()
 import MathsDemo
+
+import Prelude hiding (catch)
 
 import Test.Framework (Test, testGroup)
 import Test.Framework.Providers.HUnit (testCase)
@@ -112,7 +115,7 @@ testKillMidCall result = do
   callAsync pid "hello-world" >>= cancelWait >>= unpack result pid
   where unpack :: TestResult Bool -> ProcessId -> AsyncResult () -> Process ()
         unpack res sid AsyncCancelled = kill sid "stop" >> stash res True
-        unpack res sid _              = kill sid "stop" >> stash res False 
+        unpack res sid _              = kill sid "stop" >> stash res False
 
 -- MathDemo test
 
@@ -148,11 +151,11 @@ mkServer policy =
 
             , handleCast    (\s' ("ping", pid :: ProcessId) ->
                                  send pid "pong" >> continue s')
-            , handleCastIf_ (\(c :: String, _ :: Delay) -> c == "timeout")
+            , handleCastIf_ (input (\(c :: String, _ :: Delay) -> c == "timeout"))
                             (\("timeout", Delay d) -> timeoutAfter_ d)
 
-            , action        (\("stop") -> stop_ TerminateNormal)
-            , action        (\("hibernate", d :: TimeInterval) -> hibernate_ d)
+            , handleCast_   (\("stop") -> stop_ TerminateNormal)
+            , handleCast_   (\("hibernate", d :: TimeInterval) -> hibernate_ d)
           ]
       , unhandledMessagePolicy = policy
       , timeoutHandler         = \_ _ -> stop $ TerminateOther "timeout"
@@ -160,7 +163,8 @@ mkServer policy =
   in do
     exitReason <- liftIO $ newEmptyMVar
     pid <- spawnLocal $ do
-      start () (statelessInit Infinity) s >>= stash exitReason
+      catch (start () (statelessInit Infinity) s >>= stash exitReason)
+            (\(e :: SomeException) -> stash exitReason $ Right (TerminateOther (show e)))
     return (pid, exitReason)
 
 tests :: NT.Transport  -> IO [Test]
@@ -219,4 +223,3 @@ tests transport = do
 
 main :: IO ()
 main = testMain $ tests
-
