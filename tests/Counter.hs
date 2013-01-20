@@ -74,7 +74,7 @@ startCounter :: Int -> Process ProcessId
 startCounter startCount =
   let server = defaultProcess {
      dispatchers = [
-          handleCallIf (state (\count -> count > 10))   -- invariant
+          handleCallIf (state (\count -> count <= 10))   -- invariant
                        (\_ (_ :: Increment) ->
                             noReply_ (TerminateOther "Count > 10"))
 
