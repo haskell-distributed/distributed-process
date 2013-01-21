@@ -4,14 +4,13 @@ module Control.Distributed.Process.Platform.Internal.Common where
 
 import Control.Distributed.Process (Process, die)
 import Control.Distributed.Process.Platform.Internal.Types
-import Control.Distributed.Process.Serializable
-import Data.Typeable (Typeable, typeOf) --, splitTyConApp)
+import Data.Typeable (Typeable, typeOf)
 
-failTypeCheck :: forall a b . (Serializable a) => a -> Process b
-failTypeCheck m = failUnexpectedType "FAILED_TYPE_CHECK :-" m
+failTypeCheck :: Process b
+failTypeCheck = failUnexpectedType "FAILED_TYPE_CHECK :-"
 
-failUnexpectedType :: forall a b . (Serializable a) => String -> a -> Process b
-failUnexpectedType s m = die $ TerminateOther $ s ++ showTypeRep m
+failUnexpectedType :: String -> Process b
+failUnexpectedType s = die $ TerminateOther s
 
 showTypeRep :: forall a. (Typeable a) => a -> String
 showTypeRep m = show $ typeOf m
