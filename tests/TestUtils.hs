@@ -90,7 +90,7 @@ newLogger :: IO Logger
 newLogger = do
   tid <- liftIO $ myThreadId
   q <- liftIO $ newTQueueIO
-  forkIO $ logger q
+  _ <- forkIO $ logger q
   return $ Logger tid q
   where logger q' = forever $ do
         msg <- atomically $ readTQueue q'
