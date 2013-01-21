@@ -361,9 +361,11 @@ call :: forall a b . (Serializable a, Serializable b)
                  => ProcessId -> a -> Process b
 call sid msg = callAsync sid msg >>= wait >>= unpack -- note [call using async]
   where unpack :: AsyncResult b -> Process b
-        unpack (AsyncDone   r) = return r
-        unpack (AsyncFailed r) = die $ TerminateOther $ "CALL_FAILED;" ++ show r
-        unpack ar              = die $ TerminateOther $ showTypeRep ar
+        unpack (AsyncDone   r)     = return r
+        unpack (AsyncFailed r)     = die $ TerminateOther $ "CallFailed; " ++ show r
+        unpack (AsyncLinkFailed r) = die $ TerminateOther $ "LinkFailed; " ++ show r
+        unpack AsyncCancelled      = die $ TerminateOther $ "Cancelled"
+        unpack AsyncPending        = terminate -- as this *cannot* happen
 
 -- | Safe version of 'call' that returns information about the error
 -- if the operation fails. If an error occurs then the explanation will be
@@ -371,9 +373,12 @@ call sid msg = callAsync sid msg >>= wait >>= unpack -- note [call using async]
 safeCall :: forall a b . (Serializable a, Serializable b)
                  => ProcessId -> a -> Process (Either TerminateReason b)
 safeCall s m = callAsync s m >>= wait >>= unpack    -- note [call using async]
-  where unpack (AsyncDone   r) = return $ Right r
-        unpack (AsyncFailed r) = return $ Left $ TerminateOther $ show r
-        unpack ar              = return $ Left $ TerminateOther $ showTypeRep ar
+  where unpack (AsyncDone   r)     = return $ Right r
+        unpack (AsyncFailed r)     = return $ Left $ TerminateOther $ show r
+        unpack (AsyncLinkFailed r) = return $ Left $ TerminateOther $ show r
+        unpack AsyncCancelled      = return $ Left $ TerminateOther $ "Cancelled"
+        unpack AsyncPending        = return $ Left $ TerminateOther $ "Pending"
+--        unpack ar              = return $ Left $ TerminateOther $ showTypeRep ar
 
 -- | Version of 'safeCall' that returns 'Nothing' if the operation fails. If
 -- you need information about *why* a call has failed then you should use
@@ -420,9 +425,10 @@ callAsync sid msg = do
               (\(ProcessMonitorNotification _ _ reason) -> return (Left reason))
         ]
     -- TODO: better failure API
+    unmonitor mRef
     case r of
       Right m -> return m
-      Left err -> fail $ "call: remote process died: " ++ show err
+      Left err -> (say $ "call: remote process died: " ++ show err) >> terminate
 
 -- note [call using async]
 -- One problem with using plain expect/receive primitives to perform a
