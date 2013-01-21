@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveDataTypeable   #-}
 {-# LANGUAGE TemplateHaskell      #-}
 {-# LANGUAGE ScopedTypeVariables  #-}
+{-# LANGUAGE BangPatterns         #-}
 
 module Counter
   ( startCounter,
@@ -52,10 +53,7 @@ incCount sid = call sid Increment
 
 -- | Get the current count - this is replicating what 'call' actually does
 getCount :: ProcessId -> Process Int
-getCount sid = getCountAsync sid >>= wait >>= unpack
-  where unpack :: AsyncResult Int -> Process Int
-        unpack (AsyncDone i) = return i
-        unpack asyncOther    = die asyncOther
+getCount sid = call sid Fetch
 
 -- | Get the current count asynchronously
 getCountAsync :: ProcessId -> Process (Async Int)
@@ -65,31 +63,38 @@ getCountAsync sid = callAsync sid Fetch
 resetCount :: ProcessId -> Process ()
 resetCount sid = cast sid Reset
 
---------------------------------------------------------------------------------
--- Implementation                                                             --
---------------------------------------------------------------------------------
-
 -- | Start a counter server
 startCounter :: Int -> Process ProcessId
 startCounter startCount =
-  let server = defaultProcess {
-     dispatchers = [
-          handleCallIf (state (\count -> count <= 10))   -- invariant
-                       (\_ (_ :: Increment) ->
-                            noReply_ (TerminateOther "Count > 10"))
-
-        , handleCall handleIncrement
-        , handleCall (\count (_ :: Fetch) -> reply count count)
-        , handleCast (\_ Fetch -> continue 0)
-        ]
-    } :: ProcessDefinition State
+  let server = serverDefinition
   in spawnLocal $ start startCount init' server >> return ()
   where init' :: InitHandler Int Int
         init' count = return $ InitOk count Infinity
 
+--------------------------------------------------------------------------------
+-- Implementation                                                             --
+--------------------------------------------------------------------------------
+
+serverDefinition :: ProcessDefinition State
+serverDefinition = defaultProcess {
+     dispatchers = [
+          handleCallIf (condition (\count Increment -> count >= 10))-- invariant
+                       (\_ (_ :: Increment) -> do
+                           say "terminating...."
+                           noReply_ (TerminateOther "Count > 10"))
+
+        , handleCall handleIncrement
+        , handleCall (\count Fetch -> reply count count)
+        , handleCast (\_ Reset -> continue 0)
+        ]
+     , terminateHandler = (\s r -> do
+        say $ "terminating counter when state = " ++ (show s) ++ " because " ++ show r)
+    } :: ProcessDefinition State
+
 handleIncrement :: State -> Increment -> Process (ProcessReply State Int)
-handleIncrement count _ =
-    let newCount = count + 1 in do
-    next <- continue newCount
-    replyWith newCount next
+handleIncrement count Increment = do
+    next <- increment
+    replyWith (count + 1) $ next
+  where increment :: Process (ProcessAction State)
+        !increment = return (ProcessContinue (count + 1))
 
