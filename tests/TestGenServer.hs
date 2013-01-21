@@ -1,5 +1,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ImpredicativeTypes  #-}
+{-# LANGUAGE DeriveDataTypeable  #-}
+{-# LANGUAGE BangPatterns        #-}
+{-# LANGUAGE TemplateHaskell     #-}
 
 -- NB: this module contains tests for the GenProcess /and/ GenServer API.
 
@@ -9,16 +12,19 @@ import Control.Concurrent.MVar
 import Control.Exception (SomeException)
 import Control.Distributed.Process hiding (call)
 import Control.Distributed.Process.Node
-import Control.Distributed.Process.Serializable()
+import Control.Distributed.Process.Platform
 import Control.Distributed.Process.Platform.Async
 import Control.Distributed.Process.Platform.GenProcess
 import Control.Distributed.Process.Platform.Test
 import Control.Distributed.Process.Platform.Time
 import Control.Distributed.Process.Platform.Timer
+import Control.Distributed.Process.Serializable()
 
-import Data.Binary()
-import Data.Typeable()
+import Data.Binary
+import Data.Typeable (Typeable)
+import Data.DeriveTH
 import MathsDemo
+import Counter
 
 import Prelude hiding (catch)
 
@@ -27,6 +33,10 @@ import Test.Framework.Providers.HUnit (testCase)
 import TestUtils
 
 import qualified Network.Transport as NT
+
+data GetState = GetState
+  deriving (Typeable, Show, Eq)
+$(derive makeBinary ''GetState)
 
 testBasicCall :: TestResult (Maybe String) -> Process ()
 testBasicCall result = do
@@ -63,7 +73,7 @@ testDropPolicy result = do
 
   send pid ("UNSOLICITED_MAIL", 500 :: Int)
 
-  sleep $ seconds 1
+  sleep $ milliSeconds 250
   mref <- monitor pid
 
   cast pid "stop"
@@ -117,10 +127,51 @@ testKillMidCall result = do
         unpack res sid AsyncCancelled = kill sid "stop" >> stash res True
         unpack res sid _              = kill sid "stop" >> stash res False
 
--- MathDemo test
+testStateHandling :: TestResult Bool -> Process ()
+testStateHandling result = do
+  pid <- statefulServer "ok"
+  cast pid ("ko" :: String)    -- updateState
+  liftIO $ putStrLn "cast sent!"
+  s2 <- call pid GetState      -- getState
+  say $ "s2 = " ++ s2
+  sleep $ seconds 2
+  stash result (s2 == "ko")
+
+-- MathDemo tests
+
+testAdd :: ProcessId -> TestResult Double -> Process ()
+testAdd pid result = add pid 10 10 >>= stash result
 
 testDivByZero :: ProcessId -> TestResult (Either DivByZero Double) -> Process ()
 testDivByZero pid result = divide pid 125 0 >>= stash result
+
+-- Counter tests
+
+testCounterCurrentState :: ProcessId -> TestResult Int -> Process ()
+testCounterCurrentState pid result = getCount pid >>= stash result
+
+testCounterIncrement :: ProcessId -> TestResult Int -> Process ()
+testCounterIncrement pid result = do
+  6 <- incCount pid
+  7 <- incCount pid
+  getCount pid >>= stash result
+
+testCounterExceedsLimit :: ProcessId -> TestResult Bool -> Process ()
+testCounterExceedsLimit pid result = do
+  _ <- monitor pid
+  8 <- incCount pid
+  9 <- incCount pid
+  10 <- incCount pid
+  sleep $ seconds 1
+  _ <- incCount pid
+  sleep $ seconds 1
+  r <- receiveWait [
+      match (\(ProcessMonitorNotification _ _ r') -> return r')
+    ]
+  liftIO $ putStrLn $ "counter died with " ++ (show r)
+  pInfo <- getProcessInfo pid
+  liftIO $ putStrLn $ "pinfo = " ++ (show pInfo)
+  stash result True
 
 -- utilities
 
@@ -146,7 +197,11 @@ mkServer policy =
         dispatchers = [
               -- note: state is passed here, as a 'stateless' process is
               -- in fact process definition whose state is ()
-              handleCall    (\s' (m :: String) -> reply m s')
+
+              handleCastIf  (input (\msg -> msg == "stop"))
+                            (\_ _ -> stop TerminateNormal)
+
+            , handleCall    (\s' (m :: String) -> reply m s')
             , handleCall_   (\(n :: Int) -> return (n * 2))    -- "stateless"
 
             , handleCast    (\s' ("ping", pid :: ProcessId) ->
@@ -154,7 +209,6 @@ mkServer policy =
             , handleCastIf_ (input (\(c :: String, _ :: Delay) -> c == "timeout"))
                             (\("timeout", Delay d) -> timeoutAfter_ d)
 
-            , handleCast_   (\("stop") -> stop_ TerminateNormal)
             , handleCast_   (\("hibernate", d :: TimeInterval) -> hibernate_ d)
           ]
       , unhandledMessagePolicy = policy
@@ -167,12 +221,27 @@ mkServer policy =
             (\(e :: SomeException) -> stash exitReason $ Right (TerminateOther (show e)))
     return (pid, exitReason)
 
+statefulServer :: String -> Process ProcessId
+statefulServer st =
+  let b = defaultProcess {
+        dispatchers = [
+             handleCast (\_ new -> continue new)
+           , handleCall (\s GetState -> reply s s)
+           ]
+        } :: ProcessDefinition String
+  in spawnLocal $ start st init' b >> return ()
+  where init' :: String -> Process (InitResult String)
+        init' initS = return $ InitOk initS Infinity
+
 tests :: NT.Transport  -> IO [Test]
 tests transport = do
   localNode <- newLocalNode transport initRemoteTable
   mpid <- newEmptyMVar
   _ <- forkProcess localNode $ launchMathServer >>= stash mpid
   pid <- takeMVar mpid
+  cpid <- newEmptyMVar
+  _ <- forkProcess localNode $ startCounter 5 >>= stash cpid
+  counter <- takeMVar cpid
   return [
         testGroup "basic server functionality" [
             testCase "basic call with explicit server reply"
@@ -218,8 +287,27 @@ tests transport = do
               (delayedAssertion
                "expected the server to return DivByZero"
                localNode (Left DivByZero) (testDivByZero pid))
+          , testCase "10 + 10 = 20"
+              (delayedAssertion
+               "expected the server to return DivByZero"
+               localNode 20 (testAdd pid))
+          ]
+        , testGroup "counter server examples" [
+            testCase "initial counter state = 5"
+              (delayedAssertion
+               "expected the server to return the initial state of 5"
+               localNode 5 (testCounterCurrentState counter))
+          , testCase "increment counter twice"
+              (delayedAssertion
+               "expected the server to return the incremented state as 7"
+               localNode 7 (testCounterIncrement counter))
+          -- , testCase "exceed counter limits"
+          --     (delayedAssertion
+          --      "expected the server to terminate once the limit was exceeded"
+          --      localNode True (testCounterExceedsLimit counter))
           ]
       ]
 
 main :: IO ()
 main = testMain $ tests
+
