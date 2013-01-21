@@ -326,7 +326,7 @@ start :: a
 start args init behave = do
   ir <- init args
   case ir of
-    InitOk s d -> initLoop behave s d >>= return . Right
+    InitOk s d -> loop behave s d >>= return . Right
     f@(InitFail _) -> return $ Left f
 
 defaultProcess :: ProcessDefinition s
@@ -771,13 +771,24 @@ applyPolicy s p m =
     DeadLetter pid -> forward m pid >> continue s
     Drop           -> continue s
 
-initLoop :: ProcessDefinition s -> s -> Delay -> Process TerminateReason
-initLoop b s w =
-  let p   = unhandledMessagePolicy b
-      ms  = map (matchMessage p s) (dispatchers b)
-      ms' = ms ++ addInfoAux p s (infoHandlers b)
-  in loop ms' b s w
+loop :: ProcessDefinition s -> s -> Delay -> Process TerminateReason
+loop pDef pState recvDelay =
+  let p             = unhandledMessagePolicy pDef
+      handleTimeout = timeoutHandler pDef
+      handleStop    = terminateHandler pDef
+      ms            = map (matchMessage p pState) (dispatchers pDef)
+      ms'           = ms ++ addInfoAux p pState (infoHandlers pDef)
+  in do
+    ac <- processReceive ms' handleTimeout pState recvDelay
+    case ac of
+      (ProcessContinue s')     -> loop pDef s' recvDelay
+      (ProcessTimeout t' s')   -> loop pDef s' (Delay t')
+      (ProcessHibernate d' s') -> block d' >> loop pDef s' recvDelay
+      (ProcessStop r) -> handleStop pState r >> return (r :: TerminateReason)
   where
+    block :: TimeInterval -> Process ()
+    block i = liftIO $ threadDelay (asTimeout i)
+
     addInfoAux :: UnhandledMessagePolicy
                -> s
                -> [InfoDispatcher s]
@@ -804,24 +815,6 @@ initLoop b s w =
             case m of
               Nothing -> applyPolicy st pol msg
               Just act -> return act
-
-loop :: [Match (ProcessAction s)]
-     -> ProcessDefinition s
-     -> s
-     -> Delay
-     -> Process TerminateReason
-loop ms def st t =
-  let handleTimeout = timeoutHandler def
-      handleStop    = terminateHandler def
-  in do
-    ac <- processReceive ms handleTimeout st t
-    case ac of
-      (ProcessContinue s')     -> loop ms def s' t
-      (ProcessTimeout t' s')   -> loop ms def s' (Delay t')
-      (ProcessHibernate d' s') -> block d' >> loop ms def s' t
-      (ProcessStop r) -> handleStop st r >> return (r :: TerminateReason)
-  where block :: TimeInterval -> Process ()
-        block i = liftIO $ threadDelay (asTimeout i)
 
 processReceive :: [Match (ProcessAction s)]
                -> TimeoutHandler s -> s
