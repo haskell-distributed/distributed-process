@@ -29,7 +29,7 @@ module Control.Distributed.Process.Platform
 
 import Control.Distributed.Process
 import Control.Distributed.Process.Platform.Internal.Types
-  ( TerminateReason
+  ( TerminateReason(..)
   , Tag
   , TagPool
   , newTagPool
