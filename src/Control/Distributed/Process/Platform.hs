@@ -2,28 +2,27 @@
 --
 module Control.Distributed.Process.Platform
   (
-    -- extra primitives
-    spawnLinkLocal
-  , spawnMonitorLocal
-  , linkOnFailure
-
-  -- registration/start
-  , whereisOrStart
-  , whereisOrStartRemote
-
-  -- matching
-  , matchCond
-
-    -- tags
+    -- * Exported Types
+    TerminateReason(..)
   , Tag
   , TagPool
+
+    -- * Utilities and Extended Primitives
+  , spawnLinkLocal
+  , spawnMonitorLocal
+  , linkOnFailure
+  , times
+  , matchCond
+
+    -- * Call/Tagging support
   , newTagPool
   , getTag
 
-    -- common type
-  , TerminateReason(..)
+    -- * Registration and Process Lookup
+  , whereisOrStart
+  , whereisOrStartRemote
 
-  -- remote call table
+    -- remote call table
   , __remoteTable
   ) where
 
