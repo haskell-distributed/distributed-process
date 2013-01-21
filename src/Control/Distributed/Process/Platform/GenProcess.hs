@@ -574,7 +574,7 @@ handleCallIf_ cond handler
                  -> Message a
                  -> Process (ProcessAction s)
         doHandle h s (CallMessage p c) = (h p) >>= mkReply c s
-        doHandle _ _ m = failUnexpectedType "CALL_HANDLER_TYPE_MISMATCH :- " m
+        doHandle _ _ _ = die "CALL_HANDLER_TYPE_MISMATCH"
 
         -- handling 'reply-to' in the main process loop is awkward at best,
         -- so we handle it here instead and return the 'action' to the loop
@@ -612,7 +612,7 @@ handleCallIf cond handler
                  -> Message a
                  -> Process (ProcessAction s)
         doHandle h s (CallMessage p c) = (h s p) >>= mkReply c
-        doHandle _ _ m = failUnexpectedType "CALL_HANDLER_TYPE_MISMATCH :- " m
+        doHandle _ _ _ = die "CALL_HANDLER_TYPE_MISMATCH"
 
         -- handling 'reply-to' in the main process loop is awkward at best,
         -- so we handle it here instead and return the 'action' to the loop
