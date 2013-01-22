@@ -80,7 +80,7 @@ serverDefinition = defaultProcess {
      dispatchers = [
           handleCallIf (condition (\count Increment -> count >= 10))-- invariant
                        (\_ (_ :: Increment) -> do
-                           noReply_ (TerminateOther "Count > 10"))
+                           haltNoReply_ (TerminateOther "Count > 10"))
 
         , handleCall handleIncrement
         , handleCall (\count Fetch -> reply count count)

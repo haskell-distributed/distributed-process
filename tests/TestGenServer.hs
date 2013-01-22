@@ -25,6 +25,7 @@ import Data.Typeable (Typeable)
 import Data.DeriveTH
 import MathsDemo
 import Counter
+import SimplePool
 
 import Prelude hiding (catch)
 
@@ -127,16 +128,6 @@ testKillMidCall result = do
         unpack res sid AsyncCancelled = kill sid "stop" >> stash res True
         unpack res sid _              = kill sid "stop" >> stash res False
 
-testStateHandling :: TestResult Bool -> Process ()
-testStateHandling result = do
-  pid <- statefulServer "ok"
-  cast pid ("ko" :: String)    -- updateState
-  liftIO $ putStrLn "cast sent!"
-  s2 <- call pid GetState      -- getState
-  say $ "s2 = " ++ s2
-  sleep $ seconds 2
-  stash result (s2 == "ko")
-
 -- MathDemo tests
 
 testAdd :: ProcessId -> TestResult Double -> Process ()
@@ -222,17 +213,17 @@ mkServer policy =
             (\(e :: SomeException) -> stash exitReason $ Right (TerminateOther (show e)))
     return (pid, exitReason)
 
-statefulServer :: String -> Process ProcessId
-statefulServer st =
-  let b = defaultProcess {
-        dispatchers = [
-             handleCast (\_ new -> continue new)
-           , handleCall (\s GetState -> reply s s)
-           ]
-        } :: ProcessDefinition String
-  in spawnLocal $ start st init' b >> return ()
-  where init' :: String -> Process (InitResult String)
-        init' initS = return $ InitOk initS Infinity
+-- workerPool :: Process ProcessId
+-- workerPool =
+--   let b = defaultProcess {
+--         dispatchers = [
+--              handleCast (\_ new -> continue new)
+--            , handleCall (\s GetState -> reply s s)
+--            ]
+--         } :: ProcessDefinition String
+--   in spawnLocal $ start () init' b >> return ()
+--   where init' :: () -> Process (InitResult String)
+--         init' = const (return $ InitOk () Infinity)
 
 tests :: NT.Transport  -> IO [Test]
 tests transport = do
