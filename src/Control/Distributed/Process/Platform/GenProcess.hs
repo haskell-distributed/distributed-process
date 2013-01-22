@@ -619,14 +619,14 @@ handleCallIf_ cond handler
                  -> s
                  -> Message a
                  -> Process (ProcessAction s)
-        doHandle h s (CallMessage p c) = (h p) >>= mkReply c s
+        doHandle h s (CallMessage p c) = (h p) >>= mkCallReply c s
         doHandle _ _ _ = die "CALL_HANDLER_TYPE_MISMATCH" -- cannot happen!
 
         -- handling 'reply-to' in the main process loop is awkward at best,
         -- so we handle it here instead and return the 'action' to the loop
-        mkReply :: (Serializable b)
+        mkCallReply :: (Serializable b)
                 => Recipient -> s -> b -> Process (ProcessAction s)
-        mkReply c s m = sendTo c (CallResponse m) >> continue s
+        mkCallReply c s m = sendTo c (CallResponse m) >> continue s
 
 -- | Constructs a 'call' handler from a function in the 'Process' monad.
 -- > handleCall = handleCallIf (const True)
