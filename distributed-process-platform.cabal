@@ -164,6 +164,7 @@ test-suite GenServerTests
                 TestUtils,
                 MathsDemo,
                 Counter,
+                SimplePool,
                 Control.Distributed.Process.Platform.Async.Types
   extensions:      CPP
   main-is:         TestGenServer.hs
