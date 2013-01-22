@@ -79,9 +79,8 @@ taskComplete s@(State _ runQ _)
              (ProcessMonitorNotification _ pid _) =
   let worker = findWorker pid runQ in
   case worker of
-    Nothing -> continue s
-    Just t@(_, client, handle) ->
-        wait handle >>= respond client >> bump s t >>= continue
+    Just t@(_, c, h) -> wait h >>= respond c >> bump s t >>= continue
+    Nothing          -> continue s
 
   where
     respond :: Recipient
@@ -99,7 +98,7 @@ taskComplete s@(State _ runQ _)
           slots    = maxSz - runLen
           runnable = ((length taskQueue > 0) && (slots > 0)) in
       case runnable of
-          True  -> {- pull 'slots' tasks into the run queue -} die $ "WHAT!"
+          True  -> {- pull `slots' tasks over to the run queue -} die $ "WHAT!"
           False -> die $ "oh, that!"
           
           -- take this task out of the run queue and bump pending tasks if needed
