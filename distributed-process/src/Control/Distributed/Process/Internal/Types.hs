@@ -73,7 +73,7 @@ import System.Mem.Weak (Weak)
 import Data.Map (Map)
 import Data.Int (Int32)
 import Data.Typeable (Typeable)
-import Data.Binary (Binary(put, get), putWord8, getWord8, encode, decode)
+import Data.Binary (Binary(put, get), putWord8, getWord8, encode)
 import qualified Data.ByteString as BSS (ByteString, concat, copy)
 import qualified Data.ByteString.Lazy as BSL
   ( ByteString
@@ -378,15 +378,7 @@ data ProcessExitException =
 
 instance Exception ProcessExitException
 instance Show ProcessExitException where
-  show = showProcessExit
-
-showProcessExit :: ProcessExitException -> String
-showProcessExit (ProcessExitException pid reason) =
-  case messageFingerprint reason == fingerprint (undefined :: String) of
-    True  -> "origin=" ++ (show pid) ++ ",reason=" ++ decoded
-    False -> "origin=" ++ show pid
-  where decoded :: String
-        !decoded = decode (messageEncoding reason)
+  show (ProcessExitException pid _) = "exit-from=" ++ (show pid)
 
 instance Exception ProcessLinkException
 instance Exception NodeLinkException

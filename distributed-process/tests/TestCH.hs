@@ -1047,8 +1047,7 @@ testPrettyExit transport = do
   _ <- forkProcess localNode $ do
       (die "timeout")
       `catch` \ex@(ProcessExitException from _) ->
-        let expected = "origin=" ++ (show from) ++
-                       ",reason=timeout"
+        let expected = "exit-from=" ++ (show from)
         in do
           True <- return $ (show ex) == expected
           liftIO $ putMVar done ()
