@@ -102,11 +102,11 @@
 -- @
 --   statelessProcess {
 --       dispatchers = [
---         handleCall_   (\(n :: Int) -> return (n * 2))
---       , handleCastIf_ (\(c :: String, _ :: Delay) -> c == "timeout")
---                       (\("timeout", Delay d) -> timeoutAfter_ d)
+--         handleCall_   (\\(n :: Int) -> return (n * 2))
+--       , handleCastIf_ (\\(c :: String, _ :: Delay) -> c == \"timeout\")
+--                       (\\(\"timeout\", Delay d) -> timeoutAfter_ d)
 --       ]
---     , timeoutHandler = \_ _ -> stop $ TerminateOther "timeout"
+--     , timeoutHandler = \\_ _ -> stop $ TerminateOther \"timeout\"
 --   }
 -- @
 --
@@ -173,14 +173,13 @@ module Control.Distributed.Process.Platform.GenProcess
   , handleCast
   , handleCastIf
   , handleInfo
+  , handleDispatch
     -- * Stateless handlers
   , action
   , handleCall_
   , handleCallIf_
   , handleCast_
   , handleCastIf_
-    -- lower level handlers
-  , handleDispatch
   ) where
 
 import Control.Concurrent (threadDelay)
