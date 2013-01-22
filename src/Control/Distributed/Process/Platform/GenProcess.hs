@@ -95,7 +95,7 @@
 --
 -- All call/cast handlers come in two flavours, those which take the process
 -- state as an input and those which do not. Handlers that ignore the process
--- state have to return a section that takes the state and returns the required
+-- state have to return a function that takes the state and returns the required
 -- action. Versions of the various action generating functions ending in an
 -- underscore are provided to simplify this:
 --

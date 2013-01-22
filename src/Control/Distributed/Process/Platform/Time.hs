@@ -8,7 +8,7 @@
 -- Copyright   :  (c) Tim Watson, Jeff Epstein
 -- License     :  BSD3 (see the file LICENSE)
 --
--- Maintainers :  Tim Watson
+-- Maintainer  :  Tim Watson
 -- Stability   :  experimental
 -- Portability :  non-portable (requires concurrency)
 --
