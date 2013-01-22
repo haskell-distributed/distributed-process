@@ -39,10 +39,13 @@ simplePool :: forall a . (Serializable a)
               -> Process (Either (InitResult (State a)) TerminateReason)
 simplePool sz =
   let server = defaultProcess {
-          dispatchers = [
+        dispatchers = [
             handleCallFrom (\s f (p :: Closure (Process a)) -> storeTask s f p)
-          ]
-        } :: ProcessDefinition (State a)
+        ]
+      , infoHandlers = [
+            handleInfo taskComplete
+        ]
+      } :: ProcessDefinition (State a)
   in start sz init' server
   where init' :: PoolSize -> Process (InitResult (State a))
         init' sz' = return $ InitOk (State sz' [] []) Infinity
