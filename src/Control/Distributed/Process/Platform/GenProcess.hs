@@ -162,6 +162,7 @@ module Control.Distributed.Process.Platform.GenProcess
   , replyWith
   , noReply
   , noReply_
+  , haltNoReply_
   , continue
   , continue_
   , timeoutAfter
@@ -170,9 +171,12 @@ module Control.Distributed.Process.Platform.GenProcess
   , hibernate_
   , stop
   , stop_
+  , replyTo
     -- * Handler callback creation
   , handleCall
   , handleCallIf
+  , handleCallFrom
+  , handleCallFromIf
   , handleCast
   , handleCastIf
   , handleInfo
@@ -415,8 +419,26 @@ callTimeout s m d = callAsync s m >>= waitTimeout d >>= unpack
 --
 callAsync :: forall a b . (Serializable a, Serializable b)
                  => ProcessId -> a -> Process (Async b)
-callAsync sid msg = do
-  async $ do  -- note [call using async]
+callAsync = callAsyncUsing async
+
+-- | As 'callAsync' but takes a function that can be used to generate an async
+-- task and return an async handle to it. This can be used to switch between
+-- async implementations, by e.g., using an async channel instead of the default
+-- STM based handle.
+--
+-- See 'callAsync'
+--
+-- See "Control.Distributed.Process.Platform.Async"
+--
+-- See "Control.Distributed.Process.Platform.Async.AsyncChan"
+--
+-- See "Control.Distributed.Process.Platform.Async.AsyncSTM"
+--
+callAsyncUsing :: forall a b . (Serializable a, Serializable b)
+                  => (Process b -> Process (Async b))
+                  -> ProcessId -> a -> Process (Async b)
+callAsyncUsing asyncStart sid msg = do
+  asyncStart $ do  -- note [call using async]
     mRef <- monitor sid
     wpid <- getSelfPid
     sendTo (SendToPid sid) (CallMessage msg (SendToPid wpid))
@@ -497,9 +519,14 @@ replyWith msg st = return $ ProcessReply msg st
 noReply :: (Serializable r) => ProcessAction s -> Process (ProcessReply s r)
 noReply = return . NoReply
 
+-- | Continue without giving a reply to the caller - equivalent to 'continue',
+-- but usable in a callback passed to the 'handleCall' family of functions.
+noReply_ :: forall s r . (Serializable r) => s -> Process (ProcessReply s r)
+noReply_ s = continue s >>= noReply
+
 -- | Halt a call handler without regard for the expected return type.
-noReply_ :: TerminateReason -> Process (ProcessReply s TerminateReason)
-noReply_ r = stop r >>= noReply
+haltNoReply_ :: TerminateReason -> Process (ProcessReply s TerminateReason)
+haltNoReply_ r = stop r >>= noReply
 
 -- | Instructs the process to continue running and receiving messages.
 continue :: s -> Process (ProcessAction s)
@@ -549,6 +576,14 @@ stop r = return $ ProcessStop r
 stop_ :: TerminateReason -> (s -> Process (ProcessAction s))
 stop_ r _ = stop r
 
+sendTo :: (Serializable m) => Recipient -> m -> Process ()
+sendTo (SendToPid p) m             = send p m
+sendTo (SendToService s) m         = nsend s m
+sendTo (SendToRemoteService s n) m = nsendRemote n s m
+
+replyTo :: (Serializable m) => Recipient -> m -> Process ()
+replyTo client msg = sendTo client (CallResponse msg)
+
 --------------------------------------------------------------------------------
 -- Wrapping handler expressions in Dispatcher and InfoDispatcher              --
 --------------------------------------------------------------------------------
@@ -585,7 +620,7 @@ handleCallIf_ cond handler
                  -> Message a
                  -> Process (ProcessAction s)
         doHandle h s (CallMessage p c) = (h p) >>= mkReply c s
-        doHandle _ _ _ = die "CALL_HANDLER_TYPE_MISMATCH"
+        doHandle _ _ _ = die "CALL_HANDLER_TYPE_MISMATCH" -- cannot happen!
 
         -- handling 'reply-to' in the main process loop is awkward at best,
         -- so we handle it here instead and return the 'action' to the loop
@@ -623,14 +658,39 @@ handleCallIf cond handler
                  -> Message a
                  -> Process (ProcessAction s)
         doHandle h s (CallMessage p c) = (h s p) >>= mkReply c
-        doHandle _ _ _ = die "CALL_HANDLER_TYPE_MISMATCH"
+        doHandle _ _ _ = die "CALL_HANDLER_TYPE_MISMATCH" -- cannot happen!
 
-        -- handling 'reply-to' in the main process loop is awkward at best,
-        -- so we handle it here instead and return the 'action' to the loop
-        mkReply :: (Serializable b)
-                => Recipient -> ProcessReply s b -> Process (ProcessAction s)
-        mkReply _ (NoReply a) = return a
-        mkReply c (ProcessReply r' a) = sendTo c (CallResponse r') >> return a
+-- | As 'handleCall' but passes the 'Recipient' to the handler function.
+-- This can be useful if you wish to /reply later/ to the caller by, e.g.,
+-- spawning a process to do some work and have it @replyTo caller response@
+-- out of band. In this case the callback can pass the 'Recipient' to the
+-- worker (or stash it away itself) and return 'noReply'.
+--
+handleCallFrom :: forall s a b . (Serializable a, Serializable b)
+           => (s -> Recipient -> a -> Process (ProcessReply s b))
+           -> Dispatcher s
+handleCallFrom = handleCallFromIf $ state (const True)
+
+-- | As 'handleCallFrom' but only runs the handler if the supplied 'Condition'
+-- evaluates to @True@.
+--
+handleCallFromIf :: forall s a b . (Serializable a, Serializable b)
+    => Condition s a -- ^ predicate that must be satisfied for the handler to run
+    -> (s -> Recipient -> a -> Process (ProcessReply s b))
+        -- ^ a reply yielding function over the process state, sender and input message
+    -> Dispatcher s
+handleCallFromIf cond handler
+  = DispatchIf {
+      dispatch   = doHandle handler
+    , dispatchIf = checkCall cond
+    }
+  where doHandle :: (Serializable a, Serializable b)
+                 => (s -> Recipient -> a -> Process (ProcessReply s b))
+                 -> s
+                 -> Message a
+                 -> Process (ProcessAction s)
+        doHandle h s (CallMessage p c) = (h s c p) >>= mkReply c
+        doHandle _ _ _ = die "CALL_HANDLER_TYPE_MISMATCH" -- cannot happen!
 
 -- | Constructs a 'cast' handler from an ordinary function in the 'Process'
 -- monad.
@@ -737,6 +797,15 @@ handleInfo h = InfoDispatcher { dispatchInfo = doHandleInfo h }
                              -> Process (Maybe (ProcessAction s2))
     doHandleInfo h' s msg = maybeHandleMessage msg (h' s)
 
+-- handling 'reply-to' in the main process loop is awkward at best,
+-- so we handle it here instead and return the 'action' to the loop
+mkReply :: (Serializable b)
+           => Recipient -> ProcessReply s b -> Process (ProcessAction s)
+mkReply c (ProcessReply r' a) = sendTo c (CallResponse r') >> return a
+mkReply _ (NoReply a)         = return a
+
+-- these functions are the inverse of 'condition', 'state' and 'input'
+
 check :: forall s m . (Serializable m)
             => Condition s m
             -> s
@@ -841,11 +910,3 @@ processReceive ms handleTimeout st d = do
         case d' of
             Infinity -> receiveWait matches >>= return . Just
             Delay t' -> receiveTimeout (asTimeout t') matches
-
--- internal/utility
-
-sendTo :: (Serializable m) => Recipient -> m -> Process ()
-sendTo (SendToPid p) m             = send p m
-sendTo (SendToService s) m         = nsend s m
-sendTo (SendToRemoteService s n) m = nsendRemote n s m
-
