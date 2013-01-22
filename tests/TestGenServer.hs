@@ -264,7 +264,7 @@ tests transport = do
           , testCase "unhandled input when policy = Terminate"
             (delayedAssertion
              "expected the server to stop upon receiving unhandled input"
-             localNode (Just (TerminateOther "UNHANDLED_INPUT"))
+             localNode (Just (TerminateOther "UnhandledInput"))
              testTerminatePolicy)
           , testCase "unhandled input when policy = Drop"
             (delayedAssertion
