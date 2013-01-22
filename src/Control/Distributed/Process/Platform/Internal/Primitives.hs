@@ -28,6 +28,9 @@ module Control.Distributed.Process.Platform.Internal.Primitives
   -- matching
   , matchCond
 
+  -- utility
+  , times
+
   -- remote table
   , __remoteTable
   )
@@ -41,6 +44,14 @@ import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Platform.Internal.Types
 import Control.Monad (void)
 import Data.Maybe (isJust, fromJust)
+
+-- utility
+
+times :: Int -> Process () -> Process ()
+n `times` proc = runP proc n
+  where runP :: Process () -> Int -> Process ()
+        runP _ 0 = return ()
+        runP p n' = p >> runP p (n' - 1)
 
 -- spawning, linking and generic server startup
 

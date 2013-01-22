@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveDataTypeable        #-}
+{-# LANGUAGE TemplateHaskell           #-}
 
 -- | Types used throughout the Cloud Haskell framework
 --
@@ -13,7 +14,6 @@ module Control.Distributed.Process.Platform.Internal.Types
   , TerminateReason(..)
   ) where
 
-import Control.Applicative ((<$>))
 import Control.Concurrent.MVar (MVar, newMVar, modifyMVar)
 import Control.Distributed.Process
 import Control.Distributed.Process.Serializable ()
@@ -21,6 +21,7 @@ import Data.Binary
   ( Binary(put, get)
   , putWord8
   , getWord8)
+import Data.DeriveTH
 import Data.Typeable (Typeable)
 
 -- | Simple representation of a channel.
@@ -74,18 +75,6 @@ instance Binary Shutdown where
 data TerminateReason =
     TerminateNormal       -- ^ indicates normal exit
   | TerminateShutdown     -- ^ normal response to a 'Shutdown'
-  | TerminateOther String -- ^ abnormal (error) shutdown
+  | TerminateOther !String -- ^ abnormal (error) shutdown
   deriving (Typeable, Eq, Show)
-
-instance Binary TerminateReason where
-  put TerminateNormal    = putWord8 1
-  put TerminateShutdown  = putWord8 2
-  put (TerminateOther s) = putWord8 3 >> put s
-
-  get = do
-    header <- getWord8
-    case header of
-      1 -> return TerminateNormal
-      2 -> return TerminateShutdown
-      3 -> TerminateOther <$> get
-      _ -> fail "TerminateReason.get: invalid"
+$(derive makeBinary ''TerminateReason)

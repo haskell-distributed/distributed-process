@@ -362,8 +362,8 @@ call :: forall a b . (Serializable a, Serializable b)
 call sid msg = callAsync sid msg >>= wait >>= unpack -- note [call using async]
   where unpack :: AsyncResult b -> Process b
         unpack (AsyncDone   r)     = return r
-        unpack (AsyncFailed r)     = die $ TerminateOther $ "CallFailed; " ++ show r
-        unpack (AsyncLinkFailed r) = die $ TerminateOther $ "LinkFailed; " ++ show r
+        unpack (AsyncFailed r)     = die $ explain "CallFailed" r
+        unpack (AsyncLinkFailed r) = die $ explain "LinkFailed" r
         unpack AsyncCancelled      = die $ TerminateOther $ "Cancelled"
         unpack AsyncPending        = terminate -- as this *cannot* happen
 
@@ -374,11 +374,10 @@ safeCall :: forall a b . (Serializable a, Serializable b)
                  => ProcessId -> a -> Process (Either TerminateReason b)
 safeCall s m = callAsync s m >>= wait >>= unpack    -- note [call using async]
   where unpack (AsyncDone   r)     = return $ Right r
-        unpack (AsyncFailed r)     = return $ Left $ TerminateOther $ show r
-        unpack (AsyncLinkFailed r) = return $ Left $ TerminateOther $ show r
+        unpack (AsyncFailed r)     = return $ Left $ explain "CallFailed" r
+        unpack (AsyncLinkFailed r) = return $ Left $ explain "LinkFailed" r
         unpack AsyncCancelled      = return $ Left $ TerminateOther $ "Cancelled"
         unpack AsyncPending        = return $ Left $ TerminateOther $ "Pending"
---        unpack ar              = return $ Left $ TerminateOther $ showTypeRep ar
 
 -- | Version of 'safeCall' that returns 'Nothing' if the operation fails. If
 -- you need information about *why* a call has failed then you should use
@@ -413,8 +412,6 @@ callTimeout s m d = callAsync s m >>= waitTimeout d >>= unpack
 callAsync :: forall a b . (Serializable a, Serializable b)
                  => ProcessId -> a -> Process (Async b)
 callAsync sid msg = do
--- TODO: use a unified async API here if possible
--- https://github.com/haskell-distributed/distributed-process-platform/issues/55
   async $ do  -- note [call using async]
     mRef <- monitor sid
     wpid <- getSelfPid
@@ -427,8 +424,8 @@ callAsync sid msg = do
     -- TODO: better failure API
     unmonitor mRef
     case r of
-      Right m -> return m
-      Left err -> (say $ "call: remote process died: " ++ show err) >> terminate
+      Right m  -> return m
+      Left err -> die $ TerminateOther ("ServerExit (" ++ (show err) ++ ")")
 
 -- note [call using async]
 -- One problem with using plain expect/receive primitives to perform a
@@ -839,3 +836,4 @@ sendTo :: (Serializable m) => Recipient -> m -> Process ()
 sendTo (SendToPid p) m             = send p m
 sendTo (SendToService s) m         = nsend s m
 sendTo (SendToRemoteService s n) m = nsendRemote n s m
+
