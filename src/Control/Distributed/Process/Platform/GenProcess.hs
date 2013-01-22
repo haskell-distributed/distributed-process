@@ -293,7 +293,7 @@ instance MessageMatcher Dispatcher where
 -- sent using the 'call' or 'cast' APIs, and which are not handled by any of the
 -- 'handleInfo' handlers.
 data UnhandledMessagePolicy =
-    Terminate  -- ^ stop immediately, giving @TerminateOther "UNHANDLED_INPUT"@ as the reason
+    Terminate  -- ^ stop immediately, giving @TerminateOther "UnhandledInput"@ as the reason
   | DeadLetter ProcessId -- ^ forward the message to the given recipient
   | Drop                 -- ^ dequeue and then drop/ignore the message
 
@@ -763,7 +763,7 @@ applyPolicy :: s
             -> Process (ProcessAction s)
 applyPolicy s p m =
   case p of
-    Terminate      -> stop $ TerminateOther "UNHANDLED_INPUT"
+    Terminate      -> stop $ TerminateOther "UnhandledInput"
     DeadLetter pid -> forward m pid >> continue s
     Drop           -> continue s
 
