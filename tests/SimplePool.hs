@@ -110,10 +110,8 @@ taskComplete s@(State _ runQ _)
     bump st@(State maxSz runQueue _) worker =
       let runLen   = (length runQueue) - 1
           runQ2    = deleteFromRunQueue worker runQueue
-          slots    = (maxSz - runLen) in
-      case (slots > 0) of
-          True  -> fillSlots slots st { active = runQ2 }
-          False -> return $ st
+          slots    = (maxSz - runLen)
+      in fillSlots slots st { active = runQ2 }
 
     fillSlots :: Int -> State a -> Process (State a)
     fillSlots _ st'@(State _ _ [])           = return st'
