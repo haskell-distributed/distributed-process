@@ -16,42 +16,45 @@
 -- This module provides a high(er) level API for building complex 'Process'
 -- implementations by abstracting out the management of the process' mailbox,
 -- reply/response handling, timeouts, process hiberation, error handling
--- and shutdown/stop procedures. Whilst this API is intended to provide a
--- higher level of abstraction that vanilla Cloud Haskell, it is intended
--- for use primarilly as a building block.
+-- and shutdown/stop procedures.
 --
 -- [API Overview]
 --
 -- Once started, a generic process will consume messages from its mailbox and
 -- pass them on to user defined /handlers/ based on the types received (mapped
--- to those accepted by the handlers). Each handler returns a 'ProcessAction',
--- which specifies how we should proceed. If none of the handlers is able to
--- process a message (because their types are incompatible) then the process
--- 'unhandledMessagePolicy' will be applied.
+-- to those accepted by the handlers) and optionally by also evaluating user
+-- supplied predicates to determine which handlers are valid.
+-- Each handler returns a 'ProcessAction' which specifies how we should proceed.
+-- If none of the handlers is able to process a message (because their types are
+-- incompatible) then the process 'unhandledMessagePolicy' will be applied.
 --
 -- The 'ProcessAction' type defines the ways in which a process can respond
--- to its inputs, either by continuing to wait for incoming messages (with an
--- optional timeout), sleeping (i.e., @threadDelay@ for a while) then waiting
--- or by stopping. If a handler returns @ProcessTimeout@ and no messages are
--- received within the time window, a specific 'timeoutHandler' is called,
--- which by default instructs the process to go back to waiting without a
--- timeout.
---
--- To instruct a process to stop unless messages are received within a given
--- time window, a simple timeout handler would look something like this:
---
--- > \_state _lastTimeWindow -> stop $ TerminateOther "timeout"
+-- to its inputs, either by continuing to read incoming messages, setting an
+-- optional timeout, sleeping for a while or by stopping. The optional timeout
+-- behaves a little differently to the other process actions. If no messages
+-- are received within the specified time span, the process 'timeoutHandler'
+-- will be called in order to determine the next action.
 --
 -- Generic processes are defined by the 'ProcessDefinition' type, using record
 -- syntax. The 'ProcessDefinition' fields contain handlers (or lists of them)
--- for specific tasks. The @timeoutHandler@ and @terminateHandler@ are called
--- when the process handles these respectively. The other handlers are split
--- into two groups: /dispatchers/ and /infoHandlers/.
+-- for specific tasks. In addtion to the @timeoutHandler@, a 'ProcessDefinition'
+-- may also define a @terminateHandler@ which is called just before the process
+-- exits. This handler will be called /whenever/ the process is stopping, i.e.,
+-- when a callback returns 'stop' as the next action /or/ if an unhandled exit
+-- signal or similar asynchronous exception is thrown in (or to) the process
+-- itself.
+--
+-- The other handlers are split into two groups: /dispatchers/ and /infoHandlers/.
+-- The former contains handlers for the 'cast' and 'call' protocols, whilst the
+-- latter contains handlers that deal with input messages which are not sent
+-- via these API calls (i.e., messages sent using bare 'send' or signals put
+-- into the process mailbox by the node controller, such as
+-- 'ProcessMonitorNotification' and the like).
 --
 -- [The Cast/Call Protocol]
 --
--- Client interactions with the process will usually fall into one of two
--- categories. A 'cast' interaction involves the client sending a message
+-- Deliberate interactions with the process will usually fall into one of two
+-- categories. A 'cast' interaction involves a client sending a message
 -- asynchronously and the server handling this input. No reply is sent to
 -- the client. On the other hand, a 'call' interaction is a kind of /rpc/
 -- where the client sends a message and waits for a reply.
@@ -251,10 +254,13 @@ type CastHandler s = s -> Process ()
 
 -- type InfoHandler a = forall a b. (Serializable a, Serializable b) => a -> Process b
 
+-- | Wraps a predicate that is used to determine whether or not a handler
+-- is valid based on some combination of the current process state, the
+-- type and/or value of the input message or both.
 data Condition s m =
-    Condition (s -> m -> Bool)
-  | State (s -> Bool)
-  | Input (m -> Bool)
+    Condition (s -> m -> Bool)  -- ^ predicated on the process state /and/ the message
+  | State (s -> Bool) -- ^ predicated on the process state only
+  | Input (m -> Bool) -- ^ predicated on the input message only
 
 -- | An expression used to initialise a process with its state.
 type InitHandler a s = a -> Process (InitResult s)
@@ -387,9 +393,8 @@ tryCall s m = callAsync s m >>= wait >>= unpack    -- note [call using async]
   where unpack (AsyncDone r) = return $ Just r
         unpack _             = return Nothing
 
--- | Make a synchronous calls, but timeout and return @Nothing@ if the reply
--- is not received within the specified time interval. The reply may be sent
--- later on, or the call can be cancelled using the async @cancel@ API.
+-- | Make a synchronous call, but timeout and return @Nothing@ if the reply
+-- is not received within the specified time interval.
 --
 -- If the 'AsyncResult' for the call indicates a failure (or cancellation) then
 -- the calling process will exit, with the 'AsyncResult' given as the reason.
@@ -433,8 +438,8 @@ callAsync sid msg = do
 -- distinguish between inputs but this is easy to forge, as is tagging the
 -- response with the sender's pid.
 --
--- The approach we take here is to rely on AsyncSTM to insulate us from
--- erroneous incoming messages without the need for tagging. The /async handle/
+-- The approach we take here is to rely on AsyncSTM (by default) to insulate us
+-- from erroneous incoming messages without the need for tagging. The /handle/
 -- returned uses an @STM (AsyncResult a)@ field to handle the response /and/
 -- the implementation spawns a new process to perform the actual call and
 -- await the reply before atomically updating the result. Whilst in theory,
@@ -456,14 +461,24 @@ cast sid msg = send sid (CastMessage msg)
 -- Producing ProcessAction and ProcessReply from inside handler expressions   --
 --------------------------------------------------------------------------------
 
+-- | Creates a 'Conditon' from a function that takes a process state @a@ and
+-- an input message @b@ and returns a 'Bool' indicating whether the associated
+-- handler should run.
+--
 condition :: forall a b. (Serializable a, Serializable b)
           => (a -> b -> Bool)
           -> Condition a b
 condition = Condition
 
+-- | Create a 'Condition' from a function that takes a process state @a@ and
+-- returns a 'Bool' indicating whether the associated handler should run.
+--
 state :: forall s m. (Serializable m) => (s -> Bool) -> Condition s m
 state = State
 
+-- | Creates a 'Condition' from a function that takes an input message @m@ and
+-- returns a 'Bool' indicating whether the associated handler should run.
+--
 input :: forall s m. (Serializable m) => (m -> Bool) -> Condition s m
 input = Input
 
@@ -751,10 +766,8 @@ decode :: Message a -> a
 decode (CallMessage a _) = a
 decode (CastMessage a)   = a
 
--- wrapping /normal/ functions with InfoDispatcher
-
 --------------------------------------------------------------------------------
--- Process Implementation                                                     --
+-- Internal Process Implementation                                            --
 --------------------------------------------------------------------------------
 
 applyPolicy :: s
