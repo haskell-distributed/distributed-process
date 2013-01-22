@@ -10,7 +10,7 @@
 --
 module SimplePool where
 
-import Control.Distributed.Process
+import Control.Distributed.Process hiding (call)
 import Control.Distributed.Process.Closure()
 import Control.Distributed.Process.Platform.Async
 import Control.Distributed.Process.Platform.GenProcess
@@ -40,34 +40,46 @@ simplePool :: forall a . (Serializable a)
 simplePool sz =
   let server = defaultProcess {
           dispatchers = [
-            handleCallFrom (\s f (p :: Closure (Process a)) -> acceptTask s f p)
+            handleCallFrom (\s f (p :: Closure (Process a)) -> storeTask s f p)
           ]
         } :: ProcessDefinition (State a)
   in start sz init' server
   where init' :: PoolSize -> Process (InitResult (State a))
         init' sz' = return $ InitOk (State sz' [] []) Infinity
 
+-- enqueues the task in the pool and blocks 
+-- the caller until the task is complete
+executeTask :: Serializable a
+            => ProcessId
+            -> Closure (Process a)
+            -> Process (Either String a)
+executeTask sid t = call sid t
+
 -- /call/ handler: accept a task and defer responding until "later"
+storeTask :: Serializable a
+          => State a
+          -> Recipient
+          -> Closure (Process a)
+          -> Process (ProcessReply (State a) ())
+storeTask s r c = acceptTask s r c >>= noReply_
+
 acceptTask :: Serializable a
            => State a
            -> Recipient
            -> Closure (Process a)
-           -> Process (ProcessReply (State a) ())
+           -> Process (State a)
 acceptTask s@(State sz' runQueue taskQueue) from task' =
   let currentSz = length runQueue
   in case currentSz >= sz' of
     True  -> do
-      s2 <- return $ s{ accepted = ((from, task'):taskQueue) }
-      noReply_ s2
+      return $ s { accepted = ((from, task'):taskQueue) }
     False -> do
       proc <- unClosure task'
       asyncHandle <- async proc
       pid <- return $ asyncWorker asyncHandle
       taskEntry <- return (pid, from, asyncHandle)
-      _ <- monitor pid 
-      noReply_ s { accepted = ((from, task'):taskQueue)
-                 , active   = (taskEntry:runQueue)
-                 }
+      _ <- monitor pid
+      return s { active = (taskEntry:runQueue) }
 
 -- /info/ handler: a worker has exited, process the AsyncResult and send a reply
 -- to the waiting client (who is still stuck in 'call' awaiting a response).
@@ -90,21 +102,29 @@ taskComplete s@(State _ runQ _)
     respond c (AsyncFailed     d) = replyTo c ((Left (show d)) :: (Either String a))
     respond c (AsyncLinkFailed d) = replyTo c ((Left (show d)) :: (Either String a))
     respond _      _              = die $ TerminateOther "IllegalState"
-    
+
     bump :: State a -> (ProcessId, Recipient, Async a) -> Process (State a)
-    bump (State maxSz runQueue taskQueue) c@(pid', _, _) =
+    bump st@(State maxSz runQueue _) worker =
       let runLen   = (length runQueue) - 1
-          _runQ2   = deleteBy (\_ (b, _, _) -> b == pid') c runQ
-          slots    = maxSz - runLen
-          runnable = ((length taskQueue > 0) && (slots > 0)) in
-      case runnable of
-          True  -> {- pull `slots' tasks over to the run queue -} die $ "WHAT!"
-          False -> die $ "oh, that!"
-          
-          -- take this task out of the run queue and bump pending tasks if needed
-          -- deleteBy :: (a -> a -> Bool) -> a -> [a] -> [a]
+          runQ2    = deleteFromRunQueue worker runQueue
+          slots    = (maxSz - runLen) in
+      case (slots > 0) of
+          True  -> fillSlots slots st { active = runQ2 }
+          False -> return $ st
+
+    fillSlots :: Int -> State a -> Process (State a)
+    fillSlots _ st'@(State _ _ [])           = return st'
+    fillSlots 0 st'                          = return st'
+    fillSlots n st'@(State _ _ ((tr,tc):ts)) =
+      let ns = st' { accepted = ts }
+      in acceptTask ns tr tc >>= fillSlots (n-1)
 
 findWorker :: ProcessId
            -> [(ProcessId, Recipient, Async a)]
            -> Maybe (ProcessId, Recipient, Async a)
 findWorker key = find (\(pid,_,_) -> pid == key)
+
+deleteFromRunQueue :: (ProcessId, Recipient, Async a)
+                   -> [(ProcessId, Recipient, Async a)]
+                   -> [(ProcessId, Recipient, Async a)]
+deleteFromRunQueue c@(p, _, _) runQ = deleteBy (\_ (b, _, _) -> b == p) c runQ 
