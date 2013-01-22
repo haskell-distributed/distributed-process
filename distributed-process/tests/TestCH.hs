@@ -771,7 +771,7 @@ testMatchAnyHandle transport = do
     proxyServer <- forkProcess localNode $ forever $ do
         receiveWait [
             matchAny (maybeForward mathServer)
-          ] 
+          ]
     putMVar proxyAddr proxyServer
 
   -- Client
@@ -808,13 +808,13 @@ testMatchAnyNoHandle transport = do
             (\(Add _ _ _) -> True)
             -- the match `AbstractMessage -> Process ()` will succeed!
             (\m -> do
-              -- `String -> Process ()` does *not* match the input types however 
+              -- `String -> Process ()` does *not* match the input types however
               r <- (maybeHandleMessage m (\(_ :: String) -> die "NONSENSE" ))
               case r of
                 Nothing -> return ()
                 Just _  -> die "NONSENSE")
-          ] 
-        -- we *must* have removed the message from our mailbox though!!! 
+          ]
+        -- we *must* have removed the message from our mailbox though!!!
         Nothing <- receiveTimeout 100000 [ match (\(Add _ _ _) -> return ()) ]
         liftIO $ putMVar serverDone ()
     putMVar addr server
@@ -835,7 +835,7 @@ testMatchAnyNoHandle transport = do
 
 -- | Test 'matchAnyIf'. We provide an /echo/ server, but it ignores requests
 -- unless the text body @/= "bar"@ - this case should time out rather than
--- removing the message from the process mailbox. 
+-- removing the message from the process mailbox.
 testMatchAnyIf :: NT.Transport -> Assertion
 testMatchAnyIf transport = do
   echoAddr <- newEmptyMVar
@@ -848,7 +848,7 @@ testMatchAnyIf transport = do
         receiveWait [
             matchAnyIf (\(_ :: ProcessId, (s :: String)) -> s /= "bar")
                        handleMessage
-          ] 
+          ]
     putMVar echoAddr echoServer
 
   -- Client
@@ -1013,7 +1013,7 @@ testCatchesExit :: NT.Transport -> Assertion
 testCatchesExit transport = do
   localNode <- newLocalNode transport initRemoteTable
   done <- newEmptyMVar
-  
+
   _ <- forkProcess localNode $ do
       (die ("foobar", 123 :: Int))
       `catchesExit` [
@@ -1029,7 +1029,7 @@ testDie :: NT.Transport -> Assertion
 testDie transport = do
   localNode <- newLocalNode transport initRemoteTable
   done <- newEmptyMVar
-  
+
   _ <- forkProcess localNode $ do
       (die ("foobar", 123 :: Int))
       `catchExit` \_from reason -> do
@@ -1043,7 +1043,7 @@ testPrettyExit :: NT.Transport -> Assertion
 testPrettyExit transport = do
   localNode <- newLocalNode transport initRemoteTable
   done <- newEmptyMVar
-  
+
   _ <- forkProcess localNode $ do
       (die "timeout")
       `catch` \ex@(ProcessExitException from _) ->
