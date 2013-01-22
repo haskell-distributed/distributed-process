@@ -80,21 +80,15 @@ serverDefinition = defaultProcess {
      dispatchers = [
           handleCallIf (condition (\count Increment -> count >= 10))-- invariant
                        (\_ (_ :: Increment) -> do
-                           say "terminating...."
                            noReply_ (TerminateOther "Count > 10"))
 
         , handleCall handleIncrement
         , handleCall (\count Fetch -> reply count count)
         , handleCast (\_ Reset -> continue 0)
         ]
-     , terminateHandler = (\s r -> do
-        say $ "terminating counter when state = " ++ (show s) ++ " because " ++ show r)
     } :: ProcessDefinition State
 
 handleIncrement :: State -> Increment -> Process (ProcessReply State Int)
-handleIncrement count Increment = do
-    next <- increment
-    replyWith (count + 1) $ next
-  where increment :: Process (ProcessAction State)
-        !increment = return (ProcessContinue (count + 1))
+handleIncrement count Increment =
+    let next = count + 1 in continue next >>= replyWith next
 
