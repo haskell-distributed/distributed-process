@@ -158,20 +158,21 @@ testCounterIncrement pid result = do
 
 testCounterExceedsLimit :: ProcessId -> TestResult Bool -> Process ()
 testCounterExceedsLimit pid result = do
-  _ <- monitor pid
-  8 <- incCount pid
-  9 <- incCount pid
-  10 <- incCount pid
-  sleep $ seconds 1
-  _ <- incCount pid
-  sleep $ seconds 1
+  mref <- monitor pid
+  7 <- getCount pid
+
+  -- exceed the limit
+  3 `times` (incCount pid >> return ())
+
+  -- this time we should fail
+  _ <- (incCount pid)
+         `catchExit` \_ (TerminateOther _) -> return 1
+
   r <- receiveWait [
-      match (\(ProcessMonitorNotification _ _ r') -> return r')
+      matchIf (\(ProcessMonitorNotification ref _ _) -> ref == mref)
+              (\(ProcessMonitorNotification _ _ r') -> return r')
     ]
-  liftIO $ putStrLn $ "counter died with " ++ (show r)
-  pInfo <- getProcessInfo pid
-  liftIO $ putStrLn $ "pinfo = " ++ (show pInfo)
-  stash result True
+  stash result (r == DiedNormal)
 
 -- utilities
 
@@ -301,10 +302,10 @@ tests transport = do
               (delayedAssertion
                "expected the server to return the incremented state as 7"
                localNode 7 (testCounterIncrement counter))
-          -- , testCase "exceed counter limits"
-          --     (delayedAssertion
-          --      "expected the server to terminate once the limit was exceeded"
-          --      localNode True (testCounterExceedsLimit counter))
+          , testCase "exceed counter limits"
+            (delayedAssertion
+             "expected the server to terminate once the limit was exceeded"
+             localNode True (testCounterExceedsLimit counter))
           ]
       ]
 

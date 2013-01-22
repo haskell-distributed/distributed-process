@@ -72,16 +72,6 @@ test-suite TimerTests
                    src,
                    tests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
-  other-modules:
-                   Control.Distributed.Process.Platform,
-                   Control.Distributed.Process.Platform.Internal.Primitives,
-                   Control.Distributed.Process.Platform.Time,
-                   Control.Distributed.Process.Platform.Timer,
-                   TestUtils,
-                   Control.Distributed.Process.Platform.Test
-                   Control.Distributed.Process.Platform.Internal.Types,
-                   TestGenServer,
-                   Control.Distributed.Process.Platform.Async.Types
   extensions:      CPP
   main-is:         TestTimer.hs
 
@@ -177,3 +167,4 @@ test-suite GenServerTests
                 Control.Distributed.Process.Platform.Async.Types
   extensions:      CPP
   main-is:         TestGenServer.hs
+
