@@ -138,3 +138,4 @@ deleteFromRunQueue :: (ProcessId, Recipient, Async a)
                    -> [(ProcessId, Recipient, Async a)]
                    -> [(ProcessId, Recipient, Async a)]
 deleteFromRunQueue c@(p, _, _) runQ = deleteBy (\_ (b, _, _) -> b == p) c runQ
+
