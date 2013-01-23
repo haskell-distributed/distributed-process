@@ -263,8 +263,8 @@ type CastHandler s = s -> Process ()
 -- type and/or value of the input message or both.
 data Condition s m =
     Condition (s -> m -> Bool)  -- ^ predicated on the process state /and/ the message
-  | State (s -> Bool) -- ^ predicated on the process state only
-  | Input (m -> Bool) -- ^ predicated on the input message only
+  | State     (s -> Bool) -- ^ predicated on the process state only
+  | Input     (m -> Bool) -- ^ predicated on the input message only
 
 -- | An expression used to initialise a process with its state.
 type InitHandler a s = a -> Process (InitResult s)
