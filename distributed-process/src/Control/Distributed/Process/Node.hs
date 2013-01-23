@@ -42,6 +42,7 @@ import qualified Data.Set as Set
 import Data.Foldable (forM_)
 import Data.Maybe (isJust, isNothing, catMaybes)
 import Data.Typeable (Typeable)
+import Debug.Trace
 import Control.Category ((>>>))
 import Control.Applicative ((<$>))
 import Control.Monad (void, when)
@@ -222,6 +223,10 @@ startServiceProcesses node = do
           sendChan ch ()
       ]
 
+-- | Send a message to the GHC event log
+logEvent :: String -> IO ()
+logEvent = traceEventIO
+
 -- | Force-close a local node
 --
 -- TODO: for now we just close the associated endpoint
@@ -267,6 +272,10 @@ forkProcess node proc = modifyMVar (localState node) startProcess
           reason <- Exception.catch
             (runLocalProcess lproc proc >> return DiedNormal)
             (return . DiedException . (show :: SomeException -> String))
+
+          -- [Issue #104]
+          logEvent (show reason)
+
           -- [Unified: Table 4, rules termination and exiting]
           modifyMVar_ (localState node) (cleanupProcess pid)
           writeChan (localCtrlChan node) NCMsg
