@@ -20,7 +20,6 @@ module Control.Distributed.Process.Platform.Supervisor
 import Control.Distributed.Process hiding (call)
 import Control.Distributed.Process.Platform.GenProcess hiding (start)
 import qualified Control.Distributed.Process.Platform.GenProcess as Server
-import Control.Distributed.Process.Platform.Internal.Types
 import Control.Distributed.Process.Platform.Time
 
 import Data.Binary
@@ -151,7 +150,9 @@ handleAddChild state (ApiCallAdd spec) =
 --    err@(Left _) -> reply Nothing state
 --    Right key -> markActive key spec state >>= reply (Just key)
 
-handleGetStats :: State -> ApiCallStats -> Process (ProcessReply State SupervisorStats)
+handleGetStats :: State
+                  -> ApiCallStats
+                  -> Process (ProcessReply State SupervisorStats)
 handleGetStats s ApiCallStats = reply (stats s) s
 
 -- info APIs
