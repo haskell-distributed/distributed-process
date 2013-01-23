@@ -16,7 +16,7 @@ import Control.Distributed.Process.Platform.Async
 import Control.Distributed.Process.Platform.GenProcess
 import Control.Distributed.Process.Platform.Time
 import Control.Distributed.Process.Serializable
-
+import Control.Exception hiding (catch)
 import Data.Binary()
 import Data.List
   ( deleteBy
@@ -24,33 +24,42 @@ import Data.List
   )
 import Data.Typeable
 
+import Prelude hiding (catch)
+
 type PoolSize = Int
 type SimpleTask a = Closure (Process a)
 
-data State a = State {
+data Pool a = Pool {
     poolSize :: PoolSize
   , active   :: [(ProcessId, Recipient, Async a)]
   , accepted :: [(Recipient, Closure (Process a))]
   } deriving (Typeable)
 
--- | Start a worker pool with an upper bound on the # of concurrent workers.
-simplePool :: forall a . (Serializable a)
-              => PoolSize
-              -> Process (Either (InitResult (State a)) TerminateReason)
-simplePool sz =
-  let server = defaultProcess {
+poolServer :: forall a . (Serializable a) => ProcessDefinition (Pool a)
+poolServer =
+    defaultProcess {
         dispatchers = [
             handleCallFrom (\s f (p :: Closure (Process a)) -> storeTask s f p)
         ]
       , infoHandlers = [
             handleInfo taskComplete
         ]
-      } :: ProcessDefinition (State a)
-  in start sz init' server
-  where init' :: PoolSize -> Process (InitResult (State a))
-        init' sz' = return $ InitOk (State sz' [] []) Infinity
+      } :: ProcessDefinition (Pool a)
 
--- enqueues the task in the pool and blocks 
+-- | Start a worker pool with an upper bound on the # of concurrent workers.
+simplePool :: forall a . (Serializable a)
+              => PoolSize
+              -> ProcessDefinition (Pool a)
+              -> Process (Either (InitResult (Pool a)) TerminateReason)
+simplePool sz server =
+    start sz init' server
+      `catch` (\(e :: SomeException) -> do
+          say $ "terminating with " ++ (show e)
+          liftIO $ throwIO e)
+  where init' :: PoolSize -> Process (InitResult (Pool a))
+        init' sz' = return $ InitOk (Pool sz' [] []) Infinity
+
+-- enqueues the task in the pool and blocks
 -- the caller until the task is complete
 executeTask :: Serializable a
             => ProcessId
@@ -60,18 +69,18 @@ executeTask sid t = call sid t
 
 -- /call/ handler: accept a task and defer responding until "later"
 storeTask :: Serializable a
-          => State a
+          => Pool a
           -> Recipient
           -> Closure (Process a)
-          -> Process (ProcessReply (State a) ())
+          -> Process (ProcessReply (Pool a) ())
 storeTask s r c = acceptTask s r c >>= noReply_
 
 acceptTask :: Serializable a
-           => State a
+           => Pool a
            -> Recipient
            -> Closure (Process a)
-           -> Process (State a)
-acceptTask s@(State sz' runQueue taskQueue) from task' =
+           -> Process (Pool a)
+acceptTask s@(Pool sz' runQueue taskQueue) from task' =
   let currentSz = length runQueue
   in case currentSz >= sz' of
     True  -> do
@@ -87,10 +96,10 @@ acceptTask s@(State sz' runQueue taskQueue) from task' =
 -- /info/ handler: a worker has exited, process the AsyncResult and send a reply
 -- to the waiting client (who is still stuck in 'call' awaiting a response).
 taskComplete :: forall a . Serializable a
-             => State a
+             => Pool a
              -> ProcessMonitorNotification
-             -> Process (ProcessAction (State a))
-taskComplete s@(State _ runQ _)
+             -> Process (ProcessAction (Pool a))
+taskComplete s@(Pool _ runQ _)
              (ProcessMonitorNotification _ pid _) =
   let worker = findWorker pid runQ in
   case worker of
@@ -106,17 +115,17 @@ taskComplete s@(State _ runQ _)
     respond c (AsyncLinkFailed d) = replyTo c ((Left (show d)) :: (Either String a))
     respond _      _              = die $ TerminateOther "IllegalState"
 
-    bump :: State a -> (ProcessId, Recipient, Async a) -> Process (State a)
-    bump st@(State maxSz runQueue _) worker =
+    bump :: Pool a -> (ProcessId, Recipient, Async a) -> Process (Pool a)
+    bump st@(Pool maxSz runQueue _) worker =
       let runLen   = (length runQueue) - 1
           runQ2    = deleteFromRunQueue worker runQueue
           slots    = (maxSz - runLen)
       in fillSlots slots st { active = runQ2 }
 
-    fillSlots :: Int -> State a -> Process (State a)
-    fillSlots _ st'@(State _ _ [])           = return st'
-    fillSlots 0 st'                          = return st'
-    fillSlots n st'@(State _ _ ((tr,tc):ts)) =
+    fillSlots :: Int -> Pool a -> Process (Pool a)
+    fillSlots _ st'@(Pool _ _ [])           = return st'
+    fillSlots 0 st'                         = return st'
+    fillSlots n st'@(Pool _ _ ((tr,tc):ts)) =
       let ns = st' { accepted = ts }
       in acceptTask ns tr tc >>= fillSlots (n-1)
 
@@ -128,4 +137,4 @@ findWorker key = find (\(pid,_,_) -> pid == key)
 deleteFromRunQueue :: (ProcessId, Recipient, Async a)
                    -> [(ProcessId, Recipient, Async a)]
                    -> [(ProcessId, Recipient, Async a)]
-deleteFromRunQueue c@(p, _, _) runQ = deleteBy (\_ (b, _, _) -> b == p) c runQ 
+deleteFromRunQueue c@(p, _, _) runQ = deleteBy (\_ (b, _, _) -> b == p) c runQ
