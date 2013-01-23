@@ -195,6 +195,15 @@ testKillMidCall result = do
         unpack res sid AsyncCancelled = kill sid "stop" >> stash res True
         unpack res sid _              = kill sid "stop" >> stash res False
 
+-- SimplePool tests
+testSimplePoolJobBlocksCaller :: TestResult (AsyncResult (Either String String))
+                              -> Process ()
+testSimplePoolJobBlocksCaller result = do
+  pid <- startTestPool 1
+  -- we do a non-blocking test first
+  job <- return $ ($(mkClosure 'sampleTask) (seconds 2, "foobar"))
+  callAsync pid job >>= wait >>= \ar -> say (show ar) >> stash result ar
+
 -- MathDemo tests
 
 testAdd :: ProcessId -> TestResult Double -> Process ()
@@ -232,65 +241,6 @@ testCounterExceedsLimit pid result = do
     ]
   stash result (r == DiedNormal)
 
--- utilities
-
-waitForExit :: MVar (Either (InitResult ()) TerminateReason)
-            -> Process (Maybe TerminateReason)
-waitForExit exitReason = do
-    -- we *might* end up blocked here, so ensure the test doesn't jam up!
-  self <- getSelfPid
-  tref <- killAfter (within 10 Seconds) self "testcast timed out"
-  tr <- liftIO $ takeMVar exitReason
-  cancelTimer tref
-  case tr of
-    Right r -> return (Just r)
-    Left  _ -> return Nothing
-
-server :: Process ((ProcessId, MVar (Either (InitResult ()) TerminateReason)))
-server = mkServer Terminate
-
-mkServer :: UnhandledMessagePolicy
-         -> Process (ProcessId, MVar (Either (InitResult ()) TerminateReason))
-mkServer policy =
-  let s = statelessProcess {
-        dispatchers = [
-              -- note: state is passed here, as a 'stateless' process is
-              -- in fact process definition whose state is ()
-
-              handleCastIf  (input (\msg -> msg == "stop"))
-                            (\_ _ -> stop TerminateNormal)
-
-            , handleCall    (\s' (m :: String) -> reply m s')
-            , handleCall_   (\(n :: Int) -> return (n * 2))    -- "stateless"
-
-            , handleCast    (\s' ("ping", pid :: ProcessId) ->
-                                 send pid "pong" >> continue s')
-            , handleCastIf_ (input (\(c :: String, _ :: Delay) -> c == "timeout"))
-                            (\("timeout", Delay d) -> timeoutAfter_ d)
-
-            , handleCast_   (\("hibernate", d :: TimeInterval) -> hibernate_ d)
-          ]
-      , unhandledMessagePolicy = policy
-      , timeoutHandler         = \_ _ -> stop $ TerminateOther "timeout"
-    }
-  in do
-    exitReason <- liftIO $ newEmptyMVar
-    pid <- spawnLocal $ do
-      catch (start () (statelessInit Infinity) s >>= stash exitReason)
-            (\(e :: SomeException) -> stash exitReason $ Right (TerminateOther (show e)))
-    return (pid, exitReason)
-
--- workerPool :: Process ProcessId
--- workerPool =
---   let b = defaultProcess {
---         dispatchers = [
---              handleCast (\_ new -> continue new)
---            , handleCall (\s GetState -> reply s s)
---            ]
---         } :: ProcessDefinition String
---   in spawnLocal $ start () init' b >> return ()
---   where init' :: () -> Process (InitResult String)
---         init' = const (return $ InitOk () Infinity)
 myRemoteTable :: RemoteTable
 myRemoteTable = Main.__remoteTable initRemoteTable
 
@@ -342,6 +292,12 @@ tests transport = do
           , testCase "long running call cancellation"
             (delayedAssertion "expected to get AsyncCancelled"
              localNode True testKillMidCall)
+          ]
+        , testGroup "simple pool examples" [
+            testCase "simple pool"
+              (delayedAssertion
+               "expected the server to return the task outcome"
+               localNode (AsyncDone (Right "foobar")) testSimplePoolJobBlocksCaller)
           ]
         , testGroup "math server examples" [
             testCase "error (Left) returned from x / 0"
