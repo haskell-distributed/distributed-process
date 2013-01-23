@@ -132,18 +132,18 @@ addChild sid = tryCall sid . Just . ApiCallAdd
 handleLookupChild :: State
                   -> ApiCallFind
                   -> Process (ProcessReply State (Maybe ChildSpec))
-handleLookupChild state (ApiCallFind key) = reply (spec state key) state
+handleLookupChild st' (ApiCallFind key) = reply (spec st' key) st'
   where spec :: State -> ChildKey -> Maybe ChildSpec
         spec s k = Map.lookup k (specs s)
 
 handleAddChild :: State
                -> ApiCallAdd
                -> Process (ProcessReply State (Maybe ChildKey))
-handleAddChild state (ApiCallAdd spec) =
-  let childId' = nextId state
+handleAddChild s' (ApiCallAdd spec) =
+  let childId' = nextId s'
       key      = ChildKey childId' emptyChildPid
       spec'    = spec{ childId = key }
-  in store key spec' state >>= reply (Just key)
+  in store key spec' s' >>= reply (Just key)
 
 --  child <- tryStartChild state spec
 --  case child of
@@ -160,10 +160,10 @@ handleGetStats s ApiCallStats = reply (stats s) s
 handleMonitorSignal :: State
                     -> ProcessMonitorNotification
                     -> Process (ProcessAction State)
-handleMonitorSignal state (ProcessMonitorNotification _ pid _reason) =
-  let m = active state
+handleMonitorSignal st (ProcessMonitorNotification _ pid _reason) =
+  let m = active st
       (cId, active') = Map.updateLookupWithKey (\_ _ -> Nothing) pid m
-  in handleChildDown cId active' state
+  in handleChildDown cId active' st
 
 -- internal/aux APIs
 
@@ -171,16 +171,16 @@ handleChildDown :: Maybe ChildId
                 -> Map.Map ProcessId ChildId
                 -> State
                 -> Process (ProcessAction State)
-handleChildDown cId active' state =
+handleChildDown cId active' st =
   let cSpec = case cId of
                 Nothing -> undefined :: Maybe ChildSpec
-                Just c  -> Map.lookup (initKey c) (specs state)
+                Just c  -> Map.lookup (initKey c) (specs st)
   in do
     -- restart it
     -- change the state
     -- bump stats
     say $ "hmn, what to do with " ++ (show cSpec)
-    continue $ state{ active = active' }
+    continue $ st { active = active' }
 
 initKey :: ChildId -> ChildKey
 initKey = (flip ChildKey) emptyChildPid
@@ -194,13 +194,14 @@ tryStartChild :: State
 tryStartChild _ _ = undefined
 
 store :: ChildKey -> ChildSpec -> State -> Process State
-store key@(ChildKey chId _) spec state =
+store key@(ChildKey chId _) spec st =
   let chType = childType spec
-      specs' = Map.insert key spec (specs state)
-      stats' = bumpStats chType $ stats state
-  in return state{ specs = specs'
-                 , maxId = chId
-                 , stats = stats' }
+      specs' = Map.insert key spec (specs st)
+      stats' = bumpStats chType $ stats st
+  in return st { specs = specs'
+               , maxId = chId
+               , stats = stats'
+               }
 
 bumpStats :: ChildType -> SupervisorStats -> SupervisorStats
 bumpStats Worker s =
