@@ -102,7 +102,14 @@ runPool s =
 sampleTask :: (TimeInterval, String) -> Process String
 sampleTask (t, s) = sleep t >> return s
 
-$(remotable ['sampleTask])
+namedTask :: (String, String) -> Process String
+namedTask (name, result) = do
+  self <- getSelfPid
+  register name self
+  () <- expect
+  return result
+
+$(remotable ['sampleTask, 'namedTask])
 
 -- test cases
 
@@ -202,7 +209,41 @@ testSimplePoolJobBlocksCaller result = do
   pid <- startTestPool 1
   -- we do a non-blocking test first
   job <- return $ ($(mkClosure 'sampleTask) (seconds 2, "foobar"))
-  callAsync pid job >>= wait >>= \ar -> say (show ar) >> stash result ar
+  callAsync pid job >>= wait >>= stash result
+
+testJobQueueSizeLimiting ::
+    TestResult (Maybe (AsyncResult (Either String String)),
+                Maybe (AsyncResult (Either String String)))
+                         -> Process ()
+testJobQueueSizeLimiting result = do
+  pid <- startTestPool 1
+  job1 <- return $ ($(mkClosure 'namedTask) ("job1", "foo"))
+  job2 <- return $ ($(mkClosure 'namedTask) ("job2", "bar"))
+  h1 <- callAsync pid job1 :: Process (Async (Either String String))
+  h2 <- callAsync pid job2 :: Process (Async (Either String String))
+
+  -- despite the fact that we tell job2 to proceed first,
+  -- the size limit (of 1) will ensure that only job1 can
+  -- proceed successfully!
+  nsend "job2" ()
+  AsyncPending <- poll h2
+  Nothing <- whereis "job2"
+
+  -- we can get here *very* fast, we give the registration time to kick in
+  sleep $ milliSeconds 250
+  j1p <- whereis "job1"
+  case j1p of
+    Nothing -> die $ "timing is out - job1 isn't registered yet"
+    Just p  -> send p ()
+
+  -- once job1 completes, we *should* be able to proceed with job2
+  -- but we allow a little time for things to catch up
+  sleep $ milliSeconds 250
+  nsend "job2" ()
+
+  r2 <- waitTimeout (within 2 Seconds) h2
+  r1 <- waitTimeout (within 2 Seconds) h1
+  stash result (r1, r2)
 
 -- MathDemo tests
 
@@ -294,10 +335,16 @@ tests transport = do
              localNode True testKillMidCall)
           ]
         , testGroup "simple pool examples" [
-            testCase "simple pool"
+            testCase "each task execution blocks the caller"
               (delayedAssertion
                "expected the server to return the task outcome"
                localNode (AsyncDone (Right "foobar")) testSimplePoolJobBlocksCaller)
+          , testCase "only 'max' tasks can proceed at any time"
+              (delayedAssertion
+               "expected the server to block the second job until the first was released"
+               localNode
+               (Just (AsyncDone (Right "foo")),
+                Just (AsyncDone (Right "bar"))) testJobQueueSizeLimiting)
           ]
         , testGroup "math server examples" [
             testCase "error (Left) returned from x / 0"
