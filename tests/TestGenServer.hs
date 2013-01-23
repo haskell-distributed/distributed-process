@@ -11,8 +11,9 @@ module Main where
 import Control.Concurrent.MVar
 import Control.Exception (SomeException)
 import Control.Distributed.Process hiding (call)
+import Control.Distributed.Process.Closure
 import Control.Distributed.Process.Node
-import Control.Distributed.Process.Platform
+import Control.Distributed.Process.Platform hiding (__remoteTable)
 import Control.Distributed.Process.Platform.Async
 import Control.Distributed.Process.Platform.GenProcess
 import Control.Distributed.Process.Platform.Test
@@ -34,10 +35,76 @@ import Test.Framework.Providers.HUnit (testCase)
 import TestUtils
 
 import qualified Network.Transport as NT
+import Control.Monad (void)
+
+-- utilities
 
 data GetState = GetState
   deriving (Typeable, Show, Eq)
 $(derive makeBinary ''GetState)
+
+waitForExit :: MVar (Either (InitResult ()) TerminateReason)
+            -> Process (Maybe TerminateReason)
+waitForExit exitReason = do
+    -- we *might* end up blocked here, so ensure the test doesn't jam up!
+  self <- getSelfPid
+  tref <- killAfter (within 10 Seconds) self "testcast timed out"
+  tr <- liftIO $ takeMVar exitReason
+  cancelTimer tref
+  case tr of
+    Right r -> return (Just r)
+    Left  _ -> return Nothing
+
+server :: Process ((ProcessId, MVar (Either (InitResult ()) TerminateReason)))
+server = mkServer Terminate
+
+mkServer :: UnhandledMessagePolicy
+         -> Process (ProcessId, MVar (Either (InitResult ()) TerminateReason))
+mkServer policy =
+  let s = statelessProcess {
+        dispatchers = [
+              -- note: state is passed here, as a 'stateless' process is
+              -- in fact process definition whose state is ()
+
+              handleCastIf  (input (\msg -> msg == "stop"))
+                            (\_ _ -> stop TerminateNormal)
+
+            , handleCall    (\s' (m :: String) -> reply m s')
+            , handleCall_   (\(n :: Int) -> return (n * 2))    -- "stateless"
+
+            , handleCast    (\s' ("ping", pid :: ProcessId) ->
+                                 send pid "pong" >> continue s')
+            , handleCastIf_ (input (\(c :: String, _ :: Delay) -> c == "timeout"))
+                            (\("timeout", Delay d) -> timeoutAfter_ d)
+
+            , handleCast_   (\("hibernate", d :: TimeInterval) -> hibernate_ d)
+          ]
+      , unhandledMessagePolicy = policy
+      , timeoutHandler         = \_ _ -> stop $ TerminateOther "timeout"
+    }
+  in do
+    exitReason <- liftIO $ newEmptyMVar
+    pid <- spawnLocal $ do
+      catch (start () (statelessInit Infinity) s >>= stash exitReason)
+            (\(e :: SomeException) -> stash exitReason $ Right (TerminateOther (show e)))
+    return (pid, exitReason)
+
+startTestPool :: Int -> Process ProcessId
+startTestPool s = spawnLocal $ do
+  _ <- runPool s
+  return ()
+
+runPool :: Int -> Process (Either (InitResult (Pool String)) TerminateReason)
+runPool s =
+  let s' = poolServer :: ProcessDefinition (Pool String)
+  in simplePool s s'
+
+sampleTask :: (TimeInterval, String) -> Process String
+sampleTask (t, s) = sleep t >> return s
+
+$(remotable ['sampleTask])
+
+-- test cases
 
 testBasicCall :: TestResult (Maybe String) -> Process ()
 testBasicCall result = do
@@ -153,7 +220,7 @@ testCounterExceedsLimit pid result = do
   7 <- getCount pid
 
   -- exceed the limit
-  3 `times` (incCount pid >> return ())
+  3 `times` (void $ incCount pid)
 
   -- this time we should fail
   _ <- (incCount pid)
@@ -224,10 +291,12 @@ mkServer policy =
 --   in spawnLocal $ start () init' b >> return ()
 --   where init' :: () -> Process (InitResult String)
 --         init' = const (return $ InitOk () Infinity)
+myRemoteTable :: RemoteTable
+myRemoteTable = Main.__remoteTable initRemoteTable
 
 tests :: NT.Transport  -> IO [Test]
 tests transport = do
-  localNode <- newLocalNode transport initRemoteTable
+  localNode <- newLocalNode transport myRemoteTable
   mpid <- newEmptyMVar
   _ <- forkProcess localNode $ launchMathServer >>= stash mpid
   pid <- takeMVar mpid
