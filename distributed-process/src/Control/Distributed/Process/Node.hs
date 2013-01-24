@@ -227,6 +227,9 @@ startServiceProcesses node = do
 logEvent :: String -> IO ()
 logEvent = traceEventIO
 
+logExit :: ProcessId -> DiedReason -> IO ()
+logExit p r = logEvent $ (show p) ++ " exited: " ++ (show r)
+
 -- | Force-close a local node
 --
 -- TODO: for now we just close the associated endpoint
@@ -274,7 +277,7 @@ forkProcess node proc = modifyMVar (localState node) startProcess
             (return . DiedException . (show :: SomeException -> String))
 
           -- [Issue #104]
-          logEvent (show reason)
+          logExit pid reason
 
           -- [Unified: Table 4, rules termination and exiting]
           modifyMVar_ (localState node) (cleanupProcess pid)

@@ -61,6 +61,7 @@ Library
                      Control.Distributed.Process.Internal.Primitives,
                      Control.Distributed.Process.Internal.CQueue,
                      Control.Distributed.Process.Internal.Types,
+                     Control.Distributed.Process.Internal.Trace,
                      Control.Distributed.Process.Internal.Closure.BuiltIn,
                      Control.Distributed.Process.Internal.Messaging,
                      Control.Distributed.Process.Internal.StrictList,
@@ -145,7 +146,7 @@ Test-Suite TestStats
                      ScopedTypeVariables,
                      DeriveDataTypeable,
                      GeneralizedNewtypeDeriving
-  ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind 
+  ghc-options:       -Wall -debug -eventlog -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   HS-Source-Dirs:    tests 
 
 
