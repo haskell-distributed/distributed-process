@@ -65,3 +65,4 @@ traceFormat :: (Show a)
 traceFormat NoOpTracer _ _ = return ()
 traceFormat t f xs =
   trace t $ foldl' (\e a -> ((show e) `f` (show a))) "" xs
+
