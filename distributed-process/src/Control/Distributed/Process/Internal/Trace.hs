@@ -1,10 +1,12 @@
-
+-- | Simple (internal) system logging/tracing support.
 module Control.Distributed.Process.Internal.Trace
   ( Tracer
-  , trace        -- :: String -> IO ()
-  , traceFormat  -- :: (Show a) => (a -> a -> String) -> [a] -> IO ()
-  , eventlog
-  , console
+  , trace
+  , traceFormat
+  , startEventlogTracer
+  , startLogfileTracer
+  , defaultTracer
+  , stopTracer
   ) where
 
 import Control.Concurrent
@@ -18,36 +20,48 @@ import Control.Concurrent.STM
   , writeTQueue
   , atomically
   )
+import Control.Distributed.Process.Internal.Types (forever')
+import Control.Exception
 import Data.List (foldl')
-import Debug.Trace
-  ( traceEventIO
-  )
+import Debug.Trace (traceEventIO)
+import System.IO
 
 data Tracer =
-    ConsoleTracer ThreadId (TQueue String)
+    LogFileTracer ThreadId (TQueue String)
   | EventLogTracer (String -> IO ())
+  | NoOpTracer
 
-eventlog :: IO Tracer
-eventlog = return $ EventLogTracer traceEventIO
+defaultTracer :: IO Tracer
+defaultTracer = return NoOpTracer
 
-console :: IO Tracer
-console = do
-  q <- newTQueueIO
-  tid <- forkIO $ logger q
-  return $ ConsoleTracer tid q
-  where logger q' = do
+startEventlogTracer :: IO Tracer
+startEventlogTracer = return $ EventLogTracer traceEventIO
+
+startLogfileTracer :: FilePath -> IO Tracer
+startLogfileTracer p = do
+    q <- newTQueueIO
+    tid <- forkIO $ withFile p AppendMode (\h -> logger h q)
+    return $ LogFileTracer tid q
+  where logger :: Handle -> TQueue String -> IO ()
+        logger h q' = forever' $ do
           msg <- atomically $ readTQueue q'
-          putStrLn msg
-          logger q'
+          hPutStr h msg
+          logger h q'
+
+stopTracer :: Tracer -> IO ()
+stopTracer (LogFileTracer tid _) = throwTo tid ThreadKilled
+stopTracer _                     = return ()
 
 trace :: Tracer -> String -> IO ()
-trace (ConsoleTracer _ q) msg = atomically $ writeTQueue q msg
+trace (LogFileTracer _ q) msg = atomically $ writeTQueue q msg
 trace (EventLogTracer  t) msg = t msg
+trace NoOpTracer          _   = return ()
 
 traceFormat :: (Show a)
             => Tracer
             -> (String -> String -> String)
             -> [a]
             -> IO ()
+traceFormat NoOpTracer _ _ = return ()
 traceFormat t f xs =
   trace t $ foldl' (\e a -> ((show e) `f` (show a))) "" xs
