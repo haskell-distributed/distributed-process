@@ -42,7 +42,6 @@ import qualified Data.Set as Set
 import Data.Foldable (forM_)
 import Data.Maybe (isJust, isNothing, catMaybes)
 import Data.Typeable (Typeable)
-import Debug.Trace
 import Control.Category ((>>>))
 import Control.Applicative ((<$>))
 import Control.Monad (void, when)
@@ -63,7 +62,9 @@ import Control.Distributed.Process.Internal.StrictMVar
   , takeMVar
   )
 import Control.Concurrent.Chan (newChan, writeChan, readChan)
-import Control.Concurrent.STM (atomically)
+import Control.Concurrent.STM
+  ( atomically
+  )
 import Control.Distributed.Process.Internal.CQueue
   ( CQueue
   , enqueue
@@ -98,6 +99,7 @@ import Control.Distributed.Process.Internal.Types
   , LocalProcessId(..)
   , ProcessId(..)
   , LocalNode(..)
+  , Tracer
   , LocalNodeState(..)
   , LocalProcess(..)
   , LocalProcessState(..)
@@ -140,6 +142,12 @@ import Control.Distributed.Process.Internal.Types
   , runLocalProcess
   , firstNonReservedProcessId
   , ImplicitReconnect(WithImplicitReconnect, NoImplicitReconnect)
+  )
+import Control.Distributed.Process.Internal.Trace
+  ( trace
+  , traceFormat
+  , defaultTracer
+  , stopTracer
   )
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Internal.Messaging
@@ -192,11 +200,13 @@ createBareLocalNode endPoint rtable = do
     , _localPidUnique   = unq
     , _localConnections = Map.empty
     }
+  tracer <- defaultTracer
   ctrlChan <- newChan
   let node = LocalNode { localNodeId   = NodeId $ NT.address endPoint
                        , localEndPoint = endPoint
                        , localState    = state
                        , localCtrlChan = ctrlChan
+                       , localTracer   = tracer
                        , remoteTable   = rtable
                        }
   void . forkIO $ runNodeController node
@@ -218,13 +228,6 @@ startServiceProcesses node = do
       , match $ \(ch :: SendPort ()) -> -- a shutdown request
           sendChan ch ()
       ]
-
--- | Send a message to the GHC event log
-logEvent :: String -> IO ()
-logEvent = traceEventIO
-
-logExit :: ProcessId -> DiedReason -> IO ()
-logExit p r = logEvent $ (show p) ++ " exited: " ++ (show r)
 
 -- | Force-close a local node
 --
@@ -271,9 +274,6 @@ forkProcess node proc = modifyMVar (localState node) startProcess
           reason <- Exception.catch
             (runLocalProcess lproc proc >> return DiedNormal)
             (return . DiedException . (show :: SomeException -> String))
-
-          -- [Issue #104]
-          logExit pid reason
 
           -- [Unified: Table 4, rules termination and exiting]
           modifyMVar_ (localState node) (cleanupProcess pid)
@@ -442,11 +442,12 @@ handleIncomingMessages node = go initConnectionState
           fail "Cloud Haskell fatal error: received unexpected multicast"
 
     invalidRequest :: NT.ConnectionId -> ConnectionState -> IO ()
-    invalidRequest cid st =
+    invalidRequest cid st = do
       -- TODO: We should treat this as a fatal error on the part of the remote
       -- node. That is, we should report the remote node as having died, and we
       -- should close incoming connections (this requires a Transport layer
       -- extension).
+      traceEventFmtIO node "" ["[network] invalid request: ", (show cid)]
       go ( incomingAt cid ^= Nothing
          $ st
          )
@@ -497,6 +498,36 @@ instance Exception ProcessKillException
 instance Show ProcessKillException where
   show (ProcessKillException pid reason) =
     "killed-by=" ++ show pid ++ ",reason=" ++ reason
+
+--------------------------------------------------------------------------------
+-- Tracing/Debugging                                                          --
+--------------------------------------------------------------------------------
+
+-- [Issue #104]
+
+traceNotifyDied :: LocalNode -> Identifier -> DiedReason -> NC ()
+traceNotifyDied node ident reason =
+  traceNcEventFmt node " " ["[node-controller]", (show ident), (show reason)]
+
+traceNcEvent :: LocalNode -> String -> NC ()
+traceNcEvent node msg = liftIO $ traceEventIO node msg
+
+traceNcEventFmt :: LocalNode -> String -> [String] -> NC ()
+traceNcEventFmt node fmt args =
+  liftIO $ traceEventFmtIO node fmt args
+
+traceEventIO :: LocalNode -> String -> IO ()
+traceEventIO node msg = withLocalTracer node $ \t -> trace t msg
+
+traceEventFmtIO :: LocalNode
+                -> String
+                -> [String]
+                -> IO ()
+traceEventFmtIO node fmt args =
+  withLocalTracer node $ \t -> traceFormat t fmt args
+
+withLocalTracer :: LocalNode -> (Tracer -> IO ()) -> IO ()
+withLocalTracer node act = act (localTracer node)
 
 --------------------------------------------------------------------------------
 -- Core functionality                                                         --
@@ -605,6 +636,7 @@ ncEffectUnmonitor from ref = do
 ncEffectDied :: Identifier -> DiedReason -> NC ()
 ncEffectDied ident reason = do
   node <- ask
+  traceNotifyDied node ident reason
   (affectedLinks, unaffectedLinks) <- gets (splitNotif ident . (^. links))
   (affectedMons,  unaffectedMons)  <- gets (splitNotif ident . (^. monitors))
 
@@ -646,7 +678,6 @@ ncEffectDied ident reason = do
                              { ctrlMsgSender = NodeIdentifier (localNodeId node)
                              , ctrlMsgSignal = Died ident reason
                              }
-
 
 -- [Unified: Table 13]
 ncEffectSpawn :: ProcessId -> Closure (Process ()) -> SpawnRef -> NC ()
@@ -849,18 +880,18 @@ notifyDied dest src reason mRef = do
 
 -- | [Unified: Table 8]
 destNid :: ProcessSignal -> Maybe NodeId
-destNid (Link ident)    = Just $ nodeOf ident
-destNid (Unlink ident)  = Just $ nodeOf ident
-destNid (Monitor ref)   = Just $ nodeOf (monitorRefIdent ref)
-destNid (Unmonitor ref) = Just $ nodeOf (monitorRefIdent ref)
-destNid (Spawn _ _)     = Nothing
-destNid (Register _ _ _ _) = Nothing
-destNid (WhereIs _)     = Nothing
-destNid (NamedSend _ _) = Nothing
+destNid (Link ident)        = Just $ nodeOf ident
+destNid (Unlink ident)      = Just $ nodeOf ident
+destNid (Monitor ref)       = Just $ nodeOf (monitorRefIdent ref)
+destNid (Unmonitor ref)     = Just $ nodeOf (monitorRefIdent ref)
+destNid (Spawn _ _)         = Nothing
+destNid (Register _ _ _ _)  = Nothing
+destNid (WhereIs _)         = Nothing
+destNid (NamedSend _ _)     = Nothing
 -- We don't need to forward 'Died' signals; if monitoring/linking is setup,
 -- then when a local process dies the monitoring/linking machinery will take
 -- care of notifying remote nodes
-destNid (Died _ _) = Nothing
+destNid (Died _ _)          = Nothing
 destNid (Kill pid _)        = Just $ processNodeId pid
 destNid (Exit pid _)        = Just $ processNodeId pid
 destNid (GetInfo pid)       = Just $ processNodeId pid

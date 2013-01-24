@@ -83,6 +83,8 @@ module Control.Distributed.Process.Internal.Primitives
     -- * Reconnecting
   , reconnect
   , reconnectPort
+    -- * Tracing/Debugging
+  , trace
   ) where
 
 #if ! MIN_VERSION_base(4,6,0)
@@ -168,6 +170,7 @@ import Control.Distributed.Process.Internal.Messaging
   , sendPayload
   , disconnect
   )
+import qualified Control.Distributed.Process.Internal.Trace as Trace
 import Control.Distributed.Process.Internal.WeakTQueue
   ( newTQueueIO
   , readTQueue
@@ -891,6 +894,15 @@ reconnectPort them = do
   us <- getSelfPid
   node <- processNode <$> ask
   liftIO $ disconnect node (ProcessIdentifier us) (SendPortIdentifier (sendPortId them))
+
+--------------------------------------------------------------------------------
+-- Debugging/Tracing                                                          --
+--------------------------------------------------------------------------------
+
+trace :: String -> Process ()
+trace s = do
+  node <- processNode <$> ask
+  liftIO $ Trace.trace (localTracer node) s
 
 --------------------------------------------------------------------------------
 -- Auxiliary functions                                                        --

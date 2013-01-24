@@ -3,16 +3,12 @@ module Control.Distributed.Process.Internal.Trace
   ( Tracer
   , trace
   , traceFormat
-  , startEventlogTracer
-  , startLogfileTracer
   , defaultTracer
+  , logfileTracer
   , stopTracer
   ) where
 
-import Control.Concurrent
-  ( ThreadId
-  , forkIO
-  )
+import Control.Concurrent (forkIO)
 import Control.Concurrent.STM
   ( TQueue
   , newTQueueIO
@@ -20,25 +16,28 @@ import Control.Concurrent.STM
   , writeTQueue
   , atomically
   )
-import Control.Distributed.Process.Internal.Types (forever')
-import Control.Exception
-import Data.List (foldl')
+import Control.Distributed.Process.Internal.Types (forever', Tracer(..))
+import Control.Exception (catch, throwTo, AsyncException(ThreadKilled))
+import Data.List (intersperse)
 import Debug.Trace (traceEventIO)
-import System.IO
 
-data Tracer =
-    LogFileTracer ThreadId (TQueue String)
-  | EventLogTracer (String -> IO ())
-  | NoOpTracer
+import Prelude hiding (catch)
+
+import System.Environment (getEnv)
+import System.IO
+  ( Handle
+  , IOMode(AppendMode)
+  , withFile
+  , hPutStr
+  )
 
 defaultTracer :: IO Tracer
-defaultTracer = return NoOpTracer
+defaultTracer = do
+  catch (getEnv "DISTRIBUTED_PROCESS_TRACE_FILE" >>= logfileTracer)
+        (\(_ :: IOError) -> return (EventLogTracer traceEventIO))
 
-startEventlogTracer :: IO Tracer
-startEventlogTracer = return $ EventLogTracer traceEventIO
-
-startLogfileTracer :: FilePath -> IO Tracer
-startLogfileTracer p = do
+logfileTracer :: FilePath -> IO Tracer
+logfileTracer p = do
     q <- newTQueueIO
     tid <- forkIO $ withFile p AppendMode (\h -> logger h q)
     return $ LogFileTracer tid q
@@ -48,21 +47,19 @@ startLogfileTracer p = do
           hPutStr h msg
           logger h q'
 
+-- TODO: compatibility layer (conditional compilation?) for GHC/base versions
+
 stopTracer :: Tracer -> IO ()
-stopTracer (LogFileTracer tid _) = throwTo tid ThreadKilled
+stopTracer (LogFileTracer tid _) = throwTo tid ThreadKilled -- cf killThread
 stopTracer _                     = return ()
 
 trace :: Tracer -> String -> IO ()
 trace (LogFileTracer _ q) msg = atomically $ writeTQueue q msg
 trace (EventLogTracer  t) msg = t msg
-trace NoOpTracer          _   = return ()
 
-traceFormat :: (Show a)
-            => Tracer
-            -> (String -> String -> String)
-            -> [a]
+traceFormat :: Tracer
+            -> String
+            -> [String]
             -> IO ()
-traceFormat NoOpTracer _ _ = return ()
-traceFormat t f xs =
-  trace t $ foldl' (\e a -> ((show e) `f` (show a))) "" xs
+traceFormat t d ls = trace t $ concat (intersperse d ls)
 
