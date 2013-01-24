@@ -67,6 +67,8 @@ module Control.Distributed.Process.Internal.Types
   , channelCounter
   , typedChannels
   , typedChannelWithId
+    -- * Utilities
+  , forever'
   ) where
 
 import System.Mem.Weak (Weak)
@@ -625,3 +627,13 @@ typedChannels = accessor _typedChannels (\cs st -> st { _typedChannels = cs })
 
 typedChannelWithId :: LocalSendPortId -> Accessor LocalProcessState (Maybe TypedChannel)
 typedChannelWithId cid = typedChannels >>> DAC.mapMaybe cid
+
+--------------------------------------------------------------------------------
+-- Utilities                                                                  --
+--------------------------------------------------------------------------------
+
+-- Like 'Control.Monad.forever' but sans space leak
+{-# INLINE forever' #-}
+forever' :: Monad m => m a -> m b
+forever' a = let a' = a >> a' in a'
+

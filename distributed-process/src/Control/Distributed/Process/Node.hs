@@ -109,6 +109,7 @@ import Control.Distributed.Process.Internal.Types
   , localPidUnique
   , localProcessWithId
   , localConnections
+  , forever'
   , MonitorRef(..)
   , ProcessMonitorNotification(..)
   , NodeMonitorNotification(..)
@@ -201,11 +202,6 @@ createBareLocalNode endPoint rtable = do
   void . forkIO $ runNodeController node
   void . forkIO $ handleIncomingMessages node
   return node
-
--- Like 'Control.Monad.forever' but sans space leak
-{-# INLINE forever' #-}
-forever' :: Monad m => m a -> m b
-forever' a = let a' = a >> a' in a'
 
 -- | Start and register the service processes on a node
 -- (for now, this is only the logger)
