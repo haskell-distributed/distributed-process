@@ -77,7 +77,7 @@ startCounter startCount =
 
 serverDefinition :: ProcessDefinition State
 serverDefinition = defaultProcess {
-     dispatchers = [
+     apiHandlers = [
           handleCallIf (condition (\count Increment -> count >= 10))-- invariant
                        (\_ (_ :: Increment) -> do
                            haltNoReply_ (TerminateOther "Count > 10"))

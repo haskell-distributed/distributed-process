@@ -43,7 +43,7 @@ divide sid x y = call sid (Divide x y )
 launchMathServer :: Process ProcessId
 launchMathServer =
   let server = statelessProcess {
-      dispatchers = [
+      apiHandlers = [
           handleCall_   (\(Add    x y) -> return (x + y))
         , handleCallIf_ (input (\(Divide _ y) -> y /= 0)) handleDivide
         , handleCall_   (\(Divide _ _) -> divByZero)
