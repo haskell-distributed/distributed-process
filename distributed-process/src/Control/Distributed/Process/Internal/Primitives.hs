@@ -899,6 +899,13 @@ reconnectPort them = do
 -- Debugging/Tracing                                                          --
 --------------------------------------------------------------------------------
 
+-- | Send a message to the internal (system) trace facility. If tracing is
+-- enabled, this will create a custom trace event in the event log. Specifically,
+-- the environment variable @DISTRIBUTED_PROCESS_TRACE_FILE@ is set to a valid
+-- path, then trace output will be written to that file. Otherwise, if the GHC
+-- eventlog is enabled (i.e., you've compiled with @-eventlog@ set) and the
+-- relevant @+RTS@ options given, then the message will be sent to the event log.
+-- If neither facility is in use then trace messages will be silently dropped.
 trace :: String -> Process ()
 trace s = do
   node <- processNode <$> ask
