@@ -47,6 +47,7 @@ library
   other-modules:
                    Control.Distributed.Process.Platform.Internal.Primitives,
                    Control.Distributed.Process.Platform.Internal.Types,
+                   Control.Distributed.Process.Platform.Internal.Common,
                    Control.Distributed.Process.Platform.Async.Types
 
 test-suite TimerTests
@@ -99,13 +100,8 @@ test-suite PrimitivesTests
                    tests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   other-modules:
-                   Control.Distributed.Process.Platform,
-                   Control.Distributed.Process.Platform.Internal.Primitives,
-                   Control.Distributed.Process.Platform.Time,
                    TestUtils,
-                   Control.Distributed.Process.Platform.Test,
-                   TestGenServer,
-                   Control.Distributed.Process.Platform.Async.Types
+                   TestGenServer
   extensions:      CPP
   main-is:         TestPrimitives.hs
 
@@ -133,8 +129,7 @@ test-suite AsyncTests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   other-modules:
                    TestUtils,
-                   TestGenServer,
-                   Control.Distributed.Process.Platform.Async.Types
+                   TestGenServer
   extensions:      CPP
   main-is:         TestAsync.hs
 
@@ -161,11 +156,24 @@ test-suite GenServerTests
                    tests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   other-modules:
-                TestUtils,
-                MathsDemo,
-                Counter,
-                SimplePool,
-                Control.Distributed.Process.Platform.Async.Types
+                   Control.Distributed.Process.Platform,
+                   Control.Distributed.Process.Platform.Async
+                   Control.Distributed.Process.Platform.Async.AsyncChan
+                   Control.Distributed.Process.Platform.Async.AsyncSTM
+                   Control.Distributed.Process.Platform.Call,
+                   Control.Distributed.Process.Platform.GenProcess,
+                   Control.Distributed.Process.Platform.GenServer,
+                   Control.Distributed.Process.Platform.Test,
+                   Control.Distributed.Process.Platform.Time,
+                   Control.Distributed.Process.Platform.Timer,
+                   Control.Distributed.Process.Platform.Internal.Primitives,
+                   Control.Distributed.Process.Platform.Internal.Types,
+                   Control.Distributed.Process.Platform.Internal.Common,
+                   Control.Distributed.Process.Platform.Async.Types,
+                   TestUtils,
+                   MathsDemo,
+                   Counter,
+                   SimplePool
   extensions:      CPP
   main-is:         TestGenServer.hs
 
