@@ -182,8 +182,10 @@ nullProcessId nid =
 
 -- | Required for system tracing in the node controller
 data Tracer =
-    LogFileTracer !ThreadId !(STM.TQueue String) !Handle
-  | EventLogTracer !(String -> IO ())
+    LogFileTracer   !ThreadId !(STM.TQueue String) !Handle
+  | EventLogTracer  !(String -> IO ())
+  | LocalNodeTracer !LocalNode
+  | InactiveTracer  -- NB: never used, this is required to initialize LocalNode
 
 -- | Local nodes
 data LocalNode = LocalNode

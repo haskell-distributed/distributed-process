@@ -1,14 +1,15 @@
 -- | Simple (internal) system logging/tracing support.
 module Control.Distributed.Process.Internal.Trace
   ( Tracer
+  , TraceArg(..)
   , trace
   , traceFormat
-  , defaultTracer
-  , logfileTracer
+  , startTracing
   , stopTracer
   ) where
 
 import Control.Concurrent (forkIO)
+import Control.Concurrent.Chan (writeChan)
 import Control.Concurrent.STM
   ( TQueue
   , newTQueueIO
@@ -17,8 +18,14 @@ import Control.Concurrent.STM
   , atomically
   )
 import Control.Distributed.Process.Internal.Types
-  ( forever'
-  , Tracer(..)
+  ( Tracer(..)
+  , LocalNode(..)
+  , NCMsg(..)
+  , Identifier(ProcessIdentifier)
+  , ProcessSignal(NamedSend)
+  , forever'
+  , nullProcessId
+  , createMessage
   )
 import Control.Exception
   ( catch
@@ -45,10 +52,26 @@ import System.IO
   )
 import System.Locale (defaultTimeLocale)
 
-defaultTracer :: IO Tracer
-defaultTracer = do
+data TraceArg = 
+    TraceStr String
+  | forall a. (Show a) => Trace a
+
+startTracing :: LocalNode -> IO LocalNode
+startTracing node = do
+  tracer <- defaultTracer node
+  return node { localTracer = tracer }
+
+defaultTracer :: LocalNode -> IO Tracer
+defaultTracer node = do
   catch (getEnv "DISTRIBUTED_PROCESS_TRACE_FILE" >>= logfileTracer)
+        (\(_ :: IOError) -> defaultTracerAux node)
+
+defaultTracerAux :: LocalNode -> IO Tracer
+defaultTracerAux node = do
+  catch (getEnv "DISTRIBUTED_PROCESS_TRACE_CONSOLE" >> procTracer node)
         (\(_ :: IOError) -> return (EventLogTracer traceEventIO))
+  where procTracer :: LocalNode -> IO Tracer
+        procTracer n = return $ (LocalNodeTracer n)
 
 logfileTracer :: FilePath -> IO Tracer
 logfileTracer p = do
@@ -72,11 +95,28 @@ stopTracer _                       = return ()
 
 trace :: Tracer -> String -> IO ()
 trace (LogFileTracer _ q _) msg = atomically $ writeTQueue q msg
+trace (LocalNodeTracer n)   msg = sendTraceMsg n msg
 trace (EventLogTracer t)    msg = t msg
+trace InactiveTracer        _   = return ()
 
 traceFormat :: Tracer
             -> String
-            -> [String]
+            -> [TraceArg]
             -> IO ()
-traceFormat t d ls = trace t $ concat (intersperse d ls)
+traceFormat t d ls =
+    trace t $ concat (intersperse d (map toS ls))
+  where toS :: TraceArg -> String
+        toS (TraceStr s) = s
+        toS (Trace    a) = show a
+
+sendTraceMsg :: LocalNode -> String -> IO ()
+sendTraceMsg node string = do
+  now <- getCurrentTime
+  msg <- return $ (formatTime defaultTimeLocale "%c" now, string)
+  emptyPid <- return $ (nullProcessId (localNodeId node))
+  traceMsg <- return $ NCMsg {
+                         ctrlMsgSender = ProcessIdentifier (emptyPid)
+                       , ctrlMsgSignal = (NamedSend "logger" (createMessage msg))
+                       }
+  writeChan (localCtrlChan node) traceMsg
 

@@ -99,7 +99,7 @@ import Control.Distributed.Process.Internal.Types
   , LocalProcessId(..)
   , ProcessId(..)
   , LocalNode(..)
-  , Tracer
+  , Tracer(InactiveTracer)
   , LocalNodeState(..)
   , LocalProcess(..)
   , LocalProcessState(..)
@@ -144,9 +144,9 @@ import Control.Distributed.Process.Internal.Types
   , ImplicitReconnect(WithImplicitReconnect, NoImplicitReconnect)
   )
 import Control.Distributed.Process.Internal.Trace
-  ( trace
+  ( TraceArg(..)
   , traceFormat
-  , defaultTracer
+  , startTracing
   , stopTracer
   )
 import Control.Distributed.Process.Serializable (Serializable)
@@ -200,18 +200,18 @@ createBareLocalNode endPoint rtable = do
     , _localPidUnique   = unq
     , _localConnections = Map.empty
     }
-  tracer <- defaultTracer
   ctrlChan <- newChan
   let node = LocalNode { localNodeId   = NodeId $ NT.address endPoint
                        , localEndPoint = endPoint
                        , localState    = state
                        , localCtrlChan = ctrlChan
-                       , localTracer   = tracer
+                       , localTracer   = InactiveTracer
                        , remoteTable   = rtable
                        }
-  void . forkIO $ runNodeController node
-  void . forkIO $ handleIncomingMessages node
-  return node
+  tracedNode <- startTracing node
+  void . forkIO $ runNodeController tracedNode
+  void . forkIO $ handleIncomingMessages tracedNode
+  return tracedNode
 
 -- | Start and register the service processes on a node
 -- (for now, this is only the logger)
@@ -224,6 +224,10 @@ startServiceProcesses node = do
     receiveWait
       [ match $ \((time, pid, string) ::(String, ProcessId, String)) -> do
           liftIO . hPutStrLn stderr $ time ++ " " ++ show pid ++ ": " ++ string
+          loop
+      , match $ \((time, string) :: (String, String)) -> do
+          -- this is a 'trace' message from the local node tracer
+          liftIO . hPutStrLn stderr $ time ++ " [trace] " ++ string
           loop
       , match $ \(ch :: SendPort ()) -> -- a shutdown request
           sendChan ch ()
@@ -431,15 +435,18 @@ handleIncomingMessages node = go initConnectionState
              $ st
              )
         NT.ErrorEvent (NT.TransportError NT.EventEndPointFailed str) ->
-          fail $ "Cloud Haskell fatal error: end point failed: " ++ str
+          fatal $ "Cloud Haskell fatal error: end point failed: " ++ str
         NT.ErrorEvent (NT.TransportError NT.EventTransportFailed str) ->
-          fail $ "Cloud Haskell fatal error: transport failed: " ++ str
+          fatal $ "Cloud Haskell fatal error: transport failed: " ++ str
         NT.EndPointClosed ->
-          return ()
+          stopTracer (localTracer node) >> return ()
         NT.ReceivedMulticast _ _ ->
           -- If we received a multicast message, something went horribly wrong
           -- and we just give up
-          fail "Cloud Haskell fatal error: received unexpected multicast"
+          fatal "Cloud Haskell fatal error: received unexpected multicast"
+
+    fatal :: String -> IO ()
+    fatal msg = stopTracer (localTracer node) >> fail msg
 
     invalidRequest :: NT.ConnectionId -> ConnectionState -> IO ()
     invalidRequest cid st = do
@@ -447,7 +454,8 @@ handleIncomingMessages node = go initConnectionState
       -- node. That is, we should report the remote node as having died, and we
       -- should close incoming connections (this requires a Transport layer
       -- extension).
-      traceEventFmtIO node "" ["[network] invalid request: ", (show cid)]
+      traceEventFmtIO node "" [(TraceStr "[network] invalid request: "),
+                               (Trace cid)]
       go ( incomingAt cid ^= Nothing
          $ st
          )
@@ -510,21 +518,17 @@ traceNotifyDied node ident reason =
   case reason of
     DiedNormal -> return ()
     _ -> traceNcEventFmt node " "
-                         ["[node-controller]", (show ident), (show reason)]
+                         [(TraceStr "[node-controller]"),
+                          (Trace ident),
+                          (Trace reason)]
 
-traceNcEvent :: LocalNode -> String -> NC ()
-traceNcEvent node msg = liftIO $ traceEventIO node msg
-
-traceNcEventFmt :: LocalNode -> String -> [String] -> NC ()
+traceNcEventFmt :: LocalNode -> String -> [TraceArg] -> NC ()
 traceNcEventFmt node fmt args =
   liftIO $ traceEventFmtIO node fmt args
 
-traceEventIO :: LocalNode -> String -> IO ()
-traceEventIO node msg = withLocalTracer node $ \t -> trace t msg
-
 traceEventFmtIO :: LocalNode
                 -> String
-                -> [String]
+                -> [TraceArg]
                 -> IO ()
 traceEventFmtIO node fmt args =
   withLocalTracer node $ \t -> traceFormat t fmt args
