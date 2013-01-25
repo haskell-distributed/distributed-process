@@ -62,7 +62,7 @@ mkServer :: UnhandledMessagePolicy
          -> Process (ProcessId, MVar (Either (InitResult ()) TerminateReason))
 mkServer policy =
   let s = statelessProcess {
-        dispatchers = [
+        apiHandlers = [
               -- note: state is passed here, as a 'stateless' process is
               -- in fact process definition whose state is ()
 
@@ -88,6 +88,30 @@ mkServer policy =
       catch (start () (statelessInit Infinity) s >>= stash exitReason)
             (\(e :: SomeException) -> stash exitReason $ Right (TerminateOther (show e)))
     return (pid, exitReason)
+
+explodingServer :: ProcessId
+                -> Process (ProcessId, MVar (Either (InitResult ()) TerminateReason))
+explodingServer pid =
+  let srv = statelessProcess {
+          apiHandlers = [
+               handleCall_ (\(s :: String) ->
+                               (die s) :: Process String)
+             , handleCast  (\_ (i :: Int) ->
+                               getSelfPid >>= \p -> die (p, i))
+             ]
+        , exitHandlers = [
+               handleExit  (\s _ (m :: String) -> send pid (m :: String) >>
+                                                  continue s)
+             , handleExit  (\s _ m@((_ :: ProcessId),
+                                    (_ :: Int)) -> send pid m >> continue s)
+             ]
+        }
+  in do
+    exitReason <- liftIO $ newEmptyMVar
+    spid <- spawnLocal $ do
+      catch (start () (statelessInit Infinity) srv >>= stash exitReason)
+            (\(e :: SomeException) -> stash exitReason $ Right (TerminateOther (show e)))
+    return (spid, exitReason)
 
 startTestPool :: Int -> Process ProcessId
 startTestPool s = spawnLocal $ do
@@ -202,7 +226,36 @@ testKillMidCall result = do
         unpack res sid AsyncCancelled = kill sid "stop" >> stash res True
         unpack res sid _              = kill sid "stop" >> stash res False
 
+testSimpleErrorHandling :: TestResult (Maybe TerminateReason) -> Process ()
+testSimpleErrorHandling result = do
+  self <- getSelfPid
+  (pid, exitReason) <- explodingServer self
+
+  -- this should be *altered* because of the exit handler
+  Nothing <- callTimeout pid "foobar" (within 1 Seconds) :: Process (Maybe String)
+  "foobar" <- expect
+
+  shutdown pid
+  waitForExit exitReason >>= stash result
+
+testAlternativeErrorHandling :: TestResult (Maybe TerminateReason) -> Process ()
+testAlternativeErrorHandling result = do
+  self <- getSelfPid
+  (pid, exitReason) <- explodingServer self
+
+  -- this should be ignored/altered because of the second exit handler
+  cast pid (42 :: Int)
+  (Just True) <- receiveTimeout (after 2 Seconds) [
+        matchIf (\((p :: ProcessId), (i :: Int)) -> p == pid && i == 42)
+                (\_ -> return True)
+      ]
+
+  shutdown pid
+  waitForExit exitReason >>= stash result
+
+
 -- SimplePool tests
+
 testSimplePoolJobBlocksCaller :: TestResult (AsyncResult (Either String String))
                               -> Process ()
 testSimplePoolJobBlocksCaller result = do
@@ -333,6 +386,12 @@ tests transport = do
           , testCase "long running call cancellation"
             (delayedAssertion "expected to get AsyncCancelled"
              localNode True testKillMidCall)
+          , testCase "simple exit handling"
+            (delayedAssertion "expected handler to catch exception and continue"
+             localNode (Just TerminateShutdown) testSimpleErrorHandling)
+          , testCase "alternative exit handlers"
+            (delayedAssertion "expected handler to catch exception and continue"
+             localNode (Just TerminateShutdown) testAlternativeErrorHandling)
           ]
         , testGroup "simple pool examples" [
             testCase "each task execution blocks the caller"

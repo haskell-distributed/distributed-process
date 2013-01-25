@@ -38,7 +38,7 @@ data Pool a = Pool {
 poolServer :: forall a . (Serializable a) => ProcessDefinition (Pool a)
 poolServer =
     defaultProcess {
-        dispatchers = [
+        apiHandlers = [
             handleCallFrom (\s f (p :: Closure (Process a)) -> storeTask s f p)
         ]
       , infoHandlers = [
