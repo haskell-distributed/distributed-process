@@ -507,7 +507,10 @@ instance Show ProcessKillException where
 
 traceNotifyDied :: LocalNode -> Identifier -> DiedReason -> NC ()
 traceNotifyDied node ident reason =
-  traceNcEventFmt node " " ["[node-controller]", (show ident), (show reason)]
+  case reason of
+    DiedNormal -> return ()
+    _ -> traceNcEventFmt node " "
+                         ["[node-controller]", (show ident), (show reason)]
 
 traceNcEvent :: LocalNode -> String -> NC ()
 traceNcEvent node msg = liftIO $ traceEventIO node msg
