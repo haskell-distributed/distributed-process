@@ -110,6 +110,7 @@ import Control.Distributed.Process.Internal.StrictMVar (StrictMVar)
 import Control.Distributed.Process.Internal.WeakTQueue (TQueue)
 import Control.Distributed.Static (RemoteTable, Closure)
 import qualified Control.Distributed.Process.Internal.StrictContainerAccessors as DAC (mapMaybe)
+import System.IO (Handle)
 
 --------------------------------------------------------------------------------
 -- Node and process identifiers                                               --
@@ -181,8 +182,8 @@ nullProcessId nid =
 
 -- | Required for system tracing in the node controller
 data Tracer =
-    LogFileTracer ThreadId (STM.TQueue String)
-  | EventLogTracer (String -> IO ())
+    LogFileTracer !ThreadId !(STM.TQueue String) !Handle
+  | EventLogTracer !(String -> IO ())
 
 -- | Local nodes
 data LocalNode = LocalNode
