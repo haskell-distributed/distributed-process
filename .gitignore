@@ -9,3 +9,5 @@ cabal-dev
 *.lksh?
 .dist-buildwrapper
 .project
+.hpc
+*.tix
