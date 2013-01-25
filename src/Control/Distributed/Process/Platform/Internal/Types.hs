@@ -11,6 +11,7 @@ module Control.Distributed.Process.Platform.Internal.Types
   , RegisterSelf(..)
   , CancelWait(..)
   , Channel
+  , Shutdown(..)
   , TerminateReason(..)
   ) where
 
