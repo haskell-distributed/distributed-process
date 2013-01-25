@@ -44,7 +44,7 @@
 -- signal or similar asynchronous exception is thrown in (or to) the process
 -- itself.
 --
--- The other handlers are split into two groups: /dispatchers/ and /infoHandlers/.
+-- The other handlers are split into two groups: /apiHandlers/ and /infoHandlers/.
 -- The former contains handlers for the 'cast' and 'call' protocols, whilst the
 -- latter contains handlers that deal with input messages which are not sent
 -- via these API calls (i.e., messages sent using bare 'send' or signals put
@@ -59,9 +59,9 @@
 -- the client. On the other hand, a 'call' interaction is a kind of /rpc/
 -- where the client sends a message and waits for a reply.
 --
--- The expressions given /dispatchers/ have to conform to the /cast|call/
+-- The expressions given to @apiHandlers@ have to conform to the /cast|call/
 -- protocol. The details of this are, however, hidden from the user. A set
--- of API functions for creating /dispatchers/ are given instead, which
+-- of API functions for creating @apiHandlers@ are given instead, which
 -- take expressions (i.e., a function or lambda expression) and create the
 -- appropriate @Dispatcher@ for handling the cast (or call).
 --
@@ -104,7 +104,7 @@
 --
 -- @
 --   statelessProcess {
---       dispatchers = [
+--       apiHandlers = [
 --         handleCall_   (\\(n :: Int) -> return (n * 2))
 --       , handleCastIf_ (\\(c :: String, _ :: Delay) -> c == \"timeout\")
 --                       (\\(\"timeout\", Delay d) -> timeoutAfter_ d)
@@ -145,6 +145,7 @@ module Control.Distributed.Process.Platform.GenProcess
   , ProcessDefinition(..)
     -- * Client interaction with the process
   , start
+  , shutdown
   , defaultProcess
   , statelessProcess
   , statelessInit
@@ -181,6 +182,7 @@ module Control.Distributed.Process.Platform.GenProcess
   , handleCastIf
   , handleInfo
   , handleDispatch
+  , handleExit
     -- * Stateless handlers
   , action
   , handleCall_
@@ -194,7 +196,9 @@ import Control.Distributed.Process hiding (call)
 import Control.Distributed.Process.Serializable
 import Control.Distributed.Process.Platform.Async hiding (check)
 import Control.Distributed.Process.Platform.Internal.Types
-  ( TerminateReason(..))
+  ( TerminateReason(..)
+  , Shutdown(..)
+  )
 import Control.Distributed.Process.Platform.Internal.Common
 import Control.Distributed.Process.Platform.Time
 
@@ -288,8 +292,18 @@ data Dispatcher s =
       }
 
 -- | Provides dispatch for any input, returns 'Nothing' for unhandled messages.
-data InfoDispatcher s = InfoDispatcher {
-    dispatchInfo :: s -> AbstractMessage -> Process (Maybe (ProcessAction s))
+data DeferredDispatcher s = DeferredDispatcher {
+    dispatchInfo :: s
+                 -> AbstractMessage
+                 -> Process (Maybe (ProcessAction s))
+  }
+
+-- | Provides dispatch for any exit signal - returns 'Nothing' for unhandled exceptions
+data ExitSignalDispatcher s = ExitSignalDispatcher {
+    dispatchExit :: s
+                 -> ProcessId
+                 -> AbstractMessage
+                 -> Process (Maybe (ProcessAction s))
   }
 
 class MessageMatcher d where
@@ -310,8 +324,9 @@ data UnhandledMessagePolicy =
 -- | Stores the functions that determine runtime behaviour in response to
 -- incoming messages and a policy for responding to unhandled messages.
 data ProcessDefinition s = ProcessDefinition {
-    dispatchers :: [Dispatcher s]     -- ^ functions that handle call/cast messages
-  , infoHandlers :: [InfoDispatcher s] -- ^ functions that handle non call/cast messages
+    apiHandlers  :: [Dispatcher s]     -- ^ functions that handle call/cast messages
+  , infoHandlers :: [DeferredDispatcher s] -- ^ functions that handle non call/cast messages
+  , exitHandlers :: [ExitSignalDispatcher s] -- ^ functions that handle exit signals
   , timeoutHandler :: TimeoutHandler s   -- ^ a function that handles timeouts
   , terminateHandler :: TerminateHandler s -- ^ a function that is run just before the process exits
   , unhandledMessagePolicy :: UnhandledMessagePolicy -- ^ how to deal with unhandled messages
@@ -335,13 +350,23 @@ start :: a
 start args init behave = do
   ir <- init args
   case ir of
-    InitOk s d -> loop behave s d >>= return . Right
+    InitOk s d -> recvLoop behave s d >>= return . Right
     f@(InitFail _) -> return $ Left f
+
+-- | Send a signal instructing the process to terminate. The /receive loop/ which
+-- manages the process mailbox will prioritise @Shutdown@ signals higher than
+-- any other incoming messages, but the server might be busy (i.e., still in the
+-- process of excuting a handler) at the time of sending however, so the caller
+-- should not make any assumptions about the timeliness with which the shutdown
+-- signal will be handled.
+shutdown :: ProcessId -> Process ()
+shutdown pid = cast pid Shutdown
 
 defaultProcess :: ProcessDefinition s
 defaultProcess = ProcessDefinition {
-    dispatchers      = []
+    apiHandlers      = []
   , infoHandlers     = []
+  , exitHandlers     = []
   , timeoutHandler   = \s _ -> continue s
   , terminateHandler = \_ _ -> return ()
   , unhandledMessagePolicy = Terminate
@@ -352,8 +377,9 @@ defaultProcess = ProcessDefinition {
 -- same as calling @continue ()@ and the terminate handler is a no-op.
 statelessProcess :: ProcessDefinition ()
 statelessProcess = ProcessDefinition {
-    dispatchers            = []
+    apiHandlers            = []
   , infoHandlers           = []
+  , exitHandlers           = []
   , timeoutHandler         = \s _ -> continue s
   , terminateHandler       = \_ _ -> return ()
   , unhandledMessagePolicy = Terminate
@@ -585,7 +611,7 @@ replyTo :: (Serializable m) => Recipient -> m -> Process ()
 replyTo client msg = sendTo client (CallResponse msg)
 
 --------------------------------------------------------------------------------
--- Wrapping handler expressions in Dispatcher and InfoDispatcher              --
+-- Wrapping handler expressions in Dispatcher and DeferredDispatcher          --
 --------------------------------------------------------------------------------
 
 -- | Constructs a 'call' handler from a function in the 'Process' monad.
@@ -601,7 +627,7 @@ handleCall_ = handleCallIf_ $ input (const True)
 
 -- | Constructs a 'call' handler from an ordinary function in the 'Process'
 -- monad. This variant ignores the state argument present in 'handleCall' and
--- 'handleCallIf' and is therefore useful in a stateless server. Messages are
+-- 'handleCallIf' and is therefore useful in a stateless server. Messges are
 -- only dispatched to the handler if the supplied condition evaluates to @True@
 --
 -- See 'handleCall'
@@ -787,8 +813,8 @@ handleDispatchIf cond handler = DispatchIf {
 -- 'Process' monad.
 handleInfo :: forall s a. (Serializable a)
            => (s -> a -> Process (ProcessAction s))
-           -> InfoDispatcher s
-handleInfo h = InfoDispatcher { dispatchInfo = doHandleInfo h }
+           -> DeferredDispatcher s
+handleInfo h = DeferredDispatcher { dispatchInfo = doHandleInfo h }
   where
     doHandleInfo :: forall s2 a2. (Serializable a2)
                              => (s2 -> a2 -> Process (ProcessAction s2))
@@ -796,6 +822,20 @@ handleInfo h = InfoDispatcher { dispatchInfo = doHandleInfo h }
                              -> AbstractMessage
                              -> Process (Maybe (ProcessAction s2))
     doHandleInfo h' s msg = maybeHandleMessage msg (h' s)
+
+-- | Creates an /exit handler/ scoped to the execution of any and all the
+-- registered call, cast and info handlers for the process. 
+handleExit :: forall s a. (Serializable a)
+           => (s -> ProcessId -> a -> Process (ProcessAction s))
+           -> ExitSignalDispatcher s
+handleExit h = ExitSignalDispatcher { dispatchExit = doHandleExit h }
+  where
+    doHandleExit :: (s -> ProcessId -> a -> Process (ProcessAction s))
+                 -> s
+                 -> ProcessId
+                 -> AbstractMessage
+                 -> Process (Maybe (ProcessAction s))
+    doHandleExit h' s p msg = maybeHandleMessage msg (h' s p)
 
 -- handling 'reply-to' in the main process loop is awkward at best,
 -- so we handle it here instead and return the 'action' to the loop
@@ -839,60 +879,65 @@ decode (CastMessage a)   = a
 -- Internal Process Implementation                                            --
 --------------------------------------------------------------------------------
 
-applyPolicy :: s
-            -> UnhandledMessagePolicy
+recvLoop :: ProcessDefinition s -> s -> Delay -> Process TerminateReason
+recvLoop pDef pState recvDelay =
+  let p             = unhandledMessagePolicy pDef
+      handleTimeout = timeoutHandler pDef
+      handleStop    = terminateHandler pDef
+      shutdown'     = matchMessage p pState shutdownHandler
+      matchers      = map (matchMessage p pState) (apiHandlers pDef)
+      ms' = (shutdown':matchers) ++ matchAux p pState (infoHandlers pDef)
+  in do
+    ac <- catchesExit (processReceive ms' handleTimeout pState recvDelay)
+                      (map (\d' -> (dispatchExit d') pState) (exitHandlers pDef))
+    case ac of
+        (ProcessContinue s')     -> recvLoop pDef s' recvDelay
+        (ProcessTimeout t' s')   -> recvLoop pDef s' (Delay t')
+        (ProcessHibernate d' s') -> block d' >> recvLoop pDef s' recvDelay
+        (ProcessStop r) -> handleStop pState r >> return (r :: TerminateReason)
+
+shutdownHandler :: Dispatcher s
+shutdownHandler = handleCast (\_ Shutdown -> stop $ TerminateShutdown)
+
+block :: TimeInterval -> Process ()
+block i = liftIO $ threadDelay (asTimeout i)
+
+applyPolicy :: UnhandledMessagePolicy
+            -> s
             -> AbstractMessage
             -> Process (ProcessAction s)
-applyPolicy s p m =
+applyPolicy p s m =
   case p of
     Terminate      -> stop $ TerminateOther "UnhandledInput"
     DeadLetter pid -> forward m pid >> continue s
     Drop           -> continue s
 
-loop :: ProcessDefinition s -> s -> Delay -> Process TerminateReason
-loop pDef pState recvDelay =
-  let p             = unhandledMessagePolicy pDef
-      handleTimeout = timeoutHandler pDef
-      handleStop    = terminateHandler pDef
-      ms            = map (matchMessage p pState) (dispatchers pDef)
-      ms'           = ms ++ addInfoAux p pState (infoHandlers pDef)
-  in do
-    ac <- processReceive ms' handleTimeout pState recvDelay
-    case ac of
-      (ProcessContinue s')     -> loop pDef s' recvDelay
-      (ProcessTimeout t' s')   -> loop pDef s' (Delay t')
-      (ProcessHibernate d' s') -> block d' >> loop pDef s' recvDelay
-      (ProcessStop r) -> handleStop pState r >> return (r :: TerminateReason)
-  where
-    block :: TimeInterval -> Process ()
-    block i = liftIO $ threadDelay (asTimeout i)
+matchAux :: UnhandledMessagePolicy
+         -> s
+         -> [DeferredDispatcher s]
+         -> [Match (ProcessAction s)]
+matchAux p ps ds = [matchAny (auxHandler (applyPolicy p ps) ps ds)]
 
-    addInfoAux :: UnhandledMessagePolicy
-               -> s
-               -> [InfoDispatcher s]
-               -> [Match (ProcessAction s)]
-    addInfoAux p ps ds = [matchAny (infoHandler p ps ds)]
-
-    infoHandler :: UnhandledMessagePolicy
-                -> s
-                -> [InfoDispatcher s]
-                -> AbstractMessage
-                -> Process (ProcessAction s)
-    infoHandler pol st [] msg = applyPolicy st pol msg
-    infoHandler pol st (d:ds :: [InfoDispatcher s]) msg
-        | length ds > 0  = let dh = dispatchInfo d in do
-            -- NB: we *do not* want to terminate/dead-letter messages until
-            -- we've exhausted all the possible info handlers
-            m <- dh st msg
-            case m of
-              Nothing  -> infoHandler pol st ds msg
-              Just act -> return act
-          -- but here we *do* let the policy kick in
-        | otherwise = let dh = dispatchInfo d in do
-            m <- dh st msg
-            case m of
-              Nothing -> applyPolicy st pol msg
-              Just act -> return act
+auxHandler :: (AbstractMessage -> Process (ProcessAction s))
+           -> s
+           -> [DeferredDispatcher s]
+           -> AbstractMessage
+           -> Process (ProcessAction s)
+auxHandler policy _  [] msg = policy msg
+auxHandler policy st (d:ds :: [DeferredDispatcher s]) msg
+  | length ds > 0  = let dh = dispatchInfo d in do
+    -- NB: we *do not* want to terminate/dead-letter messages until
+    -- we've exhausted all the possible info handlers
+      m <- dh st msg
+      case m of
+        Nothing  -> auxHandler policy st ds msg
+        Just act -> return act
+      -- but here we *do* let the policy kick in
+  | otherwise = let dh = dispatchInfo d in do
+      m <- dh st msg
+      case m of
+        Nothing  -> policy msg
+        Just act -> return act
 
 processReceive :: [Match (ProcessAction s)]
                -> TimeoutHandler s -> s
@@ -910,3 +955,4 @@ processReceive ms handleTimeout st d = do
         case d' of
             Infinity -> receiveWait matches >>= return . Just
             Delay t' -> receiveTimeout (asTimeout t') matches
+
