@@ -315,7 +315,7 @@ matchIf c p = Match $ MatchMsg $ \msg ->
          !decoded = decode (messageEncoding msg)
      _ -> Nothing
 
--- | Represents a received message and provides two basic operations on it. 
+-- | Represents a received message and provides two basic operations on it.
 data AbstractMessage = AbstractMessage {
     forward :: ProcessId -> Process () -- ^ forward the message to @ProcessId@
   , maybeHandleMessage :: forall a b. (Serializable a)
@@ -324,7 +324,7 @@ data AbstractMessage = AbstractMessage {
         the supplied expression, then the expression will be evaluated against
         it. If this runtime type checking fails, then @Nothing@ will be returned
         to indicate the fact. If the check succeeds and evaluation proceeds
-        however, the resulting value with be wrapped with @Just@.  
+        however, the resulting value with be wrapped with @Just@.
     -}
   }
 
@@ -334,9 +334,9 @@ data AbstractMessage = AbstractMessage {
 -- type. If /not/ of the right type, then the 'AbstractMessage'
 -- @maybeHandleMessage@ function will not evaluate the supplied expression,
 -- /but/ the message will still have been removed from the process mailbox!
---   
+--
 matchAny :: forall b. (AbstractMessage -> Process b) -> Match b
-matchAny p = Match $ MatchMsg $ Just . p . abstract    
+matchAny p = Match $ MatchMsg $ Just . p . abstract
 
 -- | Match against an arbitrary message. 'matchAnyIf' will /only/ remove the
 -- message from the process mailbox, /if/ the supplied condition matches. The
@@ -358,7 +358,7 @@ matchAnyIf c p = Match $ MatchMsg $ \msg ->
          -- Make sure the value is fully decoded so that we don't hang to
          -- bytestrings when the calling process doesn't evaluate immediately
          !decoded = decode (messageEncoding msg)
-     _ -> Nothing                 
+     _ -> Nothing
 
 abstract :: Message -> AbstractMessage
 abstract msg = AbstractMessage {
@@ -429,7 +429,7 @@ exit them reason = sendCtrlMsg Nothing (Exit them (createMessage reason))
 -- the exception will be re-thrown.
 --
 -- To handle 'ProcessExitException' without regard for /reason/, see 'catch'.
--- To handle multiple /reasons/ of differing types, see 'catchesExit'. 
+-- To handle multiple /reasons/ of differing types, see 'catchesExit'.
 catchExit :: forall a b . (Show a, Serializable a)
                        => Process b
                        -> (ProcessId -> a -> Process b)
@@ -454,7 +454,7 @@ catchExit act exitHandler = catch act handleExit
 -- a handler passed to 'catchesExit' must accept 'AbstractMessage' and return
 -- @Maybe@ (i.e., @Just p@ if it handled the exit reason, otherwise @Nothing@).
 --
--- See 'maybeHandleMessage' and 'AsbtractMessage' for more details. 
+-- See 'maybeHandleMessage' and 'AsbtractMessage' for more details.
 catchesExit :: Process b
             -> [(ProcessId -> AbstractMessage -> (Process (Maybe b)))]
             -> Process b
