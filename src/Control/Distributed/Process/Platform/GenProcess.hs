@@ -16,7 +16,8 @@
 -- This module provides a high(er) level API for building complex 'Process'
 -- implementations by abstracting out the management of the process' mailbox,
 -- reply/response handling, timeouts, process hiberation, error handling
--- and shutdown/stop procedures.
+-- and shutdown/stop procedures. It is modelled along similar lines to OTP's
+-- gen_server API - <http://www.erlang.org/doc/man/gen_server.html>.
 --
 -- [API Overview]
 --
@@ -117,15 +118,46 @@
 --
 -- Error handling appears in several contexts and process definitions can
 -- hook into these with relative ease. Only process failures as a result of
--- asynchronous exceptions are supported by the API, so /error/ handling
--- code is the responsibility of the programmer.
+-- asynchronous exceptions are supported by the API, which provides several
+-- scopes for error handling.
 --
--- The API provides several scopes for error handling. There is obviously
--- nothing to stop the programmer from catching exceptions in various
--- handlers, and this is fine, as is using the 'catchExit' API from
--- 'Control.Distributed.Process'.
+-- Catching exceptions inside handler functions is no different to ordinary
+-- exception handling in monadic code.
 --
+-- @
+--   handleCall (\\x y ->
+--                catch (hereBeDragons x y)
+--                      (\\(e :: SmaugTheTerribleException) ->
+--                           return (Left (show e))))
+-- @
 --
+-- The caveats mentioned in "Control.Distributed.Process.Platform" about
+-- exit signal handling obviously apply here as well.
+--
+-- [Structured Exit Signal Handling]
+--
+-- Because "Control.Distributed.Process.ProcessExitException" is a ubiquitous
+-- /signalling mechanism/ in Cloud Haskell, it is treated unlike other
+-- asynchronous exceptions. The 'ProcessDefinition' 'exitHandlers' field
+-- accepts a list of handlers that, for a specific exit reason, can decide
+-- how the process should respond. If none of these handlers matches the
+-- type of @reason@ then the process will exit with @DiedException why@. In
+-- addition, a default /exit handler/ is installed for exit signals where the
+-- @reason == Shutdown@, because this is an /exit signal/ used explicitly and
+-- extensively throughout the platform. The default behaviour is to gracefully
+-- shut down the process, calling the @terminateHandler@ as usual, before
+-- stopping with @TerminateShutdown@ given as the final outcome.
+--
+-- /Example: How to annoy your supervisor and end up force-killed:/
+--
+-- > handleExit  (\state from (sigExit :: Shutdown) -> continue s)
+--
+-- That code is, of course, very silly. Under some circumstances, handling
+-- exit signals is perfectly legitimate. Handling of /other/ forms of
+-- asynchronous exception is not supported.
+-- 
+-- If any asynchronous exception goes unhandled, the process will immediately
+-- exit without running the @terminateHandler@.
 -----------------------------------------------------------------------------
 
 module Control.Distributed.Process.Platform.GenProcess
@@ -333,7 +365,7 @@ data ProcessDefinition s = ProcessDefinition {
   }
 
 --------------------------------------------------------------------------------
--- Client facing API functions                                                --
+-- Client API                                                                 --
 --------------------------------------------------------------------------------
 
 -- TODO: automatic registration
@@ -358,7 +390,10 @@ start args init behave = do
 -- any other incoming messages, but the server might be busy (i.e., still in the
 -- process of excuting a handler) at the time of sending however, so the caller
 -- should not make any assumptions about the timeliness with which the shutdown
--- signal will be handled.
+-- signal will be handled. If responsiveness is important, a better approach
+-- might be to send an /exit signal/ with 'Shutdown' as the reason. An exit
+-- signal will interrupt any operation currently underway and force the running
+-- process to clean up and terminate.
 shutdown :: ProcessId -> Process ()
 shutdown pid = cast pid Shutdown
 
@@ -426,7 +461,7 @@ tryCall s m = callAsync s m >>= wait >>= unpack    -- note [call using async]
 -- | Make a synchronous call, but timeout and return @Nothing@ if the reply
 -- is not received within the specified time interval.
 --
--- If the 'AsyncResult' for the call indicates a failure (or cancellation) then
+-- If the result of the call is a failure (or the call was cancelled) then
 -- the calling process will exit, with the 'AsyncResult' given as the reason.
 --
 callTimeout :: forall a b . (Serializable a, Serializable b)
@@ -441,7 +476,7 @@ callTimeout s m d = callAsync s m >>= waitTimeout d >>= unpack
 -- call is made /out of band/ and an async handle is returned immediately. This
 -- can be passed to functions in the /Async/ API in order to obtain the result.
 --
--- see "Control.Distributed.Process.Platform.Async"
+-- See "Control.Distributed.Process.Platform.Async"
 --
 callAsync :: forall a b . (Serializable a, Serializable b)
                  => ProcessId -> a -> Process (Async b)
@@ -452,13 +487,7 @@ callAsync = callAsyncUsing async
 -- async implementations, by e.g., using an async channel instead of the default
 -- STM based handle.
 --
--- See 'callAsync'
---
 -- See "Control.Distributed.Process.Platform.Async"
---
--- See "Control.Distributed.Process.Platform.Async.AsyncChan"
---
--- See "Control.Distributed.Process.Platform.Async.AsyncSTM"
 --
 callAsyncUsing :: forall a b . (Serializable a, Serializable b)
                   => (Process b -> Process (Async b))
@@ -500,7 +529,7 @@ callAsyncUsing asyncStart sid msg = do
 -- | Sends a /cast/ message to the server identified by 'ServerId'. The server
 -- will not send a response. Like Cloud Haskell's 'send' primitive, cast is
 -- fully asynchronous and /never fails/ - therefore 'cast'ing to a non-existent
--- (e.g., dead) process will not generate any errors.
+-- (e.g., dead) server process will not generate an error.
 cast :: forall a . (Serializable a)
                  => ProcessId -> a -> Process ()
 cast sid msg = send sid (CastMessage msg)
@@ -550,7 +579,8 @@ noReply = return . NoReply
 noReply_ :: forall s r . (Serializable r) => s -> Process (ProcessReply s r)
 noReply_ s = continue s >>= noReply
 
--- | Halt a call handler without regard for the expected return type.
+-- | Halt process execution during a call handler, without paying any attention
+-- to the expected return type.
 haltNoReply_ :: TerminateReason -> Process (ProcessReply s TerminateReason)
 haltNoReply_ r = stop r >>= noReply
 
@@ -591,7 +621,9 @@ hibernate d s = return $ ProcessHibernate d s
 hibernate_ :: TimeInterval -> (s -> Process (ProcessAction s))
 hibernate_ d = return . ProcessHibernate d
 
--- | Instructs the process to cease, giving the supplied reason for termination.
+-- | Instructs the process to terminate, giving the supplied reason. If a valid
+-- 'terminateHandler' is installed, it will be called with the 'TerminateReason'
+-- returned from this call, along with the process state.
 stop :: TerminateReason -> Process (ProcessAction s)
 stop r = return $ ProcessStop r
 
@@ -824,7 +856,7 @@ handleInfo h = DeferredDispatcher { dispatchInfo = doHandleInfo h }
     doHandleInfo h' s msg = maybeHandleMessage msg (h' s)
 
 -- | Creates an /exit handler/ scoped to the execution of any and all the
--- registered call, cast and info handlers for the process. 
+-- registered call, cast and info handlers for the process.
 handleExit :: forall s a. (Serializable a)
            => (s -> ProcessId -> a -> Process (ProcessAction s))
            -> ExitSignalDispatcher s
@@ -886,18 +918,24 @@ recvLoop pDef pState recvDelay =
       handleStop    = terminateHandler pDef
       shutdown'     = matchMessage p pState shutdownHandler
       matchers      = map (matchMessage p pState) (apiHandlers pDef)
+      ex'           = (exitHandlers pDef) ++ [trapExit]
       ms' = (shutdown':matchers) ++ matchAux p pState (infoHandlers pDef)
   in do
     ac <- catchesExit (processReceive ms' handleTimeout pState recvDelay)
-                      (map (\d' -> (dispatchExit d') pState) (exitHandlers pDef))
+                      (map (\d' -> (dispatchExit d') pState) ex')
     case ac of
         (ProcessContinue s')     -> recvLoop pDef s' recvDelay
         (ProcessTimeout t' s')   -> recvLoop pDef s' (Delay t')
         (ProcessHibernate d' s') -> block d' >> recvLoop pDef s' recvDelay
         (ProcessStop r) -> handleStop pState r >> return (r :: TerminateReason)
 
+-- an explicit 'cast' giving 'Shutdown' will stop the server gracefully
 shutdownHandler :: Dispatcher s
 shutdownHandler = handleCast (\_ Shutdown -> stop $ TerminateShutdown)
+
+-- @(ProcessExitException from Shutdown)@ will stop the server gracefully
+trapExit :: ExitSignalDispatcher s
+trapExit = handleExit (\_ (_ :: ProcessId) Shutdown -> stop $ TerminateShutdown)
 
 block :: TimeInterval -> Process ()
 block i = liftIO $ threadDelay (asTimeout i)
@@ -940,8 +978,10 @@ auxHandler policy st (d:ds :: [DeferredDispatcher s]) msg
         Just act -> return act
 
 processReceive :: [Match (ProcessAction s)]
-               -> TimeoutHandler s -> s
-               -> Delay -> Process (ProcessAction s)
+               -> TimeoutHandler s
+               -> s
+               -> Delay
+               -> Process (ProcessAction s)
 processReceive ms handleTimeout st d = do
     next <- recv ms d
     case next of
