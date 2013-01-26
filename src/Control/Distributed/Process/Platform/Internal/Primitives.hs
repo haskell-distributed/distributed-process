@@ -1,5 +1,7 @@
 {-# LANGUAGE DeriveDataTypeable     #-}
 {-# LANGUAGE TemplateHaskell        #-}
+{-# LANGUAGE TypeSynonymInstances   #-}
+{-# LANGUAGE FlexibleInstances      #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -16,12 +18,15 @@
 -----------------------------------------------------------------------------
 
 module Control.Distributed.Process.Platform.Internal.Primitives
-  ( -- spawning/linking
-    spawnLinkLocal
+  ( -- * Exported Types
+    Addressable(..)
+    -- spawning/linking
+  , spawnLinkLocal
   , spawnMonitorLocal
   , linkOnFailure
 
   -- registration/start
+  , whereisRemote
   , whereisOrStart
   , whereisOrStartRemote
 
@@ -33,8 +38,7 @@ module Control.Distributed.Process.Platform.Internal.Primitives
 
   -- remote table
   , __remoteTable
-  )
-where
+  ) where
 
 import Control.Concurrent (myThreadId, throwTo)
 import Control.Distributed.Process
@@ -42,6 +46,11 @@ import Control.Distributed.Process.Internal.Closure.BuiltIn (seqCP)
 import Control.Distributed.Process.Closure (remotable, mkClosure)
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Platform.Internal.Types
+  ( Recipient(..)
+  , RegisterSelf(..)
+  , sendToRecipient
+  , whereisRemote
+  )
 import Control.Monad (void)
 import Data.Maybe (isJust, fromJust)
 
@@ -52,6 +61,27 @@ n `times` proc = runP proc n
   where runP :: Process () -> Int -> Process ()
         runP _ 0 = return ()
         runP p n' = p >> runP p (n' - 1)
+
+-- | Provides a unified API for addressing processes
+class Addressable a where
+  -- | Send a message to the target asynchronously
+  sendTo  :: (Serializable m) => a -> m -> Process ()
+  -- | Resolve the reference to a process id, or @Nothing@ if resolution fails
+  resolve :: a -> Process (Maybe ProcessId)
+
+instance Addressable Recipient where
+  sendTo = sendToRecipient
+  resolve (Pid                p) = return (Just p)
+  resolve (Registered         n) = whereis n
+  resolve (RemoteRegistered s n) = whereisRemote n s
+
+instance Addressable ProcessId where
+  sendTo    = send
+  resolve p = return (Just p)
+
+instance Addressable String where
+  sendTo  = nsend
+  resolve = whereis
 
 -- spawning, linking and generic server startup
 
@@ -185,3 +215,4 @@ matchCond cond =
    let v n = (isJust n, fromJust n)
        res = v . cond
     in matchIf (fst . res) (snd . res)
+

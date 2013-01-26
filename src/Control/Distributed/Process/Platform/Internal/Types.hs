@@ -10,19 +10,33 @@ module Control.Distributed.Process.Platform.Internal.Types
   , newTagPool
   , getTag
     -- * Addressing
-  , sendTo
+  , sendToRecipient
   , Recipient(..)
   , RegisterSelf(..)
     -- * Interactions
+  , whereisRemote
   , CancelWait(..)
   , Channel
   , Shutdown(..)
   , TerminateReason(..)
+    -- remote table
+  , __remoteTable
   ) where
 
-import Control.Concurrent.MVar (MVar, newMVar, modifyMVar)
-import Control.Distributed.Process
+import Control.Concurrent.MVar
+  ( MVar
+  , newMVar
+  , modifyMVar
+  )
+import Control.Distributed.Process hiding (send)
+import qualified Control.Distributed.Process as P (send)
+import Control.Distributed.Process.Closure
+  ( remotable
+  , mkClosure
+  , functionTDict
+  )
 import Control.Distributed.Process.Serializable
+
 import Data.Binary
   ( Binary(put, get)
   , putWord8
@@ -66,15 +80,23 @@ data RegisterSelf = RegisterSelf deriving Typeable
 
 data Recipient =
     Pid ProcessId
-  | Service String
-  | RemoteService String NodeId
+  | Registered String
+  | RemoteRegistered String NodeId
   deriving (Typeable)
 $(derive makeBinary ''Recipient)
 
-sendTo :: (Serializable m) => Recipient -> m -> Process ()
-sendTo (Pid p) m             = send p m
-sendTo (Service s) m         = nsend s m
-sendTo (RemoteService s n) m = nsendRemote n s m
+sendToRecipient :: (Serializable m) => Recipient -> m -> Process ()
+sendToRecipient (Pid p) m                = P.send p m
+sendToRecipient (Registered s) m         = nsend s m
+sendToRecipient (RemoteRegistered s n) m = nsendRemote n s m
+
+$(remotable ['whereis])
+
+-- | A synchronous version of 'whereis', this relies on 'call'
+-- to perform the relevant monitoring of the remote node.
+whereisRemote :: NodeId -> String -> Process (Maybe ProcessId)
+whereisRemote node name =
+  call $(functionTDict 'whereis) node ($(mkClosure 'whereis) name)
 
 -- | A ubiquitous /shutdown signal/ that can be used
 -- to maintain a consistent shutdown/stop protocol for
@@ -105,4 +127,8 @@ instance Binary Shutdown where
 instance Binary RegisterSelf where
   put _ = return ()
   get = return RegisterSelf
+
+--------------------------------------------------------------------------------
+-- Static Serialisation Dicts and RemoteTable                                 --
+--------------------------------------------------------------------------------
 
