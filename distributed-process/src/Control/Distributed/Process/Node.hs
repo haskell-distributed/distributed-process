@@ -1,7 +1,5 @@
 -- | Local nodes
 --
--- TODO: Calls to 'sendBinary' and co by the node controller may stall the
--- node controller.
 module Control.Distributed.Process.Node
   ( LocalNode
   , newLocalNode
@@ -11,6 +9,8 @@ module Control.Distributed.Process.Node
   , initRemoteTable
   , localNodeId
   ) where
+
+-- TODO: Calls to 'sendBinary' and co (by the NC) may stall the node controller.
 
 #if ! MIN_VERSION_base(4,6,0)
 import Prelude hiding (catch)

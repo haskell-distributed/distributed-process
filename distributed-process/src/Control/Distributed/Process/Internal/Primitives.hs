@@ -900,12 +900,39 @@ reconnectPort them = do
 --------------------------------------------------------------------------------
 
 -- | Send a message to the internal (system) trace facility. If tracing is
--- enabled, this will create a custom trace event in the event log. Specifically,
--- the environment variable @DISTRIBUTED_PROCESS_TRACE_FILE@ is set to a valid
--- path, then trace output will be written to that file. Otherwise, if the GHC
--- eventlog is enabled (i.e., you've compiled with @-eventlog@ set) and the
--- relevant @+RTS@ options given, then the message will be sent to the event log.
--- If neither facility is in use then trace messages will be silently dropped.
+-- enabled, this will create a custom trace event. Note that several Cloud Haskell
+-- sub-systems also generate trace events for informational/debugging purposes,
+-- thus traces generated this way will not be the only output seen.
+--
+-- Just as with the "Debug.Trace" module, this is a debugging/tracing facility
+-- for use in development, and should not be used in a production setting -
+-- which is why the default behaviour is to trace to the GHC eventlog. For a
+-- general purpose logging facility, you should consider 'say'.
+--
+-- Trace events can be written to the GHC event log, a text file, or to the
+-- standard system logger process (see 'say'). The default behaviour for writing
+-- to the eventlog requires specific intervention to work, without which traces
+-- are silently dropped/ignored and no output will be generated.
+-- The GHC eventlog documentation provides information about enabling, viewing
+-- and working with event traces: <http://hackage.haskell.org/trac/ghc/wiki/EventLog>.
+--
+-- When a new local node is started, the contents of the environment variable
+-- @DISTRIBUTED_PROCESS_TRACE_FILE@ are checked for a valid file path. If this
+-- exists and the file can be opened for writing, all trace output will be directed
+-- thence. If the environment variable is empty, the path invalid, or the file
+-- unavailable for writing - e.g., because another node has already started
+-- tracing to it - then the @DISTRIBUTED_PROCESS_TRACE_CONSOLE@ environment
+-- variable is checked for /any/ non-empty value. If this is set, then all trace
+-- output will be directed to the system logger process. If neither evironment
+-- variable provides a valid trace configuration, all internal traces are written
+-- to "Debug.Trace.traceEventIO", which writes to the GHC eventlog.
+--
+-- Users of the /simplelocalnet/ Cloud Haskell backend should also note that
+-- because the trace file option only supports trace output from a single node
+-- (so as to avoid interleaving), a file trace configured for the master node will
+-- prevent slaves from tracing to the file and they will fall back to using the
+-- console/'say' or eventlog instead.
+--
 trace :: String -> Process ()
 trace s = do
   node <- processNode <$> ask
