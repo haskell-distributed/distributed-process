@@ -1,12 +1,17 @@
--- | [Cloud Haskell]
---
--- This is an implementation of Cloud Haskell, as described in
--- /Towards Haskell in the Cloud/ by Jeff Epstein, Andrew Black, and Simon
--- Peyton Jones
--- (<http://research.microsoft.com/en-us/um/people/simonpj/papers/parallel/>),
--- although some of the details are different. The precise message passing
--- semantics are based on /A unified semantics for future Erlang/ by    Hans
--- Svensson, Lars-Åke Fredlund and Clara Benac Earle.
+{- | [Cloud Haskell]
+
+This is an implementation of Cloud Haskell, as described in
+/Towards Haskell in the Cloud/ by Jeff Epstein, Andrew Black, and Simon
+Peyton Jones (<http://research.microsoft.com/en-us/um/people/simonpj/papers/parallel/>),
+although some of the details are different. The precise message passing
+semantics are based on /A unified semantics for future Erlang/ by Hans
+Svensson, Lars-Åke Fredlund and Clara Benac Earle.
+
+For a detailed description of the package and other reference materials,
+please see the distributed-process wiki page on github:
+<https://github.com/haskell-distributed/distributed-process/wiki>.
+
+-}
 module Control.Distributed.Process
   ( -- * Basic types
     ProcessId
