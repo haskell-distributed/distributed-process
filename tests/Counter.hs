@@ -14,6 +14,7 @@ module Counter
   ) where
 
 import Control.Distributed.Process hiding (call)
+import Control.Distributed.Process.Platform
 import Control.Distributed.Process.Platform.Async
 import Control.Distributed.Process.Platform.GenProcess
 import Control.Distributed.Process.Platform.Time
