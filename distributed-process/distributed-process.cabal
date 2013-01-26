@@ -6,10 +6,10 @@ License:       BSD3
 License-File:  LICENSE
 Copyright:     Well-Typed LLP
 Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
-Maintainer:    edsko@well-typed.com, duncan@well-typed.com, watson.timothy@gmail.com
+Maintainer:    watson.timothy@gmail.com, edsko@well-typed.com, duncan@well-typed.com
 Stability:     experimental
 Homepage:      http://github.com/haskell-distributed/distributed-process
-Bug-Reports:   mailto:edsko@well-typed.com, mailto:watson.timothy@gmail.com, mailto:parallel-haskell@googlegroups.com
+Bug-Reports:   mailto:parallel-haskell@googlegroups.com, mailto:edsko@well-typed.com, mailto:watson.timothy@gmail.com
 Synopsis:      Cloud Haskell: Erlang-style concurrency in Haskell
 Description:   This is an implementation of Cloud Haskell, as described in
                /Towards Haskell in the Cloud/ by Jeff Epstein, Andrew Black,
