@@ -12,7 +12,10 @@ Stability:      experimental
 Homepage:       http://github.com/haskell-distributed/distributed-process-platform
 Bug-Reports:    mailto:watson.timothy@gmail.com
 synopsis:       The Cloud Haskell Application Platform
-description:    TBD
+description:    Modelled after Erlang's OTP, this framework provides similar
+                facilities for Cloud Haskell, grouping essential practices
+                into a set of modules and standards designed to help you build
+                concurrent, distributed applications with relative ease.
 category:       Control
 tested-with:    GHC == 7.4.2
 data-dir:       ""
