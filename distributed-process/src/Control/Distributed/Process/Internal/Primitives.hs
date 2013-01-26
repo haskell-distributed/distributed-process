@@ -62,6 +62,8 @@ module Control.Distributed.Process.Internal.Primitives
   , unStatic
     -- * Exception handling
   , catch
+  , Handler(..)
+  , catches
   , try
   , mask
   , onException
@@ -96,7 +98,7 @@ import Control.Monad (when)
 import Control.Monad.Reader (ask)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Applicative ((<$>))
-import Control.Exception (Exception, throwIO, SomeException)
+import Control.Exception (Exception(..), throw, throwIO, SomeException)
 import qualified Control.Exception as Ex (catch, mask, try)
 import Control.Distributed.Process.Internal.StrictMVar
   ( StrictMVar
@@ -644,6 +646,23 @@ bracket_ before after thing = bracket before (const after) (const thing)
 -- | Lift 'Control.Exception.finally'
 finally :: Process a -> Process b -> Process a
 finally a sequel = bracket_ (return ()) sequel a
+
+-- | You need this when using 'catches'
+data Handler a = forall e . Exception e => Handler (e -> Process a)
+
+instance Functor Handler where
+     fmap f (Handler h) = Handler (fmap f . h)
+
+-- | Lift 'Control.Exception.catches'
+catches :: Process a -> [Handler a] -> Process a
+catches proc handlers = proc `catch` catchesHandler handlers
+
+catchesHandler :: [Handler a] -> SomeException -> Process a
+catchesHandler handlers e = foldr tryHandler (throw e) handlers
+    where tryHandler (Handler handler) res
+              = case fromException e of
+                Just e' -> handler e'
+                Nothing -> res
 
 --------------------------------------------------------------------------------
 -- Auxiliary API                                                              --

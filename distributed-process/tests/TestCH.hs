@@ -31,6 +31,7 @@ import Control.Distributed.Process.Internal.Types
   ( NodeId(nodeAddress)
   , LocalNode(localEndPoint)
   , ProcessExitException(..)
+  , nullProcessId
   )
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable (Serializable)
@@ -1025,6 +1026,20 @@ testCatchesExit transport = do
 
   takeMVar done
 
+testCatches :: NT.Transport -> Assertion
+testCatches transport = do
+  localNode <- newLocalNode transport initRemoteTable
+  done <- newEmptyMVar
+
+  _ <- forkProcess localNode $ do
+    node <- getSelfNode
+    (liftIO $ throwIO (ProcessLinkException (nullProcessId node) DiedNormal))
+    `catches` [
+        Handler (\(ProcessLinkException _ _) -> liftIO $ putMVar done ())
+      ]
+
+  takeMVar done
+
 testDie :: NT.Transport -> Assertion
 testDie transport = do
   localNode <- newLocalNode transport initRemoteTable
@@ -1127,6 +1142,7 @@ tests (transport, transportInternals) = [
       , testCase "Die"                 (testDie                 transport)
       , testCase "PrettyExit"          (testPrettyExit          transport)
       , testCase "CatchesExit"         (testCatchesExit         transport)
+      , testCase "Catches"             (testCatches             transport)
       , testCase "ExitLocal"           (testExitLocal           transport)
       , testCase "ExitRemote"          (testExitRemote          transport)
       ]

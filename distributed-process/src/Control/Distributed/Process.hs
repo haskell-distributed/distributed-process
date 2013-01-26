@@ -101,6 +101,8 @@ module Control.Distributed.Process
   , RegisterReply(..)
     -- * Exception handling
   , catch
+  , Handler(..)
+  , catches
   , try
   , mask
   , onException
@@ -238,6 +240,8 @@ import Control.Distributed.Process.Internal.Primitives
   , unClosure
     -- Exception handling
   , catch
+  , Handler(..)
+  , catches
   , try
   , mask
   , onException
