@@ -14,6 +14,7 @@ module Control.Distributed.Process.Internal.Types
   , nullProcessId
     -- * Local nodes and processes
   , LocalNode(..)
+  , Tracer(..)
   , LocalNodeState(..)
   , LocalProcess(..)
   , LocalProcessState(..)
@@ -67,6 +68,8 @@ module Control.Distributed.Process.Internal.Types
   , channelCounter
   , typedChannels
   , typedChannelWithId
+    -- * Utilities
+  , forever'
   ) where
 
 import System.Mem.Weak (Weak)
@@ -88,6 +91,7 @@ import Control.Exception (Exception)
 import Control.Concurrent (ThreadId)
 import Control.Concurrent.Chan (Chan)
 import Control.Concurrent.STM (STM)
+import qualified Control.Concurrent.STM as STM (TQueue)
 import qualified Network.Transport as NT (EndPoint, EndPointAddress, Connection)
 import Control.Applicative (Applicative, Alternative, (<$>), (<*>))
 import Control.Monad.Reader (MonadReader(..), ReaderT, runReaderT)
@@ -106,6 +110,7 @@ import Control.Distributed.Process.Internal.StrictMVar (StrictMVar)
 import Control.Distributed.Process.Internal.WeakTQueue (TQueue)
 import Control.Distributed.Static (RemoteTable, Closure)
 import qualified Control.Distributed.Process.Internal.StrictContainerAccessors as DAC (mapMaybe)
+import System.IO (Handle)
 
 --------------------------------------------------------------------------------
 -- Node and process identifiers                                               --
@@ -175,19 +180,28 @@ nullProcessId nid =
 -- Local nodes and processes                                                  --
 --------------------------------------------------------------------------------
 
+-- | Required for system tracing in the node controller
+data Tracer =
+    LogFileTracer   !ThreadId !(STM.TQueue String) !Handle
+  | EventLogTracer  !(String -> IO ())
+  | LocalNodeTracer !LocalNode
+  | InactiveTracer  -- NB: never used, this is required to initialize LocalNode
+
 -- | Local nodes
 data LocalNode = LocalNode
   { -- | 'NodeId' of the node
-    localNodeId :: !NodeId
+    localNodeId     :: !NodeId
     -- | The network endpoint associated with this node
-  , localEndPoint :: !NT.EndPoint
+  , localEndPoint   :: !NT.EndPoint
     -- | Local node state
-  , localState :: !(StrictMVar LocalNodeState)
+  , localState      :: !(StrictMVar LocalNodeState)
     -- | Channel for the node controller
-  , localCtrlChan :: !(Chan NCMsg)
+  , localCtrlChan   :: !(Chan NCMsg)
+    -- | Current active system debug/trace log
+  , localTracer     :: !Tracer
     -- | Runtime lookup table for supporting closures
     -- TODO: this should be part of the CH state, not the local endpoint state
-  , remoteTable :: !RemoteTable
+  , remoteTable     :: !RemoteTable
   }
 
 data ImplicitReconnect = WithImplicitReconnect | NoImplicitReconnect
@@ -432,7 +446,7 @@ data WhereIsReply = WhereIsReply String (Maybe ProcessId)
 data RegisterReply = RegisterReply String Bool
   deriving (Show, Typeable)
 
--- | Provide information about a running process 
+-- | Provide information about a running process
 data ProcessInfo = ProcessInfo {
     infoNode               :: NodeId
   , infoRegisteredNames    :: [String]
@@ -441,20 +455,8 @@ data ProcessInfo = ProcessInfo {
   , infoLinks              :: [ProcessId]
   } deriving (Show, Eq, Typeable)
 
-instance Binary ProcessInfo where
-  get = ProcessInfo <$> get <*> get <*> get <*> get <*> get
-  put pInfo = put (infoNode pInfo)
-           >> put (infoRegisteredNames pInfo)
-           >> put (infoMessageQueueLength pInfo)
-           >> put (infoMonitors pInfo)
-           >> put (infoLinks pInfo)
-
 data ProcessInfoNone = ProcessInfoNone DiedReason
     deriving (Show, Typeable)
-
-instance Binary ProcessInfoNone where
-  get = ProcessInfoNone <$> get
-  put (ProcessInfoNone r) = put r
 
 --------------------------------------------------------------------------------
 -- Node controller internal data types                                        --
@@ -531,16 +533,16 @@ instance Binary ProcessSignal where
   get = do
     header <- getWord8
     case header of
-      0 -> Link <$> get
-      1 -> Unlink <$> get
-      2 -> Monitor <$> get
-      3 -> Unmonitor <$> get
-      4 -> Died <$> get <*> get
-      5 -> Spawn <$> get <*> get
-      6 -> WhereIs <$> get
-      7 -> Register <$> get <*> get <*> get <*> get
-      8 -> NamedSend <$> get <*> (payloadToMessage <$> get)
-      9 -> Kill <$> get <*> get
+      0  -> Link <$> get
+      1  -> Unlink <$> get
+      2  -> Monitor <$> get
+      3  -> Unmonitor <$> get
+      4  -> Died <$> get <*> get
+      5  -> Spawn <$> get <*> get
+      6  -> WhereIs <$> get
+      7  -> Register <$> get <*> get <*> get <*> get
+      8  -> NamedSend <$> get <*> (payloadToMessage <$> get)
+      9  -> Kill <$> get <*> get
       10 -> Exit <$> get <*> (payloadToMessage <$> get)
       30 -> GetInfo <$> get
       _ -> fail "ProcessSignal.get: invalid"
@@ -589,6 +591,18 @@ instance Binary RegisterReply where
   put (RegisterReply label ok) = put label >> put ok
   get = RegisterReply <$> get <*> get
 
+instance Binary ProcessInfo where
+  get = ProcessInfo <$> get <*> get <*> get <*> get <*> get
+  put pInfo = put (infoNode pInfo)
+           >> put (infoRegisteredNames pInfo)
+           >> put (infoMessageQueueLength pInfo)
+           >> put (infoMonitors pInfo)
+           >> put (infoLinks pInfo)
+
+instance Binary ProcessInfoNone where
+  get = ProcessInfoNone <$> get
+  put (ProcessInfoNone r) = put r
+
 --------------------------------------------------------------------------------
 -- Accessors                                                                  --
 --------------------------------------------------------------------------------
@@ -625,3 +639,13 @@ typedChannels = accessor _typedChannels (\cs st -> st { _typedChannels = cs })
 
 typedChannelWithId :: LocalSendPortId -> Accessor LocalProcessState (Maybe TypedChannel)
 typedChannelWithId cid = typedChannels >>> DAC.mapMaybe cid
+
+--------------------------------------------------------------------------------
+-- Utilities                                                                  --
+--------------------------------------------------------------------------------
+
+-- Like 'Control.Monad.forever' but sans space leak
+{-# INLINE forever' #-}
+forever' :: Monad m => m a -> m b
+forever' a = let a' = a >> a' in a'
+

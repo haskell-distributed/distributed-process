@@ -2,13 +2,12 @@
 {-# OPTIONS_GHC -fno-warn-orphans      #-}
 module Main where
 
-import Prelude hiding (catch, log)
-import Test.Framework
-  ( Test
-  , defaultMain
-  , testGroup
+import Control.Concurrent.MVar
+  ( MVar
+  , newEmptyMVar
+  , putMVar
+  , takeMVar
   )
-import Network.Transport.TCP
 import Control.Distributed.Process
 import Control.Distributed.Process.Node
   ( forkProcess
@@ -16,14 +15,15 @@ import Control.Distributed.Process.Node
   , initRemoteTable
   , closeLocalNode
   , LocalNode)
-import Control.Concurrent.MVar
-  ( MVar
-  , newEmptyMVar
-  , putMVar
-  , takeMVar
-  )
 import Data.Binary()
 import Data.Typeable()
+import Network.Transport.TCP
+import Prelude hiding (catch, log)
+import Test.Framework
+  ( Test
+  , defaultMain
+  , testGroup
+  )
 import Test.HUnit (Assertion)
 import Test.HUnit.Base (assertBool)
 import Test.Framework.Providers.HUnit (testCase)

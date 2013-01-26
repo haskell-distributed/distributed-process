@@ -62,7 +62,9 @@ import Control.Distributed.Process.Internal.StrictMVar
   , takeMVar
   )
 import Control.Concurrent.Chan (newChan, writeChan, readChan)
-import Control.Concurrent.STM (atomically)
+import Control.Concurrent.STM
+  ( atomically
+  )
 import Control.Distributed.Process.Internal.CQueue
   ( CQueue
   , enqueue
@@ -97,6 +99,7 @@ import Control.Distributed.Process.Internal.Types
   , LocalProcessId(..)
   , ProcessId(..)
   , LocalNode(..)
+  , Tracer(InactiveTracer)
   , LocalNodeState(..)
   , LocalProcess(..)
   , LocalProcessState(..)
@@ -108,6 +111,7 @@ import Control.Distributed.Process.Internal.Types
   , localPidUnique
   , localProcessWithId
   , localConnections
+  , forever'
   , MonitorRef(..)
   , ProcessMonitorNotification(..)
   , NodeMonitorNotification(..)
@@ -138,6 +142,12 @@ import Control.Distributed.Process.Internal.Types
   , runLocalProcess
   , firstNonReservedProcessId
   , ImplicitReconnect(WithImplicitReconnect, NoImplicitReconnect)
+  )
+import Control.Distributed.Process.Internal.Trace
+  ( TraceArg(..)
+  , traceFormat
+  , startTracing
+  , stopTracer
   )
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Internal.Messaging
@@ -195,16 +205,13 @@ createBareLocalNode endPoint rtable = do
                        , localEndPoint = endPoint
                        , localState    = state
                        , localCtrlChan = ctrlChan
+                       , localTracer   = InactiveTracer
                        , remoteTable   = rtable
                        }
-  void . forkIO $ runNodeController node
-  void . forkIO $ handleIncomingMessages node
-  return node
-
--- Like 'Control.Monad.forever' but sans space leak
-{-# INLINE forever' #-}
-forever' :: Monad m => m a -> m b
-forever' a = let a' = a >> a' in a'
+  tracedNode <- startTracing node
+  void . forkIO $ runNodeController tracedNode
+  void . forkIO $ handleIncomingMessages tracedNode
+  return tracedNode
 
 -- | Start and register the service processes on a node
 -- (for now, this is only the logger)
@@ -217,6 +224,10 @@ startServiceProcesses node = do
     receiveWait
       [ match $ \((time, pid, string) ::(String, ProcessId, String)) -> do
           liftIO . hPutStrLn stderr $ time ++ " " ++ show pid ++ ": " ++ string
+          loop
+      , match $ \((time, string) :: (String, String)) -> do
+          -- this is a 'trace' message from the local node tracer
+          liftIO . hPutStrLn stderr $ time ++ " [trace] " ++ string
           loop
       , match $ \(ch :: SendPort ()) -> -- a shutdown request
           sendChan ch ()
@@ -267,6 +278,7 @@ forkProcess node proc = modifyMVar (localState node) startProcess
           reason <- Exception.catch
             (runLocalProcess lproc proc >> return DiedNormal)
             (return . DiedException . (show :: SomeException -> String))
+
           -- [Unified: Table 4, rules termination and exiting]
           modifyMVar_ (localState node) (cleanupProcess pid)
           writeChan (localCtrlChan node) NCMsg
@@ -423,22 +435,27 @@ handleIncomingMessages node = go initConnectionState
              $ st
              )
         NT.ErrorEvent (NT.TransportError NT.EventEndPointFailed str) ->
-          fail $ "Cloud Haskell fatal error: end point failed: " ++ str
+          fatal $ "Cloud Haskell fatal error: end point failed: " ++ str
         NT.ErrorEvent (NT.TransportError NT.EventTransportFailed str) ->
-          fail $ "Cloud Haskell fatal error: transport failed: " ++ str
+          fatal $ "Cloud Haskell fatal error: transport failed: " ++ str
         NT.EndPointClosed ->
-          return ()
+          stopTracer (localTracer node) >> return ()
         NT.ReceivedMulticast _ _ ->
           -- If we received a multicast message, something went horribly wrong
           -- and we just give up
-          fail "Cloud Haskell fatal error: received unexpected multicast"
+          fatal "Cloud Haskell fatal error: received unexpected multicast"
+
+    fatal :: String -> IO ()
+    fatal msg = stopTracer (localTracer node) >> fail msg
 
     invalidRequest :: NT.ConnectionId -> ConnectionState -> IO ()
-    invalidRequest cid st =
+    invalidRequest cid st = do
       -- TODO: We should treat this as a fatal error on the part of the remote
       -- node. That is, we should report the remote node as having died, and we
       -- should close incoming connections (this requires a Transport layer
       -- extension).
+      traceEventFmtIO node "" [(TraceStr "[network] invalid request: "),
+                               (Trace cid)]
       go ( incomingAt cid ^= Nothing
          $ st
          )
@@ -489,6 +506,35 @@ instance Exception ProcessKillException
 instance Show ProcessKillException where
   show (ProcessKillException pid reason) =
     "killed-by=" ++ show pid ++ ",reason=" ++ reason
+
+--------------------------------------------------------------------------------
+-- Tracing/Debugging                                                          --
+--------------------------------------------------------------------------------
+
+-- [Issue #104]
+
+traceNotifyDied :: LocalNode -> Identifier -> DiedReason -> NC ()
+traceNotifyDied node ident reason =
+  case reason of
+    DiedNormal -> return ()
+    _ -> traceNcEventFmt node " "
+                         [(TraceStr "[node-controller]"),
+                          (Trace ident),
+                          (Trace reason)]
+
+traceNcEventFmt :: LocalNode -> String -> [TraceArg] -> NC ()
+traceNcEventFmt node fmt args =
+  liftIO $ traceEventFmtIO node fmt args
+
+traceEventFmtIO :: LocalNode
+                -> String
+                -> [TraceArg]
+                -> IO ()
+traceEventFmtIO node fmt args =
+  withLocalTracer node $ \t -> traceFormat t fmt args
+
+withLocalTracer :: LocalNode -> (Tracer -> IO ()) -> IO ()
+withLocalTracer node act = act (localTracer node)
 
 --------------------------------------------------------------------------------
 -- Core functionality                                                         --
@@ -597,6 +643,7 @@ ncEffectUnmonitor from ref = do
 ncEffectDied :: Identifier -> DiedReason -> NC ()
 ncEffectDied ident reason = do
   node <- ask
+  traceNotifyDied node ident reason
   (affectedLinks, unaffectedLinks) <- gets (splitNotif ident . (^. links))
   (affectedMons,  unaffectedMons)  <- gets (splitNotif ident . (^. monitors))
 
@@ -638,7 +685,6 @@ ncEffectDied ident reason = do
                              { ctrlMsgSender = NodeIdentifier (localNodeId node)
                              , ctrlMsgSignal = Died ident reason
                              }
-
 
 -- [Unified: Table 13]
 ncEffectSpawn :: ProcessId -> Closure (Process ()) -> SpawnRef -> NC ()
@@ -841,18 +887,18 @@ notifyDied dest src reason mRef = do
 
 -- | [Unified: Table 8]
 destNid :: ProcessSignal -> Maybe NodeId
-destNid (Link ident)    = Just $ nodeOf ident
-destNid (Unlink ident)  = Just $ nodeOf ident
-destNid (Monitor ref)   = Just $ nodeOf (monitorRefIdent ref)
-destNid (Unmonitor ref) = Just $ nodeOf (monitorRefIdent ref)
-destNid (Spawn _ _)     = Nothing
-destNid (Register _ _ _ _) = Nothing
-destNid (WhereIs _)     = Nothing
-destNid (NamedSend _ _) = Nothing
+destNid (Link ident)        = Just $ nodeOf ident
+destNid (Unlink ident)      = Just $ nodeOf ident
+destNid (Monitor ref)       = Just $ nodeOf (monitorRefIdent ref)
+destNid (Unmonitor ref)     = Just $ nodeOf (monitorRefIdent ref)
+destNid (Spawn _ _)         = Nothing
+destNid (Register _ _ _ _)  = Nothing
+destNid (WhereIs _)         = Nothing
+destNid (NamedSend _ _)     = Nothing
 -- We don't need to forward 'Died' signals; if monitoring/linking is setup,
 -- then when a local process dies the monitoring/linking machinery will take
 -- care of notifying remote nodes
-destNid (Died _ _) = Nothing
+destNid (Died _ _)          = Nothing
 destNid (Kill pid _)        = Just $ processNodeId pid
 destNid (Exit pid _)        = Just $ processNodeId pid
 destNid (GetInfo pid)       = Just $ processNodeId pid
