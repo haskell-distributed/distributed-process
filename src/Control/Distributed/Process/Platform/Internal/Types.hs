@@ -4,11 +4,16 @@
 -- | Types used throughout the Cloud Haskell framework
 --
 module Control.Distributed.Process.Platform.Internal.Types
-  ( Tag
+  ( -- * Tagging
+    Tag
   , TagPool
   , newTagPool
   , getTag
+    -- * Addressing
+  , sendTo
+  , Recipient(..)
   , RegisterSelf(..)
+    -- * Interactions
   , CancelWait(..)
   , Channel
   , Shutdown(..)
@@ -17,7 +22,7 @@ module Control.Distributed.Process.Platform.Internal.Types
 
 import Control.Concurrent.MVar (MVar, newMVar, modifyMVar)
 import Control.Distributed.Process
-import Control.Distributed.Process.Serializable ()
+import Control.Distributed.Process.Serializable
 import Data.Binary
   ( Binary(put, get)
   , putWord8
@@ -25,14 +30,9 @@ import Data.Binary
 import Data.DeriveTH
 import Data.Typeable (Typeable)
 
--- | Simple representation of a channel.
-type Channel a = (SendPort a, ReceivePort a)
-
--- | Used internally in whereisOrStart. Send as (RegisterSelf,ProcessId).
-data RegisterSelf = RegisterSelf deriving Typeable
-instance Binary RegisterSelf where
-  put _ = return ()
-  get = return RegisterSelf
+--------------------------------------------------------------------------------
+-- API                                                                        --
+--------------------------------------------------------------------------------
 
 -- | Tags provide uniqueness for messages, so that they can be
 -- matched with their response.
@@ -58,19 +58,29 @@ getTag tp = liftIO $ modifyMVar tp (\tag -> return (tag+1,tag))
 data CancelWait = CancelWait
     deriving (Eq, Show, Typeable)
 
-instance Binary CancelWait where
-  put CancelWait = return ()
-  get = return CancelWait
+-- | Simple representation of a channel.
+type Channel a = (SendPort a, ReceivePort a)
+
+-- | Used internally in whereisOrStart. Send as (RegisterSelf,ProcessId).
+data RegisterSelf = RegisterSelf deriving Typeable
+
+data Recipient =
+    Pid ProcessId
+  | Service String
+  | RemoteService String NodeId
+  deriving (Typeable)
+$(derive makeBinary ''Recipient)
+
+sendTo :: (Serializable m) => Recipient -> m -> Process ()
+sendTo (Pid p) m             = send p m
+sendTo (Service s) m         = nsend s m
+sendTo (RemoteService s n) m = nsendRemote n s m
 
 -- | A ubiquitous /shutdown signal/ that can be used
 -- to maintain a consistent shutdown/stop protocol for
 -- any process that wishes to handle it.
 data Shutdown = Shutdown
   deriving (Typeable, Show, Eq)
-
-instance Binary Shutdown where
-  get   = return Shutdown
-  put _ = return ()
 
 -- | Provides a /reason/ for process termination.
 data TerminateReason =
@@ -79,3 +89,20 @@ data TerminateReason =
   | TerminateOther !String -- ^ abnormal (error) shutdown
   deriving (Typeable, Eq, Show)
 $(derive makeBinary ''TerminateReason)
+
+--------------------------------------------------------------------------------
+-- Binary Instances                                                           --
+--------------------------------------------------------------------------------
+
+instance Binary CancelWait where
+  put CancelWait = return ()
+  get = return CancelWait
+
+instance Binary Shutdown where
+  get   = return Shutdown
+  put _ = return ()
+
+instance Binary RegisterSelf where
+  put _ = return ()
+  get = return RegisterSelf
+

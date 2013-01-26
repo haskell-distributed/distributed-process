@@ -155,7 +155,7 @@
 -- That code is, of course, very silly. Under some circumstances, handling
 -- exit signals is perfectly legitimate. Handling of /other/ forms of
 -- asynchronous exception is not supported.
--- 
+--
 -- If any asynchronous exception goes unhandled, the process will immediately
 -- exit without running the @terminateHandler@.
 -----------------------------------------------------------------------------
@@ -177,6 +177,7 @@ module Control.Distributed.Process.Platform.GenProcess
   , ProcessDefinition(..)
     -- * Client interaction with the process
   , start
+  , runProcess
   , shutdown
   , defaultProcess
   , statelessProcess
@@ -230,6 +231,8 @@ import Control.Distributed.Process.Platform.Async hiding (check)
 import Control.Distributed.Process.Platform.Internal.Types
   ( TerminateReason(..)
   , Shutdown(..)
+  , Recipient(..)
+  , sendTo
   )
 import Control.Distributed.Process.Platform.Internal.Common
 import Control.Distributed.Process.Platform.Time
@@ -244,13 +247,6 @@ import Prelude hiding (init)
 --------------------------------------------------------------------------------
 
 data ServerId = ServerId ProcessId | ServerName String
-
-data Recipient =
-    SendToPid ProcessId
-  | SendToService String
-  | SendToRemoteService String NodeId
-  deriving (Typeable)
-$(derive makeBinary ''Recipient)
 
 data Message a =
     CastMessage a
@@ -379,10 +375,17 @@ start :: a
       -> InitHandler a s
       -> ProcessDefinition s
       -> Process (Either (InitResult s) TerminateReason)
-start args init behave = do
+start = runProcess recvLoop
+
+runProcess :: (ProcessDefinition s -> s -> Delay -> Process TerminateReason)
+           -> a
+           -> InitHandler a s
+           -> ProcessDefinition s
+           -> Process (Either (InitResult s) TerminateReason)
+runProcess loop args init def = do
   ir <- init args
   case ir of
-    InitOk s d -> recvLoop behave s d >>= return . Right
+    InitOk s d -> loop def s d >>= return . Right
     f@(InitFail _) -> return $ Left f
 
 -- | Send a signal instructing the process to terminate. The /receive loop/ which
@@ -496,7 +499,7 @@ callAsyncUsing asyncStart sid msg = do
   asyncStart $ do  -- note [call using async]
     mRef <- monitor sid
     wpid <- getSelfPid
-    sendTo (SendToPid sid) (CallMessage msg (SendToPid wpid))
+    sendTo (Pid sid) (CallMessage msg (Pid wpid))
     r <- receiveWait [
             match (\((CallResponse m) :: CallResponse b) -> return (Right m))
           , matchIf (\(ProcessMonitorNotification ref _ _) -> ref == mRef)
@@ -633,11 +636,6 @@ stop r = return $ ProcessStop r
 --
 stop_ :: TerminateReason -> (s -> Process (ProcessAction s))
 stop_ r _ = stop r
-
-sendTo :: (Serializable m) => Recipient -> m -> Process ()
-sendTo (SendToPid p) m             = send p m
-sendTo (SendToService s) m         = nsend s m
-sendTo (SendToRemoteService s n) m = nsendRemote n s m
 
 replyTo :: (Serializable m) => Recipient -> m -> Process ()
 replyTo client msg = sendTo client (CallResponse msg)
