@@ -162,10 +162,7 @@
 
 module Control.Distributed.Process.Platform.GenProcess
   ( -- * Exported data types
-    ServerId(..)
-  , Recipient(..)
-  , TerminateReason(..)
-  , InitResult(..)
+    InitResult(..)
   , ProcessAction(..)
   , ProcessReply
   , CallHandler
@@ -228,11 +225,11 @@ import Control.Concurrent (threadDelay)
 import Control.Distributed.Process hiding (call)
 import Control.Distributed.Process.Serializable
 import Control.Distributed.Process.Platform.Async hiding (check)
+import Control.Distributed.Process.Platform.Internal.Primitives
 import Control.Distributed.Process.Platform.Internal.Types
-  ( TerminateReason(..)
+  ( Recipient(..)
+  , TerminateReason(..)
   , Shutdown(..)
-  , Recipient(..)
-  , sendTo
   )
 import Control.Distributed.Process.Platform.Internal.Common
 import Control.Distributed.Process.Platform.Time
@@ -245,8 +242,6 @@ import Prelude hiding (init)
 --------------------------------------------------------------------------------
 -- API                                                                        --
 --------------------------------------------------------------------------------
-
-data ServerId = ServerId ProcessId | ServerName String
 
 data Message a =
     CastMessage a
@@ -455,8 +450,8 @@ safeCall s m = callAsync s m >>= wait >>= unpack    -- note [call using async]
 -- | Version of 'safeCall' that returns 'Nothing' if the operation fails. If
 -- you need information about *why* a call has failed then you should use
 -- 'safeCall' or combine @catchExit@ and @call@ instead.
-tryCall :: forall a b . (Serializable a, Serializable b)
-                 => ProcessId -> a -> Process (Maybe b)
+tryCall :: forall s a b . (Addressable s, Serializable a, Serializable b)
+                 => s -> a -> Process (Maybe b)
 tryCall s m = callAsync s m >>= wait >>= unpack    -- note [call using async]
   where unpack (AsyncDone r) = return $ Just r
         unpack _             = return Nothing
@@ -467,8 +462,8 @@ tryCall s m = callAsync s m >>= wait >>= unpack    -- note [call using async]
 -- If the result of the call is a failure (or the call was cancelled) then
 -- the calling process will exit, with the 'AsyncResult' given as the reason.
 --
-callTimeout :: forall a b . (Serializable a, Serializable b)
-                 => ProcessId -> a -> TimeInterval -> Process (Maybe b)
+callTimeout :: forall s a b . (Addressable s, Serializable a, Serializable b)
+                 => s -> a -> TimeInterval -> Process (Maybe b)
 callTimeout s m d = callAsync s m >>= waitTimeout d >>= unpack
   where unpack :: (Serializable b) => Maybe (AsyncResult b) -> Process (Maybe b)
         unpack Nothing              = return Nothing
@@ -481,8 +476,8 @@ callTimeout s m d = callAsync s m >>= waitTimeout d >>= unpack
 --
 -- See "Control.Distributed.Process.Platform.Async"
 --
-callAsync :: forall a b . (Serializable a, Serializable b)
-                 => ProcessId -> a -> Process (Async b)
+callAsync :: forall s a b . (Addressable s, Serializable a, Serializable b)
+                 => s -> a -> Process (Async b)
 callAsync = callAsyncUsing async
 
 -- | As 'callAsync' but takes a function that can be used to generate an async
@@ -492,14 +487,15 @@ callAsync = callAsyncUsing async
 --
 -- See "Control.Distributed.Process.Platform.Async"
 --
-callAsyncUsing :: forall a b . (Serializable a, Serializable b)
+callAsyncUsing :: forall s a b . (Addressable s, Serializable a, Serializable b)
                   => (Process b -> Process (Async b))
-                  -> ProcessId -> a -> Process (Async b)
+                  -> s -> a -> Process (Async b)
 callAsyncUsing asyncStart sid msg = do
   asyncStart $ do  -- note [call using async]
-    mRef <- monitor sid
+    (Just pid) <- resolve sid
+    mRef <- monitor pid
     wpid <- getSelfPid
-    sendTo (Pid sid) (CallMessage msg (Pid wpid))
+    sendTo sid (CallMessage msg (Pid wpid))
     r <- receiveWait [
             match (\((CallResponse m) :: CallResponse b) -> return (Right m))
           , matchIf (\(ProcessMonitorNotification ref _ _) -> ref == mRef)
@@ -533,9 +529,9 @@ callAsyncUsing asyncStart sid msg = do
 -- will not send a response. Like Cloud Haskell's 'send' primitive, cast is
 -- fully asynchronous and /never fails/ - therefore 'cast'ing to a non-existent
 -- (e.g., dead) server process will not generate an error.
-cast :: forall a . (Serializable a)
-                 => ProcessId -> a -> Process ()
-cast sid msg = send sid (CastMessage msg)
+cast :: forall a m . (Addressable a, Serializable m)
+                 => a -> m -> Process ()
+cast sid msg = sendTo sid (CastMessage msg)
 
 --------------------------------------------------------------------------------
 -- Producing ProcessAction and ProcessReply from inside handler expressions   --
