@@ -1,15 +1,15 @@
 Name:          distributed-process-simplelocalnet
-Version:       0.2.0.8
+Version:       0.2.0.9
 Cabal-Version: >=1.8
 Build-Type:    Simple
 License:       BSD3 
 License-File:  LICENSE
 Copyright:     Well-Typed LLP
 Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
-Maintainer:    edsko@well-typed.com, duncan@well-typed.com
+Maintainer:    watson.timothy@gmail.com, edsko@well-typed.com, duncan@well-typed.com
 Stability:     experimental
 Homepage:      http://github.com/haskell-distributed/distributed-process
-Bug-Reports:   mailto:edsko@well-typed.com
+Bug-Reports:   http://github.com/haskell-distributed/distributed-process/issues
 Synopsis:      Simple zero-configuration backend for Cloud Haskell 
 Description:   Simple backend based on the TCP transport which offers node
                discovery based on UDP multicast. This is a zero-configuration
@@ -38,7 +38,7 @@ Library
                      transformers >= 0.2 && < 0.4,
                      network-transport >= 0.3 && < 0.4,
                      network-transport-tcp >= 0.3 && < 0.4,
-                     distributed-process >= 0.4.1 && < 0.5
+                     distributed-process >= 0.4.2 && < 0.5
   Exposed-modules:   Control.Distributed.Process.Backend.SimpleLocalnet,
                      Control.Distributed.Process.Backend.SimpleLocalnet.Internal.Multicast
   Extensions:        RankNTypes,
