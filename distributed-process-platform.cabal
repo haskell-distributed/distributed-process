@@ -38,20 +38,24 @@ library
   ghc-options:      -Wall
   exposed-modules:
                    Control.Distributed.Process.Platform,
-                   Control.Distributed.Process.Platform.Async
-                   Control.Distributed.Process.Platform.Async.AsyncChan
-                   Control.Distributed.Process.Platform.Async.AsyncSTM
+                   Control.Distributed.Process.Platform.Async,
+                   Control.Distributed.Process.Platform.Async.AsyncChan,
+                   Control.Distributed.Process.Platform.Async.AsyncSTM,
                    Control.Distributed.Process.Platform.Call,
-                   Control.Distributed.Process.Platform.GenProcess,
                    Control.Distributed.Process.Platform.GenServer,
                    Control.Distributed.Process.Platform.Test,
                    Control.Distributed.Process.Platform.Time,
-                   Control.Distributed.Process.Platform.Timer
+                   Control.Distributed.Process.Platform.Timer,
+                   Control.Distributed.Process.Platform.ManagedProcess,
+                   Control.Distributed.Process.Platform.ManagedProcess.Client,
+                   Control.Distributed.Process.Platform.ManagedProcess.Server
   other-modules:
                    Control.Distributed.Process.Platform.Internal.Primitives,
                    Control.Distributed.Process.Platform.Internal.Types,
                    Control.Distributed.Process.Platform.Internal.Common,
-                   Control.Distributed.Process.Platform.Async.Types
+                   Control.Distributed.Process.Platform.Async.Types,
+                   Control.Distributed.Process.Platform.ManagedProcess.Internal.Types,
+                   Control.Distributed.Process.Platform.ManagedProcess.Internal.GenProcess
 
 test-suite TimerTests
   type:            exitcode-stdio-1.0
@@ -78,6 +82,11 @@ test-suite TimerTests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   extensions:      CPP
   main-is:         TestTimer.hs
+  other-modules:   
+                   Control.Distributed.Process.Platform.ManagedProcess.Client,
+                   Control.Distributed.Process.Platform.ManagedProcess.Server,
+                   Control.Distributed.Process.Platform.ManagedProcess.Internal.Types,
+                   Control.Distributed.Process.Platform.ManagedProcess.Internal.GenProcess
 
 test-suite PrimitivesTests
   type:            exitcode-stdio-1.0
@@ -104,7 +113,11 @@ test-suite PrimitivesTests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   other-modules:
                    TestUtils,
-                   TestGenServer
+                   TestGenServer,
+                   Control.Distributed.Process.Platform.ManagedProcess.Client,
+                   Control.Distributed.Process.Platform.ManagedProcess.Server,
+                   Control.Distributed.Process.Platform.ManagedProcess.Internal.Types,
+                   Control.Distributed.Process.Platform.ManagedProcess.Internal.GenProcess
   extensions:      CPP
   main-is:         TestPrimitives.hs
 
@@ -132,7 +145,11 @@ test-suite AsyncTests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   other-modules:
                    TestUtils,
-                   TestGenServer
+                   TestGenServer,
+                   Control.Distributed.Process.Platform.ManagedProcess.Client,
+                   Control.Distributed.Process.Platform.ManagedProcess.Server,
+                   Control.Distributed.Process.Platform.ManagedProcess.Internal.Types,
+                   Control.Distributed.Process.Platform.ManagedProcess.Internal.GenProcess
   extensions:      CPP
   main-is:         TestAsync.hs
 
@@ -160,11 +177,10 @@ test-suite GenServerTests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   other-modules:
                    Control.Distributed.Process.Platform,
-                   Control.Distributed.Process.Platform.Async
-                   Control.Distributed.Process.Platform.Async.AsyncChan
-                   Control.Distributed.Process.Platform.Async.AsyncSTM
+                   Control.Distributed.Process.Platform.Async,
+                   Control.Distributed.Process.Platform.Async.AsyncChan,
+                   Control.Distributed.Process.Platform.Async.AsyncSTM,
                    Control.Distributed.Process.Platform.Call,
-                   Control.Distributed.Process.Platform.GenProcess,
                    Control.Distributed.Process.Platform.GenServer,
                    Control.Distributed.Process.Platform.Test,
                    Control.Distributed.Process.Platform.Time,
@@ -176,7 +192,12 @@ test-suite GenServerTests
                    TestUtils,
                    MathsDemo,
                    Counter,
-                   SimplePool
+                   SimplePool,
+                   Control.Distributed.Process.Platform.ManagedProcess,
+                   Control.Distributed.Process.Platform.ManagedProcess.Client,
+                   Control.Distributed.Process.Platform.ManagedProcess.Server,
+                   Control.Distributed.Process.Platform.ManagedProcess.Internal.Types,
+                   Control.Distributed.Process.Platform.ManagedProcess.Internal.GenProcess
   extensions:      CPP
   main-is:         TestGenServer.hs
 

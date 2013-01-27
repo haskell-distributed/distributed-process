@@ -14,7 +14,7 @@ import Control.Distributed.Process hiding (call)
 import Control.Distributed.Process.Closure()
 import Control.Distributed.Process.Platform
 import Control.Distributed.Process.Platform.Async
-import Control.Distributed.Process.Platform.GenProcess
+import Control.Distributed.Process.Platform.ManagedProcess
 import Control.Distributed.Process.Platform.Time
 import Control.Distributed.Process.Serializable
 import Control.Exception hiding (catch)
