@@ -1,6 +1,10 @@
+2013-01-27  Tim Watson  <watson.timothy@gmail.com>  0.4.2
 
-* Expose deferred type checking for AbstractMessage
-* Provide improved exception handling for deferred type checked exit reasons
+* Improved exception handling for deferred type checked exit reasons
+* Add matchChan primitive (thanks Simon Marlow)
+* Expose deferred message handling/checking for AbstractMessage
+* Add `getProcessInfo' API
+* Add `trace' API backed by the GHC eventlog
 
 2012-11-22  Edsko de Vries  <edsko@well-typed.com>  0.4.1
 
