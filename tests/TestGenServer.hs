@@ -15,7 +15,7 @@ import Control.Distributed.Process.Closure
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Platform hiding (__remoteTable)
 import Control.Distributed.Process.Platform.Async
-import Control.Distributed.Process.Platform.GenProcess
+import Control.Distributed.Process.Platform.ManagedProcess
 import Control.Distributed.Process.Platform.Test
 import Control.Distributed.Process.Platform.Time
 import Control.Distributed.Process.Platform.Timer
