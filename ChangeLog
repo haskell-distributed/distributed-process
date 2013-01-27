@@ -1,3 +1,9 @@
+2013-01-27  Tim Watson <watson.timothy@gmail.com>  0.2.0.9
+
+* Shut down the logger process before exiting
+* Improvements to the redirection of logging
+* Fix restarting of master
+
 2012-11-22  Edsko de Vries  <edsko@well-typed.com>  0.2.0.8
 
 * Use the new 'register' semantics (depends on distributed-process-0.4.1).
