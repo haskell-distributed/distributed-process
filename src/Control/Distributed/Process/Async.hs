@@ -113,16 +113,14 @@ asyncLinkedSTM :: (Serializable a) => AsyncTask a -> Process (Async a)
 asyncLinkedSTM = AsyncSTM.newAsync AsyncSTM.asyncLinked
 
 -- | Spawn an 'AsyncTask' and return the 'Async' handle to it.
--- Uses the channel based implementation, whose handles can be read by other
--- processes, though they're not @Serializable@.
+-- Uses a channel based implementation, whose handles can only be read once,
+-- and only by the calling process.
 --
--- See 'Control.Distributed.Process.Platform.Async.AsyncSTM'.
+-- See 'Control.Distributed.Process.Platform.Async.AsyncChan'.
 asyncChan :: (Serializable a) => AsyncTask a -> Process (Async a)
 asyncChan = AsyncChan.newAsync AsyncChan.async
 
--- | Spawn an 'AsyncTask' (linked to the calling process) and return the
--- 'Async' handle to it. Uses the channel based implementation, whose handles
--- can be read by other processes, though they're not @Serializable@.
+-- | Linked version of 'asyncChan'.
 --
 -- See 'Control.Distributed.Process.Platform.Async.AsyncChan'.
 asyncLinkedChan :: (Serializable a) => AsyncTask a -> Process (Async a)
