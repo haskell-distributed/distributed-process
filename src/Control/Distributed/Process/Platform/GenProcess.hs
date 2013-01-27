@@ -154,10 +154,16 @@
 --
 -- That code is, of course, very silly. Under some circumstances, handling
 -- exit signals is perfectly legitimate. Handling of /other/ forms of
--- asynchronous exception is not supported.
+-- asynchronous exception is not supported by this API.
 --
 -- If any asynchronous exception goes unhandled, the process will immediately
--- exit without running the @terminateHandler@.
+-- exit without running the @terminateHandler@. It is very important to note
+-- that in Cloud Haskell, link failures generate asynchronous exceptions in
+-- the target and these will NOT be caught by the API and will therefore
+-- cause the process to exit /without running the termination handler/
+-- callback. If your termination handler is set up to do important work
+-- (such as resource cleanup) then you should avoid linking you process
+-- and use monitors instead.
 -----------------------------------------------------------------------------
 
 module Control.Distributed.Process.Platform.GenProcess
