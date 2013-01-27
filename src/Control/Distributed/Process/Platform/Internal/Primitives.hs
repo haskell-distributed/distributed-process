@@ -18,25 +18,26 @@
 -----------------------------------------------------------------------------
 
 module Control.Distributed.Process.Platform.Internal.Primitives
-  ( -- * Exported Types
+  ( -- * General Purpose Process Addressing
     Addressable(..)
-    -- spawning/linking
+
+    -- * Spawning and Linking
   , spawnLinkLocal
   , spawnMonitorLocal
   , linkOnFailure
 
-  -- registration/start
+    -- * Registered Processes
   , whereisRemote
   , whereisOrStart
   , whereisOrStartRemote
 
-  -- matching
+    -- * Selective Receive/Matching
   , matchCond
 
-  -- utility
+    -- * General Utilities
   , times
 
-  -- remote table
+    -- * Remote Table
   , __remoteTable
   ) where
 
@@ -56,6 +57,7 @@ import Data.Maybe (isJust, fromJust)
 
 -- utility
 
+-- | Apply the supplied expression /n/ times
 times :: Int -> Process () -> Process ()
 n `times` proc = runP proc n
   where runP :: Process () -> Int -> Process ()
@@ -103,8 +105,8 @@ spawnMonitorLocal p = do
   return (pid, ref)
 
 -- | CH's 'link' primitive, unlike Erlang's, will trigger when the target
--- process dies for any reason. linkOnFailure has semantics like Erlang's:
--- it will trigger only when the target dies abnormally.
+-- process dies for any reason. This function has semantics like Erlang's:
+-- it will trigger 'ProcessLinkException' only when the target dies abnormally.
 linkOnFailure :: ProcessId -> Process ()
 linkOnFailure them = do
   us <- getSelfPid

@@ -1,5 +1,13 @@
--- | [Cloud Haskell Platform]
---
+{- | [Cloud Haskell Platform]
+
+It is /important/ not to be too general when catching exceptions in
+handler code, because asynchonous exceptions provide cloud haskell with
+its process termination mechanism. Two exceptions in particular, signal
+the instigators intention to stop a process immediately, these are raised
+in response to the @kill@ and @exit@ primitives provided by
+the base distributed-process package.
+
+-}
 module Control.Distributed.Process.Platform
   (
     -- * Exported Types
