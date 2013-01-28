@@ -42,10 +42,16 @@ module Control.Distributed.Process
   , match
   , matchIf
   , matchUnknown
-  , AbstractMessage(..)
   , matchAny
   , matchAnyIf
   , matchChan
+  , Message
+  , matchMessage
+  , matchMessageIf
+  , wrapMessage
+  , unwrapMessage
+  , handleMessage
+  , forward
     -- * Process management
   , spawn
   , call
@@ -167,6 +173,7 @@ import Control.Distributed.Process.Internal.Types
   , WhereIsReply(..)
   , RegisterReply(..)
   , LocalProcess(processNode)
+  , Message
   , nullProcessId
   )
 import Control.Distributed.Process.Serializable (Serializable, SerializableDict)
@@ -199,10 +206,15 @@ import Control.Distributed.Process.Internal.Primitives
   , match
   , matchIf
   , matchUnknown
-  , AbstractMessage(..)
   , matchAny
   , matchAnyIf
   , matchChan
+  , matchMessage
+  , matchMessageIf
+  , wrapMessage
+  , unwrapMessage
+  , handleMessage
+  , forward
     -- Process management
   , terminate
   , ProcessTerminationException(..)

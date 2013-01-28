@@ -307,6 +307,7 @@ data Message = Message
   { messageFingerprint :: !Fingerprint
   , messageEncoding    :: !BSL.ByteString
   }
+  deriving (Typeable)
 
 instance Show Message where
   show (Message fp enc) = show enc ++ " :: " ++ showFingerprint fp []
@@ -488,6 +489,10 @@ data ProcessSignal =
 --------------------------------------------------------------------------------
 -- Binary instances                                                           --
 --------------------------------------------------------------------------------
+
+instance Binary Message where
+  put msg = put $ messageToPayload msg
+  get = payloadToMessage <$> get
 
 instance Binary LocalProcessId where
   put lpid = put (lpidUnique lpid) >> put (lpidCounter lpid)
