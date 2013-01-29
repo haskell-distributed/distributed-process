@@ -1,0 +1,16 @@
+exclude: [".rvmrc", ".rbenv-version", "README.md", "Rakefile", "changelog.md"]
+auto: true
+lsi: false
+pygments: true
+safe: true
+
+title: Cloud Haskell
+tagline: Erlang-style concurrency for Haskell
+
+author:
+  name: Tim Watson
+  email: watson.timothy@gmail.com
+  github: hyperthunk
+  twitter: hyperthunk
+
+production_url: http://haskell-distributed.github.com/distributed-process-platform
