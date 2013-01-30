@@ -42,7 +42,6 @@ library
                    Control.Distributed.Process.Platform.Async.AsyncChan,
                    Control.Distributed.Process.Platform.Async.AsyncSTM,
                    Control.Distributed.Process.Platform.Call,
-                   Control.Distributed.Process.Platform.GenServer,
                    Control.Distributed.Process.Platform.Test,
                    Control.Distributed.Process.Platform.Time,
                    Control.Distributed.Process.Platform.Timer,
@@ -82,11 +81,6 @@ test-suite TimerTests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   extensions:      CPP
   main-is:         TestTimer.hs
-  other-modules:   
-                   Control.Distributed.Process.Platform.ManagedProcess.Client,
-                   Control.Distributed.Process.Platform.ManagedProcess.Server,
-                   Control.Distributed.Process.Platform.ManagedProcess.Internal.Types,
-                   Control.Distributed.Process.Platform.ManagedProcess.Internal.GenProcess
 
 test-suite PrimitivesTests
   type:            exitcode-stdio-1.0
@@ -111,13 +105,6 @@ test-suite PrimitivesTests
                    src,
                    tests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
-  other-modules:
-                   TestUtils,
-                   TestGenServer,
-                   Control.Distributed.Process.Platform.ManagedProcess.Client,
-                   Control.Distributed.Process.Platform.ManagedProcess.Server,
-                   Control.Distributed.Process.Platform.ManagedProcess.Internal.Types,
-                   Control.Distributed.Process.Platform.ManagedProcess.Internal.GenProcess
   extensions:      CPP
   main-is:         TestPrimitives.hs
 
@@ -143,13 +130,6 @@ test-suite AsyncTests
                    src,
                    tests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
-  other-modules:
-                   TestUtils,
-                   TestGenServer,
-                   Control.Distributed.Process.Platform.ManagedProcess.Client,
-                   Control.Distributed.Process.Platform.ManagedProcess.Server,
-                   Control.Distributed.Process.Platform.ManagedProcess.Internal.Types,
-                   Control.Distributed.Process.Platform.ManagedProcess.Internal.GenProcess
   extensions:      CPP
   main-is:         TestAsync.hs
 
@@ -175,29 +155,6 @@ test-suite GenServerTests
                    src,
                    tests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
-  other-modules:
-                   Control.Distributed.Process.Platform,
-                   Control.Distributed.Process.Platform.Async,
-                   Control.Distributed.Process.Platform.Async.AsyncChan,
-                   Control.Distributed.Process.Platform.Async.AsyncSTM,
-                   Control.Distributed.Process.Platform.Call,
-                   Control.Distributed.Process.Platform.GenServer,
-                   Control.Distributed.Process.Platform.Test,
-                   Control.Distributed.Process.Platform.Time,
-                   Control.Distributed.Process.Platform.Timer,
-                   Control.Distributed.Process.Platform.Internal.Primitives,
-                   Control.Distributed.Process.Platform.Internal.Types,
-                   Control.Distributed.Process.Platform.Internal.Common,
-                   Control.Distributed.Process.Platform.Async.Types,
-                   TestUtils,
-                   MathsDemo,
-                   Counter,
-                   SimplePool,
-                   Control.Distributed.Process.Platform.ManagedProcess,
-                   Control.Distributed.Process.Platform.ManagedProcess.Client,
-                   Control.Distributed.Process.Platform.ManagedProcess.Server,
-                   Control.Distributed.Process.Platform.ManagedProcess.Internal.Types,
-                   Control.Distributed.Process.Platform.ManagedProcess.Internal.GenProcess
   extensions:      CPP
   main-is:         TestGenServer.hs
 
