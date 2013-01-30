@@ -22,12 +22,6 @@ growing number of features for
 * working with several network transport implementations (and more in the pipeline)
 * supporting *static* values (required for remote communication)
 
-API documentation for the latest releases is available on hackage. The latest
-(HEAD) API documentation for the platform can be viewed
-[here](/static/doc/distributed-process-platform/index.html).
-
-### Architecture
-
 Cloud Haskell comprises the following components, some of which are complete,
 others experimental.
 
@@ -42,9 +36,8 @@ others experimental.
 * [distributed-process-simplelocalnet][10]: Simple backend for local networks
 * [distributed-process-azure][11]: Azure backend for Cloud Haskell (proof of concept)
 
-
-One goal of Cloud Haskell is to separate the transport layer from the
-process layer, so that the transport backend is entirely independent:
+One of Cloud Haskell's goals is to separate the transport layer from the
+*process layer*, so that the transport backend is entirely independent:
 it is envisaged that this interface might later be used by models
 other than the Cloud Haskell paradigm, and that applications built
 using Cloud Haskell might be easily configured to work with different
@@ -63,6 +56,30 @@ The following diagram shows dependencies between the various subsystems,
 in an application using Cloud Haskell, where arrows represent explicit
 directional dependencies.
 
+-----
+
+    +------------------------------------------------------------+
+    |                        Application                         |
+    +------------------------------------------------------------+
+                 |                               |
+                 V                               V
+    +-------------------------+   +------------------------------+
+    |      Cloud Haskell      |<--|    Cloud Haskell Backend     |
+    |  (distributed-process)  |   | (distributed-process-...)    |
+    +-------------------------+   +------------------------------+
+                 |           ______/             |
+                 V           V                   V
+    +-------------------------+   +------------------------------+
+    |   Transport Interface   |<--|   Transport Implementation   |
+    |   (network-transport)   |   |   (network-transport-...)    |
+    +-------------------------+   +------------------------------+
+                                                 |
+                                                 V
+                                  +------------------------------+
+                                  | Haskell/C Transport Library  |
+                                  +------------------------------+
+
+-----
 
 In this diagram, the various nodes roughly correspond to specific modules:
 
@@ -184,25 +201,40 @@ pass data between processes using *ordinary* concurrency primitives such as
 types like `TMVar a` just as normal Haskell threads are. Numerous features
 in [distributed-process-platform][3] use this facility, for example the way
 that `Control.Distributed.Processes.Platform.Async.AsyncSTM` handles passing
-the result of its computation back to the caller:
+the result of its computation back to the caller, as the following snippet
+demonstrates:
+
+----
 
 {% highlight haskell %}
-  workerPid <- spawnLocal $ do
-        -- ... some setup
-        r <- proc
-        void $ liftIO $ atomically $ putTMVar result (AsyncDone r)
+    root <- getSelfPid
+    result <- liftIO $ newEmptyTMVarIO
+    sigStart <- liftIO $ newEmptyTMVarIO
+    (sp, rp) <- newChan
+
+    -- listener/response proxy
+    insulator <- spawnLocal $ do
+        worker <- spawnLocal $ do
+            liftIO $ atomically $ takeTMVar sigStart
+            r <- proc
+            void $ liftIO $ atomically $ putTMVar result (AsyncDone r)
+
+        sendChan sp worker  -- let the parent process know the worker pid
+
+        wref <- monitor worker
+        rref <- case shouldLink of
+                    True  -> monitor root >>= return . Just
+                    False -> return Nothing
+        finally (pollUntilExit worker result)
+                (unmonitor wref >>
+                    return (maybe (return ()) unmonitor rref))
+
+    workerPid <- receiveChan rp
+    liftIO $ atomically $ putTMVar sigStart ()
+    -- etc ....
 {% endhighlight %}
 
-For example, we might implement a local process group using *only* message
-passing, and when members enter or leave the group, a *master* process does
-the book keeping to ensure the other members of the group can retain a
-consist view. If we want to introduce a *group level barrier* to facilitate
-mutual exclusion, we have two choices for handling this. If the process
-group allows members to enter and leave on an ad-hoc basis, then a shared
-memory based solution is a poor choice, because there is no *sane* way to
-pass the `MVar` (or whatever) to new joiners. Locking is best achieved using
-a messaging based protocol in this instance, which complicates the implementation
-
+----
 
 Processes reside on nodes, which in our implementation map directly to the
 `Control.Distributed.Processes.Node` module. Given a configured

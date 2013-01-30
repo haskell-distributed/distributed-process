@@ -38,7 +38,7 @@ completely stable yet. The design of the transport layer may also still change.
 Feedback and suggestions are most welcome. Email [Duncan](mailto:duncan@well-typed.com) or [Edsko](mailto:edsko@well-typed.com) at Well-Typed, find us at #HaskellTransportLayer on
 freenode, or post on the [Parallel Haskell][2] mailing list.
 
-You may also submit issues on the [JIRA issue tracker][3].
+You may also submit issues on the [JIRA issue tracker][8].
 
 ### Hello World
 
@@ -112,3 +112,4 @@ If you are interested in helping out, please add a brief paragraph to
 [5]: /wiki/newtransports.html
 [6]: /wiki/newdesign.html
 [7]: /wiki/protocols.html
+[8]: https://cloud-haskell.atlassian.net/issues/?filter=10002

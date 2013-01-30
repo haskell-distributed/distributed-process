@@ -100,6 +100,8 @@ A particular challenge is the per-connection performance parameters. It is vital
 
 The following diagram shows dependencies between the various modules for the initial Cloud Haskell implementation. Arrows represent explicit module dependencies.
 
+----
+
     +------------------------------+
     |        Application           |
     +------------------------------+
@@ -114,11 +116,14 @@ The following diagram shows dependencies between the various modules for the ini
     | Haskell network (IP) library |
     +------------------------------+
 
+----
+
 As the diagram indicates, the initial implementation is monolithic and uses a single specific transport (TCP/IP).
 
 The next diagram shows the various modules that are envisaged in the new design. We partition the system into the Cloud Haskell layer and a separate network transport layer. Each of the two layers has backend packages for different transports.
 
-{% highlight %}
+----
+
     +------------------------------------------------------------+
     |                        Application                         |
     +------------------------------------------------------------+
@@ -139,7 +144,8 @@ The next diagram shows the various modules that are envisaged in the new design.
                                   +------------------------------+
                                   | Haskell/C Transport Library  |
                                   +------------------------------+
-{% endhighlight %}
+
+----
 
 We still expect applications to use the the Cloud Haskell layer directly. Additionally the application also depends on a specific Cloud Haskell backend, which provides functions to allow the initialisation of the transport layer using whatever topology might be appropriate to the application.
 
