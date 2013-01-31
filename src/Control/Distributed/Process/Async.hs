@@ -48,6 +48,7 @@ module Control.Distributed.Process.Platform.Async
   , asyncLinkedChan
   , task
   , remoteTask
+  , monitorAsync
   -- * Cancelling asynchronous operations
   , cancel
   , cancelWait
@@ -136,6 +137,10 @@ remoteTask :: Static (SerializableDict a)
               -> Closure (Process a)
               -> AsyncTask a
 remoteTask = AsyncRemoteTask
+
+-- | Given an 'Async' handle, monitor the worker process.
+monitorAsync :: Async a -> Process MonitorRef
+monitorAsync = monitor . asyncWorker
 
 -- | Check whether an 'Async' handle has completed yet. The status of the
 -- action is encoded in the returned 'AsyncResult'. If the action has not

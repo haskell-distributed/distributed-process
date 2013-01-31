@@ -32,7 +32,7 @@ type SimpleTask a = Closure (Process a)
 
 data Pool a = Pool {
     poolSize :: PoolSize
-  , active   :: [(ProcessId, Recipient, Async a)]
+  , active   :: [(MonitorRef, Recipient, Async a)]
   , accepted :: [(Recipient, Closure (Process a))]
   } deriving (Typeable)
 
@@ -89,9 +89,8 @@ acceptTask s@(Pool sz' runQueue taskQueue) from task' =
     False -> do
       proc <- unClosure task'
       asyncHandle <- async proc
-      pid <- return $ asyncWorker asyncHandle
-      taskEntry <- return (pid, from, asyncHandle)
-      _ <- monitor pid
+      ref <- monitorAsync asyncHandle
+      taskEntry <- return (ref, from, asyncHandle)
       return s { active = (taskEntry:runQueue) }
 
 -- /info/ handler: a worker has exited, process the AsyncResult and send a reply
@@ -101,8 +100,8 @@ taskComplete :: forall a . Serializable a
              -> ProcessMonitorNotification
              -> Process (ProcessAction (Pool a))
 taskComplete s@(Pool _ runQ _)
-             (ProcessMonitorNotification _ pid _) =
-  let worker = findWorker pid runQ in
+             (ProcessMonitorNotification ref _ _) =
+  let worker = findWorker ref runQ in
   case worker of
     Just t@(_, c, h) -> wait h >>= respond c >> bump s t >>= continue
     Nothing          -> continue s
@@ -116,27 +115,20 @@ taskComplete s@(Pool _ runQ _)
     respond c (AsyncLinkFailed d) = replyTo c ((Left (show d)) :: (Either String a))
     respond _      _              = die $ TerminateOther "IllegalState"
 
-    bump :: Pool a -> (ProcessId, Recipient, Async a) -> Process (Pool a)
-    bump st@(Pool maxSz runQueue _) worker =
-      let runLen   = (length runQueue) - 1
-          runQ2    = deleteFromRunQueue worker runQueue
-          slots    = (maxSz - runLen)
-      in fillSlots slots st { active = runQ2 }
+    bump :: Pool a -> (MonitorRef, Recipient, Async a) -> Process (Pool a)
+    bump st@(Pool _ runQueue acc) worker =
+      let runQ2  = deleteFromRunQueue worker runQueue in
+      case acc of
+        []           -> return st { active = runQ2 }
+        ((tr,tc):ts) -> acceptTask (st { accepted = ts, active = runQ2 }) tr tc
 
-    fillSlots :: Int -> Pool a -> Process (Pool a)
-    fillSlots _ st'@(Pool _ _ [])           = return st'
-    fillSlots 0 st'                         = return st'
-    fillSlots n st'@(Pool _ _ ((tr,tc):ts)) =
-      let ns = st' { accepted = ts }
-      in acceptTask ns tr tc >>= fillSlots (n-1)
+findWorker :: MonitorRef
+           -> [(MonitorRef, Recipient, Async a)]
+           -> Maybe (MonitorRef, Recipient, Async a)
+findWorker key = find (\(ref,_,_) -> ref == key)
 
-findWorker :: ProcessId
-           -> [(ProcessId, Recipient, Async a)]
-           -> Maybe (ProcessId, Recipient, Async a)
-findWorker key = find (\(pid,_,_) -> pid == key)
-
-deleteFromRunQueue :: (ProcessId, Recipient, Async a)
-                   -> [(ProcessId, Recipient, Async a)]
-                   -> [(ProcessId, Recipient, Async a)]
+deleteFromRunQueue :: (MonitorRef, Recipient, Async a)
+                   -> [(MonitorRef, Recipient, Async a)]
+                   -> [(MonitorRef, Recipient, Async a)]
 deleteFromRunQueue c@(p, _, _) runQ = deleteBy (\_ (b, _, _) -> b == p) c runQ
 
