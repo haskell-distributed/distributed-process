@@ -278,15 +278,15 @@ defined by Erlang's [Open Telecom Platform][13], taking in some well established
 Haskell concurrency design patterns alongside.
 
 In fact, [distributed-process-platform][18] does not really consider the
-*task layer* in great detail. We provide an API comparable to remote's
+*task layer* in great detail. We do provide an API comparable to remote's
 `Promise` in [Control.Distributed.Process.Platform.Async][17]. This API however,
 is derived from Simon Marlow's [Control.Concurrent.Async][19] package, and does
-not limit queries on `Async` handles in the same way as a `Promise` would.
-Instead our [API][17] handles both blocking and non-blocking queries, polling
-and working with lists of `Async` handles. We also eschew throwing exceptions
-to indicate asynchronous task failures, instead handling *task* and
-connectivity failures using monitors. Users of the API need only concern
-themselves with the `AsyncResult`, which encodes the status and (possibly)
+not limit queries on `Async` handles to blocking receive semantics, in the same
+way as `Promise` does. Instead our [API][17] handles both blocking and non-blocking
+queries, polling and working with lists of `Async` handles. We also eschew
+throwing exceptions to indicate asynchronous task failures, instead handling
+*task* and connectivity failures using monitors. Users of the API need only
+concern themselves with the `AsyncResult`, which encodes the status and (possibly)
 outcome of the computation simply.
 
 ------
@@ -325,19 +325,24 @@ Unlike remote's task layer, we do not exclude IO, allowing tasks to run in
 the `Process` monad and execute arbitrary code. Providing a monadic wrapper
 around `Async` that disallows side effects is relatively simple, and we
 do not consider the presence of side effects a barrier to fault tolerance
-and automated process restarts. A thin wrapper API that prevents side effects
-in async tasks will be provided in a future release.
+and automated process restarts. Erlang does not forbid *IO* in its processes,
+and yet that doesn't render supervision trees ineffective. They key is to
+provide a rich enough API that statefull processes can recognise whether or
+not they need to provide idempotent initialisation routines.
 
-work is also underway to provide abstractions for managing asynchronous tasks
-at a higher level, focussing on workload distribution and load regulation.
+The utility of preventing side effects using the type system is, however, not
+to be sniffed at. A substrate of the `ManagedProcess` API is under development
+that provides a *safe process* abstraction in which side effect free computations
+can be embedded, whilst reaping the benefits of the framework.
 
 #### Fault Tolerance
 
 The [remote][14] task layer implementation imposes a *master-slave* roles on
+its users. We eschew this overlay in favour of letting the Cloud Haskell
+backend decide on whether such roles and appropriate to the given application
+topology.
 
 * handles fault tolerance by drawing on the [OTP][13] concept of [supervision trees][15]
-
-
 * does not dictate a data centric processing model, though this is supported
 * treats promises/futures as a low level, enabling concept
 * its APIs coordination patterns
