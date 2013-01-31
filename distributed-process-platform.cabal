@@ -50,7 +50,8 @@ library
                    Control.Distributed.Process.Platform.Timer,
                    Control.Distributed.Process.Platform.ManagedProcess,
                    Control.Distributed.Process.Platform.ManagedProcess.Client,
-                   Control.Distributed.Process.Platform.ManagedProcess.Server
+                   Control.Distributed.Process.Platform.ManagedProcess.Server,
+                   Control.Distributed.Process.Platform.ManagedProcess.SafeServer
   other-modules:
                    Control.Distributed.Process.Platform.Internal.Primitives,
                    Control.Distributed.Process.Platform.Internal.Types,
