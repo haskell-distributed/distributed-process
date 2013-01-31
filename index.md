@@ -13,7 +13,7 @@ Generic network transport backends have been developed for
 [TCP](https://github.com/haskell-distibuted/distributed-process/network-transport-tcp) and
 [in-memory](https://github.com/haskell-distibuted/distributed-process/network-transport-inmemory)
 messaging, and several other implementations are available including a transport for
-[Windows Azure](https://github.com/haskell-distibuted/distributed-process/network-transport-azure). The [Overview](https://github.com/haskell-distibuted/distributed-process/wiki/Overiview) provides links to a number of resources for learning about the conceptual underpinnings of Cloud Haskell, and some [examples](https://github.com/haskell-distibuted/distributed-process/distributed-process-demos).
+[Windows Azure](https://github.com/haskell-distibuted/distributed-process/distributed-process-azure). The [Overview](https://github.com/haskell-distibuted/distributed-process/wiki/Overiview) provides links to a number of resources for learning about the conceptual underpinnings of Cloud Haskell, and some [examples](https://github.com/haskell-distibuted/distributed-process/distributed-process-demos).
 
 Documentation is available on this site for HEAD, or
 [hackage](http://hackage.haskell.org/package/distributed-process) for the current and preceding versions of
