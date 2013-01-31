@@ -511,8 +511,8 @@ just provides callback functions which take some state and either return a
 new state and a reply, or just a new state. The process is *managed* in the
 sense that its mailbox is under someone else's control.
 
-A slightly more complex example of the `ManagedProcess` API can be seen in
-the [Managed Processes tutorial][22]. The API documentation is available
+More complex examples of the `ManagedProcess` API can be seen in the
+[Managed Processes tutorial][22]. API documentation for HEAD is available
 [here][21].
 
 [1]: http://www.haskell.org/haskellwiki/Cloud_Haskell
