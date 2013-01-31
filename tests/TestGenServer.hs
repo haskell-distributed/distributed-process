@@ -27,6 +27,7 @@ import Data.Typeable (Typeable)
 
 import MathsDemo
 import Counter
+import qualified SafeCounter as SafeCounter
 import SimplePool
 
 import Prelude hiding (catch)
@@ -305,6 +306,18 @@ testAdd pid result = add pid 10 10 >>= stash result
 testDivByZero :: ProcessId -> TestResult (Either DivByZero Double) -> Process ()
 testDivByZero pid result = divide pid 125 0 >>= stash result
 
+-- SafeCounter tests
+
+testSafeCounterCurrentState :: ProcessId -> TestResult Int -> Process ()
+testSafeCounterCurrentState pid result =
+  SafeCounter.getCount pid >>= stash result
+
+testSafeCounterIncrement :: ProcessId -> TestResult Int -> Process ()
+testSafeCounterIncrement pid result = do
+  6 <- incCount pid
+  7 <- incCount pid
+  getCount pid >>= stash result
+
 -- Counter tests
 
 testCounterCurrentState :: ProcessId -> TestResult Int -> Process ()
@@ -346,6 +359,9 @@ tests transport = do
   cpid <- newEmptyMVar
   _ <- forkProcess localNode $ startCounter 5 >>= stash cpid
   counter <- takeMVar cpid
+  scpid <- newEmptyMVar
+  _ <- forkProcess localNode $ SafeCounter.startCounter 5 >>= stash scpid
+  safeCounter <- takeMVar scpid
   return [
         testGroup "basic server functionality" [
             testCase "basic call with explicit server reply"
@@ -427,6 +443,16 @@ tests transport = do
             (delayedAssertion
              "expected the server to terminate once the limit was exceeded"
              localNode True (testCounterExceedsLimit counter))
+          ]
+        , testGroup "safe counter examples" [
+            testCase "initial counter state = 5"
+              (delayedAssertion
+               "expected the server to return the initial state of 5"
+               localNode 5 (testSafeCounterCurrentState safeCounter))
+          , testCase "increment counter twice"
+              (delayedAssertion
+               "expected the server to return the incremented state as 7"
+               localNode 7 (testSafeCounterIncrement safeCounter))
           ]
       ]
 
