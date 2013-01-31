@@ -1,8 +1,8 @@
-{-# LANGUAGE TemplateHaskell           #-}
 {-# LANGUAGE DeriveDataTypeable        #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE RankNTypes                #-}
 {-# LANGUAGE ScopedTypeVariables       #-}
+{-# LANGUAGE DeriveGeneric             #-}
 
 -- | Simple bounded (size) worker pool that accepts tasks and blocks
 -- the caller until they've completed. Partly a /spike/ for that 'Task' API
@@ -18,17 +18,32 @@ import Control.Distributed.Process.Platform.ManagedProcess
 import Control.Distributed.Process.Platform.Time
 import Control.Distributed.Process.Serializable
 import Control.Exception hiding (catch)
-import Data.Binary()
+import Data.Binary
 import Data.List
   ( deleteBy
   , find
   )
 import Data.Typeable
 
+import GHC.Generics (Generic)
+
 import Prelude hiding (catch)
 
 type PoolSize = Int
 type SimpleTask a = Closure (Process a)
+
+data GetStats = GetStats
+  deriving (Typeable, Generic)
+
+instance Binary GetStats
+
+data PoolStats = PoolStats {
+    maxJobs    :: Int
+  , activeJobs :: Int
+  , queuedJobs :: Int
+  } deriving (Typeable, Generic)
+
+instance Binary PoolStats
 
 data Pool a = Pool {
     poolSize :: PoolSize
@@ -40,7 +55,8 @@ poolServer :: forall a . (Serializable a) => ProcessDefinition (Pool a)
 poolServer =
     defaultProcess {
         apiHandlers = [
-            handleCallFrom (\s f (p :: Closure (Process a)) -> storeTask s f p)
+          handleCallFrom (\s f (p :: Closure (Process a)) -> storeTask s f p)
+        , handleCall poolStatsRequest
         ]
       , infoHandlers = [
             handleInfo taskComplete
@@ -52,21 +68,29 @@ simplePool :: forall a . (Serializable a)
               => PoolSize
               -> ProcessDefinition (Pool a)
               -> Process (Either (InitResult (Pool a)) TerminateReason)
-simplePool sz server =
-    start sz init' server
-      `catch` (\(e :: SomeException) -> do
-          say $ "terminating with " ++ (show e)
-          liftIO $ throwIO e)
+simplePool sz server = start sz init' server
   where init' :: PoolSize -> Process (InitResult (Pool a))
         init' sz' = return $ InitOk (Pool sz' [] []) Infinity
 
 -- enqueues the task in the pool and blocks
 -- the caller until the task is complete
-executeTask :: Serializable a
-            => ProcessId
+executeTask :: forall s a . (Addressable s, Serializable a)
+            => s
             -> Closure (Process a)
             -> Process (Either String a)
 executeTask sid t = call sid t
+
+-- internal / server-side API
+
+poolStatsRequest :: (Serializable a)
+                 => Pool a
+                 -> GetStats
+                 -> Process (ProcessReply (Pool a) PoolStats)
+poolStatsRequest st GetStats =
+  let sz = poolSize st
+      ac = length (active st)
+      pj = length (accepted st)
+  in reply (PoolStats sz ac pj) st
 
 -- /call/ handler: accept a task and defer responding until "later"
 storeTask :: Serializable a
