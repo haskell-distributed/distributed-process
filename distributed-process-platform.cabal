@@ -150,7 +150,8 @@ test-suite GenServerTests
                    stm >= 2.3 && < 2.5,
                    test-framework >= 0.6 && < 0.9,
                    test-framework-hunit,
-                   transformers
+                   transformers,
+                   ghc-prim
   hs-source-dirs:
                    src,
                    tests
