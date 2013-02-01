@@ -515,6 +515,14 @@ More complex examples of the `ManagedProcess` API can be seen in the
 [Managed Processes tutorial][22]. API documentation for HEAD is available
 [here][21].
 
+### Supervision Trees
+
+TBC
+
+### Process Groups
+
+TBC
+
 [1]: http://www.haskell.org/haskellwiki/Cloud_Haskell
 [2]: https://github.com/haskell-distributed/distributed-process
 [3]: https://github.com/haskell-distributed/distributed-process-platform
