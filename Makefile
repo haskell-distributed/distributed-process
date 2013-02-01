@@ -14,14 +14,7 @@ $(REPOS):
 
 .PHONY: install
 install: $(REPOS)
-	$(CABAL) install --with-ghc=$(GHC) $(REPOS) --reinstall
-	$(CABAL) install
+	$(CABAL) install --with-ghc=$(GHC)
 
 .PHONY: ci
-ci: install test
-
-.PHONY: test
-test:
-	$(CABAL) configure --enable-tests
-	$(CABAL) build
-	$(CABAL) test --show-details=always
+ci: install
