@@ -6,10 +6,10 @@ License:       BSD3
 License-file:  LICENSE
 Copyright:     Well-Typed LLP
 Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
-Maintainer:    edsko@well-typed.com, duncan@well-typed.com
+Maintainer:    edsko@well-typed.com, duncan@well-typed.com, watson.timothy@gmail.com
 Stability:     experimental
-Homepage:      http://github.com/haskell-distributed/distributed-process
-Bug-Reports:   mailto:edsko@well-typed.com
+Homepage:      http://haskell-distributed.github.com
+Bug-Reports:   https://cloud-haskell.atlassian.net/browse/NTTCP
 Synopsis:      TCP instantiation of Network.Transport
 Description:   TCP instantiation of Network.Transport  
 Tested-With:   GHC==7.0.4 GHC==7.2.2 GHC==7.4.1 GHC==7.4.2
@@ -17,8 +17,7 @@ Category:      Network
 
 Source-Repository head
   Type:     git
-  Location: https://github.com/haskell-distributed/distributed-process
-  SubDir:   network-transport-tcp
+  Location: https://github.com/haskell-distributed/network-transport-tcp
 
 Flag use-mock-network
   Description:     Use mock network implementation (for testing)
