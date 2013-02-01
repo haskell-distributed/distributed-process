@@ -6,10 +6,10 @@ License:       BSD3
 License-File:  LICENSE
 Copyright:     Well-Typed LLP
 Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
-Maintainer:    edsko@well-typed.com, duncan@well-typed.com
+Maintainer:    edsko@well-typed.com, duncan@well-typed.com, watson.timothy@gmail.com
 Stability:     experimental
-Homepage:      http://github.com/haskell-distributed/distributed-process
-Bug-Reports:   mailto:edsko@well-typed.com
+Homepage:      http://haskell-distributed.github.com
+Bug-Reports:   https://cloud-haskell.atlassian.net/browse/NT
 Synopsis:      Network abstraction layer 
 Description:   "Network.Transport" is a Network Abstraction Layer which provides
                the following high-level concepts:
@@ -60,8 +60,7 @@ Category:      Network
 
 Source-Repository head
   Type:     git
-  Location: https://github.com/haskell-distributed/distributed-process
-  SubDir:   network-transport
+  Location: https://github.com/haskell-distributed/network-transport
 
 Library
   Build-Depends:   base >= 4.3 && < 5,
