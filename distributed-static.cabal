@@ -14,15 +14,20 @@ Description:         /Towards Haskell in the Cloud/ (Epstein et al, Haskell
                      'RemoteTable'). In this module we implement this mimickry
                      and various extensions: type safety (including for
                      polymorphic static values) and compositionality.
-Homepage:            http://www.github.com/haskell-distributed/distributed-process
+Homepage:            http://haskell-distributed.github.com
 License:             BSD3
 License-File:        LICENSE
 Author:              Edsko de Vries
-Maintainer:          edsko@well-typed.com
+Maintainer:          edsko@well-typed.com, watson.timothy@gmail.com
+Bug-Reports:         https://cloud-haskell.atlassian.net/browse/DS
 Copyright:           Well-Typed LLP
 Category:            Control
 Build-Type:          Simple
 Cabal-Version:       >=1.8
+
+Source-Repository head
+  Type:     git
+  Location: https://github.com/haskell-distributed/distributed-static
 
 Library
   Exposed-Modules:     Control.Distributed.Static
