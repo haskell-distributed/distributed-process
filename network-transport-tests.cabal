@@ -2,15 +2,19 @@ name:                network-transport-tests
 version:             0.1.0.1
 synopsis:            Unit tests for Network.Transport implementations
 -- description:         
-homepage:            http://github.com/haskell-distributed/distributed-process
+homepage:            http://haskell-distributed.github.com
 license:             BSD3
 license-file:        LICENSE
 author:              Edsko de Vries
-maintainer:          edsko@well-typed.com
+maintainer:          edsko@well-typed.com, watson.timothy@gmail.com
 copyright:           Well-Typed LLP
 category:            Network
 build-type:          Simple
 cabal-version:       >=1.8
+
+Source-Repository head
+  Type:     git
+  Location: https://github.com/haskell-distributed/network-transport-tests
 
 library
   exposed-modules:     Network.Transport.Tests,
