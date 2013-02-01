@@ -4,15 +4,20 @@ Synopsis:            Like Data.Dynamic/Data.Typeable but with support for rank-1
 Description:         "Data.Typeable" and "Data.Dynamic" only support monomorphic types. 
                      In this package we provide similar functionality but with
                      support for rank-1 polymorphic types. 
-Homepage:            http://github.com/haskell-distributed/distributed-process
+Homepage:            http://haskell-distributed.github.com
 License:             BSD3
 License-File:        LICENSE
 Author:              Edsko de Vries
-Maintainer:          edsko@well-typed.com
+Maintainer:          edsko@well-typed.com, watson.timothy@gmail.com
+Bug-Reports:         https://cloud-haskell.atlassian.net/browse/RANKNDYN
 Copyright:           Well-Typed LLP
 Category:            Data
 Build-Type:          Simple
 Cabal-Version:       >=1.8
+
+Source-Repository head
+  Type:     git
+  Location: https://github.com/haskell-distributed/rank1dynamic
 
 Library
   Exposed-Modules:     Data.Rank1Dynamic,
