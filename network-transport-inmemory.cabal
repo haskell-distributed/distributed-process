@@ -6,14 +6,18 @@ License:       BSD3
 License-file:  LICENSE
 Copyright:     Well-Typed LLP
 Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
-Maintainer:    edsko@well-typed.com, duncan@well-typed.com
+Maintainer:    edsko@well-typed.com, duncan@well-typed.com, watson.timothy@gmail.com
 Stability:     experimental
-Homepage:      http://github.com/haskell-distributed/distributed-process
-Bug-Reports:   mailto:edsko@well-typed.com
+Homepage:      http://haskell-distributed.github.com
+Bug-Reports:   https://cloud-haskell.atlassian.net/browse/NTINMEM
 Synopsis:      In-memory instantiation of Network.Transport
 Description:   In-memory instantiation of Network.Transport  
 Tested-With:   GHC==7.0.4 GHC==7.2.2 GHC==7.4.1 GHC==7.4.2
 Category:      Network  
+
+Source-Repository head
+  Type:     git
+  Location: https://github.com/haskell-distributed/network-transport-inmemory
 
 Library
   Build-Depends:   base >= 4.3 && < 5,
