@@ -8,8 +8,8 @@ Copyright:     Well-Typed LLP
 Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
 Maintainer:    watson.timothy@gmail.com, edsko@well-typed.com, duncan@well-typed.com
 Stability:     experimental
-Homepage:      http://github.com/haskell-distributed/distributed-process
-Bug-Reports:   http://github.com/haskell-distributed/distributed-process/issues
+Homepage:      http://haskell-distributed.github.com
+Bug-Reports:   https://cloud-haskell.atlassian.net/browse/DPSLN
 Synopsis:      Simple zero-configuration backend for Cloud Haskell 
 Description:   Simple backend based on the TCP transport which offers node
                discovery based on UDP multicast. This is a zero-configuration
@@ -20,8 +20,7 @@ Category:      Control
 
 Source-Repository head
   Type:     git
-  Location: https://github.com/haskell-distributed/distributed-process
-  SubDir:   distributed-process-simplelocalnet
+  Location: https://github.com/haskell-distributed/distributed-process-simplelocalnet
 
 Flag build-example
   Default: False

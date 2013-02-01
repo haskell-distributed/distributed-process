@@ -1,0 +1,11 @@
+azure-service-api
+distributed-process-azure
+distributed-process-demos
+
+distributed-static
+network-transport
+network-transport-composed
+network-transport-inmemory
+network-transport-tcp
+network-transport-tests
+rank1dynamic
