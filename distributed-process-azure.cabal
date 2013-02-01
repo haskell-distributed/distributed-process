@@ -6,10 +6,10 @@ License:       BSD3
 License-File:  LICENSE
 Copyright:     Well-Typed LLP
 Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
-Maintainer:    edsko@well-typed.com, duncan@well-typed.com
+Maintainer:    edsko@well-typed.com, duncan@well-typed.com, watson.timothy@gmail.com
 Stability:     experimental
-Homepage:      http://github.com/haskell-distributed/distributed-process
-Bug-Reports:   mailto:edsko@well-typed.com
+Homepage:      http://haskell-distributed.github.com
+Bug-Reports:   https://cloud-haskell.atlassian.net/browse/DPAZURE
 Synopsis:      Microsoft Azure backend for Cloud Haskell 
 Description:   This is a proof of concept Azure backend for Cloud Haskell. It
                provides just enough functionality to run Cloud Haskell
@@ -23,8 +23,7 @@ Category:      Control
 
 Source-Repository head
   Type:     git
-  Location: https://github.com/haskell-distributed/distributed-process
-  SubDir:   distributed-process-azure
+  Location: https://github.com/haskell-distributed/distributed-process-azure
 
 Flag build-demos
   description: Build the demos
