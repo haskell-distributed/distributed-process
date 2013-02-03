@@ -56,7 +56,7 @@ Description:   "Network.Transport" is a Network Abstraction Layer which provides
                probably also want to install at least one transport
                implementation (network-transport-*).
 Tested-With:   GHC==7.0.4 GHC==7.2.2 GHC==7.4.1 GHC==7.4.2
-Category:      Network  
+Category:      Network
 
 Source-Repository head
   Type:     git
