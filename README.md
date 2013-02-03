@@ -1,4 +1,5 @@
-### rank1dynamic
+### rank1dynamic [![travis](https://secure.travis-ci.org/haskell-distributed/rank1dynamic.png)](http://travis-ci.org/haskell-distributed/rank1dynamic)
+
 
 This repository is part of Cloud Haskell.
 
