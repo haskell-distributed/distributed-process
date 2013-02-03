@@ -1,0 +1,6 @@
+language: haskell
+install:
+    - cabal install data-accessor-transformers
+    - cabal install lockfree-queue
+    - cabal install test-framework-quickcheck2
+script: "make ci"

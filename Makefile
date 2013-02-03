@@ -11,17 +11,23 @@ all: $(REPOS)
 
 $(REPOS):
 	git clone $(BASE_GIT)/$@.git
+	$(CABAL) install --with-ghc=$(GHC) ./$@ --force-reinstalls
 
 .PHONY: install
 install: $(REPOS)
-	$(CABAL) install --with-ghc=$(GHC) $(REPOS) --reinstall
 	$(CABAL) install
 
 .PHONY: ci
-ci: install test
+ci: $(REPOS) test
 
 .PHONY: test
 test:
 	$(CABAL) configure --enable-tests
+	$(CABAL) build
+	$(CABAL) test --show-details=always
+
+.PHONY: itest
+itest:
+	$(CABAL) configure --enable-tests -f use-mock-network
 	$(CABAL) build
 	$(CABAL) test --show-details=always
