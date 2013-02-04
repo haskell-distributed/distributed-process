@@ -8,7 +8,3 @@ notifications:
     channels:
       - "irc.freenode.org#haskell-distributed"
     use_notice: true
-branches:
-  only:
-    - master
-    - development
