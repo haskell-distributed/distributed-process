@@ -1,5 +1,6 @@
 language: haskell
 script: "make ci"
+install: "make deps"
 notifications:
   email:
     recipients:
