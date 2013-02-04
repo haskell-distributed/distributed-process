@@ -1,4 +1,5 @@
-### network-transport-tcp
+### network-transport-tcp [![travis](https://secure.travis-ci.org/haskell-distributed/network-transport-tcp.png?branch=master,development)](http://travis-ci.org/haskell-distributed/network-transport-tcp)
+
 
 This repository is part of Cloud Haskell.
 
