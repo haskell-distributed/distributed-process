@@ -1,4 +1,5 @@
-### network-transport-inmemory
+### network-transport-inmemory [![travis](https://secure.travis-ci.org/haskell-distributed/network-transport-inmemory.png?branch=master,development)](http://travis-ci.org/haskell-distributed/network-transport-inmemory)
+
 
 This repository is part of Cloud Haskell.
 
