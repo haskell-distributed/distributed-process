@@ -1,2 +1,10 @@
 language: haskell
 script: "make ci"
+notifications:
+    irc:
+        channels:
+            - "irc.freenode.org#haskell-distributed"
+        use_notice: true
+    email:
+        recipients:
+            - cloud.haskell@gmail.com
