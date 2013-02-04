@@ -1,4 +1,5 @@
-### distributed-static
+### distributed-static [![travis](https://secure.travis-ci.org/haskell-distributed/distributed-static.png?branch=master,development)](http://travis-ci.org/haskell-distributed/distributed-static)
+
 
 This repository is part of Cloud Haskell.
 
