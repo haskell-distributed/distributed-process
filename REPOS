@@ -1,11 +1,2 @@
-azure-service-api
-distributed-process-azure
-distributed-process-demos
-distributed-process-simplelocalnet
-distributed-static
 network-transport
-network-transport-composed
-
-network-transport-tcp
 network-transport-tests
-rank1dynamic
