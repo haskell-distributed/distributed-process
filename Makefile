@@ -20,8 +20,14 @@ install: $(REPOS)
 .PHONY: ci
 ci: $(REPOS) test
 
+.PHONY: deps
+deps:
+	$(CABAL) install data-accessor-transformers
+	$(CABAL) install lockfree-queue
+	$(CABAL) install test-framework-quickcheck2
+
 .PHONY: test
-test:
+test: deps
 	$(CABAL) configure --enable-tests
 	$(CABAL) build
 	$(CABAL) test --show-details=always
