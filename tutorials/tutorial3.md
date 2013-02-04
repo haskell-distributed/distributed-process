@@ -1,5 +1,5 @@
 ---
-layout: managedprocess
+layout: tutorial3
 categories: tutorial
 title: Managed Process Tutorial
 ---

@@ -1,5 +1,5 @@
 ---
-layout: nt_tutorial
+layout: tutorial2
 categories: tutorial
 title: Programming with Network.Transport
 ---

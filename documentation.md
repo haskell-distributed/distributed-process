@@ -535,8 +535,8 @@ TBC
 [5]: http://hackage.haskell.org/package/rank1dynamic
 [6]: http://hackage.haskell.org/packages/network-transport
 [7]: http://hackage.haskell.org/packages/network-transport-tcp
-[8]: https://github.com/haskell-distributed/distributed-process/network-transport-inmemory
-[9]: https://github.com/haskell-distributed/distributed-process/network-transport-composed
+[8]: https://github.com/haskell-distributed/network-transport-inmemory
+[9]: https://github.com/haskell-distributed/network-transport-composed
 [10]: http://hackage.haskell.org/package/distributed-process-simplelocalnet
 [11]: http://hackage.haskell.org/package/distributed-process-azure
 [12]: http://research.microsoft.com/en-us/um/people/simonpj/papers/parallel/remote.pdf

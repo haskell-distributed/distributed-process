@@ -1,5 +1,5 @@
 ---
-layout: tutorial
+layout: tutorial1
 categories: tutorial
 title: Getting Started
 ---
