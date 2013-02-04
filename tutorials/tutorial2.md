@@ -9,9 +9,8 @@ title: Programming with Network.Transport
 This is a tutorial introduction to `Network.Transport`. To follow along,
 you should probably already be familiar with `Control.Concurrent`; in
 particular, the use of `fork` and `MVar`s. The code for the tutorial can
-be downloaded as [tutorial-server.hs](https://github.com/haskell-distributed/distributed-process/blob/master/doc/tutorial/tutorial-server.hs)
-and 
-[tutorial-client.hs](https://github.com/haskell-distributed/distributed-process/blob/master/doc/tutorial/tutorial-client.hs).
+be downloaded as [tutorial-server.hs](/static/tutorial/tutorial-server.hs)
+and [tutorial-client.hs](/static/tutorial/tutorial-client.hs).
 
 -------
 
