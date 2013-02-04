@@ -22,6 +22,11 @@ growing number of features for
 * working with several network transport implementations (and more in the pipeline)
 * supporting *static* values (required for remote communication)
 
+There is a recent
+[presentation](http://sneezy.cs.nott.ac.uk/fun/2012-02/coutts-2012-02-28.pdf)
+on Cloud Haskell and this reimplementation, which is worth reading in conjunction
+with the documentation and wiki pages on this website..
+
 Cloud Haskell comprises the following components, some of which are complete,
 others experimental.
 

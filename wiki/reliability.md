@@ -4,7 +4,7 @@ title: Fault Tolerance
 wiki: reliability
 ---
 
-### reliability
+### Reliability
 
 We do not consider the presence of side effects a barrier to fault tolerance
 and automated process restarts. We **do** recognise that it's easier to
@@ -20,8 +20,8 @@ how to initialise and/or re-initialise a process that has been previously
 terminated.
 
 When it comes to failure recovery, we defer to Erlang's approach for handling
-process failures in a generic manner, by drawing on the [OTP][13] concept of
-[supervision trees][15]. Erlang's [supervisor module][16] implements a process
+process failures in a generic manner, by drawing on the [OTP][1] concept of
+[supervision trees][2]. Erlang's [supervisor module][3] implements a process
 which supervises other processes called child processes. The supervisor process
 is responsible for starting, stopping, monitoring and even restarting its
 child processes. A supervisors *children* can be either worker processes or
@@ -30,26 +30,6 @@ supervision trees in Erlang parlance).
 
 The supervision APIs are a work in progress.
 
-[1]: http://www.haskell.org/haskellwiki/Cloud_Haskell
-[2]: https://github.com/haskell-distributed/distributed-process
-[3]: https://github.com/haskell-distributed/distributed-process-platform
-[4]: http://hackage.haskell.org/package/distributed-static
-[5]: http://hackage.haskell.org/package/rank1dynamic
-[6]: http://hackage.haskell.org/packages/network-transport
-[7]: http://hackage.haskell.org/packages/network-transport-tcp
-[8]: https://github.com/haskell-distributed/distributed-process/network-transport-inmemory
-[9]: https://github.com/haskell-distributed/distributed-process/network-transport-composed
-[10]: http://hackage.haskell.org/package/distributed-process-simplelocalnet
-[11]: http://hackage.haskell.org/package/distributed-process-azure
-[12]: http://research.microsoft.com/en-us/um/people/simonpj/papers/parallel/remote.pdf
-[13]: http://en.wikipedia.org/wiki/Open_Telecom_Platform
-[14]: http://hackage.haskell.org/packages/remote
-[15]: http://www.erlang.org/doc/design_principles/sup_princ.html
-[16]: http://www.erlang.org/doc/man/supervisor.html
-[17]: /static/doc/distributed-process-platform/Control-Distributed-Process-Platform-Async.html
-[18]: https://github.com/haskell-distributed/distributed-process-platform
-[19]: http://hackage.haskell.org/package/async
-[20]: /wiki/networktransport.html
-[21]: /static/doc/distributed-process-platform/Control-Distributed-Process-Platform-ManagedProcess.html
-[22]: /tutorials/3.managedprocess.html
-
+[1]: http://en.wikipedia.org/wiki/Open_Telecom_Platform
+[2]: http://www.erlang.org/doc/design_principles/sup_princ.html
+[3]: http://www.erlang.org/doc/man/supervisor.html
