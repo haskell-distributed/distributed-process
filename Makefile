@@ -11,17 +11,11 @@ all: $(REPOS)
 
 $(REPOS):
 	git clone $(BASE_GIT)/$@.git
+	cd $@ && $(CABAL) install --with-ghc=$(GHC) --force-reinstalls
 
 .PHONY: install
 install: $(REPOS)
-	$(CABAL) install --with-ghc=$(GHC) $(REPOS) --reinstall
-	$(CABAL) install
+	$(CABAL) install --force-reinstalls
 
 .PHONY: ci
-ci: install test
-
-.PHONY: test
-test:
-	$(CABAL) configure --enable-tests
-	$(CABAL) build
-	$(CABAL) test --show-details=always
+ci: install
