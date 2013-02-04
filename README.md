@@ -1,34 +1,20 @@
-Haskell Distributed Project
-===========================
+### distributed-process [![travis](https://secure.travis-ci.org/haskell-distributed/distributed-process.png?branch=master,development)](http://travis-ci.org/haskell-distributed/distributed-process)
 
-This repository holds an implementation of [Cloud Haskell][1].
 
-At present, this repository hosts 
+This repository is part of Cloud Haskell.
 
-* network-transport: Generic Network.Transport API
-* network-transport-tests: Test suite for Network.Transport instantiations
-* network-transport-tcp: TCP instantiation of Network.Transport
-* network-transport-inmemory: In-memory instantiation of Network.Transport (incomplete) 
-* network-transport-composed: Compose two transports (very preliminary)
-* distributed-static: Support for static values
-* distributed-process: The main Cloud Haskell package
-* distributed-process-simplelocalnet: Simple backend for local networks
-* distributed-process-azure: Azure backend for Cloud Haskell (proof of concept)
-* azure-service-api: Haskell bindings for the Azure service API
-* rank1dynamic: Like Data.Dynamic and Data.Typeable but with support for polymorphic values
+See http://haskell-distributed.github.com for documentation, user guides,
+tutorials and assistance.
 
-For more detailed information about the interfaces provided by these packages,
-please refer to the [distributed-process repository wiki][2]. People who wish
-to get started with Cloud Haskell should cabal install
-distributed-process and possibly distributed-process-simplelocalnet and refer
-to the corresponding Haddock documentation ([Control.Distributed.Process][3],
-[Control.Distributed.Process.Closure][4],
-[Control.Distributed.Process.Node][5], and
-[Control.Distributed.Process.Backend.SimpleLocalnet][6]).
+### Getting Help / Raising Issues
 
-[1]: http://www.haskell.org/haskellwiki/Cloud_Haskell
-[2]: https://github.com/haskell-distributed/distributed-process/wiki
-[3]: http://hackage.haskell.org/packages/archive/distributed-process/0.2.1.4/doc/html/Control-Distributed-Process.html
-[4]: http://hackage.haskell.org/packages/archive/distributed-process/0.2.1.4/doc/html/Control-Distributed-Process-Closure.html
-[5]: http://hackage.haskell.org/packages/archive/distributed-process/0.2.1.4/doc/html/Control-Distributed-Process-Node.html
-[6]: http://hackage.haskell.org/packages/archive/distributed-process-simplelocalnet/0.2.0.3/doc/html/Control-Distributed-Process-Backend-SimpleLocalnet.html
+Please visit our [bug tracker](http://cloud-haskell.atlassian.net) to submit
+issues. Anyone can browse, although you'll need to provide an email address
+and create an account in order to submit new issues.
+
+If you'd like to talk to a human, please contact us at the parallel-haskell
+mailing list in the first instance - parallel-haskell@googlegroups.com.
+
+### License
+
+distributed-process is made available under a BSD-3 license.
