@@ -25,6 +25,10 @@ ci: $(REPOS) test
 $(BUILD_DEPENDS):
 	cabal configure --enable-tests
 
+.PHONY: deps
+deps: $(REPOS)
+	cabal install --enable-tests
+
 $(REPOS):
 	git clone $(BASE_GIT)/$@.git
 	cabal install ./$@ --force-reinstalls
