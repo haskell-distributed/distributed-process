@@ -1,4 +1,4 @@
-### network-transport [![travis](https://secure.travis-ci.org/haskell-distributed/network-transport.png)](http://travis-ci.org/haskell-distributed/network-transport)
+### network-transport [![travis](https://secure.travis-ci.org/haskell-distributed/network-transport.png?branch=master,development)](http://travis-ci.org/haskell-distributed/network-transport)
 
 This repository is part of Cloud Haskell.
 
