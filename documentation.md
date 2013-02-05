@@ -549,4 +549,4 @@ TBC
 [19]: http://hackage.haskell.org/package/async
 [20]: /wiki/networktransport.html
 [21]: /static/doc/distributed-process-platform/Control-Distributed-Process-Platform-ManagedProcess.html
-[22]: /tutorials/3.managedprocess.html
+[22]: /tutorials/tutorial3.html
