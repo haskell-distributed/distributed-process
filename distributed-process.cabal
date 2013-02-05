@@ -8,7 +8,7 @@ Copyright:     Well-Typed LLP
 Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
 Maintainer:    watson.timothy@gmail.com, edsko@well-typed.com, duncan@well-typed.com
 Stability:     experimental
-Homepage:      http://github.com/haskell-distributed/distributed-process
+Homepage:      http://haskell-distributed.github.com/
 Bug-Reports:   http://github.com/haskell-distributed/distributed-process/issues
 Synopsis:      Cloud Haskell: Erlang-style concurrency in Haskell
 Description:   This is an implementation of Cloud Haskell, as described in
