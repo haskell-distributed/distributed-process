@@ -13,6 +13,9 @@ GHC=ghc -rtsopts -XRankNTypes -XScopedTypeVariables -XDeriveDataTypeable -XCPP -
 
 all: NewTransport.ps Indirection.ps Headers.ps
 
+Threaded.ps: JustPingC.data JustPingHaskellNT.data JustPingHaskell.data
+	gnuplot ./Threaded.gnuplot
+
 NewTransport.ps: JustPingHaskell.data \
                  JustPingTransport.data
 	gnuplot ./NewTransport.gnuplot								 
