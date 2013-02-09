@@ -19,10 +19,15 @@ module Control.Distributed.Process.Internal.Primitives
   , match
   , matchIf
   , matchUnknown
-  , AbstractMessage(..)
   , matchAny
   , matchAnyIf
   , matchChan
+  , matchMessage
+  , matchMessageIf
+  , wrapMessage
+  , unwrapMessage
+  , handleMessage
+  , forward
     -- * Process management
   , terminate
   , ProcessTerminationException(..)
@@ -320,68 +325,114 @@ matchIf c p = Match $ MatchMsg $ \msg ->
          !decoded = decode (messageEncoding msg)
      _ -> Nothing
 
--- | Represents a received message and provides two basic operations on it.
-data AbstractMessage = AbstractMessage {
-    forward :: ProcessId -> Process () -- ^ forward the message to @ProcessId@
-  , maybeHandleMessage :: forall a b. (Serializable a)
-            => (a -> Process b) -> Process (Maybe b) {- ^ Handle the message.
-        If the type of the message matches the type of the first argument to
-        the supplied expression, then the expression will be evaluated against
-        it. If this runtime type checking fails, then @Nothing@ will be returned
-        to indicate the fact. If the check succeeds and evaluation proceeds
-        however, the resulting value with be wrapped with @Just@.
-    -}
-  }
+-- | Match against any message, regardless of the underlying (contained) type
+matchMessage :: (Message -> Process Message) -> Match Message
+matchMessage p = Match $ MatchMsg $ \msg -> Just (p msg)
 
--- | Match against an arbitrary message. 'matchAny' removes the first available
--- message from the process mailbox, and via the 'AbstractMessage' type,
--- supports forwarding /or/ handling the message /if/ it is of the correct
--- type. If /not/ of the right type, then the 'AbstractMessage'
--- @maybeHandleMessage@ function will not evaluate the supplied expression,
--- /but/ the message will still have been removed from the process mailbox!
+-- | Match against any message (regardless of underlying type) that satisfies a predicate
+matchMessageIf :: (Message -> Bool) -> (Message -> Process Message) -> Match Message
+matchMessageIf c p = Match $ MatchMsg $ \msg ->
+    case (c msg) of
+      True  -> Just (p msg)
+      False -> Nothing
+
+-- | Forward a raw 'Message' to the given 'ProcessId'.
+forward :: Message -> ProcessId -> Process ()
+forward msg them = do
+  proc <- ask
+  liftIO $ sendPayload (processNode proc)
+                       (ProcessIdentifier (processId proc))
+                       (ProcessIdentifier them)
+                       NoImplicitReconnect
+                       (messageToPayload msg)
+
+-- | Wrap a 'Serializable' value in a 'Message'. Note that 'Message's are
+-- 'Serializable' - like the datum they contain - but remember that deserializing
+-- a 'Message' will yield a 'Message', not the type within it! To obtain the
+-- wrapped datum, use 'unwrapMessage' or 'handleMessage' with a specific type.
 --
-matchAny :: forall b. (AbstractMessage -> Process b) -> Match b
-matchAny p = Match $ MatchMsg $ Just . p . abstract
+-- @
+-- do
+--     self <- getSelfPid
+--     send self (wrapMessage "blah")
+--     Nothing  <- expectTimeout 1000000 :: Process (Maybe String)
+--     (Just m) <- expectTimeout 1000000 :: Process (Maybe Message)
+--     "blah" <- unwrapMessage m :: Process (Maybe String)
+-- @
+--
+wrapMessage :: Serializable a => a -> Message
+wrapMessage = createMessage 
 
--- | Match against an arbitrary message. 'matchAnyIf' will /only/ remove the
--- message from the process mailbox, /if/ the supplied condition matches. The
--- success (or failure) of runtime type checks in @maybeHandleMessage@ does not
--- count here, i.e., if the condition evaluates to @True@ then the message will
--- be removed from the process mailbox and decoded, but that does /not/
--- guarantee that an expression passed to @maybeHandleMessage@ will pass the
--- runtime type checks and therefore be evaluated. If the types do not match
--- up, then @maybeHandleMessage@ returns 'Nothing'.
-matchAnyIf :: forall a b. (Serializable a)
-                       => (a -> Bool)
-                       -> (AbstractMessage -> Process b)
-                       -> Match b
-matchAnyIf c p = Match $ MatchMsg $ \msg ->
-   case messageFingerprint msg == fingerprint (undefined :: a) of
-     True | c decoded -> Just (p (abstract msg))
+-- | Attempt to unwrap a raw 'Message'.
+-- If the type of the decoded message payload matches the expected type, the
+-- value will be returned with @Just@, otherwise @Nothing@ indicates the types
+-- do not match.
+--
+-- This expression, for example, will evaluate to @Nothing@
+-- > unwrapMessage (wrapMessage "foobar") :: Process (Maybe Int)
+--
+-- Whereas this expression, will yield @Just "foo"@
+-- > unwrapMessage (wrapMessage "foo") :: Process (Maybe String)
+--
+unwrapMessage :: forall a. Serializable a => Message -> Process (Maybe a)
+unwrapMessage msg =
+  case messageFingerprint msg == fingerprint (undefined :: a) of
+    True -> return (Just (decoded))
        where
          decoded :: a
          -- Make sure the value is fully decoded so that we don't hang to
          -- bytestrings when the calling process doesn't evaluate immediately
          !decoded = decode (messageEncoding msg)
-     _ -> Nothing
+    _ -> return Nothing
 
-abstract :: Message -> AbstractMessage
-abstract msg = AbstractMessage {
-    forward = \them -> do
-      proc <- ask
-      liftIO $ sendPayload (processNode proc)
-                           (ProcessIdentifier (processId proc))
-                           (ProcessIdentifier them)
-                           NoImplicitReconnect
-                           (messageToPayload msg)
-  , maybeHandleMessage = \(proc :: (a -> Process b)) -> do
+-- | Attempt to handle a raw 'Message'.
+-- If the type of the message matches the type of the first argument to
+-- the supplied expression, then the message will be decoded and the expression
+-- evaluated against its value. If this runtime type checking fails however,
+-- @Nothing@ will be returned to indicate the fact. If the check succeeds and
+-- evaluation proceeds, the resulting value with be wrapped with @Just@.
+--
+-- Intended for use in `catchesExit` and `matchAny` primitives.
+-- 
+handleMessage :: forall a b. (Serializable a)
+                   => Message -> (a -> Process b) -> Process (Maybe b)
+handleMessage msg proc = do
       case messageFingerprint msg == fingerprint (undefined :: a) of
         True -> do { r <- proc (decoded :: a); return (Just r) }
           where
             decoded :: a
             !decoded = decode (messageEncoding msg)
         _ -> return Nothing
-  }
+
+-- | Match against an arbitrary message. 'matchAny' removes the first available
+-- message from the process mailbox. To handle arbitrary /raw/ messages once
+-- removed from the mailbox, see 'handleMessage' and 'unwrapMessage'.
+--
+matchAny :: forall b. (Message -> Process b) -> Match b
+matchAny p = Match $ MatchMsg $ \msg -> Just (p msg) 
+
+-- | Match against an arbitrary message. Intended for use with 'handleMessage'
+-- and 'unwrapMessage', this function /only/ removes a message from the process
+-- mailbox, /if/ the supplied condition matches. The success (or failure) of
+-- runtime type checks deferred to @handleMessage@ and friends is irrelevant
+-- here, i.e., if the condition evaluates to @True@ then the message will
+-- be removed from the process mailbox and decoded, but that does /not/
+-- guarantee that an expression passed to @handleMessage@ will pass the
+-- runtime type checks and therefore be evaluated.
+--
+matchAnyIf :: forall a b. (Serializable a)
+                       => (a -> Bool)
+                       -> (Message -> Process b)
+                       -> Match b
+matchAnyIf c p = Match $ MatchMsg $ \msg ->
+   case messageFingerprint msg == fingerprint (undefined :: a) of
+     True | c decoded -> Just (p msg)
+       where
+         decoded :: a
+         -- Make sure the value is fully decoded so that we don't hang to
+         -- bytestrings when the calling process doesn't evaluate immediately
+         !decoded = decode (messageEncoding msg)
+     _ -> Nothing
 
 -- | Remove any message from the queue
 matchUnknown :: Process b -> Match b
@@ -461,16 +512,16 @@ catchExit act exitHandler = catch act handleExit
 --
 -- See 'maybeHandleMessage' and 'AsbtractMessage' for more details.
 catchesExit :: Process b
-            -> [(ProcessId -> AbstractMessage -> (Process (Maybe b)))]
+            -> [(ProcessId -> Message -> (Process (Maybe b)))]
             -> Process b
 catchesExit act handlers = catch act ((flip handleExit) handlers)
   where
     handleExit :: ProcessExitException
-               -> [(ProcessId -> AbstractMessage -> Process (Maybe b))]
+               -> [(ProcessId -> Message -> Process (Maybe b))]
                -> Process b
     handleExit ex [] = liftIO $ throwIO ex
     handleExit ex@(ProcessExitException from msg) (h:hs) = do
-      r <- h from (abstract msg)
+      r <- h from msg
       case r of
         Nothing -> handleExit ex hs
         Just p  -> return p

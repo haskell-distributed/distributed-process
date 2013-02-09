@@ -32,6 +32,7 @@ import Control.Distributed.Process.Internal.Types
   , LocalNode(localEndPoint)
   , ProcessExitException(..)
   , nullProcessId
+  , Message
   )
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable (Serializable)
@@ -789,9 +790,9 @@ testMatchAnyHandle transport = do
       liftIO $ putMVar clientDone ()
 
   takeMVar clientDone
-  where maybeForward :: ProcessId -> AbstractMessage -> Process (Maybe ())
+  where maybeForward :: ProcessId -> Message -> Process (Maybe ())
         maybeForward s msg =
-            maybeHandleMessage msg (\m@(Add _ _ _) -> send s m)
+            handleMessage msg (\m@(Add _ _ _) -> send s m)
 
 testMatchAnyNoHandle :: NT.Transport -> Assertion
 testMatchAnyNoHandle transport = do
@@ -810,7 +811,7 @@ testMatchAnyNoHandle transport = do
             -- the match `AbstractMessage -> Process ()` will succeed!
             (\m -> do
               -- `String -> Process ()` does *not* match the input types however
-              r <- (maybeHandleMessage m (\(_ :: String) -> die "NONSENSE" ))
+              r <- (handleMessage m (\(_ :: String) -> die "NONSENSE" ))
               case r of
                 Nothing -> return ()
                 Just _  -> die "NONSENSE")
@@ -848,7 +849,7 @@ testMatchAnyIf transport = do
     echoServer <- forkProcess localNode $ forever $ do
         receiveWait [
             matchAnyIf (\(_ :: ProcessId, (s :: String)) -> s /= "bar")
-                       handleMessage
+                       tryHandleMessage
           ]
     putMVar echoAddr echoServer
 
@@ -868,10 +869,44 @@ testMatchAnyIf transport = do
       liftIO $ putMVar clientDone ()
 
   takeMVar clientDone
-  where handleMessage :: AbstractMessage -> Process (Maybe ())
-        handleMessage msg =
-          maybeHandleMessage msg (\(pid :: ProcessId, (m :: String))
+  where tryHandleMessage :: Message -> Process (Maybe ())
+        tryHandleMessage msg =
+          handleMessage msg (\(pid :: ProcessId, (m :: String))
                                   -> do { send pid m; return () })
+
+testMatchMessageWithUnwrap :: NT.Transport -> Assertion
+testMatchMessageWithUnwrap transport = do
+  echoAddr <- newEmptyMVar
+  clientDone <- newEmptyMVar
+  
+    -- echo server
+  forkIO $ do
+    localNode <- newLocalNode transport initRemoteTable
+    echoServer <- forkProcess localNode $ forever $ do
+        msg <- receiveWait [
+            matchMessage (\(m :: Message) -> do
+                            return m)
+          ]
+        unwrapped <- unwrapMessage msg :: Process (Maybe (ProcessId, Message))
+        case unwrapped of
+          (Just (p, msg')) -> forward msg' p
+          Nothing -> die "unable to unwrap the message"
+    putMVar echoAddr echoServer
+
+  -- Client
+  forkIO $ do
+    localNode <- newLocalNode transport initRemoteTable
+    server <- readMVar echoAddr
+
+    runProcess localNode $ do
+      pid <- getSelfPid
+      send server (pid, wrapMessage ("foo" :: String))
+      "foo" <- expect
+      send server (pid, wrapMessage ("baz" :: String))
+      "baz" <- expect
+      liftIO $ putMVar clientDone ()
+
+  takeMVar clientDone
 
 -- Test 'receiveChanTimeout'
 testReceiveChanTimeout :: NT.Transport -> Assertion
@@ -1018,9 +1053,9 @@ testCatchesExit transport = do
   _ <- forkProcess localNode $ do
       (die ("foobar", 123 :: Int))
       `catchesExit` [
-           (\_ m -> maybeHandleMessage m (\(_ :: String) -> return ()))
-         , (\_ m -> maybeHandleMessage m (\(_ :: Maybe Int) -> return ()))
-         , (\_ m -> maybeHandleMessage m (\(_ :: String, _ :: Int)
+           (\_ m -> handleMessage m (\(_ :: String) -> return ()))
+         , (\_ m -> handleMessage m (\(_ :: Maybe Int) -> return ()))
+         , (\_ m -> handleMessage m (\(_ :: String, _ :: Int)
                     -> (liftIO $ putMVar done ()) >> return ()))
          ]
 
@@ -1135,6 +1170,7 @@ tests (transport, transportInternals) = [
       , testCase "MatchAnyHandle"      (testMatchAnyHandle      transport)
       , testCase "MatchAnyNoHandle"    (testMatchAnyNoHandle    transport)
       , testCase "MatchAnyIf"          (testMatchAnyIf          transport)
+      , testCase "MatchMessageUnwrap"  (testMatchMessageWithUnwrap transport)
       , testCase "ReceiveChanTimeout"  (testReceiveChanTimeout  transport)
       , testCase "ReceiveChanFeatures" (testReceiveChanFeatures transport)
       , testCase "KillLocal"           (testKillLocal           transport)
