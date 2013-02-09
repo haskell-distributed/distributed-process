@@ -11,6 +11,10 @@ outlines the development process and in particular, the branching
 strategy. We also point out Cloud Haskell's various bits of
 infrastructure as they stand at the moment.
 
+Perhaps the most important thing to do as a maintainer, is to
+make other developers aware of what you're working on by assigning
+the Jira issue to yourself!
+
 ----
 #### Releases
 
