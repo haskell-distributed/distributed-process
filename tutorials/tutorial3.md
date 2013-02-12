@@ -12,6 +12,13 @@ application specific task the process performs, and by non-functional
 we mean the *concurrency* or, more precisely, handling of the process'
 mailbox.
 
+Another effect that `ManagedProcess` has is to provide client code
+with a typed, specific API for interacting with the process, much as
+a TypedChannel does. We achieve this by writing and exporting functions
+that operate on the types we want clients to see, and using the API
+from `Control.Distributed.Process.Platform.ManagedProcess.Client` to
+interact with the server.
+
 Let's imagine we want to execute tasks on an arbitrary node, using a
 mechanism much as we would with the `call` API from distributed-process.
 As with `call`, we want the caller to block whilst the remote task is
