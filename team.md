@@ -6,7 +6,7 @@ title: Cloud Haskell Team
 ### Origins
 
 Cloud Haskell was originally the brainchild of Jeff Epstein, Simon Peyton Jones
-and Dr Andrew Black, whose join paper for the Tokyo Haskell Symposium
+and Dr Andrew Black, whose joint paper for the Tokyo Haskell Symposium
 [Towards Haskell in the Cloud][1], was expanded in Epstein's 2011 masters thesis
 [Functional programming for the data centre][2].
 
