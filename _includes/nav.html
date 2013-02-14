@@ -14,7 +14,7 @@
               <li class="dropdown">
                   <a class="dropdown-toggle" data-toggle="dropdown">Tutorials <b class="caret"></b></a>
                   <ul class="dropdown-menu">
-                      {% for page in site.pages %}
+                      {% for page in site.pages | sort %}
                           {% if page.categories contains 'tutorial' %}
                           <li><a href="{{ page.url }}">{{ page.title }}</a></li>
                           {% endif %}
