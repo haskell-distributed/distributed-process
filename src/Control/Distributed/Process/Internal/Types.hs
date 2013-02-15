@@ -502,6 +502,7 @@ data ProcessSignal =
   | Kill !ProcessId !String
   | Exit !ProcessId !Message
   | GetInfo !ProcessId
+  | SigShutdown
   deriving Show
 
 --------------------------------------------------------------------------------
@@ -555,6 +556,7 @@ instance Binary ProcessSignal where
   put (LocalSend pid msg)     = putWord8 11 >> put pid >> put (messageToPayload msg)
   put (LocalPortSend sid msg) = putWord8 12 >> put sid >> put (messageToPayload msg)
   put (GetInfo about)         = putWord8 30 >> put about
+  put (SigShutdown)         = putWord8 31
   get = do
     header <- getWord8
     case header of
@@ -572,6 +574,7 @@ instance Binary ProcessSignal where
       11 -> LocalSend <$> get <*> (payloadToMessage <$> get)
       12 -> LocalPortSend <$> get <*> (payloadToMessage <$> get)
       30 -> GetInfo <$> get
+      31 -> return SigShutdown
       _ -> fail "ProcessSignal.get: invalid"
 
 instance Binary DiedReason where
