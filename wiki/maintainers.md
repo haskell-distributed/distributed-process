@@ -64,6 +64,13 @@ in a *releasable* state. This means that on the whole, only small
 self contained commits or topic branch merges should be applied
 to master, and tagged releases should always be made against it.
 
+#### Tagging Releases
+
+A release tag should be of the form `x.y.z` and should **not**
+be prefixed with the repository name. Older tags use the latter
+form as they date from a time when all the Cloud Haskell source
+code lived under one git repository.
+
 #### Development Branches
 
 Ongoing work can either be merged into master when complete or
