@@ -19,6 +19,7 @@ module Control.Distributed.Process.Internal.Closure.BuiltIn
   , cpLink
   , cpUnlink
   , cpSend
+  , cpSendChan
   , cpExpect
   , cpNewChan
     -- * Support for some CH operations
@@ -59,6 +60,7 @@ import Control.Distributed.Process.Internal.Primitives
   , send
   , expect
   , newChan
+  , sendChan
   , monitor
   , unmonitor
   , match
@@ -83,6 +85,7 @@ remoteTable =
     . registerStatic "$link"            (toDynamic link)
     . registerStatic "$unlink"          (toDynamic unlink)
     . registerStatic "$sendDict"        (toDynamic (sendDict         :: SerializableDict ANY -> ProcessId -> ANY -> Process ()))
+    . registerStatic "$sendChanDict"    (toDynamic (sendChanDict     :: SerializableDict ANY -> (SendPort ANY) -> ANY -> Process ()))
     . registerStatic "$expectDict"      (toDynamic (expectDict       :: SerializableDict ANY -> Process ANY))
     . registerStatic "$newChanDict"     (toDynamic (newChanDict      :: SerializableDict ANY -> Process (SendPort ANY, ReceivePort ANY)))
     . registerStatic "$cpSplit"         (toDynamic (cpSplit          :: (ANY1 -> Process ANY3) -> (ANY2 -> Process ANY4) -> (ANY1, ANY2) -> Process (ANY3, ANY4)))
@@ -97,6 +100,12 @@ remoteTable =
 
     sendDict :: forall a. SerializableDict a -> ProcessId -> a -> Process ()
     sendDict SerializableDict = send
+
+    sendChanDict :: forall a . SerializableDict a
+                 -> SendPort a
+                 -> a
+                 -> Process ()
+    sendChanDict SerializableDict = sendChan
 
     expectDict :: forall a. SerializableDict a -> Process a
     expectDict SerializableDict = expect
@@ -201,6 +210,9 @@ bindCP x f = bindProcessStatic `closureApplyStatic` x `closureApply` f
 decodeProcessIdStatic :: Static (ByteString -> ProcessId)
 decodeProcessIdStatic = staticLabel "$decodeProcessId"
 
+decodeSendPortStatic :: forall a . Typeable a => Static (ByteString -> SendPort a)
+decodeSendPortStatic = staticLabel "$sdictSendPort_"
+
 -- | 'CP' version of 'link'
 cpLink :: ProcessId -> Closure (Process ())
 cpLink = closure (linkStatic `staticCompose` decodeProcessIdStatic) . encode
@@ -228,6 +240,19 @@ cpSend dict pid = closure decoder (encode pid)
     sendDictStatic :: Typeable a
                    => Static (SerializableDict a -> ProcessId -> a -> Process ())
     sendDictStatic = staticLabel "$sendDict"
+
+cpSendChan :: forall a. Typeable a
+           => Static (SerializableDict a) -> SendPort a -> CP a ()
+cpSendChan dict sp = closure decoder (encode sp)
+  where
+    decoder :: Static (ByteString -> a -> Process ())
+    decoder = (sendChanDictStatic `staticApply` dict)
+              `staticCompose`
+              decodeSendPortStatic
+
+    sendChanDictStatic :: Typeable a
+                       => Static (SerializableDict a -> SendPort a -> a -> Process ())
+    sendChanDictStatic = staticLabel "$sendChanDict"
 
 -- | 'CP' version of 'expect'
 cpExpect :: Typeable a => Static (SerializableDict a) -> Closure (Process a)

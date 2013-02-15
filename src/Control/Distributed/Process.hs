@@ -1,3 +1,5 @@
+{-# LANGUAGE ScopedTypeVariables    #-}
+
 {- | [Cloud Haskell]
 
 This is an implementation of Cloud Haskell, as described in
@@ -179,6 +181,7 @@ import Control.Distributed.Process.Internal.Closure.BuiltIn
   , splitCP
   , cpLink
   , cpSend
+  , cpSendChan
   , cpNewChan
   , cpDelay
   )
@@ -421,14 +424,14 @@ spawnChannel :: forall a. Typeable a => Static (SerializableDict a)
              -> Closure (ReceivePort a -> Process ())
              -> Process (SendPort a)
 spawnChannel dict nid proc = do
-    us <- getSelfPid
-    _ <- spawn nid (go us)
-    expect
+    (sp, rp) <- newChan
+    _ <- spawn nid (go sp)
+    r <- receiveChan rp
   where
-    go :: ProcessId -> Closure (Process ())
-    go pid = cpNewChan dict
+    go :: SendPort (SendPort a) -> Closure (Process ())
+    go chan = cpNewChan dict
            `bindCP`
-             (cpSend (sdictSendPort dict) pid `splitCP` proc)
+             (cpSendChan (sdictSendPort dict) chan `splitCP` proc)
            `bindCP`
              (idCP `closureCompose` staticClosure sndStatic)
 
