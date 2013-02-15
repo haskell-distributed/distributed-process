@@ -49,7 +49,13 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.State.Strict (MonadState, StateT, evalStateT, gets)
 import qualified Control.Monad.State.Strict as StateT (get, put)
 import Control.Monad.Reader (MonadReader, ReaderT, runReaderT, ask)
-import Control.Exception (throwIO, SomeException, Exception, throwTo)
+import Control.Exception
+  ( throwIO
+  , AsyncException(ThreadKilled)
+  , SomeException
+  , Exception
+  , throwTo
+  )
 import qualified Control.Exception as Exception (catch)
 import Control.Concurrent (forkIO)
 import Control.Distributed.Process.Internal.StrictMVar
@@ -193,25 +199,41 @@ newLocalNode transport rtable = do
 -- | Create a new local node (without any service processes running)
 createBareLocalNode :: NT.EndPoint -> RemoteTable -> IO LocalNode
 createBareLocalNode endPoint rtable = do
-  unq <- randomIO
-  state <- newMVar LocalNodeState
-    { _localProcesses   = Map.empty
-    , _localPidCounter  = firstNonReservedProcessId
-    , _localPidUnique   = unq
-    , _localConnections = Map.empty
-    }
-  ctrlChan <- newChan
-  let node = LocalNode { localNodeId   = NodeId $ NT.address endPoint
-                       , localEndPoint = endPoint
-                       , localState    = state
-                       , localCtrlChan = ctrlChan
-                       , localTracer   = InactiveTracer
-                       , remoteTable   = rtable
-                       }
-  tracedNode <- startTracing node
-  void . forkIO $ runNodeController tracedNode
-  void . forkIO $ handleIncomingMessages tracedNode
-  return tracedNode
+    unq <- randomIO
+    state <- newMVar LocalNodeState
+      { _localProcesses   = Map.empty
+      , _localPidCounter  = firstNonReservedProcessId
+      , _localPidUnique   = unq
+      , _localConnections = Map.empty
+      }
+    ctrlChan <- newChan
+    let node = LocalNode { localNodeId   = NodeId $ NT.address endPoint
+                         , localEndPoint = endPoint
+                         , localState    = state
+                         , localCtrlChan = ctrlChan
+                         , localTracer   = InactiveTracer
+                         , remoteTable   = rtable
+                         }
+    tracedNode <- startTracing node
+
+    ncGo <- newEmptyMVar
+    ncTid <- forkIO $ do
+      tid <- takeMVar ncGo
+      (runNodeController tracedNode
+       `Exception.catch` \(e :: SomeException) -> throwTo tid e)
+
+    evTid <- forkIO $ do
+      (handleIncomingMessages tracedNode >> (stopNC node))
+        `Exception.catch` \(e :: SomeException) -> throwTo ncTid e
+
+    putMVar ncGo evTid
+    return tracedNode
+  where
+    stopNC node =
+       writeChan (localCtrlChan node) NCMsg
+            { ctrlMsgSender = NodeIdentifier (localNodeId node)
+            , ctrlMsgSignal = SigShutdown
+            }
 
 -- | Start and register the service processes on a node
 -- (for now, this is only the logger)
@@ -583,6 +605,8 @@ nodeController = do
         ncEffectExit from to reason
       NCMsg (ProcessIdentifier from) (GetInfo pid) ->
         ncEffectGetInfo from pid
+      NCMsg _ SigShutdown ->
+        liftIO $ throwIO ThreadKilled -- seems to make more sense than fail/error
       unexpected ->
         error $ "nodeController: unexpected message " ++ show unexpected
 
@@ -902,6 +926,7 @@ destNid (Died _ _)          = Nothing
 destNid (Kill pid _)        = Just $ processNodeId pid
 destNid (Exit pid _)        = Just $ processNodeId pid
 destNid (GetInfo pid)       = Just $ processNodeId pid
+destNid (SigShutdown)       = Nothing
 
 -- | Check if a process is local to our own node
 isLocal :: LocalNode -> Identifier -> Bool
