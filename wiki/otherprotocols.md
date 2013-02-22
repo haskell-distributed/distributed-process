@@ -10,12 +10,26 @@ If you are using `Network.Transport` in your application, or if you are writing 
 
 ### HdpH
 
-**H**askell **D**istributed **P**arallel **H**askell is a shallowly embedded parallel extension of Haskell that supports high-level semi-explicit parallelism. HdpH has a distributed memory model, that manages computations on more than one multicore node. In addition _high-level semi-explicit parallelism_ is supported by providing `spark` for implicit task placement, alleviating the job of dynamic load management to HdpH. Explicit task placement is supported with the `pushTo` primitive. Lastly, HdpH supports the node <-> node  transfer of polymorphic closures. This enables the definition of both evaluation strategies and algorithmic skeletons by using a small set of polymorphic coordination primitives.
+**H**askell **D**istributed **P**arallel **H**askell is a shallowly
+  embedded parallel extension of Haskell that supports high-level
+  semi-explicit parallelism. HdpH has a distributed memory model, that
+  manages computations on more than one multicore node. In addition
+  _high-level semi-explicit parallelism_ is supported by providing
+  `spark` for implicit task placement, alleviating the job of dynamic
+  load management to HdpH. Explicit task placement is supported with
+  the `pushTo` primitive. Lastly, HdpH supports the node <-> node
+  transfer of polymorphic closures. This enables the definition of
+  both evaluation strategies and algorithmic skeletons by using a
+  small set of polymorphic coordination primitives.
 
-Efforts to adopt these new transport abstractions into HdpH are a work-in-progress, and early testing is showing positive performance results. When this work is complete, the upstream HdpH repository will be updated.
+The communication layer in HdpH adopts the `Network.Transport.TCP`
+realization of the network-transport API. The HdpH implementation is
+on hackage and is open source on GitHub.
 
-* Paper presented at IFL 2011 [Implementing a High-level Distributed-Memory Parallel Haskell in Haskell](http://www.macs.hw.ac.uk/~pm175/papers/Maier_Trinder_IFL2011_XT.pdf)
-* HdpH source code [HdpH GitHub repository](https://github.com/PatrickMaier/HdpH)
+* IFL2011 paper: [Implementing a High-level Distributed-Memory Parallel Haskell in Haskell](http://www.macs.hw.ac.uk/~pm175/papers/Maier_Trinder_IFL2011_XT.pdf)
+* SAC2013 paper: [Reliable Scalable Symbolic Computation: The Design of SymGridPar2](http://www.macs.hw.ac.uk/~rs46/papers/sac2013/Maier_Stewart_Trinder_SAC2013.pdf)
+* Hackage: [http://hackage.haskell.org/package/hdph](http://hackage.haskell.org/package/hdph)
+* Source code [https://github.com/PatrickMaier/HdpH](https://github.com/PatrickMaier/HdpH)
 
 # Protocol Implementations
 
