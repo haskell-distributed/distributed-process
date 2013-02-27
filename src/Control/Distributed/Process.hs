@@ -52,6 +52,9 @@ module Control.Distributed.Process
   , unwrapMessage
   , handleMessage
   , forward
+  , delegate
+  , relay
+  , proxy
     -- * Process management
   , spawn
   , call
@@ -215,6 +218,9 @@ import Control.Distributed.Process.Internal.Primitives
   , unwrapMessage
   , handleMessage
   , forward
+  , delegate
+  , relay
+  , proxy
     -- Process management
   , terminate
   , ProcessTerminationException(..)
@@ -285,7 +291,11 @@ import Control.Distributed.Process.Node (forkProcess)
 -- 2.  'send' may block (when the system TCP buffers are full, while we are
 --     trying to establish a connection to the remote endpoint, etc.) but its
 --     return does not imply that the remote process received the message (much
---     less processed it)
+--     less processed it). When 'send' targets a local process, it is dispatched
+--     via the node controller however, in which cases it will /not/ block. This
+--     isn't part of the semantics, so it should be ok. The ordering is maintained
+--     because the ctrlChannel still has FIFO semantics with regards interactions
+--     between two disparate forkIO threads.
 --
 -- 3.  Message delivery is reliable and ordered. That means that if process A
 --     sends messages m1, m2, m3 to process B, B will either arrive all three

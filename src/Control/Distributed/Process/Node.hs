@@ -40,7 +40,7 @@ import qualified Data.Set as Set
   , toList
   )
 import Data.Foldable (forM_)
-import Data.Maybe (isJust, isNothing, catMaybes)
+import Data.Maybe (isJust, fromJust, isNothing, catMaybes)
 import Data.Typeable (Typeable)
 import Control.Category ((>>>))
 import Control.Applicative ((<$>))
@@ -68,6 +68,7 @@ import Control.Distributed.Process.Internal.StrictMVar
   , takeMVar
   )
 import Control.Concurrent.Chan (newChan, writeChan, readChan)
+import qualified Control.Concurrent.MVar as MVar (newEmptyMVar, takeMVar)
 import Control.Concurrent.STM
   ( atomically
   )
@@ -105,7 +106,7 @@ import Control.Distributed.Process.Internal.Types
   , LocalProcessId(..)
   , ProcessId(..)
   , LocalNode(..)
-  , Tracer(InactiveTracer)
+  , Tracer(..)
   , LocalNodeState(..)
   , LocalProcess(..)
   , LocalProcessState(..)
@@ -148,11 +149,17 @@ import Control.Distributed.Process.Internal.Types
   , firstNonReservedProcessId
   , ImplicitReconnect(WithImplicitReconnect)
   )
-import Control.Distributed.Process.Internal.Trace
+import Control.Distributed.Process.Internal.Trace.Primitives
+  ( traceLogFmt
+  , traceEvent
+  )
+import Control.Distributed.Process.Internal.Trace.Types
   ( TraceArg(..)
-  , traceFormat
-  , startTracing
-  , stopTracer
+  , TraceEvent(..)
+  )
+import Control.Distributed.Process.Internal.Trace.Tracer
+  ( traceController
+  , defaultTracer
   )
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Internal.Messaging
@@ -175,7 +182,7 @@ import qualified Control.Distributed.Process.Internal.StrictContainerAccessors a
   ( mapMaybe
   , mapDefault
   )
-
+import System.Environment (getEnv)
 import Unsafe.Coerce
 
 --------------------------------------------------------------------------------
@@ -232,10 +239,41 @@ createBareLocalNode endPoint rtable = do
             , ctrlMsgSignal = SigShutdown
             }
 
+startTracing :: LocalNode -> IO LocalNode
+startTracing node =
+  Exception.catch
+        (getEnv "DISTRIBUTED_PROCESS_TRACE_ENABLED" >> procTracer node)
+        (\(_ :: IOError) -> return node)
+  where procTracer :: LocalNode -> IO LocalNode
+        procTracer n = do
+          -- see note [tracer/forkProcess races]
+          mv <- MVar.newEmptyMVar
+          pid <- forkProcess n (traceController mv)
+          wqRef <- MVar.takeMVar mv
+          return n { localTracer = (ActiveTracer pid wqRef) }
+
+startDefaultTracer :: LocalNode -> IO (Maybe ProcessId)
+startDefaultTracer node =
+  Exception.catch
+        (getEnv "DISTRIBUTED_PROCESS_TRACE_ENABLED" >> go node)
+        (\(_ :: IOError) -> return Nothing)
+  where go :: LocalNode -> IO (Maybe ProcessId)
+        go node' = do
+          pid <- forkProcess node' defaultTracer
+          return (Just pid)
+
 -- | Start and register the service processes on a node
--- (for now, this is only the logger)
 startServiceProcesses :: LocalNode -> IO ()
 startServiceProcesses node = do
+  -- tracing /spawns/ relies on the tracer being enabled, but we start
+  -- the default tracer first, even though it might @nsend@ to the logger
+  -- before /that/ process has started - this is a totally harmless race
+  mPid <- startDefaultTracer node
+  case mPid of
+    Nothing  -> return ()
+    Just pid ->
+      runProcess node (register "tracer" pid >> register "tracer.initial" pid)
+
   logger <- forkProcess node loop
   runProcess node $ register "logger" logger
  where
@@ -257,6 +295,7 @@ startServiceProcesses node = do
 -- TODO: for now we just close the associated endpoint
 closeLocalNode :: LocalNode -> IO ()
 closeLocalNode node =
+  -- TODO: close all our processes, surely!?
   NT.closeEndPoint (localEndPoint node)
 
 -- | Run a process on a local node and wait for it to finish
@@ -306,6 +345,10 @@ forkProcess node proc = modifyMVar (localState node) startProcess
             }
         return (tid', lproc)
 
+
+      -- see note [tracer/forkProcess races]
+      trace node (TraceEvSpawned pid)
+
       if lpidCounter lpid == maxBound
         then do
           newUnique <- randomIO
@@ -331,6 +374,15 @@ forkProcess node proc = modifyMVar (localState node) startProcess
              . (localConnections ^= unaffected)
              $ st
 
+-- note [tracer/forkProcess races]
+--
+-- Our startTracing function uses forkProcess to start the trace controller
+-- process, and of course forkProcess attempts to call traceEvent once the
+-- process has started. This is harmless, as the localTracer is not updated
+-- until /after/ the initial forkProcess completes, so the first call to
+-- traceEvent behaves as if tracing were disabled (i.e., it is ignored).
+--
+
 --------------------------------------------------------------------------------
 -- Handle incoming messages                                                   --
 --------------------------------------------------------------------------------
@@ -339,7 +391,7 @@ type IncomingConnection = (NT.EndPointAddress, IncomingTarget)
 
 data IncomingTarget =
     Uninit
-  | ToProc (Weak (CQueue Message))
+  | ToProc ProcessId (Weak (CQueue Message))
   | ToChan TypedChannel
   | ToNode
 
@@ -374,20 +426,24 @@ handleIncomingMessages node = go initConnectionState
       case event of
         NT.ConnectionOpened cid rel theirAddr ->
           if rel == NT.ReliableOrdered
-            then go ( (incomingAt cid ^= Just (theirAddr, Uninit))
+            then
+              trace node (TraceEvConnected cid)
+              >> go (
+                      (incomingAt cid ^= Just (theirAddr, Uninit))
                     . (incomingFrom theirAddr ^: Set.insert cid)
                     $ st
                     )
             else invalidRequest cid st
         NT.Received cid payload ->
           case st ^. incomingAt cid of
-            Just (_, ToProc weakQueue) -> do
+            Just (_, ToProc pid weakQueue) -> do
               mQueue <- deRefWeak weakQueue
               forM_ mQueue $ \queue -> do
                 -- TODO: if we find that the queue is Nothing, should we remove
                 -- it from the NC state? (and same for channels, below)
                 let msg = payloadToMessage payload
                 enqueue queue msg -- 'enqueue' is strict
+                trace node (TraceEvReceived pid msg)
               go st
             Just (_, ToChan (TypedChannel chan')) -> do
               mChan <- deRefWeak chan'
@@ -408,7 +464,7 @@ handleIncomingMessages node = go initConnectionState
                   mProc <- withMVar state $ return . (^. localProcessWithId lpid)
                   case mProc of
                     Just proc ->
-                      go (incomingAt cid ^= Just (src, ToProc (processWeakQ proc)) $ st)
+                      go (incomingAt cid ^= Just (src, ToProc pid (processWeakQ proc)) $ st)
                     Nothing ->
                       invalidRequest cid st
                 SendPortIdentifier chId -> do
@@ -435,7 +491,8 @@ handleIncomingMessages node = go initConnectionState
           case st ^. incomingAt cid of
             Nothing ->
               invalidRequest cid st
-            Just (src, _) ->
+            Just (src, _) -> do
+              trace node (TraceEvDisconnected cid)
               go ( (incomingAt cid ^= Nothing)
                  . (incomingFrom src ^: Set.delete cid)
                  $ st
@@ -454,18 +511,15 @@ handleIncomingMessages node = go initConnectionState
              $ st
              )
         NT.ErrorEvent (NT.TransportError NT.EventEndPointFailed str) ->
-          fatal $ "Cloud Haskell fatal error: end point failed: " ++ str
+          fail $ "Cloud Haskell fatal error: end point failed: " ++ str
         NT.ErrorEvent (NT.TransportError NT.EventTransportFailed str) ->
-          fatal $ "Cloud Haskell fatal error: transport failed: " ++ str
+          fail $ "Cloud Haskell fatal error: transport failed: " ++ str
         NT.EndPointClosed ->
-          stopTracer (localTracer node) >> return ()
+          return ()
         NT.ReceivedMulticast _ _ ->
           -- If we received a multicast message, something went horribly wrong
           -- and we just give up
-          fatal "Cloud Haskell fatal error: received unexpected multicast"
-
-    fatal :: String -> IO ()
-    fatal msg = stopTracer (localTracer node) >> fail msg
+          fail "Cloud Haskell fatal error: received unexpected multicast"
 
     invalidRequest :: NT.ConnectionId -> ConnectionState -> IO ()
     invalidRequest cid st = do
@@ -473,7 +527,7 @@ handleIncomingMessages node = go initConnectionState
       -- node. That is, we should report the remote node as having died, and we
       -- should close incoming connections (this requires a Transport layer
       -- extension).
-      traceEventFmtIO node "" [(TraceStr "[network] invalid request: "),
+      traceEventFmtIO node "" [(TraceStr " [network] invalid request: "),
                                (Trace cid)]
       go ( incomingAt cid ^= Nothing
          $ st
@@ -534,23 +588,22 @@ instance Show ProcessKillException where
 
 traceNotifyDied :: LocalNode -> Identifier -> DiedReason -> NC ()
 traceNotifyDied node ident reason =
-  case reason of
-    DiedNormal -> return ()
-    _ -> traceNcEventFmt node " "
-                         [(TraceStr "[node-controller]"),
-                          (Trace ident),
-                          (Trace reason)]
-
-traceNcEventFmt :: LocalNode -> String -> [TraceArg] -> NC ()
-traceNcEventFmt node fmt args =
-  liftIO $ traceEventFmtIO node fmt args
+  -- TODO: sendPortDied notifications
+  liftIO $ withLocalTracer node $ \t ->
+    case ident of
+      (NodeIdentifier nid)    -> traceEvent t (TraceEvNodeDied nid reason)
+      (ProcessIdentifier pid) -> traceEvent t (TraceEvDied pid reason)
+      _                       -> return ()
 
 traceEventFmtIO :: LocalNode
                 -> String
                 -> [TraceArg]
                 -> IO ()
 traceEventFmtIO node fmt args =
-  withLocalTracer node $ \t -> traceFormat t fmt args
+  withLocalTracer node $ \t -> traceLogFmt t fmt args
+
+trace :: LocalNode -> TraceEvent -> IO ()
+trace node ev = withLocalTracer node $ \t -> traceEvent t ev
 
 withLocalTracer :: LocalNode -> (Tracer -> IO ()) -> IO ()
 withLocalTracer node act = act (localTracer node)
@@ -597,7 +650,7 @@ nodeController = do
       NCMsg _ (NamedSend label msg') ->
         ncEffectNamedSend label msg'
       NCMsg _ (LocalSend to msg') ->
-        ncEffectLocalSend to msg'
+        ncEffectLocalSend node to msg'
       NCMsg _ (LocalPortSend to msg') ->
         ncEffectLocalPortSend to msg'
       NCMsg (ProcessIdentifier from) (Kill to reason) ->
@@ -720,6 +773,7 @@ ncEffectSpawn pid cProc ref = do
   mProc <- unClosure cProc
   -- If the closure does not exist, we spawn a process that throws an exception
   -- This allows the remote node to find out what's happening
+  -- TODO: 
   let proc = case mProc of
                Left err -> fail $ "Error: Could not resolve closure: " ++ err
                Right p  -> p
@@ -750,6 +804,9 @@ ncEffectRegister from label atnode mPid reregistration = do
      then do when (isOk) $
                do modify' $ registeredHereFor label ^= mPid
                   updateRemote node currentVal mPid
+                  case mPid of
+                    (Just p) -> liftIO $ trace node (TraceEvRegistered p label)
+                    Nothing  -> liftIO $ trace node (TraceEvUnRegistered (fromJust currentVal) label)
              liftIO $ sendMessage node
                        (NodeIdentifier (localNodeId node))
                        (ProcessIdentifier from)
@@ -772,6 +829,7 @@ ncEffectRegister from label atnode mPid reregistration = do
             updateRemote _ _ _ = return ()
             maybeify f Nothing = unmaybeify $ f []
             maybeify f (Just x) = unmaybeify $ f x
+
             unmaybeify [] = Nothing
             unmaybeify x = Just x
             incList [] tag = [(tag,1)]
@@ -812,16 +870,19 @@ ncEffectNamedSend label msg = do
   forM_ mPid $ \pid -> postMessage pid msg
 
 -- [Issue #DP-20]
-ncEffectLocalSend :: ProcessId -> Message -> NC ()
-ncEffectLocalSend = postMessage
+ncEffectLocalSend :: LocalNode -> ProcessId -> Message -> NC ()
+ncEffectLocalSend node to msg =
+  liftIO $ withLocalProc node to $ \p -> do
+    enqueue (processQueue p) msg
+    trace node (TraceEvReceived to msg)
 
 -- [Issue #DP-20]
 ncEffectLocalPortSend :: SendPortId -> Message -> NC ()
-ncEffectLocalPortSend from msg =
+ncEffectLocalPortSend from msg = do
+  node <- ask
   let pid = sendPortProcessId from
       cid = sendPortLocalId   from
-  in do
-  withLocalProc pid $ \proc -> do
+  liftIO $ withLocalProc node pid $ \proc -> do
     mChan <- withMVar (processState proc) $ return . (^. typedChannelWithId cid)
     case mChan of
       -- in the unlikely event we know nothing about this channel id,
@@ -995,21 +1056,21 @@ postAsMessage pid = postMessage pid . createUnencodedMessage
 
 postMessage :: ProcessId -> Message -> NC ()
 postMessage pid msg = do
-  withLocalProc pid $ \p -> enqueue (processQueue p) msg
+  node <- ask
+  liftIO $ withLocalProc node pid $ \p -> enqueue (processQueue p) msg
 
 throwException :: Exception e => ProcessId -> e -> NC ()
-throwException pid e = withLocalProc pid $ \p ->
-  throwTo (processThread p) e
-
-withLocalProc :: ProcessId -> (LocalProcess -> IO ()) -> NC ()
-withLocalProc pid p = do
+throwException pid e = do
   node <- ask
-  liftIO $ do
-    -- By [Unified: table 6, rule missing_process] messages to dead processes
-    -- can silently be dropped
-    let lpid = processLocalId pid
-    mProc <- withMVar (localState node) $ return . (^. localProcessWithId lpid)
-    forM_ mProc p
+  liftIO $ withLocalProc node pid $ \p -> throwTo (processThread p) e
+
+withLocalProc :: LocalNode -> ProcessId -> (LocalProcess -> IO ()) -> IO ()
+withLocalProc node pid p =
+  -- By [Unified: table 6, rule missing_process] messages to dead processes
+  -- can silently be dropped
+  let lpid = processLocalId pid in do
+  mProc <- withMVar (localState node) $ return . (^. localProcessWithId lpid)
+  forM_ mProc p
 
 --------------------------------------------------------------------------------
 -- Accessors                                                                  --
