@@ -8,6 +8,7 @@ module Control.Distributed.Process.Internal.Trace.Types
   , TraceFlags(..)
   , defaultTraceFlags
   , TraceArg(..)
+  , TraceOk(..)
   ) where
 
 import Control.Applicative ((<$>), (<*>))
@@ -111,6 +112,10 @@ data TraceArg =
     TraceStr String
   | forall a. (Show a) => Trace a
 
+-- | A generic 'ok' response from the trace coordinator.
+data TraceOk = TraceOk
+  deriving (Typeable)
+
 --------------------------------------------------------------------------------
 -- Binary Instances                                                           --
 --------------------------------------------------------------------------------
@@ -175,4 +180,8 @@ instance Binary TraceSubject where
 instance Binary TraceFlags where
   put (TraceFlags s d m r n c) = put s >> put d >> put m >> put r >> put n >> put c
   get = TraceFlags <$> get <*> get <*> get <*> get <*> get <*> get
+
+instance Binary TraceOk where
+  put _ = return ()
+  get = return TraceOk
 

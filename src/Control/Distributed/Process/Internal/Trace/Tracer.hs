@@ -22,10 +22,12 @@ import Control.Distributed.Process.Internal.Primitives
   ( catch
   , receiveWait
   , forward
+  , sendChan
   , match
   , matchAny
   , matchAnyIf
   , handleMessage
+  , reregister
   )
 import Control.Distributed.Process.Internal.Trace.Types
   ( TraceEvent(..)
@@ -33,6 +35,7 @@ import Control.Distributed.Process.Internal.Trace.Types
   , Addressable(..)
   , TraceSubject(..)
   , TraceFlags(..)
+  , TraceOk(..)
   , defaultTraceFlags
   )
 import Control.Distributed.Process.Internal.Types
@@ -44,6 +47,7 @@ import Control.Distributed.Process.Internal.Types
   , Identifier(..)
   , ProcessSignal(NamedSend)
   , Message
+  , SendPort
   , forever'
   , nullProcessId
   , createUnencodedMessage
@@ -125,7 +129,6 @@ systemLoggerTracer = do
 
 eventLogTracer :: Process ()
 eventLogTracer = do
-  liftIO $ traceEventIO "starting event log tracer"
   -- NB: when the GHC event log supports tracing arbitrary (ish) data, we will
   -- almost certainly use *that* facility independently of whether or not there
   -- is a tracer process installed. This is just a stop gap until then.
@@ -177,21 +180,28 @@ traceController mv = do
       -- events to the ghc eventlog, at which point this design might change.
       st' <- receiveWait [
           -- we notify the previous tracer process that it has been replaced
-          match (\(set :: SetTrace) ->
+          match (\(setResp, set :: SetTrace) -> do
                   -- We allow at most one trace target, which is a process id.
                   case set of
                     (TraceEnable pid) -> do
                       sendTrace st (createUnencodedMessage (TraceEvTakeover pid))
+                      reregister "tracer" pid
+                      sendOk setResp
                       return st { sendTrace = (mkSender pid) }
                     TraceDisable -> do
                       sendTrace st (createUnencodedMessage TraceEvDisable)
-                      return st { sendTrace = (\_ -> return ()) })
-        , match (\flags' -> applyTraceFlags flags' st)
-          -- we dequeue incoming messages even if we don't process them
+                      sendOk setResp >> return st { sendTrace = (\_ -> return ()) })
+        , match (\(confResp, flags') ->
+                  sendOk confResp >> applyTraceFlags flags' st) -- setTraceFlags
+          -- we dequeue incoming events even if we don't process them
         , matchAny (\ev ->
-              handleMessage ev (handleTrace st ev) >>= return . fromMaybe st)
+                  handleMessage ev (handleTrace st ev) >>= return . fromMaybe st)
         ]
       traceLoop st'
+
+    sendOk :: Maybe (SendPort TraceOk) -> Process ()
+    sendOk Nothing   = return ()
+    sendOk (Just sp) = sendChan sp TraceOk
 
     mkSender :: ProcessId -> (Message -> Process ())
     mkSender pid = (flip forward) pid
@@ -236,9 +246,9 @@ handleTrace st _ (TraceEvUnRegistered p n) =
                Just ns' -> Just (Set.delete n ns')
       regNames' = Map.alter f p (regNames st)
   in return st { regNames = regNames' }
-handleTrace st msg ev@(TraceEvSpawned  _)   =
+handleTrace st msg ev@(TraceEvSpawned  _)   = do
   traceEv ev msg (traceSpawned (flags st)) st >> return st
-handleTrace st msg ev@(TraceEvDied _ _)     =
+handleTrace st msg ev@(TraceEvDied _ _)     = do
   traceEv ev msg (traceDied (flags st)) st >> return st
 handleTrace st msg ev@(TraceEvSent _ _ _)   =
   traceEv ev msg (traceSend (flags st)) st >> return st
@@ -263,8 +273,8 @@ traceEv :: TraceEvent
         -> Maybe TraceSubject
         -> TracerState
         -> Process ()
-traceEv _ _ Nothing _ = return ()
-traceEv _ msg (Just TraceAll) st = (sendTrace st) msg
+traceEv _  _   Nothing                  _  = return ()
+traceEv _  msg (Just TraceAll)          st = (sendTrace st) msg
 traceEv ev msg (Just (TraceProcs pids)) st = do
   node <- processNode <$> ask
   let p = case resolveToPid ev of

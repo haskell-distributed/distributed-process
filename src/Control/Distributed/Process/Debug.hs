@@ -88,9 +88,14 @@ module Control.Distributed.Process.Debug
   , TraceFlags(..)
   , TraceSubject(..)
     -- * Configuring Tracing
+  , isTracingEnabled
   , enableTrace
+  , enableTraceAsync
   , disableTrace
+  , disableTraceAsync
+  , withTracer
   , setTraceFlags
+  , setTraceFlagsAsync
   , defaultTraceFlags
     -- * Debugging
   , startTracer
@@ -113,9 +118,16 @@ import Control.Distributed.Process.Internal.Primitives
   , die
   , getSelfPid
   , reregister
-  , register
   , whereis
   , send
+  , newChan
+  , sendChan
+  , receiveChan
+  , receiveWait
+  , matchIf
+  , finally
+  , try
+  , monitor
   )
 import Control.Distributed.Process.Internal.Types
   ( Tracer(..)
@@ -123,12 +135,15 @@ import Control.Distributed.Process.Internal.Types
   , ProcessId
   , Process
   , LocalProcess(..)
+  , SendPort(..)
+  , ProcessMonitorNotification(..)
   )
 import Control.Distributed.Process.Internal.Trace.Types
   ( TraceArg(..)
   , TraceEvent(..)
   , TraceFlags(..)
   , TraceSubject(..)
+  , TraceOk(..)
   , defaultTraceFlags
   )
 import Control.Distributed.Process.Internal.Trace.Tracer
@@ -141,16 +156,26 @@ import qualified Control.Distributed.Process.Internal.Trace.Primitives as Tracer
   , traceLogFmt
   , traceMessage
   , enableTrace
+  , enableTraceSync
   , disableTrace
+  , disableTraceSync
   , setTraceFlags
+  , setTraceFlagsSync
   )
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable
+
+import Control.Exception (SomeException)
 
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (ask)
 
 import Data.Binary()
+
+#if ! MIN_VERSION_base(4,6,0)
+import Prelude hiding (catch)
+#endif
+
 
 --------------------------------------------------------------------------------
 -- Debugging/Tracing API                                                      --
@@ -161,24 +186,56 @@ import Data.Binary()
 -- the registered tracer with the supplied handler, allowing the user to layer
 -- multiple tracers on top of one another, with trace events forwarded down
 -- through all the layers in turn. Once the top layer is stopped, it will
--- reregister the original tracer pid before terminating. If no tracer is
--- currently registered, this function will have no effect.
-startTracer :: (TraceEvent -> Process ()) -> Process ()
-startTracer handler = withRegisteredTracer $ \pid -> do
-  node <- processNode <$> ask
-  newPid <- liftIO $ forkProcess node $ do
-                        finally (mkProxy pid handler)
-                                (reregister "tracer" pid)
-  enableTrace newPid
+-- reregister the original (prior) tracer pid before terminating.
+startTracer :: (TraceEvent -> Process ()) -> Process ProcessId
+startTracer handler = do
+  (sp, rp) <- newChan
+  withRegisteredTracer $ \pid -> do
+    node <- processNode <$> ask
+    newPid <- liftIO $ forkProcess node $ do
+        -- TODO: we ensure that the original
+        -- tracer is re-registered, but it is
+        -- possible this could lead to races
+        -- if multiple tracers crash in very
+        -- close succession, due to scheduling
+        finally (traceProxy pid handler)
+                (resetTracer pid)
+    enableTrace newPid
+    sendChan sp newPid
+  receiveChan rp
+
+-- | Evaluate @proc@ with tracing enabled via @handler@, and immediately
+-- disable tracing thereafter, before giving the result (or exception
+-- in case of failure).
+withTracer :: forall a.
+              (TraceEvent -> Process ())
+           -> Process a
+           -> Process (Either SomeException a)
+withTracer handler proc = do
+    tracer <- startTracer handler
+    finally (try proc)
+            (stopTracing tracer)
   where
-    mkProxy :: ProcessId -> (TraceEvent -> Process ()) -> Process ()
-    mkProxy pid act = do
-      getSelfPid >>= register "tracer"
-      proxy pid $ \(ev :: TraceEvent) ->
-        case ev of
-          (TraceEvTakeover _) -> die "finished"
-          TraceEvDisable      -> die "stop"
-          _                   -> act ev >> return True
+    stopTracing :: ProcessId -> Process ()
+    stopTracing tracer = do
+      ref <- monitor tracer
+      stopTracer
+      receiveWait [
+          matchIf (\(ProcessMonitorNotification ref' _ _) -> ref == ref')
+                  (\_ -> return ())
+        ]
+
+traceProxy :: ProcessId -> (TraceEvent -> Process ()) -> Process ()
+traceProxy pid act = do
+  getSelfPid >>= reregister "tracer"  -- registration is synchronous
+  proxy pid $ \(ev :: TraceEvent) ->
+    case ev of
+      (TraceEvTakeover _) -> die "takeover"
+      TraceEvDisable      -> die "disabled"
+      _                   -> act ev >> return True
+
+resetTracer :: ProcessId -> Process ()
+resetTracer pid = enableTrace pid
 
 -- | Stops a user supplied tracer started with 'startTracer'.
 -- Note that only one tracer process can be active at any given time.
@@ -190,7 +247,7 @@ startTracer handler = withRegisteredTracer $ \pid -> do
 -- This function will never stop the system tracer (i.e., the tracer
 -- initially started when the node is created), therefore once all user
 -- supplied tracers (i.e., processes started via 'startTracer') have exited,
--- subsequent calls to this function have no effect.
+-- subsequent calls to this function will have no effect.
 --
 -- If tracing is support disabled for the node, this function will also
 -- have no effect.
@@ -209,22 +266,57 @@ stopTracer = withLocalTracer $ \t ->
 
 withRegisteredTracer :: (ProcessId -> Process ()) -> Process ()
 withRegisteredTracer act = do
-  t <- whereis "tracer"
-  case t of
-    Nothing  -> return ()
-    Just pid -> act pid
+  currentTracer <- whereis "tracer"
+  case currentTracer of
+    Nothing  -> do { (Just p') <- whereis "tracer.initial"; act p' }
+    (Just p) -> act p
+
+-- | Determine whether or not tracing has been enabled.
+isTracingEnabled :: Process Bool
+isTracingEnabled = do
+  node <- processNode <$> ask
+  case (localTracer node) of
+    (ActiveTracer _ _) -> return True
+    _                  -> return False
 
 -- | Enable tracing to the supplied process.
+enableTraceAsync :: ProcessId -> Process ()
+enableTraceAsync pid = withLocalTracer $ \t -> liftIO $ Tracer.enableTrace t pid
+
+-- TODO: refactor _Sync versions of trace configuration functions...
+
+-- | Enable tracing to the supplied process and wait for a @TraceOk@
+-- response from the trace coordinator process.
 enableTrace :: ProcessId -> Process ()
-enableTrace pid = withLocalTracer $ \t -> liftIO $ Tracer.enableTrace t pid
+enableTrace pid =
+  withLocalTracerSync $ \t sp -> Tracer.enableTraceSync t sp pid
 
 -- | Disable the currently configured trace.
+disableTraceAsync :: Process ()
+disableTraceAsync = withLocalTracer $ \t -> liftIO $ Tracer.disableTrace t
+
+-- | Disable the currently configured trace and wait for a @TraceOk@
+-- response from the trace coordinator process.
 disableTrace :: Process ()
-disableTrace = withLocalTracer $ \t -> liftIO $ Tracer.disableTrace t
+disableTrace =
+  withLocalTracerSync $ \t sp -> Tracer.disableTraceSync t sp
 
 -- | Set the given flags for the current tracer.
+setTraceFlagsAsync :: TraceFlags -> Process ()
+setTraceFlagsAsync f = withLocalTracer $ \t -> liftIO $ Tracer.setTraceFlags t f
+
+-- | Set the given flags for the current tracer and wait for a @TraceOk@
+-- response from the trace coordinator process.
 setTraceFlags :: TraceFlags -> Process ()
-setTraceFlags f = withLocalTracer $ \t -> liftIO $ Tracer.setTraceFlags t f
+setTraceFlags f =
+  withLocalTracerSync $ \t sp -> Tracer.setTraceFlagsSync t sp f
+
+withLocalTracerSync :: (Tracer -> SendPort TraceOk -> IO ()) -> Process ()
+withLocalTracerSync act = do
+  (sp, rp) <- newChan
+  withLocalTracer $ \t -> liftIO $ (act t sp)
+  TraceOk <- receiveChan rp
+  return ()
 
 -- | Send a log message to the internal tracing facility. If tracing is
 -- enabled, this will create a custom trace log event.
@@ -246,3 +338,4 @@ withLocalTracer :: (Tracer -> Process ()) -> Process ()
 withLocalTracer act = do
   node <- processNode <$> ask
   act (localTracer node)
+

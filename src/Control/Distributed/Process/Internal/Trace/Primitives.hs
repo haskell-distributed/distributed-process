@@ -12,8 +12,11 @@ module Control.Distributed.Process.Internal.Trace.Primitives
     -- * Configuring A Tracer
   , defaultTraceFlags
   , enableTrace
+  , enableTraceSync
   , disableTrace
+  , disableTraceSync
   , setTraceFlags
+  , setTraceFlagsSync
   ) where
 
 import Control.Distributed.Process.Internal.CQueue (enqueue)
@@ -22,12 +25,14 @@ import Control.Distributed.Process.Internal.Trace.Types
   , TraceEvent(..)
   , SetTrace(..)
   , TraceFlags(..)
+  , TraceOk(..)
   , defaultTraceFlags
   )
 import Control.Distributed.Process.Internal.Types
   ( Tracer(..)
   , ProcessId
   , Message
+  , SendPort
   , createUnencodedMessage
   )
 import Control.Distributed.Process.Serializable
@@ -59,17 +64,34 @@ traceMessage :: Serializable m => Tracer -> m -> IO ()
 traceMessage tr msg = traceEvent tr (TraceEvUser (createUnencodedMessage msg))
 
 enableTrace :: Tracer -> ProcessId -> IO ()
-enableTrace t p = traceIt t (createUnencodedMessage (TraceEnable p))
+enableTrace t p =
+  traceIt t (createUnencodedMessage ((Nothing :: Maybe (SendPort TraceOk)),
+                                     (TraceEnable p)))
+
+enableTraceSync :: Tracer -> SendPort TraceOk -> ProcessId -> IO ()
+enableTraceSync t s p =
+  traceIt t (createUnencodedMessage ((Just s), (TraceEnable p)))
 
 disableTrace :: Tracer -> IO ()
-disableTrace t = traceIt t (createUnencodedMessage TraceDisable)
+disableTrace t =
+  traceIt t (createUnencodedMessage ((Nothing :: Maybe (SendPort TraceOk)),
+                                     TraceDisable))
+
+disableTraceSync :: Tracer -> SendPort TraceOk -> IO ()
+disableTraceSync t s =
+  traceIt t (createUnencodedMessage ((Just s), TraceDisable))
 
 setTraceFlags :: Tracer -> TraceFlags -> IO ()
-setTraceFlags t f = traceIt t (createUnencodedMessage f)
+setTraceFlags t f =
+  traceIt t (createUnencodedMessage ((Nothing :: Maybe (SendPort TraceOk)), f))
+
+setTraceFlagsSync :: Tracer -> SendPort TraceOk -> TraceFlags -> IO ()
+setTraceFlagsSync t s f =
+  traceIt t (createUnencodedMessage ((Just s), f))
 
 traceIt :: Tracer -> Message -> IO ()
 traceIt InactiveTracer         _   = return ()
 traceIt (ActiveTracer _ wqRef) msg = do
   mQueue <- deRefWeak wqRef
   forM_ mQueue $ \queue -> enqueue queue msg
-  
+
