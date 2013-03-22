@@ -27,7 +27,7 @@ import Control.Distributed.Process.Internal.Primitives
   , matchAny
   , matchAnyIf
   , handleMessage
-  , reregister
+  , reregister, say
   )
 import Control.Distributed.Process.Internal.Trace.Types
   ( TraceEvent(..)
@@ -190,12 +190,14 @@ traceController mv = do
                       return st { sendTrace = (mkSender pid) }
                     TraceDisable -> do
                       sendTrace st (createUnencodedMessage TraceEvDisable)
-                      sendOk setResp >> return st { sendTrace = (\_ -> return ()) })
+                      sendOk setResp
+                      return st { sendTrace = (\_ -> return ()) })
         , match (\(confResp, flags') ->
-                  sendOk confResp >> applyTraceFlags flags' st) -- setTraceFlags
+                  sendOk confResp >> applyTraceFlags flags' st)
+        , match (\chGetFlags -> sendChan chGetFlags (flags st) >> return st)
           -- we dequeue incoming events even if we don't process them
         , matchAny (\ev ->
-                  handleMessage ev (handleTrace st ev) >>= return . fromMaybe st)
+                 handleMessage ev (handleTrace st ev) >>= return . fromMaybe st)
         ]
       traceLoop st'
 
@@ -204,7 +206,9 @@ traceController mv = do
     sendOk (Just sp) = sendChan sp TraceOk
 
     mkSender :: ProcessId -> (Message -> Process ())
-    mkSender pid = (flip forward) pid
+    mkSender pid = \m -> do
+      say ("sending " ++ (show m) ++ " to " ++ (show pid))
+      (flip forward) pid m
 
     initialState :: TracerState
     initialState =
@@ -260,7 +264,7 @@ handleTrace st msg ev = do
       case (traceNodes (flags st)) of
         True  -> (sendTrace st) msg
         False -> return ()
-    (TraceEvUser _) ->
+    (TraceEvUser _) -> do
       (sendTrace st) msg
     _ ->
       case (traceConnections (flags st)) of

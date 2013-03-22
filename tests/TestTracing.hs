@@ -82,9 +82,114 @@ testSpawnTracing result = do
   (tracedDead, tracedReason) <- liftIO $ takeMVar evDied
 
   stopTracer
+  setTraceFlags defaultTraceFlags
   stash result (tracedAlive  == pid &&
                 tracedDead   == pid &&
                 tracedReason == DiedNormal)
+
+testTraceRecvExplicitPid :: TestResult Bool -> Process ()
+testTraceRecvExplicitPid result = do
+  say "testTraceRecvExplicitPid"
+  pid <- spawnLocal $ do
+    self <- getSelfPid
+    expect >>= (flip sendChan) self
+  withFlags defaultTraceFlags {
+    traceRecv = traceOnly [pid]
+    } $ do
+    withTracer
+      (\ev ->
+        case ev of
+          (TraceEvReceived pid' _) -> stash result (pid == pid')
+          _                        -> return ()) $ do
+        (sp, rp) <- newChan
+        send pid sp
+        p <- receiveChan rp
+        res <- liftIO $ takeMVar result
+        stash result (res && (p == pid))
+  say "Explicit done!!!"
+  return ()
+
+testTraceRecvNamedPid :: TestResult Bool -> Process ()
+testTraceRecvNamedPid result = do
+  say "testTraceRecvNamedPid"
+  pid <- spawnLocal $ do
+    self <- getSelfPid
+    register "foobar" self
+    expect >>= (flip sendChan) self
+  withFlags defaultTraceFlags {
+    traceRecv = traceOnly ["foobar"]
+    } $ do
+    withTracer
+      (\ev ->
+        case ev of
+          (TraceEvReceived pid' _) -> stash result (pid == pid')
+          _                        -> return ()) $ do
+        (sp, rp) <- newChan
+        send pid sp
+        p <- receiveChan rp
+        res <- liftIO $ takeMVar result
+        stash result (res && (p == pid))
+  return ()
+
+data TraceWhat = User | Die | Rec
+  deriving (Show)
+
+testTraceLayering :: TestResult () -> Process ()
+testTraceLayering result = do
+  pid <- spawnLocal $ do
+    getSelfPid >>= register "foobar"
+    say "registered - waiting for 'hello'"
+    "hello" <- expect
+    say "received 'hello' - waiting for () go"
+    p <- expect
+    say "pid received - sending trace msg"
+    traceMessage ("traceMsg", 123 :: Int)
+    say "sending reply"
+    send p ()
+    () <- expect
+    return ()
+  withFlags defaultTraceFlags {
+      traceDied    = traceOnly ["foobar"]
+    , traceRecv    = traceOnly [pid]
+    } $ doTest pid result
+  return ()
+  where
+    doTest :: ProcessId -> MVar () -> Process ()
+    doTest pid result' = do
+      go Die $ do
+        go Rec $ do
+          say "sending 'hello'"
+          send pid "hello"
+          go User $ do
+            getSelfPid >>= send pid
+            () <- expect
+            say "received reply, returning to rec block"
+            return ()
+      liftIO $ putMVar result' ()
+
+    go :: TraceWhat -> Process () -> Process ()
+    go what proc = do {
+        say ("tracing " ++ (show what))
+      ; mv <- liftIO $ newEmptyMVar
+      ; r <- (withTracer
+          (\ev ->
+            case (matchTest what ev) of
+              True  -> do
+                say ("matched " ++ (show ev))
+                liftIO $ putMVar mv ()
+              False -> say ("ignoring " ++ (show ev))) $ do
+            say ("in block for " ++ (show what))
+            proc)
+      ; case r of
+          Left  e -> say "whoops"
+          Right _ -> say "ok!" >> (liftIO $ takeMVar mv)
+      }
+
+    matchTest :: TraceWhat -> TraceEvent -> Bool
+    matchTest User  (TraceEvUser     _)   = True
+    matchTest Die   (TraceEvDied     _ _) = True
+    matchTest Rec   (TraceEvReceived _ _) = True
+    matchTest _     _                     = False
 
 tests :: LocalNode -> IO [Test]
 tests node1 = do
@@ -94,10 +199,22 @@ tests node1 = do
       return [
         testGroup "Process Info" [
            testCase "Test Spawn Tracing"
-           (delayedAssertion
-            "expected dead process-info to be ProcessInfoNone"
-            node1 True testSpawnTracing)
-           ] ]
+             (delayedAssertion
+              "expected dead process-info to be ProcessInfoNone"
+              node1 True testSpawnTracing)
+         , testCase "Test Recv Tracing (Explicit Pid)"
+             (delayedAssertion
+              "expected a recv trace for the supplied pid"
+              node1 True testTraceRecvExplicitPid)
+         , testCase "Test Recv Tracing (Named Pid)"
+             (delayedAssertion
+              "expected a recv trace for the process registered as 'foobar'"
+              node1 True testTraceRecvNamedPid)
+         , testCase "Test Trace Layering"
+             (delayedAssertion
+              "expected blah"
+              node1 () testTraceLayering)
+         ] ]
     False ->
       return []
 
@@ -121,3 +238,4 @@ main = do
   defaultMain testData
   closeLocalNode node1
   return ()
+

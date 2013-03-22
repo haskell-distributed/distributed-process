@@ -525,10 +525,12 @@ proxy :: Serializable a => ProcessId -> (a -> Process Bool) -> Process ()
 proxy pid proc = do
   receiveWait [
       matchAny (\m -> do
+                   say "handling proxied message..."
                    next <- handleMessage m proc
                    case next of
-                     Just True -> forward m pid
-                     _         -> return ())
+                     Just True -> say ("forwarding msg to " ++ (show pid)) >> forward m pid
+                     Just False -> say "ignoring explicitly ignored msg"
+                     Nothing   -> say "ignoring unroutable msg")
     ]
   proxy pid proc
 

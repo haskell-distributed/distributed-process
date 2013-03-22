@@ -15,8 +15,12 @@ module Control.Distributed.Process.Internal.Trace.Primitives
   , enableTraceSync
   , disableTrace
   , disableTraceSync
+  , getTraceFlags
   , setTraceFlags
   , setTraceFlagsSync
+  , traceOnly
+  , traceOn
+  , traceOff
   ) where
 
 import Control.Distributed.Process.Internal.CQueue (enqueue)
@@ -26,6 +30,7 @@ import Control.Distributed.Process.Internal.Trace.Types
   , SetTrace(..)
   , TraceFlags(..)
   , TraceOk(..)
+  , TraceSubject(..)
   , defaultTraceFlags
   )
 import Control.Distributed.Process.Internal.Types
@@ -38,6 +43,7 @@ import Control.Distributed.Process.Internal.Types
 import Control.Distributed.Process.Serializable
 import Data.Foldable (forM_)
 import Data.List (intersperse)
+import qualified Data.Set as Set (fromList)
 import System.Mem.Weak (deRefWeak)
 
 --------------------------------------------------------------------------------
@@ -88,6 +94,29 @@ setTraceFlags t f =
 setTraceFlagsSync :: Tracer -> SendPort TraceOk -> TraceFlags -> IO ()
 setTraceFlagsSync t s f =
   traceIt t (createUnencodedMessage ((Just s), f))
+
+getTraceFlags :: Tracer -> SendPort TraceFlags -> IO ()
+getTraceFlags t s = traceIt t (createUnencodedMessage s)
+
+-- aux API and utilities
+
+class Traceable a where
+  uod :: [a] -> TraceSubject
+
+instance Traceable ProcessId where
+  uod = TraceProcs . Set.fromList
+
+instance Traceable String where
+  uod = TraceNames . Set.fromList
+
+traceOnly :: Traceable a => [a] -> Maybe TraceSubject
+traceOnly = Just . uod
+
+traceOn :: Maybe TraceSubject
+traceOn = Just TraceAll
+
+traceOff :: Maybe TraceSubject
+traceOff = Nothing
 
 traceIt :: Tracer -> Message -> IO ()
 traceIt InactiveTracer         _   = return ()
