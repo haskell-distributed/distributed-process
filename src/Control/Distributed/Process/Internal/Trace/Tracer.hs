@@ -271,7 +271,7 @@ handleTrace st msg ev@(TraceEvUnRegistered p n) =
                Just ns' -> Just (Set.delete n ns')
       regNames' = Map.alter f p (regNames st)
   in do
-    traceEv ev msg (traceRegistered (flags st)) st
+    traceEv ev msg (traceUnregistered (flags st)) st
     return st { regNames = regNames' }
 handleTrace st msg ev@(TraceEvSpawned  _)   = do
   traceEv ev msg (traceSpawned (flags st)) st >> return st

@@ -888,7 +888,7 @@ say :: String -> Process ()
 say string = do
   now <- liftIO getCurrentTime
   us  <- getSelfPid
-  nsend "logger" (formatTime defaultTimeLocale "%c" now, us, string)
+  nsend "logger" (formatTime defaultTimeLocale "[%d-%m-%Y] [%H:%M:%S-%q]" now, us, string)
 
 --------------------------------------------------------------------------------
 -- Registry                                                                   --

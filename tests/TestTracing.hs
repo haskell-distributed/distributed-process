@@ -77,7 +77,6 @@ testSpawnTracing result = do
   evSpawned <- liftIO $ newEmptyMVar
   evDied <- liftIO $ newEmptyMVar
   tracer <- startTracer $ \ev -> do
-    say "in spawn tracer..."
     case ev of
       (TraceEvSpawned p) -> liftIO $ putMVar evSpawned p
       (TraceEvDied p r)  -> liftIO $ putMVar evDied (p, r)
@@ -96,9 +95,7 @@ testSpawnTracing result = do
       matchIf (\(ProcessMonitorNotification ref _ _) -> ref == mref)
               ((\_ -> return ()))
     ]
-  say "seen the death of tracer"
   setTraceFlags defaultTraceFlags
-  say "finishing setting default flags"
   stash result (tracedAlive  == pid &&
                 tracedDead   == pid &&
                 tracedReason == DiedNormal)
@@ -146,6 +143,79 @@ testTraceRecvNamedPid result = do
         stash result (res' && (p == pid))
   return ()
 
+testTraceSending :: TestResult Bool -> Process ()
+testTraceSending result = do
+  pid <- spawnLocal $ (expect :: Process String) >> return ()
+  self <- getSelfPid
+  res <- liftIO $ newEmptyMVar
+  withFlags defaultTraceFlags { traceSend = traceOn } $ do
+    withTracer
+      (\ev ->
+        case ev of
+          (TraceEvSent to from _) ->
+            stash res (to == pid && from == self)
+          _ ->
+            return ()) $ do
+        send pid "hello there"
+  res' <- liftIO $ takeMVar res
+  stash result res'
+
+testTraceRegistration :: TestResult Bool -> Process ()
+testTraceRegistration result = do
+  (sp, rp) <- newChan
+  pid <- spawnLocal $ do
+    self <- getSelfPid
+    () <- expect
+    register "foobar" self
+    sendChan sp ()
+    () <- expect
+    return ()
+  res <- liftIO $ newEmptyMVar
+  withFlags defaultTraceFlags { traceRegistered = traceOn } $ do
+    withTracer
+      (\ev ->
+        case ev of
+          TraceEvRegistered p s ->
+            stash res (p == pid && s == "foobar")
+          _ ->
+            return ()) $ do
+        _ <- monitor pid
+        send pid ()
+        () <- receiveChan rp
+        send pid ()
+        receiveWait [
+          match (\(ProcessMonitorNotification _ _ _) -> return ())
+          ]
+  res' <- liftIO $ takeMVar res
+  stash result res'
+
+testTraceUnRegistration :: TestResult Bool -> Process ()
+testTraceUnRegistration result = do
+  pid <- spawnLocal $ do
+    () <- expect
+    unregister "foobar"
+    () <- expect
+    return ()
+  register "foobar" pid
+  res <- liftIO $ newEmptyMVar
+  withFlags defaultTraceFlags { traceUnregistered = traceOn } $ do
+    withTracer
+      (\ev ->
+        case ev of
+          TraceEvUnRegistered p n -> do
+            stash res (p == pid && n == "foobar")
+            send pid ()
+          _ ->
+            return ()) $ do
+        mref <- monitor pid
+        send pid ()
+        receiveWait [
+          matchIf (\(ProcessMonitorNotification mref' _ _) -> mref == mref')
+                  (\_ -> return ())
+          ]
+  res' <- liftIO $ takeMVar res
+  stash result res'
+
 testTraceLayering :: TestResult () -> Process ()
 testTraceLayering result = do
   pid <- spawnLocal $ do
@@ -154,8 +224,8 @@ testTraceLayering result = do
     traceMessage ("traceMsg", 123 :: Int)
     return ()
   withFlags defaultTraceFlags {
-      traceDied    = traceOnly [pid]
-    , traceRecv    = traceOnly ["foobar"]
+      traceDied = traceOnly [pid]
+    , traceRecv = traceOnly ["foobar"]
     } $ doTest pid result
   return ()
   where
@@ -171,22 +241,22 @@ testTraceLayering result = do
        ( do {
            recv <- liftIO $ newEmptyMVar
          ; withTracer
-          (\ev' ->
-            case ev' of
-              TraceEvReceived _ _ -> liftIO $ putMVar recv ()
-              _                   -> return ())
-          ( do {
-              user <- liftIO $ newEmptyMVar
-            ; withTracer
-                (\ev'' ->
-                  case ev'' of
-                    TraceEvUser _ -> liftIO $ putMVar user ()
-                    _             -> return ())
-                (send pid () >> (liftIO $ takeMVar user))
-            ; liftIO $ takeMVar recv
-            })
-          ; liftIO $ takeMVar died
-          })
+            (\ev' ->
+              case ev' of
+                TraceEvReceived _ _ -> liftIO $ putMVar recv ()
+                _                   -> return ())
+            ( do {
+                user <- liftIO $ newEmptyMVar
+              ; withTracer
+                  (\ev'' ->
+                    case ev'' of
+                      TraceEvUser _ -> liftIO $ putMVar user ()
+                      _             -> return ())
+                  (send pid () >> (liftIO $ takeMVar user))
+              ; liftIO $ takeMVar recv
+              })
+         ; liftIO $ takeMVar died
+         })
       liftIO $ putMVar result' ()
 
 tests :: LocalNode -> IO [Test]
@@ -212,6 +282,18 @@ tests node1 = do
              (delayedAssertion
               "expected a recv trace for the process registered as 'foobar'"
               node1 True testTraceRecvNamedPid lock)
+         , testCase "Trace Send(er)"
+             (delayedAssertion
+              "expected a 'send' trace with the requisite fields set"
+              node1 True testTraceSending lock)
+         , testCase "Trace Registration"
+              (delayedAssertion
+               "expected a 'registered' trace"
+               node1 True testTraceRegistration lock)
+         , testCase "Trace Unregistration"
+              (delayedAssertion
+               "expected an 'unregistered' trace"
+               node1 True testTraceUnRegistration lock)
          , testCase "Trace Layering"
              (delayedAssertion
               "expected blah"

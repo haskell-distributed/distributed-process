@@ -42,9 +42,10 @@
 -- trace handlers using Cloud Haskell's built-in delegation primitives.
 --
 -- The 'startTracer' function wraps the registered @tracer@ process with the
--- supplied handler, forwarding trace events to the original tracer. The
--- corresponding 'stopTracer' function terminates tracer processes in reverse
--- of the order in which they were started.
+-- supplied handler and also forwarding trace events to the original tracer.
+-- The corresponding 'stopTracer' function terminates tracer processes in
+-- reverse of the order in which they were started, and re-establishes the
+-- previous tracer process.
 --
 -- [Built in tracers]
 --
@@ -53,32 +54,39 @@
 -- can be configured using environment variables, or specified manually using
 -- the 'traceEnable' function. The base tracer process cannot be
 --
--- When a new local node is started, the contents of the environment variable
--- @DISTRIBUTED_PROCESS_TRACE_FILE@ are checked for a valid file path. If this
--- exists and the file can be opened for writing, all trace output will be
--- directed thence. If the environment variable is empty, the path invalid, or
--- the file is unavailable for writing - e.g., because another node has already
--- started tracing to it - then the @DISTRIBUTED_PROCESS_TRACE_CONSOLE@
--- environment variable is checked for /any/ non-empty value. If this is set,
--- then all trace output will be directed to the system logger process. If
--- neither variable provides a valid trace configuration, all internal traces
--- are written to "Debug.Trace.traceEventIO", which writes to the GHC eventlog.
+-- When a new local node is started, the contents of several environment
+-- variables are checked to determine how the default tracer process
+-- will handle trace events. If none of these variables is set, then the
+-- trace events will be effectively ignored, although they will still be
+-- generated and passed through the system. Only one configuration will be
+-- chosen - the first that contains a (valid) value. These environment
+-- variables, in the order they're checked, are:
+--
+-- 1. @DISTRIBUTED_PROCESS_TRACE_FILE@
+-- This is checked for a valid file path. If it exists and the file can be
+-- opened for writing, all trace output will be directed thence. If the supplied
+-- path is invalid, or the file is unavailable for writing - e.g., because
+-- another node has already started tracing to it - then this tracer will be
+-- disabled.
+--
+-- 2. @DISTRIBUTED_PROCESS_TRACE_CONSOLE@
+-- This is checked for /any/ non-empty value. If set, then all trace output will
+-- be directed to the system logger process.
+--
+-- 3. @DISTRIBUTED_PROCESS_TRACE_EVENTLOG@
+-- This is checked for /any/ non-empty value. If set, all internal traces are
+-- written to the GHC eventlog.
 --
 -- Users of the /simplelocalnet/ Cloud Haskell backend should also note that
 -- because the trace file option only supports trace output from a single node
 -- (so as to avoid interleaving), a file trace configured for the master node
--- will prevent slaves from tracing to the file and they will fall back to using
+-- will prevent slaves from tracing to the file and will need to fall back to
 -- the console or eventlog tracers instead.
 --
--- Just as with the "Debug.Trace" module, this is a debugging/tracing facility
--- for use in development, and probably not best used in a production setting -
--- which is why the default behaviour is to trace to the GHC eventlog. For a
--- general purpose logging facility, you should consider 'say'.
---
 -- Support for writing to the eventlog requires specific intervention to work,
--- without which traces are silently dropped/ignored and no output will be
--- generated. The GHC eventlog documentation provides information about enabling,
--- viewing and working with event traces at
+-- without which, written traces are silently dropped/ignored and no output will
+-- be generated. The GHC eventlog documentation provides information about
+-- enabling, viewing and working with event traces at
 -- <http://hackage.haskell.org/trac/ghc/wiki/EventLog>.
 --
 module Control.Distributed.Process.Debug
@@ -186,7 +194,6 @@ import Data.Binary()
 #if ! MIN_VERSION_base(4,6,0)
 import Prelude hiding (catch)
 #endif
-
 
 --------------------------------------------------------------------------------
 -- Debugging/Tracing API                                                      --
