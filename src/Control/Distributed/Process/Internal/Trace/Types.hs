@@ -91,6 +91,7 @@ data TraceSubject =
 data TraceFlags = TraceFlags {
     traceSpawned     :: !(Maybe TraceSubject) -- filter process spawned tracing
   , traceDied        :: !(Maybe TraceSubject) -- filter process died tracing
+  , traceRegistered  :: !(Maybe TraceSubject) -- filter process registration tracing
   , traceSend        :: !(Maybe TraceSubject) -- filter process/message tracing by sender
   , traceRecv        :: !(Maybe TraceSubject) -- filter process/message tracing by receiver
   , traceNodes       :: !Bool                 -- enable node status trace events
@@ -102,6 +103,7 @@ defaultTraceFlags =
   TraceFlags {
     traceSpawned     = Nothing
   , traceDied        = Nothing
+  , traceRegistered  = Nothing
   , traceSend        = Nothing
   , traceRecv        = Nothing
   , traceNodes       = False
@@ -178,8 +180,8 @@ instance Binary TraceSubject where
       _ -> error "TraceSubject.get - invalid header"
 
 instance Binary TraceFlags where
-  put (TraceFlags s d m r n c) = put s >> put d >> put m >> put r >> put n >> put c
-  get = TraceFlags <$> get <*> get <*> get <*> get <*> get <*> get
+  put (TraceFlags s d g m r n c) = put s >> put d >> put g >> put m >> put r >> put n >> put c
+  get = TraceFlags <$> get <*> get <*> get <*> get <*> get <*> get <*> get
 
 instance Binary TraceOk where
   put _ = return ()

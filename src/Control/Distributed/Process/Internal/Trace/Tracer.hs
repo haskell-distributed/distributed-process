@@ -257,18 +257,22 @@ applyTraceFlags :: TraceFlags -> TracerState -> Process TracerState
 applyTraceFlags flags' state = return state { flags = flags' }
 
 handleTrace :: TracerState -> Message -> TraceEvent -> Process TracerState
-handleTrace st _ (TraceEvRegistered p n) =
+handleTrace st msg ev@(TraceEvRegistered p n) =
   let regNames' =
         Map.insertWith (\_ ns -> Set.insert n ns) p
                        (Set.singleton n)
                        (regNames st)
-  in return st { regNames = regNames' }
-handleTrace st _ (TraceEvUnRegistered p n) =
+  in do
+    traceEv ev msg (traceRegistered (flags st)) st
+    return st { regNames = regNames' }
+handleTrace st msg ev@(TraceEvUnRegistered p n) =
   let f ns = case ns of
                Nothing  -> Nothing
                Just ns' -> Just (Set.delete n ns')
       regNames' = Map.alter f p (regNames st)
-  in return st { regNames = regNames' }
+  in do
+    traceEv ev msg (traceRegistered (flags st)) st
+    return st { regNames = regNames' }
 handleTrace st msg ev@(TraceEvSpawned  _)   = do
   traceEv ev msg (traceSpawned (flags st)) st >> return st
 handleTrace st msg ev@(TraceEvDied _ _)     = do
