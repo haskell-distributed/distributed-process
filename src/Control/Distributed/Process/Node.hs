@@ -268,6 +268,7 @@ startServiceProcesses node = do
   -- tracing /spawns/ relies on the tracer being enabled, but we start
   -- the default tracer first, even though it might @nsend@ to the logger
   -- before /that/ process has started - this is a totally harmless race
+  -- however, so we deliberably ignore it
   mPid <- startDefaultTracer node
   case mPid of
     Nothing  -> return ()

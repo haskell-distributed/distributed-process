@@ -520,7 +520,8 @@ relay pid = receiveWait [ matchAny (\m -> forward m pid) ] >> relay pid
 
 -- | Proxies @pid@ and forwards messages whenever @proc@ evaluates to @True@.
 -- Unlike 'delegate' the predicate @proc@ runs in the 'Process' monad, allowing
--- for richer proxy behaviour.
+-- for richer proxy behaviour. If @proc@ returns @False@ or the /runtime type check/
+-- fails, no action is taken and the proxy process will continue running.
 proxy :: Serializable a => ProcessId -> (a -> Process Bool) -> Process ()
 proxy pid proc = do
   receiveWait [
