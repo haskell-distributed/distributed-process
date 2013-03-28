@@ -272,8 +272,7 @@ startServiceProcesses node = do
   mPid <- startDefaultTracer node
   case mPid of
     Nothing  -> return ()
-    Just pid ->
-      runProcess node (register "tracer" pid >> register "tracer.initial" pid)
+    Just pid -> runProcess node $ register "tracer.initial" pid
 
   logger <- forkProcess node loop
   runProcess node $ register "logger" logger

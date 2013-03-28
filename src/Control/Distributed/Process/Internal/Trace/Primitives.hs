@@ -18,6 +18,7 @@ module Control.Distributed.Process.Internal.Trace.Primitives
   , getTraceFlags
   , setTraceFlags
   , setTraceFlagsSync
+  , getCurrentTraceClient
   , traceOnly
   , traceOn
   , traceOff
@@ -97,6 +98,9 @@ setTraceFlagsSync t s f =
 
 getTraceFlags :: Tracer -> SendPort TraceFlags -> IO ()
 getTraceFlags t s = traceIt t (createUnencodedMessage s)
+
+getCurrentTraceClient :: Tracer -> SendPort (Maybe ProcessId) -> IO ()
+getCurrentTraceClient t s = traceIt t (createUnencodedMessage s)
 
 -- aux API and utilities
 

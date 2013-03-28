@@ -5,6 +5,7 @@ module Main where
 import Control.Concurrent.MVar
   ( MVar
   , newEmptyMVar
+  , newMVar
   , putMVar
   , takeMVar
   )
@@ -17,8 +18,6 @@ import Control.Distributed.Process.Node
   , closeLocalNode
   , LocalNode)
 import Control.Exception as Ex (catch)
-import Data.Binary()
-import Data.Typeable()
 import Network.Transport.TCP
 import Prelude hiding (catch, log)
 import Test.Framework
@@ -41,12 +40,22 @@ import System.Posix.Env
 -- | A mutable cell containing a test result.
 type TestResult a = MVar a
 
-delayedAssertion :: (Eq a) => String -> LocalNode -> a ->
-                    (TestResult a -> Process ()) -> Assertion
-delayedAssertion note localNode expected testProc = do
+delayedAssertion :: (Eq a)
+                 => String
+                 -> LocalNode
+                 -> a
+                 -> (TestResult a -> Process ())
+                 -> MVar ()
+                 -> Assertion
+delayedAssertion note localNode expected testProc lock = do
   result <- newEmptyMVar
-  _ <- forkProcess localNode $ testProc result
+  _ <- forkProcess localNode $ do
+         acquire lock
+         finally (testProc result)
+                 (release lock)
   assertComplete note result expected
+  where acquire lock' = liftIO $ takeMVar lock'
+        release lock' = liftIO $ putMVar lock' ()
 
 assertComplete :: (Eq a) => String -> MVar a -> a -> IO ()
 assertComplete msg mv a = do
@@ -67,29 +76,36 @@ testSpawnTracing result = do
 
   evSpawned <- liftIO $ newEmptyMVar
   evDied <- liftIO $ newEmptyMVar
-  startTracer $ \ev -> do
+  tracer <- startTracer $ \ev -> do
+    say "in spawn tracer..."
     case ev of
       (TraceEvSpawned p) -> liftIO $ putMVar evSpawned p
       (TraceEvDied p r)  -> liftIO $ putMVar evDied (p, r)
       _ -> return ()
 
   (sp, rp) <- newChan
-  pid <- spawnLocal $ do
-    sendChan sp ()
+  pid <- spawnLocal $ sendChan sp ()
   () <- receiveChan rp
 
   tracedAlive <- liftIO $ takeMVar evSpawned
   (tracedDead, tracedReason) <- liftIO $ takeMVar evDied
 
-  stopTracer
+  mref <- monitor tracer
+  stopTracer -- this is asynchronous, so we need to wait...
+  receiveWait [
+      matchIf (\(ProcessMonitorNotification ref _ _) -> ref == mref)
+              ((\_ -> return ()))
+    ]
+  say "seen the death of tracer"
   setTraceFlags defaultTraceFlags
+  say "finishing setting default flags"
   stash result (tracedAlive  == pid &&
                 tracedDead   == pid &&
                 tracedReason == DiedNormal)
 
 testTraceRecvExplicitPid :: TestResult Bool -> Process ()
 testTraceRecvExplicitPid result = do
-  say "testTraceRecvExplicitPid"
+  res <- liftIO $ newEmptyMVar
   pid <- spawnLocal $ do
     self <- getSelfPid
     expect >>= (flip sendChan) self
@@ -99,19 +115,18 @@ testTraceRecvExplicitPid result = do
     withTracer
       (\ev ->
         case ev of
-          (TraceEvReceived pid' _) -> stash result (pid == pid')
+          (TraceEvReceived pid' _) -> stash res (pid == pid')
           _                        -> return ()) $ do
         (sp, rp) <- newChan
         send pid sp
         p <- receiveChan rp
-        res <- liftIO $ takeMVar result
-        stash result (res && (p == pid))
-  say "Explicit done!!!"
+        res' <- liftIO $ takeMVar res
+        stash result (res' && (p == pid))
   return ()
 
 testTraceRecvNamedPid :: TestResult Bool -> Process ()
 testTraceRecvNamedPid result = do
-  say "testTraceRecvNamedPid"
+  res <- liftIO $ newEmptyMVar
   pid <- spawnLocal $ do
     self <- getSelfPid
     register "foobar" self
@@ -122,98 +137,85 @@ testTraceRecvNamedPid result = do
     withTracer
       (\ev ->
         case ev of
-          (TraceEvReceived pid' _) -> stash result (pid == pid')
+          (TraceEvReceived pid' _) -> stash res (pid == pid')
           _                        -> return ()) $ do
         (sp, rp) <- newChan
         send pid sp
         p <- receiveChan rp
-        res <- liftIO $ takeMVar result
-        stash result (res && (p == pid))
+        res' <- liftIO $ takeMVar res
+        stash result (res' && (p == pid))
   return ()
-
-data TraceWhat = User | Die | Rec
-  deriving (Show)
 
 testTraceLayering :: TestResult () -> Process ()
 testTraceLayering result = do
   pid <- spawnLocal $ do
     getSelfPid >>= register "foobar"
-    say "registered - waiting for 'hello'"
-    "hello" <- expect
-    say "received 'hello' - waiting for () go"
-    p <- expect
-    say "pid received - sending trace msg"
-    traceMessage ("traceMsg", 123 :: Int)
-    say "sending reply"
-    send p ()
     () <- expect
+    traceMessage ("traceMsg", 123 :: Int)
     return ()
   withFlags defaultTraceFlags {
-      traceDied    = traceOnly ["foobar"]
-    , traceRecv    = traceOnly [pid]
+      traceDied    = traceOnly [pid]
+    , traceRecv    = traceOnly ["foobar"]
     } $ doTest pid result
   return ()
   where
     doTest :: ProcessId -> MVar () -> Process ()
     doTest pid result' = do
-      go Die $ do
-        go Rec $ do
-          say "sending 'hello'"
-          send pid "hello"
-          go User $ do
-            getSelfPid >>= send pid
-            () <- expect
-            say "received reply, returning to rec block"
-            return ()
+      -- TODO: this is pretty gross, even for a test case
+      died <- liftIO $ newEmptyMVar
+      withTracer
+       (\ev ->
+         case ev of
+           TraceEvDied _ _ -> liftIO $ putMVar died ()
+           _               -> return ())
+       ( do {
+           recv <- liftIO $ newEmptyMVar
+         ; withTracer
+          (\ev' ->
+            case ev' of
+              TraceEvReceived _ _ -> liftIO $ putMVar recv ()
+              _                   -> return ())
+          ( do {
+              user <- liftIO $ newEmptyMVar
+            ; withTracer
+                (\ev'' ->
+                  case ev'' of
+                    TraceEvUser _ -> liftIO $ putMVar user ()
+                    _             -> return ())
+                (send pid () >> (liftIO $ takeMVar user))
+            ; liftIO $ takeMVar recv
+            })
+          ; liftIO $ takeMVar died
+          })
       liftIO $ putMVar result' ()
-
-    go :: TraceWhat -> Process () -> Process ()
-    go what proc = do {
-        say ("tracing " ++ (show what))
-      ; mv <- liftIO $ newEmptyMVar
-      ; r <- (withTracer
-          (\ev ->
-            case (matchTest what ev) of
-              True  -> do
-                say ("matched " ++ (show ev))
-                liftIO $ putMVar mv ()
-              False -> say ("ignoring " ++ (show ev))) $ do
-            say ("in block for " ++ (show what))
-            proc)
-      ; case r of
-          Left  e -> say "whoops"
-          Right _ -> say "ok!" >> (liftIO $ takeMVar mv)
-      }
-
-    matchTest :: TraceWhat -> TraceEvent -> Bool
-    matchTest User  (TraceEvUser     _)   = True
-    matchTest Die   (TraceEvDied     _ _) = True
-    matchTest Rec   (TraceEvReceived _ _) = True
-    matchTest _     _                     = False
 
 tests :: LocalNode -> IO [Test]
 tests node1 = do
+  -- if we execute the test cases in parallel, the
+  -- various tracers will race with one another and
+  -- we'll get garbage results (or worse, deadlocks)
+  lock <- liftIO $ newMVar ()
   enabled <- checkTraceEnabled
   case enabled of
     True ->
       return [
-        testGroup "Process Info" [
-           testCase "Test Spawn Tracing"
+        testGroup "Tracing" [
+           testCase "Spawn Tracing"
              (delayedAssertion
               "expected dead process-info to be ProcessInfoNone"
-              node1 True testSpawnTracing)
-         , testCase "Test Recv Tracing (Explicit Pid)"
+              node1 True testSpawnTracing lock)
+         , testCase "Recv Tracing (Explicit Pid)"
              (delayedAssertion
               "expected a recv trace for the supplied pid"
-              node1 True testTraceRecvExplicitPid)
-         , testCase "Test Recv Tracing (Named Pid)"
+              node1 True testTraceRecvExplicitPid lock)
+         , testCase "Recv Tracing (Named Pid)"
              (delayedAssertion
               "expected a recv trace for the process registered as 'foobar'"
-              node1 True testTraceRecvNamedPid)
-         , testCase "Test Trace Layering"
+              node1 True testTraceRecvNamedPid lock)
+         , testCase "Trace Layering"
              (delayedAssertion
               "expected blah"
-              node1 () testTraceLayering)
+              node1 () testTraceLayering lock)
          ] ]
     False ->
       return []

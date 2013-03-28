@@ -27,7 +27,9 @@ import Control.Distributed.Process.Internal.Primitives
   , matchAny
   , matchAnyIf
   , handleMessage
-  , reregister, say
+  , matchUnknown
+  , whereis
+  , reregister, say, unwrapMessage
   )
 import Control.Distributed.Process.Internal.Trace.Types
   ( TraceEvent(..)
@@ -87,9 +89,9 @@ import System.Mem.Weak
   )
 
 data TracerState = TracerST {
-    sendTrace :: !(Message -> Process ())
-  , flags     :: !TraceFlags
-  , regNames  :: !(Map ProcessId (Set String))
+    client   :: !(Maybe ProcessId)
+  , flags    :: !TraceFlags
+  , regNames :: !(Map ProcessId (Set String))
   }
 
 --------------------------------------------------------------------------------
@@ -104,10 +106,24 @@ defaultTracer =
 defaultTracerAux :: Process ()
 defaultTracerAux =
   catch (checkEnv "DISTRIBUTED_PROCESS_TRACE_CONSOLE" >> systemLoggerTracer)
-        (\(_ :: IOError) -> eventLogTracer)
+        (\(_ :: IOError) -> defaultEventLogTracer)
+
+-- TODO: it would be /nice/ if we had some way of checking the runtime
+-- options to see if +RTS -v (or similar) has been given...
+defaultEventLogTracer :: Process ()
+defaultEventLogTracer =
+  catch (checkEnv "DISTRIBUTED_PROCESS_TRACE_EVENTLOG" >> eventLogTracer)
+        (\(_ :: IOError) -> nullTracer)
 
 checkEnv :: String -> Process String
 checkEnv s = liftIO $ getEnv s
+
+-- This trace client is (intentionally) useful - it simply provides
+-- an intial client for the trace controller to talk to, until some
+-- other (hopefully more useful) client is installed over the top of
+-- it. This is the default trace client.
+nullTracer :: Process ()
+nullTracer = forever' $ receiveWait [ matchUnknown (return ()) ]
 
 systemLoggerTracer :: Process ()
 systemLoggerTracer = do
@@ -171,7 +187,10 @@ traceController mv = do
     -- the node's internal control channel if we can possibly help it!
     weakQueue <- processWeakQ <$> ask
     liftIO $ putMVar mv weakQueue
-    traceLoop initialState
+    initialTracer <- whereis "tracer.initial"
+    traceLoop initialState {
+        client = initialTracer
+      }
   where
     traceLoop :: TracerState -> Process ()
     traceLoop st = do
@@ -179,22 +198,27 @@ traceController mv = do
       -- At some point in the future, we're going to start writing these custom
       -- events to the ghc eventlog, at which point this design might change.
       st' <- receiveWait [
-          -- we notify the previous tracer process that it has been replaced
           match (\(setResp, set :: SetTrace) -> do
-                  -- We allow at most one trace target, which is a process id.
+                  -- We allow at most one trace client, which is a process id.
+                  -- Tracking multiple clients represents too high an overhead,
+                  -- so we leave that kind of thing to our consumers to figure
+                  -- figure out.
                   case set of
                     (TraceEnable pid) -> do
+                      -- notify the previous tracer it has been replaced
                       sendTrace st (createUnencodedMessage (TraceEvTakeover pid))
-                      reregister "tracer" pid
+                      say $ "registering " ++ (show pid) ++ " as new tracer"
                       sendOk setResp
-                      return st { sendTrace = (mkSender pid) }
+                      return st { client = (Just pid) }
                     TraceDisable -> do
                       sendTrace st (createUnencodedMessage TraceEvDisable)
                       sendOk setResp
-                      return st { sendTrace = (\_ -> return ()) })
+                      say "setting sendTrace to noop"
+                      return st { client = Nothing })
         , match (\(confResp, flags') ->
                   sendOk confResp >> applyTraceFlags flags' st)
         , match (\chGetFlags -> sendChan chGetFlags (flags st) >> return st)
+        , match (\chGetCurrent -> sendChan chGetCurrent (client st) >> return st)
           -- we dequeue incoming events even if we don't process them
         , matchAny (\ev ->
                  handleMessage ev (handleTrace st ev) >>= return . fromMaybe st)
@@ -205,26 +229,21 @@ traceController mv = do
     sendOk Nothing   = return ()
     sendOk (Just sp) = sendChan sp TraceOk
 
-    mkSender :: ProcessId -> (Message -> Process ())
-    mkSender pid = \m -> do
-      say ("sending " ++ (show m) ++ " to " ++ (show pid))
-      (flip forward) pid m
-
     initialState :: TracerState
     initialState =
       TracerST
-      { sendTrace = (\_ -> return ())
-      , flags     = defaultTraceFlags
-      , regNames  = Map.empty
+      { client   = Nothing
+      , flags    = defaultTraceFlags
+      , regNames = Map.empty
       }
 
--- node [runtime tracer control]
+-- note [runtime tracer control]
 --
 -- The trace mechanism is designed to put as little stress on the system, and
 -- in particular the node controller, as possible. The LocalNode's @tracer@
 -- field is therefore immutable, since we don't want to be blocking the node
 -- controller when writing trace information out. The runtime cost of enabling
--- tracing is therefore, the cost of enqueue for all trace-able operations at
+-- tracing is therefore the cost of enqueue for all trace-able operations at
 -- all times. If tracing is not explicitly enabled, the trace record stored in
 -- the local node state is matched and ignored in API calls, reducing the cost
 -- to a single function call.
@@ -262,13 +281,13 @@ handleTrace st msg ev = do
   case ev of
     (TraceEvNodeDied _ _) ->
       case (traceNodes (flags st)) of
-        True  -> (sendTrace st) msg
+        True  -> sendTrace st msg
         False -> return ()
     (TraceEvUser _) -> do
-      (sendTrace st) msg
+      sendTrace st msg
     _ ->
       case (traceConnections (flags st)) of
-        True  -> (sendTrace st) msg
+        True  -> sendTrace st msg
         False -> return ()
   return st
 
@@ -278,14 +297,14 @@ traceEv :: TraceEvent
         -> TracerState
         -> Process ()
 traceEv _  _   Nothing                  _  = return ()
-traceEv _  msg (Just TraceAll)          st = (sendTrace st) msg
+traceEv _  msg (Just TraceAll)          st = sendTrace st msg
 traceEv ev msg (Just (TraceProcs pids)) st = do
   node <- processNode <$> ask
   let p = case resolveToPid ev of
             Nothing  -> (nullProcessId (localNodeId node))
             Just pid -> pid
   case (Set.member p pids) of
-    True  -> (sendTrace st) msg
+    True  -> sendTrace st msg
     False -> return ()
 traceEv ev msg (Just (TraceNames names)) st = do
   -- TODO: if we have recorded regnames for p, then we
@@ -298,5 +317,15 @@ traceEv ev msg (Just (TraceNames names)) st = do
     Nothing -> return ()
     Just ns -> if (Set.null (Set.intersection ns names))
                  then return ()
-                 else (sendTrace st) msg
+                 else sendTrace st msg
+
+sendTrace :: TracerState -> Message -> Process ()
+sendTrace st msg =
+  let pid = (client st) in do
+    (Just ev) <- unwrapMessage msg :: Process (Maybe TraceEvent)
+    say ("sending " ++ (show ev) ++ " to " ++ (show pid))
+    case pid of
+      Just p  -> (flip forward) p msg
+      Nothing -> return ()
+
 

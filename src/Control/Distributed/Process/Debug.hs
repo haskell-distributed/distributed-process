@@ -168,6 +168,7 @@ import qualified Control.Distributed.Process.Internal.Trace.Primitives as Tracer
   , setTraceFlags
   , setTraceFlagsSync
   , getTraceFlags
+  , getCurrentTraceClient
   , traceOn
   , traceOff
   , traceOnly
@@ -195,20 +196,14 @@ import Prelude hiding (catch)
 -- Only one tracer can be registered at a time, however /this/ function overlays
 -- the registered tracer with the supplied handler, allowing the user to layer
 -- multiple tracers on top of one another, with trace events forwarded down
--- through all the layers in turn. Once the top layer is stopped, it will
--- reregister the original (prior) tracer pid before terminating.
+-- through all the layers in turn. Once the top layer is stopped, the user
+-- is responsible for re-registering the original (prior) tracer pid before
+-- terminating. See 'withTracer' for a mechanism that handles that.
 startTracer :: (TraceEvent -> Process ()) -> Process ProcessId
 startTracer handler = do
   withRegisteredTracer $ \pid -> do
     node <- processNode <$> ask
-    newPid <- liftIO $ forkProcess node $ do
-        -- TODO: we ensure that the original
-        -- tracer is re-registered, but it is
-        -- possible this could lead to races
-        -- if multiple tracers crash in very
-        -- close succession, due to scheduling
-        finally (traceProxy pid handler)
-                (resetTracer pid)
+    newPid <- liftIO $ forkProcess node $ traceProxy pid handler
     enableTrace newPid  -- invokes sync + registration
     return newPid
 
@@ -221,20 +216,25 @@ withTracer :: forall a.
            -> Process (Either SomeException a)
 withTracer handler proc = do
     say "starting new tracer"
+    previous <- whereis "tracer"
     tracer <- startTracer handler
-    finally (try ((say "evaluating tracer proc...") >> proc))
-            (stopTracing tracer)
+    finally (try proc)
+            (stopTracing tracer previous)
   where
-    stopTracing :: ProcessId -> Process ()
-    stopTracing tracer = do
-      say "stopping tracer"
-      ref <- monitor tracer
-      stopTracer
-      receiveWait [
-          matchIf (\(ProcessMonitorNotification ref' _ _) -> ref == ref')
-                  (\_ -> return ())
-        ]
-      say "stopped..."
+    stopTracing :: ProcessId -> Maybe ProcessId -> Process ()
+    stopTracing tracer previousTracer = do
+      case previousTracer of
+        Nothing -> return ()
+        Just p  -> do
+          ref <- monitor tracer
+          say "resetting to previous tracer" >> enableTrace p
+          say "stopping tracer"
+          send tracer TraceEvDisable
+          say $ "waiting for EXIT from tracer " ++ (show tracer)
+          receiveWait [
+              matchIf (\(ProcessMonitorNotification ref' _ _) -> ref == ref')
+                      (\_ -> say "seen EXIT ok")
+            ]
 
 -- | Evaluate @proc@ with the supplied flags enabled. Any previously set
 -- flags are restored immediately afterwards.
@@ -254,14 +254,9 @@ traceProxy pid act = do
   say "tracing has started"
   proxy pid $ \(ev :: TraceEvent) ->
     case ev of
-      (TraceEvTakeover _) -> die "takeover"
-      TraceEvDisable      -> die "disabled"
-      _                   -> act ev >> return True
-
-resetTracer :: ProcessId -> Process ()
-resetTracer pid = do
-  say $ "resetting trace to " ++ (show pid)
-  enableTrace pid
+      (TraceEvTakeover p) -> say ((show p) ++ " has taken over...") >> return False
+      TraceEvDisable      -> say "dying - disabled..." >> die "disabled"
+      _                   -> say ("act on " ++ (show ev)) >> act ev >> return True
 
 -- | Stops a user supplied tracer started with 'startTracer'.
 -- Note that only one tracer process can be active at any given time.
@@ -275,14 +270,17 @@ resetTracer pid = do
 -- supplied tracers (i.e., processes started via 'startTracer') have exited,
 -- subsequent calls to this function will have no effect.
 --
--- If tracing is support disabled for the node, this function will also
--- have no effect.
+-- If tracing support is disabled for the node, this function will also
+-- have no effect. If the last tracer to have been registered (or the process
+-- registered with the label @"tracer"@ at the time the stop instruction
+-- is received) was not started with 'startTracer' then the behaviour of
+-- this function is /undefined/.
 stopTracer :: Process ()
 stopTracer =
   withRegisteredTracer $ \pid -> do
     -- we need to avoid killing the initial (base) tracer, as
     -- nothing we rely on having exactly 1 registered tracer
-    -- process at all times!
+    -- process at all times.
     basePid <- whereis "tracer.initial"
     case basePid == (Just pid) of
       True  -> return ()
@@ -290,7 +288,9 @@ stopTracer =
 
 withRegisteredTracer :: (ProcessId -> Process a) -> Process a
 withRegisteredTracer act = do
-  currentTracer <- whereis "tracer"
+  (sp, rp) <- newChan
+  withLocalTracer $ \t -> liftIO $ Tracer.getCurrentTraceClient t sp
+  currentTracer <- receiveChan rp
   case currentTracer of
     Nothing  -> do { (Just p') <- whereis "tracer.initial"; act p' }
     (Just p) -> act p
