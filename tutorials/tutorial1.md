@@ -33,13 +33,21 @@ from other nodes. We'll look at inter-node communication later, so for now
 it will suffice to pass the default remote table, which defines the built-in
 stuff Cloud Haskell needs at a minimum.
 
+Let's start with imports first:
+
+{% highlight haskell %}
+import Network.Transport.TCP (createTransport, defaultTCPParameters)
+import Control.Distributed.Process
+import Control.Distributed.Process.Node
+{% endhighlight %}
+
 Our TCP network transport backend needs an IP address and port to get started
 with, and we're good to go...
 
 {% highlight haskell %}
 main :: IO ()
 main = do
-  Right (t, _) <- createTransport "127.0.0.1" "10501" defaultTCPParameters
+  Right t <- createTransport "127.0.0.1" "10501" defaultTCPParameters
   node <- newLocalNode t initRemoteTable
   ....
 {% endhighlight %}
@@ -57,12 +65,12 @@ will send one to ourselves!
 {% highlight haskell %}
 -- in main
   _ <- forkProcess node $ do
-      -- get our own process id
-      self <- getSelfPid
-      send self "hello"
-      hello <- expect :: Process String
-      liftIO $ putStrLn hello
-      return ()
+    -- get our own process id
+    self <- getSelfPid
+    send self "hello"
+    hello <- expect :: Process String
+    liftIO $ putStrLn hello
+  return ()
 {% endhighlight %}
 
 Lightweight processes are implemented as `forkIO` threads. In general we will
@@ -83,7 +91,7 @@ Let's spawn another process on the same node and make the two talk to each other
 {% highlight haskell %}
 main :: IO ()
 main = do
-  Right (t, _) <- createTransport "127.0.0.1" "10501" defaultTCPParameters
+  Right t <- createTransport "127.0.0.1" "10501" defaultTCPParameters
   node <- newLocalNode t initRemoteTable
   _ <- forkProcess node $ do
       echoPid <- spawnLocal $ forever $ do
