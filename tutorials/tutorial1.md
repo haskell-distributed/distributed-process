@@ -95,14 +95,14 @@ import Control.Distributed.Process
 import Control.Distributed.Process.Node
 import Network.Transport.TCP (createTransport, defaultTCPParameters)
 
-logMessage :: String -> Process ()
-logMessage msg = do
-  say $ "just printing " ++ msg
-
 replyBack :: (ProcessId, String) -> Process ()
 replyBack (sender, msg) = do
   say $ "sending back " ++ msg
   send sender msg
+
+logMessage :: String -> Process ()
+logMessage msg = do
+  say $ "just printing " ++ msg
 
 main :: IO ()
 main = do
