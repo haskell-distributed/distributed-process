@@ -90,7 +90,7 @@ Let's spawn another process on the same node and make the two talk to each other
 
 {% highlight haskell %}
 import Control.Concurrent (threadDelay)
-import Control.Monad (forever, void)
+import Control.Monad (forever)
 import Control.Distributed.Process
 import Control.Distributed.Process.Node
 import Network.Transport.TCP (createTransport, defaultTCPParameters)
@@ -101,7 +101,7 @@ replyBack (sender, msg) = do
   send sender msg
 
 logMessage :: String -> Process ()
-logMessage msg = do
+logMessage msg =
   say $ "just printing " ++ msg
 
 main :: IO ()
