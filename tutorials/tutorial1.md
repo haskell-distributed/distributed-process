@@ -135,14 +135,13 @@ main = do
   return ()
 {% endhighlight %}
 
-Note that we've used a `receive` class of function this time
-around. These functions work with special [`Match`][Match] data type,
-allowing us do some advanced dispatching techniques. The `match`
-construct allows you to construct a list of potential message handlers
-and have them evaluated against incoming messages. The first match
-indicates that, given a tuple `t :: (ProcessId, String)` that we will
-send the `String` component back to the sender's `ProcessId`. The
-second match prints out whatever string it receives.
+Note that we've used a `receive` class of function this time around. These
+functions work with special [`Match`][Match] data type, allowing us do some
+advanced dispatching techniques. The `match` construct allows you to construct a
+list of potential message handlers and have them evaluated against incoming
+messages. The first match indicates that, given a tuple `t :: (ProcessId,
+String)` that we will send the `String` component back to the sender's
+`ProcessId`. The second match prints out whatever string it receives.
 
 Also note the use of a 'timeout' (given in microseconds), which is available for
 both the `expect` and `receive` variants. This returns `Nothing` unless a message
