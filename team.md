@@ -36,7 +36,10 @@ Erlang's [global][12] (locking, registration and cluster management) API for
 Cloud Haskell.
 
 A number of other community members have contributed to the new implementation,
-all of whom are listed in the various *THANKS* files in each project's repository.
+in various ways - here are at least some of them:
+
+Duncan Coutts, Simon Marlow, Ryan Newton, Eric Kow, Adam Foltzer, Nicolas Wu
+@rodlogic (github), Takayuki Muranushi, Alen Ribic, Pankaj More, Mark Wright
 
 [1]: http://research.microsoft.com/en-us/um/people/simonpj/papers/parallel/remote.pdf
 [2]: http://research.microsoft.com/en-us/um/people/simonpj/papers/parallel/epstein-thesis.pdf
