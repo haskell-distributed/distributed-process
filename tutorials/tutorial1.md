@@ -121,24 +121,24 @@ main = do
     -- like `expect` (waits for a message), but with timeout
     m <- expectTimeout 1000000
     case m of
-      -- Die immediately - throws a ProcessExitException with the given reason. 
+      -- Die immediately - throws a ProcessExitException with the given reason.
       Nothing  -> die "nothing came back!"
       (Just s) -> say $ "got back " ++ s
     return ()
 
-  -- 1 second wait. Otherwise we'll finish immediately before any
-  -- print will take place.
+  -- A 1 second wait. Otherwise the main thread can terminate before
+  -- our messages reach the logging process or get flushed to stdio
   liftIO $ threadDelay (1*1000000)
   return ()
 {% endhighlight %}
 
 Note that we've used a `receive` class of function this time around. These
-functions work with special [`Match`][Match] data type, allowing us do some
-advanced dispatching techniques. The `match` construct allows you to construct a
+functions work with the [`Match`][Match] data type, and provide a range of
+advanced dispatching options. The `match` construct allows you to construct a
 list of potential message handlers and have them evaluated against incoming
-messages. The first match indicates that, given a tuple `t :: (ProcessId,
-String)` that we will send the `String` component back to the sender's
-`ProcessId`. The second match prints out whatever string it receives.
+messages. Our first match indicates that, given a tuple `t :: (ProcessId,
+String)` we will send the `String` component back to the sender's
+`ProcessId`. Our second match prints out whatever string it receives.
 
 Also note the use of a 'timeout' (given in microseconds), which is available for
 both the `expect` and `receive` variants. This returns `Nothing` unless a message
