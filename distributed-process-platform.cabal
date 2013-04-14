@@ -24,6 +24,10 @@ source-repository head
   type:      git
   location:  https://github.com/haskell-distributed/distributed-process-platform
 
+flag perf
+  description: Build with Template Haskell support
+  default: True
+
 library
   build-depends:
                    base >= 4,
@@ -159,4 +163,21 @@ test-suite GenServerTests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   extensions:      CPP
   main-is:         TestGenServer.hs
+
+Executable leaks
+  if flag(perf)
+    Build-Depends:   base >= 4.4 && < 5,
+                     containers,
+                     derive,
+                     network-transport-tcp,
+                     distributed-process,
+                     distributed-process-platform,
+                     network-transport-tcp >= 0.3 && < 0.4,
+                     bytestring >= 0.9 && < 0.11,
+                     binary >= 0.5 && < 0.7
+  else
+    buildable: False
+  Main-Is:           regressions/LeakByteStrings.hs
+  ghc-options:       -Wall -prof -auto-all -caf-all -fforce-recomp -fprof-auto-top -fprof-auto-calls
+  Extensions:        ScopedTypeVariables
 
