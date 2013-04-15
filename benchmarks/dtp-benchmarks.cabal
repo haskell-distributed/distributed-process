@@ -12,3 +12,4 @@ executable dtp-benchmark
                     bytestring,
                     criterion,
                     distributed-process-platform
+

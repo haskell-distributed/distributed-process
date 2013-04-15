@@ -169,6 +169,7 @@ Executable leaks
     Build-Depends:   base >= 4.4 && < 5,
                      containers,
                      derive,
+                     directory,
                      network-transport-tcp,
                      distributed-process,
                      old-locale,
@@ -179,7 +180,8 @@ Executable leaks
                      binary >= 0.5 && < 0.7
   else
     buildable: False
-  Main-Is:           regressions/LeakByteStrings.hs
+--   Main-Is:           regressions/LeakByteStrings.hs
+  Main-Is:           regressions/HRoqLeak.hs
   ghc-options:       -threaded -Wall -auto-all -caf-all -fforce-recomp -fprof-auto-top -fprof-auto-calls
   Extensions:        ScopedTypeVariables
 
