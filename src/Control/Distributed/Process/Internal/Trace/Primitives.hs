@@ -1,30 +1,52 @@
 -- | Keeps the tracing API calls separate from the Tracer implementation,
 -- which allows us to avoid a nasty import cycle between tracing and
--- the messaging primitives that rely on it
+-- the messaging primitives that rely on it, and also between the node
+-- controller (which requires access to the tracing related elements of
+-- our RemoteTable) and the Debug module, which requires @forkProcess@.
 module Control.Distributed.Process.Internal.Trace.Primitives
   ( Tracer
   , TraceEvent(..)
     -- * Sending Trace Data
   , traceLog
   , traceLogFmt
-  , traceEvent
   , traceMessage
     -- * Configuring A Tracer
+  , isTracingEnabled
   , defaultTraceFlags
   , enableTrace
-  , enableTraceSync
+  , enableTraceAsync
   , disableTrace
-  , disableTraceSync
+  , disableTraceAsync
   , getTraceFlags
   , setTraceFlags
-  , setTraceFlagsSync
-  , getCurrentTraceClient
+  , setTraceFlagsAsync
   , traceOnly
   , traceOn
   , traceOff
+  , withLocalTracer
+  , withRegisteredTracer
   ) where
 
-import Control.Distributed.Process.Internal.CQueue (enqueue)
+import Control.Applicative ((<$>))
+import Control.Distributed.Process.Internal.Closure.BuiltIn
+  ( cpEnableTraceRemote
+  )
+import Control.Distributed.Process.Internal.Primitives
+  ( proxy
+  , finally
+  , die
+  , whereis
+  , send
+  , newChan
+  , receiveChan
+  , receiveWait
+  , matchIf
+  , finally
+  , try
+  , monitor
+  , getSelfPid
+  , relay
+  )
 import Control.Distributed.Process.Internal.Trace.Types
   ( TraceArg(..)
   , TraceEvent(..)
@@ -34,76 +56,50 @@ import Control.Distributed.Process.Internal.Trace.Types
   , TraceSubject(..)
   , defaultTraceFlags
   )
+import qualified Control.Distributed.Process.Internal.Trace.Types as Tracer
+  ( traceLog
+  , traceLogFmt
+  , traceMessage
+  , enableTrace
+  , enableTraceSync
+  , disableTrace
+  , disableTraceSync
+  , setTraceFlags
+  , setTraceFlagsSync
+  , getTraceFlags
+  , getCurrentTraceClient
+  )
+import Control.Distributed.Process.Internal.Spawn
+  ( spawn
+  )
 import Control.Distributed.Process.Internal.Types
   ( Tracer(..)
+  , Process
   , ProcessId
+  , LocalProcess(..)
+  , LocalNode(localTracer)
   , Message
   , SendPort
+  , NodeId
   , createUnencodedMessage
   )
 import Control.Distributed.Process.Serializable
-import Data.Foldable (forM_)
-import Data.List (intersperse)
+import Control.Distributed.Static
+  ( RemoteTable
+  , registerStatic
+  )
+import Control.Monad.IO.Class (liftIO)
+import Control.Monad.Reader (ask)
+
+import Data.Rank1Dynamic (toDynamic)
 import qualified Data.Set as Set (fromList)
-import System.Mem.Weak (deRefWeak)
 
 --------------------------------------------------------------------------------
 -- Main API                                                                   --
 --------------------------------------------------------------------------------
 
-traceLog :: Tracer -> String -> IO ()
-traceLog tr s = traceMessage tr (TraceEvLog s)
-
-traceLogFmt :: Tracer
-            -> String
-            -> [TraceArg]
-            -> IO ()
-traceLogFmt t d ls =
-  traceLog t $ concat (intersperse d (map toS ls))
-  where toS :: TraceArg -> String
-        toS (TraceStr s) = s
-        toS (Trace    a) = show a
-
-traceEvent :: Tracer -> TraceEvent -> IO ()
-traceEvent tr ev = traceIt tr (createUnencodedMessage ev)
-
-traceMessage :: Serializable m => Tracer -> m -> IO ()
-traceMessage tr msg = traceEvent tr (TraceEvUser (createUnencodedMessage msg))
-
-enableTrace :: Tracer -> ProcessId -> IO ()
-enableTrace t p =
-  traceIt t (createUnencodedMessage ((Nothing :: Maybe (SendPort TraceOk)),
-                                     (TraceEnable p)))
-
-enableTraceSync :: Tracer -> SendPort TraceOk -> ProcessId -> IO ()
-enableTraceSync t s p =
-  traceIt t (createUnencodedMessage ((Just s), (TraceEnable p)))
-
-disableTrace :: Tracer -> IO ()
-disableTrace t =
-  traceIt t (createUnencodedMessage ((Nothing :: Maybe (SendPort TraceOk)),
-                                     TraceDisable))
-
-disableTraceSync :: Tracer -> SendPort TraceOk -> IO ()
-disableTraceSync t s =
-  traceIt t (createUnencodedMessage ((Just s), TraceDisable))
-
-setTraceFlags :: Tracer -> TraceFlags -> IO ()
-setTraceFlags t f =
-  traceIt t (createUnencodedMessage ((Nothing :: Maybe (SendPort TraceOk)), f))
-
-setTraceFlagsSync :: Tracer -> SendPort TraceOk -> TraceFlags -> IO ()
-setTraceFlagsSync t s f =
-  traceIt t (createUnencodedMessage ((Just s), f))
-
-getTraceFlags :: Tracer -> SendPort TraceFlags -> IO ()
-getTraceFlags t s = traceIt t (createUnencodedMessage s)
-
-getCurrentTraceClient :: Tracer -> SendPort (Maybe ProcessId) -> IO ()
-getCurrentTraceClient t s = traceIt t (createUnencodedMessage s)
-
--- aux API and utilities
-
+-- | Maps a list of identifiers that can be mapped to process ids,
+-- to a 'TraceSubject'.
 class Traceable a where
   uod :: [a] -> TraceSubject
 
@@ -113,18 +109,98 @@ instance Traceable ProcessId where
 instance Traceable String where
   uod = TraceNames . Set.fromList
 
+-- | Turn tracing for for a subset of trace targets.
 traceOnly :: Traceable a => [a] -> Maybe TraceSubject
 traceOnly = Just . uod
 
+-- | Trace all targets.
 traceOn :: Maybe TraceSubject
 traceOn = Just TraceAll
 
+-- | Trace no targets.
 traceOff :: Maybe TraceSubject
 traceOff = Nothing
 
-traceIt :: Tracer -> Message -> IO ()
-traceIt InactiveTracer         _   = return ()
-traceIt (ActiveTracer _ wqRef) msg = do
-  mQueue <- deRefWeak wqRef
-  forM_ mQueue $ \queue -> enqueue queue msg
+-- | Determine whether or not tracing has been enabled.
+isTracingEnabled :: Process Bool
+isTracingEnabled = do
+  node <- processNode <$> ask
+  case (localTracer node) of
+    (ActiveTracer _ _) -> return True
+    _                  -> return False
+
+-- | Enable tracing to the supplied process.
+enableTraceAsync :: ProcessId -> Process ()
+enableTraceAsync pid = withLocalTracer $ \t -> liftIO $ Tracer.enableTrace t pid
+
+-- TODO: refactor _Sync versions of trace configuration functions...
+
+-- | Enable tracing to the supplied process and wait for a @TraceOk@
+-- response from the trace coordinator process.
+enableTrace :: ProcessId -> Process ()
+enableTrace pid =
+  withLocalTracerSync $ \t sp -> Tracer.enableTraceSync t sp pid
+
+-- | Disable the currently configured trace.
+disableTraceAsync :: Process ()
+disableTraceAsync = withLocalTracer $ \t -> liftIO $ Tracer.disableTrace t
+
+-- | Disable the currently configured trace and wait for a @TraceOk@
+-- response from the trace coordinator process.
+disableTrace :: Process ()
+disableTrace =
+  withLocalTracerSync $ \t sp -> Tracer.disableTraceSync t sp
+
+getTraceFlags :: Process TraceFlags
+getTraceFlags = do
+  (sp, rp) <- newChan
+  withLocalTracer $ \t -> liftIO $ Tracer.getTraceFlags t sp
+  receiveChan rp
+
+-- | Set the given flags for the current tracer.
+setTraceFlagsAsync :: TraceFlags -> Process ()
+setTraceFlagsAsync f = withLocalTracer $ \t -> liftIO $ Tracer.setTraceFlags t f
+
+-- | Set the given flags for the current tracer and wait for a @TraceOk@
+-- response from the trace coordinator process.
+setTraceFlags :: TraceFlags -> Process ()
+setTraceFlags f =
+  withLocalTracerSync $ \t sp -> Tracer.setTraceFlagsSync t sp f
+
+-- | Send a log message to the internal tracing facility. If tracing is
+-- enabled, this will create a custom trace log event.
+--
+traceLog :: String -> Process ()
+traceLog s = withLocalTracer $ \t -> liftIO $ Tracer.traceLog t s
+
+-- | Send a log message to the internal tracing facility, using the given
+-- list of printable 'TraceArg's interspersed with the preceding delimiter.
+--
+traceLogFmt :: String -> [TraceArg] -> Process ()
+traceLogFmt d ls = withLocalTracer $ \t -> liftIO $ Tracer.traceLogFmt t d ls
+
+-- | Send an arbitrary 'Message' to the tracer process.
+traceMessage :: Serializable m => m -> Process ()
+traceMessage msg = withLocalTracer $ \t -> liftIO $ Tracer.traceMessage t msg
+
+withLocalTracer :: (Tracer -> Process ()) -> Process ()
+withLocalTracer act = do
+  node <- processNode <$> ask
+  act (localTracer node)
+
+withLocalTracerSync :: (Tracer -> SendPort TraceOk -> IO ()) -> Process ()
+withLocalTracerSync act = do
+  (sp, rp) <- newChan
+  withLocalTracer $ \t -> liftIO $ (act t sp)
+  TraceOk <- receiveChan rp
+  return ()
+
+withRegisteredTracer :: (ProcessId -> Process a) -> Process a
+withRegisteredTracer act = do
+  (sp, rp) <- newChan
+  withLocalTracer $ \t -> liftIO $ Tracer.getCurrentTraceClient t sp
+  currentTracer <- receiveChan rp
+  case currentTracer of
+    Nothing  -> do { (Just p') <- whereis "tracer.initial"; act p' }
+    (Just p) -> act p
 

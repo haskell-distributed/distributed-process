@@ -1,3 +1,5 @@
+{-# LANGUAGE BangPatterns #-}
+
 -- | Cloud Haskell primitives
 --
 -- We define these in a separate module so that we don't have to rely on
@@ -131,7 +133,19 @@ import Control.Distributed.Process.Internal.CQueue
   )
 import Control.Distributed.Process.Serializable (Serializable, fingerprint)
 import Data.Accessor ((^.), (^:), (^=))
-import Control.Distributed.Static (Closure, Static)
+import Control.Distributed.Static
+  ( RemoteTable
+  , registerStatic
+  , Static
+  , staticLabel
+  , staticApply
+  , Closure
+  , closure
+  , closureApplyStatic
+  , closureApply
+  , staticCompose
+  , staticClosure
+  )
 import Data.Rank1Typeable (Typeable)
 import qualified Control.Distributed.Static as Static (unstatic, unclosure)
 import Control.Distributed.Process.Internal.Types
@@ -178,7 +192,7 @@ import Control.Distributed.Process.Internal.Messaging
   , sendPayload
   , disconnect
   )
-import Control.Distributed.Process.Internal.Trace.Primitives
+import Control.Distributed.Process.Internal.Trace.Types
   ( traceEvent
   , TraceEvent(..)
   )
@@ -516,7 +530,7 @@ delegate pid p = do
 
 -- | A straight relay that simply forwards all messages to the supplied pid.
 relay :: ProcessId -> Process ()
-relay pid = receiveWait [ matchAny (\m -> forward m pid) ] >> relay pid
+relay !pid = receiveWait [ matchAny (\m -> forward m pid) ] >> relay pid
 
 -- | Proxies @pid@ and forwards messages whenever @proc@ evaluates to @True@.
 -- Unlike 'delegate' the predicate @proc@ runs in the 'Process' monad, allowing
@@ -526,12 +540,11 @@ proxy :: Serializable a => ProcessId -> (a -> Process Bool) -> Process ()
 proxy pid proc = do
   receiveWait [
       matchAny (\m -> do
-                   say "handling proxied message..."
                    next <- handleMessage m proc
                    case next of
-                     Just True -> say ("forwarding msg to " ++ (show pid)) >> forward m pid
-                     Just False -> say "ignoring explicitly ignored msg"
-                     Nothing   -> say "ignoring unroutable msg")
+                     Just True  -> forward m pid
+                     Just False -> return ()  -- explicitly ignored
+                     Nothing    -> return ()) -- un-routable
     ]
   proxy pid proc
 

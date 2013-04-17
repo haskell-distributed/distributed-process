@@ -173,6 +173,7 @@ module Control.Distributed.Process.Closure
     -- * CP versions of Cloud Haskell primitives
   , cpLink
   , cpUnlink
+  , cpRelay
   , cpSend
   , cpExpect
   , cpNewChan
@@ -205,6 +206,7 @@ import Control.Distributed.Process.Internal.Closure.BuiltIn
     -- CP versions of Cloud Haskell primitives
   , cpLink
   , cpUnlink
+  , cpRelay
   , cpSend
   , cpExpect
   , cpNewChan

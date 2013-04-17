@@ -9,19 +9,40 @@ module Control.Distributed.Process.Internal.Trace.Types
   , defaultTraceFlags
   , TraceArg(..)
   , TraceOk(..)
+  , traceLog
+  , traceLogFmt
+  , traceEvent
+  , traceMessage
+  , defaultTraceFlags
+  , enableTrace
+  , enableTraceSync
+  , disableTrace
+  , disableTraceSync
+  , getTraceFlags
+  , setTraceFlags
+  , setTraceFlagsSync
+  , getCurrentTraceClient
   ) where
 
 import Control.Applicative ((<$>), (<*>))
+import Control.Distributed.Process.Internal.CQueue (enqueue)
 import Control.Distributed.Process.Internal.Types
   ( Tracer(..)
   , NodeId
   , ProcessId
   , DiedReason
   , Message
+  , SendPort
+  , createUnencodedMessage
   )
+import Control.Distributed.Process.Serializable
 import Data.Binary
+import Data.Foldable (forM_)
+import Data.List (intersperse)
 import Data.Set (Set)
+import qualified Data.Set as Set (fromList)
 import Data.Typeable
+import System.Mem.Weak (deRefWeak)
 import Network.Transport
   ( ConnectionId
   )
@@ -119,6 +140,85 @@ data TraceArg =
 -- | A generic 'ok' response from the trace coordinator.
 data TraceOk = TraceOk
   deriving (Typeable)
+
+--------------------------------------------------------------------------------
+-- Internal/Common API                                                        --
+--------------------------------------------------------------------------------
+
+traceLog :: Tracer -> String -> IO ()
+traceLog tr s = traceMessage tr (TraceEvLog s)
+
+traceLogFmt :: Tracer
+            -> String
+            -> [TraceArg]
+            -> IO ()
+traceLogFmt t d ls =
+  traceLog t $ concat (intersperse d (map toS ls))
+  where toS :: TraceArg -> String
+        toS (TraceStr s) = s
+        toS (Trace    a) = show a
+
+traceEvent :: Tracer -> TraceEvent -> IO ()
+traceEvent tr ev = traceIt tr (createUnencodedMessage ev)
+
+traceMessage :: Serializable m => Tracer -> m -> IO ()
+traceMessage tr msg = traceEvent tr (TraceEvUser (createUnencodedMessage msg))
+
+enableTrace :: Tracer -> ProcessId -> IO ()
+enableTrace t p =
+  traceIt t (createUnencodedMessage ((Nothing :: Maybe (SendPort TraceOk)),
+                                     (TraceEnable p)))
+
+enableTraceSync :: Tracer -> SendPort TraceOk -> ProcessId -> IO ()
+enableTraceSync t s p =
+  traceIt t (createUnencodedMessage ((Just s), (TraceEnable p)))
+
+disableTrace :: Tracer -> IO ()
+disableTrace t =
+  traceIt t (createUnencodedMessage ((Nothing :: Maybe (SendPort TraceOk)),
+                                     TraceDisable))
+
+disableTraceSync :: Tracer -> SendPort TraceOk -> IO ()
+disableTraceSync t s =
+  traceIt t (createUnencodedMessage ((Just s), TraceDisable))
+
+setTraceFlags :: Tracer -> TraceFlags -> IO ()
+setTraceFlags t f =
+  traceIt t (createUnencodedMessage ((Nothing :: Maybe (SendPort TraceOk)), f))
+
+setTraceFlagsSync :: Tracer -> SendPort TraceOk -> TraceFlags -> IO ()
+setTraceFlagsSync t s f =
+  traceIt t (createUnencodedMessage ((Just s), f))
+
+getTraceFlags :: Tracer -> SendPort TraceFlags -> IO ()
+getTraceFlags t s = traceIt t (createUnencodedMessage s)
+
+getCurrentTraceClient :: Tracer -> SendPort (Maybe ProcessId) -> IO ()
+getCurrentTraceClient t s = traceIt t (createUnencodedMessage s)
+
+class Traceable a where
+  uod :: [a] -> TraceSubject
+
+instance Traceable ProcessId where
+  uod = TraceProcs . Set.fromList
+
+instance Traceable String where
+  uod = TraceNames . Set.fromList
+
+traceOnly :: Traceable a => [a] -> Maybe TraceSubject
+traceOnly = Just . uod
+
+traceOn :: Maybe TraceSubject
+traceOn = Just TraceAll
+
+traceOff :: Maybe TraceSubject
+traceOff = Nothing
+
+traceIt :: Tracer -> Message -> IO ()
+traceIt InactiveTracer         _   = return ()
+traceIt (ActiveTracer _ wqRef) msg = do
+  mQueue <- deRefWeak wqRef
+  forM_ mQueue $ \queue -> enqueue queue msg
 
 --------------------------------------------------------------------------------
 -- Binary Instances                                                           --

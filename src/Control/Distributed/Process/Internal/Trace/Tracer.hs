@@ -20,6 +20,7 @@ import Control.Distributed.Process.Internal.CQueue
   )
 import Control.Distributed.Process.Internal.Primitives
   ( catch
+  , die
   , receiveWait
   , forward
   , sendChan
@@ -29,7 +30,9 @@ import Control.Distributed.Process.Internal.Primitives
   , handleMessage
   , matchUnknown
   , whereis
-  , reregister, say, unwrapMessage
+  , getSelfPid
+  , register
+  , say, unwrapMessage
   )
 import Control.Distributed.Process.Internal.Trace.Types
   ( TraceEvent(..)
@@ -156,6 +159,7 @@ eventLogTracer = do
 logfileTracer :: FilePath -> Process ()
 logfileTracer p = do
   -- TODO: error handling if the handle cannot be opened
+  liftIO $ putStrLn $ "writing to " ++ (show p)
   h <- liftIO $ openFile p AppendMode
   liftIO $ hSetBuffering h LineBuffering
   logger h `catch` (\(_ :: SomeException) -> liftIO $ hClose h)
@@ -167,7 +171,7 @@ logfileTracer p = do
                                TraceEvDisable      -> True
                                (TraceEvTakeover _) -> True
                                _                   -> False)
-                     (\_ -> (liftIO $ hClose h') >> error "trace stopped")
+                     (\_ -> (liftIO $ hClose h') >> die "trace stopped")
         , matchAny (\ev -> handleMessage ev (writeTrace h'))
         ]
 
@@ -207,13 +211,11 @@ traceController mv = do
                     (TraceEnable pid) -> do
                       -- notify the previous tracer it has been replaced
                       sendTrace st (createUnencodedMessage (TraceEvTakeover pid))
-                      say $ "registering " ++ (show pid) ++ " as new tracer"
                       sendOk setResp
                       return st { client = (Just pid) }
                     TraceDisable -> do
                       sendTrace st (createUnencodedMessage TraceEvDisable)
                       sendOk setResp
-                      say "setting sendTrace to noop"
                       return st { client = Nothing })
         , match (\(confResp, flags') ->
                   sendOk confResp >> applyTraceFlags flags' st)
@@ -327,7 +329,6 @@ sendTrace :: TracerState -> Message -> Process ()
 sendTrace st msg =
   let pid = (client st) in do
     (Just ev) <- unwrapMessage msg :: Process (Maybe TraceEvent)
-    say ("sending " ++ (show ev) ++ " to " ++ (show pid))
     case pid of
       Just p  -> (flip forward) p msg
       Nothing -> return ()

@@ -149,13 +149,14 @@ import Control.Distributed.Process.Internal.Types
   , firstNonReservedProcessId
   , ImplicitReconnect(WithImplicitReconnect)
   )
-import Control.Distributed.Process.Internal.Trace.Primitives
-  ( traceLogFmt
-  , traceEvent
+import qualified Control.Distributed.Process.Internal.Trace.Remote as Trace
+  ( remoteTable
   )
 import Control.Distributed.Process.Internal.Trace.Types
   ( TraceArg(..)
   , TraceEvent(..)
+  , traceEvent
+  , traceLogFmt
   )
 import Control.Distributed.Process.Internal.Trace.Tracer
   ( traceController
@@ -190,7 +191,7 @@ import Unsafe.Coerce
 --------------------------------------------------------------------------------
 
 initRemoteTable :: RemoteTable
-initRemoteTable = BuiltIn.remoteTable Static.initRemoteTable
+initRemoteTable = Trace.remoteTable $ BuiltIn.remoteTable Static.initRemoteTable
 
 -- | Initialize a new local node.
 newLocalNode :: NT.Transport -> RemoteTable -> IO LocalNode
@@ -241,6 +242,7 @@ createBareLocalNode endPoint rtable = do
 
 startTracing :: LocalNode -> IO LocalNode
 startTracing node =
+  -- TODO: use tryGetEnv once we drop support for GHC 7.2.x
   Exception.catch
         (getEnv "DISTRIBUTED_PROCESS_TRACE_ENABLED" >> procTracer node)
         (\(_ :: IOError) -> return node)
@@ -259,8 +261,16 @@ startDefaultTracer node =
         (\(_ :: IOError) -> return Nothing)
   where go :: LocalNode -> IO (Maybe ProcessId)
         go node' = do
+          registerTraceController node'
           pid <- forkProcess node' defaultTracer
           return (Just pid)
+
+        registerTraceController :: LocalNode -> IO ()
+        registerTraceController n =
+          let t = localTracer n in
+          case t of
+            InactiveTracer       -> return ()
+            (ActiveTracer pid _) -> runProcess n $ register "trace.controller" pid
 
 -- | Start and register the service processes on a node
 startServiceProcesses :: LocalNode -> IO ()

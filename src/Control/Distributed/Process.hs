@@ -280,6 +280,15 @@ import Control.Distributed.Process.Internal.Primitives
   , reconnectPort
   )
 import Control.Distributed.Process.Node (forkProcess)
+import Control.Distributed.Process.Internal.Spawn
+  ( -- Spawning Processes/Channels
+    spawn
+  , spawnLink
+  , spawnMonitor
+  , spawnChannel
+  , spawnSupervised
+  , call
+  )
 
 -- INTERNAL NOTES
 --
@@ -345,116 +354,6 @@ import Control.Distributed.Process.Node (forkProcess)
 --       http://erlang.org/pipermail/erlang-questions/2012-February/064767.html
 
 --------------------------------------------------------------------------------
--- Primitives are defined in a separate module; here we only define derived   --
--- constructs                                                                 --
---------------------------------------------------------------------------------
-
--- | Spawn a process
---
--- For more information about 'Closure', see
--- "Control.Distributed.Process.Closure".
---
--- See also 'call'.
-spawn :: NodeId -> Closure (Process ()) -> Process ProcessId
-spawn nid proc = do
-  us   <- getSelfPid
-  mRef <- monitorNode nid
-  sRef <- spawnAsync nid (cpDelay us proc)
-  receiveWait [
-      matchIf (\(DidSpawn ref _) -> ref == sRef) $ \(DidSpawn _ pid) -> do
-        unmonitor mRef
-        send pid ()
-        return pid
-    , matchIf (\(NodeMonitorNotification ref _ _) -> ref == mRef) $ \_ ->
-        return (nullProcessId nid)
-    ]
-
--- | Spawn a process and link to it
---
--- Note that this is just the sequential composition of 'spawn' and 'link'.
--- (The "Unified" semantics that underlies Cloud Haskell does not even support
--- a synchronous link operation)
-spawnLink :: NodeId -> Closure (Process ()) -> Process ProcessId
-spawnLink nid proc = do
-  pid <- spawn nid proc
-  link pid
-  return pid
-
--- | Like 'spawnLink', but monitor the spawned process
-spawnMonitor :: NodeId -> Closure (Process ()) -> Process (ProcessId, MonitorRef)
-spawnMonitor nid proc = do
-  pid <- spawn nid proc
-  ref <- monitor pid
-  return (pid, ref)
-
--- | Run a process remotely and wait for it to reply
---
--- We monitor the remote process: if it dies before it can send a reply, we die
--- too.
---
--- For more information about 'Static', 'SerializableDict', and 'Closure', see
--- "Control.Distributed.Process.Closure".
---
--- See also 'spawn'.
-call :: Serializable a
-        => Static (SerializableDict a)
-        -> NodeId
-        -> Closure (Process a)
-        -> Process a
-call dict nid proc = do
-  us <- getSelfPid
-  (pid, mRef) <- spawnMonitor nid (proc `bindCP` cpSend dict us)
-  -- We are guaranteed to receive the reply before the monitor notification
-  -- (if a reply is sent at all)
-  -- NOTE: This might not be true if we switch to unreliable delivery.
-  mResult <- receiveWait
-    [ match (return . Right)
-    , matchIf (\(ProcessMonitorNotification ref _ _) -> ref == mRef)
-              (\(ProcessMonitorNotification _ _ reason) -> return (Left reason))
-    ]
-  case mResult of
-    Right a  -> do
-      -- Wait for the monitor message so that we the mailbox doesn't grow
-      receiveWait
-        [ matchIf (\(ProcessMonitorNotification ref _ _) -> ref == mRef)
-                  (\(ProcessMonitorNotification {}) -> return ())
-        ]
-      -- Clean up connection to pid
-      reconnect pid
-      return a
-    Left err ->
-      fail $ "call: remote process died: " ++ show err
-
--- | Spawn a child process, have the child link to the parent and the parent
--- monitor the child
-spawnSupervised :: NodeId
-                -> Closure (Process ())
-                -> Process (ProcessId, MonitorRef)
-spawnSupervised nid proc = do
-  us   <- getSelfPid
-  them <- spawn nid (cpLink us `seqCP` proc)
-  ref  <- monitor them
-  return (them, ref)
-
--- | Spawn a new process, supplying it with a new 'ReceivePort' and return
--- the corresponding 'SendPort'.
-spawnChannel :: forall a. Typeable a => Static (SerializableDict a)
-             -> NodeId
-             -> Closure (ReceivePort a -> Process ())
-             -> Process (SendPort a)
-spawnChannel dict nid proc = do
-    us <- getSelfPid
-    _ <- spawn nid (go us)
-    expect
-  where
-    go :: ProcessId -> Closure (Process ())
-    go pid = cpNewChan dict
-           `bindCP`
-             (cpSend (sdictSendPort dict) pid `splitCP` proc)
-           `bindCP`
-             (idCP `closureCompose` staticClosure sndStatic)
-
---------------------------------------------------------------------------------
 -- Local versions of spawn                                                    --
 --------------------------------------------------------------------------------
 
@@ -480,3 +379,4 @@ spawnChannelLocal proc = do
       liftIO $ putMVar mvar sport
       proc rport
     takeMVar mvar
+

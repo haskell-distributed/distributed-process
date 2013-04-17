@@ -10,24 +10,25 @@
 --
 -- [Tracing/Debugging Facilities]
 --
--- Cloud Haskell provides a general purpose tracing mechanism that allows a
--- user supplied /tracer process/ to receive messages when certain events
--- take place. It's possible to use this facility to debug a running system
--- and/or generate runtime monitoring data in a variety of formats.
+-- Cloud Haskell provides a general purpose tracing mechanism, allowing a
+-- user supplied /tracer process/ to receive messages when certain classes of
+-- system events occur. It's possible to use this facility to aid in debugging
+-- and/or perform other diagnostic tasks to a program at runtime.
 --
 -- [Enabling Tracing]
 --
--- Tracing is disabled by default, because it carries a (relatively small, but
--- real) cost at runtime. To enable any kind of tracing to work, the environment
--- variable @DISTRIBUTED_PROCESS_TRACE_ENABLED@ must be set (the contents are
--- ignored). When the environment variable /is/ set, the system will generate
--- a /trace events/ in various circumstances - see 'TraceEvent' for a list of
--- all the published events. A user can additionally publish custom trace events
--- in the form of 'TraceEvLog' log messages or pass custom (i.e., completely
--- user defined) event data using the 'traceMessage' function. If the
--- environment variable is not set, no trace events will ever be published.
+-- Tracing is disabled by default, because it carries a relatively small, but
+-- tangible cost. To enable tracing, the environment variable
+-- @DISTRIBUTED_PROCESS_TRACE_ENABLED@ must be set to some value (the contents
+-- are ignored). When the environment variable /is/ set, the system will
+-- generate /trace events/ in various circumstances - see 'TraceEvent' for a
+-- list of all the published events. A user can additionally publish custom
+-- trace events in the form of 'TraceEvLog' log messages or pass custom
+-- (i.e., completely user defined) event data using the 'traceMessage' function.
+-- If the environment variable is not set, no trace events will ever be
+-- published.
 --
--- All published trace events are forwarded to a /tracer process/, which can be
+-- All published traces are forwarded to a /tracer process/, which can be
 -- specified (and changed) at runtime using 'traceEnable'. Some pre-defined
 -- tracer processes are provided for conveniently printing to stderr, a log file
 -- or the GHC eventlog.
@@ -100,16 +101,15 @@ module Control.Distributed.Process.Debug
   , enableTrace
   , enableTraceAsync
   , disableTrace
-  , disableTraceAsync
   , withTracer
   , withFlags
   , getTraceFlags
   , setTraceFlags
   , setTraceFlagsAsync
   , defaultTraceFlags
-  , Tracer.traceOn
-  , Tracer.traceOnly
-  , Tracer.traceOff
+  , traceOn
+  , traceOnly
+  , traceOff
     -- * Debugging
   , startTracer
   , stopTracer
@@ -117,6 +117,10 @@ module Control.Distributed.Process.Debug
   , traceLog
   , traceLogFmt
   , traceMessage
+    -- * Working with remote nodes
+  , Remote.remoteTable
+  , Remote.startTraceRelay
+  , Remote.setTraceFlagsRemote
     -- * Built in tracers
   , systemLoggerTracer
   , logfileTracer
@@ -129,12 +133,9 @@ import Control.Distributed.Process.Internal.Primitives
   ( proxy
   , finally
   , die
-  , getSelfPid
-  , reregister
   , whereis
   , send
   , newChan
-  , sendChan
   , receiveChan
   , receiveWait
   , matchIf
@@ -142,6 +143,9 @@ import Control.Distributed.Process.Internal.Primitives
   , try
   , monitor
   , say
+  )
+import Control.Distributed.Process.Internal.Spawn
+  ( spawn
   )
 import Control.Distributed.Process.Internal.Types
   ( Tracer(..)
@@ -151,6 +155,7 @@ import Control.Distributed.Process.Internal.Types
   , LocalProcess(..)
   , SendPort(..)
   , ProcessMonitorNotification(..)
+  , NodeId(..)
   )
 import Control.Distributed.Process.Internal.Trace.Types
   ( TraceArg(..)
@@ -165,22 +170,23 @@ import Control.Distributed.Process.Internal.Trace.Tracer
   , logfileTracer
   , eventLogTracer
   )
-import qualified Control.Distributed.Process.Internal.Trace.Primitives as Tracer
-  ( traceLog
-  , traceLogFmt
-  , traceMessage
+import Control.Distributed.Process.Internal.Trace.Primitives
+  ( withRegisteredTracer
   , enableTrace
-  , enableTraceSync
+  , enableTraceAsync
   , disableTrace
-  , disableTraceSync
   , setTraceFlags
-  , setTraceFlagsSync
+  , setTraceFlagsAsync
   , getTraceFlags
-  , getCurrentTraceClient
+  , isTracingEnabled
   , traceOn
   , traceOff
   , traceOnly
+  , traceLog
+  , traceLogFmt
+  , traceMessage
   )
+import qualified Control.Distributed.Process.Internal.Trace.Remote as Remote
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable
 
@@ -222,7 +228,6 @@ withTracer :: forall a.
            -> Process a
            -> Process (Either SomeException a)
 withTracer handler proc = do
-    say "starting new tracer"
     previous <- whereis "tracer"
     tracer <- startTracer handler
     finally (try proc)
@@ -234,42 +239,36 @@ withTracer handler proc = do
         Nothing -> return ()
         Just p  -> do
           ref <- monitor tracer
-          say "resetting to previous tracer" >> enableTrace p
-          say "stopping tracer"
           send tracer TraceEvDisable
-          say $ "waiting for EXIT from tracer " ++ (show tracer)
           receiveWait [
               matchIf (\(ProcessMonitorNotification ref' _ _) -> ref == ref')
-                      (\_ -> say "seen EXIT ok")
+                      (\_ -> return ())
             ]
 
 -- | Evaluate @proc@ with the supplied flags enabled. Any previously set
--- flags are restored immediately afterwards.
+-- trace flags are restored immediately afterwards.
 withFlags :: forall a.
              TraceFlags
           -> Process a
           -> Process (Either SomeException a)
 withFlags flags proc = do
-  (sp, rp) <- newChan
-  withLocalTracer $ \t -> liftIO $ Tracer.getTraceFlags t sp
-  oldFlags <- receiveChan rp
+  oldFlags <- getTraceFlags
   finally (setTraceFlags flags >> try proc)
-          (setTraceFlags oldFlags >> say "exit withFlags")
+          (setTraceFlags oldFlags)
 
 traceProxy :: ProcessId -> (TraceEvent -> Process ()) -> Process ()
 traceProxy pid act = do
-  say "tracing has started"
   proxy pid $ \(ev :: TraceEvent) ->
     case ev of
-      (TraceEvTakeover p) -> say ((show p) ++ " has taken over...") >> return False
-      TraceEvDisable      -> say "dying - disabled..." >> die "disabled"
-      _                   -> say ("act on " ++ (show ev)) >> act ev >> return True
+      (TraceEvTakeover p) -> return False
+      TraceEvDisable      -> die "disabled"
+      _                   -> act ev >> return True
 
 -- | Stops a user supplied tracer started with 'startTracer'.
 -- Note that only one tracer process can be active at any given time.
 -- This process will stop the last process started with 'startTracer'.
 -- If 'startTracer' is called multiple times, successive calls to this
--- function will stop the tracers in the reverse order in which they were
+-- function will stop the tracers in the reverse order which they were
 -- started.
 --
 -- This function will never stop the system tracer (i.e., the tracer
@@ -278,10 +277,8 @@ traceProxy pid act = do
 -- subsequent calls to this function will have no effect.
 --
 -- If tracing support is disabled for the node, this function will also
--- have no effect. If the last tracer to have been registered (or the process
--- registered with the label @"tracer"@ at the time the stop instruction
--- is received) was not started with 'startTracer' then the behaviour of
--- this function is /undefined/.
+-- have no effect. If the last tracer to have been registered was not started
+-- with 'startTracer' then the behaviour of this function is /undefined/.
 stopTracer :: Process ()
 stopTracer =
   withRegisteredTracer $ \pid -> do
@@ -292,87 +289,4 @@ stopTracer =
     case basePid == (Just pid) of
       True  -> return ()
       False -> send pid TraceEvDisable
-
-withRegisteredTracer :: (ProcessId -> Process a) -> Process a
-withRegisteredTracer act = do
-  (sp, rp) <- newChan
-  withLocalTracer $ \t -> liftIO $ Tracer.getCurrentTraceClient t sp
-  currentTracer <- receiveChan rp
-  case currentTracer of
-    Nothing  -> do { (Just p') <- whereis "tracer.initial"; act p' }
-    (Just p) -> act p
-
--- | Determine whether or not tracing has been enabled.
-isTracingEnabled :: Process Bool
-isTracingEnabled = do
-  node <- processNode <$> ask
-  case (localTracer node) of
-    (ActiveTracer _ _) -> return True
-    _                  -> return False
-
--- | Enable tracing to the supplied process.
-enableTraceAsync :: ProcessId -> Process ()
-enableTraceAsync pid = withLocalTracer $ \t -> liftIO $ Tracer.enableTrace t pid
-
--- TODO: refactor _Sync versions of trace configuration functions...
-
--- | Enable tracing to the supplied process and wait for a @TraceOk@
--- response from the trace coordinator process.
-enableTrace :: ProcessId -> Process ()
-enableTrace pid =
-  withLocalTracerSync $ \t sp -> Tracer.enableTraceSync t sp pid
-
--- | Disable the currently configured trace.
-disableTraceAsync :: Process ()
-disableTraceAsync = withLocalTracer $ \t -> liftIO $ Tracer.disableTrace t
-
--- | Disable the currently configured trace and wait for a @TraceOk@
--- response from the trace coordinator process.
-disableTrace :: Process ()
-disableTrace =
-  withLocalTracerSync $ \t sp -> Tracer.disableTraceSync t sp
-
-getTraceFlags :: Process TraceFlags
-getTraceFlags = do
-  (sp, rp) <- newChan
-  withLocalTracer $ \t -> liftIO $ Tracer.getTraceFlags t sp
-  receiveChan rp
-
--- | Set the given flags for the current tracer.
-setTraceFlagsAsync :: TraceFlags -> Process ()
-setTraceFlagsAsync f = withLocalTracer $ \t -> liftIO $ Tracer.setTraceFlags t f
-
--- | Set the given flags for the current tracer and wait for a @TraceOk@
--- response from the trace coordinator process.
-setTraceFlags :: TraceFlags -> Process ()
-setTraceFlags f =
-  withLocalTracerSync $ \t sp -> Tracer.setTraceFlagsSync t sp f
-
-withLocalTracerSync :: (Tracer -> SendPort TraceOk -> IO ()) -> Process ()
-withLocalTracerSync act = do
-  (sp, rp) <- newChan
-  withLocalTracer $ \t -> liftIO $ (act t sp)
-  TraceOk <- receiveChan rp
-  return ()
-
--- | Send a log message to the internal tracing facility. If tracing is
--- enabled, this will create a custom trace log event.
---
-traceLog :: String -> Process ()
-traceLog s = withLocalTracer $ \t -> liftIO $ Tracer.traceLog t s
-
--- | Send a log message to the internal tracing facility, using the given
--- list of printable 'TraceArg's interspersed with the preceding delimiter.
---
-traceLogFmt :: String -> [TraceArg] -> Process ()
-traceLogFmt d ls = withLocalTracer $ \t -> liftIO $ Tracer.traceLogFmt t d ls
-
--- | Send an arbitrary 'Message' to the tracer process.
-traceMessage :: Serializable m => m -> Process ()
-traceMessage msg = withLocalTracer $ \t -> liftIO $ Tracer.traceMessage t msg
-
-withLocalTracer :: (Tracer -> Process ()) -> Process ()
-withLocalTracer act = do
-  node <- processNode <$> ask
-  act (localTracer node)
 

@@ -65,6 +65,7 @@ Library
                      Control.Distributed.Process.Debug,
                      Control.Distributed.Process.Node
   Other-modules:     Control.Distributed.Process.Internal.Primitives,
+                     Control.Distributed.Process.Internal.Spawn,
                      Control.Distributed.Process.Internal.CQueue,
                      Control.Distributed.Process.Internal.Closure.BuiltIn,
                      Control.Distributed.Process.Internal.Messaging,
@@ -75,6 +76,7 @@ Library
                      Control.Distributed.Process.Internal.Trace.Types,
                      Control.Distributed.Process.Internal.Trace.Primitives,
                      Control.Distributed.Process.Internal.Trace.Tracer
+                     Control.Distributed.Process.Internal.Trace.Remote
   Extensions:        RankNTypes,
                      ScopedTypeVariables,
                      FlexibleInstances,

@@ -2,6 +2,7 @@
 {-# OPTIONS_GHC -fno-warn-orphans      #-}
 module Main where
 
+import Control.Concurrent (threadDelay)
 import Control.Concurrent.MVar
   ( MVar
   , newEmptyMVar
@@ -259,6 +260,64 @@ testTraceLayering result = do
          })
       liftIO $ putMVar result' ()
 
+testRemoteTraceRelay :: TestResult Bool -> Process ()
+testRemoteTraceRelay result =
+  let flags = defaultTraceFlags { traceSpawned = traceOn }
+  in do
+    node2 <- liftIO $ mkNode "8082"
+    mvNid <- liftIO $ newEmptyMVar
+
+    -- As well as needing node2's NodeId, we want to
+    -- redirect all its logs back here, to avoid generating
+    -- garbage on stderr for the duration of the test run.
+    -- Here we set up that relay, and then wait for a signal
+    -- that the tracer (on node1) has seen the expected
+    -- TraceEvSpawned message, at which point we're finished
+    (Just log) <- whereis "logger"
+    pid <- liftIO $ forkProcess node2 $ do
+      logRelay <- spawnLocal $ relay log
+      reregister "logger" logRelay
+      getSelfNode >>= stash mvNid >> (expect :: Process ())
+
+    nid <- liftIO $ takeMVar mvNid
+    mref <- monitor pid
+    observedPid <- liftIO $ newEmptyMVar
+    spawnedPid <- liftIO $ newEmptyMVar
+    setTraceFlagsRemote flags nid
+
+    withFlags defaultTraceFlags { traceSpawned = traceOn } $ do
+      withTracer
+        (\ev ->
+          case ev of
+            TraceEvSpawned p -> stash observedPid p >> send pid ()
+            _                -> return ()) $ do
+          relayPid <- startTraceRelay nid
+          liftIO $ threadDelay 1000000
+          p <- liftIO $ forkProcess node2 $ do
+            expectTimeout 1000000 :: Process (Maybe ())
+            return ()
+          stash spawnedPid p
+
+          -- Now we wait for (the outer) pid to exit. This won't happen until
+          -- our tracer has seen the trace event for `p' and send `p' the
+          -- message its waiting for prior to exiting
+          receiveWait [
+            matchIf (\(ProcessMonitorNotification mref' _ _) -> mref == mref')
+                    (\_ -> return ())
+            ]
+
+          relayRef <- monitor relayPid
+          kill relayPid "stop"
+          receiveWait [
+            matchIf (\(ProcessMonitorNotification rref' _ _) -> rref' == relayRef)
+                    (\_ -> return ())
+            ]
+    observed <- liftIO $ takeMVar observedPid
+    expected <- liftIO $ takeMVar spawnedPid
+    stash result (observed == expected)
+    -- and just to be polite...
+    liftIO $ closeLocalNode node2
+
 tests :: LocalNode -> IO [Test]
 tests node1 = do
   -- if we execute the test cases in parallel, the
@@ -298,6 +357,10 @@ tests node1 = do
              (delayedAssertion
               "expected blah"
               node1 () testTraceLayering lock)
+         , testCase "Remote Trace Relay"
+             (delayedAssertion
+              "expected blah"
+              node1 True testRemoteTraceRelay lock)
          ] ]
     False ->
       return []
