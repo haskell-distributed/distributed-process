@@ -100,7 +100,7 @@ data AsyncChan a = AsyncChan {
   , channel   :: (InternalChannel a)
   }
 
--- | Create a new 'AsyncChane' and wrap it in an 'Async' record.
+-- | Create a new 'AsyncChan' and wrap it in an 'Async' record.
 --
 -- Used by "Control.Distributed.Process.Platform.Async".
 newAsync :: (Serializable a)
