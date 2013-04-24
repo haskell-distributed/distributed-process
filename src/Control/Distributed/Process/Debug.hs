@@ -19,8 +19,8 @@
 --
 -- Tracing is disabled by default, because it carries a relatively small, but
 -- tangible cost. To enable tracing, the environment variable
--- @DISTRIBUTED_PROCESS_TRACE_ENABLED@ must be set to some value (the contents
--- are ignored). When the environment variable /is/ set, the system will
+-- @DISTRIBUTED_PROCESS_TRACE_ENABLED@ must be set to some value (actual content
+-- is ignored). When the environment variable /is/ set, the system will
 -- generate /trace events/ in various circumstances - see 'TraceEvent' for a
 -- list of all the published events. A user can additionally publish custom
 -- trace events in the form of 'TraceEvLog' log messages or pass custom
@@ -113,7 +113,7 @@ module Control.Distributed.Process.Debug
     -- * Debugging
   , startTracer
   , stopTracer
-    -- * Sending Trace Data
+    -- * Sending Custom Trace Data
   , traceLog
   , traceLogFmt
   , traceMessage

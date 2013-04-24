@@ -45,7 +45,7 @@ enableTraceRemote :: ProcessId -> Process ()
 enableTraceRemote pid =
   getSelfPid >>= enableTrace >> relay pid
 
--- | Starts a /trace relay/ process on the remote node, that forwards all trace
+-- | Starts a /trace relay/ process on the remote node, which forwards all trace
 -- events to the registered tracer on /this/ (the calling process') node.
 startTraceRelay :: NodeId -> Process ProcessId
 startTraceRelay nodeId = do
