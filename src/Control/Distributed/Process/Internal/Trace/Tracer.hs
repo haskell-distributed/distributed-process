@@ -45,6 +45,8 @@ import Control.Distributed.Process.Internal.Trace.Types
   , TraceOk(..)
   , defaultTraceFlags
   )
+import Control.Distributed.Process.Internal.Trace.Primitives
+  ( traceOn )
 import Control.Distributed.Process.Internal.Types
   ( LocalNode(..)
   , NCMsg(..)
@@ -150,7 +152,7 @@ systemLoggerTracer = do
       liftIO $ writeChan (localCtrlChan node) traceMsg
 
 eventLogTracer :: Process ()
-eventLogTracer = do
+eventLogTracer =
   -- NB: when the GHC event log supports tracing arbitrary (ish) data, we will
   -- almost certainly use *that* facility independently of whether or not there
   -- is a tracer process installed. This is just a stop gap until then.
@@ -194,10 +196,8 @@ traceController mv = do
     -- the node's internal control channel if we can possibly help it!
     weakQueue <- processWeakQ <$> ask
     liftIO $ putMVar mv weakQueue
-    initialTracer <- whereis "tracer.initial"
-    traceLoop initialState {
-        client = initialTracer
-      }
+    initState <- initialState
+    traceLoop initState { client = Nothing }
   where
     traceLoop :: TracerState -> Process ()
     traceLoop st = do
@@ -234,13 +234,33 @@ traceController mv = do
     sendOk Nothing   = return ()
     sendOk (Just sp) = sendChan sp TraceOk
 
-    initialState :: TracerState
-    initialState =
-      TracerST
-      { client   = Nothing
-      , flags    = defaultTraceFlags
-      , regNames = Map.empty
-      }
+    initialState :: Process TracerState
+    initialState = do
+      flags' <- checkEnvFlags
+      return $ TracerST { client   = Nothing
+                        , flags    = flags'
+                        , regNames = Map.empty
+                        }
+
+    checkEnvFlags :: Process TraceFlags
+    checkEnvFlags =
+      catch (checkEnv "DISTRIBUTED_PROCESS_TRACE_FLAGS" >>= return . parseFlags)
+            (\(_ :: IOError) -> return defaultTraceFlags)
+
+    -- quick and dirty fold-while
+    parseFlags :: String -> TraceFlags
+    parseFlags flags = parseFlags' flags defaultTraceFlags
+      where parseFlags' :: String -> TraceFlags -> TraceFlags
+            parseFlags' [] parsedFlags = parsedFlags
+            parseFlags' (x:xs) parsedFlags
+              | x == 'p'  = parseFlags' xs parsedFlags { traceSpawned = traceOn }
+              | x == 'n'  = parseFlags' xs parsedFlags { traceRegistered = traceOn }
+              | x == 'u'  = parseFlags' xs parsedFlags { traceUnregistered = traceOn }
+              | x == 'd'  = parseFlags' xs parsedFlags { traceDied = traceOn }
+              | x == 's'  = parseFlags' xs parsedFlags { traceSend = traceOn }
+              | x == 'r'  = parseFlags' xs parsedFlags { traceRecv = traceOn }
+              | x == 'l'  = parseFlags' xs parsedFlags { traceNodes = True }
+              | otherwise = parseFlags' xs parsedFlags
 
 -- note [runtime tracer control]
 --

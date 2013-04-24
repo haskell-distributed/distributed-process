@@ -105,6 +105,7 @@ data TraceSubject =
     TraceAll                     -- enable tracing for all running processes
   | TraceProcs !(Set ProcessId)  -- enable tracing for a set of processes
   | TraceNames !(Set String)     -- enable tracing for a set of named/registered processes
+  deriving (Show)
 
 -- | Defines /what/ will be traced. Flags that control tracing of
 -- @Process@ events, take a 'TraceSubject' controlling which processes
@@ -118,7 +119,7 @@ data TraceFlags = TraceFlags {
   , traceRecv         :: !(Maybe TraceSubject) -- filter process/message tracing by receiver
   , traceNodes        :: !Bool                 -- enable node status trace events
   , traceConnections  :: !Bool                 -- enable connection status trace events
-  } deriving (Typeable)
+  } deriving (Typeable, Show)
 
 defaultTraceFlags :: TraceFlags
 defaultTraceFlags =
