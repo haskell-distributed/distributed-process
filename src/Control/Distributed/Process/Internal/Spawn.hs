@@ -8,10 +8,6 @@ module Control.Distributed.Process.Internal.Spawn
   ) where
 
 import Data.Typeable (Typeable)
-import Control.Monad.IO.Class (liftIO)
-import Control.Applicative ((<$>))
-import Control.Monad.Reader (ask)
-import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar)
 import Control.Distributed.Static
   ( Static
   , Closure
@@ -28,7 +24,6 @@ import Control.Distributed.Process.Internal.Types
   , DidSpawn(..)
   , SendPort(..)
   , ReceivePort(..)
-  , LocalProcess(processNode)
   , nullProcessId
   )
 import Control.Distributed.Process.Serializable (Serializable, SerializableDict)
@@ -58,7 +53,6 @@ import Control.Distributed.Process.Internal.Primitives
   , unmonitor
   , spawnAsync
   , reconnect
-  , newChan
   )
 
 -- | Spawn a process

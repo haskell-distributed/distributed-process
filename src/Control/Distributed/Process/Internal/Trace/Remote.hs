@@ -6,33 +6,17 @@ module Control.Distributed.Process.Internal.Trace.Remote
   , remoteTable
   ) where
 
-import Control.Applicative ((<$>))
 import Control.Distributed.Process.Internal.Closure.BuiltIn
   ( cpEnableTraceRemote
   )
 import Control.Distributed.Process.Internal.Primitives
-  ( proxy
-  , finally
-  , die
-  , whereis
-  , send
-  , newChan
-  , receiveChan
-  , receiveWait
-  , matchIf
-  , finally
-  , try
-  , monitor
-  , getSelfPid
+  ( getSelfPid
   , relay
   , nsendRemote
-  , say
   )
 import Control.Distributed.Process.Internal.Trace.Types
   ( TraceFlags(..)
   , TraceOk(..)
-  , TraceSubject(..)
-  , defaultTraceFlags
   )
 import Control.Distributed.Process.Internal.Trace.Primitives
   ( withRegisteredTracer
@@ -47,13 +31,11 @@ import Control.Distributed.Process.Internal.Types
   , SendPort
   , NodeId
   )
-import Control.Distributed.Process.Serializable
 import Control.Distributed.Static
   ( RemoteTable
   , registerStatic
   )
 import Data.Rank1Dynamic (toDynamic)
-import qualified Data.Set as Set (fromList)
 
 -- | Remote Table.
 remoteTable :: RemoteTable -> RemoteTable

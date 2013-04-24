@@ -27,14 +27,9 @@ import Control.Distributed.Process.Internal.Primitives
   , sendChan
   , match
   , matchAny
-  , matchAnyIf
   , matchIf
   , handleMessage
   , matchUnknown
-  , whereis
-  , getSelfPid
-  , register
-  , say, unwrapMessage
   )
 import Control.Distributed.Process.Internal.Trace.Types
   ( TraceEvent(..)
@@ -60,9 +55,6 @@ import Control.Distributed.Process.Internal.Types
   , forever'
   , nullProcessId
   , createUnencodedMessage
-  )
-import Control.Exception
-  ( SomeException
   )
 
 import Control.Monad.IO.Class (liftIO)
@@ -249,7 +241,7 @@ traceController mv = do
 
     -- quick and dirty fold-while
     parseFlags :: String -> TraceFlags
-    parseFlags flags = parseFlags' flags defaultTraceFlags
+    parseFlags s = parseFlags' s defaultTraceFlags
       where parseFlags' :: String -> TraceFlags -> TraceFlags
             parseFlags' [] parsedFlags = parsedFlags
             parseFlags' (x:xs) parsedFlags
@@ -351,7 +343,6 @@ traceEv ev msg (Just (TraceNames names)) st = do
 sendTrace :: TracerState -> Message -> Process ()
 sendTrace st msg =
   let pid = (client st) in do
-    (Just ev) <- unwrapMessage msg :: Process (Maybe TraceEvent)
     case pid of
       Just p  -> (flip forward) p msg
       Nothing -> return ()

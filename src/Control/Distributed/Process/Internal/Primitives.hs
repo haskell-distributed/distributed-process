@@ -134,17 +134,8 @@ import Control.Distributed.Process.Internal.CQueue
 import Control.Distributed.Process.Serializable (Serializable, fingerprint)
 import Data.Accessor ((^.), (^:), (^=))
 import Control.Distributed.Static
-  ( RemoteTable
-  , registerStatic
-  , Static
-  , staticLabel
-  , staticApply
+  ( Static
   , Closure
-  , closure
-  , closureApplyStatic
-  , closureApply
-  , staticCompose
-  , staticClosure
   )
 import Data.Rank1Typeable (Typeable)
 import qualified Control.Distributed.Static as Static (unstatic, unclosure)

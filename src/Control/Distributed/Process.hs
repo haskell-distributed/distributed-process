@@ -142,7 +142,6 @@ module Control.Distributed.Process
 import Prelude hiding (catch)
 #endif
 
-import Data.Typeable (Typeable)
 import Control.Monad.IO.Class (liftIO)
 import Control.Applicative ((<$>))
 import Control.Monad.Reader (ask)
@@ -152,8 +151,6 @@ import Control.Distributed.Static
   , closure
   , Static
   , RemoteTable
-  , closureCompose
-  , staticClosure
   )
 import Control.Distributed.Process.Internal.Types
   ( NodeId(..)
@@ -177,21 +174,8 @@ import Control.Distributed.Process.Internal.Types
   , RegisterReply(..)
   , LocalProcess(processNode)
   , Message
-  , nullProcessId
   )
-import Control.Distributed.Process.Serializable (Serializable, SerializableDict)
-import Control.Distributed.Process.Internal.Closure.BuiltIn
-  ( sdictSendPort
-  , sndStatic
-  , idCP
-  , seqCP
-  , bindCP
-  , splitCP
-  , cpLink
-  , cpSend
-  , cpNewChan
-  , cpDelay
-  )
+import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Internal.Primitives
   ( -- Basic messaging
     send

@@ -6,7 +6,6 @@ module Control.Distributed.Process.Internal.Trace.Types
   , Addressable(..)
   , TraceSubject(..)
   , TraceFlags(..)
-  , defaultTraceFlags
   , TraceArg(..)
   , TraceOk(..)
   , traceLog
@@ -205,15 +204,6 @@ instance Traceable ProcessId where
 
 instance Traceable String where
   uod = TraceNames . Set.fromList
-
-traceOnly :: Traceable a => [a] -> Maybe TraceSubject
-traceOnly = Just . uod
-
-traceOn :: Maybe TraceSubject
-traceOn = Just TraceAll
-
-traceOff :: Maybe TraceSubject
-traceOff = Nothing
 
 traceIt :: Tracer -> Message -> IO ()
 traceIt InactiveTracer         _   = return ()

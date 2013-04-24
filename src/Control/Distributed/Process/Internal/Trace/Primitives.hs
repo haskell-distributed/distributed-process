@@ -28,29 +28,14 @@ module Control.Distributed.Process.Internal.Trace.Primitives
   ) where
 
 import Control.Applicative ((<$>))
-import Control.Distributed.Process.Internal.Closure.BuiltIn
-  ( cpEnableTraceRemote
-  )
 import Control.Distributed.Process.Internal.Primitives
-  ( proxy
-  , finally
-  , die
-  , whereis
-  , send
+  ( whereis
   , newChan
   , receiveChan
-  , receiveWait
-  , matchIf
-  , finally
-  , try
-  , monitor
-  , getSelfPid
-  , relay
   )
 import Control.Distributed.Process.Internal.Trace.Types
   ( TraceArg(..)
   , TraceEvent(..)
-  , SetTrace(..)
   , TraceFlags(..)
   , TraceOk(..)
   , TraceSubject(..)
@@ -69,29 +54,18 @@ import qualified Control.Distributed.Process.Internal.Trace.Types as Tracer
   , getTraceFlags
   , getCurrentTraceClient
   )
-import Control.Distributed.Process.Internal.Spawn
-  ( spawn
-  )
 import Control.Distributed.Process.Internal.Types
   ( Tracer(..)
   , Process
   , ProcessId
   , LocalProcess(..)
   , LocalNode(localTracer)
-  , Message
   , SendPort
-  , NodeId
-  , createUnencodedMessage
   )
 import Control.Distributed.Process.Serializable
-import Control.Distributed.Static
-  ( RemoteTable
-  , registerStatic
-  )
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (ask)
 
-import Data.Rank1Dynamic (toDynamic)
 import qualified Data.Set as Set (fromList)
 
 --------------------------------------------------------------------------------

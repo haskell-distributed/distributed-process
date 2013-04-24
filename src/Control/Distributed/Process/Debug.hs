@@ -135,34 +135,23 @@ import Control.Distributed.Process.Internal.Primitives
   , die
   , whereis
   , send
-  , newChan
-  , receiveChan
   , receiveWait
   , matchIf
   , finally
   , try
   , monitor
-  , say
-  )
-import Control.Distributed.Process.Internal.Spawn
-  ( spawn
   )
 import Control.Distributed.Process.Internal.Types
-  ( Tracer(..)
-  , LocalNode(..)
-  , ProcessId
+  ( ProcessId
   , Process
   , LocalProcess(..)
-  , SendPort(..)
   , ProcessMonitorNotification(..)
-  , NodeId(..)
   )
 import Control.Distributed.Process.Internal.Trace.Types
   ( TraceArg(..)
   , TraceEvent(..)
   , TraceFlags(..)
   , TraceSubject(..)
-  , TraceOk(..)
   , defaultTraceFlags
   )
 import Control.Distributed.Process.Internal.Trace.Tracer
@@ -188,7 +177,6 @@ import Control.Distributed.Process.Internal.Trace.Primitives
   )
 import qualified Control.Distributed.Process.Internal.Trace.Remote as Remote
 import Control.Distributed.Process.Node
-import Control.Distributed.Process.Serializable
 
 import Control.Exception (SomeException)
 
@@ -237,7 +225,7 @@ withTracer handler proc = do
     stopTracing tracer previousTracer = do
       case previousTracer of
         Nothing -> return ()
-        Just p  -> do
+        Just _  -> do
           ref <- monitor tracer
           send tracer TraceEvDisable
           receiveWait [
@@ -260,7 +248,7 @@ traceProxy :: ProcessId -> (TraceEvent -> Process ()) -> Process ()
 traceProxy pid act = do
   proxy pid $ \(ev :: TraceEvent) ->
     case ev of
-      (TraceEvTakeover p) -> return False
+      (TraceEvTakeover _) -> return False
       TraceEvDisable      -> die "disabled"
       _                   -> act ev >> return True
 
