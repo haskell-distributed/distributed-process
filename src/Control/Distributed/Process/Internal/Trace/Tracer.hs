@@ -20,6 +20,7 @@ import Control.Distributed.Process.Internal.CQueue
   )
 import Control.Distributed.Process.Internal.Primitives
   ( catch
+  , finally
   , die
   , receiveWait
   , forward
@@ -27,6 +28,7 @@ import Control.Distributed.Process.Internal.Primitives
   , match
   , matchAny
   , matchAnyIf
+  , matchIf
   , handleMessage
   , matchUnknown
   , whereis
@@ -163,16 +165,16 @@ logfileTracer p = do
   liftIO $ putStrLn $ "writing to " ++ (show p)
   h <- liftIO $ openFile p AppendMode
   liftIO $ hSetBuffering h LineBuffering
-  logger h `catch` (\(_ :: SomeException) -> liftIO $ hClose h)
+  logger h `finally` (liftIO $ hClose h)
   where
     logger :: Handle -> Process ()
     logger h' = forever' $ do
       receiveWait [
-          matchAnyIf (\ev -> case ev of
-                               TraceEvDisable      -> True
-                               (TraceEvTakeover _) -> True
-                               _                   -> False)
-                     (\_ -> (liftIO $ hClose h') >> die "trace stopped")
+          matchIf (\ev -> case ev of
+                            TraceEvDisable      -> True
+                            (TraceEvTakeover _) -> True
+                            _                   -> False)
+                  (\_ -> (liftIO $ hClose h') >> die "trace stopped")
         , matchAny (\ev -> handleMessage ev (writeTrace h'))
         ]
 
