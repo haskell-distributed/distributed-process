@@ -126,7 +126,8 @@ checkEnv s = liftIO $ getEnv s
 -- other (hopefully more useful) client is installed over the top of
 -- it. This is the default trace client.
 nullTracer :: Process ()
-nullTracer = forever' $ receiveWait [ matchUnknown (return ()) ]
+nullTracer =
+  forever' $ receiveWait [ matchUnknown (return ()) ]
 
 systemLoggerTracer :: Process ()
 systemLoggerTracer = do
