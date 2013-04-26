@@ -812,12 +812,7 @@ ncEffectNamedSend from label msg = do
   node <- ask
   mPid <- gets (^. registeredHereFor label)
   -- If mPid is Nothing, we just ignore the named send (as per Table 14)
-  forM_ mPid $ \pid ->
-    liftIO $ sendPayload node
-                         from
-                         (ProcessIdentifier pid)
-                         NoImplicitReconnect
-                         (messageToPayload msg)
+  forM_ mPid $ \pid -> postMessage pid msg
 
 -- [Issue #DP-20]
 ncEffectLocalSend :: ProcessId -> Message -> NC ()
