@@ -1167,6 +1167,63 @@ testExitRemote transport = do
   takeMVar supervisedDone
   takeMVar supervisorDone
 
+testUnsafeSend :: NT.Transport -> Assertion
+testUnsafeSend transport = do
+  serverAddr <- newEmptyMVar
+  clientDone <- newEmptyMVar
+
+  localNode <- newLocalNode transport initRemoteTable
+  void $ forkProcess localNode $ do
+    self <- getSelfPid
+    liftIO $ putMVar serverAddr self
+    clientAddr <- expect
+    unsafeSend clientAddr ()
+
+  void $ forkProcess localNode $ do
+    serverPid <- liftIO $ takeMVar serverAddr
+    getSelfPid >>= unsafeSend serverPid
+    () <- expect
+    liftIO $ putMVar clientDone ()
+
+  takeMVar clientDone
+
+testUnsafeNSend :: NT.Transport -> Assertion
+testUnsafeNSend transport = do
+  clientDone <- newEmptyMVar
+
+  localNode <- newLocalNode transport initRemoteTable
+
+  pid <- forkProcess localNode $ do
+    () <- expect
+    liftIO $ putMVar clientDone ()
+
+  void $ runProcess localNode $ do
+    register "foobar" pid
+    unsafeNSend "foobar" ()
+
+  takeMVar clientDone
+
+testUnsafeSendChan :: NT.Transport -> Assertion
+testUnsafeSendChan transport = do
+  serverAddr <- newEmptyMVar
+  clientDone <- newEmptyMVar
+
+  localNode <- newLocalNode transport initRemoteTable
+  void $ forkProcess localNode $ do
+    self <- getSelfPid
+    liftIO $ putMVar serverAddr self
+    sp <- expect
+    unsafeSendChan sp ()
+
+  void $ forkProcess localNode $ do
+    serverPid <- liftIO $ takeMVar serverAddr
+    (sp, rp) <- newChan
+    unsafeSend serverPid sp
+    () <- receiveChan rp
+    liftIO $ putMVar clientDone ()
+
+  takeMVar clientDone
+
 tests :: (NT.Transport, TransportInternals)  -> [Test]
 tests (transport, transportInternals) = [
     testGroup "Basic features" [
@@ -1227,6 +1284,9 @@ tests (transport, transportInternals) = [
     , testCase "MonitorChannel"               (testMonitorChannel             transport)
       -- Reconnect
     , testCase "Reconnect"                    (testReconnect                  transport transportInternals)
+    , testCase "TestUnsafeSend"               (testUnsafeSend                 transport)
+    , testCase "TestUnsafeNSend"              (testUnsafeNSend                transport)
+    , testCase "TestUnsafeSendChan"           (testUnsafeSendChan             transport)
     ]
   ]
 

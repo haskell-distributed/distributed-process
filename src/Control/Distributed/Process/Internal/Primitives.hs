@@ -14,6 +14,10 @@ module Control.Distributed.Process.Internal.Primitives
   , receiveChan
   , mergePortsBiased
   , mergePortsRR
+    -- * Unsafe messaging variants
+  , unsafeSend
+  , unsafeSendChan
+  , unsafeNSend
     -- * Advanced messaging
   , Match
   , receiveWait
@@ -93,6 +97,8 @@ module Control.Distributed.Process.Internal.Primitives
     -- * Reconnecting
   , reconnect
   , reconnectPort
+    -- * Internal Exports
+  , sendCtrlMsg
   ) where
 
 #if ! MIN_VERSION_base(4,6,0)
@@ -138,6 +144,7 @@ import Control.Distributed.Static
   )
 import Data.Rank1Typeable (Typeable)
 import qualified Control.Distributed.Static as Static (unstatic, unclosure)
+import qualified Control.Distributed.Process.UnsafePrimitives as Unsafe
 import Control.Distributed.Process.Internal.Types
   ( NodeId(..)
   , ProcessId(..)
@@ -181,6 +188,7 @@ import Control.Distributed.Process.Internal.Messaging
   , sendBinary
   , sendPayload
   , disconnect
+  , sendCtrlMsg
   )
 import Control.Distributed.Process.Internal.Trace.Types
   ( traceEvent
@@ -219,6 +227,13 @@ send them msg = do
   -- In the remote case, 'sendMessage' can block in the networking stack.
   liftIO $ traceEvent (localTracer node)
                       (TraceEvSent them us (createUnencodedMessage msg))
+
+-- | /Unsafe/ variant of 'send'. This function makes /no/ attempt to serialize
+-- and (in the case when the destination process resides on the same local
+-- node) therefore ensure that the payload is fully evaluated before it is
+-- delivered.
+unsafeSend :: Serializable a => ProcessId -> a -> Process ()
+unsafeSend = Unsafe.send
 
 -- | Wait for a message of a specific type
 expect :: forall a. Serializable a => Process a
@@ -266,6 +281,13 @@ sendChan (SendPort cid) msg = do
                           (SendPortIdentifier cid)
                           NoImplicitReconnect
                           msg
+
+-- | Send a message on a typed channel. This function makes /no/ attempt to
+-- serialize and (in the case when the @ReceivePort@ resides on the same local
+-- node) therefore ensure that the payload is fully evaluated before it is
+-- delivered.
+unsafeSendChan :: Serializable a => SendPort a -> a -> Process ()
+unsafeSendChan = Unsafe.sendChan
 
 -- | Wait for a message on a typed channel
 receiveChan :: Serializable a => ReceivePort a -> Process a
@@ -986,6 +1008,13 @@ nsend :: Serializable a => String -> a -> Process ()
 nsend label msg =
   sendCtrlMsg Nothing (NamedSend label (createUnencodedMessage msg))
 
+-- | Named send to a process in the local registry (asynchronous).
+-- This function makes /no/ attempt to serialize and (in the case when the
+-- destination process resides on the same local node) therefore ensure that
+-- the payload is fully evaluated before it is delivered.
+unsafeNSend :: Serializable a => String -> a -> Process ()
+unsafeNSend = Unsafe.nsend
+
 -- | Named send to a process in a remote registry (asynchronous)
 nsendRemote :: Serializable a => NodeId -> String -> a -> Process ()
 nsendRemote nid label msg =
@@ -1091,22 +1120,3 @@ monitor' ident = do
 -- | Link to a process/node/channel
 link' :: Identifier -> Process ()
 link' = sendCtrlMsg Nothing . Link
-
--- Send a control message
-sendCtrlMsg :: Maybe NodeId  -- ^ Nothing for the local node
-            -> ProcessSignal -- ^ Message to send
-            -> Process ()
-sendCtrlMsg mNid signal = do
-  proc <- ask
-  let msg = NCMsg { ctrlMsgSender = ProcessIdentifier (processId proc)
-                  , ctrlMsgSignal = signal
-                  }
-  case mNid of
-    Nothing -> do
-      liftIO $ writeChan (localCtrlChan (processNode proc)) msg
-    Just nid ->
-      liftIO $ sendBinary (processNode proc)
-                          (ProcessIdentifier (processId proc))
-                          (NodeIdentifier nid)
-                          WithImplicitReconnect
-                          msg

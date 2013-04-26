@@ -31,6 +31,7 @@ module Control.Distributed.Process.Internal.Types
   , Message(..)
   , createMessage
   , createUnencodedMessage
+  , unsafeCreateUnencodedMessage
   , messageToPayload
   , payloadToMessage
     -- * Node controller user-visible data types
@@ -338,6 +339,11 @@ createMessage a = EncodedMessage (fingerprint a) (encode a)
 createUnencodedMessage :: Serializable a => a -> Message
 createUnencodedMessage a =
   let encoded = encode a in BSL.length encoded `seq` UnencodedMessage (fingerprint a) a
+
+-- | Turn any serializable term into an unencodede/local message, without
+-- evalutaing it!
+unsafeCreateUnencodedMessage :: Serializable a => a -> Message
+unsafeCreateUnencodedMessage a = UnencodedMessage (fingerprint a) a
 
 -- | Serialize a message
 messageToPayload :: Message -> [BSS.ByteString]

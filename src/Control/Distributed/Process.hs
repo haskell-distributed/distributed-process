@@ -36,6 +36,10 @@ module Control.Distributed.Process
   , receiveChanTimeout
   , mergePortsBiased
   , mergePortsRR
+    -- * Unsafe messaging variants
+  , unsafeSend
+  , unsafeSendChan
+  , unsafeNSend
     -- * Advanced messaging
   , Match
   , receiveWait
@@ -187,6 +191,9 @@ import Control.Distributed.Process.Internal.Primitives
   , receiveChan
   , mergePortsBiased
   , mergePortsRR
+  , unsafeSend
+  , unsafeSendChan
+  , unsafeNSend
     -- Advanced messaging
   , Match
   , receiveWait
