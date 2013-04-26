@@ -924,7 +924,7 @@ whereisRemoteAsync nid label =
 -- | Named send to a process in the local registry (asynchronous)
 nsend :: Serializable a => String -> a -> Process ()
 nsend label msg =
-  sendCtrlMsg Nothing (NamedSend label (createMessage msg))
+  sendCtrlMsg Nothing (NamedSend label (createUnencodedMessage msg))
 
 -- | Named send to a process in a remote registry (asynchronous)
 nsendRemote :: Serializable a => NodeId -> String -> a -> Process ()
