@@ -37,6 +37,10 @@ flag benchmarks
   description: Build benchmarks
   default: False
 
+flag prof
+  description: Compiling with profiling enabled
+  default: False
+
 Library
   Build-Depends:     base >= 4.4 && < 5,
                      binary >= 0.5 && < 0.7,
@@ -201,3 +205,22 @@ Executable distributed-process-spawns
   Main-Is:           benchmarks/Spawns.hs
   ghc-options:       -Wall
   Extensions:        BangPatterns
+
+Executable distributed-process-ring
+  if flag(benchmarks)
+    Build-Depends:   base >= 4.4 && < 5,
+                     distributed-process,
+                     network-transport-tcp >= 0.3 && < 0.4,
+                     bytestring >= 0.9 && < 0.11,
+                     binary >= 0.5 && < 0.7
+  else
+    buildable: False
+  Main-Is:           benchmarks/ProcessRing.hs
+  if flag(prof)
+    ghc-options:     -Wall -threaded -prof -auto-all -fno-prof-count-entries -rtsopts
+  else
+    ghc-options:     -Wall -threaded -O2 -H256m -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
+  Extensions:        BangPatterns,
+                     ScopedTypeVariables
+
+
