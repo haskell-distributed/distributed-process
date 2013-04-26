@@ -27,12 +27,6 @@ import Network.Transport.TCP
   , defaultTCPParameters
   )
 import Control.Distributed.Process
-import Control.Distributed.Process.Internal.Types
-  ( NodeId(nodeAddress)
-  , LocalNode(localEndPoint)
-  , ProcessExitException(..)
-  , nullProcessId
-  )
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable (Serializable)
 
@@ -1095,8 +1089,8 @@ testPrettyExit transport = do
 
   _ <- forkProcess localNode $ do
       (die "timeout")
-      `catch` \ex@(ProcessExitException from _) ->
-        let expected = "exit-from=" ++ (show from)
+      `catch` \(ex :: ProcessExitException) ->
+        let expected = "exit-from=" ++ (show (exitSource ex))
         in do
           True <- return $ (show ex) == expected
           liftIO $ putMVar done ()

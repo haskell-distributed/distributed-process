@@ -27,7 +27,6 @@ import Network.Socket (sClose)
 import Control.Distributed.Process
 import Control.Distributed.Process.Closure
 import Control.Distributed.Process.Node
-import Control.Distributed.Process.Internal.Types (NodeId(nodeAddress))
 import Control.Distributed.Static (staticLabel, staticClosure)
 
 import Test.HUnit (Assertion)

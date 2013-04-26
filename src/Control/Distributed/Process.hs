@@ -15,7 +15,7 @@ please see the distributed-process wiki page on github:
 module Control.Distributed.Process
   ( -- * Basic types
     ProcessId
-  , NodeId
+  , NodeId(..)
   , Process
   , SendPortId
   , processNodeId
@@ -81,6 +81,8 @@ module Control.Distributed.Process
   , unmonitor
   , withMonitor
   , MonitorRef -- opaque
+  , ProcessExitException()
+  , exitSource
   , ProcessLinkException(..)
   , NodeLinkException(..)
   , PortLinkException(..)
@@ -127,6 +129,7 @@ module Control.Distributed.Process
   , spawnMonitor
   , spawnChannel
   , DidSpawn(..)
+  , nullProcessId
     -- * Local versions of 'spawn'
   , spawnLocal
   , spawnChannelLocal
@@ -160,6 +163,8 @@ import Control.Distributed.Process.Internal.Types
   , ProcessMonitorNotification(..)
   , NodeMonitorNotification(..)
   , PortMonitorNotification(..)
+  , ProcessExitException()
+  , exitSource
   , ProcessLinkException(..)
   , NodeLinkException(..)
   , PortLinkException(..)

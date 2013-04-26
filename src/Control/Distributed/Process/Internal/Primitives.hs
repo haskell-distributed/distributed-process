@@ -39,6 +39,7 @@ module Control.Distributed.Process.Internal.Primitives
     -- keep the exception constructor hidden, so that handling exit
     -- reasons /must/ take place via the 'catchExit' family of primitives
   , ProcessExitException()
+  , exitSource
   , getSelfPid
   , getSelfNode
   , ProcessInfo(..)
@@ -96,11 +97,6 @@ module Control.Distributed.Process.Internal.Primitives
 import Prelude hiding (catch)
 #endif
 
-import Data.Binary (decode)
-import Data.Time.Clock (getCurrentTime)
-import Data.Time.Format (formatTime)
-import System.Locale (defaultTimeLocale)
-import System.Timeout (timeout)
 import Control.Monad (when)
 import Control.Monad.Reader (ask)
 import Control.Monad.IO.Class (MonadIO, liftIO)
@@ -111,6 +107,7 @@ import Control.Distributed.Process.Internal.StrictMVar
   ( StrictMVar
   , modifyMVar
   , modifyMVar_
+  , withMVar
   )
 import Control.Concurrent.Chan (writeChan)
 import Control.Concurrent.STM
@@ -124,13 +121,12 @@ import Control.Concurrent.STM
   )
 import Control.Distributed.Process.Internal.CQueue
   ( dequeue
+  , enqueue
   , BlockSpec(..)
   , MatchOn(..)
   )
 import Control.Distributed.Process.Serializable (Serializable, fingerprint)
-import Data.Accessor ((^.), (^:), (^=))
 import Control.Distributed.Static (Closure, Static)
-import Data.Rank1Typeable (Typeable)
 import qualified Control.Distributed.Static as Static (unstatic, unclosure)
 import Control.Distributed.Process.Internal.Types
   ( NodeId(..)
@@ -149,10 +145,12 @@ import Control.Distributed.Process.Internal.Types
   , ReceivePort(..)
   , channelCounter
   , typedChannelWithId
+  , localProcessWithId
   , TypedChannel(..)
   , SendPortId(..)
   , Identifier(..)
   , ProcessExitException(..)
+  , exitSource
   , DidUnmonitor(..)
   , DidUnlinkProcess(..)
   , DidUnlinkNode(..)
@@ -166,7 +164,7 @@ import Control.Distributed.Process.Internal.Types
   , createUnencodedMessage
   , runLocalProcess
   , ImplicitReconnect(WithImplicitReconnect, NoImplicitReconnect)
-  , LocalProcessState
+  , LocalProcessState(..)
   , LocalSendPortId
   , messageToPayload
   )
@@ -178,10 +176,21 @@ import Control.Distributed.Process.Internal.Messaging
   )
 import qualified Control.Distributed.Process.Internal.Trace as Trace
 import Control.Distributed.Process.Internal.WeakTQueue
-  ( newTQueueIO
+  ( TQueue
+  , newTQueueIO
   , readTQueue
   , mkWeakTQueue
+  , writeTQueue
   )
+import Data.Accessor ((^.), (^:), (^=))
+import Data.Binary (decode)
+import Data.Foldable (forM_)
+import Data.Rank1Typeable (Typeable)
+import Data.Time.Clock (getCurrentTime)
+import Data.Time.Format (formatTime)
+import System.Locale (defaultTimeLocale)
+import System.Mem.Weak (deRefWeak)
+import System.Timeout (timeout)
 import Unsafe.Coerce
 
 --------------------------------------------------------------------------------
@@ -1032,19 +1041,62 @@ trace s = do
   liftIO $ Trace.trace (localTracer node) s
 
 --------------------------------------------------------------------------------
+-- Messages to local processes                                                --
+--------------------------------------------------------------------------------
+
+deliverToLocalProcess :: ProcessId -> Message -> Process ()
+deliverToLocalProcess pid msg = do
+  withLocalProc pid $ \p -> enqueue (processQueue p) msg
+
+deliverToLocalPort :: SendPortId -> Message -> Process ()
+deliverToLocalPort spId msg =
+  let pid = sendPortProcessId spId
+      cid = sendPortLocalId   spId
+  in do
+  withLocalProc pid $ \proc -> do
+    mChan <- withMVar (processState proc) $ return . (^. typedChannelWithId cid)
+    case mChan of
+      -- in the unlikely event we know nothing about this channel id,
+      -- see [note: missing recipients]
+      Nothing -> return ()
+      Just (TypedChannel chan') -> do
+        -- If ch is Nothing, the process has given up the read end of
+        -- the channel and we simply ignore the incoming message - this
+        ch <- deRefWeak chan'
+        forM_ ch $ \chan -> deliverChan msg chan
+  where deliverChan :: forall a . Message -> TQueue a -> IO ()
+        deliverChan (UnencodedMessage _ raw) chan' =
+            atomically $ writeTQueue chan' ((unsafeCoerce raw) :: a)
+        deliverChan (EncodedMessage   _ _) _ =
+            -- this will /never/ happen
+            error "invalid local channel delivery"
+
+withLocalProc :: ProcessId -> (LocalProcess -> IO ()) -> Process ()
+withLocalProc pid p = do
+  node <- processNode <$> ask
+  liftIO $ do
+    -- see [note: missing recipients]
+    let lpid = processLocalId pid
+    mProc <- withMVar (localState node) $ return . (^. localProcessWithId lpid)
+    forM_ mProc p
+
+-- [note: missing recipients]
+-- By [Unified: table 6, rule missing_process] messages to dead processes
+-- can silently be dropped
+
+--------------------------------------------------------------------------------
 -- Auxiliary functions                                                        --
 --------------------------------------------------------------------------------
 
 sendLocal :: (Serializable a) => ProcessId -> a -> Process ()
 sendLocal pid msg =
-  sendCtrlMsg Nothing $ LocalSend pid (createUnencodedMessage msg)
+  -- sendCtrlMsg Nothing $ LocalSend pid (createUnencodedMessage msg)
+  deliverToLocalProcess pid (createUnencodedMessage msg)
 
 sendChanLocal :: (Serializable a) => SendPortId -> a -> Process ()
 sendChanLocal spId msg =
-  -- we *must* fully serialize/encode the message here, because
-  -- attempting to use `unsafeCoerce' in the node controller
-  -- won't work since we know nothing about the required type
-  sendCtrlMsg Nothing $ LocalPortSend spId (createUnencodedMessage msg)
+  -- sendCtrlMsg Nothing $ LocalPortSend spId (createUnencodedMessage msg)
+  deliverToLocalPort spId (createUnencodedMessage msg)
 
 getMonitorRefFor :: Identifier -> Process MonitorRef
 getMonitorRefFor ident = do

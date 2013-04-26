@@ -39,6 +39,7 @@ module Control.Distributed.Process.Internal.Types
   , NodeMonitorNotification(..)
   , PortMonitorNotification(..)
   , ProcessExitException(..)
+  , exitSource
   , ProcessLinkException(..)
   , NodeLinkException(..)
   , PortLinkException(..)
@@ -410,6 +411,9 @@ data ProcessExitException =
 instance Exception ProcessExitException
 instance Show ProcessExitException where
   show (ProcessExitException pid _) = "exit-from=" ++ (show pid)
+
+exitSource :: ProcessExitException -> ProcessId
+exitSource (ProcessExitException from _) = from
 
 instance Exception ProcessLinkException
 instance Exception NodeLinkException

@@ -59,19 +59,19 @@ Library
                      rank1dynamic >= 0.1 && < 0.2,
                      syb >= 0.3 && < 0.4
   Exposed-modules:   Control.Distributed.Process,
-                     Control.Distributed.Process.Serializable,
                      Control.Distributed.Process.Closure,
                      Control.Distributed.Process.Node,
-                     Control.Distributed.Process.Internal.Primitives,
+                     Control.Distributed.Process.Serializable
+  Other-modules:     Control.Distributed.Process.Internal.Closure.BuiltIn,
                      Control.Distributed.Process.Internal.CQueue,
-                     Control.Distributed.Process.Internal.Types,
-                     Control.Distributed.Process.Internal.Trace,
-                     Control.Distributed.Process.Internal.Closure.BuiltIn,
                      Control.Distributed.Process.Internal.Messaging,
+                     Control.Distributed.Process.Internal.Primitives,
+                     Control.Distributed.Process.Internal.StrictContainerAccessors,
                      Control.Distributed.Process.Internal.StrictList,
                      Control.Distributed.Process.Internal.StrictMVar,
+                     Control.Distributed.Process.Internal.Trace,
+                     Control.Distributed.Process.Internal.Types,
                      Control.Distributed.Process.Internal.WeakTQueue
-                     Control.Distributed.Process.Internal.StrictContainerAccessors
   Extensions:        RankNTypes,
                      ScopedTypeVariables,
                      FlexibleInstances,

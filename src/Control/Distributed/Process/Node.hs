@@ -1,7 +1,7 @@
 -- | Local nodes
 --
 module Control.Distributed.Process.Node
-  ( LocalNode
+  ( LocalNode(localEndPoint)
   , newLocalNode
   , closeLocalNode
   , forkProcess
