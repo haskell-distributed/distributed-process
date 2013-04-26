@@ -177,7 +177,7 @@ import qualified Control.Distributed.Process.Internal.StrictContainerAccessors a
   ( mapMaybe
   , mapDefault
   )
-
+import GHC.Conc (labelThread)
 import Unsafe.Coerce
 
 --------------------------------------------------------------------------------
@@ -309,6 +309,8 @@ forkProcess node proc = modifyMVar (localState node) startProcess
             { ctrlMsgSender = ProcessIdentifier pid
             , ctrlMsgSignal = Died (ProcessIdentifier pid) reason
             }
+
+        labelThread tid' (show pid)
         return (tid', lproc)
 
       if lpidCounter lpid == maxBound
