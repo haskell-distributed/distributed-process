@@ -6,6 +6,7 @@ the number of times to send a message around the ring
 import Control.Monad
 import Control.Distributed.Process hiding (catch)
 import Control.Distributed.Process.Node
+import Control.Exception (SomeException, catch)
 import Network.Transport.TCP (createTransport, defaultTCPParameters)
 import System.Environment
 import System.Console.GetOpt
@@ -100,5 +101,5 @@ main = do
   Right transport <- createTransport "127.0.0.1" "8090" defaultTCPParameters
   node <- newLocalNode transport initRemoteTable
   catch (runProcess node $ initialProcess opt)
-        (\e -> putStrLn $ "ERROR: " ++ (show e))
+        (\(e :: SomeException) -> putStrLn $ "ERROR: " ++ (show e))
 
