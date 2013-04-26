@@ -251,7 +251,7 @@ Executable distributed-process-ring
   if flag(prof)
     ghc-options:     -Wall -threaded -prof -auto-all -fno-prof-count-entries -rtsopts
   else
-    ghc-options:     -Wall -threaded -O2 -H256m -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
+    ghc-options:     -Wall -threaded -O2 -rtsopts
   Extensions:        BangPatterns,
                      ScopedTypeVariables
 
