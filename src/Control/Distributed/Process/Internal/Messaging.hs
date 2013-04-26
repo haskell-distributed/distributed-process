@@ -5,6 +5,7 @@ module Control.Distributed.Process.Internal.Messaging
   , disconnect
   , closeImplicitReconnections
   , impliesDeathOf
+  , sendCtrlMsg
   ) where
 
 import Data.Accessor ((^.), (^=))
@@ -13,8 +14,12 @@ import qualified Data.Map as Map (partitionWithKey, elems)
 import qualified Data.ByteString.Lazy as BSL (toChunks)
 import qualified Data.ByteString as BSS (ByteString)
 import Control.Distributed.Process.Internal.StrictMVar (withMVar, modifyMVar_)
+import Control.Distributed.Process.Serializable ()
+
 import Control.Concurrent.Chan (writeChan)
 import Control.Monad (unless)
+import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.Reader (ask)
 import qualified Network.Transport as NT
   ( Connection
   , send
@@ -36,8 +41,11 @@ import Control.Distributed.Process.Internal.Types
   , ProcessSignal(Died)
   , DiedReason(DiedDisconnect)
   , ImplicitReconnect(WithImplicitReconnect)
-  , NodeId
-  , ProcessId(processNodeId)
+  , NodeId(..)
+  , ProcessId(..)
+  , LocalNode(..)
+  , LocalProcess(..)
+  , Process(..)
   , SendPortId(sendPortProcessId)
   , Identifier(NodeIdentifier, ProcessIdentifier, SendPortIdentifier)
   )
@@ -167,3 +175,24 @@ SendPortIdentifier cid `impliesDeathOf` SendPortIdentifier cid' =
   cid' == cid
 _ `impliesDeathOf` _ =
   False
+
+
+-- Send a control message
+sendCtrlMsg :: Maybe NodeId  -- ^ Nothing for the local node
+            -> ProcessSignal -- ^ Message to send
+            -> Process ()
+sendCtrlMsg mNid signal = do
+  proc <- ask
+  let msg = NCMsg { ctrlMsgSender = ProcessIdentifier (processId proc)
+                  , ctrlMsgSignal = signal
+                  }
+  case mNid of
+    Nothing -> do
+      liftIO $ writeChan (localCtrlChan (processNode proc)) msg
+    Just nid ->
+      liftIO $ sendBinary (processNode proc)
+                          (ProcessIdentifier (processId proc))
+                          (NodeIdentifier nid)
+                          WithImplicitReconnect
+                          msg
+

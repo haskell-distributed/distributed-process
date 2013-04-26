@@ -2,11 +2,12 @@
 
 To run the benchmarks, select a value for the ring size (sz) and
 the number of times to send a message around the ring
+
 -}
 import Control.Monad
 import Control.Distributed.Process hiding (catch)
 import Control.Distributed.Process.Node
-import Control.Exception (SomeException, catch)
+import Control.Exception (catch, SomeException)
 import Network.Transport.TCP (createTransport, defaultTCPParameters)
 import System.Environment
 import System.Console.GetOpt
@@ -16,6 +17,7 @@ data Options = Options
   , optIterations :: Int
   , optForward    :: Bool
   , optParallel   :: Bool
+  , optUnsafe     :: Bool
   } deriving Show
 
 initialProcess :: Options -> Process ()
@@ -23,28 +25,30 @@ initialProcess op =
   let ringSz = optRingSize op
       msgCnt = optIterations op
       fwd    = optForward op
+      unsafe = optUnsafe op
       msg    = ("foobar", "baz")
   in do
     self <- getSelfPid
-    ring <- makeRing fwd ringSz self
+    ring <- makeRing fwd unsafe ringSz self
     forM_ [1..msgCnt] (\_ -> send ring msg)
     collect msgCnt
-  where relay' pid = do
+  where relay fsend pid = do
           msg <- expect :: Process (String, String)
-          send pid msg
-          relay' pid
+          fsend pid msg
+          relay fsend pid
 
         forward' pid =
           receiveWait [ matchAny (\m -> forward m pid) ] >> forward' pid
 
-        makeRing :: Bool -> Int -> ProcessId -> Process ProcessId
-        makeRing !f !n !pid
-          | n == 0    = go f pid
-          | otherwise = go f pid >>= makeRing f (n - 1)
+        makeRing :: Bool -> Bool -> Int -> ProcessId -> Process ProcessId
+        makeRing !f !u !n !pid
+          | n == 0    = go f u pid
+          | otherwise = go f u pid >>= makeRing f u (n - 1)
 
-        go :: Bool -> ProcessId -> Process ProcessId
-        go False next = spawnLocal $ relay' next
-        go True  next = spawnLocal $ forward' next
+        go :: Bool -> Bool -> ProcessId -> Process ProcessId
+        go False False next = spawnLocal $ relay send next
+        go False True  next = spawnLocal $ relay unsafeSend next
+        go True  _     next = spawnLocal $ forward' next
 
         collect :: Int -> Process ()
         collect !n
@@ -63,6 +67,7 @@ defaultOptions = Options
   , optIterations = 100
   , optForward    = False
   , optParallel   = False
+  , optUnsafe     = False
   }
 
 options :: [OptDescr (Options -> Options)]
@@ -72,6 +77,9 @@ options =
     , Option ['f'] ["forward"]
         (NoArg (\opts -> opts { optForward = True }))
         "use `forward' instead of send - default = False"
+    , Option ['u'] ["unsafe-send"]
+        (NoArg (\opts -> opts { optUnsafe = True }))
+        "use 'unsafeSend' (ignored with -f) - default = False"
     , Option ['p'] ["parallel"]
         (NoArg (\opts -> opts { optForward = True }))
         "send in parallel and consume sequentially - default = False"
@@ -100,6 +108,6 @@ main = do
   putStrLn $ "options: " ++ (show opt)
   Right transport <- createTransport "127.0.0.1" "8090" defaultTCPParameters
   node <- newLocalNode transport initRemoteTable
-  catch (runProcess node $ initialProcess opt)
+  catch (void $ runProcess node $ initialProcess opt)
         (\(e :: SomeException) -> putStrLn $ "ERROR: " ++ (show e))
 
