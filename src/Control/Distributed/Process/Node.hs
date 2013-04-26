@@ -49,7 +49,13 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.State.Strict (MonadState, StateT, evalStateT, gets)
 import qualified Control.Monad.State.Strict as StateT (get, put)
 import Control.Monad.Reader (MonadReader, ReaderT, runReaderT, ask)
-import Control.Exception (throwIO, SomeException, Exception, throwTo)
+import Control.Exception
+  ( throwIO
+  , AsyncException(ThreadKilled)
+  , SomeException
+  , Exception
+  , throwTo
+  )
 import qualified Control.Exception as Exception (catch)
 import Control.Concurrent (forkIO)
 import Control.Distributed.Process.Internal.StrictMVar
@@ -126,7 +132,7 @@ import Control.Distributed.Process.Internal.Types
   , DidUnlinkPort(..)
   , SpawnRef
   , DidSpawn(..)
-  , Message
+  , Message(..)
   , TypedChannel(..)
   , Identifier(..)
   , nodeOf
@@ -138,7 +144,7 @@ import Control.Distributed.Process.Internal.Types
   , WhereIsReply(..)
   , messageToPayload
   , payloadToMessage
-  , createMessage
+  , createUnencodedMessage
   , runLocalProcess
   , firstNonReservedProcessId
   , ImplicitReconnect(WithImplicitReconnect, NoImplicitReconnect)
@@ -166,11 +172,13 @@ import Control.Distributed.Process.Internal.Primitives
   )
 import Control.Distributed.Process.Internal.Types (SendPort)
 import qualified Control.Distributed.Process.Internal.Closure.BuiltIn as BuiltIn (remoteTable)
-import Control.Distributed.Process.Internal.WeakTQueue (writeTQueue)
+import Control.Distributed.Process.Internal.WeakTQueue (TQueue, writeTQueue)
 import qualified Control.Distributed.Process.Internal.StrictContainerAccessors as DAC
   ( mapMaybe
   , mapDefault
   )
+
+import Unsafe.Coerce
 
 --------------------------------------------------------------------------------
 -- Initialization                                                             --
@@ -193,25 +201,41 @@ newLocalNode transport rtable = do
 -- | Create a new local node (without any service processes running)
 createBareLocalNode :: NT.EndPoint -> RemoteTable -> IO LocalNode
 createBareLocalNode endPoint rtable = do
-  unq <- randomIO
-  state <- newMVar LocalNodeState
-    { _localProcesses   = Map.empty
-    , _localPidCounter  = firstNonReservedProcessId
-    , _localPidUnique   = unq
-    , _localConnections = Map.empty
-    }
-  ctrlChan <- newChan
-  let node = LocalNode { localNodeId   = NodeId $ NT.address endPoint
-                       , localEndPoint = endPoint
-                       , localState    = state
-                       , localCtrlChan = ctrlChan
-                       , localTracer   = InactiveTracer
-                       , remoteTable   = rtable
-                       }
-  tracedNode <- startTracing node
-  void . forkIO $ runNodeController tracedNode
-  void . forkIO $ handleIncomingMessages tracedNode
-  return tracedNode
+    unq <- randomIO
+    state <- newMVar LocalNodeState
+      { _localProcesses   = Map.empty
+      , _localPidCounter  = firstNonReservedProcessId
+      , _localPidUnique   = unq
+      , _localConnections = Map.empty
+      }
+    ctrlChan <- newChan
+    let node = LocalNode { localNodeId   = NodeId $ NT.address endPoint
+                         , localEndPoint = endPoint
+                         , localState    = state
+                         , localCtrlChan = ctrlChan
+                         , localTracer   = InactiveTracer
+                         , remoteTable   = rtable
+                         }
+    tracedNode <- startTracing node
+
+    ncGo <- newEmptyMVar
+    ncTid <- forkIO $ do
+      tid <- takeMVar ncGo
+      (runNodeController tracedNode
+       `Exception.catch` \(e :: SomeException) -> throwTo tid e)
+
+    evTid <- forkIO $ do
+      (handleIncomingMessages tracedNode >> (stopNC node))
+        `Exception.catch` \(e :: SomeException) -> throwTo ncTid e
+
+    putMVar ncGo evTid
+    return tracedNode
+  where
+    stopNC node =
+       writeChan (localCtrlChan node) NCMsg
+            { ctrlMsgSender = NodeIdentifier (localNodeId node)
+            , ctrlMsgSignal = SigShutdown
+            }
 
 -- | Start and register the service processes on a node
 -- (for now, this is only the logger)
@@ -577,12 +601,18 @@ nodeController = do
         ncEffectWhereIs from label
       NCMsg from (NamedSend label msg') ->
         ncEffectNamedSend from label msg'
+      NCMsg _ (LocalSend to msg') ->
+        ncEffectLocalSend to msg'
+      NCMsg _ (LocalPortSend to msg') ->
+        ncEffectLocalPortSend to msg'
       NCMsg (ProcessIdentifier from) (Kill to reason) ->
         ncEffectKill from to reason
       NCMsg (ProcessIdentifier from) (Exit to reason) ->
         ncEffectExit from to reason
       NCMsg (ProcessIdentifier from) (GetInfo pid) ->
         ncEffectGetInfo from pid
+      NCMsg _ SigShutdown ->
+        liftIO $ throwIO ThreadKilled -- seems to make more sense than fail/error
       unexpected ->
         error $ "nodeController: unexpected message " ++ show unexpected
 
@@ -782,12 +812,35 @@ ncEffectNamedSend from label msg = do
   node <- ask
   mPid <- gets (^. registeredHereFor label)
   -- If mPid is Nothing, we just ignore the named send (as per Table 14)
-  forM_ mPid $ \pid ->
-    liftIO $ sendPayload node
-                         from
-                         (ProcessIdentifier pid)
-                         NoImplicitReconnect
-                         (messageToPayload msg)
+  forM_ mPid $ \pid -> postMessage pid msg
+
+-- [Issue #DP-20]
+ncEffectLocalSend :: ProcessId -> Message -> NC ()
+ncEffectLocalSend = postMessage
+
+-- [Issue #DP-20]
+ncEffectLocalPortSend :: SendPortId -> Message -> NC ()
+ncEffectLocalPortSend from msg =
+  let pid = sendPortProcessId from
+      cid = sendPortLocalId   from
+  in do
+  withLocalProc pid $ \proc -> do
+    mChan <- withMVar (processState proc) $ return . (^. typedChannelWithId cid)
+    case mChan of
+      -- in the unlikely event we know nothing about this channel id,
+      -- there's little to be done - perhaps some logging/tracing though...
+      Nothing -> return ()
+      Just (TypedChannel chan') -> do
+        -- If ch is Nothing, the process has given up the read end of
+        -- the channel and we simply ignore the incoming message - this
+        ch <- deRefWeak chan'
+        forM_ ch $ \chan -> deliverChan msg chan
+  where deliverChan :: forall a . Message -> TQueue a -> IO ()
+        deliverChan (UnencodedMessage _ raw) chan' =
+            atomically $ writeTQueue chan' ((unsafeCoerce raw) :: a)
+        deliverChan (EncodedMessage   _ _) _ =
+            -- this will not happen unless someone screws with Primitives.hs
+            error "invalid local channel delivery"
 
 -- [Issue #69]
 ncEffectKill :: ProcessId -> ProcessId -> String -> NC ()
@@ -887,21 +940,24 @@ notifyDied dest src reason mRef = do
 
 -- | [Unified: Table 8]
 destNid :: ProcessSignal -> Maybe NodeId
-destNid (Link ident)        = Just $ nodeOf ident
-destNid (Unlink ident)      = Just $ nodeOf ident
-destNid (Monitor ref)       = Just $ nodeOf (monitorRefIdent ref)
-destNid (Unmonitor ref)     = Just $ nodeOf (monitorRefIdent ref)
-destNid (Spawn _ _)         = Nothing
-destNid (Register _ _ _ _)  = Nothing
-destNid (WhereIs _)         = Nothing
-destNid (NamedSend _ _)     = Nothing
+destNid (Link ident)          = Just $ nodeOf ident
+destNid (Unlink ident)        = Just $ nodeOf ident
+destNid (Monitor ref)         = Just $ nodeOf (monitorRefIdent ref)
+destNid (Unmonitor ref)       = Just $ nodeOf (monitorRefIdent ref)
+destNid (Spawn _ _)           = Nothing
+destNid (Register _ _ _ _)    = Nothing
+destNid (WhereIs _)           = Nothing
+destNid (NamedSend _ _)       = Nothing
 -- We don't need to forward 'Died' signals; if monitoring/linking is setup,
 -- then when a local process dies the monitoring/linking machinery will take
 -- care of notifying remote nodes
-destNid (Died _ _)          = Nothing
-destNid (Kill pid _)        = Just $ processNodeId pid
-destNid (Exit pid _)        = Just $ processNodeId pid
-destNid (GetInfo pid)       = Just $ processNodeId pid
+destNid (Died _ _)            = Nothing
+destNid (Kill pid _)          = Just $ processNodeId pid
+destNid (Exit pid _)          = Just $ processNodeId pid
+destNid (GetInfo pid)         = Just $ processNodeId pid
+destNid (LocalSend pid _)     = Just $ processNodeId pid
+destNid (LocalPortSend cid _) = Just $ processNodeId (sendPortProcessId cid)
+destNid (SigShutdown)       = Nothing
 
 -- | Check if a process is local to our own node
 isLocal :: LocalNode -> Identifier -> Bool
@@ -938,7 +994,7 @@ isValidLocalIdentifier ident = do
 --------------------------------------------------------------------------------
 
 postAsMessage :: Serializable a => ProcessId -> a -> NC ()
-postAsMessage pid = postMessage pid . createMessage
+postAsMessage pid = postMessage pid . createUnencodedMessage
 
 postMessage :: ProcessId -> Message -> NC ()
 postMessage pid msg = do
