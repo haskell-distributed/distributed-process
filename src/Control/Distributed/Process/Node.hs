@@ -57,7 +57,7 @@ import Control.Exception
   , throwTo
   )
 import qualified Control.Exception as Exception (catch)
-import Control.Concurrent (forkIO)
+import Control.Concurrent (forkIO, mkWeakThreadId, ThreadId)
 import Control.Distributed.Process.Internal.StrictMVar
   ( newMVar
   , withMVar
@@ -142,12 +142,11 @@ import Control.Distributed.Process.Internal.Types
   , typedChannelWithId
   , RegisterReply(..)
   , WhereIsReply(..)
-  , messageToPayload
   , payloadToMessage
   , createUnencodedMessage
   , runLocalProcess
   , firstNonReservedProcessId
-  , ImplicitReconnect(WithImplicitReconnect, NoImplicitReconnect)
+  , ImplicitReconnect(WithImplicitReconnect)
   )
 import Control.Distributed.Process.Internal.Trace
   ( TraceArg(..)
@@ -159,7 +158,6 @@ import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Internal.Messaging
   ( sendBinary
   , sendMessage
-  , sendPayload
   , closeImplicitReconnections
   , impliesDeathOf
   )
@@ -222,13 +220,15 @@ createBareLocalNode endPoint rtable = do
     ncTid <- forkIO $ do
       tid <- takeMVar ncGo
       (runNodeController tracedNode
-       `Exception.catch` \(e :: SomeException) -> throwTo tid e)
+       `Exception.catch` \(e :: SomeException) -> reThrow tid e)
 
+    weakNcTid <- mkWeakThreadId ncTid
     evTid <- forkIO $ do
       (handleIncomingMessages tracedNode >> (stopNC node))
-        `Exception.catch` \(e :: SomeException) -> throwTo ncTid e
+        `Exception.catch` \(e :: SomeException) -> reThrow weakNcTid e
 
-    putMVar ncGo evTid
+    weakEvTid <- mkWeakThreadId evTid
+    putMVar ncGo weakEvTid
     return tracedNode
   where
     stopNC node =
@@ -236,6 +236,13 @@ createBareLocalNode endPoint rtable = do
             { ctrlMsgSender = NodeIdentifier (localNodeId node)
             , ctrlMsgSignal = SigShutdown
             }
+
+    reThrow :: (Exception e) => Weak ThreadId -> e -> IO ()
+    reThrow wTid ex = do
+      tid <- deRefWeak wTid
+      case tid of
+        Nothing -> return ()
+        Just t  -> throwTo t ex
 
 -- | Start and register the service processes on a node
 -- (for now, this is only the logger)
@@ -599,8 +606,8 @@ nodeController = do
         ncEffectRegister from label atnode pid force
       NCMsg (ProcessIdentifier from) (WhereIs label) ->
         ncEffectWhereIs from label
-      NCMsg from (NamedSend label msg') ->
-        ncEffectNamedSend from label msg'
+      NCMsg _ (NamedSend label msg') ->
+        ncEffectNamedSend label msg'
       NCMsg _ (LocalSend to msg') ->
         ncEffectLocalSend to msg'
       NCMsg _ (LocalPortSend to msg') ->
@@ -807,9 +814,8 @@ ncEffectWhereIs from label = do
                        (WhereIsReply label mPid)
 
 -- [Unified: Table 14]
-ncEffectNamedSend :: Identifier -> String -> Message -> NC ()
-ncEffectNamedSend from label msg = do
-  node <- ask
+ncEffectNamedSend :: String -> Message -> NC ()
+ncEffectNamedSend label msg = do
   mPid <- gets (^. registeredHereFor label)
   -- If mPid is Nothing, we just ignore the named send (as per Table 14)
   forM_ mPid $ \pid -> postMessage pid msg
