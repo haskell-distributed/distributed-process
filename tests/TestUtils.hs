@@ -26,7 +26,9 @@ module TestUtils
   , testMain
   ) where
 
+#if ! MIN_VERSION_base(4,6,0)
 import Prelude hiding (catch)
+#endif
 import Control.Concurrent
   ( ThreadId
   , myThreadId
