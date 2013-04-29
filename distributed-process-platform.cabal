@@ -17,7 +17,7 @@ description:    Modelled after Erlang's OTP, this framework provides similar
                 into a set of modules and standards designed to help you build
                 concurrent, distributed applications with relative ease.
 category:       Control
-tested-with:    GHC == 7.4.2
+tested-with:    GHC == 7.4.2 GHC == 7.6.2
 data-dir:       ""
 
 source-repository head
