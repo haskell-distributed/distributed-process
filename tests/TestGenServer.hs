@@ -30,7 +30,9 @@ import Counter
 import qualified SafeCounter as SafeCounter
 import SimplePool
 
+#if ! MIN_VERSION_base(4,6,0)
 import Prelude hiding (catch)
+#endif
 
 import Test.Framework (Test, testGroup)
 import Test.Framework.Providers.HUnit (testCase)
@@ -314,9 +316,11 @@ testSafeCounterCurrentState pid result =
 
 testSafeCounterIncrement :: ProcessId -> TestResult Int -> Process ()
 testSafeCounterIncrement pid result = do
-  6 <- incCount pid
-  7 <- incCount pid
-  getCount pid >>= stash result
+  5 <- SafeCounter.getCount pid
+  SafeCounter.resetCount pid
+  1 <- SafeCounter.incCount pid
+  2 <- SafeCounter.incCount pid
+  SafeCounter.getCount pid >>= stash result
 
 -- Counter tests
 
@@ -452,7 +456,7 @@ tests transport = do
           , testCase "increment counter twice"
               (delayedAssertion
                "expected the server to return the incremented state as 7"
-               localNode 7 (testSafeCounterIncrement safeCounter))
+               localNode 2 (testSafeCounterIncrement safeCounter))
           ]
       ]
 

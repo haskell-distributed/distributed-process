@@ -2,6 +2,7 @@
 {-# LANGUAGE TemplateHaskell      #-}
 {-# LANGUAGE ScopedTypeVariables  #-}
 {-# LANGUAGE BangPatterns         #-}
+{-# LANGUAGE DeriveGeneric        #-}
 
 module SafeCounter
   ( startCounter,
@@ -10,7 +11,10 @@ module SafeCounter
     incCount,
     resetCount,
     wait,
-    waitTimeout
+    waitTimeout,
+    Fetch(..),
+    Increment(..),
+    Reset(..)
   ) where
 
 import Control.Distributed.Process hiding (call, say)
@@ -25,29 +29,27 @@ import Control.Distributed.Process.Platform.ManagedProcess
   , condition
   )
 import Control.Distributed.Process.Platform.ManagedProcess.Client
-import Control.Distributed.Process.Platform.ManagedProcess.SafeServer
+import Control.Distributed.Process.Platform.ManagedProcess.Server.Pure
 import Control.Distributed.Process.Platform.Time
 import Control.Distributed.Process.Serializable
 import Data.Binary
-import Data.DeriveTH
 import Data.Typeable (Typeable)
+import GHC.Generics
 
 --------------------------------------------------------------------------------
 -- Types                                                                      --
 --------------------------------------------------------------------------------
 
 data Increment = Increment
-  deriving (Show, Typeable)
-$(derive makeBinary ''Increment)
+  deriving (Show, Typeable, Generic)
+instance Binary Increment where
 
 data Fetch = Fetch
-  deriving (Show, Typeable)
-$(derive makeBinary ''Fetch)
+  deriving (Show, Typeable, Generic)
+instance Binary Fetch where
 
-data Reset = Reset deriving (Show, Typeable)
-$(derive makeBinary ''Reset)
-
-type State = Int
+data Reset = Reset deriving (Show, Typeable, Generic)
+instance Binary Reset where
 
 --------------------------------------------------------------------------------
 -- API                                                                        --
@@ -57,7 +59,7 @@ type State = Int
 incCount :: ProcessId -> Process Int
 incCount sid = call sid Increment
 
--- | Get the current count - this is replicating what 'call' actually does
+-- | Get the current count
 getCount :: ProcessId -> Process Int
 getCount sid = call sid Fetch
 
@@ -81,26 +83,22 @@ startCounter startCount =
 -- Implementation                                                             --
 --------------------------------------------------------------------------------
 
-serverDefinition :: ProcessDefinition State
+serverDefinition :: ProcessDefinition Int
 serverDefinition = defaultProcess {
    apiHandlers = [
         handleCallIf
-          (condition (\count Increment -> count >= 10))-- invariant
+          (condition (\count Increment -> count >= 10)) -- invariant
           (\Increment -> halt :: RestrictedProcess Int (Result Int))
 
       , handleCall handleIncrement
-      , handleCall (\Fetch     -> getState >>= reply)
-      , handleCast (\Reset     -> putState (0 :: Int) >> continue)
+      , handleCall (\Fetch -> getState >>= reply)
+      , handleCast (\Reset -> putState (0 :: Int) >> continue)
       ]
-   } :: ProcessDefinition State
+   } :: ProcessDefinition Int
 
 halt :: forall s r . Serializable r => RestrictedProcess s (Result r)
 halt = haltNoReply (TerminateOther "Count > 10")
 
 handleIncrement :: Increment -> RestrictedProcess Int (Result Int)
-handleIncrement Increment = do
-  modifyState (+1)
-  c <- getState
-  say $ "state = " ++ (show c)
-  reply c
+handleIncrement _ = modifyState (+1) >> getState >>= reply
 
