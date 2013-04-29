@@ -56,8 +56,8 @@ import Control.Exception
   , Exception
   , throwTo
   )
-import qualified Control.Exception as Exception (catch)
-import Control.Concurrent (forkIO, mkWeakThreadId, ThreadId)
+import qualified Control.Exception as Exception (catch, finally)
+import Control.Concurrent (forkIO)
 import Control.Distributed.Process.Internal.StrictMVar
   ( newMVar
   , withMVar
@@ -216,19 +216,14 @@ createBareLocalNode endPoint rtable = do
                          }
     tracedNode <- startTracing node
 
-    ncGo <- newEmptyMVar
-    ncTid <- forkIO $ do
-      tid <- takeMVar ncGo
-      (runNodeController tracedNode
-       `Exception.catch` \(e :: SomeException) -> reThrow tid e)
+    -- Once the NC terminates, the endpoint isn't much use,
+    void $ forkIO $ Exception.finally (runNodeController tracedNode)
+                                      (NT.closeEndPoint (localEndPoint node))
 
-    weakNcTid <- mkWeakThreadId ncTid
-    evTid <- forkIO $ do
-      (handleIncomingMessages tracedNode >> (stopNC node))
-        `Exception.catch` \(e :: SomeException) -> reThrow weakNcTid e
+    -- whilst a closed/failing endpoint will terminate the NC
+    void $ forkIO $ Exception.finally (handleIncomingMessages tracedNode)
+                                      (stopNC node)
 
-    weakEvTid <- mkWeakThreadId evTid
-    putMVar ncGo weakEvTid
     return tracedNode
   where
     stopNC node =
@@ -236,13 +231,6 @@ createBareLocalNode endPoint rtable = do
             { ctrlMsgSender = NodeIdentifier (localNodeId node)
             , ctrlMsgSignal = SigShutdown
             }
-
-    reThrow :: (Exception e) => Weak ThreadId -> e -> IO ()
-    reThrow wTid ex = do
-      tid <- deRefWeak wTid
-      case tid of
-        Nothing -> return ()
-        Just t  -> throwTo t ex
 
 -- | Start and register the service processes on a node
 -- (for now, this is only the logger)
@@ -619,7 +607,10 @@ nodeController = do
       NCMsg (ProcessIdentifier from) (GetInfo pid) ->
         ncEffectGetInfo from pid
       NCMsg _ SigShutdown ->
-        liftIO $ throwIO ThreadKilled -- seems to make more sense than fail/error
+        liftIO $ do
+          NT.closeEndPoint (localEndPoint node)
+            `Exception.finally` throwIO ThreadKilled
+        -- ThreadKilled seems to make more sense than fail/error here
       unexpected ->
         error $ "nodeController: unexpected message " ++ show unexpected
 
