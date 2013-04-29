@@ -144,6 +144,7 @@ test-suite GenServerTests
   build-depends:
                    base >= 4.4 && < 5,
                    ansi-terminal >= 0.5 && < 0.6,
+                   containers,
                    distributed-process,
                    derive,
                    network-transport >= 0.3 && < 0.4,

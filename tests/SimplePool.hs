@@ -22,6 +22,13 @@ import Data.List
   ( deleteBy
   , find
   )
+import Data.Sequence
+  ( Seq
+  , ViewR(..)
+  , (<|)
+  , viewr
+  )
+import qualified Data.Sequence as Seq (empty, length)
 import Data.Typeable
 
 import GHC.Generics (Generic)
@@ -47,7 +54,7 @@ instance Binary PoolStats
 data Pool a = Pool {
     poolSize :: PoolSize
   , active   :: [(MonitorRef, Recipient, Async a)]
-  , accepted :: [(Recipient, Closure (Process a))]
+  , accepted :: Seq (Recipient, Closure (Process a))
   } deriving (Typeable)
 
 poolServer :: forall a . (Serializable a) => ProcessDefinition (Pool a)
@@ -69,7 +76,7 @@ simplePool :: forall a . (Serializable a)
               -> Process (Either (InitResult (Pool a)) TerminateReason)
 simplePool sz server = start sz init' server
   where init' :: PoolSize -> Process (InitResult (Pool a))
-        init' sz' = return $ InitOk (Pool sz' [] []) Infinity
+        init' sz' = return $ InitOk (Pool sz' [] Seq.empty) Infinity
 
 -- enqueues the task in the pool and blocks
 -- the caller until the task is complete
@@ -88,7 +95,7 @@ poolStatsRequest :: (Serializable a)
 poolStatsRequest st GetStats =
   let sz = poolSize st
       ac = length (active st)
-      pj = length (accepted st)
+      pj = Seq.length (accepted st)
   in reply (PoolStats sz ac pj) st
 
 -- /call/ handler: accept a task and defer responding until "later"
@@ -108,7 +115,7 @@ acceptTask s@(Pool sz' runQueue taskQueue) from task' =
   let currentSz = length runQueue
   in case currentSz >= sz' of
     True  -> do
-      return $ s { accepted = ((from, task'):taskQueue) }
+      return $ s { accepted = enqueue taskQueue (from, task') }
     False -> do
       proc <- unClosure task'
       asyncHandle <- async proc
@@ -140,10 +147,11 @@ taskComplete s@(Pool _ runQ _)
 
     bump :: Pool a -> (MonitorRef, Recipient, Async a) -> Process (Pool a)
     bump st@(Pool _ runQueue acc) worker =
-      let runQ2  = deleteFromRunQueue worker runQueue in
-      case acc of
-        []           -> return st { active = runQ2 }
-        ((tr,tc):ts) -> acceptTask (st { accepted = ts, active = runQ2 }) tr tc
+      let runQ2 = deleteFromRunQueue worker runQueue
+          accQ  = dequeue acc in
+      case accQ of
+        Nothing            -> return st { active = runQ2 }
+        Just ((tr,tc), ts) -> acceptTask (st { accepted = ts, active = runQ2 }) tr tc
 
 findWorker :: MonitorRef
            -> [(MonitorRef, Recipient, Async a)]
@@ -154,4 +162,18 @@ deleteFromRunQueue :: (MonitorRef, Recipient, Async a)
                    -> [(MonitorRef, Recipient, Async a)]
                    -> [(MonitorRef, Recipient, Async a)]
 deleteFromRunQueue c@(p, _, _) runQ = deleteBy (\_ (b, _, _) -> b == p) c runQ
+
+{-# INLINE enqueue #-}
+enqueue :: Seq a -> a -> Seq a
+enqueue s a = a <| s
+
+{-# INLINE dequeue #-}
+dequeue :: Seq a -> Maybe (a, Seq a)
+dequeue s = maybe Nothing (\(s' :> a) -> Just (a, s')) $ getR s
+
+getR :: Seq a -> Maybe (ViewR a)
+getR s =
+  case (viewr s) of
+    EmptyR -> Nothing
+    a      -> Just a
 
