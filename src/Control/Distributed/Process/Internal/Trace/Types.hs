@@ -146,7 +146,7 @@ data TraceOk = TraceOk
 --------------------------------------------------------------------------------
 
 traceLog :: Tracer -> String -> IO ()
-traceLog tr s = traceMessage tr (TraceEvLog s)
+traceLog tr s = traceIt tr (createUnencodedMessage $ TraceEvLog s)
 
 traceLogFmt :: Tracer
             -> String

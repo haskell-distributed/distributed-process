@@ -29,6 +29,7 @@ import Control.Distributed.Process.Internal.Primitives
   , matchAny
   , matchIf
   , handleMessage
+  , unwrapMessage
   , matchUnknown
   )
 import Control.Distributed.Process.Internal.Trace.Types
@@ -134,7 +135,8 @@ systemLoggerTracer = do
     sendTraceMsg :: LocalNode -> TraceEvent -> Process ()
     sendTraceMsg node ev = do
       now <- liftIO $ getCurrentTime
-      msg <- return $ (formatTime defaultTimeLocale "%c" now, (show ev))
+      txt <- buildTxt ev
+      msg <- return $ (formatTime defaultTimeLocale "%c" now, txt)
       emptyPid <- return $ (nullProcessId (localNodeId node))
       traceMsg <- return $ NCMsg {
                              ctrlMsgSender = ProcessIdentifier (emptyPid)
@@ -142,6 +144,10 @@ systemLoggerTracer = do
                                                  (createUnencodedMessage msg))
                            }
       liftIO $ writeChan (localCtrlChan node) traceMsg
+
+    buildTxt :: TraceEvent -> Process String
+    buildTxt (TraceEvLog msg) = return msg
+    buildTxt ev               = return $ show ev
 
 eventLogTracer :: Process ()
 eventLogTracer =
@@ -304,8 +310,8 @@ handleTrace st msg ev = do
       case (traceNodes (flags st)) of
         True  -> sendTrace st msg
         False -> return ()
-    (TraceEvUser _) -> do
-      sendTrace st msg
+    (TraceEvUser _) -> sendTrace st msg
+    (TraceEvLog _)  -> sendTrace st msg
     _ ->
       case (traceConnections (flags st)) of
         True  -> sendTrace st msg

@@ -27,7 +27,6 @@ module Control.Distributed.Process.Internal.Primitives
   , matchMessage
   , matchMessageIf
   , wrapMessage
-  , wrapMessageLocal
   , unwrapMessage
   , handleMessage
   , forward
@@ -393,27 +392,26 @@ forward msg them = do
 
 
 -- | Wrap a 'Serializable' value in a 'Message'. Note that 'Message's are
--- 'Serializable' - like the datum they contain - but remember that deserializing
+-- 'Serializable' - like the datum they contain - but also note, deserialising
 -- a 'Message' will yield a 'Message', not the type within it! To obtain the
 -- wrapped datum, use 'unwrapMessage' or 'handleMessage' with a specific type.
 --
 -- @
 -- do
---     self <- getSelfPid
---     send self (wrapMessage "blah")
---     Nothing  <- expectTimeout 1000000 :: Process (Maybe String)
---     (Just m) <- expectTimeout 1000000 :: Process (Maybe Message)
---     (Just "blah") <- unwrapMessage m :: Process (Maybe String)
+--    self <- getSelfPid
+--    send self (wrapMessage "blah")
+--    Nothing  <- expectTimeout 1000000 :: Process (Maybe String)
+--    (Just m) <- expectTimeout 1000000 :: Process (Maybe Message)
+--    (Just "blah") <- unwrapMessage m :: Process (Maybe String)
 -- @
 --
 wrapMessage :: Serializable a => a -> Message
-wrapMessage = createMessage
+wrapMessage = createUnencodedMessage -- see [note Serializable UnencodedMessage]
 
--- | Like 'wrapMessage', but produces a 'Message' that is only usable in the
--- local node. This is primarily useful when consuming the tracing and debugging
--- APIs in "Control.Distributed.Process.Debug".
-wrapMessageLocal :: Serializable a => a -> Message
-wrapMessageLocal = createUnencodedMessage
+-- [note Serializable UnencodedMessage]
+-- if we attempt to serialise an UnencodedMessage, it will be converted to an
+-- EncodedMessage first, so we're ok here. See 'messageToPayload' in
+-- Primitives.hs for the gory details
 
 -- | Attempt to unwrap a raw 'Message'.
 -- If the type of the decoded message payload matches the expected type, the
