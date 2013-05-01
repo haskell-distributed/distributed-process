@@ -1,6 +1,7 @@
-{-# LANGUAGE CPP                       #-}
-{-# LANGUAGE DeriveDataTypeable        #-}
-{-# LANGUAGE TemplateHaskell           #-}
+{-# LANGUAGE CPP                 #-}
+{-# LANGUAGE DeriveDataTypeable  #-}
+{-# LANGUAGE DeriveGeneric       #-}
+{-# LANGUAGE TemplateHaskell     #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -49,8 +50,9 @@ import Control.Distributed.Process
 import Control.Distributed.Process.Platform.Internal.Types
 import Control.Monad (void)
 import Data.Binary
-import Data.DeriveTH
 import Data.Typeable (Typeable)
+
+import GHC.Generics
 
 --------------------------------------------------------------------------------
 -- API                                                                        --
@@ -58,16 +60,19 @@ import Data.Typeable (Typeable)
 
 -- | Defines the time unit for a Timeout value
 data TimeUnit = Days | Hours | Minutes | Seconds | Millis | Micros
-    deriving (Typeable, Show)
-$(derive makeBinary ''TimeUnit)
+    deriving (Typeable, Generic, Eq, Show)
+
+instance Binary TimeUnit where
 
 data TimeInterval = TimeInterval TimeUnit Int
-    deriving (Typeable, Show)
-$(derive makeBinary ''TimeInterval)
+    deriving (Typeable, Generic, Eq, Show)
+
+instance Binary TimeInterval where
 
 data Delay = Delay TimeInterval | Infinity
-    deriving (Typeable, Show)
-$(derive makeBinary ''Delay)
+    deriving (Typeable, Generic, Eq, Show)  -- TODO: ord/cmp
+
+instance Binary Delay where
 
 -- | Represents a /timeout/ in terms of microseconds, where 'Nothing' stands for
 -- infinity and @Just 0@, no-delay.
@@ -78,8 +83,8 @@ data TimeoutNotification = TimeoutNotification Tag
        deriving (Typeable)
 
 instance Binary TimeoutNotification where
-       get = fmap TimeoutNotification $ get
-       put (TimeoutNotification n) = put n
+  get = fmap TimeoutNotification $ get
+  put (TimeoutNotification n) = put n
 
 -- time interval/unit handling (milliseconds)
 

@@ -1,5 +1,6 @@
-{-# LANGUAGE DeriveDataTypeable        #-}
-{-# LANGUAGE TemplateHaskell           #-}
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveGeneric      #-}
+{-# LANGUAGE TemplateHaskell    #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -37,26 +38,27 @@ import Control.Distributed.Process
 import Control.Distributed.Process.Serializable
 import Control.Distributed.Process.Platform.Time
 import Data.Binary
-import Data.DeriveTH
 import Data.Typeable (Typeable)
 import Prelude hiding (init)
+
+import GHC.Generics
 
 -- | an opaque reference to a timer
 type TimerRef = ProcessId
 
 -- | cancellation message sent to timers
 data TimerConfig = Reset | Cancel
-    deriving (Typeable, Show)
-$(derive makeBinary ''TimerConfig)
+    deriving (Typeable, Generic, Eq, Show)
+instance Binary TimerConfig where
 
 -- | represents a 'tick' event that timers can generate
 data Tick = Tick
-    deriving (Typeable, Eq)
-$(derive makeBinary ''Tick)
+    deriving (Typeable, Generic, Eq, Show)
+instance Binary Tick where
 
 data SleepingPill = SleepingPill
-    deriving (Typeable)
-$(derive makeBinary ''SleepingPill)
+    deriving (Typeable, Generic, Eq, Show)
+instance Binary SleepingPill where
 
 --------------------------------------------------------------------------------
 -- API                                                                        --

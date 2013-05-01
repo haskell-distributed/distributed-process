@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveDataTypeable        #-}
+{-# LANGUAGE DeriveGeneric             #-}
 {-# LANGUAGE TemplateHaskell           #-}
 
 -- | Types used throughout the Cloud Haskell framework
@@ -38,11 +39,9 @@ import Control.Distributed.Process.Closure
 import Control.Distributed.Process.Serializable
 
 import Data.Binary
-  ( Binary(put, get)
-  , putWord8
-  , getWord8)
-import Data.DeriveTH
 import Data.Typeable (Typeable)
+
+import GHC.Generics
 
 --------------------------------------------------------------------------------
 -- API                                                                        --
@@ -70,20 +69,23 @@ getTag tp = liftIO $ modifyMVar tp (\tag -> return (tag+1,tag))
 
 -- | Wait cancellation message.
 data CancelWait = CancelWait
-    deriving (Eq, Show, Typeable)
+    deriving (Eq, Show, Typeable, Generic)
+instance Binary CancelWait where
 
 -- | Simple representation of a channel.
 type Channel a = (SendPort a, ReceivePort a)
 
 -- | Used internally in whereisOrStart. Send as (RegisterSelf,ProcessId).
-data RegisterSelf = RegisterSelf deriving Typeable
+data RegisterSelf = RegisterSelf
+  deriving (Typeable, Generic)
+instance Binary RegisterSelf where
 
 data Recipient =
     Pid ProcessId
   | Registered String
   | RemoteRegistered String NodeId
-  deriving (Typeable)
-$(derive makeBinary ''Recipient)
+  deriving (Typeable, Generic, Show, Eq)
+instance Binary Recipient where
 
 sendToRecipient :: (Serializable m) => Recipient -> m -> Process ()
 sendToRecipient (Pid p) m                = P.send p m
@@ -102,33 +104,14 @@ whereisRemote node name =
 -- to maintain a consistent shutdown/stop protocol for
 -- any process that wishes to handle it.
 data Shutdown = Shutdown
-  deriving (Typeable, Show, Eq)
+  deriving (Typeable, Generic, Show, Eq)
+instance Binary Shutdown where
 
 -- | Provides a /reason/ for process termination.
 data TerminateReason =
     TerminateNormal       -- ^ indicates normal exit
   | TerminateShutdown     -- ^ normal response to a 'Shutdown'
   | TerminateOther !String -- ^ abnormal (error) shutdown
-  deriving (Typeable, Eq, Show)
-$(derive makeBinary ''TerminateReason)
-
---------------------------------------------------------------------------------
--- Binary Instances                                                           --
---------------------------------------------------------------------------------
-
-instance Binary CancelWait where
-  put CancelWait = return ()
-  get = return CancelWait
-
-instance Binary Shutdown where
-  get   = return Shutdown
-  put _ = return ()
-
-instance Binary RegisterSelf where
-  put _ = return ()
-  get = return RegisterSelf
-
---------------------------------------------------------------------------------
--- Static Serialisation Dicts and RemoteTable                                 --
---------------------------------------------------------------------------------
+  deriving (Typeable, Generic, Eq, Show)
+instance Binary TerminateReason where
 

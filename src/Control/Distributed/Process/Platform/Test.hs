@@ -1,5 +1,6 @@
-{-# LANGUAGE DeriveDataTypeable        #-}
-{-# LANGUAGE TemplateHaskell           #-}
+{-# LANGUAGE DeriveDataTypeable  #-}
+{-# LANGUAGE DeriveGeneric       #-}
+{-# LANGUAGE TemplateHaskell     #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -47,26 +48,28 @@ import Control.Distributed.Process.Serializable()
 import Control.Exception (SomeException)
 import Control.Monad (forever)
 import Data.Binary
-import Data.DeriveTH
 import Data.Typeable (Typeable)
 import Prelude hiding (catch)
 
+import GHC.Generics
 
 -- | A mutable cell containing a test result.
 type TestResult a = MVar a
 
 -- | A simple @Ping@ signal
 data Ping = Ping
-    deriving (Typeable, Eq, Show)
-$(derive makeBinary ''Ping)
+    deriving (Typeable, Generic, Eq, Show)
+
+instance Binary Ping where
 
 ping :: ProcessId -> Process ()
 ping pid = send pid Ping
 
 -- | Control signals used to manage /test processes/
 data TestProcessControl = Stop | Go | Report ProcessId
-    deriving (Typeable)
-$(derive makeBinary ''TestProcessControl)
+    deriving (Typeable, Generic)
+
+instance Binary TestProcessControl where
 
 -- | Starts a test process on the local node.
 startTestProcess :: Process () -> Process ProcessId
