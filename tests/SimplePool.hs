@@ -8,7 +8,14 @@
 -- the caller until they've completed. Partly a /spike/ for that 'Task' API
 -- and partly just a test bed for handling 'replyTo' in GenProcess.
 --
-module SimplePool where
+module SimplePool
+  ( Pool()
+  , PoolSize
+  , PoolStats(..)
+  , runPool
+  , executeTask
+  , stats
+  ) where
 
 import Control.Distributed.Process hiding (call)
 import Control.Distributed.Process.Closure()
@@ -36,12 +43,11 @@ import GHC.Generics (Generic)
 import Prelude hiding (catch)
 
 type PoolSize = Int
-type SimpleTask a = Closure (Process a)
 
 data GetStats = GetStats
   deriving (Typeable, Generic)
 
-instance Binary GetStats
+instance Binary GetStats where
 
 data PoolStats = PoolStats {
     maxJobs    :: Int
@@ -49,7 +55,7 @@ data PoolStats = PoolStats {
   , queuedJobs :: Int
   } deriving (Typeable, Generic)
 
-instance Binary PoolStats
+instance Binary PoolStats where
 
 data Pool a = Pool {
     poolSize :: PoolSize
@@ -57,26 +63,26 @@ data Pool a = Pool {
   , accepted :: Seq (Recipient, Closure (Process a))
   } deriving (Typeable)
 
-poolServer :: forall a . (Serializable a) => ProcessDefinition (Pool a)
-poolServer =
-    defaultProcess {
-        apiHandlers = [
-          handleCallFrom (\s f (p :: Closure (Process a)) -> storeTask s f p)
-        , handleCall poolStatsRequest
-        ]
-      , infoHandlers = [
-            handleInfo taskComplete
-        ]
-      } :: ProcessDefinition (Pool a)
+-- Client facing API
 
 -- | Start a worker pool with an upper bound on the # of concurrent workers.
-simplePool :: forall a . (Serializable a)
+runPool :: forall a . (Serializable a)
               => PoolSize
-              -> ProcessDefinition (Pool a)
               -> Process (Either (InitResult (Pool a)) TerminateReason)
-simplePool sz server = start sz init' server
-  where init' :: PoolSize -> Process (InitResult (Pool a))
-        init' sz' = return $ InitOk (Pool sz' [] Seq.empty) Infinity
+runPool sz = start sz init' (poolServer :: ProcessDefinition (Pool a))
+  where
+    init' :: PoolSize -> Process (InitResult (Pool a))
+    init' sz' = return $ InitOk (Pool sz' [] Seq.empty) Infinity
+
+    poolServer :: ProcessDefinition (Pool a)
+    poolServer =
+      defaultProcess {
+          apiHandlers = [
+               handleCallFrom (\s f (p :: Closure (Process a)) -> storeTask s f p)
+             , handleCall poolStatsRequest
+             ]
+        , infoHandlers = [ handleInfo taskComplete ]
+        } :: ProcessDefinition (Pool a)
 
 -- enqueues the task in the pool and blocks
 -- the caller until the task is complete
@@ -85,6 +91,10 @@ executeTask :: forall s a . (Addressable s, Serializable a)
             -> Closure (Process a)
             -> Process (Either String a)
 executeTask sid t = call sid t
+
+-- Fetch stats for the given server
+stats :: forall s . Addressable s => s -> Process (Maybe PoolStats)
+stats sid = tryCall sid GetStats
 
 -- internal / server-side API
 

@@ -2,6 +2,7 @@
 {-# LANGUAGE ImpredicativeTypes  #-}
 {-# LANGUAGE DeriveDataTypeable  #-}
 {-# LANGUAGE BangPatterns        #-}
+{-# LANGUAGE DeriveGeneric       #-}
 {-# LANGUAGE TemplateHaskell     #-}
 
 -- NB: this module contains tests for the GenProcess /and/ GenServer API.
@@ -23,7 +24,7 @@ import Control.Distributed.Process.Serializable()
 
 import Data.Binary
 import Data.Typeable (Typeable)
-import Data.DeriveTH
+
 import MathsDemo
 import Counter
 import SimplePool
@@ -37,11 +38,14 @@ import TestUtils
 import qualified Network.Transport as NT
 import Control.Monad (void)
 
+import GHC.Generics (Generic)
+
 -- utilities
 
 data GetState = GetState
-  deriving (Typeable, Show, Eq)
-$(derive makeBinary ''GetState)
+  deriving (Typeable, Generic, Show, Eq)
+
+instance Binary GetState where
 
 waitForExit :: MVar (Either (InitResult ()) TerminateReason)
             -> Process (Maybe TerminateReason)
@@ -112,16 +116,6 @@ explodingServer pid =
       catch (start () (statelessInit Infinity) srv >>= stash exitReason)
             (\(e :: SomeException) -> stash exitReason $ Right (TerminateOther (show e)))
     return (spid, exitReason)
-
-startTestPool :: Int -> Process ProcessId
-startTestPool s = spawnLocal $ do
-  _ <- runPool s
-  return ()
-
-runPool :: Int -> Process (Either (InitResult (Pool String)) TerminateReason)
-runPool s =
-  let s' = poolServer :: ProcessDefinition (Pool String)
-  in simplePool s s'
 
 sampleTask :: (TimeInterval, String) -> Process String
 sampleTask (t, s) = sleep t >> return s
@@ -256,10 +250,15 @@ testAlternativeErrorHandling result = do
 
 -- SimplePool tests
 
+startPool :: PoolSize -> Process ProcessId
+startPool s = spawnLocal $ do
+  _ <- runPool s :: Process (Either (InitResult (Pool String)) TerminateReason)
+  return ()
+
 testSimplePoolJobBlocksCaller :: TestResult (AsyncResult (Either String String))
                               -> Process ()
 testSimplePoolJobBlocksCaller result = do
-  pid <- startTestPool 1
+  pid <- startPool 1
   -- we do a non-blocking test first
   job <- return $ ($(mkClosure 'sampleTask) (seconds 2, "foobar"))
   callAsync pid job >>= wait >>= stash result
@@ -269,7 +268,7 @@ testJobQueueSizeLimiting ::
                 Maybe (AsyncResult (Either String String)))
                          -> Process ()
 testJobQueueSizeLimiting result = do
-  pid <- startTestPool 1
+  pid <- startPool 1
   job1 <- return $ ($(mkClosure 'namedTask) ("job1", "foo"))
   job2 <- return $ ($(mkClosure 'namedTask) ("job2", "bar"))
   h1 <- callAsync pid job1 :: Process (Async (Either String String))
@@ -282,7 +281,7 @@ testJobQueueSizeLimiting result = do
   AsyncPending <- poll h2
   Nothing <- whereis "job2"
 
-  -- we can get here *very* fast, we give the registration time to kick in
+  -- we can get here *very* fast, so give the registration time to kick in
   sleep $ milliSeconds 250
   j1p <- whereis "job1"
   case j1p of

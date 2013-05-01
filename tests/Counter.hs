@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveDataTypeable   #-}
+{-# LANGUAGE DeriveGeneric        #-}
 {-# LANGUAGE TemplateHaskell      #-}
 {-# LANGUAGE ScopedTypeVariables  #-}
 {-# LANGUAGE BangPatterns         #-}
@@ -19,8 +20,9 @@ import Control.Distributed.Process.Platform.Async
 import Control.Distributed.Process.Platform.ManagedProcess
 import Control.Distributed.Process.Platform.Time
 import Data.Binary
-import Data.DeriveTH
 import Data.Typeable (Typeable)
+
+import GHC.Generics
 
 --------------------------------------------------------------------------------
 -- Types                                                                      --
@@ -32,15 +34,16 @@ import Data.Typeable (Typeable)
 -- anonymous middle-man (as the sender and reciever in our case).
 
 data Increment = Increment
-  deriving (Show, Typeable)
-$(derive makeBinary ''Increment)
+  deriving (Typeable, Generic, Eq, Show)
+instance Binary Increment where
 
 data Fetch = Fetch
-  deriving (Show, Typeable)
-$(derive makeBinary ''Fetch)
+  deriving (Typeable, Generic, Eq, Show)
+instance Binary Fetch where
 
-data Reset = Reset deriving (Show, Typeable)
-$(derive makeBinary ''Reset)
+data Reset = Reset
+  deriving (Typeable, Generic, Eq, Show)
+instance Binary Reset where
 
 type State = Int
 
