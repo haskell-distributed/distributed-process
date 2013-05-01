@@ -300,7 +300,7 @@ certainly the wrong thing to do. Instead we might send a kind of poison pill,
 which the process *ought* to handle by shutting down gracefully. Unfortunately
 because of the asynchronous nature of sending, this is no good because `send`
 will not fail under any circumstances. In fact, because `send` doesn't block,
-we therefore have no way to no if the recipient existed at the time we sent the
+we therefore have no way to know if the recipient existed at the time we sent the
 poison pill. Even if the recipient did exist, we still have no guarantee that
 the message we sent actually arrived - the network connection between the nodes
 could have broken, for example. Making this *shutdown* protocol synchronous is
