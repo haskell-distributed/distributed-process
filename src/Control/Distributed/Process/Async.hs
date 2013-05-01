@@ -26,11 +26,20 @@
 -- Cloud Haskell primitives), otherwise the 'AsyncResult' will end up being
 -- @AsyncFailed DiedException@ instead of containing the result.
 --
--- See "Control.Distributed.Process.Platform.Async.AsyncSTM",
--- "Control.Distributed.Process.Platform.Async.AsyncChan".
+-- The /async/ API exposed by this module is also used by the /execution/ and
+-- /task/ subsystems to provide similar (asynchronous processing) capabilities.
+-- The "Control.Distributed.Platform.Task" subsystem components provide various
+-- task management (e.g., scheduling) behaviours such as load balancing, work
+-- stealing, etc. The "Control.Distributed.Platform.Task.Execution" components
+-- provides the various worker pools and task management services upon which
+-- they, in turn, are built. All such implementations provide an Async
+-- compatible API (i.e., one that returns an @Async@ handle, upon which the
+-- functions defined /here/ can operate).
 --
--- See "Control.Distributed.Platform.Task" for a high level layer built
--- on these capabilities.
+-- See "Control.Distributed.Process.Platform.Async.AsyncSTM",
+-- "Control.Distributed.Process.Platform.Async.AsyncChan",
+-- "Control.Distributed.Platform.Task",
+-- "Control.Distributed.Platform.Task.Execution".
 -----------------------------------------------------------------------------
 
 module Control.Distributed.Process.Platform.Async
