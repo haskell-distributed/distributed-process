@@ -7,7 +7,6 @@
 module Counter
   ( startCounter,
     getCount,
-    getCountAsync,
     incCount,
     resetCount,
     wait,
@@ -58,10 +57,6 @@ incCount sid = call sid Increment
 -- | Get the current count - this is replicating what 'call' actually does
 getCount :: ProcessId -> Process Int
 getCount sid = call sid Fetch
-
--- | Get the current count asynchronously
-getCountAsync :: ProcessId -> Process (Async Int)
-getCountAsync sid = callAsync sid Fetch
 
 -- | Reset the current count
 resetCount :: ProcessId -> Process ()
