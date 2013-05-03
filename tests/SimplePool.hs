@@ -103,7 +103,7 @@ stats sid = tryCall sid GetStats
 poolStatsRequest :: (Serializable a)
                  => Pool a
                  -> GetStats
-                 -> Process (ProcessReply (Pool a) PoolStats)
+                 -> Process (ProcessReply PoolStats (Pool a) )
 poolStatsRequest st GetStats =
   let sz = poolSize st
       ac = length (active st)
@@ -115,7 +115,7 @@ storeTask :: Serializable a
           => Pool a
           -> CallRef
           -> Closure (Process a)
-          -> Process (ProcessReply (Pool a) ())
+          -> Process (ProcessReply () (Pool a))
 storeTask s r c = acceptTask s r c >>= noReply_
 
 acceptTask :: Serializable a
