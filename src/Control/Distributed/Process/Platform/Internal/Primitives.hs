@@ -43,8 +43,7 @@ module Control.Distributed.Process.Platform.Internal.Primitives
 
 import Control.Concurrent (myThreadId, throwTo)
 import Control.Distributed.Process
-import Control.Distributed.Process.Internal.Closure.BuiltIn (seqCP)
-import Control.Distributed.Process.Closure (remotable, mkClosure)
+import Control.Distributed.Process.Closure (seqCP, remotable, mkClosure)
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Platform.Internal.Types
   ( Recipient(..)

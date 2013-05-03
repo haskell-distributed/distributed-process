@@ -1,6 +1,7 @@
-{-# LANGUAGE DeriveDataTypeable  #-}
-{-# LANGUAGE DeriveGeneric       #-}
-{-# LANGUAGE TemplateHaskell     #-}
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveGeneric      #-}
+{-# LANGUAGE TemplateHaskell    #-}
+{-# LANGUAGE CPP                #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -49,7 +50,9 @@ import Control.Exception (SomeException)
 import Control.Monad (forever)
 import Data.Binary
 import Data.Typeable (Typeable)
+#if ! MIN_VERSION_base(4,6,0)
 import Prelude hiding (catch)
+#endif
 
 import GHC.Generics
 
@@ -59,7 +62,6 @@ type TestResult a = MVar a
 -- | A simple @Ping@ signal
 data Ping = Ping
     deriving (Typeable, Generic, Eq, Show)
-
 instance Binary Ping where
 
 ping :: ProcessId -> Process ()
