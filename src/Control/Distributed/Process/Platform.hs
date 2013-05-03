@@ -22,6 +22,7 @@ module Control.Distributed.Process.Platform
   , spawnMonitorLocal
   , linkOnFailure
   , times
+  , isProcessAlive
   , matchCond
 
     -- * Call/Tagging support
