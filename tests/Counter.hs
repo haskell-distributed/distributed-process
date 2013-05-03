@@ -87,7 +87,7 @@ serverDefinition = defaultProcess {
         ]
     } :: ProcessDefinition State
 
-handleIncrement :: State -> Increment -> Process (ProcessReply State Int)
+handleIncrement :: State -> Increment -> Process (ProcessReply Int State)
 handleIncrement count Increment =
     let next = count + 1 in continue next >>= replyWith next
 
