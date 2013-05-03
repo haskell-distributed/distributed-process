@@ -40,7 +40,9 @@ import Data.Typeable
 
 import GHC.Generics (Generic)
 
+#if ! MIN_VERSION_base(4,6,0)
 import Prelude hiding (catch)
+#endif
 
 type PoolSize = Int
 
