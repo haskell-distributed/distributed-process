@@ -716,10 +716,12 @@ mask :: ((forall a. Process a -> Process a) -> Process b) -> Process b
 mask p = do
     lproc <- ask
     liftIO $ Ex.mask $ \restore ->
-      runLocalProcess lproc (p (liftRestore lproc restore))
+      runLocalProcess lproc (p (liftRestore restore))
   where
-    liftRestore :: LocalProcess -> (forall a. IO a -> IO a) -> (forall a. Process a -> Process a)
-    liftRestore lproc restoreIO = liftIO . restoreIO . runLocalProcess lproc
+    liftRestore :: (forall a. IO a -> IO a) -> (forall a. Process a -> Process a)
+    liftRestore restoreIO = \p2 -> do
+      llproc <- ask
+      liftIO $ restoreIO $ runLocalProcess llproc p2
 
 -- | Lift 'Control.Exception.onException'
 onException :: Process a -> Process b -> Process a
