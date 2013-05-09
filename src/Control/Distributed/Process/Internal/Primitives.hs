@@ -410,7 +410,7 @@ forward msg them = do
   -- We do not fire the trace event until after the sending is complete;
   -- In the remote case, 'sendMessage' can block in the networking stack.
   liftIO $ traceEvent (localTracer node)
-                      (TraceEvSent them us (createUnencodedMessage msg))
+                      (TraceEvSent them us msg)
 
 
 -- | Wrap a 'Serializable' value in a 'Message'. Note that 'Message's are

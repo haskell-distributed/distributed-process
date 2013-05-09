@@ -153,7 +153,9 @@ testTraceSending result = do
     withTracer
       (\ev ->
         case ev of
-          (TraceEvSent to from _) ->
+          (TraceEvSent to from msg) -> do
+            (Just s) <- unwrapMessage msg :: Process (Maybe String)
+            stash res (to == pid && from == self && s == "hello there")
             stash res (to == pid && from == self)
           _ ->
             return ()) $ do
