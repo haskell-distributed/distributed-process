@@ -111,7 +111,7 @@ testRemoteLiveProcessInfo node1 = do
     "pong" <- expect
     pInfo <- getProcessInfo serverPid
     stash result $ pInfo /= Nothing
-  where 
+  where
     launchRemote :: MVar ProcessId -> IO ()
     launchRemote locMV = do
         node2 <- liftIO $ mkNode "8082"
@@ -119,7 +119,7 @@ testRemoteLiveProcessInfo node1 = do
             self <- getSelfPid
             liftIO $ putMVar locMV self
             _ <- receiveWait [
-                  match (\(pid, "ping") -> send pid "pong") 
+                  match (\(pid, "ping") -> send pid "pong")
                 ]
             "stop" <- expect
             return ()

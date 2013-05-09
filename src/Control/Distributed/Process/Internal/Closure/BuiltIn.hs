@@ -16,13 +16,16 @@ module Control.Distributed.Process.Internal.Closure.BuiltIn
   , bindCP
   , seqCP
     -- * CP versions of Cloud Haskell primitives
+  , decodeProcessIdStatic
   , cpLink
   , cpUnlink
+  , cpRelay
   , cpSend
   , cpExpect
   , cpNewChan
     -- * Support for some CH operations
   , cpDelay
+  , cpEnableTraceRemote
   ) where
 
 import Data.ByteString.Lazy (ByteString)
@@ -56,6 +59,7 @@ import Control.Distributed.Process.Internal.Types
 import Control.Distributed.Process.Internal.Primitives
   ( link
   , unlink
+  , relay
   , send
   , expect
   , newChan
@@ -82,6 +86,7 @@ remoteTable =
     . registerStatic "$decodeProcessId" (toDynamic (decode           :: ByteString -> ProcessId))
     . registerStatic "$link"            (toDynamic link)
     . registerStatic "$unlink"          (toDynamic unlink)
+    . registerStatic "$relay"           (toDynamic relay)
     . registerStatic "$sendDict"        (toDynamic (sendDict         :: SerializableDict ANY -> ProcessId -> ANY -> Process ()))
     . registerStatic "$expectDict"      (toDynamic (expectDict       :: SerializableDict ANY -> Process ANY))
     . registerStatic "$newChanDict"     (toDynamic (newChanDict      :: SerializableDict ANY -> Process (SendPort ANY, ReceivePort ANY)))
@@ -246,6 +251,22 @@ cpNewChan dict = staticClosure (newChanDictStatic `staticApply` dict)
                       => Static (SerializableDict a -> Process (SendPort a, ReceivePort a))
     newChanDictStatic = staticLabel "$newChanDict"
 
+-- | 'CP' version of 'relay'
+cpRelay :: ProcessId -> Closure (Process ())
+cpRelay = closure (relayStatic `staticCompose` decodeProcessIdStatic) . encode
+  where
+    relayStatic :: Static (ProcessId -> Process ())
+    relayStatic = staticLabel "$relay"
+
+-- TODO: move cpEnableTraceRemote into Trace/Primitives.hs
+
+cpEnableTraceRemote :: ProcessId -> Closure (Process ())
+cpEnableTraceRemote =
+    closure (enableTraceStatic `staticCompose` decodeProcessIdStatic) . encode
+  where
+    enableTraceStatic :: Static (ProcessId -> Process ())
+    enableTraceStatic = staticLabel "$enableTraceRemote"
+
 --------------------------------------------------------------------------------
 -- Support for spawn                                                          --
 --------------------------------------------------------------------------------
@@ -275,3 +296,6 @@ cpDelay = closureApply . cpDelay'
 
     delayStatic :: Static (ProcessId -> Process () -> Process ())
     delayStatic = staticLabel "$delay"
+
+
+

@@ -93,7 +93,6 @@ import Control.Exception (Exception)
 import Control.Concurrent (ThreadId)
 import Control.Concurrent.Chan (Chan)
 import Control.Concurrent.STM (STM)
-import qualified Control.Concurrent.STM as STM (TQueue)
 import qualified Network.Transport as NT (EndPoint, EndPointAddress, Connection)
 import Control.Applicative (Applicative, Alternative, (<$>), (<*>))
 import Control.Monad.Reader (MonadReader(..), ReaderT, runReaderT)
@@ -112,7 +111,6 @@ import Control.Distributed.Process.Internal.StrictMVar (StrictMVar)
 import Control.Distributed.Process.Internal.WeakTQueue (TQueue)
 import Control.Distributed.Static (RemoteTable, Closure)
 import qualified Control.Distributed.Process.Internal.StrictContainerAccessors as DAC (mapMaybe)
-import System.IO (Handle)
 
 --------------------------------------------------------------------------------
 -- Node and process identifiers                                               --
@@ -184,10 +182,20 @@ nullProcessId nid =
 
 -- | Required for system tracing in the node controller
 data Tracer =
-    LogFileTracer   !ThreadId !(STM.TQueue String) !Handle
-  | EventLogTracer  !(String -> IO ())
-  | LocalNodeTracer !LocalNode
-  | InactiveTracer  -- NB: never used, this is required to initialize LocalNode
+    ActiveTracer !ProcessId !(Weak (CQueue Message)) -- note [tracer longevity]
+  | InactiveTracer
+
+-- note [tracer longevity]
+--
+-- If the trace controller process crashes, we make no attempt to restart it
+-- or handle the failure. Tracing is done on a 'best effort' basis, because
+-- to make stronger guarantees (e.g., handling failures) would introduce
+-- significant complexity and adversely affect performance. As such, we access
+-- the process' mailbox directly via a weak reference, and calls to a dead
+-- process have no effect just as with normal process/send interactions.
+--
+-- Also note that the ProcessId stored in an active tracer is that of the first
+-- (initially registered) system tracer process.
 
 -- | Local nodes
 data LocalNode = LocalNode
@@ -553,7 +561,7 @@ instance Binary ProcessSignal where
   put (NamedSend label msg)   = putWord8 8 >> put label >> put (messageToPayload msg)
   put (Kill pid reason)       = putWord8 9 >> put pid >> put reason
   put (Exit pid reason)       = putWord8 10 >> put pid >> put (messageToPayload reason)
-  put (LocalSend pid msg)     = putWord8 11 >> put pid >> put (messageToPayload msg)
+  put (LocalSend to msg)      = putWord8 11 >> put to >> put (messageToPayload msg)
   put (LocalPortSend sid msg) = putWord8 12 >> put sid >> put (messageToPayload msg)
   put (GetInfo about)         = putWord8 30 >> put about
   put (SigShutdown)         = putWord8 31
