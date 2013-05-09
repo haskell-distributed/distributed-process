@@ -52,6 +52,9 @@ module Control.Distributed.Process
   , unwrapMessage
   , handleMessage
   , forward
+  , delegate
+  , relay
+  , proxy
     -- * Process management
   , spawn
   , call
@@ -139,7 +142,6 @@ module Control.Distributed.Process
 import Prelude hiding (catch)
 #endif
 
-import Data.Typeable (Typeable)
 import Control.Monad.IO.Class (liftIO)
 import Control.Applicative ((<$>))
 import Control.Monad.Reader (ask)
@@ -149,8 +151,6 @@ import Control.Distributed.Static
   , closure
   , Static
   , RemoteTable
-  , closureCompose
-  , staticClosure
   )
 import Control.Distributed.Process.Internal.Types
   ( NodeId(..)
@@ -174,21 +174,8 @@ import Control.Distributed.Process.Internal.Types
   , RegisterReply(..)
   , LocalProcess(processNode)
   , Message
-  , nullProcessId
   )
-import Control.Distributed.Process.Serializable (Serializable, SerializableDict)
-import Control.Distributed.Process.Internal.Closure.BuiltIn
-  ( sdictSendPort
-  , sndStatic
-  , idCP
-  , seqCP
-  , bindCP
-  , splitCP
-  , cpLink
-  , cpSend
-  , cpNewChan
-  , cpDelay
-  )
+import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Internal.Primitives
   ( -- Basic messaging
     send
@@ -215,6 +202,9 @@ import Control.Distributed.Process.Internal.Primitives
   , unwrapMessage
   , handleMessage
   , forward
+  , delegate
+  , relay
+  , proxy
     -- Process management
   , terminate
   , ProcessTerminationException(..)
@@ -274,6 +264,15 @@ import Control.Distributed.Process.Internal.Primitives
   , reconnectPort
   )
 import Control.Distributed.Process.Node (forkProcess)
+import Control.Distributed.Process.Internal.Spawn
+  ( -- Spawning Processes/Channels
+    spawn
+  , spawnLink
+  , spawnMonitor
+  , spawnChannel
+  , spawnSupervised
+  , call
+  )
 
 -- INTERNAL NOTES
 --
@@ -285,7 +284,11 @@ import Control.Distributed.Process.Node (forkProcess)
 -- 2.  'send' may block (when the system TCP buffers are full, while we are
 --     trying to establish a connection to the remote endpoint, etc.) but its
 --     return does not imply that the remote process received the message (much
---     less processed it)
+--     less processed it). When 'send' targets a local process, it is dispatched
+--     via the node controller however, in which cases it will /not/ block. This
+--     isn't part of the semantics, so it should be ok. The ordering is maintained
+--     because the ctrlChannel still has FIFO semantics with regards interactions
+--     between two disparate forkIO threads.
 --
 -- 3.  Message delivery is reliable and ordered. That means that if process A
 --     sends messages m1, m2, m3 to process B, B will either arrive all three
@@ -335,116 +338,6 @@ import Control.Distributed.Process.Node (forkProcess)
 --       http://erlang.org/pipermail/erlang-questions/2012-February/064767.html
 
 --------------------------------------------------------------------------------
--- Primitives are defined in a separate module; here we only define derived   --
--- constructs                                                                 --
---------------------------------------------------------------------------------
-
--- | Spawn a process
---
--- For more information about 'Closure', see
--- "Control.Distributed.Process.Closure".
---
--- See also 'call'.
-spawn :: NodeId -> Closure (Process ()) -> Process ProcessId
-spawn nid proc = do
-  us   <- getSelfPid
-  mRef <- monitorNode nid
-  sRef <- spawnAsync nid (cpDelay us proc)
-  receiveWait [
-      matchIf (\(DidSpawn ref _) -> ref == sRef) $ \(DidSpawn _ pid) -> do
-        unmonitor mRef
-        send pid ()
-        return pid
-    , matchIf (\(NodeMonitorNotification ref _ _) -> ref == mRef) $ \_ ->
-        return (nullProcessId nid)
-    ]
-
--- | Spawn a process and link to it
---
--- Note that this is just the sequential composition of 'spawn' and 'link'.
--- (The "Unified" semantics that underlies Cloud Haskell does not even support
--- a synchronous link operation)
-spawnLink :: NodeId -> Closure (Process ()) -> Process ProcessId
-spawnLink nid proc = do
-  pid <- spawn nid proc
-  link pid
-  return pid
-
--- | Like 'spawnLink', but monitor the spawned process
-spawnMonitor :: NodeId -> Closure (Process ()) -> Process (ProcessId, MonitorRef)
-spawnMonitor nid proc = do
-  pid <- spawn nid proc
-  ref <- monitor pid
-  return (pid, ref)
-
--- | Run a process remotely and wait for it to reply
---
--- We monitor the remote process: if it dies before it can send a reply, we die
--- too.
---
--- For more information about 'Static', 'SerializableDict', and 'Closure', see
--- "Control.Distributed.Process.Closure".
---
--- See also 'spawn'.
-call :: Serializable a
-        => Static (SerializableDict a)
-        -> NodeId
-        -> Closure (Process a)
-        -> Process a
-call dict nid proc = do
-  us <- getSelfPid
-  (pid, mRef) <- spawnMonitor nid (proc `bindCP` cpSend dict us)
-  -- We are guaranteed to receive the reply before the monitor notification
-  -- (if a reply is sent at all)
-  -- NOTE: This might not be true if we switch to unreliable delivery.
-  mResult <- receiveWait
-    [ match (return . Right)
-    , matchIf (\(ProcessMonitorNotification ref _ _) -> ref == mRef)
-              (\(ProcessMonitorNotification _ _ reason) -> return (Left reason))
-    ]
-  case mResult of
-    Right a  -> do
-      -- Wait for the monitor message so that we the mailbox doesn't grow
-      receiveWait
-        [ matchIf (\(ProcessMonitorNotification ref _ _) -> ref == mRef)
-                  (\(ProcessMonitorNotification {}) -> return ())
-        ]
-      -- Clean up connection to pid
-      reconnect pid
-      return a
-    Left err ->
-      fail $ "call: remote process died: " ++ show err
-
--- | Spawn a child process, have the child link to the parent and the parent
--- monitor the child
-spawnSupervised :: NodeId
-                -> Closure (Process ())
-                -> Process (ProcessId, MonitorRef)
-spawnSupervised nid proc = do
-  us   <- getSelfPid
-  them <- spawn nid (cpLink us `seqCP` proc)
-  ref  <- monitor them
-  return (them, ref)
-
--- | Spawn a new process, supplying it with a new 'ReceivePort' and return
--- the corresponding 'SendPort'.
-spawnChannel :: forall a. Typeable a => Static (SerializableDict a)
-             -> NodeId
-             -> Closure (ReceivePort a -> Process ())
-             -> Process (SendPort a)
-spawnChannel dict nid proc = do
-    us <- getSelfPid
-    _ <- spawn nid (go us)
-    expect
-  where
-    go :: ProcessId -> Closure (Process ())
-    go pid = cpNewChan dict
-           `bindCP`
-             (cpSend (sdictSendPort dict) pid `splitCP` proc)
-           `bindCP`
-             (idCP `closureCompose` staticClosure sndStatic)
-
---------------------------------------------------------------------------------
 -- Local versions of spawn                                                    --
 --------------------------------------------------------------------------------
 
@@ -470,3 +363,4 @@ spawnChannelLocal proc = do
       liftIO $ putMVar mvar sport
       proc rport
     takeMVar mvar
+

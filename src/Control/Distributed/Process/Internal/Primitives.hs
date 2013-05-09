@@ -1,3 +1,5 @@
+{-# LANGUAGE BangPatterns #-}
+
 -- | Cloud Haskell primitives
 --
 -- We define these in a separate module so that we don't have to rely on
@@ -28,6 +30,9 @@ module Control.Distributed.Process.Internal.Primitives
   , unwrapMessage
   , handleMessage
   , forward
+  , delegate
+  , relay
+  , proxy
     -- * Process management
   , terminate
   , ProcessTerminationException(..)
@@ -88,8 +93,6 @@ module Control.Distributed.Process.Internal.Primitives
     -- * Reconnecting
   , reconnect
   , reconnectPort
-    -- * Tracing/Debugging
-  , trace
   ) where
 
 #if ! MIN_VERSION_base(4,6,0)
@@ -129,7 +132,10 @@ import Control.Distributed.Process.Internal.CQueue
   )
 import Control.Distributed.Process.Serializable (Serializable, fingerprint)
 import Data.Accessor ((^.), (^:), (^=))
-import Control.Distributed.Static (Closure, Static)
+import Control.Distributed.Static
+  ( Static
+  , Closure
+  )
 import Data.Rank1Typeable (Typeable)
 import qualified Control.Distributed.Static as Static (unstatic, unclosure)
 import Control.Distributed.Process.Internal.Types
@@ -176,12 +182,16 @@ import Control.Distributed.Process.Internal.Messaging
   , sendPayload
   , disconnect
   )
-import qualified Control.Distributed.Process.Internal.Trace as Trace
+import Control.Distributed.Process.Internal.Trace.Types
+  ( traceEvent
+  , TraceEvent(..)
+  )
 import Control.Distributed.Process.Internal.WeakTQueue
   ( newTQueueIO
   , readTQueue
   , mkWeakTQueue
   )
+
 import Unsafe.Coerce
 
 --------------------------------------------------------------------------------
@@ -191,18 +201,24 @@ import Unsafe.Coerce
 -- | Send a message
 send :: Serializable a => ProcessId -> a -> Process ()
 -- This requires a lookup on every send. If we want to avoid that we need to
--- modify serializable to allow for stateful (IO) deserialization
+-- modify serializable to allow for stateful (IO) deserialization.
 send them msg = do
   proc <- ask
-  let node     = localNodeId (processNode proc)
+  let us       = processId proc
+      node     = processNode proc
+      nodeId   = localNodeId node
       destNode = (processNodeId them) in do
-  case destNode == node of
+  case destNode == nodeId of
     True  -> sendLocal them msg
     False -> liftIO $ sendMessage (processNode proc)
                                   (ProcessIdentifier (processId proc))
                                   (ProcessIdentifier them)
                                   NoImplicitReconnect
                                   msg
+  -- We do not fire the trace event until after the sending is complete;
+  -- In the remote case, 'sendMessage' can block in the networking stack.
+  liftIO $ traceEvent (localTracer node)
+                      (TraceEvSent them us (createUnencodedMessage msg))
 
 -- | Wait for a message of a specific type
 expect :: forall a. Serializable a => Process a
@@ -358,33 +374,44 @@ matchMessageIf c p = Match $ MatchMsg $ \msg ->
 forward :: Message -> ProcessId -> Process ()
 forward msg them = do
   proc <- ask
-  let node     = localNodeId (processNode proc)
+  let node     = processNode proc
+      us       = processId proc
+      nid      = localNodeId node
       destNode = (processNodeId them) in do
-  case destNode == node of
+  case destNode == nid of
     True  -> sendCtrlMsg Nothing (LocalSend them msg)
     False -> liftIO $ sendPayload (processNode proc)
                                   (ProcessIdentifier (processId proc))
                                   (ProcessIdentifier them)
                                   NoImplicitReconnect
                                   (messageToPayload msg)
+  -- We do not fire the trace event until after the sending is complete;
+  -- In the remote case, 'sendMessage' can block in the networking stack.
+  liftIO $ traceEvent (localTracer node)
+                      (TraceEvSent them us (createUnencodedMessage msg))
 
 
 -- | Wrap a 'Serializable' value in a 'Message'. Note that 'Message's are
--- 'Serializable' - like the datum they contain - but remember that deserializing
+-- 'Serializable' - like the datum they contain - but also note, deserialising
 -- a 'Message' will yield a 'Message', not the type within it! To obtain the
 -- wrapped datum, use 'unwrapMessage' or 'handleMessage' with a specific type.
 --
 -- @
 -- do
---     self <- getSelfPid
---     send self (wrapMessage "blah")
---     Nothing  <- expectTimeout 1000000 :: Process (Maybe String)
---     (Just m) <- expectTimeout 1000000 :: Process (Maybe Message)
---     (Just "blah") <- unwrapMessage m :: Process (Maybe String)
+--    self <- getSelfPid
+--    send self (wrapMessage "blah")
+--    Nothing  <- expectTimeout 1000000 :: Process (Maybe String)
+--    (Just m) <- expectTimeout 1000000 :: Process (Maybe Message)
+--    (Just "blah") <- unwrapMessage m :: Process (Maybe String)
 -- @
 --
 wrapMessage :: Serializable a => a -> Message
-wrapMessage = createMessage
+wrapMessage = createUnencodedMessage -- see [note Serializable UnencodedMessage]
+
+-- [note Serializable UnencodedMessage]
+-- if we attempt to serialise an UnencodedMessage, it will be converted to an
+-- EncodedMessage first, so we're ok here. See 'messageToPayload' in
+-- Primitives.hs for the gory details
 
 -- | Attempt to unwrap a raw 'Message'.
 -- If the type of the decoded message payload matches the expected type, the
@@ -479,6 +506,36 @@ succeeds) that unsafeCoerce will not fail.
 -- | Remove any message from the queue
 matchUnknown :: Process b -> Match b
 matchUnknown p = Match $ MatchMsg (const (Just p))
+
+-- | Receives messages and forwards them to @pid@ if @p msg == True@.
+delegate :: ProcessId -> (Message -> Bool) -> Process ()
+delegate pid p = do
+  receiveWait [
+      matchAny (\m -> case (p m) of
+                        True  -> forward m pid
+                        False -> return ())
+    ]
+  delegate pid p
+
+-- | A straight relay that simply forwards all messages to the supplied pid.
+relay :: ProcessId -> Process ()
+relay !pid = receiveWait [ matchAny (\m -> forward m pid) ] >> relay pid
+
+-- | Proxies @pid@ and forwards messages whenever @proc@ evaluates to @True@.
+-- Unlike 'delegate' the predicate @proc@ runs in the 'Process' monad, allowing
+-- for richer proxy behaviour. If @proc@ returns @False@ or the /runtime type check/
+-- fails, no action is taken and the proxy process will continue running.
+proxy :: Serializable a => ProcessId -> (a -> Process Bool) -> Process ()
+proxy pid proc = do
+  receiveWait [
+      matchAny (\m -> do
+                   next <- handleMessage m proc
+                   case next of
+                     Just True  -> forward m pid
+                     Just False -> return ()  -- explicitly ignored
+                     Nothing    -> return ()) -- un-routable
+    ]
+  proxy pid proc
 
 --------------------------------------------------------------------------------
 -- Process management                                                         --
@@ -750,7 +807,7 @@ finally a sequel = bracket_ (return ()) sequel a
 data Handler a = forall e . Exception e => Handler (e -> Process a)
 
 instance Functor Handler where
-     fmap f (Handler h) = Handler (fmap f . h)
+    fmap f (Handler h) = Handler (fmap f . h)
 
 -- | Lift 'Control.Exception.catches'
 catches :: Process a -> [Handler a] -> Process a
@@ -992,55 +1049,12 @@ reconnectPort them = do
   liftIO $ disconnect node (ProcessIdentifier us) (SendPortIdentifier (sendPortId them))
 
 --------------------------------------------------------------------------------
--- Debugging/Tracing                                                          --
---------------------------------------------------------------------------------
-
--- | Send a message to the internal (system) trace facility. If tracing is
--- enabled, this will create a custom trace event. Note that several Cloud Haskell
--- sub-systems also generate trace events for informational/debugging purposes,
--- thus traces generated this way will not be the only output seen.
---
--- Just as with the "Debug.Trace" module, this is a debugging/tracing facility
--- for use in development, and should not be used in a production setting -
--- which is why the default behaviour is to trace to the GHC eventlog. For a
--- general purpose logging facility, you should consider 'say'.
---
--- Trace events can be written to the GHC event log, a text file, or to the
--- standard system logger process (see 'say'). The default behaviour for writing
--- to the eventlog requires specific intervention to work, without which traces
--- are silently dropped/ignored and no output will be generated.
--- The GHC eventlog documentation provides information about enabling, viewing
--- and working with event traces: <http://hackage.haskell.org/trac/ghc/wiki/EventLog>.
---
--- When a new local node is started, the contents of the environment variable
--- @DISTRIBUTED_PROCESS_TRACE_FILE@ are checked for a valid file path. If this
--- exists and the file can be opened for writing, all trace output will be directed
--- thence. If the environment variable is empty, the path invalid, or the file
--- unavailable for writing - e.g., because another node has already started
--- tracing to it - then the @DISTRIBUTED_PROCESS_TRACE_CONSOLE@ environment
--- variable is checked for /any/ non-empty value. If this is set, then all trace
--- output will be directed to the system logger process. If neither evironment
--- variable provides a valid trace configuration, all internal traces are written
--- to "Debug.Trace.traceEventIO", which writes to the GHC eventlog.
---
--- Users of the /simplelocalnet/ Cloud Haskell backend should also note that
--- because the trace file option only supports trace output from a single node
--- (so as to avoid interleaving), a file trace configured for the master node will
--- prevent slaves from tracing to the file and they will fall back to using the
--- console/'say' or eventlog instead.
---
-trace :: String -> Process ()
-trace s = do
-  node <- processNode <$> ask
-  liftIO $ Trace.trace (localTracer node) s
-
---------------------------------------------------------------------------------
 -- Auxiliary functions                                                        --
 --------------------------------------------------------------------------------
 
 sendLocal :: (Serializable a) => ProcessId -> a -> Process ()
-sendLocal pid msg =
-  sendCtrlMsg Nothing $ LocalSend pid (createUnencodedMessage msg)
+sendLocal to msg =
+  sendCtrlMsg Nothing $ LocalSend to (createUnencodedMessage msg)
 
 sendChanLocal :: (Serializable a) => SendPortId -> a -> Process ()
 sendChanLocal spId msg =
