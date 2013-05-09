@@ -561,6 +561,24 @@ testMonitorNode transport = do
 
   takeMVar done
 
+testMonitorLiveNode :: NT.Transport -> Assertion
+testMonitorLiveNode transport = do
+  [node1, node2] <- replicateM 2 $ newLocalNode transport initRemoteTable
+  ready <- newEmptyMVar
+  done <- newEmptyMVar
+
+  forkProcess node2 $ do
+    ref <- monitorNode (localNodeId node1)
+    liftIO $ putMVar ready ()
+    NodeMonitorNotification ref' nid _ <- expect
+    True <- return $ ref == ref' && nid == localNodeId node1
+    liftIO $ putMVar done ()
+
+  takeMVar ready
+  closeLocalNode node1
+
+  takeMVar done
+
 testMonitorChannel :: NT.Transport -> Assertion
 testMonitorChannel transport = do
     [node1, node2] <- replicateM 2 $ newLocalNode transport initRemoteTable
@@ -1281,6 +1299,7 @@ tests (transport, transportInternals) = [
     , testCase "UnlinkDisconnect"             (testMonitorDisconnect          transport False True)
       -- Monitoring nodes and channels
     , testCase "MonitorNode"                  (testMonitorNode                transport)
+    , testCase "MonitorLiveNode"              (testMonitorLiveNode            transport)
     , testCase "MonitorChannel"               (testMonitorChannel             transport)
       -- Reconnect
     , testCase "Reconnect"                    (testReconnect                  transport transportInternals)
