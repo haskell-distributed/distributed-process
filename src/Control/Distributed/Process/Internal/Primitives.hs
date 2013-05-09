@@ -577,6 +577,9 @@ terminate = liftIO $ throwIO ProcessTerminationException
 -- | Die immediately - throws a 'ProcessExitException' with the given @reason@.
 die :: Serializable a => a -> Process b
 die reason = do
+-- NOTE: We do /not/ want to use UnencodedMessage here, as the exception
+-- could be decoded by a handler passed to 'catchExit', re-thrown or even
+-- passed to another process via the tracing mechanism.
   pid <- getSelfPid
   liftIO $ throwIO (ProcessExitException pid (createMessage reason))
 
