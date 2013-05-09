@@ -15,7 +15,7 @@ import Control.Concurrent.MVar
   , takeMVar
   , readMVar
   )
-import Control.Monad (replicateM_, replicateM, forever)
+import Control.Monad (replicateM_, replicateM, forever, void)
 import Control.Exception (SomeException, throwIO)
 import qualified Control.Exception as Ex (catch)
 import Control.Applicative ((<$>), (<*>), pure, (<|>))
@@ -39,6 +39,8 @@ import Control.Distributed.Process.Serializable (Serializable)
 import Test.HUnit (Assertion)
 import Test.Framework (Test, defaultMain, testGroup)
 import Test.Framework.Providers.HUnit (testCase)
+import Control.Rematch hiding (expect, match)
+import qualified Control.Rematch as Rematch (expect)
 
 newtype Ping = Ping ProcessId
   deriving (Typeable, Binary, Show)
@@ -1074,6 +1076,20 @@ testCatches transport = do
 
   takeMVar done
 
+testMaskRestoreScope :: NT.Transport -> Assertion
+testMaskRestoreScope transport = do
+  localNode <- newLocalNode transport initRemoteTable
+  parentPid <- newEmptyMVar :: IO (MVar ProcessId)
+  spawnedPid <- newEmptyMVar :: IO (MVar ProcessId)
+
+  void $ runProcess localNode $ mask $ \unmask -> do
+    getSelfPid >>= liftIO . putMVar parentPid
+    void $ spawnLocal $ unmask (getSelfPid >>= liftIO . putMVar spawnedPid)
+
+  parent <- liftIO $ takeMVar parentPid
+  child <- liftIO $ takeMVar spawnedPid
+  Rematch.expect parent $ isNot $ equalTo child
+
 testDie :: NT.Transport -> Assertion
 testDie transport = do
   localNode <- newLocalNode transport initRemoteTable
@@ -1178,6 +1194,7 @@ tests (transport, transportInternals) = [
       , testCase "PrettyExit"          (testPrettyExit          transport)
       , testCase "CatchesExit"         (testCatchesExit         transport)
       , testCase "Catches"             (testCatches             transport)
+      , testCase "MaskRestoreScope"    (testMaskRestoreScope    transport)
       , testCase "ExitLocal"           (testExitLocal           transport)
       , testCase "ExitRemote"          (testExitRemote          transport)
       ]
