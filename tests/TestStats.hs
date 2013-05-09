@@ -18,7 +18,9 @@ import Control.Distributed.Process.Node
 import Data.Binary()
 import Data.Typeable()
 import Network.Transport.TCP
-import Prelude hiding (catch, log)
+#if ! MIN_VERSION_base(4,6,0)
+import Prelude hiding (catch)
+#endif
 import Test.Framework
   ( Test
   , defaultMain

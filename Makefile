@@ -24,6 +24,7 @@ ci: travis-install travis-test
 
 .PHONY: travis-install
 travis-install: $(REPOS)
+	$(CABAL) install rematch --force-reinstalls
 	$(CABAL) install --with-ghc=$(GHC) $(REPOS) --force-reinstalls
 	$(CABAL) install
 

@@ -121,7 +121,6 @@ import Control.Distributed.Process.Internal.StrictMVar
   , modifyMVar
   , modifyMVar_
   )
-import Control.Concurrent.Chan (writeChan)
 import Control.Concurrent.STM
   ( STM
   , TVar
@@ -154,7 +153,6 @@ import Control.Distributed.Process.Internal.Types
   , Message(..)
   , MonitorRef(..)
   , SpawnRef(..)
-  , NCMsg(..)
   , ProcessSignal(..)
   , monitorCounter
   , spawnCounter
@@ -178,7 +176,7 @@ import Control.Distributed.Process.Internal.Types
   , createMessage
   , createUnencodedMessage
   , runLocalProcess
-  , ImplicitReconnect(WithImplicitReconnect, NoImplicitReconnect)
+  , ImplicitReconnect(NoImplicitReconnect)
   , LocalProcessState
   , LocalSendPortId
   , messageToPayload

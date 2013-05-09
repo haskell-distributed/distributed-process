@@ -29,7 +29,6 @@ import Control.Distributed.Process.Internal.Primitives
   , matchAny
   , matchIf
   , handleMessage
-  , unwrapMessage
   , matchUnknown
   )
 import Control.Distributed.Process.Internal.Trace.Types
@@ -71,7 +70,9 @@ import Data.Time.Clock (getCurrentTime)
 import Data.Time.Format (formatTime)
 import Debug.Trace (traceEventIO)
 
+#if ! MIN_VERSION_base(4,6,0)
 import Prelude hiding (catch)
+#endif
 
 import System.Environment (getEnv)
 import System.IO

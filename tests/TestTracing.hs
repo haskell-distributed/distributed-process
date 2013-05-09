@@ -20,7 +20,9 @@ import Control.Distributed.Process.Node
   , LocalNode)
 import Control.Exception as Ex (catch)
 import Network.Transport.TCP
+#if ! MIN_VERSION_base(4,6,0)
 import Prelude hiding (catch, log)
+#endif
 import Test.Framework
   ( Test
   , defaultMain
@@ -275,9 +277,9 @@ testRemoteTraceRelay result =
     -- Here we set up that relay, and then wait for a signal
     -- that the tracer (on node1) has seen the expected
     -- TraceEvSpawned message, at which point we're finished
-    (Just log) <- whereis "logger"
+    (Just log') <- whereis "logger"
     pid <- liftIO $ forkProcess node2 $ do
-      logRelay <- spawnLocal $ relay log
+      logRelay <- spawnLocal $ relay log'
       reregister "logger" logRelay
       getSelfNode >>= stash mvNid >> (expect :: Process ())
 
