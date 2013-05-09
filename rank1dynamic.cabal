@@ -24,7 +24,7 @@ Library
                        Data.Rank1Typeable
   Build-Depends:       base >= 4.4 && < 4.7,
                        ghc-prim >= 0.2 && < 0.4,
-                       binary >= 0.5 && < 0.7 
+                       binary >= 0.5 && < 0.8
   HS-Source-Dirs:      src
   GHC-Options:         -Wall
   Extensions:          EmptyDataDecls,
