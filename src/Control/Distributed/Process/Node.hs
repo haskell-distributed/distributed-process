@@ -57,7 +57,7 @@ import Control.Exception
   , throwTo
   )
 import qualified Control.Exception as Exception (catch, finally)
-import Control.Concurrent (forkIO)
+import Control.Concurrent (forkIO, myThreadId)
 import Control.Distributed.Process.Internal.StrictMVar
   ( newMVar
   , withMVar
@@ -176,6 +176,7 @@ import Control.Distributed.Process.Internal.Primitives
   , receiveWait
   , match
   , sendChan
+  , catch
   )
 import Control.Distributed.Process.Internal.Types (SendPort)
 import qualified Control.Distributed.Process.Internal.Closure.BuiltIn as BuiltIn (remoteTable)
@@ -314,7 +315,10 @@ closeLocalNode node =
 runProcess :: LocalNode -> Process () -> IO ()
 runProcess node proc = do
   done <- newEmptyMVar
-  void $ forkProcess node (proc `finally` liftIO (putMVar done ()))
+  tid <- myThreadId
+  void $ forkProcess node $ do
+    catch (proc `finally` liftIO (putMVar done ()))
+          (\(ex :: SomeException) -> liftIO $ throwTo tid ex)
   takeMVar done
 
 -- | Spawn a new process on a local node
