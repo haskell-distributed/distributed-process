@@ -163,7 +163,6 @@ eventLogTracer =
 logfileTracer :: FilePath -> Process ()
 logfileTracer p = do
   -- TODO: error handling if the handle cannot be opened
-  liftIO $ putStrLn $ "writing to " ++ (show p)
   h <- liftIO $ openFile p AppendMode
   liftIO $ hSetBuffering h LineBuffering
   logger h `finally` (liftIO $ hClose h)
