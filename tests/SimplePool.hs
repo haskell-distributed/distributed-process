@@ -12,7 +12,8 @@ module SimplePool
   ( Pool()
   , PoolSize
   , PoolStats(..)
-  , runPool
+  , start
+  , pool
   , executeTask
   , stats
   ) where
@@ -22,6 +23,7 @@ import Control.Distributed.Process.Closure()
 import Control.Distributed.Process.Platform
 import Control.Distributed.Process.Platform.Async
 import Control.Distributed.Process.Platform.ManagedProcess
+import qualified Control.Distributed.Process.Platform.ManagedProcess as ManagedProcess
 import Control.Distributed.Process.Platform.Time
 import Control.Distributed.Process.Serializable
 import Data.Binary
@@ -68,23 +70,25 @@ data Pool a = Pool {
 -- Client facing API
 
 -- | Start a worker pool with an upper bound on the # of concurrent workers.
-runPool :: forall a . (Serializable a)
-              => PoolSize
-              -> Process (Either (InitResult (Pool a)) TerminateReason)
-runPool sz = start sz init' (poolServer :: ProcessDefinition (Pool a))
-  where
-    init' :: PoolSize -> Process (InitResult (Pool a))
-    init' sz' = return $ InitOk (Pool sz' [] Seq.empty) Infinity
+start :: forall a . (Serializable a)
+         => Process (InitResult (Pool a))
+         -> Process ()
+start init' = ManagedProcess.serve () (\() -> init') poolServer
+  where poolServer =
+          defaultProcess {
+              apiHandlers = [
+                 handleCallFrom (\s f (p :: Closure (Process a)) -> storeTask s f p)
+               , handleCall poolStatsRequest
+               ]
+            , infoHandlers = [ handleInfo taskComplete ]
+            } :: ProcessDefinition (Pool a)
 
-    poolServer :: ProcessDefinition (Pool a)
-    poolServer =
-      defaultProcess {
-          apiHandlers = [
-               handleCallFrom (\s f (p :: Closure (Process a)) -> storeTask s f p)
-             , handleCall poolStatsRequest
-             ]
-        , infoHandlers = [ handleInfo taskComplete ]
-        } :: ProcessDefinition (Pool a)
+-- | Define a pool of a given size.
+pool :: forall a . Serializable a
+     => PoolSize
+     -> Process (InitResult (Pool a))
+pool sz' = return $ InitOk (Pool sz' [] Seq.empty) Infinity
+
 
 -- enqueues the task in the pool and blocks
 -- the caller until the task is complete
@@ -155,7 +159,7 @@ taskComplete s@(Pool _ runQ _)
     respond c (AsyncDone       r) = replyTo c ((Right r) :: (Either String a))
     respond c (AsyncFailed     d) = replyTo c ((Left (show d)) :: (Either String a))
     respond c (AsyncLinkFailed d) = replyTo c ((Left (show d)) :: (Either String a))
-    respond _      _              = die $ TerminateOther "IllegalState"
+    respond _      _              = die $ ExitOther "IllegalState"
 
     bump :: Pool a -> (MonitorRef, CallRef, Async a) -> Process (Pool a)
     bump st@(Pool _ runQueue acc) worker =
