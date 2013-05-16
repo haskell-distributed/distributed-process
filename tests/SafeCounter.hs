@@ -29,7 +29,7 @@ import Control.Distributed.Process.Platform.ManagedProcess
   , condition
   )
 import Control.Distributed.Process.Platform.ManagedProcess.Client
-import Control.Distributed.Process.Platform.ManagedProcess.Server.Pure
+import Control.Distributed.Process.Platform.ManagedProcess.Server.Restricted
 import Control.Distributed.Process.Platform.Time
 import Control.Distributed.Process.Serializable
 import Data.Binary
