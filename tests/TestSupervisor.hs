@@ -5,8 +5,6 @@
 {-# LANGUAGE DeriveGeneric       #-}
 {-# LANGUAGE TemplateHaskell     #-}
 
--- NB: this module contains tests for the GenProcess /and/ GenServer API.
-
 module Main where
 
 import Control.Concurrent (myThreadId)
@@ -53,6 +51,15 @@ expect a m = liftIO $ Rematch.expect a m
 shouldBe :: a -> Matcher a -> Process ()
 shouldBe = expect
 
+shouldMatch :: a -> Matcher a -> Process ()
+shouldMatch = expect
+
+shouldExitWith :: (Addressable a) => a -> DiedReason -> Process ()
+shouldExitWith a r = do
+  pid <- resolve a
+  d <- receiveWait [ match (\(ProcessMonitorNotification _ _ r') -> return r') ]
+  d `shouldBe` equalTo r
+
 ensureProcessIsAlive :: ProcessId -> Process ()
 ensureProcessIsAlive pid = do
   result <- isProcessAlive pid
@@ -64,20 +71,14 @@ runInTestContext :: LocalNode
                  -> (ProcessId -> Process ())
                  -> Assertion
 runInTestContext node rs cs proc = do
-  -- TODO: move this into `runProcess'
   runProcess node $ Supervisor.start rs cs >>= proc
-
---  node <- mkNode "node1"
---  let withSupervisor = runInTestContext node
 
 normalStartStop :: ProcessId -> Process ()
 normalStartStop sup = do
-  liftIO $ putStrLn $ "checking " ++ (show sup)
   ensureProcessIsAlive sup
   void $ monitor sup
   shutdown sup
-  died <- receiveWait [ match (\(ProcessMonitorNotification _ _ r) -> return r) ]
-  died `shouldBe` equalTo DiedNormal
+  sup `shouldExitWith` DiedNormal
 
 myRemoteTable :: RemoteTable
 myRemoteTable = initRemoteTable

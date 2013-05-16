@@ -54,7 +54,7 @@ import Control.Distributed.Process.Platform.ManagedProcess
   , ProcessDefinition(..)
   , UnhandledMessagePolicy(Drop)
   )
-import qualified Control.Distributed.Process.Platform.ManagedProcess as MP (start)
+import qualified Control.Distributed.Process.Platform.ManagedProcess as MP (serve)
 import Control.Distributed.Process.Platform.ManagedProcess.Server.Restricted
   ( RestrictedProcess
   , Result
@@ -154,6 +154,7 @@ data ChildRef =
     ChildRunning !ProcessId    -- ^ a reference to the (currently running) child
   | ChildRestarting !ProcessId -- ^ a reference to the /old/ (previous) child, which is now restarting
   | ChildStopped               -- ^ indicates the child is not currently running
+  | ChildStartIgnored          -- ^ a non-temporary child exited with 'ChildInitIgnore'
   deriving (Typeable, Generic, Eq, Show)
 instance Binary ChildRef where
 
@@ -213,11 +214,16 @@ data ChildSpec = ChildSpec {
     childKey     :: !ChildKey
   , childType    :: !ChildType
   , childRestart :: !ChildRestart
-  , childRun     :: !(Closure (Process TerminateReason))
+  , childRun     :: !(Closure (Process ()))
     -- NOTE: TerminateReason - we install an exit handler for TerminateShutdown
     -- and anything other than TerminateNormal will get thrown
   } deriving (Typeable, Generic, Show)
 instance Binary ChildSpec where
+
+data ChildInitFailure =
+    ChildInitFailure !String
+  | ChildInitIgnore
+  deriving (Typeable, Exception, Show)
 
 data SupervisorStats = SupervisorStats {
     _children          :: Int
@@ -285,6 +291,10 @@ data AddChildResp =
   deriving (Typeable, Generic, Show)
 instance Binary AddChildResp where
 
+data IgnoreChildReq = IgnoreChildReq !ProcessId
+  deriving (Typeable, Generic)
+instance Binary IgnoreChildReq where
+
 type ChildSpecs = Seq Child
 
 data StatsType = Active | Specified
@@ -303,8 +313,10 @@ data State = State {
 -- start/specify
 
 start :: RestartStrategy -> [ChildSpec] -> Process ProcessId
-start strategy' specs' = do
-  spawnLocal $ MP.start (strategy', specs') supInit serverDefinition >> return ()
+start s cs = spawnLocal $ run s cs
+
+run :: RestartStrategy -> [ChildSpec] -> Process ()
+run strategy' specs' = MP.serve (strategy', specs') supInit serverDefinition
 
 -- client API
 
@@ -341,9 +353,10 @@ restartChild sid _ = call sid $ "RestartChildReq"
 
 supInit :: InitHandler (RestartStrategy, [ChildSpec]) State
 supInit (strategy', specs') =
+  -- TODO: should we return Ignore, as per OTP's supervisor, if no child starts?
   let initState = emptyState { strategy = strategy' }
   in (foldlM initChild initState specs' >>= return . (flip InitOk) Infinity)
-       `catch` \(e :: SomeException) -> return $ InitFail (show e)
+       `catch` \(e :: SomeException) -> return $ InitStop (show e)
   where initChild :: State -> ChildSpec -> Process State
         initChild st ch = tryStartChild ch >>= initialised st ch
 
@@ -398,7 +411,7 @@ serverDefinition = defaultProcess {
        , Restricted.handleCall   handleGetStats
        ]
    , infoHandlers = [handleInfo handleMonitorSignal]
-   , terminateHandler = \_ _ -> return ()
+   , shutdownHandler = \_ _ -> return ()
    , unhandledMessagePolicy = Drop
    } :: ProcessDefinition State
 
@@ -486,25 +499,30 @@ tryStartChild spec =
                    (\(e :: SomeException) -> return $ Left (show e))
     case mProc of
       Left err -> return $ Left (StartFailureBadClosure err)
-      Right p  -> wrapClosure p spec
-  where wrapClosure :: Process TerminateReason
+      Right p  -> wrapClosure p spec >>= return . Right
+  where wrapClosure :: Process ()
                     -> ChildSpec
-                    -> Process (Either StartFailure ChildRef)
+                    -> Process ChildRef
         wrapClosure proc spec' =
           let chId = childKey spec' in do
             supervisor <- getSelfPid
             pid <- spawnLocal $ do
+              self <- getSelfPid
               link supervisor -- die if our parent dies
               () <- expect    -- wait for a start signal
-              proc >>= checkExitType chId
+              proc `catch` filterInitFailures supervisor self
             void $ monitor pid
             send pid ()
-            return $ Right $ ChildRunning pid
+            return $ ChildRunning pid
 
-        checkExitType :: ChildKey -> TerminateReason -> Process ()
-        checkExitType _       r@(TerminateOther _) = die r
-        checkExitType childId TerminateShutdown    = logShutdown childId
-        checkExitType _       TerminateNormal      = return ()
+        filterInitFailures :: ProcessId
+                           -> ProcessId
+                           -> ChildInitFailure
+                           -> Process ()
+        filterInitFailures sup pid ex = do
+          case ex of
+            ChildInitFailed _ -> liftIO $ throwIO ex
+            ChildInitIgnore   -> cast sup $ IgnoreChildReq pid
 
 -- managing internal state
 
