@@ -13,7 +13,7 @@ module Control.Distributed.Process.Platform
     -- * Exported Types
     Addressable(..)
   , Recipient(..)
-  , TerminateReason(..)
+  , ExitReason(..)
   , Tag
   , TagPool
 
@@ -40,7 +40,7 @@ module Control.Distributed.Process.Platform
 import Control.Distributed.Process
 import Control.Distributed.Process.Platform.Internal.Types
   ( Recipient(..)
-  , TerminateReason(..)
+  , ExitReason(..)
   , Tag
   , TagPool
   , newTagPool

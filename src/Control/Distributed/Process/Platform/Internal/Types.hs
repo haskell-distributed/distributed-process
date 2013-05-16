@@ -19,7 +19,7 @@ module Control.Distributed.Process.Platform.Internal.Types
   , CancelWait(..)
   , Channel
   , Shutdown(..)
-  , TerminateReason(..)
+  , ExitReason(..)
     -- remote table
   , __remoteTable
   ) where
@@ -108,10 +108,10 @@ data Shutdown = Shutdown
 instance Binary Shutdown where
 
 -- | Provides a /reason/ for process termination.
-data TerminateReason =
-    TerminateNormal       -- ^ indicates normal exit
-  | TerminateShutdown     -- ^ normal response to a 'Shutdown'
-  | TerminateOther !String -- ^ abnormal (error) shutdown
+data ExitReason =
+    ExitNormal        -- ^ indicates normal exit
+  | ExitShutdown      -- ^ normal response to a 'Shutdown'
+  | ExitOther !String -- ^ abnormal (error) shutdown
   deriving (Typeable, Generic, Eq, Show)
-instance Binary TerminateReason where
+instance Binary ExitReason where
 
