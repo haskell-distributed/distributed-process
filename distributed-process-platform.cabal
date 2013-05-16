@@ -51,7 +51,7 @@ library
                    Control.Distributed.Process.Platform.ManagedProcess,
                    Control.Distributed.Process.Platform.ManagedProcess.Client,
                    Control.Distributed.Process.Platform.ManagedProcess.Server,
-                   Control.Distributed.Process.Platform.ManagedProcess.Server.Pure
+                   Control.Distributed.Process.Platform.ManagedProcess.Server.Restricted
   other-modules:
                    Control.Distributed.Process.Platform.Internal.Primitives,
                    Control.Distributed.Process.Platform.Internal.Types,
@@ -134,7 +134,7 @@ test-suite AsyncTests
   extensions:      CPP
   main-is:         TestAsync.hs
 
-test-suite GenServerTests
+test-suite ManagedProcessTests
   type:            exitcode-stdio-1.0
   x-uses-tf:       true
   build-depends:
@@ -158,7 +158,7 @@ test-suite GenServerTests
                    tests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   extensions:      CPP
-  main-is:         TestGenServer.hs
+  main-is:         TestManagedProcess.hs
 
 Executable leaks
   if flag(perf)
