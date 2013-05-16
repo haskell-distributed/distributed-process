@@ -49,10 +49,10 @@ launchMathServer =
           handleCall_   (\(Add    x y) -> return (x + y))
         , handleCallIf_ (input (\(Divide _ y) -> y /= 0)) handleDivide
         , handleCall_   (\(Divide _ _) -> divByZero)
-        , action        (\("stop") -> stop_ TerminateNormal)
+        , action        (\("stop") -> stop_ ExitNormal)
         ]
     }
-  in spawnLocal $ start () (statelessInit Infinity) server >> return ()
+  in spawnLocal $ serve () (statelessInit Infinity) server
   where handleDivide :: Divide -> Process (Either DivByZero Double)
         handleDivide (Divide x y) = return $ Right $ x / y
 
