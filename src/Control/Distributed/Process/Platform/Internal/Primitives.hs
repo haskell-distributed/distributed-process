@@ -36,6 +36,7 @@ module Control.Distributed.Process.Platform.Internal.Primitives
 
     -- * General Utilities
   , times
+  , isProcessAlive
 
     -- * Remote Table
   , __remoteTable
@@ -55,6 +56,9 @@ import Control.Monad (void)
 import Data.Maybe (isJust, fromJust)
 
 -- utility
+
+isProcessAlive :: ProcessId -> Process Bool
+isProcessAlive pid = getProcessInfo pid >>= \info -> return $ info /= Nothing
 
 -- | Apply the supplied expression /n/ times
 times :: Int -> Process () -> Process ()
