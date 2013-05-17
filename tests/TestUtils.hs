@@ -45,15 +45,14 @@ import Control.Concurrent.MVar
   , newEmptyMVar
   , takeMVar
   )
-import Control.Exception
-import Control.Monad (forever)
-import Control.Monad.STM (atomically)
 
 import Control.Distributed.Process
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable()
 import Control.Distributed.Process.Platform.Test
-
+import Control.Exception
+import Control.Monad (forever)
+import Control.Monad.STM (atomically)
 import Test.HUnit (Assertion)
 import Test.HUnit.Base (assertBool)
 import Test.Framework (Test, defaultMain)

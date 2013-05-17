@@ -31,6 +31,7 @@ flag perf
 library
   build-depends:
                    base >= 4,
+                   data-accessor >= 0.2.2.3,
                    distributed-process >= 0.4.2,
                    binary >= 0.6.3.0 && < 0.8,
                    mtl,
@@ -46,14 +47,15 @@ library
                    Control.Distributed.Process.Platform.Async.AsyncChan,
                    Control.Distributed.Process.Platform.Async.AsyncSTM,
                    Control.Distributed.Process.Platform.Call,
-                   Control.Distributed.Process.Platform.Test,
-                   Control.Distributed.Process.Platform.Time,
-                   Control.Distributed.Process.Platform.Timer,
                    Control.Distributed.Process.Platform.ManagedProcess,
                    Control.Distributed.Process.Platform.ManagedProcess.Client,
                    Control.Distributed.Process.Platform.ManagedProcess.Server,
                    Control.Distributed.Process.Platform.ManagedProcess.Server.Priority,
                    Control.Distributed.Process.Platform.ManagedProcess.Server.Restricted
+                   Control.Distributed.Process.Platform.Supervisor,
+                   Control.Distributed.Process.Platform.Test,
+                   Control.Distributed.Process.Platform.Time,
+                   Control.Distributed.Process.Platform.Timer
   other-modules:
                    Control.Distributed.Process.Platform.Internal.Primitives,
                    Control.Distributed.Process.Platform.Internal.Types,
@@ -161,6 +163,34 @@ test-suite ManagedProcessTests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   extensions:      CPP
   main-is:         TestManagedProcess.hs
+
+test-suite SupervisorTests
+  type:            exitcode-stdio-1.0
+--  x-uses-tf:       true
+  build-depends:
+                   base >= 4.4 && < 5,
+                   ansi-terminal >= 0.5 && < 0.6,
+                   containers,
+                   distributed-process,
+                   data-accessor,
+                   network-transport >= 0.3 && < 0.4,
+                   mtl,
+                   network-transport-tcp >= 0.3 && < 0.4,
+                   binary >= 0.6.3.0 && < 0.8,
+                   network >= 2.3 && < 2.5,
+                   HUnit >= 1.2 && < 2,
+                   stm >= 2.3 && < 2.5,
+                   test-framework >= 0.6 && < 0.9,
+                   test-framework-hunit,
+                   transformers,
+                   rematch >= 0.1.2.1,
+                   ghc-prim
+  hs-source-dirs:
+                   src,
+                   tests
+  ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind -eventlog
+  extensions:      CPP
+  main-is:         TestSupervisor.hs
 
 Executable leaks
   if flag(perf)
