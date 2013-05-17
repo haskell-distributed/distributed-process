@@ -30,7 +30,7 @@
 -- > say "the next expression will never complete, because hAsync belongs to 'outer'"
 -- > wait hAsync
 --
--- As with 'Control.Distributed.Platform.Async.Async', workers can be
+-- As with "Control.Distributed.Platform.Async.AsyncSTM", workers can be
 -- started on a local or remote node.
 --
 -- See "Control.Distributed.Platform.Async".
