@@ -38,7 +38,6 @@ module Control.Distributed.Process.Platform.Supervisor
 import Control.Distributed.Process hiding (call)
 import Control.Distributed.Process.Serializable()
 import Control.Distributed.Process.Platform.Internal.Primitives
-import Control.Distributed.Process.Platform.Internal.Types
 import Control.Distributed.Process.Platform.ManagedProcess
   ( call
   , handleCall
@@ -47,14 +46,25 @@ import Control.Distributed.Process.Platform.ManagedProcess
   , continue
   , input
   , defaultProcess
+  , prioritised
   , InitHandler
   , InitResult(..)
   , ProcessAction
   , ProcessReply
   , ProcessDefinition(..)
+  , PrioritisedProcessDefinition(..)
+  , Priority
   , UnhandledMessagePolicy(Drop)
   )
-import qualified Control.Distributed.Process.Platform.ManagedProcess as MP (serve)
+import qualified Control.Distributed.Process.Platform.ManagedProcess as MP
+  ( pserve
+  , cast
+  )
+import Control.Distributed.Process.Platform.ManagedProcess.Server.Priority
+  ( prioritiseCast_
+  , prioritiseCall_
+  , prioritiseInfo_
+  )
 import Control.Distributed.Process.Platform.ManagedProcess.Server.Restricted
   ( RestrictedProcess
   , Result
@@ -69,7 +79,7 @@ import qualified Control.Distributed.Process.Platform.ManagedProcess.Server.Rest
 -- import Control.Distributed.Process.Platform.ManagedProcess.Server.Unsafe
 -- import Control.Distributed.Process.Platform.ManagedProcess.Server
 import Control.Distributed.Process.Platform.Time
-import Control.Exception (SomeException)
+import Control.Exception (SomeException, Exception, throwIO)
 
 import Control.Monad.Error
 
@@ -223,7 +233,8 @@ instance Binary ChildSpec where
 data ChildInitFailure =
     ChildInitFailure !String
   | ChildInitIgnore
-  deriving (Typeable, Exception, Show)
+  deriving (Typeable, Generic, Show)
+instance Exception ChildInitFailure where
 
 data SupervisorStats = SupervisorStats {
     _children          :: Int
@@ -295,6 +306,10 @@ data IgnoreChildReq = IgnoreChildReq !ProcessId
   deriving (Typeable, Generic)
 instance Binary IgnoreChildReq where
 
+data TryAgainChildReq = TryAgainChildReq
+  deriving (Typeable, Generic)
+instance Binary TryAgainChildReq where
+
 type ChildSpecs = Seq Child
 
 data StatsType = Active | Specified
@@ -316,7 +331,7 @@ start :: RestartStrategy -> [ChildSpec] -> Process ProcessId
 start s cs = spawnLocal $ run s cs
 
 run :: RestartStrategy -> [ChildSpec] -> Process ()
-run strategy' specs' = MP.serve (strategy', specs') supInit serverDefinition
+run strategy' specs' = MP.pserve (strategy', specs') supInit serverDefinition
 
 -- client API
 
@@ -398,22 +413,36 @@ emptyStats = SupervisorStats {
   }
   -- TODO: usage/restart/freq stats
 
-serverDefinition :: ProcessDefinition State
-serverDefinition = defaultProcess {
-     apiHandlers = [
-         Restricted.handleCall   handleLookupChild
-       , Restricted.handleCall   handleListChildren
-       , Restricted.handleCall   handleDeleteChild
-       , Restricted.handleCallIf
-             (input (\(AddChild immediate _) -> immediate == False))
-             handleAddChild
-       , handleCall        handleStartChild
-       , Restricted.handleCall   handleGetStats
-       ]
-   , infoHandlers = [handleInfo handleMonitorSignal]
-   , shutdownHandler = \_ _ -> return ()
-   , unhandledMessagePolicy = Drop
-   } :: ProcessDefinition State
+serverDefinition :: PrioritisedProcessDefinition State
+serverDefinition = prioritised processDefinition supPriorities
+  where
+    supPriorities :: [Priority State]
+    supPriorities = [
+        prioritiseCast_ (\(IgnoreChildReq _)                 -> 100)
+      , prioritiseInfo_ (\(ProcessMonitorNotification _ _ _) -> 99 )
+      , prioritiseCast_ (\(_ :: TryAgainChildReq)            -> 80 )
+      ]
+
+processDefinition :: ProcessDefinition State
+processDefinition =
+  defaultProcess {
+    apiHandlers = [
+       -- adding, removing and (optionally) starting new child specs
+       Restricted.handleCall   handleDeleteChild
+     , Restricted.handleCallIf (input (\(AddChild immediate _) -> not immediate))
+                               handleAddChild
+     , handleCall              handleStartChild
+       -- stats/info
+     , Restricted.handleCall   handleLookupChild
+     , Restricted.handleCall   handleListChildren
+     , Restricted.handleCall   handleGetStats
+     ]
+  , infoHandlers = [handleInfo handleMonitorSignal]
+  , shutdownHandler = \_ _ -> return ()
+  , unhandledMessagePolicy = Drop
+  } :: ProcessDefinition State
+
+-- API/Info callbacks
 
 handleLookupChild :: FindReq
                   -> RestrictedProcess State (Result (Maybe (ChildRef, ChildSpec)))
@@ -499,21 +528,19 @@ tryStartChild spec =
                    (\(e :: SomeException) -> return $ Left (show e))
     case mProc of
       Left err -> return $ Left (StartFailureBadClosure err)
-      Right p  -> wrapClosure p spec >>= return . Right
+      Right p  -> wrapClosure p >>= return . Right
   where wrapClosure :: Process ()
-                    -> ChildSpec
                     -> Process ChildRef
-        wrapClosure proc spec' =
-          let chId = childKey spec' in do
-            supervisor <- getSelfPid
-            pid <- spawnLocal $ do
-              self <- getSelfPid
-              link supervisor -- die if our parent dies
-              () <- expect    -- wait for a start signal
-              proc `catch` filterInitFailures supervisor self
-            void $ monitor pid
-            send pid ()
-            return $ ChildRunning pid
+        wrapClosure proc = do
+           supervisor <- getSelfPid
+           pid <- spawnLocal $ do
+             self <- getSelfPid
+             link supervisor -- die if our parent dies
+             () <- expect    -- wait for a start signal
+             proc `catch` filterInitFailures supervisor self
+           void $ monitor pid
+           send pid ()
+           return $ ChildRunning pid
 
         filterInitFailures :: ProcessId
                            -> ProcessId
@@ -521,8 +548,8 @@ tryStartChild spec =
                            -> Process ()
         filterInitFailures sup pid ex = do
           case ex of
-            ChildInitFailed _ -> liftIO $ throwIO ex
-            ChildInitIgnore   -> cast sup $ IgnoreChildReq pid
+            ChildInitFailure _ -> liftIO $ throwIO ex
+            ChildInitIgnore    -> MP.cast sup $ IgnoreChildReq pid
 
 -- managing internal state
 
