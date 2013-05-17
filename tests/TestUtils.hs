@@ -15,6 +15,7 @@ module TestUtils
   , testProcessReport
   , delayedAssertion
   , assertComplete
+  , waitForExit
   -- logging
   , Logger()
   , newLogger
@@ -49,7 +50,10 @@ import Control.Concurrent.MVar
 import Control.Distributed.Process
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable()
+import Control.Distributed.Process.Platform
 import Control.Distributed.Process.Platform.Test
+import Control.Distributed.Process.Platform.Time
+import Control.Distributed.Process.Platform.Timer
 import Control.Exception
 import Control.Monad (forever)
 import Control.Monad.STM (atomically)
@@ -59,6 +63,18 @@ import Test.Framework (Test, defaultMain)
 
 import Network.Transport.TCP
 import qualified Network.Transport as NT
+
+waitForExit :: MVar ExitReason
+            -> Process (Maybe ExitReason)
+waitForExit exitReason = do
+    -- we *might* end up blocked here, so ensure the test doesn't jam up!
+  self <- getSelfPid
+  tref <- killAfter (within 10 Seconds) self "testcast timed out"
+  tr <- liftIO $ takeMVar exitReason
+  cancelTimer tref
+  case tr of
+    ExitNormal -> return Nothing
+    other      -> return $ Just other
 
 mkNode :: String -> IO LocalNode
 mkNode port = do
