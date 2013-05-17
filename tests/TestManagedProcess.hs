@@ -28,7 +28,8 @@ import Data.Typeable (Typeable)
 import MathsDemo
 import Counter
 import qualified SafeCounter as SafeCounter
-import SimplePool
+import SimplePool hiding (start)
+import qualified SimplePool as Pool (start)
 
 #if ! MIN_VERSION_base(4,6,0)
 import Prelude hiding (catch)
@@ -50,8 +51,8 @@ data GetState = GetState
 
 instance Binary GetState where
 
-waitForExit :: MVar (Either (InitResult ()) TerminateReason)
-            -> Process (Maybe TerminateReason)
+waitForExit :: MVar ExitReason
+            -> Process (Maybe ExitReason)
 waitForExit exitReason = do
     -- we *might* end up blocked here, so ensure the test doesn't jam up!
   self <- getSelfPid
@@ -59,14 +60,14 @@ waitForExit exitReason = do
   tr <- liftIO $ takeMVar exitReason
   cancelTimer tref
   case tr of
-    Right r -> return (Just r)
-    Left  _ -> return Nothing
+    ExitNormal -> return Nothing
+    other      -> return $ Just other
 
-server :: Process ((ProcessId, MVar (Either (InitResult ()) TerminateReason)))
+server :: Process (ProcessId, (MVar ExitReason))
 server = mkServer Terminate
 
 mkServer :: UnhandledMessagePolicy
-         -> Process (ProcessId, MVar (Either (InitResult ()) TerminateReason))
+         -> Process (ProcessId, (MVar ExitReason))
 mkServer policy =
   let s = statelessProcess {
         apiHandlers = [
@@ -74,7 +75,7 @@ mkServer policy =
               -- in fact process definition whose state is ()
 
               handleCastIf  (input (\msg -> msg == "stop"))
-                            (\_ _ -> stop TerminateNormal)
+                            (\_ _ -> stop ExitNormal)
 
             , handleCall    (\s' (m :: String) -> reply m s')
             , handleCall_   (\(n :: Int) -> return (n * 2))    -- "stateless"
@@ -87,17 +88,25 @@ mkServer policy =
             , handleCast_   (\("hibernate", d :: TimeInterval) -> hibernate_ d)
           ]
       , unhandledMessagePolicy = policy
-      , timeoutHandler         = \_ _ -> stop $ TerminateOther "timeout"
+      , timeoutHandler         = \_ _ -> stop $ ExitOther "timeout"
     }
   in do
     exitReason <- liftIO $ newEmptyMVar
     pid <- spawnLocal $ do
-      catch (start () (statelessInit Infinity) s >>= stash exitReason)
-            (\(e :: SomeException) -> stash exitReason $ Right (TerminateOther (show e)))
+       catch  ((serve () (statelessInit Infinity) s >> stash exitReason ExitNormal)
+                `catchesExit` [
+                    (\_ msg -> do
+                      mEx <- unwrapMessage msg :: Process (Maybe ExitReason)
+                      case mEx of
+                        Nothing -> return Nothing
+                        Just r  -> stash exitReason r >>= return . Just
+                    )
+                 ])
+              (\(e :: SomeException) -> stash exitReason $ ExitOther (show e))
     return (pid, exitReason)
 
 explodingServer :: ProcessId
-                -> Process (ProcessId, MVar (Either (InitResult ()) TerminateReason))
+                -> Process (ProcessId, MVar ExitReason)
 explodingServer pid =
   let srv = statelessProcess {
           apiHandlers = [
@@ -116,8 +125,16 @@ explodingServer pid =
   in do
     exitReason <- liftIO $ newEmptyMVar
     spid <- spawnLocal $ do
-      catch (start () (statelessInit Infinity) srv >>= stash exitReason)
-            (\(e :: SomeException) -> stash exitReason $ Right (TerminateOther (show e)))
+       catch  (serve () (statelessInit Infinity) srv >> stash exitReason ExitNormal)
+                -- `catchesExit` [
+                --     (\_ msg -> do
+                --       mEx <- unwrapMessage msg :: Process (Maybe ExitReason)
+                --       case mEx of
+                --         Nothing -> return Nothing
+                --         Just r  -> stash exitReason r >>= return . Just
+                --     )
+                --  ])
+              (\(e :: SomeException) -> stash exitReason $ ExitOther (show e))
     return (spid, exitReason)
 
 sampleTask :: (TimeInterval, String) -> Process String
@@ -151,19 +168,19 @@ testBasicCast result = do
   cast pid ("ping", self)
   expectTimeout (after 3 Seconds) >>= stash result
 
-testControlledTimeout :: TestResult (Maybe TerminateReason) -> Process ()
+testControlledTimeout :: TestResult (Maybe ExitReason) -> Process ()
 testControlledTimeout result = do
   (pid, exitReason) <- server
   cast pid ("timeout", Delay $ within 1 Seconds)
   waitForExit exitReason >>= stash result
 
-testTerminatePolicy :: TestResult (Maybe TerminateReason) -> Process ()
+testTerminatePolicy :: TestResult (Maybe ExitReason) -> Process ()
 testTerminatePolicy result = do
   (pid, exitReason) <- server
   send pid ("UNSOLICITED_MAIL", 500 :: Int)
   waitForExit exitReason >>= stash result
 
-testDropPolicy :: TestResult (Maybe TerminateReason) -> Process ()
+testDropPolicy :: TestResult (Maybe ExitReason) -> Process ()
 testDropPolicy result = do
   (pid, exitReason) <- mkServer Drop
 
@@ -223,7 +240,7 @@ testKillMidCall result = do
         unpack res sid AsyncCancelled = kill sid "stop" >> stash res True
         unpack res sid _              = kill sid "stop" >> stash res False
 
-testSimpleErrorHandling :: TestResult (Maybe TerminateReason) -> Process ()
+testSimpleErrorHandling :: TestResult (Maybe ExitReason) -> Process ()
 testSimpleErrorHandling result = do
   self <- getSelfPid
   (pid, exitReason) <- explodingServer self
@@ -235,7 +252,7 @@ testSimpleErrorHandling result = do
   shutdown pid
   waitForExit exitReason >>= stash result
 
-testAlternativeErrorHandling :: TestResult (Maybe TerminateReason) -> Process ()
+testAlternativeErrorHandling :: TestResult (Maybe ExitReason) -> Process ()
 testAlternativeErrorHandling result = do
   self <- getSelfPid
   (pid, exitReason) <- explodingServer self
@@ -254,9 +271,8 @@ testAlternativeErrorHandling result = do
 -- SimplePool tests
 
 startPool :: PoolSize -> Process ProcessId
-startPool s = spawnLocal $ do
-  _ <- runPool s :: Process (Either (InitResult (Pool String)) TerminateReason)
-  return ()
+startPool sz = spawnLocal $ do
+  Pool.start (pool sz :: Process (InitResult (Pool String)))
 
 testSimplePoolJobBlocksCaller :: TestResult (AsyncResult (Either String String))
                               -> Process ()
@@ -343,13 +359,13 @@ testCounterExceedsLimit pid result = do
 
   -- this time we should fail
   _ <- (incCount pid)
-         `catchExit` \_ (TerminateOther _) -> return 1
+         `catchExit` \_ (ExitOther _) -> return 1
 
   r <- receiveWait [
       matchIf (\(ProcessMonitorNotification ref _ _) -> ref == mref)
               (\(ProcessMonitorNotification _ _ r') -> return r')
     ]
-  stash result (r == DiedNormal)
+  stash result (r /= DiedNormal)
 
 myRemoteTable :: RemoteTable
 myRemoteTable = Main.__remoteTable initRemoteTable
@@ -383,16 +399,16 @@ tests transport = do
           , testCase "cast and explicit server timeout"
             (delayedAssertion
              "expected the server to stop after the timeout"
-             localNode (Just (TerminateOther "timeout")) testControlledTimeout)
+             localNode (Just $ ExitOther "timeout") testControlledTimeout)
           , testCase "unhandled input when policy = Terminate"
             (delayedAssertion
              "expected the server to stop upon receiving unhandled input"
-             localNode (Just (TerminateOther "UnhandledInput"))
+             localNode (Just $ ExitOther "UnhandledInput")
              testTerminatePolicy)
           , testCase "unhandled input when policy = Drop"
             (delayedAssertion
              "expected the server to ignore unhandled input and exit normally"
-             localNode (Just TerminateNormal) testDropPolicy)
+             localNode Nothing testDropPolicy)
           , testCase "unhandled input when policy = DeadLetter"
             (delayedAssertion
              "expected the server to forward unhandled messages"
@@ -407,10 +423,10 @@ tests transport = do
              localNode True testKillMidCall)
           , testCase "simple exit handling"
             (delayedAssertion "expected handler to catch exception and continue"
-             localNode (Just TerminateShutdown) testSimpleErrorHandling)
+             localNode Nothing testSimpleErrorHandling)
           , testCase "alternative exit handlers"
             (delayedAssertion "expected handler to catch exception and continue"
-             localNode (Just TerminateShutdown) testAlternativeErrorHandling)
+             localNode Nothing testAlternativeErrorHandling)
           ]
         , testGroup "simple pool examples" [
             testCase "each task execution blocks the caller"
