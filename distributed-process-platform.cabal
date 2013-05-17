@@ -35,6 +35,7 @@ library
                    binary >= 0.6.3.0 && < 0.8,
                    mtl,
                    containers >= 0.4 && < 0.6,
+                   fingertree == 0.0.1.1,
                    stm >= 2.3 && < 2.5,
                    transformers
   hs-source-dirs:   src
@@ -51,6 +52,7 @@ library
                    Control.Distributed.Process.Platform.ManagedProcess,
                    Control.Distributed.Process.Platform.ManagedProcess.Client,
                    Control.Distributed.Process.Platform.ManagedProcess.Server,
+                   Control.Distributed.Process.Platform.ManagedProcess.Server.Priority,
                    Control.Distributed.Process.Platform.ManagedProcess.Server.Restricted
   other-modules:
                    Control.Distributed.Process.Platform.Internal.Primitives,
