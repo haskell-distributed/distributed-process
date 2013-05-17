@@ -7,12 +7,13 @@
 -- Maintainer  :  Tim Watson <watson.timothy@gmail.com>
 -- Stability   :  experimental
 --
--- A simple queue implementation backed by @Data.Sequence@.
+-- A simple FIFO queue implementation backed by @Data.Sequence@.
 -----------------------------------------------------------------------------
 
 module Control.Distributed.Process.Platform.Internal.Queue.SeqQ
   ( SeqQ
   , empty
+  , isEmpty
   , singleton
   , enqueue
   , dequeue
@@ -26,13 +27,20 @@ import Data.Sequence
   , (<|)
   , viewr
   )
-import qualified Data.Sequence as Seq (empty, singleton)
+import qualified Data.Sequence as Seq (empty, singleton, null)
 
 newtype SeqQ a = SeqQ { q :: Seq a }
+  deriving (Show)
+
+instance Eq a => Eq (SeqQ a) where
+  a == b = (q a) == (q b)
 
 {-# INLINE empty #-}
 empty :: SeqQ a
 empty = SeqQ Seq.empty
+
+isEmpty :: SeqQ a -> Bool
+isEmpty = Seq.null . q
 
 {-# INLINE singleton #-}
 singleton :: a -> SeqQ a
@@ -55,3 +63,4 @@ getR s =
   case (viewr (q s)) of
     EmptyR -> Nothing
     a      -> Just a
+

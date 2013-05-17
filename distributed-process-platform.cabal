@@ -37,8 +37,9 @@ library
                    mtl,
                    containers >= 0.4 && < 0.6,
                    fingertree == 0.0.1.1,
-                   stm >= 2.3 && < 2.5,
-                   transformers
+                   stm >= 2.4 && < 2.5,
+                   transformers,
+                   ghc-prim
   hs-source-dirs:   src
   ghc-options:      -Wall
   exposed-modules:
@@ -51,7 +52,7 @@ library
                    Control.Distributed.Process.Platform.ManagedProcess.Client,
                    Control.Distributed.Process.Platform.ManagedProcess.Server,
                    Control.Distributed.Process.Platform.ManagedProcess.Server.Priority,
-                   Control.Distributed.Process.Platform.ManagedProcess.Server.Restricted
+                   Control.Distributed.Process.Platform.ManagedProcess.Server.Restricted,
                    Control.Distributed.Process.Platform.Supervisor,
                    Control.Distributed.Process.Platform.Test,
                    Control.Distributed.Process.Platform.Time,
@@ -59,7 +60,8 @@ library
   other-modules:
                    Control.Distributed.Process.Platform.Internal.Primitives,
                    Control.Distributed.Process.Platform.Internal.Types,
-                   Control.Distributed.Process.Platform.Internal.Queue.SeqQ
+                   Control.Distributed.Process.Platform.Internal.Queue.SeqQ,
+                   Control.Distributed.Process.Platform.Internal.Queue.PriorityQ
                    Control.Distributed.Process.Platform.Async.Types,
                    Control.Distributed.Process.Platform.ManagedProcess.Internal.Types,
                    Control.Distributed.Process.Platform.ManagedProcess.Internal.GenProcess
@@ -148,6 +150,7 @@ test-suite ManagedProcessTests
                    distributed-process,
                    network-transport >= 0.3 && < 0.4,
                    mtl,
+                   fingertree == 0.0.1.1,
                    network-transport-tcp >= 0.3 && < 0.4,
                    binary >= 0.6.3.0 && < 0.8,
                    network >= 2.3 && < 2.5,
@@ -164,6 +167,33 @@ test-suite ManagedProcessTests
   extensions:      CPP
   main-is:         TestManagedProcess.hs
 
+test-suite PrioritisedProcessTests
+  type:            exitcode-stdio-1.0
+  x-uses-tf:       true
+  build-depends:
+                   base >= 4.4 && < 5,
+                   ansi-terminal >= 0.5 && < 0.6,
+                   containers,
+                   distributed-process,
+                   network-transport >= 0.3 && < 0.4,
+                   mtl,
+                   fingertree == 0.0.1.1,
+                   network-transport-tcp >= 0.3 && < 0.4,
+                   binary >= 0.6.3.0 && < 0.8,
+                   network >= 2.3 && < 2.5,
+                   HUnit >= 1.2 && < 2,
+                   stm >= 2.3 && < 2.5,
+                   test-framework >= 0.6 && < 0.9,
+                   test-framework-hunit,
+                   transformers,
+                   ghc-prim
+  hs-source-dirs:
+                   src,
+                   tests
+  ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
+  extensions:      CPP
+  main-is:         TestPrioritisedProcess.hs
+
 test-suite SupervisorTests
   type:            exitcode-stdio-1.0
 --  x-uses-tf:       true
@@ -173,6 +203,7 @@ test-suite SupervisorTests
                    containers,
                    distributed-process,
                    data-accessor,
+                   fingertree == 0.0.1.1,
                    network-transport >= 0.3 && < 0.4,
                    mtl,
                    network-transport-tcp >= 0.3 && < 0.4,
@@ -191,6 +222,30 @@ test-suite SupervisorTests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind -eventlog
   extensions:      CPP
   main-is:         TestSupervisor.hs
+
+test-suite InternalQueueTests
+  type:            exitcode-stdio-1.0
+  x-uses-tf:       true
+  build-depends:
+                   base >= 4.4 && < 5,
+                   ansi-terminal >= 0.5 && < 0.6,
+                   containers,
+                   data-accessor,
+                   fingertree == 0.0.1.1,
+                   HUnit >= 1.2 && < 2,
+                   test-framework >= 0.6 && < 0.9,
+                   test-framework-hunit,
+                   QuickCheck >= 2.4,
+                   test-framework-quickcheck2,
+                   rematch >= 0.1.2.1,
+                   ghc-prim
+  hs-source-dirs:
+                   src,
+                   tests
+  ghc-options:     -Wall -rtsopts
+  extensions:      CPP
+  main-is:         TestQueues.hs
+  cpp-options:     -DTESTING
 
 Executable leaks
   if flag(perf)
