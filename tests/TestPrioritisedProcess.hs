@@ -1,8 +1,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE ImpredicativeTypes  #-}
 {-# LANGUAGE DeriveDataTypeable  #-}
 {-# LANGUAGE BangPatterns        #-}
-{-# LANGUAGE TemplateHaskell     #-}
+{-# LANGUAGE DeriveGeneric       #-}
 
 -- NB: this module contains tests for the GenProcess /and/ GenServer API.
 
@@ -11,7 +10,6 @@ module Main where
 import Control.Concurrent.MVar
 import Control.Exception (SomeException)
 import Control.Distributed.Process hiding (call)
-import Control.Distributed.Process.Closure
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Platform hiding (__remoteTable)
 import Control.Distributed.Process.Platform.Async
@@ -21,11 +19,9 @@ import Control.Distributed.Process.Platform.Time
 import Control.Distributed.Process.Platform.Timer
 import Control.Distributed.Process.Serializable()
 
-import MathsDemo
-import Counter
-import qualified SafeCounter as SafeCounter
-import SimplePool hiding (start)
-import qualified SimplePool as Pool (start)
+import Data.Binary
+import Data.Either (rights)
+import Data.Typeable (Typeable)
 
 #if ! MIN_VERSION_base(4,6,0)
 import Prelude hiding (catch)
@@ -36,7 +32,8 @@ import Test.Framework.Providers.HUnit (testCase)
 import TestUtils
 
 import qualified Network.Transport as NT
-import Control.Monad (void)
+
+import GHC.Generics (Generic)
 
 -- utilities
 
@@ -47,7 +44,7 @@ mkServer :: UnhandledMessagePolicy
          -> Process (ProcessId, (MVar ExitReason))
 mkServer policy =
   let s = statelessProcess {
-        apiHandlers = [
+            apiHandlers = [
               -- note: state is passed here, as a 'stateless' process is
               -- in fact process definition whose state is ()
 
@@ -63,14 +60,15 @@ mkServer policy =
                             (\("timeout", Delay d) -> timeoutAfter_ d)
 
             , handleCast_   (\("hibernate", d :: TimeInterval) -> hibernate_ d)
-          ]
-      , unhandledMessagePolicy = policy
-      , timeoutHandler         = \_ _ -> stop $ ExitOther "timeout"
-    }
+            ]
+          , unhandledMessagePolicy = policy
+          , timeoutHandler         = \_ _ -> stop $ ExitOther "timeout"
+          }
+      p = s `prioritised` ([] :: [Priority ()])
   in do
     exitReason <- liftIO $ newEmptyMVar
     pid <- spawnLocal $ do
-       catch  ((serve () (statelessInit Infinity) s >> stash exitReason ExitNormal)
+       catch  ((pserve () (statelessInit Infinity) p >> stash exitReason ExitNormal)
                 `catchesExit` [
                     (\_ msg -> do
                       mEx <- unwrapMessage msg :: Process (Maybe ExitReason)
@@ -86,37 +84,65 @@ explodingServer :: ProcessId
                 -> Process (ProcessId, MVar ExitReason)
 explodingServer pid =
   let srv = statelessProcess {
-          apiHandlers = [
-               handleCall_ (\(s :: String) ->
+              apiHandlers = [
+                  handleCall_ (\(s :: String) ->
                                (die s) :: Process String)
-             , handleCast  (\_ (i :: Int) ->
+                , handleCast  (\_ (i :: Int) ->
                                getSelfPid >>= \p -> die (p, i))
-             ]
-        , exitHandlers = [
-               handleExit  (\s _ (m :: String) -> send pid (m :: String) >>
-                                                  continue s)
-             , handleExit  (\s _ m@((_ :: ProcessId),
+                ]
+              , exitHandlers = [
+                  handleExit  (\s _ (m :: String) -> send pid (m :: String) >>
+                                                     continue s)
+                , handleExit  (\s _ m@((_ :: ProcessId),
                                     (_ :: Int)) -> send pid m >> continue s)
-             ]
-        }
+                ]
+              }
+      pSrv = srv `prioritised` ([] :: [Priority s])
   in do
     exitReason <- liftIO $ newEmptyMVar
     spid <- spawnLocal $ do
-       catch  (serve () (statelessInit Infinity) srv >> stash exitReason ExitNormal)
+       catch  (pserve () (statelessInit Infinity) pSrv >> stash exitReason ExitNormal)
               (\(e :: SomeException) -> stash exitReason $ ExitOther (show e))
     return (spid, exitReason)
 
-sampleTask :: (TimeInterval, String) -> Process String
-sampleTask (t, s) = sleep t >> return s
+data GetState = GetState
+  deriving (Typeable, Generic, Show, Eq)
+instance Binary GetState where
 
-namedTask :: (String, String) -> Process String
-namedTask (name, result) = do
-  self <- getSelfPid
-  register name self
-  () <- expect
-  return result
+data MyAlarmSignal = MyAlarmSignal
+  deriving (Typeable, Generic, Show, Eq)
+instance Binary MyAlarmSignal where
 
-$(remotable ['sampleTask, 'namedTask])
+mkPrioritisedServer :: Process ProcessId
+mkPrioritisedServer =
+  let p = procDef `prioritised` ([
+               prioritiseInfo (\_ MyAlarmSignal -> 10)
+             , prioritiseCast (\_ (_ :: String) -> 2)
+             , prioritiseCall (\_ (cmd :: String) -> (cmd `seq` length cmd))
+             ] :: [Priority [Either MyAlarmSignal String]]
+          ) :: PrioritisedProcessDefinition [(Either MyAlarmSignal String)]
+  in spawnLocal $ pserve () (initWait Infinity) p
+  where
+    initWait :: Delay
+             -> InitHandler () [Either MyAlarmSignal String]
+    initWait d () = do
+      () <- expect
+      return $ InitOk [] d
+
+    procDef :: ProcessDefinition [(Either MyAlarmSignal String)]
+    procDef =
+      defaultProcess {
+            apiHandlers = [
+               handleCall (\s GetState -> reply (reverse s) s)
+             , handleCall (\s (cmd :: String) -> reply () ((Right cmd):s))
+             , handleCast (\s (cmd :: String) -> continue ((Right cmd):s))
+            ]
+          , infoHandlers = [
+               handleInfo (\s (sig :: MyAlarmSignal) -> continue ((Left sig):s))
+            ]
+          , unhandledMessagePolicy = Drop
+          , timeoutHandler         = \_ _ -> stop $ ExitOther "timeout"
+          } :: ProcessDefinition [(Either MyAlarmSignal String)]
 
 -- test cases
 
@@ -236,123 +262,50 @@ testAlternativeErrorHandling result = do
   shutdown pid
   waitForExit exitReason >>= stash result
 
+testInfoPrioritisation :: TestResult Bool -> Process ()
+testInfoPrioritisation result = do
+  pid <- mkPrioritisedServer
+  -- the server (pid) is configured to wait for () during its init
+  -- so we can fill up its mailbox with String messages, and verify
+  -- that the alarm signal (which is prioritised *above* these)
+  -- actually gets processed first despite the delivery order
+  cast pid "hello"
+  cast pid "prioritised"
+  cast pid "world"
+  -- note that these have to be a "bare send"
+  send pid MyAlarmSignal
+  -- tell the server it can move out of init and start processing messages
+  send pid ()
+  st <- call pid GetState :: Process [Either MyAlarmSignal String]
+  -- the result of GetState is a list of messages in reverse insertion order
+  case head st of
+    Left MyAlarmSignal -> stash result True
+    _ -> stash result False
 
--- SimplePool tests
-
-startPool :: PoolSize -> Process ProcessId
-startPool sz = spawnLocal $ do
-  Pool.start (pool sz :: Process (InitResult (Pool String)))
-
-testSimplePoolJobBlocksCaller :: TestResult (AsyncResult (Either String String))
-                              -> Process ()
-testSimplePoolJobBlocksCaller result = do
-  pid <- startPool 1
-  -- we do a non-blocking test first
-  job <- return $ ($(mkClosure 'sampleTask) (seconds 2, "foobar"))
-  callAsync pid job >>= wait >>= stash result
-
-testJobQueueSizeLimiting ::
-    TestResult (Maybe (AsyncResult (Either String String)),
-                Maybe (AsyncResult (Either String String)))
-                         -> Process ()
-testJobQueueSizeLimiting result = do
-  pid <- startPool 1
-  job1 <- return $ ($(mkClosure 'namedTask) ("job1", "foo"))
-  job2 <- return $ ($(mkClosure 'namedTask) ("job2", "bar"))
-  h1 <- callAsync pid job1 :: Process (Async (Either String String))
-  h2 <- callAsync pid job2 :: Process (Async (Either String String))
-
-  -- despite the fact that we tell job2 to proceed first,
-  -- the size limit (of 1) will ensure that only job1 can
-  -- proceed successfully!
-  nsend "job2" ()
-  AsyncPending <- poll h2
-  Nothing <- whereis "job2"
-
-  -- we can get here *very* fast, so give the registration time to kick in
-  sleep $ milliSeconds 250
-  j1p <- whereis "job1"
-  case j1p of
-    Nothing -> die $ "timing is out - job1 isn't registered yet"
-    Just p  -> send p ()
-
-  -- once job1 completes, we *should* be able to proceed with job2
-  -- but we allow a little time for things to catch up
-  sleep $ milliSeconds 250
-  nsend "job2" ()
-
-  r2 <- waitTimeout (within 2 Seconds) h2
-  r1 <- waitTimeout (within 2 Seconds) h1
-  stash result (r1, r2)
-
--- MathDemo tests
-
-testAdd :: ProcessId -> TestResult Double -> Process ()
-testAdd pid result = add pid 10 10 >>= stash result
-
-testDivByZero :: ProcessId -> TestResult (Either DivByZero Double) -> Process ()
-testDivByZero pid result = divide pid 125 0 >>= stash result
-
--- SafeCounter tests
-
-testSafeCounterCurrentState :: ProcessId -> TestResult Int -> Process ()
-testSafeCounterCurrentState pid result =
-  SafeCounter.getCount pid >>= stash result
-
-testSafeCounterIncrement :: ProcessId -> TestResult Int -> Process ()
-testSafeCounterIncrement pid result = do
-  5 <- SafeCounter.getCount pid
-  SafeCounter.resetCount pid
-  1 <- SafeCounter.incCount pid
-  2 <- SafeCounter.incCount pid
-  SafeCounter.getCount pid >>= stash result
-
--- Counter tests
-
-testCounterCurrentState :: ProcessId -> TestResult Int -> Process ()
-testCounterCurrentState pid result = getCount pid >>= stash result
-
-testCounterIncrement :: ProcessId -> TestResult Int -> Process ()
-testCounterIncrement pid result = do
-  6 <- incCount pid
-  7 <- incCount pid
-  getCount pid >>= stash result
-
-testCounterExceedsLimit :: ProcessId -> TestResult Bool -> Process ()
-testCounterExceedsLimit pid result = do
-  mref <- monitor pid
-  7 <- getCount pid
-
-  -- exceed the limit
-  3 `times` (void $ incCount pid)
-
-  -- this time we should fail
-  _ <- (incCount pid)
-         `catchExit` \_ (ExitOther _) -> return 1
-
-  r <- receiveWait [
-      matchIf (\(ProcessMonitorNotification ref _ _) -> ref == mref)
-              (\(ProcessMonitorNotification _ _ r') -> return r')
-    ]
-  stash result (r /= DiedNormal)
-
-myRemoteTable :: RemoteTable
-myRemoteTable = Main.__remoteTable initRemoteTable
+testCallPrioritisation :: TestResult Bool -> Process ()
+testCallPrioritisation result = do
+  pid <- mkPrioritisedServer
+  asyncRefs <- (mapM (callAsync pid)
+                    ["first", "the longest", "commands", "we do prioritise"])
+                 :: Process [Async ()]
+  -- NB: This sleep is really important - the `init' function is waiting
+  -- (selectively) on the () signal to go, and if it receives this *before*
+  -- the async worker has had a chance to deliver the longest string message,
+  -- our test will fail. Such races are /normal/ given that the async worker
+  -- runs in another process and delivery order between multiple processes
+  -- is undefined (and in practise, paritally depenendent on the scheduler)
+  sleep $ seconds 1
+  send pid ()
+  mapM wait asyncRefs :: Process [AsyncResult ()]
+  st <- call pid GetState :: Process [Either MyAlarmSignal String]
+  let ms = rights st
+  stash result $ ms == ["we do prioritise", "the longest", "commands", "first"]
 
 tests :: NT.Transport  -> IO [Test]
 tests transport = do
-  localNode <- newLocalNode transport myRemoteTable
-  mpid <- newEmptyMVar
-  _ <- forkProcess localNode $ launchMathServer >>= stash mpid
-  pid <- takeMVar mpid
-  cpid <- newEmptyMVar
-  _ <- forkProcess localNode $ startCounter 5 >>= stash cpid
-  counter <- takeMVar cpid
-  scpid <- newEmptyMVar
-  _ <- forkProcess localNode $ SafeCounter.startCounter 5 >>= stash scpid
-  safeCounter <- takeMVar scpid
+  localNode <- newLocalNode transport initRemoteTable
   return [
-        testGroup "basic server functionality" [
+        testGroup "basic server functionality matches un-prioritised processes" [
             testCase "basic call with explicit server reply"
             (delayedAssertion
              "expected a response from the server"
@@ -397,54 +350,17 @@ tests transport = do
             (delayedAssertion "expected handler to catch exception and continue"
              localNode Nothing testAlternativeErrorHandling)
           ]
-        , testGroup "simple pool examples" [
-            testCase "each task execution blocks the caller"
-              (delayedAssertion
-               "expected the server to return the task outcome"
-               localNode (AsyncDone (Right "foobar")) testSimplePoolJobBlocksCaller)
-          , testCase "only 'max' tasks can proceed at any time"
-              (delayedAssertion
-               "expected the server to block the second job until the first was released"
-               localNode
-               (Just (AsyncDone (Right "foo")),
-                Just (AsyncDone (Right "bar"))) testJobQueueSizeLimiting)
-          ]
-        , testGroup "math server examples" [
-            testCase "error (Left) returned from x / 0"
-              (delayedAssertion
-               "expected the server to return DivByZero"
-               localNode (Left DivByZero) (testDivByZero pid))
-          , testCase "10 + 10 = 20"
-              (delayedAssertion
-               "expected the server to return DivByZero"
-               localNode 20 (testAdd pid))
-          ]
-        , testGroup "counter server examples" [
-            testCase "initial counter state = 5"
-              (delayedAssertion
-               "expected the server to return the initial state of 5"
-               localNode 5 (testCounterCurrentState counter))
-          , testCase "increment counter twice"
-              (delayedAssertion
-               "expected the server to return the incremented state as 7"
-               localNode 7 (testCounterIncrement counter))
-          , testCase "exceed counter limits"
-            (delayedAssertion
-             "expected the server to terminate once the limit was exceeded"
-             localNode True (testCounterExceedsLimit counter))
-          ]
-        , testGroup "safe counter examples" [
-            testCase "initial counter state = 5"
-              (delayedAssertion
-               "expected the server to return the initial state of 5"
-               localNode 5 (testSafeCounterCurrentState safeCounter))
-          , testCase "increment counter twice"
-              (delayedAssertion
-               "expected the server to return the incremented state as 7"
-               localNode 2 (testSafeCounterIncrement safeCounter))
+      , testGroup "Prioritised Mailbox Handling" [
+            testCase "Info Message Prioritisation"
+            (delayedAssertion "expected the info handler to be prioritised"
+             localNode True testInfoPrioritisation)
+          , testCase "Call Message Prioritisation"
+            (delayedAssertion "expected the longest strings to be prioritised"
+             localNode True testCallPrioritisation)
           ]
       ]
 
 main :: IO ()
 main = testMain $ tests
+
 
