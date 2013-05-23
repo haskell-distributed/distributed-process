@@ -64,7 +64,7 @@ mkServer policy =
           , unhandledMessagePolicy = policy
           , timeoutHandler         = \_ _ -> stop $ ExitOther "timeout"
           }
-      p = s `prioritised` ([] :: [Priority ()])
+      p = s `prioritised` ([] :: [DispatchPriority ()])
   in do
     exitReason <- liftIO $ newEmptyMVar
     pid <- spawnLocal $ do
@@ -97,7 +97,7 @@ explodingServer pid =
                                     (_ :: Int)) -> send pid m >> continue s)
                 ]
               }
-      pSrv = srv `prioritised` ([] :: [Priority s])
+      pSrv = srv `prioritised` ([] :: [DispatchPriority s])
   in do
     exitReason <- liftIO $ newEmptyMVar
     spid <- spawnLocal $ do
@@ -116,10 +116,10 @@ instance Binary MyAlarmSignal where
 mkPrioritisedServer :: Process ProcessId
 mkPrioritisedServer =
   let p = procDef `prioritised` ([
-               prioritiseInfo (\_ MyAlarmSignal -> 10)
-             , prioritiseCast (\_ (_ :: String) -> 2)
-             , prioritiseCall (\_ (cmd :: String) -> (cmd `seq` length cmd))
-             ] :: [Priority [Either MyAlarmSignal String]]
+               prioritiseInfo_ (\MyAlarmSignal   -> setPriority 10)
+             , prioritiseCast_ (\(_ :: String)   -> setPriority 2)
+             , prioritiseCall_ (\(cmd :: String) -> (setPriority (length cmd)) :: Priority ())
+             ] :: [DispatchPriority [Either MyAlarmSignal String]]
           ) :: PrioritisedProcessDefinition [(Either MyAlarmSignal String)]
   in spawnLocal $ pserve () (initWait Infinity) p
   where

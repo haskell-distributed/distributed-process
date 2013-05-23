@@ -78,14 +78,16 @@ serverDefinition :: ProcessDefinition State
 serverDefinition = defaultProcess {
      apiHandlers = [
           handleCallIf (condition (\count Increment -> count >= 10))-- invariant
-                       (\_ (_ :: Increment) -> do
-                           haltNoReply_ (ExitOther "Count > 10"))
+                       (\_ (_ :: Increment) -> haltMaxCount)
 
         , handleCall handleIncrement
         , handleCall (\count Fetch -> reply count count)
         , handleCast (\_ Reset -> continue 0)
         ]
     } :: ProcessDefinition State
+
+haltMaxCount :: Process (ProcessReply Int State)
+haltMaxCount = haltNoReply_ (ExitOther "Count > 10")
 
 handleIncrement :: State -> Increment -> Process (ProcessReply Int State)
 handleIncrement count Increment =

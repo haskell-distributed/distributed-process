@@ -236,6 +236,32 @@ testAlternativeErrorHandling result = do
   shutdown pid
   waitForExit exitReason >>= stash result
 
+testCallReturnTypeMismatchHandling :: TestResult Bool -> Process ()
+testCallReturnTypeMismatchHandling result =
+  let procDef = statelessProcess {
+                    apiHandlers = [
+                      handleCall (\s (m :: String) -> reply m s)
+                    ]
+                    , unhandledMessagePolicy = Terminate
+                    } in do
+    pid <- spawnLocal $ serve () (statelessInit Infinity) procDef
+    res <- safeCall pid "hello buddy" :: Process (Either ExitReason ())
+    case res of
+      Left  (ExitOther _) -> stash result True
+      _                   -> stash result False
+
+testChannelBasedService :: TestResult Bool -> Process ()
+testChannelBasedService result =
+  let procDef = statelessProcess {
+                    apiHandlers = [
+                      handleRpcChan (\s p (m :: String) ->
+                                      replyChan p m >> continue s)
+                    ]
+                    } in do
+    pid <- spawnLocal $ serve () (statelessInit Infinity) procDef
+    echo <- syncCallChan pid "hello"
+    stash result (echo == "hello")
+    kill pid "done"
 
 -- SimplePool tests
 
@@ -396,6 +422,12 @@ tests transport = do
           , testCase "alternative exit handlers"
             (delayedAssertion "expected handler to catch exception and continue"
              localNode Nothing testAlternativeErrorHandling)
+          , testCase "call return type mismatch"
+            (delayedAssertion "expected the process to exit due to unhandled traffic"
+             localNode True testCallReturnTypeMismatchHandling)
+          , testCase "channel based services"
+            (delayedAssertion "expected a response via the provided channel"
+             localNode True testChannelBasedService)
           ]
         , testGroup "simple pool examples" [
             testCase "each task execution blocks the caller"
