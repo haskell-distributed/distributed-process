@@ -53,7 +53,7 @@ import Control.Distributed.Process.Platform.ManagedProcess
   , ProcessReply
   , ProcessDefinition(..)
   , PrioritisedProcessDefinition(..)
-  , Priority
+  , DispatchPriority
   , UnhandledMessagePolicy(Drop)
   )
 import qualified Control.Distributed.Process.Platform.ManagedProcess as MP
@@ -64,6 +64,7 @@ import Control.Distributed.Process.Platform.ManagedProcess.Server.Priority
   ( prioritiseCast_
   , prioritiseCall_
   , prioritiseInfo_
+  , setPriority
   )
 import Control.Distributed.Process.Platform.ManagedProcess.Server.Restricted
   ( RestrictedProcess
@@ -125,9 +126,7 @@ maxRestarts r | r >= 0    = MaxR r
 -- will occur. This prevents the supervisor from entering an infinite loop of
 -- child process terminations and restarts.
 --
-data RestartLimit = RestartLimit
-                      !MaxRestarts  -- ^ maximum bound on the number of restarts
-                      !TimeInterval -- ^ time interval within which the bound is applied
+data RestartLimit = RestartLimit !MaxRestarts !TimeInterval
   deriving (Typeable, Generic, Show)
 instance Binary RestartLimit where
 
@@ -416,11 +415,11 @@ emptyStats = SupervisorStats {
 serverDefinition :: PrioritisedProcessDefinition State
 serverDefinition = prioritised processDefinition supPriorities
   where
-    supPriorities :: [Priority State]
+    supPriorities :: [DispatchPriority State]
     supPriorities = [
-        prioritiseCast_ (\(IgnoreChildReq _)                 -> 100)
-      , prioritiseInfo_ (\(ProcessMonitorNotification _ _ _) -> 99 )
-      , prioritiseCast_ (\(_ :: TryAgainChildReq)            -> 80 )
+        prioritiseCast_ (\(IgnoreChildReq _)                 -> setPriority 100)
+      , prioritiseInfo_ (\(ProcessMonitorNotification _ _ _) -> setPriority 99 )
+      , prioritiseCast_ (\(_ :: TryAgainChildReq)            -> setPriority 80 )
       ]
 
 processDefinition :: ProcessDefinition State
