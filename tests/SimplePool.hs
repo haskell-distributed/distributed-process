@@ -63,8 +63,8 @@ instance Binary PoolStats where
 
 data Pool a = Pool {
     poolSize :: PoolSize
-  , active   :: [(MonitorRef, CallRef, Async a)]
-  , accepted :: Seq (CallRef, Closure (Process a))
+  , active   :: [(MonitorRef, CallRef (Either String a), Async a)]
+  , accepted :: Seq (CallRef (Either String a), Closure (Process a))
   } deriving (Typeable)
 
 -- Client facing API
@@ -107,7 +107,7 @@ stats sid = tryCall sid GetStats
 poolStatsRequest :: (Serializable a)
                  => Pool a
                  -> GetStats
-                 -> Process (ProcessReply PoolStats (Pool a) )
+                 -> Process (ProcessReply PoolStats (Pool a))
 poolStatsRequest st GetStats =
   let sz = poolSize st
       ac = length (active st)
@@ -117,14 +117,14 @@ poolStatsRequest st GetStats =
 -- /call/ handler: accept a task and defer responding until "later"
 storeTask :: Serializable a
           => Pool a
-          -> CallRef
+          -> CallRef (Either String a)
           -> Closure (Process a)
-          -> Process (ProcessReply () (Pool a))
+          -> Process (ProcessReply (Either String a) (Pool a))
 storeTask s r c = acceptTask s r c >>= noReply_
 
 acceptTask :: Serializable a
            => Pool a
-           -> CallRef
+           -> CallRef (Either String a)
            -> Closure (Process a)
            -> Process (Pool a)
 acceptTask s@(Pool sz' runQueue taskQueue) from task' =
@@ -153,7 +153,7 @@ taskComplete s@(Pool _ runQ _)
     Nothing          -> continue s
 
   where
-    respond :: CallRef
+    respond :: CallRef (Either String a)
             -> AsyncResult a
             -> Process ()
     respond c (AsyncDone       r) = replyTo c ((Right r) :: (Either String a))
@@ -161,7 +161,7 @@ taskComplete s@(Pool _ runQ _)
     respond c (AsyncLinkFailed d) = replyTo c ((Left (show d)) :: (Either String a))
     respond _      _              = die $ ExitOther "IllegalState"
 
-    bump :: Pool a -> (MonitorRef, CallRef, Async a) -> Process (Pool a)
+    bump :: Pool a -> (MonitorRef, CallRef (Either String a), Async a) -> Process (Pool a)
     bump st@(Pool _ runQueue acc) worker =
       let runQ2 = deleteFromRunQueue worker runQueue
           accQ  = dequeue acc in
@@ -170,13 +170,13 @@ taskComplete s@(Pool _ runQ _)
         Just ((tr,tc), ts) -> acceptTask (st { accepted = ts, active = runQ2 }) tr tc
 
 findWorker :: MonitorRef
-           -> [(MonitorRef, CallRef, Async a)]
-           -> Maybe (MonitorRef, CallRef, Async a)
+           -> [(MonitorRef, CallRef (Either String a), Async a)]
+           -> Maybe (MonitorRef, CallRef (Either String a), Async a)
 findWorker key = find (\(ref,_,_) -> ref == key)
 
-deleteFromRunQueue :: (MonitorRef, CallRef, Async a)
-                   -> [(MonitorRef, CallRef, Async a)]
-                   -> [(MonitorRef, CallRef, Async a)]
+deleteFromRunQueue :: (MonitorRef, CallRef (Either String a), Async a)
+                   -> [(MonitorRef, CallRef (Either String a), Async a)]
+                   -> [(MonitorRef, CallRef (Either String a), Async a)]
 deleteFromRunQueue c@(p, _, _) runQ = deleteBy (\_ (b, _, _) -> b == p) c runQ
 
 {-# INLINE enqueue #-}
