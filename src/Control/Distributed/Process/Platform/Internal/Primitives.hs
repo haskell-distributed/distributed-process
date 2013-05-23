@@ -2,6 +2,7 @@
 {-# LANGUAGE TemplateHaskell        #-}
 {-# LANGUAGE TypeSynonymInstances   #-}
 {-# LANGUAGE FlexibleInstances      #-}
+{-# LANGUAGE ScopedTypeVariables    #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -33,6 +34,7 @@ module Control.Distributed.Process.Platform.Internal.Primitives
 
     -- * Selective Receive/Matching
   , matchCond
+  , awaitResponse
 
     -- * General Utilities
   , times
@@ -49,6 +51,7 @@ import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Platform.Internal.Types
   ( Recipient(..)
   , RegisterSelf(..)
+  , ExitReason(ExitOther)
   , sendToRecipient
   , whereisRemote
   )
@@ -87,6 +90,10 @@ instance Addressable ProcessId where
 instance Addressable String where
   sendTo  = nsend
   resolve = whereis
+
+instance Addressable (NodeId, String) where
+  sendTo (nid, pname) msg = nsendRemote nid pname msg
+  resolve (nid, pname) = whereisRemote nid pname
 
 -- spawning, linking and generic server startup
 
@@ -220,4 +227,21 @@ matchCond cond =
    let v n = (isJust n, fromJust n)
        res = v . cond
     in matchIf (fst . res) (snd . res)
+
+awaitResponse :: Addressable a
+              => a
+              -> [Match (Either ExitReason b)]
+              -> Process (Either ExitReason b)
+awaitResponse addr matches = do
+  mPid <- resolve addr
+  case mPid of
+    Nothing -> return $ Left $ ExitOther "UnresolvedAddress"
+    Just p  -> do
+      mRef <- monitor p
+      receiveWait ((matchRef mRef):matches)
+  where
+    matchRef :: MonitorRef -> Match (Either ExitReason b)
+    matchRef r = matchIf (\(ProcessMonitorNotification r' _ _) -> r == r')
+                         (\(ProcessMonitorNotification _ _ d) -> do
+                             return (Left (ExitOther (show d))))
 
