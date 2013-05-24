@@ -30,6 +30,7 @@ import Prelude hiding (catch)
 import Test.Framework (Test, testGroup)
 import Test.Framework.Providers.HUnit (testCase)
 import TestUtils
+import ManagedProcessCommon
 
 import qualified Network.Transport as NT
 
@@ -43,27 +44,7 @@ server = mkServer Terminate
 mkServer :: UnhandledMessagePolicy
          -> Process (ProcessId, (MVar ExitReason))
 mkServer policy =
-  let s = statelessProcess {
-            apiHandlers = [
-              -- note: state is passed here, as a 'stateless' process is
-              -- in fact process definition whose state is ()
-
-              handleCastIf  (input (\msg -> msg == "stop"))
-                            (\_ _ -> stop ExitNormal)
-
-            , handleCall    (\s' (m :: String) -> reply m s')
-            , handleCall_   (\(n :: Int) -> return (n * 2))    -- "stateless"
-
-            , handleCast    (\s' ("ping", pid :: ProcessId) ->
-                                 send pid "pong" >> continue s')
-            , handleCastIf_ (input (\(c :: String, _ :: Delay) -> c == "timeout"))
-                            (\("timeout", Delay d) -> timeoutAfter_ d)
-
-            , handleCast_   (\("hibernate", d :: TimeInterval) -> hibernate_ d)
-            ]
-          , unhandledMessagePolicy = policy
-          , timeoutHandler         = \_ _ -> stop $ ExitOther "timeout"
-          }
+  let s = standardTestServer policy
       p = s `prioritised` ([] :: [DispatchPriority ()])
   in do
     exitReason <- liftIO $ newEmptyMVar
@@ -83,20 +64,7 @@ mkServer policy =
 explodingServer :: ProcessId
                 -> Process (ProcessId, MVar ExitReason)
 explodingServer pid =
-  let srv = statelessProcess {
-              apiHandlers = [
-                  handleCall_ (\(s :: String) ->
-                               (die s) :: Process String)
-                , handleCast  (\_ (i :: Int) ->
-                               getSelfPid >>= \p -> die (p, i))
-                ]
-              , exitHandlers = [
-                  handleExit  (\s _ (m :: String) -> send pid (m :: String) >>
-                                                     continue s)
-                , handleExit  (\s _ m@((_ :: ProcessId),
-                                    (_ :: Int)) -> send pid m >> continue s)
-                ]
-              }
+  let srv = explodingTestProcess pid
       pSrv = srv `prioritised` ([] :: [DispatchPriority s])
   in do
     exitReason <- liftIO $ newEmptyMVar
@@ -146,122 +114,6 @@ mkPrioritisedServer =
 
 -- test cases
 
-testBasicCall :: TestResult (Maybe String) -> Process ()
-testBasicCall result = do
-  (pid, _) <- server
-  callTimeout pid "foo" (within 5 Seconds) >>= stash result
-
-testBasicCall_ :: TestResult (Maybe Int) -> Process ()
-testBasicCall_ result = do
-  (pid, _) <- server
-  callTimeout pid (2 :: Int) (within 5 Seconds) >>= stash result
-
-testBasicCast :: TestResult (Maybe String) -> Process ()
-testBasicCast result = do
-  self <- getSelfPid
-  (pid, _) <- server
-  cast pid ("ping", self)
-  expectTimeout (after 3 Seconds) >>= stash result
-
-testControlledTimeout :: TestResult (Maybe ExitReason) -> Process ()
-testControlledTimeout result = do
-  (pid, exitReason) <- server
-  cast pid ("timeout", Delay $ within 1 Seconds)
-  waitForExit exitReason >>= stash result
-
-testTerminatePolicy :: TestResult (Maybe ExitReason) -> Process ()
-testTerminatePolicy result = do
-  (pid, exitReason) <- server
-  send pid ("UNSOLICITED_MAIL", 500 :: Int)
-  waitForExit exitReason >>= stash result
-
-testDropPolicy :: TestResult (Maybe ExitReason) -> Process ()
-testDropPolicy result = do
-  (pid, exitReason) <- mkServer Drop
-
-  send pid ("UNSOLICITED_MAIL", 500 :: Int)
-
-  sleep $ milliSeconds 250
-  mref <- monitor pid
-
-  cast pid "stop"
-
-  r <- receiveTimeout (after 10 Seconds) [
-      matchIf (\(ProcessMonitorNotification ref _ _) -> ref == mref)
-              (\(ProcessMonitorNotification _ _ r) ->
-                case r of
-                  DiedUnknownId -> stash result Nothing
-                  _ -> waitForExit exitReason >>= stash result)
-    ]
-  case r of
-    Nothing -> stash result Nothing
-    _       -> return ()
-
-testDeadLetterPolicy :: TestResult (Maybe (String, Int)) -> Process ()
-testDeadLetterPolicy result = do
-  self <- getSelfPid
-  (pid, _) <- mkServer (DeadLetter self)
-
-  send pid ("UNSOLICITED_MAIL", 500 :: Int)
-  cast pid "stop"
-
-  receiveTimeout
-    (after 5 Seconds)
-    [ match (\m@(_ :: String, _ :: Int) -> return m) ] >>= stash result
-
-testHibernation :: TestResult Bool -> Process ()
-testHibernation result = do
-  (pid, _) <- server
-  mref <- monitor pid
-
-  cast pid ("hibernate", (within 3 Seconds))
-  cast pid "stop"
-
-  -- the process mustn't stop whilst it's supposed to be hibernating
-  r <- receiveTimeout (after 2 Seconds) [
-      matchIf (\(ProcessMonitorNotification ref _ _) -> ref == mref)
-              (\_ -> return ())
-    ]
-  case r of
-    Nothing -> kill pid "done" >> stash result True
-    Just _  -> stash result False
-
-testKillMidCall :: TestResult Bool -> Process ()
-testKillMidCall result = do
-  (pid, _) <- server
-  cast pid ("hibernate", (within 3 Seconds))
-  callAsync pid "hello-world" >>= cancelWait >>= unpack result pid
-  where unpack :: TestResult Bool -> ProcessId -> AsyncResult () -> Process ()
-        unpack res sid AsyncCancelled = kill sid "stop" >> stash res True
-        unpack res sid _              = kill sid "stop" >> stash res False
-
-testSimpleErrorHandling :: TestResult (Maybe ExitReason) -> Process ()
-testSimpleErrorHandling result = do
-  self <- getSelfPid
-  (pid, exitReason) <- explodingServer self
-
-  -- this should be *altered* because of the exit handler
-  Nothing <- callTimeout pid "foobar" (within 1 Seconds) :: Process (Maybe String)
-  "foobar" <- expect
-
-  shutdown pid
-  waitForExit exitReason >>= stash result
-
-testAlternativeErrorHandling :: TestResult (Maybe ExitReason) -> Process ()
-testAlternativeErrorHandling result = do
-  self <- getSelfPid
-  (pid, exitReason) <- explodingServer self
-
-  -- this should be ignored/altered because of the second exit handler
-  cast pid (42 :: Int)
-  (Just True) <- receiveTimeout (after 2 Seconds) [
-        matchIf (\((p :: ProcessId), (i :: Int)) -> p == pid && i == 42)
-                (\_ -> return True)
-      ]
-
-  shutdown pid
-  waitForExit exitReason >>= stash result
-
 testInfoPrioritisation :: TestResult Bool -> Process ()
 testInfoPrioritisation result = do
   pid <- mkPrioritisedServer
@@ -309,46 +161,46 @@ tests transport = do
             testCase "basic call with explicit server reply"
             (delayedAssertion
              "expected a response from the server"
-             localNode (Just "foo") testBasicCall)
+             localNode (Just "foo") (testBasicCall $ wrap server))
           , testCase "basic call with implicit server reply"
             (delayedAssertion
              "expected n * 2 back from the server"
-             localNode (Just 4) testBasicCall_)
+             localNode (Just 4) (testBasicCall_ $ wrap server))
           , testCase "basic cast with manual send and explicit server continue"
             (delayedAssertion
              "expected pong back from the server"
-             localNode (Just "pong") testBasicCast)
+             localNode (Just "pong") (testBasicCast $ wrap server))
           , testCase "cast and explicit server timeout"
             (delayedAssertion
              "expected the server to stop after the timeout"
-             localNode (Just $ ExitOther "timeout") testControlledTimeout)
+             localNode (Just $ ExitOther "timeout") (testControlledTimeout $ wrap server))
           , testCase "unhandled input when policy = Terminate"
             (delayedAssertion
              "expected the server to stop upon receiving unhandled input"
              localNode (Just $ ExitOther "UnhandledInput")
-             testTerminatePolicy)
+             (testTerminatePolicy $ wrap server))
           , testCase "unhandled input when policy = Drop"
             (delayedAssertion
              "expected the server to ignore unhandled input and exit normally"
-             localNode Nothing testDropPolicy)
+             localNode Nothing (testDropPolicy $ wrap (mkServer Drop)))
           , testCase "unhandled input when policy = DeadLetter"
             (delayedAssertion
              "expected the server to forward unhandled messages"
              localNode (Just ("UNSOLICITED_MAIL", 500 :: Int))
-             testDeadLetterPolicy)
+             (testDeadLetterPolicy $ \p -> mkServer (DeadLetter p)))
           , testCase "incoming messages are ignored whilst hibernating"
             (delayedAssertion
              "expected the server to remain in hibernation"
-             localNode True testHibernation)
+             localNode True (testHibernation $ wrap server))
           , testCase "long running call cancellation"
             (delayedAssertion "expected to get AsyncCancelled"
-             localNode True testKillMidCall)
+             localNode True (testKillMidCall $ wrap server))
           , testCase "simple exit handling"
             (delayedAssertion "expected handler to catch exception and continue"
-             localNode Nothing testSimpleErrorHandling)
+             localNode Nothing (testSimpleErrorHandling $ explodingServer))
           , testCase "alternative exit handlers"
             (delayedAssertion "expected handler to catch exception and continue"
-             localNode Nothing testAlternativeErrorHandling)
+             localNode Nothing (testAlternativeErrorHandling $ explodingServer))
           ]
       , testGroup "Prioritised Mailbox Handling" [
             testCase "Info Message Prioritisation"
