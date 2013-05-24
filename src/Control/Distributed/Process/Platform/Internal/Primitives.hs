@@ -39,6 +39,7 @@ module Control.Distributed.Process.Platform.Internal.Primitives
     -- * General Utilities
   , times
   , isProcessAlive
+  , forever'
 
     -- * Remote Table
   , __remoteTable
@@ -69,6 +70,11 @@ n `times` proc = runP proc n
   where runP :: Process () -> Int -> Process ()
         runP _ 0 = return ()
         runP p n' = p >> runP p (n' - 1)
+
+-- | Like 'Control.Monad.forever' but sans space leak
+forever' :: Monad m => m a -> m b
+forever' a = let a' = a >> a' in a'
+{-# INLINE forever' #-}
 
 -- | Provides a unified API for addressing processes
 class Addressable a where

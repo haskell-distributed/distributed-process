@@ -80,12 +80,12 @@ startTestProcess proc = spawnLocal $ runTestProcess proc
 -- | Runs a /test process/ around the supplied @proc@, which is executed
 -- whenever the outer process loop receives a 'Go' signal.
 runTestProcess :: Process () -> Process ()
-runTestProcess proc = forever $ do
+runTestProcess proc = do
   ctl <- expect
   case ctl of
-    Stop     -> terminate
-    Go       -> proc
-    Report p -> receiveWait [matchAny (\m -> forward m p)] >> return ()
+    Stop     -> return ()
+    Go       -> proc >> runTestProcess proc
+    Report p -> receiveWait [matchAny (\m -> forward m p)] >> runTestProcess proc
 
 -- | Tell a /test process/ to continue executing
 testProcessGo :: ProcessId -> Process ()
@@ -93,7 +93,7 @@ testProcessGo pid = (say $ (show pid) ++ " go!") >> send pid Go
 
 -- | Tell a /test process/ to stop (i.e., 'terminate')
 testProcessStop :: ProcessId -> Process ()
-testProcessStop pid = (say $ (show pid) ++ " stop!") >> send pid Stop
+testProcessStop pid = send pid Stop
 
 -- | Tell a /test process/ to send a report (message)
 -- back to the calling process
