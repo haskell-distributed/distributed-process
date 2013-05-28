@@ -14,7 +14,7 @@ are offer the best quality sources of information at this time.
 
 In order to go through this tutorial you will need a Haskell development
 environment and we recommend installing the latest version of the
-[Haskell Platform](www.haskell.org/platform/) if you've not done
+[Haskell Platform](http://www.haskell.org/platform/) if you've not done
 so already.
 
 Once you're up and running, you'll want to get hold of the distributed-process
