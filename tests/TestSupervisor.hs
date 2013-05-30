@@ -144,9 +144,12 @@ verifyTempChildWasRemoved pid sup = do
 
 waitForExit :: ProcessId -> Process DiedReason
 waitForExit pid = do
-  void $ monitor pid
-  -- it doesn't matter /how/ the child exits
-  receiveWait [ match (\(ProcessMonitorNotification _ _ dr) -> return dr) ]
+  monitor pid >>= waitForDown
+
+waitForDown :: MonitorRef -> Process DiedReason
+waitForDown ref =
+  receiveWait [ matchIf (\(ProcessMonitorNotification ref' _ _) -> ref == ref')
+                        (\(ProcessMonitorNotification _ _ dr) -> return dr) ]
 
 $(remotable ['exitIgnore, 'noOp, 'blockIndefinitely])
 
@@ -232,7 +235,7 @@ addDuplicateChild sup =
     response `shouldBe` equalTo (ChildAdded ChildStopped)
     Just (ref, _) <- lookupChild sup "transient-worker"
     dup <- addChild sup spec
-    dup `shouldBe` equalTo (ChildAlreadyExists ref)
+    dup `shouldBe` equalTo (ChildFailedToStart $ StartFailureDuplicateChild ref)
 
 startDuplicateChild :: ProcessId -> Process ()
 startDuplicateChild sup =
@@ -241,7 +244,7 @@ startDuplicateChild sup =
     response `shouldBe` equalTo (ChildAdded ChildStopped)
     Just (ref, _) <- lookupChild sup "transient-worker"
     dup <- startChild sup spec
-    dup `shouldBe` equalTo (ChildAlreadyExists ref)
+    dup `shouldBe` equalTo (ChildFailedToStart $ StartFailureDuplicateChild ref)
 
 deleteExistingChild :: ProcessId -> Process ()
 deleteExistingChild sup =
@@ -329,6 +332,19 @@ intrinsicChildrenNormalExit sup = do
   reason <- waitForExit sup
   expect reason $ equalTo DiedNormal
 
+permanentChildExceedsRestartsIntensity ::
+  (RestartStrategy -> [ChildSpec] -> (ProcessId -> Process ()) -> Assertion) -> Assertion
+permanentChildExceedsRestartsIntensity withSupervisor = do
+  let spec = permChild $(mkStaticClosure 'noOp)  -- child just keeps exiting
+  let strategy = RestartOne $ limit (maxRestarts 10) (seconds 1)
+  withSupervisor strategy [spec] $ \sup -> do
+    ref <- monitor sup
+    void $ startChild sup spec
+    reason <- waitForDown ref
+    expect reason $ equalTo $
+                      DiedException $ "exit-from=" ++ (show sup) ++
+                                      ", reason=ReachedMaxRestartIntensity"
+
 -- remote table definition and main
 
 myRemoteTable :: RemoteTable
@@ -385,6 +401,13 @@ tests transport = do
                 (withSupervisor restartOne [] intrinsicChildrenAbnormalExit)
           , testCase "Intrinsic Children Cause Supervisor Exits When Exiting Normally"
                 (withSupervisor restartOne [] intrinsicChildrenNormalExit)
+--          , testCase "Explicit Restart Of Running Child Fails"
+--                (withSupervisor restartOne [] explicitRestartRunningChild)
+          ]
+        , testGroup "Restart Intensity / Delayed Restarts"
+          [
+            testCase "Permanent Child Exceeds Restart Limits"
+                (permanentChildExceedsRestartsIntensity withSupervisor)
           ]
       ]
     ]

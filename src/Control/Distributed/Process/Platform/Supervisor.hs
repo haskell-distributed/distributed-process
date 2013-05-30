@@ -13,6 +13,7 @@ module Control.Distributed.Process.Platform.Supervisor
   , MaxRestarts
   , maxRestarts
   , RestartLimit(..)
+  , limit
   , defaultLimits
   , RestartStrategy(..)
   , restartOne
@@ -110,6 +111,7 @@ import Data.Accessor
   )
 import Data.Binary
 import Data.Foldable (find, foldlM, toList)
+import Data.List (foldl')
 import Data.Map (Map)
 import qualified Data.Map as Map -- TODO: use Data.Map.Strict
 import Data.Sequence (Seq, ViewL(EmptyL, (:<)), (<|), (><), filter)
@@ -118,6 +120,7 @@ import Data.Time.Clock
   ( NominalDiffTime
   , UTCTime
   , getCurrentTime
+  , diffUTCTime
   )
 import Data.Typeable (Typeable)
 import Prelude hiding (filter, init, rem)
@@ -130,7 +133,7 @@ import GHC.Generics
 
 -- external client/configuration API
 
-newtype MaxRestarts = MaxR { maxR :: Int }
+newtype MaxRestarts = MaxR { maxNumberOfRestarts :: Int }
   deriving (Typeable, Generic, Show)
 instance Binary MaxRestarts where
 
@@ -146,16 +149,39 @@ maxRestarts r | r >= 0    = MaxR r
 -- will occur. This prevents the supervisor from entering an infinite loop of
 -- child process terminations and restarts.
 --
-data RestartLimit = RestartLimit !MaxRestarts !TimeInterval
+data RestartLimit =
+  RestartLimit
+  { maxR :: !MaxRestarts
+  , maxT :: !TimeInterval
+  }
   deriving (Typeable, Generic, Show)
 instance Binary RestartLimit where
+
+limit :: MaxRestarts -> TimeInterval -> RestartLimit
+limit mr ti = RestartLimit mr ti
 
 defaultLimits :: RestartLimit
 defaultLimits = RestartLimit (MaxR 0) (seconds 1)
 
-data RestartOrder = LeftToRight | RightToLeft
+data RestartMode =
+    LeftToRightStopStart
+    {- ^ from left to right (insertion order), restart each child sequentially -}
+  | LeftToRightRestart
+    {- ^ from left to right (insertion order), stop each child,
+     then restart then in the same (left to right) order -}
+  | LeftToRightRestartReversed
+    {- ^ from left to right (insertion order), stop each child,
+     then restart then in the opposite (right to left) order -}
+  | RightToLeftStopStart
+    {- ^ from right to left (of insertion order), restart each child sequentially -}
+  | RightToLeftRestart
+    {- ^ from right to left (of insertion order), stop each child,
+     then restart then in the same (right to left) order -}
+  | RightToLeftRestartReversed
+    {- ^ from right to left (of insertion order), stop each child,
+     then restart then in the opposite (left to right) order -}
   deriving (Typeable, Generic, Show, Eq)
-instance Binary RestartOrder where
+instance Binary RestartMode where
 
 -- | Strategy used by a supervisor to handle child restarts, whether due to
 -- unexpected child failure or explicit restart requests from a client.
@@ -173,35 +199,33 @@ instance Binary RestartOrder where
 --
 data RestartStrategy =
     RestartOne
-    { intensity :: !RestartLimit
-    , order     :: !RestartOrder
-    } -- ^ restart only the failed child process
+    { intensity :: !RestartLimit } -- ^ restart only the failed child process
   | RestartAll
     { intensity :: !RestartLimit
-    , order     :: !RestartOrder
+    , order     :: !RestartMode
     } -- ^ also restart all siblings
   | RestartLeft
     { intensity :: !RestartLimit
-    , order     :: !RestartOrder
+    , order     :: !RestartMode
     } -- ^ restart prior siblings (i.e., prior /start order/)
   | RestartRight
     { intensity :: !RestartLimit
-    , order     :: !RestartOrder
+    , order     :: !RestartMode
     } -- ^ restart subsequent siblings (i.e., subsequent /start order/)
   deriving (Typeable, Generic, Show)
 instance Binary RestartStrategy where
 
 restartOne :: RestartStrategy
-restartOne = RestartOne defaultLimits LeftToRight
+restartOne = RestartOne defaultLimits
 
 restartAll :: RestartStrategy
-restartAll = RestartAll defaultLimits LeftToRight
+restartAll = RestartAll defaultLimits LeftToRightRestart
 
 restartLeft :: RestartStrategy
-restartLeft = RestartLeft defaultLimits LeftToRight
+restartLeft = RestartLeft defaultLimits LeftToRightRestart
 
 restartRight :: RestartStrategy
-restartRight = RestartRight defaultLimits LeftToRight
+restartRight = RestartRight defaultLimits LeftToRightRestart
 
 -- | Identifies a child process by name.
 type ChildKey = String
@@ -295,25 +319,14 @@ data SupervisorStats = SupervisorStats {
   } deriving (Typeable, Generic, Show)
 instance Binary SupervisorStats where
 
-{-
-Prelude Data.Time> t1 <- getCurrentTime
-Prelude Data.Time> t2 <- getCurrentTime
-Prelude Data.Time> let diff = diffUTCTime t2 t1
-Prelude Data.Time> let allowed = fromIntegral 2 :: NominalDiffTime
-Prelude Data.Time> diff > allowed
-True
-Prelude Data.Time> fromRational 0.0001 :: NominalDiffTime
-0.0001s
--}
-
 -- | Static labels (in the remote table) are strings.
 type StaticLabel = String
 
 -- | Provides failure information when (re-)start failure is indicated.
 data StartFailure =
-    StartFailureDuplicateChild -- ^ a child with this 'ChildKey' already exists
-  | StartFailureAlreadyRunning -- ^ the child is already up and running
-  | StartFailureBadClosure !StaticLabel -- ^ a closure cannot be resolved by RTS
+    StartFailureDuplicateChild !ChildRef -- ^ a child with this 'ChildKey' already exists
+  | StartFailureAlreadyRunning !ChildRef -- ^ the child is already up and running
+  | StartFailureBadClosure !StaticLabel  -- ^ a closure cannot be resolved
   deriving (Typeable, Generic, Show, Eq)
 instance Binary StartFailure where
 
@@ -355,10 +368,17 @@ data AddChildRes = Exists ChildRef | Added State
 
 data AddChildResult =
     ChildAdded         !ChildRef
-  | ChildAlreadyExists !ChildRef
   | ChildFailedToStart !StartFailure
   deriving (Typeable, Generic, Show, Eq)
 instance Binary AddChildResult where
+
+data RestartChildReq = RestartChildReq !ChildKey
+  deriving (Typeable, Generic, Show, Eq)
+instance Binary RestartChildReq where
+
+data RestartChildResult =
+    ChildRestartOk     !ChildRef
+  | ChildRestartFailed !StartFailure
 
 data IgnoreChildReq = IgnoreChildReq !ProcessId
   deriving (Typeable, Generic)
@@ -430,7 +450,7 @@ restartChild :: Addressable a
              => a
              -> ChildKey
              -> Process (Either StartFailure ChildRef)
-restartChild sid _ = call sid $ "RestartChildReq"
+restartChild sid key = call sid $ "RestartChildReq"
 
 --------------------------------------------------------------------------------
 -- Server Initialisation/Startup                                              --
@@ -439,11 +459,23 @@ restartChild sid _ = call sid $ "RestartChildReq"
 supInit :: InitHandler (RestartStrategy, [ChildSpec]) State
 supInit (strategy', specs') =
   -- TODO: should we return Ignore, as per OTP's supervisor, if no child starts?
-  let initState = strategy ^= strategy' $ emptyState
+  let initState = ( ( -- as a NominalDiffTime (in seconds)
+                      restartPeriod ^= configuredRestartPeriod
+                    )
+                  . (strategy ^= strategy')
+                  $ emptyState
+                  )
+
   in (foldlM initChild initState specs' >>= return . (flip InitOk) Infinity)
        `catch` \(e :: SomeException) -> return $ InitStop (show e)
   where initChild :: State -> ChildSpec -> Process State
         initChild st ch = tryStartChild ch >>= initialised st ch
+
+        configuredRestartPeriod =
+          let maxT' = maxT (intensity strategy')
+              tI    = asTimeout maxT'
+              tMs   = (fromIntegral tI * (0.000001 :: Float))
+          in fromRational (toRational tMs) :: NominalDiffTime
 
 initialised :: State
             -> ChildSpec
@@ -517,7 +549,7 @@ processDefinition =
      , Restricted.handleCall   handleGetStats
      ]
   , infoHandlers = [handleInfo handleMonitorSignal]
-  , shutdownHandler = \_ _ -> return ()
+  , shutdownHandler = handleShutdown
   , unhandledMessagePolicy = Drop
   } :: ProcessDefinition State
 
@@ -538,7 +570,7 @@ handleAddChild :: AddChildReq
 handleAddChild req = getState >>= return . doAddChild req True >>= doReply
   where doReply :: AddChildRes -> RestrictedProcess State (Result AddChildResult)
         doReply (Added  s) = putState s >> Restricted.reply (ChildAdded ChildStopped)
-        doReply (Exists e) = Restricted.reply (ChildAlreadyExists e)
+        doReply (Exists e) = Restricted.reply (ChildFailedToStart $ StartFailureDuplicateChild e)
 
 handleIgnoreChildReq :: IgnoreChildReq
                      -> RestrictedProcess State RestrictedAction
@@ -601,7 +633,7 @@ handleStartChild :: State
 handleStartChild state req@(AddChild _ spec) =
   let added = doAddChild req False state in
   case added of
-    Exists e -> reply (ChildAlreadyExists e) state
+    Exists e -> reply (ChildFailedToStart $ StartFailureDuplicateChild e) state
     Added  _ -> attemptStart state spec
   where
     attemptStart st ch = do
@@ -640,8 +672,25 @@ handleMonitorSignal state (ProcessMonitorNotification _ pid reason) = do
     Just spec -> tryRestartChild state active' spec reason
 
 --------------------------------------------------------------------------------
+-- Child Monitoring                                                           --
+--------------------------------------------------------------------------------
+
+handleShutdown :: State -> ExitReason -> Process ()
+handleShutdown _ (ExitOther reason) = {- (liftIO $ putStrLn reason) >> -} die reason
+handleShutdown _ _                  = return ()
+
+--------------------------------------------------------------------------------
 -- Child Start/Restart Handling                                               --
 --------------------------------------------------------------------------------
+
+tryRestart :: State
+           -> Map ProcessId ChildKey
+           -> ChildSpec
+           -> DiedReason
+           -> Process (ProcessAction State)
+tryRestart state active' spec reason = do
+  case state ^. strategy of
+    RestartOne _ -> tryRestartChild state active' spec reason
 
 tryRestartChild :: State
                 -> Map ProcessId ChildKey
@@ -650,11 +699,11 @@ tryRestartChild :: State
                 -> Process (ProcessAction State)
 tryRestartChild st active' spec reason
   | DiedNormal <- reason
-  , True       <- isTransient (childRestart spec)  = continue $ down $ updateStopped
-  | True       <- isTemporary (childRestart spec)  = continue $ down $ removeChild spec st
+  , True       <- isTransient (childRestart spec) = continue $ down $ updateStopped
+  | True       <- isTemporary (childRestart spec) = continue $ down $ removeChild spec st
   | DiedNormal <- reason
-  , True       <- isIntrinsic (childRestart spec)  = stop $ ExitNormal  -- TODO: STOP OUR CHILDREN
-  | otherwise                                      = continue =<< doRestartChild spec st
+  , True       <- isIntrinsic (childRestart spec) = stop $ ExitNormal  -- TODO: STOP OUR CHILDREN
+  | otherwise                                     = continue =<< doRestartChild spec st
   where
     chKey         = childKey spec
     down st'      = (active ^= active') $ st'
@@ -662,21 +711,43 @@ tryRestartChild st active' spec reason
 
 doRestartChild :: ChildSpec -> State -> Process State
 doRestartChild spec state = do
-  -- addRestart state >>= die unless withinBounds
-  restart <- tryStartChild spec
-  case restart of
-    Left _  -> die "todo: implement me..."
-    Right p -> do
-      let mState = updateChild chKey (chRunning p) state
-      case mState of
-        Nothing -> die "Internal Error" -- TODO: so this child isn't recognised!? WHAT DOES THAT MEAN?
-        Just s' -> return $ markActive s' p spec
+  state'  <- addRestart state
+  case state' of
+    Nothing -> {- log it -} die $ ExitOther "ReachedMaxRestartIntensity"
+    Just st -> do
+      restart <- tryStartChild spec
+      case restart of
+        Left _  -> die "todo: implement me..." -- TODO: restartAgain
+        Right p -> do
+          let mState = updateChild chKey (chRunning p) st
+          case mState of
+            -- TODO: so this child isn't recognised!? WHAT DOES THAT MEAN?
+            Nothing -> die "Internal Error"
+            Just s' -> return $ markActive s' p spec
   where
     chKey = childKey spec
 
     chRunning :: ChildRef -> Child -> Prefix -> Suffix -> State -> Maybe State
     chRunning newRef (_, chSpec) prefix suffix st =
       Just $ (specs ^= prefix >< ((newRef, chSpec) <| suffix)) st
+
+addRestart :: State -> Process (Maybe State)
+addRestart state = do
+  now <- liftIO $ getCurrentTime
+  let acc = foldl' (accRestarts now) [] (now:restarted)
+  case length acc of
+    n | n < maxAttempts -> return Nothing  -- TODO: logging/tracing/etc
+    _                   -> return $ Just $ (restarts ^= acc) $ state
+  where
+    maxAttempts  = maxNumberOfRestarts $ maxR $ maxIntensity
+    slot         = state ^. restartPeriod
+    restarted    = state ^. restarts
+    maxIntensity = state ^. strategy .> restartIntensity
+
+    accRestarts :: UTCTime -> [UTCTime] -> UTCTime -> [UTCTime]
+    accRestarts now' acc r =
+      let diff = diffUTCTime now' r in
+      if diff > slot then acc else (r:acc)
 
 tryStartChild :: ChildSpec
               -> Process (Either StartFailure ChildRef)
@@ -715,7 +786,14 @@ tryStartChild spec =
             ChildInitIgnore    -> MP.cast sup $ IgnoreChildReq pid
 
 --------------------------------------------------------------------------------
--- Internal State Management                                                  --
+-- Logging/Reporting                                                          --
+--------------------------------------------------------------------------------
+
+logShutdown :: ChildKey -> Process ()
+logShutdown _ = return ()
+
+--------------------------------------------------------------------------------
+-- Accessors and State/Stats Utilities                                        --
 --------------------------------------------------------------------------------
 
 doAddChild :: AddChildReq -> Bool -> State -> AddChildRes
@@ -729,10 +807,6 @@ doAddChild (AddChild _ spec) update st =
                            $ bumpStats Specified chType (+1) st
                            )
            False -> Added st
-
---------------------------------------------------------------------------------
--- Accessors and State/Stats Utilities                                        --
---------------------------------------------------------------------------------
 
 updateChild :: ChildKey
             -> (Child -> Prefix -> Suffix -> State -> Maybe State)
@@ -826,7 +900,4 @@ activeWorkers = accessor _activeWorkers (\c st -> st { _activeWorkers = c })
 
 activeSupervisors :: Accessor SupervisorStats Int
 activeSupervisors = accessor _activeSupervisors (\c st -> st { _activeSupervisors = c })
-
-logShutdown :: ChildKey -> Process ()
-logShutdown _ = return ()
 
