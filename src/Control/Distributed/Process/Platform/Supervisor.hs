@@ -26,6 +26,7 @@ module Control.Distributed.Process.Platform.Supervisor
   , SupervisorStats(..)
   , StaticLabel
   , AddChildResult(..)
+  , RestartChildResult(..)
   , StartFailure(..)
   , DeleteChildResult(..)
   , Child
@@ -296,8 +297,6 @@ data ChildSpec = ChildSpec {
   , childType    :: !ChildType
   , childRestart :: !ChildRestart
   , childRun     :: !(Closure (Process ()))
-    -- NOTE: TerminateReason - we install an exit handler for TerminateShutdown
-    -- and anything other than TerminateNormal will get thrown
   } deriving (Typeable, Generic, Show)
 instance Binary ChildSpec where
 
@@ -378,7 +377,10 @@ instance Binary RestartChildReq where
 
 data RestartChildResult =
     ChildRestartOk     !ChildRef
+  | ChildRestartUnknownId
   | ChildRestartFailed !StartFailure
+  deriving (Typeable, Generic, Show, Eq)
+instance Binary RestartChildResult where
 
 data IgnoreChildReq = IgnoreChildReq !ProcessId
   deriving (Typeable, Generic)
@@ -449,8 +451,8 @@ terminateChild = undefined
 restartChild :: Addressable a
              => a
              -> ChildKey
-             -> Process (Either StartFailure ChildRef)
-restartChild sid key = call sid $ "RestartChildReq"
+             -> Process RestartChildResult
+restartChild sid = call sid . RestartChildReq
 
 --------------------------------------------------------------------------------
 -- Server Initialisation/Startup                                              --
@@ -543,6 +545,7 @@ processDefinition =
      , Restricted.handleCallIf (input (\(AddChild immediate _) -> not immediate))
                                handleAddChild
      , handleCall              handleStartChild
+     , handleCall              handleRestartChild
        -- stats/info
      , Restricted.handleCall   handleLookupChild
      , Restricted.handleCall   handleListChildren
@@ -646,6 +649,25 @@ handleStartChild state req@(AddChild _ spec) =
                     )
             in reply (ChildAdded ref) $ markActive st' ref ch
 
+handleRestartChild :: State
+                   -> RestartChildReq
+                   -> Process (ProcessReply RestartChildResult State)
+handleRestartChild state (RestartChildReq key) =
+  let child = findChild key state in
+  case child of
+    Nothing ->
+      reply ChildRestartUnknownId state
+    Just (ref@(ChildRunning _), _) ->
+      reply (ChildRestartFailed (StartFailureAlreadyRunning ref)) state
+    Just (ref@(ChildRestarting _), _) ->
+      reply (ChildRestartFailed (StartFailureAlreadyRunning ref)) state
+    Just (_, spec) -> do
+      -- THIS DUPLICATES PART OF doRestartChild!!!
+      started <- doStartChild spec state
+      case started of
+        Left err         -> reply (ChildRestartFailed err) state
+        Right (ref, st') -> reply (ChildRestartOk ref) st'
+
 handleGetStats :: StatsReq
                -> RestrictedProcess State (Result SupervisorStats)
 handleGetStats _ = Restricted.reply . (^. stats) =<< getState
@@ -715,21 +737,10 @@ doRestartChild spec state = do
   case state' of
     Nothing -> {- log it -} die $ ExitOther "ReachedMaxRestartIntensity"
     Just st -> do
-      restart <- tryStartChild spec
-      case restart of
-        Left _  -> die "todo: implement me..." -- TODO: restartAgain
-        Right p -> do
-          let mState = updateChild chKey (chRunning p) st
-          case mState of
-            -- TODO: so this child isn't recognised!? WHAT DOES THAT MEAN?
-            Nothing -> die "Internal Error"
-            Just s' -> return $ markActive s' p spec
-  where
-    chKey = childKey spec
-
-    chRunning :: ChildRef -> Child -> Prefix -> Suffix -> State -> Maybe State
-    chRunning newRef (_, chSpec) prefix suffix st =
-      Just $ (specs ^= prefix >< ((newRef, chSpec) <| suffix)) st
+      start <- doStartChild spec st
+      case start of
+        Left err      -> die $ "TODO: implement me"
+        Right (_, s') -> return s'
 
 addRestart :: State -> Process (Maybe State)
 addRestart state = do
@@ -748,6 +759,26 @@ addRestart state = do
     accRestarts now' acc r =
       let diff = diffUTCTime now' r in
       if diff > slot then acc else (r:acc)
+
+doStartChild :: ChildSpec
+             -> State
+             -> Process (Either StartFailure (ChildRef, State))
+doStartChild spec st = do
+  restart <- tryStartChild spec
+  case restart of
+    Left f  -> return $ Left f
+    Right p -> do
+      let mState = updateChild chKey (chRunning p) st
+      case mState of
+        -- TODO: so this child isn't recognised!? WHAT DOES THAT MEAN?
+        Nothing -> die "Internal Error"
+        Just s' -> return $ Right $ (p, markActive s' p spec)
+  where
+    chKey = childKey spec
+
+    chRunning :: ChildRef -> Child -> Prefix -> Suffix -> State -> Maybe State
+    chRunning newRef (_, chSpec) prefix suffix st =
+      Just $ (specs ^= prefix >< ((newRef, chSpec) <| suffix)) st
 
 tryStartChild :: ChildSpec
               -> Process (Either StartFailure ChildRef)

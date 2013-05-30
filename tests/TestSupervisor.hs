@@ -7,7 +7,7 @@
 
 module Main where
 
-import Control.Exception (Exception, SomeException, throwIO)
+import Control.Exception (throwIO)
 import Control.Distributed.Process hiding (call, expect)
 import Control.Distributed.Process.Closure
 import Control.Distributed.Process.Node
@@ -15,7 +15,6 @@ import Control.Distributed.Process.Platform hiding (__remoteTable)
 import Control.Distributed.Process.Platform.Test
 import Control.Distributed.Process.Platform.Time
 import Control.Distributed.Process.Platform.Timer
-import Control.Distributed.Process.Platform.Internal.Primitives (forever')
 import Control.Distributed.Process.Platform.Supervisor hiding (start)
 import qualified Control.Distributed.Process.Platform.Supervisor as Supervisor
 import Control.Distributed.Process.Platform.ManagedProcess.Client (shutdown)
@@ -332,14 +331,27 @@ intrinsicChildrenNormalExit sup = do
   reason <- waitForExit sup
   expect reason $ equalTo DiedNormal
 
+explicitRestartRunningChild :: ProcessId -> Process ()
+explicitRestartRunningChild sup = do
+  let spec = tempWorker $(mkStaticClosure 'blockIndefinitely)
+  ChildAdded ref <- startChild sup spec
+  result <- restartChild sup (childKey spec)
+  expect result $ equalTo $ ChildRestartFailed (StartFailureAlreadyRunning ref)
+
+explicitRestartUnknownChild :: ProcessId -> Process ()
+explicitRestartUnknownChild sup = do
+  result <- restartChild sup "unknown-id"
+  expect result $ equalTo ChildRestartUnknownId
+
 permanentChildExceedsRestartsIntensity ::
   (RestartStrategy -> [ChildSpec] -> (ProcessId -> Process ()) -> Assertion) -> Assertion
 permanentChildExceedsRestartsIntensity withSupervisor = do
   let spec = permChild $(mkStaticClosure 'noOp)  -- child just keeps exiting
-  let strategy = RestartOne $ limit (maxRestarts 10) (seconds 1)
+  let strategy = RestartOne $ limit (maxRestarts 50) (seconds 2)
   withSupervisor strategy [spec] $ \sup -> do
     ref <- monitor sup
-    void $ startChild sup spec
+    void $ ((startChild sup spec >> return ())
+             `catchExit` (\_ (_ :: ExitReason) -> return ()))
     reason <- waitForDown ref
     expect reason $ equalTo $
                       DiedException $ "exit-from=" ++ (show sup) ++
@@ -401,8 +413,10 @@ tests transport = do
                 (withSupervisor restartOne [] intrinsicChildrenAbnormalExit)
           , testCase "Intrinsic Children Cause Supervisor Exits When Exiting Normally"
                 (withSupervisor restartOne [] intrinsicChildrenNormalExit)
---          , testCase "Explicit Restart Of Running Child Fails"
---                (withSupervisor restartOne [] explicitRestartRunningChild)
+          , testCase "Explicit Restart Of Running Child Fails"
+                (withSupervisor restartOne [] explicitRestartRunningChild)
+          , testCase "Explicit Restart Of Unknown Child Fails"
+                (withSupervisor restartOne [] explicitRestartUnknownChild)
           ]
         , testGroup "Restart Intensity / Delayed Restarts"
           [
