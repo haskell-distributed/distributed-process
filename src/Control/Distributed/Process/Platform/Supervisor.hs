@@ -9,6 +9,7 @@
 module Control.Distributed.Process.Platform.Supervisor
   ( ChildKey
   , ChildType(..)
+  , ChildTerminationPolicy(..)
   , ChildSpec(..)
   , MaxRestarts
   , maxRestarts
@@ -37,6 +38,7 @@ module Control.Distributed.Process.Platform.Supervisor
   , statistics
   , addChild
   , startChild
+  , terminateChild
   , deleteChild
   , restartChild
   , lookupChild
@@ -162,7 +164,7 @@ limit :: MaxRestarts -> TimeInterval -> RestartLimit
 limit mr ti = RestartLimit mr ti
 
 defaultLimits :: RestartLimit
-defaultLimits = RestartLimit (MaxR 0) (seconds 1)
+defaultLimits = limit (MaxR 1) (seconds 1)
 
 data RestartMode =
     LeftToRightStopStart
@@ -287,6 +289,12 @@ data ChildRestart =
   deriving (Typeable, Generic, Eq, Show)
 instance Binary ChildRestart where
 
+data ChildTerminationPolicy =
+    TerminateTimeout !Delay
+  | TerminateImmediately
+  deriving (Typeable, Generic, Eq, Show)
+instance Binary ChildTerminationPolicy where
+
 -- | Specification for a child process. The child must be uniquely identified
 -- by it's @childKey@ within the supervisor. The supervisor will start the child
 -- itself, therefore @childRun@ should contain the child process' implementation
@@ -296,6 +304,7 @@ data ChildSpec = ChildSpec {
     childKey     :: !ChildKey
   , childType    :: !ChildType
   , childRestart :: !ChildRestart
+  , childStop    :: !ChildTerminationPolicy
   , childRun     :: !(Closure (Process ()))
   } deriving (Typeable, Generic, Show)
 instance Binary ChildSpec where
@@ -326,6 +335,7 @@ data StartFailure =
     StartFailureDuplicateChild !ChildRef -- ^ a child with this 'ChildKey' already exists
   | StartFailureAlreadyRunning !ChildRef -- ^ the child is already up and running
   | StartFailureBadClosure !StaticLabel  -- ^ a closure cannot be resolved
+  | StartFailureDied !DiedReason         -- ^ a child died (almost) immediately on starting
   deriving (Typeable, Generic, Show, Eq)
 instance Binary StartFailure where
 
@@ -377,18 +387,25 @@ instance Binary RestartChildReq where
 
 data RestartChildResult =
     ChildRestartOk     !ChildRef
-  | ChildRestartUnknownId
   | ChildRestartFailed !StartFailure
+  | ChildRestartUnknownId
+  | ChildRestartIgnored
   deriving (Typeable, Generic, Show, Eq)
 instance Binary RestartChildResult where
+
+data TerminateChildReq = TerminateChildReq !ChildKey
+  deriving (Typeable, Generic, Show, Eq)
+instance Binary TerminateChildReq where
+
+data TerminateChildResult =
+    TerminateChildOk
+  | TerminateChildUnknownId
+  deriving (Typeable, Generic, Show, Eq)
+instance Binary TerminateChildResult where
 
 data IgnoreChildReq = IgnoreChildReq !ProcessId
   deriving (Typeable, Generic)
 instance Binary IgnoreChildReq where
-
-data TryAgainChildReq = TryAgainChildReq
-  deriving (Typeable, Generic)
-instance Binary TryAgainChildReq where
 
 type ChildSpecs = Seq Child
 type Prefix = ChildSpecs
@@ -440,13 +457,11 @@ startChild addr spec = call addr $ AddChild True spec
 deleteChild :: Addressable a => a -> ChildKey -> Process DeleteChildResult
 deleteChild addr spec = call addr $ DeleteChild spec
 
-{-
 terminateChild :: Addressable a
                => a
                -> ChildKey
                -> Process TerminateChildResult
-terminateChild = undefined
--}
+terminateChild sid = call sid . TerminateChildReq
 
 restartChild :: Addressable a
              => a
@@ -521,7 +536,6 @@ emptyStats = SupervisorStats {
   , totalRestarts      = 0
 --  , avgRestartFrequency   = 0
   }
-  -- TODO: usage/restart/freq stats
 
 serverDefinition :: PrioritisedProcessDefinition State
 serverDefinition = prioritised processDefinition supPriorities
@@ -530,7 +544,6 @@ serverDefinition = prioritised processDefinition supPriorities
     supPriorities = [
         prioritiseCast_ (\(IgnoreChildReq _)                 -> setPriority 100)
       , prioritiseInfo_ (\(ProcessMonitorNotification _ _ _) -> setPriority 99 )
-      , prioritiseCast_ (\(_ :: TryAgainChildReq)            -> setPriority 80 )
       , prioritiseCall_ (\(_ :: FindReq) ->
                           (setPriority 10) :: Priority (Maybe (ChildRef, ChildSpec)))
       ]
@@ -539,8 +552,9 @@ processDefinition :: ProcessDefinition State
 processDefinition =
   defaultProcess {
     apiHandlers = [
-       Restricted.handleCast   handleIgnoreChildReq
+       Restricted.handleCast   handleIgnore
        -- adding, removing and (optionally) starting new child specs
+     , handleCall              handleTerminateChild
      , Restricted.handleCall   handleDeleteChild
      , Restricted.handleCallIf (input (\(AddChild immediate _) -> not immediate))
                                handleAddChild
@@ -575,9 +589,9 @@ handleAddChild req = getState >>= return . doAddChild req True >>= doReply
         doReply (Added  s) = putState s >> Restricted.reply (ChildAdded ChildStopped)
         doReply (Exists e) = Restricted.reply (ChildFailedToStart $ StartFailureDuplicateChild e)
 
-handleIgnoreChildReq :: IgnoreChildReq
+handleIgnore :: IgnoreChildReq
                      -> RestrictedProcess State RestrictedAction
-handleIgnoreChildReq (IgnoreChildReq pid) = do
+handleIgnore (IgnoreChildReq pid) = do
   {- not only must we take this child out of the `active' field,
      we also delete the child spec if it's restart type is Temporary,
      since restarting Temporary children is dis-allowed -}
@@ -588,7 +602,7 @@ handleIgnoreChildReq (IgnoreChildReq pid) = do
     Nothing -> Restricted.continue
     Just c  -> do
       putState $ ( (active ^= active')
-                 . (bump decrement)
+--                 . (bump decrement)
                  . (resetChildIgnored c)
                  $ state
                  )
@@ -596,15 +610,7 @@ handleIgnoreChildReq (IgnoreChildReq pid) = do
   where
     resetChildIgnored :: ChildKey -> State -> State
     resetChildIgnored key state =
-      maybe state id $ updateChild key setChildStopped state
-
-setChildStopped :: Child -> Prefix -> Suffix -> State -> Maybe State
-setChildStopped child prefix remaining state =
-  let spec  = snd child
-      rType = childRestart spec
-  in case isTemporary rType of
-    True  -> Just $ (specs ^= prefix >< remaining) $ state
-    False -> Just $ (specs ^= prefix >< ((ChildStopped, spec) <| remaining)) state
+      maybe state id $ updateChild key (setChildStopped True) state
 
 handleDeleteChild :: DeleteChild
                   -> RestrictedProcess State (Result DeleteChildResult)
@@ -662,11 +668,23 @@ handleRestartChild state (RestartChildReq key) =
     Just (ref@(ChildRestarting _), _) ->
       reply (ChildRestartFailed (StartFailureAlreadyRunning ref)) state
     Just (_, spec) -> do
-      -- THIS DUPLICATES PART OF doRestartChild!!!
       started <- doStartChild spec state
       case started of
         Left err         -> reply (ChildRestartFailed err) state
         Right (ref, st') -> reply (ChildRestartOk ref) st'
+
+handleTerminateChild :: State
+                     -> TerminateChildReq
+                     -> Process (ProcessReply TerminateChildResult State)
+handleTerminateChild state (TerminateChildReq key) =
+  let child = findChild key state in
+  case child of
+    Nothing ->
+      reply TerminateChildUnknownId state
+    Just (ChildStopped, _) ->
+      reply TerminateChildOk state
+    Just (ref, spec) ->
+      reply TerminateChildOk =<< doTerminateChild ref spec state
 
 handleGetStats :: StatsReq
                -> RestrictedProcess State (Result SupervisorStats)
@@ -691,7 +709,7 @@ handleMonitorSignal state (ProcessMonitorNotification _ pid reason) = do
   -- bump stats
   case mSpec of
     Nothing   -> continue $ (active ^= active') state
-    Just spec -> tryRestartChild state active' spec reason
+    Just spec -> tryRestart state active' spec reason
 
 --------------------------------------------------------------------------------
 -- Child Monitoring                                                           --
@@ -724,12 +742,12 @@ tryRestartChild st active' spec reason
   , True       <- isTransient (childRestart spec) = continue $ down $ updateStopped
   | True       <- isTemporary (childRestart spec) = continue $ down $ removeChild spec st
   | DiedNormal <- reason
-  , True       <- isIntrinsic (childRestart spec) = stop $ ExitNormal  -- TODO: STOP OUR CHILDREN
-  | otherwise                                     = continue =<< doRestartChild spec st
+  , True       <- isIntrinsic (childRestart spec) = stop $ ExitNormal
+  | otherwise     = continue =<< doRestartChild spec st
   where
     chKey         = childKey spec
     down st'      = (active ^= active') $ st'
-    updateStopped = maybe st id $ updateChild chKey setChildStopped st
+    updateStopped = maybe st id $ updateChild chKey (setChildStopped False) st
 
 doRestartChild :: ChildSpec -> State -> Process State
 doRestartChild spec state = do
@@ -739,15 +757,34 @@ doRestartChild spec state = do
     Just st -> do
       start <- doStartChild spec st
       case start of
-        Left err      -> die $ "TODO: implement me"
-        Right (_, s') -> return s'
+        Right (ref, st') -> do
+          Just pid <- resolve ref
+          return $ ( (bumpStats Active chType (+1))
+                   $ markActive st' ref spec
+                   ) -- do we need to add to `active' here?
+        Left err -> do
+          -- All child failures are handled via monitor signals, apart from
+          -- BadClosure, which comes back from doStartChild as (Left err).
+          -- Since we cannot recover from that, there's no point in trying
+          -- to start this child again (as the closure will never resolve),
+          -- so we remove this child forthwith
+          return $ ( (active ^: Map.filter (/= chKey))
+                   . (bumpStats Active chType decrement)
+                   . (bumpStats Specified chType decrement)
+                   . (bump decrement)
+                   $ removeChild spec st
+                   )
+  where
+    chKey  = childKey spec
+    chType = childType spec
 
 addRestart :: State -> Process (Maybe State)
 addRestart state = do
   now <- liftIO $ getCurrentTime
   let acc = foldl' (accRestarts now) [] (now:restarted)
+  -- liftIO $ putStrLn $ "checking " ++ (show $ length acc) ++ " against max " ++ (show maxAttempts) ++ " within " ++ (show slot)
   case length acc of
-    n | n < maxAttempts -> return Nothing  -- TODO: logging/tracing/etc
+    n | n > maxAttempts -> return Nothing
     _                   -> return $ Just $ (restarts ^= acc) $ state
   where
     maxAttempts  = maxNumberOfRestarts $ maxR $ maxIntensity
@@ -770,15 +807,17 @@ doStartChild spec st = do
     Right p -> do
       let mState = updateChild chKey (chRunning p) st
       case mState of
-        -- TODO: so this child isn't recognised!? WHAT DOES THAT MEAN?
-        Nothing -> die "Internal Error"
+        -- TODO: better error message if the child is unrecognised
+        Nothing -> die "InternalError"
         Just s' -> return $ Right $ (p, markActive s' p spec)
   where
     chKey = childKey spec
 
     chRunning :: ChildRef -> Child -> Prefix -> Suffix -> State -> Maybe State
     chRunning newRef (_, chSpec) prefix suffix st =
-      Just $ (specs ^= prefix >< ((newRef, chSpec) <| suffix)) st
+      Just $ ( (specs ^= prefix >< ((newRef, chSpec) <| suffix))
+             $ bumpStats Active (childType spec) (+1) st
+             )
 
 tryStartChild :: ChildSpec
               -> Process (Either StartFailure ChildRef)
@@ -817,6 +856,56 @@ tryStartChild spec =
             ChildInitIgnore    -> MP.cast sup $ IgnoreChildReq pid
 
 --------------------------------------------------------------------------------
+-- Child Termination/Shutdown                                                 --
+--------------------------------------------------------------------------------
+
+doTerminateChild :: ChildRef -> ChildSpec -> State -> Process State
+doTerminateChild ref spec state = do
+  mPid <- resolve ref
+  case mPid of
+    Nothing  -> die "what the fuck?"
+    Just pid -> do
+      stopped <- childShutdown (childStop spec) pid
+      (state', reason) <- shutdownComplete state stopped
+      -- log rsn
+      return $ ( (active ^: Map.delete pid)
+               $ state'
+               )
+  where
+    shutdownComplete :: State -> DiedReason -> Process (State, DiedReason)
+    shutdownComplete state' r@(DiedNormal)    = return $ (updateStopped, r)
+    shutdownComplete state' (DiedException s) = die s -- log it and continue
+    shutdownComplete _ r@(DiedUnknownId)     = die (show r) -- log it and continue
+
+    chKey         = childKey spec
+    updateStopped = maybe state id $ updateChild chKey (setChildStopped False) state
+
+childShutdown :: ChildTerminationPolicy
+              -> ProcessId
+              -> Process DiedReason
+childShutdown policy pid = do
+  case policy of
+    (TerminateTimeout t) -> exit pid ExitShutdown >> await pid t
+    -- we ignore DiedReason for brutal kills
+    TerminateImmediately -> do
+      kill pid "TerminatedBySupervisor"
+      void $ await pid Infinity
+      return DiedNormal
+  where
+    await :: ProcessId -> Delay -> Process DiedReason
+    await pid' delay = do
+      let recv = case delay of
+                   Infinity -> receiveWait (matches pid') >>= return . Just
+                   Delay t  -> receiveTimeout (asTimeout t) (matches pid')
+      recv >>= maybe (childShutdown TerminateImmediately pid') return
+
+    matches :: ProcessId -> [Match DiedReason]
+    matches p = [
+          matchIf (\(ProcessMonitorNotification _ p' _) -> p == p')
+                  (\(ProcessMonitorNotification _ _ r) -> return r)
+        ]
+
+--------------------------------------------------------------------------------
 -- Logging/Reporting                                                          --
 --------------------------------------------------------------------------------
 
@@ -826,6 +915,17 @@ logShutdown _ = return ()
 --------------------------------------------------------------------------------
 -- Accessors and State/Stats Utilities                                        --
 --------------------------------------------------------------------------------
+
+type Ignored = Bool
+
+setChildStopped ::  Ignored -> Child -> Prefix -> Suffix -> State -> Maybe State
+setChildStopped ignored child prefix remaining st =
+  let spec   = snd child
+      rType  = childRestart spec
+      newRef = if ignored then ChildStartIgnored else ChildStopped
+  in case isTemporary rType of
+    True  -> Just $ (specs ^= prefix >< remaining) $ st
+    False -> Just $ (specs ^= prefix >< ((newRef, spec) <| remaining)) st
 
 doAddChild :: AddChildReq -> Bool -> State -> AddChildRes
 doAddChild (AddChild _ spec) update st =
@@ -845,8 +945,7 @@ updateChild :: ChildKey
             -> Maybe State
 updateChild key updateFn state =
   let (prefix, suffix) = Seq.breakl ((== key) . childKey . snd) $ state ^. specs
-  in
-  case (Seq.viewl suffix) of
+  in case (Seq.viewl suffix) of
     EmptyL             -> Nothing
     child :< remaining -> updateFn child prefix remaining state
 
