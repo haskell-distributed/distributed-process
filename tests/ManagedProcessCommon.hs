@@ -4,7 +4,7 @@ module ManagedProcessCommon where
 
 import Control.Concurrent.MVar (MVar)
 import Control.Distributed.Process hiding (call)
-import Control.Distributed.Process.Platform
+import Control.Distributed.Process.Platform hiding (monitor)
 import Control.Distributed.Process.Platform.Async
 import Control.Distributed.Process.Platform.ManagedProcess
 import Control.Distributed.Process.Platform.Test

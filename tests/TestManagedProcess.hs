@@ -10,7 +10,7 @@ import Control.Exception (SomeException)
 import Control.Distributed.Process hiding (call)
 import Control.Distributed.Process.Closure
 import Control.Distributed.Process.Node
-import Control.Distributed.Process.Platform hiding (__remoteTable)
+import Control.Distributed.Process.Platform hiding (__remoteTable, monitor)
 import Control.Distributed.Process.Platform.Async
 import Control.Distributed.Process.Platform.ManagedProcess
 import Control.Distributed.Process.Platform.Test
