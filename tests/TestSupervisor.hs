@@ -4,10 +4,12 @@
 module Main where
 
 import Control.Exception (throwIO, SomeException)
-import Control.Distributed.Process hiding (call, expect)
+import Control.Distributed.Process hiding (call, expect, monitor)
+import qualified Control.Distributed.Process as P (expect)
 import Control.Distributed.Process.Closure
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Platform hiding (__remoteTable)
+-- import Control.Distributed.Process.Platform as Alt (monitor)
 import Control.Distributed.Process.Platform.Test
 import Control.Distributed.Process.Platform.Time
 import Control.Distributed.Process.Platform.Timer
@@ -16,7 +18,7 @@ import qualified Control.Distributed.Process.Platform.Supervisor as Supervisor
 import Control.Distributed.Process.Platform.ManagedProcess.Client (shutdown)
 import Control.Distributed.Process.Serializable()
 import Control.Distributed.Static (staticLabel)
-import Control.Monad (void, mapM)
+import Control.Monad (void, forM_, forM)
 import Control.Rematch hiding (expect, match)
 import qualified Control.Rematch as Rematch
 
@@ -62,6 +64,7 @@ defaultWorker clj =
   , childRestart = Restart Temporary
   , childStop    = TerminateImmediately
   , childRun     = clj
+  , childRegName = Nothing
   }
 
 tempWorker :: Closure (Process ()) -> ChildSpec
@@ -141,8 +144,9 @@ waitForExit :: ProcessId -> Process DiedReason
 waitForExit pid = do
   monitor pid >>= waitForDown
 
-waitForDown :: MonitorRef -> Process DiedReason
-waitForDown ref =
+waitForDown :: Maybe MonitorRef -> Process DiedReason
+waitForDown Nothing    = error "invalid mref"
+waitForDown (Just ref) =
   receiveWait [ matchIf (\(ProcessMonitorNotification ref' _ _) -> ref == ref')
                         (\(ProcessMonitorNotification _ _ dr) -> return dr) ]
 
@@ -154,6 +158,9 @@ noOp = return ()
 
 blockIndefinitely :: Process ()
 blockIndefinitely = runTestProcess noOp
+
+notifyMe :: ProcessId -> Process ()
+notifyMe me = getSelfPid >>= send me >> obedient
 
 sleepy :: Process ()
 sleepy = (sleepFor 5 Minutes)
@@ -172,7 +179,8 @@ $(remotable [ 'exitIgnore
             , 'noOp
             , 'blockIndefinitely
             , 'sleepy
-            , 'obedient])
+            , 'obedient
+            , 'notifyMe])
 
 -- test cases start here...
 
@@ -418,8 +426,8 @@ terminateChildImmediately :: ProcessId -> Process ()
 terminateChildImmediately sup = do
   let spec = tempWorker $(mkStaticClosure 'blockIndefinitely)
   ChildAdded ref <- startChild sup spec
-  Just pid <- resolve ref
-  mRef <- monitor pid
+--  Just pid <- resolve ref
+  mRef <- monitor ref
   void $ terminateChild sup (childKey spec)
   reason <- waitForDown mRef
   expect reason $ equalTo $ DiedException (expectedExitReason sup)
@@ -429,8 +437,8 @@ terminatingChildExceedsDelay sup = do
   let spec = (tempWorker $(mkStaticClosure 'sleepy))
              { childStop = TerminateTimeout (Delay $ within 1 Seconds) }
   ChildAdded ref <- startChild sup spec
-  Just pid <- resolve ref
-  mRef <- monitor pid
+-- Just pid <- resolve ref
+  mRef <- monitor ref
   void $ terminateChild sup (childKey spec)
   reason <- waitForDown mRef
   expect reason $ equalTo $ DiedException (expectedExitReason sup)
@@ -466,7 +474,7 @@ permanentChildExceedsRestartsIntensity ::
      (RestartStrategy -> [ChildSpec] -> (ProcessId -> Process ()) -> Assertion)
   -> Assertion
 permanentChildExceedsRestartsIntensity withSupervisor = do
-  let spec = permChild $(mkStaticClosure 'noOp)  -- child just keeps exiting
+  let spec = permChild $(mkStaticClosure 'noOp)  -- child that exits immediately
   let strategy = RestartOne $ limit (maxRestarts 50) (seconds 2)
   withSupervisor strategy [spec] $ \sup -> do
     ref <- monitor sup
@@ -478,6 +486,126 @@ permanentChildExceedsRestartsIntensity withSupervisor = do
     expect reason $ equalTo $
                       DiedException $ "exit-from=" ++ (show sup) ++
                                       ",reason=ReachedMaxRestartIntensity"
+
+terminateChildIgnoresSiblings ::
+     (RestartStrategy -> [ChildSpec] -> (ProcessId -> Process ()) -> Assertion)
+  -> Assertion
+terminateChildIgnoresSiblings withSupervisor = do
+  let templ = permChild $(mkStaticClosure 'blockIndefinitely)
+  let specs = [templ { childKey = (show i) } | i <- [1..3 :: Int]]
+  withSupervisor restartAll specs $ \sup -> do
+    let toStop = childKey $ head specs
+    Just (ref, _) <- lookupChild sup toStop
+    mRef <- monitor ref
+    terminateChild sup toStop
+    waitForDown mRef
+    children <- listChildren sup
+    forM_ (tail $ map fst children) $ \cRef -> do
+      maybe (error "invalid ref") ensureProcessIsAlive =<< resolve cRef
+
+restartAllWithLeftToRightSeqRestarts ::
+     (RestartStrategy -> [ChildSpec] -> (ProcessId -> Process ()) -> Assertion)
+  -> Assertion
+restartAllWithLeftToRightSeqRestarts withSupervisor = do
+  let templ = permChild $(mkStaticClosure 'blockIndefinitely)
+  let specs = [templ { childKey = (show i) } | i <- [1..100 :: Int]]
+  -- restartAll = RestartAll defaultLimits (RestartEach LeftToRight)
+  withSupervisor restartAll specs $ \sup -> do
+    let toStop = childKey $ head specs
+    Just (ref, _) <- lookupChild sup toStop
+    children <- listChildren sup
+    Just pid <- resolve ref
+    kill pid "goodbye"
+    forM_ (map fst children) $ \cRef -> do
+      mRef <- monitor cRef
+      waitForDown mRef
+    forM_ (map snd children) $ \cSpec -> do
+      Just (ref', _) <- lookupChild sup (childKey cSpec)
+      maybe (error "invalid ref") ensureProcessIsAlive =<< resolve ref'
+
+restartAllWithLeftToRightRestarts :: ProcessId -> Process ()
+restartAllWithLeftToRightRestarts sup = do
+  self <- getSelfPid
+  let templ = permChild ($(mkClosure 'notifyMe) self)
+  let specs = [templ { childKey = (show i) } | i <- [1..100 :: Int]]
+  -- add the specs one by one
+  forM_ specs $ \s -> void $ startChild sup s
+  -- assert that we saw the startup sequence working...
+  children <- listChildren sup
+  drainChildren children
+  let toStop = childKey $ head specs
+  Just (ref, _) <- lookupChild sup toStop
+  Just pid <- resolve ref
+  kill pid "goodbye"
+  -- wait for all the exit signals, so we know the children are restarting
+  forM_ (map fst children) $ \cRef -> do
+    Just mRef <- monitor cRef
+    receiveWait [
+        matchIf (\(ProcessMonitorNotification ref' _ _) -> ref' == mRef)
+                (\_ -> return ())
+        -- we should NOT see *any* process signalling that it has started
+        -- whilst waiting for all the children to be terminated
+      , match (\(pid' :: ProcessId) -> do
+            liftIO $ assertFailure $ "unexpected signal from " ++ (show pid'))
+      ]
+  -- Now assert that all the children were restarted in the same order.
+  -- THIS is the bit that is technically unsafe, though it's also unlikely
+  -- to change, since the architecture of the node controller is pivotal to CH
+  children' <- listChildren sup
+  drainChildren children'
+  let [c1, c2] = [map fst cs | cs <- [children, children']]
+  forM_ (zip c1 c2) $ \(p1, p2) -> expect p1 $ isNot $ equalTo p2
+  where
+    drainChildren children = do
+      -- Receive all pids then verify they arrived in the correct order.
+      -- Any out-of-order messages (such as ProcessMonitorNotification) will
+      -- violate the invariant asserted below, and fail the test case
+      pids <- forM children $ \_ -> P.expect :: Process ProcessId
+      forM_ pids ensureProcessIsAlive
+
+expectRightToLeftRestarts :: ProcessId -> Process ()
+expectRightToLeftRestarts sup = do
+  self <- getSelfPid
+  let templ = permChild ($(mkClosure 'notifyMe) self)
+  let specs = [templ { childKey = (show i) } | i <- [1..100 :: Int]]
+  -- add the specs one by one
+  forM_ specs $ \s -> do
+    ChildAdded ref <- startChild sup s
+    maybe (error "invalid ref") ensureProcessIsAlive =<< resolve ref
+  -- assert that we saw the startup sequence working...
+  let toStop = childKey $ head specs
+  Just (ref, _) <- lookupChild sup toStop
+  Just pid <- resolve ref
+  children <- listChildren sup
+  drainChildren children pid
+  kill pid "fooboo"
+  -- wait for all the exit signals, so we know the children are restarting
+  forM_ (map fst children) $ \cRef -> do
+    Just mRef <- monitor cRef
+    receiveWait [
+        matchIf (\(ProcessMonitorNotification ref' _ _) -> ref' == mRef)
+                (\_ -> return ())
+        -- we should NOT see *any* process signalling that it has started
+        -- whilst waiting for all the children to be terminated
+      , match (\(pid' :: ProcessId) -> do
+            liftIO $ assertFailure $ "unexpected signal from " ++ (show pid'))
+      ]
+  -- ensure that both ends of the pids we've seen are in the right order...
+  -- in this case, we expect the last child to be the first notification,
+  -- since they were started in right to left order
+  children' <- listChildren sup
+  let (ref', _) = last children'
+  Just pid' <- resolve ref'
+  drainChildren children' pid'
+  where
+    drainChildren children expected = do
+      -- Receive all pids then verify they arrived in the correct order.
+      -- Any out-of-order messages (such as ProcessMonitorNotification) will
+      -- violate the invariant asserted below, and fail the test case
+      pids <- forM children $ \_ -> P.expect :: Process ProcessId
+      let first' = head pids
+      Just exp' <- resolve expected
+      first' `shouldBe` equalTo exp'
 
 -- remote table definition and main
 
@@ -554,14 +682,27 @@ tests transport = do
           , testCase "Child Termination Within Timeout/Delay"
                 (withSupervisor restartOne [] terminatingChildObeysDelay)
           ]
-        , testGroup "Trying Restarts Again"
+          -- TODO: test for init failures (expecting $ ChildInitFailed r)
+        , testGroup "Stopping and Starting Branches"
           [
-            testCase "Three Attempts Before Successful Restart"
-                (restartAfterThreeAttempts withSupervisor)
+              testCase "Terminate Child Ignores Siblings"
+                  (terminateChildIgnoresSiblings withSupervisor)
+            , testCase "Restart All, Left To Right (Sequential) Restarts"
+                  (restartAllWithLeftToRightSeqRestarts withSupervisor)
+            , testCase "Restart All, Left To Right Stop, Left To Right Start"
+                  (withSupervisor
+                   (RestartAll defaultLimits (RestartInOrder LeftToRight)) []
+                    restartAllWithLeftToRightRestarts)
+            , testCase "Restart All, Left To Right Stop, Right To Left Start"
+                  (withSupervisor
+                   (RestartAll defaultLimits (RestartInOrder RightToLeft)) []
+                    expectRightToLeftRestarts)
           ]
         , testGroup "Restart Intensity / Delayed Restarts"
           [
-            testCase "Permanent Child Exceeds Restart Limits"
+            testCase "Three Attempts Before Successful Restart"
+                (restartAfterThreeAttempts withSupervisor)
+          , testCase "Permanent Child Exceeds Restart Limits"
                 (permanentChildExceedsRestartsIntensity withSupervisor)
           ]
       ]
