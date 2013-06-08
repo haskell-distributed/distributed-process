@@ -38,6 +38,7 @@ module Control.Distributed.Process.Platform.Internal.Primitives
 
     -- * General Utilities
   , times
+  , monitor
   , isProcessAlive
   , forever'
 
@@ -46,7 +47,8 @@ module Control.Distributed.Process.Platform.Internal.Primitives
   ) where
 
 import Control.Concurrent (myThreadId, throwTo)
-import Control.Distributed.Process
+import Control.Distributed.Process hiding (monitor)
+import qualified Control.Distributed.Process as P (monitor)
 import Control.Distributed.Process.Closure (seqCP, remotable, mkClosure)
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Platform.Internal.Types
@@ -60,6 +62,13 @@ import Control.Monad (void)
 import Data.Maybe (isJust, fromJust)
 
 -- utility
+
+monitor :: Addressable a => a -> Process (Maybe MonitorRef)
+monitor addr = do
+  mPid <- resolve addr
+  case mPid of
+    Nothing -> return Nothing
+    Just p  -> return . Just =<< P.monitor p
 
 isProcessAlive :: ProcessId -> Process Bool
 isProcessAlive pid = getProcessInfo pid >>= \info -> return $ info /= Nothing
@@ -117,7 +126,7 @@ spawnLinkLocal p = do
 spawnMonitorLocal :: Process () -> Process (ProcessId, MonitorRef)
 spawnMonitorLocal p = do
   pid <- spawnLocal p
-  ref <- monitor pid
+  ref <- P.monitor pid
   return (pid, ref)
 
 -- | CH's 'link' primitive, unlike Erlang's, will trigger when the target
@@ -128,8 +137,8 @@ linkOnFailure them = do
   us <- getSelfPid
   tid <- liftIO $ myThreadId
   void $ spawnLocal $ do
-    callerRef <- monitor us
-    calleeRef <- monitor them
+    callerRef <- P.monitor us
+    calleeRef <- P.monitor them
     reason <- receiveWait [
              matchIf (\(ProcessMonitorNotification mRef _ _) ->
                        mRef == callerRef) -- nothing left to do
@@ -159,7 +168,7 @@ whereisOrStart name proc =
                     send caller (RegisterSelf,self)
                     () <- expect
                     proc
-            ref <- monitor pid
+            ref <- P.monitor pid
             ret <- receiveWait
                [ matchIf (\(ProcessMonitorNotification aref _ _) -> ref == aref)
                          (\(ProcessMonitorNotification _ _ _) -> return Nothing),
@@ -207,7 +216,7 @@ whereisOrStartRemote nid name proc =
                               (\(NodeMonitorNotification _ _ _) -> return Nothing),
                       matchIf (\(DidSpawn ref _) -> ref==sRef )
                               (\(DidSpawn _ pid) ->
-                                  do pRef <- monitor pid
+                                  do pRef <- P.monitor pid
                                      receiveWait
                                        [ matchIf (\(RegisterSelf, apid) -> apid == pid)
                                                  (\(RegisterSelf, _) -> do unmonitor pRef
@@ -243,7 +252,7 @@ awaitResponse addr matches = do
   case mPid of
     Nothing -> return $ Left $ ExitOther "UnresolvedAddress"
     Just p  -> do
-      mRef <- monitor p
+      mRef <- P.monitor p
       receiveWait ((matchRef mRef):matches)
   where
     matchRef :: MonitorRef -> Match (Either ExitReason b)

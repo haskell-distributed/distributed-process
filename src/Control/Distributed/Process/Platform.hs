@@ -22,6 +22,7 @@ module Control.Distributed.Process.Platform
   , spawnMonitorLocal
   , linkOnFailure
   , times
+  , monitor
   , isProcessAlive
   , matchCond
 
@@ -37,7 +38,7 @@ module Control.Distributed.Process.Platform
   , __remoteTable
   ) where
 
-import Control.Distributed.Process
+import Control.Distributed.Process hiding (monitor)
 import Control.Distributed.Process.Platform.Internal.Types
   ( Recipient(..)
   , ExitReason(..)
