@@ -6,12 +6,205 @@
 {-# LANGUAGE BangPatterns               #-}
 {-# LANGUAGE PatternGuards              #-}
 
+-----------------------------------------------------------------------------
+-- |
+-- Module      :  Control.Distributed.Process.Platform.Supervisor
+-- Copyright   :  (c) Tim Watson 2012 - 2013
+-- License     :  BSD3 (see the file LICENSE)
+--
+-- Maintainer  :  Tim Watson <watson.timothy@gmail.com>
+-- Stability   :  experimental
+-- Portability :  non-portable (requires concurrency)
+--
+-- This module implements a process which supervises a set of other
+-- processes, referred to as its children. These /child processes/ can be
+-- either workers (i.e., processes that do something useful in your application)
+-- or other supervisors. In this way, supervisors may be used to build a
+-- hierarchical process structure called a supervision tree, which provides
+-- a convenient structure for building fault tolerant software.
+--
+-- Unless otherwise stated, all functions in this module will cause the calling
+-- process to exit unless the specified supervisor process exists.
+--
+-- [Supervision Principles]
+--
+-- A supervisor is responsible for starting, stopping and monitoring its child
+-- processes so as to keep them alive by restarting them when necessary.
+--
+-- The supervisors children are defined as a list of child specifications
+-- (see 'ChildSpec'). When a supervisor is started, its children are started
+-- in left-to-right (insertion order) according to this list. When a supervisor
+-- stops, it will terminate its children in reverse (i.e., from
+-- right-to-left of insertion order). Child specs can be added to the supervisor
+-- after it has started, either on the left or right of the existing list of
+-- children.
+--
+-- When a supervisor exits (for any reason), it will always attempt to terminate
+-- all its children, which it does from left-to-right (in insertion order). When
+-- the supervisor spawns its child processes, they are always linked to thier
+-- parent (i.e., the supervisor), therefore even if the supervisor is terminated
+-- abruptly by an asynchronous exception, the children will still be taken down
+-- with it, though somewhat less ceremoniously in that case.
+--
+-- [Restart Strategies]
+--
+-- Supervisors are initialised with a 'RestartStrategy', which describes how
+-- the supervisor should respond to a child that exits and should be restarted
+-- (see below for the rules governing child restart eligibility). Each restart
+-- strategy comprises a 'RestartMode' and 'RestartLimit', which govern how
+-- the restart should be handled, and the point at which the supervisor
+-- should give up and terminate itself respectively.
+--
+-- With the exception of the @RestartOne@ strategy, which indicates that the
+-- supervisor will restart /only/ the one individual failing child, each
+-- strategy describes a way to select the set of children that should be
+-- restarted if /any/ child fails. The @RestartAll@ strategy, as its name
+-- suggests, selects /all/ children, whilst the @RestartLeft@ and @RestartRight@
+-- strategies select /all/ children to the left or right of the failed child,
+-- in insertion (i.e., startup) order. The failing child is /always/ included in
+-- the /branch/ to be restarted, unless it is a @Temporary@ child, in which case
+-- it will be removed from the supervisor and never restarted (see
+-- 'RestartPolicy' for details).
+--
+-- For a hypothetical set of children @a@ through @d@, the following pseudocode
+-- demonstrates how the restart strategies work.
+--
+-- > let children = [a..d]
+-- > let failure = c
+-- > restartsFor RestartOne children failure   = [c]
+-- > restartsFor RestartAll children failure   = [a,b,c,d]
+-- > restartsFor RestartLeft children failure  = [a,b,c]
+-- > restartsFor RestartRight children failure = [a,b,c,d]
+--
+-- [Branch Restarts]
+--
+-- We refer to a restart (strategy) that involves a set of children as a
+-- /branch restart/ from now on. The behaviour of branch restarts can be further
+-- refined by the 'RestartMode' with which a 'RestartStrategy' is parameterised.
+-- The @RestartEach@ mode treats each child sequentially, first stopping the
+-- respective child process and then restarting it. Each child is stopped and
+-- started fully before moving on to the next, as the following imaginary
+-- example demonstrates for children @[a,b,c]@:
+--
+-- > stop  a
+-- > start a
+-- > stop  b
+-- > start b
+-- > stop  c
+-- > start c
+--
+-- By contrast, @RestartInOrder@ will first run through the selected list of
+-- children, stopping them. Then, once all the children have been stopped, it
+-- will make a second pass, to handle (re)starting them. No child is started
+-- until all children have been stopped, as the following imaginary example
+-- demonstrates:
+--
+-- > stop  a
+-- > stop  b
+-- > stop  c
+-- > start a
+-- > start b
+-- > start c
+--
+-- Both the previous examples have shown children being stopped and started
+-- from left to right, but that is up to the user. The 'RestartMode' data
+-- type's constructors take a 'RestartOrder', which determines whether the
+-- selected children will be processed from @LeftToRight@ or @RightToLeft@.
+--
+-- Sometimes it is desireable to stop children in one order and start them
+-- in the opposite. This is typically the case when children are in some
+-- way dependent on one another, such that restarting them in the wrong order
+-- might cause the system to misbehave. For this scenarios, there is another
+-- 'RestartMode' that will shut children down in the given order, but then
+-- restarts them in the reverse. Using @RestartRevOrder@ mode, if we have
+-- children @[a,b,c]@ such that @b@ depends on @a@ and @c@ on @b@, we can stop
+-- them in the reverse of their startup order, but restart them the other way
+-- around like so:
+--
+-- > RestartRevOrder RightToLeft
+--
+-- The effect will be thus:
+--
+-- > stop  c
+-- > stop  b
+-- > stop  a
+-- > start a
+-- > start b
+-- > start c
+--
+-- [Restart Intensity Limits]
+--
+-- If a child process repeatedly crashes during (or shortly after) starting,
+-- it is possible for the supervisor to get stuck in an endless loop of
+-- restarts. In order prevent this, each restart strategy is parameterised
+-- with a 'RestartLimit' that caps the number of restarts allowed within a
+-- specific time period. If the supervisor exceeds this limit, it will stop,
+-- terminating all its children (in left-to-right order) and exit with the
+-- reason @ExitOther "ReachedMaxRestartIntensity"@.
+--
+-- The 'MaxRestarts' type is a positive integer, and together with a specified
+-- @TimeInterval@ forms the 'RestartLimit' to which the supervisor will adhere.
+-- Since a great many children can be restarted in close succession when
+-- a /branch restart/ occurs (as a result of @RestartAll@, @RestartLeft@ or
+-- @RestartRight@ being triggered), the supervisor will track the operation
+-- as a single restart attempt, since otherwise it would likely exceed its
+-- maximum restart intensity too quickly.
+--
+-- [Child Restart and Termination Policies]
+--
+-- When the supervisor detects that a child has died, the 'ChildRestart'
+-- configured in the child specification is used to determin what to do. If
+-- the child's 'RestartPolicy' is @Permanent@, then the child is always
+-- restarted. If it is @Temporary@, then the child is never restarted and
+-- the child specification is removed from the supervisor. A @Transient@
+-- child will be restarted only if it terminates /abnormally/, otherwise
+-- it is left inactive (but its specification is left in place). Finally,
+-- an @Intrinsic@ child is treated like a @Transient@ one, except that if
+-- /this/ kind of child exits /normally/, then the supervisor will also
+-- exit normally.
+--
+-- When the supervisor does terminate a child, the 'ChildTerminationPolicy'
+-- provided with the 'ChildSpec' determines how the supervisor should go
+-- about doing so. If this is @TerminateImmediately@, then the child will
+-- be killed without further notice, which means the child will /not/ have
+-- an opportunity to clean up any internal state and/or release any held
+-- resources. If the policy is @TerminateTimeout delay@ however, the child
+-- will be sent an /exit signal/ instead, i.e., the supervisor will cause
+-- the child to exit via @exit childPid ExitShutdown@, and then will wait
+-- until the given @delay@ for the child to exit normally. If this does not
+-- happen within the given delay, the supervisor will revert to the more
+-- aggressive @TerminateImmediately@ policy and try again. Any errors that
+-- occur during a timed-out shutdown will be logged, however exit reasons
+-- resulting from @TerminateImmediately@ are ignored.
+--
+-- [Supervision Trees]
+--
+-- To create a supervision tree, one simply adds supervisors below one another
+-- as children, setting the @childType@ field of their 'ChildSpec' to
+-- @Supervisor@ instead of @Worker@. Supervision tree can be arbitrarilly
+-- deep, and it is for this reason that we recommend giving a @Supervisor@ child
+-- an arbitrary length of time to stop, by setting the delay to @Infinity@
+-- or a very large @TimeInterval@.
+--
+-----------------------------------------------------------------------------
+
 module Control.Distributed.Process.Platform.Supervisor
-  ( ChildKey
+  ( -- * Defining and Running a Supervisor
+    ChildSpec(..)
+  , ChildKey
   , ChildType(..)
   , ChildTerminationPolicy(..)
   , RegisteredName(LocalName)
-  , ChildSpec(..)
+  , RestartPolicy(..)
+  , ChildRestart(..)
+  , ChildRef(..)
+  , isRunning
+  , isRestarting
+  , Child
+  , StaticLabel
+  , start
+  , run
+    -- * Limits and Defaults
   , MaxRestarts
   , maxRestarts
   , RestartLimit(..)
@@ -24,32 +217,33 @@ module Control.Distributed.Process.Platform.Supervisor
   , restartAll
   , restartLeft
   , restartRight
-  , ChildRef(..)
-  , RestartPolicy(..)
-  , ChildRestart(..)
-  , SupervisorStats(..)
-  , StaticLabel
-  , AddChildResult(..)
-  , RestartChildResult(..)
-  , StartFailure(..)
-  , DeleteChildResult(..)
-  , Child
-  , ChildInitFailure(..)
-  , isRunning
-  , isRestarting
-  , start
-  , statistics
+    -- * Adding and Removing Children
   , addChild
+  , AddChildResult(..)
   , startChild
   , terminateChild
   , deleteChild
+  , DeleteChildResult(..)
   , restartChild
+  , RestartChildResult(..)
+    -- * Queries and Statistics
   , lookupChild
   , listChildren
+  , SupervisorStats(..)
+  , statistics
+    -- * Additional (Misc) Types
+  , StartFailure(..)
+  , ChildInitFailure(..)
   ) where
 
 import Control.Distributed.Process hiding (call)
-import Control.Distributed.Process.Serializable()
+import Control.Distributed.Process.Serializable
+import Control.Distributed.Process.Platform.Async
+  ( AsyncResult(..)
+  , Async
+  , async
+  , wait
+  )
 import Control.Distributed.Process.Platform.Internal.Primitives hiding (monitor)
 import Control.Distributed.Process.Platform.Internal.Types
   ( ExitReason(..)
@@ -120,7 +314,14 @@ import Data.Foldable (find, foldlM, toList)
 import Data.List (foldl')
 import Data.Map (Map)
 import qualified Data.Map as Map -- TODO: use Data.Map.Strict
-import Data.Sequence (Seq, ViewL(EmptyL, (:<)), (<|), (|>), (><), filter)
+import Data.Sequence
+  ( Seq
+  , ViewL(EmptyL, (:<))
+  , ViewR(EmptyR, (:>))
+  , (<|)
+  , (|>)
+  , (><)
+  , filter)
 import qualified Data.Sequence as Seq
 import Data.Time.Clock
   ( NominalDiffTime
@@ -180,9 +381,7 @@ data RestartMode =
   | RestartInOrder  !RestartOrder
     {- ^ stop all children first, then restart them sequentially -}
   | RestartRevOrder !RestartOrder
-    {- ^ stop all children as per 'RestartAll', but start them in reverse order -}
-  | RestartParallel !RestartOrder
-    {- ^ stop all children and restart them as soon as they've exited, in parallel -}
+    {- ^ stop all children in the given order, but start them in reverse -}
   deriving (Typeable, Generic, Show, Eq)
 instance Binary RestartMode where
 
@@ -218,15 +417,27 @@ data RestartStrategy =
   deriving (Typeable, Generic, Show)
 instance Binary RestartStrategy where
 
+-- | Provides a default 'RestartStrategy' for @RestartOne@.
+-- > restartOne = RestartOne defaultLimits
+--
 restartOne :: RestartStrategy
 restartOne = RestartOne defaultLimits
 
+-- | Provides a default 'RestartStrategy' for @RestartAll@.
+-- > restartOne = RestartAll defaultLimits (RestartEach LeftToRight)
+--
 restartAll :: RestartStrategy
 restartAll = RestartAll defaultLimits (RestartEach LeftToRight)
 
+-- | Provides a default 'RestartStrategy' for @RestartLeft@.
+-- > restartOne = RestartLeft defaultLimits (RestartEach LeftToRight)
+--
 restartLeft :: RestartStrategy
 restartLeft = RestartLeft defaultLimits (RestartEach LeftToRight)
 
+-- | Provides a default 'RestartStrategy' for @RestartRight@.
+-- > restartOne = RestartRight defaultLimits (RestartEach LeftToRight)
+--
 restartRight :: RestartStrategy
 restartRight = RestartRight defaultLimits (RestartEach LeftToRight)
 
@@ -431,9 +642,16 @@ data State = State {
 -- Starting/Running Supervisor                                                --
 --------------------------------------------------------------------------------
 
+-- | Start a supervisor (process), running the supplied children and restart
+-- strategy.
+--
+-- > start = spawnLocal . run
+--
 start :: RestartStrategy -> [ChildSpec] -> Process ProcessId
 start s cs = spawnLocal $ run s cs
 
+-- | Run the supplied children using the provided restart strategy.
+--
 run :: RestartStrategy -> [ChildSpec] -> Process ()
 run strategy' specs' = MP.pserve (strategy', specs') supInit serverDefinition
 
@@ -742,27 +960,47 @@ tryRestartBranch :: RestartStrategy
                  -> Process (ProcessAction State)
 tryRestartBranch rs sp st
   | (RestartAll _ _)      <- rs
-  , (RestartEach dir)     <- mode rs = foldStopStart childSpecs dir
+  , (RestartEach dir)     <- mode rs = stopStart childSpecs dir
   | (RestartAll _ _)      <- rs
-  , (RestartInOrder dir)  <- mode rs = restartL      childSpecs dir
-  | (RestartRight _ _)    <- rs      = die "not implemented yet"
+  , (RestartInOrder dir)  <- mode rs = restartL childSpecs (dir == RightToLeft)
+  | (RestartAll _ _)      <- rs
+  , (RestartRevOrder dir) <- mode rs = reverseRestart childSpecs dir
+  | (RestartLeft _ _)     <- rs
+  , (RestartEach dir)     <- mode rs = stopStart subTreeL dir
+  | (RestartLeft _ _)     <- rs
+  , (RestartInOrder dir)  <- mode rs = restartL subTreeL (dir == RightToLeft)
+  | (RestartRight _ _)    <- rs
+  , (RestartEach dir)     <- mode rs = stopStart subTreeR dir
   | otherwise = die $ "bang"
   where
-    foldStopStart :: ChildSpecs -> RestartOrder -> Process (ProcessAction State)
-    foldStopStart tree order = do
+    stopStart :: ChildSpecs -> RestartOrder -> Process (ProcessAction State)
+    stopStart tree order = do
       let tree' = case order of
                     LeftToRight -> tree
                     RightToLeft -> Seq.reverse tree
-      -- TODO: handle failures and return the right action...
-      apply (foldlM stopStartIt activeState tree')
+--      liftIO $ putStrLn $ "stopping " ++ (show tree')
+      state <- addRestart activeState
+      case state of
+        Nothing  -> die errorMaxIntensityReached
+        Just st' -> apply (foldlM stopStartIt st' tree')
 
-    restartL :: ChildSpecs -> RestartOrder -> Process (ProcessAction State)
-    restartL tree order = do
-      let tree' = case order of
-                    LeftToRight -> tree
-                    RightToLeft -> Seq.reverse tree
-      foldlM stopIt activeState tree >>= \st' -> do
-        apply $ foldlM startIt st' tree'
+    reverseRestart :: ChildSpecs
+                   -> RestartOrder
+                   -> Process (ProcessAction State)
+    reverseRestart tree LeftToRight = restartL tree               True
+    reverseRestart tree RightToLeft = restartL (Seq.reverse tree) True
+
+    -- TODO: rename me for heaven's sake - this ISN'T a left biased traversal after all!
+    restartL :: ChildSpecs -> Bool -> Process (ProcessAction State)
+    restartL tree rev = do
+      let tree' = case rev of
+                    False -> tree
+                    True  -> Seq.reverse tree
+      state <- addRestart activeState
+      case state of
+        Nothing -> die errorMaxIntensityReached
+        Just st' -> foldlM stopIt st' tree >>= \s -> do
+                     apply $ foldlM startIt s tree'
 
     stopStartIt :: State -> Child -> Process State
     stopStartIt s ch@(cr, cs) = doTerminateChild cr cs s >>= (flip startIt) ch
@@ -773,6 +1011,13 @@ tryRestartBranch rs sp st
     startIt :: State -> Child -> Process State
     startIt s (_, cs) = ensureActive cs =<< doStartChild cs s
 
+    -- Note that ensureActive will kill this (supervisor) process if
+    -- doStartChild fails, simply because the /only/ failure that can
+    -- come out of that function (as `Left err') is *bad closure* and
+    -- that should have either been picked up during init (i.e., caused
+    -- the super to refuse to start) or been removed during `startChild'
+    -- or later on. Any other kind of failure will crop up (once we've
+    -- finished the restart sequence) as a monitor signal.
     ensureActive :: ChildSpec
                  -> Either StartFailure (ChildRef, State)
                  -> Process State
@@ -782,17 +1027,88 @@ tryRestartBranch rs sp st
 
     apply :: (Process State) -> Process (ProcessAction State)
     apply proc = do
-      catchExit (proc >>= continue)
-                (\_ r -> liftIO (putStrLn ("stopping: " ++ (show r))) >> stop r)
+      catchExit (proc >>= continue) (\(_ :: ProcessId) -> stop)
 
     activeState = maybe st id $ updateChild (childKey sp)
                                             (setChildStopped False) st
 
-    -- subTree :: Maybe ChildSpec -> ChildSpecs
-    -- subTree = snd $ Seq.breakl ((== childKey sp) . childKey . snd) childSpecs
+    subTreeL :: ChildSpecs
+    subTreeL =
+      let (prefix, suffix) = splitTree Seq.breakl
+      in case (Seq.viewl suffix) of
+           child :< _ -> prefix |> child
+           EmptyL     -> prefix
+
+    subTreeR :: ChildSpecs
+    subTreeR =
+      let (prefix, suffix) = splitTree Seq.breakr
+      in case (Seq.viewr suffix) of
+           _ :> child -> child <| prefix
+           EmptyR     -> prefix
+
+    splitTree splitWith = splitWith ((== childKey sp) . childKey . snd) childSpecs
 
     childSpecs :: ChildSpecs
     childSpecs = st ^. specs
+
+{-  restartParallel :: ChildSpecs
+                    -> RestartOrder
+                    -> Process (ProcessAction State)
+    restartParallel tree order = do
+      liftIO $ putStrLn "handling parallel restart"
+      let tree'    = case order of
+                       LeftToRight -> tree
+                       RightToLeft -> Seq.reverse tree
+
+      -- TODO: THIS IS INCORRECT... currently (below), we terminate
+      -- the branch in parallel, but wait on all the exits and then
+      -- restart sequentially (based on 'order'). That's not what the
+      -- 'RestartParallel' mode advertised, but more importantly, it's
+      -- not clear what the semantics for error handling (viz restart errors)
+      -- should actually be.
+
+      asyncs <- forM (toList tree') $ \ch -> async $ asyncTerminate ch
+      (_errs, st') <- foldlM collectExits ([], activeState) asyncs
+      -- TODO: report errs
+      apply $ foldlM startIt st' tree'
+      where
+        asyncTerminate :: Child -> Process (Maybe (ChildKey, ProcessId))
+        asyncTerminate (cr, cs) = do
+          mPid <- resolve cr
+          case mPid of
+            Nothing  -> return Nothing
+            Just pid -> do
+              void $ doTerminateChild cr cs activeState
+              return $ Just (childKey cs, pid)
+
+        collectExits :: ([ExitReason], State)
+                     -> Async (Maybe (ChildKey, ProcessId))
+                     -> Process ([ExitReason], State)
+        collectExits (errs, state) hAsync = do
+          -- we perform a blocking wait on each handle, since we'll
+          -- always wait until the last shutdown has occurred anyway
+          asyncResult <- wait hAsync
+          let res = mergeState asyncResult state
+          case res of
+            Left err -> return ((err:errs), state)
+            Right st -> return (errs, st)
+
+        mergeState :: AsyncResult (Maybe (ChildKey, ProcessId))
+                   -> State
+                   -> Either ExitReason State
+        mergeState (AsyncDone Nothing)           state = Right state
+        mergeState (AsyncDone (Just (key, pid))) state = Right $ mergeIt key pid state
+        mergeState (AsyncFailed r)               _     = Left $ ExitOther (show r)
+        mergeState (AsyncLinkFailed r)           _     = Left $ ExitOther (show r)
+        mergeState _                             _     = Left $ ExitOther "IllegalState"
+
+        mergeIt :: ChildKey -> ProcessId -> State -> State
+        mergeIt key pid state =
+          -- TODO: lookup the old ref -> pid and delete from the active map
+          ( (active ^: Map.delete pid)
+          $ maybe state id (updateChild key (setChildStopped False) state)
+          )
+    -}
 
 tryRestartChild :: State
                 -> Map ProcessId ChildKey
@@ -801,21 +1117,22 @@ tryRestartChild :: State
                 -> Process (ProcessAction State)
 tryRestartChild st active' spec reason
   | DiedNormal <- reason
-  , True       <- isTransient (childRestart spec) = continue $ down $ updateStopped
-  | True       <- isTemporary (childRestart spec) = continue $ down $ removeChild spec st
+  , True       <- isTransient (childRestart spec) = continue childDown
+  | True       <- isTemporary (childRestart spec) = continue childRemoved
   | DiedNormal <- reason
-  , True       <- isIntrinsic (childRestart spec) = stop $ ExitNormal
+  , True       <- isIntrinsic (childRestart spec) = stop ExitNormal
   | otherwise     = continue =<< doRestartChild spec st
   where
-    chKey         = childKey spec
-    down st'      = (active ^= active') $ st'
+    childDown     = (active ^= active') $ updateStopped
+    childRemoved  = (active ^= active') $ removeChild spec st
     updateStopped = maybe st id $ updateChild chKey (setChildStopped False) st
+    chKey         = childKey spec
 
 doRestartChild :: ChildSpec -> State -> Process State
 doRestartChild spec state = do
   state'  <- addRestart state
   case state' of
-    Nothing -> {- log it -} die $ ExitOther "ReachedMaxRestartIntensity" -- TODO: Delayed Restarts
+    Nothing -> {- log it -} die errorMaxIntensityReached -- TODO: Delayed Restarts
     Just st -> do
       start' <- doStartChild spec st
       case start' of
@@ -930,16 +1247,15 @@ doTerminateChild ref spec state = do
     Nothing  -> return state -- an already dead child is not an error
     Just pid -> do
       stopped <- childShutdown (childStop spec) pid state
-      (state', reason) <- shutdownComplete state stopped
-      -- TODO: log the exit reason
+      state' <- shutdownComplete state stopped
       return $ ( (active ^: Map.delete pid)
                $ state'
                )
   where
-    shutdownComplete :: State -> DiedReason -> Process (State, DiedReason)
-    shutdownComplete state' r@(DiedNormal)    = return $ (updateStopped, r)
-    shutdownComplete state' (DiedException s) = die s -- log it and continue
-    shutdownComplete _ r@(DiedUnknownId)     = die (show r) -- log it and continue
+    shutdownComplete :: State -> DiedReason -> Process State
+    shutdownComplete state' DiedNormal        = return $ updateStopped
+    shutdownComplete state' (r :: DiedReason) = do
+      logShutdownError r >> return state'
 
     chKey         = childKey spec
     updateStopped = maybe state id $ updateChild chKey (setChildStopped False) state
@@ -978,8 +1294,14 @@ childShutdown policy pid st = do
 -- Logging/Reporting                                                          --
 --------------------------------------------------------------------------------
 
+errorMaxIntensityReached :: ExitReason
+errorMaxIntensityReached = ExitOther "ReachedMaxRestartIntensity"
+
 logShutdown :: ChildKey -> Process ()
 logShutdown _ = return ()
+
+logShutdownError :: DiedReason -> Process ()
+logShutdownError r = liftIO $ putStrLn $ "Child Termination Error: " ++ (show r)
 
 --------------------------------------------------------------------------------
 -- Accessors and State/Stats Utilities                                        --
