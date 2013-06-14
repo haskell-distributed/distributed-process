@@ -42,7 +42,7 @@ import Data.Maybe (listToMaybe)
 import Data.Binary (Binary,get,put)
 import Data.Typeable (Typeable)
 
-import Control.Distributed.Process.Platform
+import Control.Distributed.Process.Platform hiding (monitor)
 import Control.Distributed.Process.Platform.Time
 
 ----------------------------------------------

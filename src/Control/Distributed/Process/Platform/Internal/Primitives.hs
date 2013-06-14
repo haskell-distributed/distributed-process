@@ -2,6 +2,7 @@
 {-# LANGUAGE TemplateHaskell        #-}
 {-# LANGUAGE TypeSynonymInstances   #-}
 {-# LANGUAGE FlexibleInstances      #-}
+{-# LANGUAGE ScopedTypeVariables    #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -33,21 +34,27 @@ module Control.Distributed.Process.Platform.Internal.Primitives
 
     -- * Selective Receive/Matching
   , matchCond
+  , awaitResponse
 
     -- * General Utilities
   , times
+  , monitor
+  , isProcessAlive
+  , forever'
 
     -- * Remote Table
   , __remoteTable
   ) where
 
 import Control.Concurrent (myThreadId, throwTo)
-import Control.Distributed.Process
+import Control.Distributed.Process hiding (monitor)
+import qualified Control.Distributed.Process as P (monitor)
 import Control.Distributed.Process.Closure (seqCP, remotable, mkClosure)
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Platform.Internal.Types
   ( Recipient(..)
   , RegisterSelf(..)
+  , ExitReason(ExitOther)
   , sendToRecipient
   , whereisRemote
   )
@@ -56,12 +63,27 @@ import Data.Maybe (isJust, fromJust)
 
 -- utility
 
+monitor :: Addressable a => a -> Process (Maybe MonitorRef)
+monitor addr = do
+  mPid <- resolve addr
+  case mPid of
+    Nothing -> return Nothing
+    Just p  -> return . Just =<< P.monitor p
+
+isProcessAlive :: ProcessId -> Process Bool
+isProcessAlive pid = getProcessInfo pid >>= \info -> return $ info /= Nothing
+
 -- | Apply the supplied expression /n/ times
 times :: Int -> Process () -> Process ()
 n `times` proc = runP proc n
   where runP :: Process () -> Int -> Process ()
         runP _ 0 = return ()
         runP p n' = p >> runP p (n' - 1)
+
+-- | Like 'Control.Monad.forever' but sans space leak
+forever' :: Monad m => m a -> m b
+forever' a = let a' = a >> a' in a'
+{-# INLINE forever' #-}
 
 -- | Provides a unified API for addressing processes
 class Addressable a where
@@ -84,6 +106,10 @@ instance Addressable String where
   sendTo  = nsend
   resolve = whereis
 
+instance Addressable (NodeId, String) where
+  sendTo (nid, pname) msg = nsendRemote nid pname msg
+  resolve (nid, pname) = whereisRemote nid pname
+
 -- spawning, linking and generic server startup
 
 -- | Node local version of 'Control.Distributed.Process.spawnLink'.
@@ -100,7 +126,7 @@ spawnLinkLocal p = do
 spawnMonitorLocal :: Process () -> Process (ProcessId, MonitorRef)
 spawnMonitorLocal p = do
   pid <- spawnLocal p
-  ref <- monitor pid
+  ref <- P.monitor pid
   return (pid, ref)
 
 -- | CH's 'link' primitive, unlike Erlang's, will trigger when the target
@@ -111,8 +137,8 @@ linkOnFailure them = do
   us <- getSelfPid
   tid <- liftIO $ myThreadId
   void $ spawnLocal $ do
-    callerRef <- monitor us
-    calleeRef <- monitor them
+    callerRef <- P.monitor us
+    calleeRef <- P.monitor them
     reason <- receiveWait [
              matchIf (\(ProcessMonitorNotification mRef _ _) ->
                        mRef == callerRef) -- nothing left to do
@@ -142,7 +168,7 @@ whereisOrStart name proc =
                     send caller (RegisterSelf,self)
                     () <- expect
                     proc
-            ref <- monitor pid
+            ref <- P.monitor pid
             ret <- receiveWait
                [ matchIf (\(ProcessMonitorNotification aref _ _) -> ref == aref)
                          (\(ProcessMonitorNotification _ _ _) -> return Nothing),
@@ -190,7 +216,7 @@ whereisOrStartRemote nid name proc =
                               (\(NodeMonitorNotification _ _ _) -> return Nothing),
                       matchIf (\(DidSpawn ref _) -> ref==sRef )
                               (\(DidSpawn _ pid) ->
-                                  do pRef <- monitor pid
+                                  do pRef <- P.monitor pid
                                      receiveWait
                                        [ matchIf (\(RegisterSelf, apid) -> apid == pid)
                                                  (\(RegisterSelf, _) -> do unmonitor pRef
@@ -216,4 +242,21 @@ matchCond cond =
    let v n = (isJust n, fromJust n)
        res = v . cond
     in matchIf (fst . res) (snd . res)
+
+awaitResponse :: Addressable a
+              => a
+              -> [Match (Either ExitReason b)]
+              -> Process (Either ExitReason b)
+awaitResponse addr matches = do
+  mPid <- resolve addr
+  case mPid of
+    Nothing -> return $ Left $ ExitOther "UnresolvedAddress"
+    Just p  -> do
+      mRef <- P.monitor p
+      receiveWait ((matchRef mRef):matches)
+  where
+    matchRef :: MonitorRef -> Match (Either ExitReason b)
+    matchRef r = matchIf (\(ProcessMonitorNotification r' _ _) -> r == r')
+                         (\(ProcessMonitorNotification _ _ d) -> do
+                             return (Left (ExitOther (show d))))
 

@@ -125,7 +125,7 @@ minutes = TimeInterval Minutes
 hours :: Int -> TimeInterval
 hours = TimeInterval Hours
 
--- TODO: is timeToMs efficient?
+-- TODO: is timeToMs efficient enough?
 
 -- | converts the supplied @TimeUnit@ to microseconds
 {-# INLINE timeToMs #-}

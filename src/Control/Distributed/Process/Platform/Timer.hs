@@ -22,6 +22,7 @@ module Control.Distributed.Process.Platform.Timer
     TimerRef
   , Tick(Tick)
   , sleep
+  , sleepFor
   , sendAfter
   , runAfter
   , exitAfter
@@ -75,6 +76,12 @@ sleep t =
   _ <- receiveTimeout ms [matchIf (\SleepingPill -> True)
                                   (\_ -> return ())]
   return ()
+
+-- | Literate way of saying
+-- > sleepFor 3 Seconds
+--
+sleepFor :: Int -> TimeUnit -> Process ()
+sleepFor i u = sleep (within i u)
 
 -- | starts a timer which sends the supplied message to the destination
 -- process after the specified time interval.
