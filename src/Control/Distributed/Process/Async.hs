@@ -13,7 +13,7 @@
 -- them and various other utilities. The two primary implementation are
 -- @AsyncChan@ which provides a handle which is scoped to the calling process,
 -- and @AsyncSTM@, whose async mechanism can be used by (i.e., shared across)
--- multiple local processes.
+-- multiple local processes, though its handles cannot be serialised.
 --
 -- Both abstractions can run asynchronous operations on remote nodes. The STM
 -- based implementation provides a slightly richer API. The API defined in
@@ -21,20 +21,12 @@
 -- and (specifically) does not support mixing handles initialised via
 -- different implementations.
 --
+-- [Asynchronous Operations]
+--
 -- There is an implicit contract for async workers; Workers must exit
 -- normally (i.e., should not call the 'exit', 'die' or 'terminate'
 -- Cloud Haskell primitives), otherwise the 'AsyncResult' will end up being
 -- @AsyncFailed DiedException@ instead of containing the result.
---
--- The /async/ API exposed by this module is also used by the /execution/ and
--- /task/ subsystems to provide similar (asynchronous processing) capabilities.
--- The "Control.Distributed.Platform.Task" subsystem components provide various
--- task management (e.g., scheduling) behaviours such as load balancing, work
--- stealing, etc. The "Control.Distributed.Platform.Task.Execution" components
--- provides the various worker pools and task management services upon which
--- they, in turn, are built. All such implementations provide an Async
--- compatible API (i.e., one that returns an @Async@ handle, upon which the
--- functions defined /here/ can operate).
 --
 -- See "Control.Distributed.Process.Platform.Async.AsyncSTM",
 -- "Control.Distributed.Process.Platform.Async.AsyncChan",
@@ -44,7 +36,7 @@
 
 module Control.Distributed.Process.Platform.Async
  ( -- * Exported Types
-    Async(asyncWorker)
+    Async(..)
   , AsyncRef
   , AsyncTask(..)
   , AsyncResult(..)
