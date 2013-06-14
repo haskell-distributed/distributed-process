@@ -66,7 +66,7 @@ resetCount sid = cast sid Reset
 startCounter :: Int -> Process ProcessId
 startCounter startCount =
   let server = serverDefinition
-  in spawnLocal $ start startCount init' server >> return ()
+  in spawnLocal $ serve startCount init' server
   where init' :: InitHandler Int Int
         init' count = return $ InitOk count Infinity
 
@@ -78,8 +78,7 @@ serverDefinition :: ProcessDefinition State
 serverDefinition = defaultProcess {
      apiHandlers = [
           handleCallIf (condition (\count Increment -> count >= 10))-- invariant
-                       (\_ (_ :: Increment) -> do
-                           haltNoReply_ (TerminateOther "Count > 10"))
+                       (\_ (_ :: Increment) -> haltMaxCount)
 
         , handleCall handleIncrement
         , handleCall (\count Fetch -> reply count count)
@@ -87,7 +86,10 @@ serverDefinition = defaultProcess {
         ]
     } :: ProcessDefinition State
 
-handleIncrement :: State -> Increment -> Process (ProcessReply State Int)
+haltMaxCount :: Process (ProcessReply Int State)
+haltMaxCount = haltNoReply_ (ExitOther "Count > 10")
+
+handleIncrement :: State -> Increment -> Process (ProcessReply Int State)
 handleIncrement count Increment =
     let next = count + 1 in continue next >>= replyWith next
 

@@ -24,10 +24,10 @@ import Control.Distributed.Process.Platform.ManagedProcess
   ( ProcessDefinition(..)
   , InitHandler
   , InitResult(..)
-  , start
   , defaultProcess
   , condition
   )
+import qualified Control.Distributed.Process.Platform.ManagedProcess as ManagedProcess (serve)
 import Control.Distributed.Process.Platform.ManagedProcess.Client
 import Control.Distributed.Process.Platform.ManagedProcess.Server.Restricted
 import Control.Distributed.Process.Platform.Time
@@ -75,7 +75,7 @@ resetCount sid = cast sid Reset
 startCounter :: Int -> Process ProcessId
 startCounter startCount =
   let server = serverDefinition
-  in spawnLocal $ start startCount init' server >> return ()
+  in spawnLocal $ ManagedProcess.serve startCount init' server
   where init' :: InitHandler Int Int
         init' count = return $ InitOk count Infinity
 
@@ -97,7 +97,7 @@ serverDefinition = defaultProcess {
    } :: ProcessDefinition Int
 
 halt :: forall s r . Serializable r => RestrictedProcess s (Result r)
-halt = haltNoReply (TerminateOther "Count > 10")
+halt = haltNoReply (ExitOther "Count > 10")
 
 handleIncrement :: Increment -> RestrictedProcess Int (Result Int)
 handleIncrement _ = modifyState (+1) >> getState >>= reply
