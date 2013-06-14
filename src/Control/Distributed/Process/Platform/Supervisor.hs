@@ -236,13 +236,7 @@ module Control.Distributed.Process.Platform.Supervisor
   ) where
 
 import Control.Distributed.Process hiding (call)
-import Control.Distributed.Process.Serializable
-import Control.Distributed.Process.Platform.Async
-  ( AsyncResult(..)
-  , Async
-  , async
-  , wait
-  )
+import Control.Distributed.Process.Serializable()
 import Control.Distributed.Process.Platform.Internal.Primitives hiding (monitor)
 import Control.Distributed.Process.Platform.Internal.Types
   ( ExitReason(..)
@@ -250,11 +244,11 @@ import Control.Distributed.Process.Platform.Internal.Types
 import Control.Distributed.Process.Platform.ManagedProcess
   ( call
   , handleCall
-  , handleCast
   , handleInfo
   , reply
   , continue
   , stop
+  , stopWith
   , input
   , defaultProcess
   , prioritised
@@ -284,7 +278,6 @@ import Control.Distributed.Process.Platform.ManagedProcess.Server.Restricted
   , RestrictedAction
   , getState
   , putState
-  , modifyState
   )
 import qualified Control.Distributed.Process.Platform.ManagedProcess.Server.Restricted as Restricted
   ( handleCallIf
@@ -292,12 +285,10 @@ import qualified Control.Distributed.Process.Platform.ManagedProcess.Server.Rest
   , handleCast
   , reply
   , continue
-  , say
   )
 -- import Control.Distributed.Process.Platform.ManagedProcess.Server.Unsafe
 -- import Control.Distributed.Process.Platform.ManagedProcess.Server
 import Control.Distributed.Process.Platform.Time
-import Control.Distributed.Process.Platform.Timer (runAfter)
 import Control.Exception (SomeException, Exception, throwIO)
 
 import Control.Monad.Error
@@ -313,8 +304,10 @@ import Data.Accessor
 import Data.Binary
 import Data.Foldable (find, foldlM, toList)
 import Data.List (foldl')
+import qualified Data.List as List (delete)
+import Data.Maybe (catMaybes)
 import Data.Map (Map)
-import qualified Data.Map as Map -- TODO: use Data.Map.Strict
+import qualified Data.Map.Strict as Map -- TODO: use Data.Map.Strict
 import Data.Sequence
   ( Seq
   , ViewL(EmptyL, (:<))
@@ -950,8 +943,8 @@ handleMonitorSignal state (ProcessMonitorNotification _ pid reason) = do
 
 handleShutdown :: State -> ExitReason -> Process ()
 -- TODO: stop all our children from left to right...
-handleShutdown _ (ExitOther reason) = {- (liftIO $ putStrLn reason) >> -} die reason
-handleShutdown _ _                  = return ()
+handleShutdown state (ExitOther reason) = terminateChildren state >> die reason
+handleShutdown state _                  = terminateChildren state
 
 --------------------------------------------------------------------------------
 -- Child Start/Restart Handling                                               --
@@ -1136,7 +1129,7 @@ tryRestartChild pid st active' spec reason
   , True       <- isTransient (childRestart spec) = continue childDown
   | True       <- isTemporary (childRestart spec) = continue childRemoved
   | DiedNormal <- reason
-  , True       <- isIntrinsic (childRestart spec) = stop ExitNormal
+  , True       <- isIntrinsic (childRestart spec) = stopWith updateStopped ExitNormal
   | otherwise     = continue =<< doRestartChild pid spec reason st
   where
     childDown     = (active ^= active') $ updateStopped
@@ -1277,6 +1270,34 @@ tryStartChild spec =
 --------------------------------------------------------------------------------
 -- Child Termination/Shutdown                                                 --
 --------------------------------------------------------------------------------
+
+terminateChildren :: State -> Process ()
+terminateChildren state = do
+  let children = toList $ state ^. specs
+  pids <- forM children $ \ch -> do
+    pid <- spawnLocal $ asyncTerminate ch $ (active ^= Map.empty) state
+    void $ monitor pid
+    return pid
+  _ <- collectExits [] pids
+  -- TODO: report errs???
+  return ()
+  where
+    asyncTerminate :: Child -> State -> Process ()
+    asyncTerminate (cr, cs) state' = void $ doTerminateChild cr cs state'
+
+    collectExits :: [DiedReason]
+                 -> [ProcessId]
+                 -> Process [DiedReason]
+    collectExits errors []   = return errors
+    collectExits errors pids = do
+      (pid, reason) <- receiveWait [
+          match (\(ProcessMonitorNotification _ pid' reason') -> do
+                    return (pid', reason'))
+        ]
+      let remaining = List.delete pid pids
+      case reason of
+        DiedNormal -> collectExits errors          remaining
+        _          -> collectExits (reason:errors) remaining
 
 doTerminateChild :: ChildRef -> ChildSpec -> State -> Process State
 doTerminateChild ref spec state = do
