@@ -152,16 +152,15 @@
 --
 -- [Child Restart and Termination Policies]
 --
--- When the supervisor detects that a child has died, the 'ChildRestart'
+-- When the supervisor detects that a child has died, the 'RestartPolicy'
 -- configured in the child specification is used to determin what to do. If
--- the child's 'RestartPolicy' is @Permanent@, then the child is always
--- restarted. If it is @Temporary@, then the child is never restarted and
--- the child specification is removed from the supervisor. A @Transient@
--- child will be restarted only if it terminates /abnormally/, otherwise
--- it is left inactive (but its specification is left in place). Finally,
--- an @Intrinsic@ child is treated like a @Transient@ one, except that if
--- /this/ kind of child exits /normally/, then the supervisor will also
--- exit normally.
+-- the this is set to @Permanent@, then the child is always restarted.
+-- If it is @Temporary@, then the child is never restarted and the child
+-- specification is removed from the supervisor. A @Transient@ child will
+-- be restarted only if it terminates /abnormally/, otherwise it is left
+-- inactive (but its specification is left in place). Finally, an @Intrinsic@
+-- child is treated like a @Transient@ one, except that if /this/ kind of child
+-- exits /normally/, then the supervisor will also exit normally.
 --
 -- When the supervisor does terminate a child, the 'ChildTerminationPolicy'
 -- provided with the 'ChildSpec' determines how the supervisor should go
