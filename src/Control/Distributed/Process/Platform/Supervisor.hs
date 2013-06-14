@@ -196,7 +196,7 @@ module Control.Distributed.Process.Platform.Supervisor
   , ChildTerminationPolicy(..)
   , RegisteredName(LocalName)
   , RestartPolicy(..)
-  , ChildRestart(..)
+--  , ChildRestart(..)
   , ChildRef(..)
   , isRunning
   , isRestarting
@@ -251,6 +251,7 @@ import Control.Distributed.Process.Platform.Internal.Types
 import Control.Distributed.Process.Platform.ManagedProcess
   ( call
   , handleCall
+  , handleCast
   , handleInfo
   , reply
   , continue
@@ -297,6 +298,7 @@ import qualified Control.Distributed.Process.Platform.ManagedProcess.Server.Rest
 -- import Control.Distributed.Process.Platform.ManagedProcess.Server.Unsafe
 -- import Control.Distributed.Process.Platform.ManagedProcess.Server
 import Control.Distributed.Process.Platform.Time
+import Control.Distributed.Process.Platform.Timer (runAfter)
 import Control.Exception (SomeException, Exception, throwIO)
 
 import Control.Monad.Error
@@ -376,11 +378,11 @@ instance Binary RestartOrder where
 
 -- TODO: rename these, somehow...
 data RestartMode =
-    RestartEach     !RestartOrder
+    RestartEach     { order :: !RestartOrder }
     {- ^ stop then start each child sequentially, i.e., @foldlM stopThenStart children@ -}
-  | RestartInOrder  !RestartOrder
+  | RestartInOrder  { order :: !RestartOrder }
     {- ^ stop all children first, then restart them sequentially -}
-  | RestartRevOrder !RestartOrder
+  | RestartRevOrder { order :: !RestartOrder }
     {- ^ stop all children in the given order, but start them in reverse -}
   deriving (Typeable, Generic, Show, Eq)
 instance Binary RestartMode where
@@ -484,21 +486,13 @@ data RestartPolicy =
   deriving (Typeable, Generic, Eq, Show)
 instance Binary RestartPolicy where
 
--- | Specifies restart handling for a child spec.
---
--- When @DelayedRestart@ is given, the delay indicates what should happen
--- if a child, exceeds the supervisor's configured maximum restart intensity.
--- Such children are restarted as normal, unless they exit sufficiently
--- quickly and often to exceed the boundaries of the supervisors restart
--- strategy; then rather than stopping the supervisor, the supervisor will
--- continue attempting to start the child after waiting for at least the
--- specified delay.
---
+{-
 data ChildRestart =
-    Restart RestartPolicy               -- ^ restart according to the given policy
-  | DelayedRestart RestartPolicy Delay  -- ^ perform a /delayed restart/
+    Restart RestartPolicy  -- ^ restart according to the given policy
+  | DelayedRestart RestartPolicy TimeInterval  -- ^ perform a /delayed restart/
   deriving (Typeable, Generic, Eq, Show)
 instance Binary ChildRestart where
+-}
 
 data ChildTerminationPolicy =
     TerminateTimeout !Delay
@@ -518,7 +512,7 @@ instance Binary RegisteredName where
 data ChildSpec = ChildSpec {
     childKey     :: !ChildKey
   , childType    :: !ChildType
-  , childRestart :: !ChildRestart
+  , childRestart :: !RestartPolicy
   , childStop    :: !ChildTerminationPolicy
   , childRun     :: !(Closure (Process ()))
   , childRegName :: !(Maybe RegisteredName)
@@ -600,6 +594,12 @@ instance Binary AddChildResult where
 data RestartChildReq = RestartChildReq !ChildKey
   deriving (Typeable, Generic, Show, Eq)
 instance Binary RestartChildReq where
+
+{-
+data DelayedRestartReq = DelayedRestartReq !ChildKey !DiedReason
+  deriving (Typeable, Generic, Show, Eq)
+instance Binary DelayedRestartReq where
+-}
 
 data RestartChildResult =
     ChildRestartOk     !ChildRef
@@ -767,6 +767,7 @@ serverDefinition = prioritised processDefinition supPriorities
     supPriorities = [
         prioritiseCast_ (\(IgnoreChildReq _)                 -> setPriority 100)
       , prioritiseInfo_ (\(ProcessMonitorNotification _ _ _) -> setPriority 99 )
+--      , prioritiseCast_ (\(DelayedRestartReq _ _)            -> setPriority 80 )
       , prioritiseCall_ (\(_ :: FindReq) ->
                           (setPriority 10) :: Priority (Maybe (ChildRef, ChildSpec)))
       ]
@@ -778,6 +779,7 @@ processDefinition =
        Restricted.handleCast   handleIgnore
        -- adding, removing and (optionally) starting new child specs
      , handleCall              handleTerminateChild
+--     , handleCast              handleDelayedRestart
      , Restricted.handleCall   handleDeleteChild
      , Restricted.handleCallIf (input (\(AddChild immediate _) -> not immediate))
                                handleAddChild
@@ -849,8 +851,6 @@ handleDeleteChild (DeleteChild k) = getState >>= handleDelete k
 
     tryDeleteChild (ref, spec) pfx sfx st
       | ref == ChildStopped = do
---          Restricted.say $ "child " ++ (show ref) ++ " has stopped"
---          Restricted.say $ "active == " ++ (show $ st ^. active)
           putState $ ( (specs ^= pfx >< sfx)
                      $ bumpStats Specified (childType spec) decrement st
                      )
@@ -894,6 +894,22 @@ handleRestartChild state (RestartChildReq key) =
         Left err         -> reply (ChildRestartFailed err) state
         Right (ref, st') -> reply (ChildRestartOk ref) st'
 
+{-
+handleDelayedRestart :: State
+                     -> DelayedRestartReq
+                     -> Process (ProcessAction State)
+handleDelayedRestart state (DelayedRestartReq key reason) =
+  let child = findChild key state in
+  case child of
+    Nothing ->
+      continue state -- a child could've been terminated and removed by now
+    Just ((ChildRestarting pid), spec) -> do
+      -- TODO: we ignore the unnecessary .active re-assignments in
+      -- tryRestartChild, in order to keep the code simple - it would be good to
+      -- clean this up so we don't have to though...
+      tryRestartChild pid state (state ^. active) spec reason
+-}
+
 handleTerminateChild :: State
                      -> TerminateChildReq
                      -> Process (ProcessReply TerminateChildResult State)
@@ -921,22 +937,20 @@ handleMonitorSignal :: State
 handleMonitorSignal state (ProcessMonitorNotification _ pid reason) = do
   let (cId, active') =
         Map.updateLookupWithKey (\_ _ -> Nothing) pid $ state ^. active
-      mSpec =
+  let mSpec =
         case cId of
           Nothing -> Nothing
           Just c  -> fmap snd $ findChild c state
-  --  liftIO $ putStrLn $ "restart " ++ (show mSpec)
-  -- change the state
-  -- bump stats
   case mSpec of
     Nothing   -> continue $ (active ^= active') state
-    Just spec -> tryRestart state active' spec reason
+    Just spec -> tryRestart pid state active' spec reason
 
 --------------------------------------------------------------------------------
 -- Child Monitoring                                                           --
 --------------------------------------------------------------------------------
 
 handleShutdown :: State -> ExitReason -> Process ()
+-- TODO: stop all our children from left to right...
 handleShutdown _ (ExitOther reason) = {- (liftIO $ putStrLn reason) >> -} die reason
 handleShutdown _ _                  = return ()
 
@@ -944,41 +958,41 @@ handleShutdown _ _                  = return ()
 -- Child Start/Restart Handling                                               --
 --------------------------------------------------------------------------------
 
-tryRestart :: State
+tryRestart :: ProcessId
+           -> State
            -> Map ProcessId ChildKey
            -> ChildSpec
            -> DiedReason
            -> Process (ProcessAction State)
-tryRestart state active' spec reason = do
+tryRestart pid state active' spec reason = do
   case state ^. strategy of
-    RestartOne _ -> tryRestartChild state active' spec reason
-    strat        -> tryRestartBranch strat spec $ (active ^= active') state
+    RestartOne _ -> tryRestartChild pid state active' spec reason
+    strat        -> tryRestartBranch strat spec reason $ (active ^= active') state
 
 tryRestartBranch :: RestartStrategy
                  -> ChildSpec
+                 -> DiedReason
                  -> State
                  -> Process (ProcessAction State)
-tryRestartBranch rs sp st
-  | (RestartAll _ _)      <- rs
-  , (RestartEach dir)     <- mode rs = stopStart childSpecs dir
-  | (RestartAll _ _)      <- rs
-  , (RestartInOrder dir)  <- mode rs = restartL childSpecs (dir == RightToLeft)
-  | (RestartAll _ _)      <- rs
-  , (RestartRevOrder dir) <- mode rs = reverseRestart childSpecs dir
-  | (RestartLeft _ _)     <- rs
-  , (RestartEach dir)     <- mode rs = stopStart subTreeL dir
-  | (RestartLeft _ _)     <- rs
-  , (RestartInOrder dir)  <- mode rs = restartL subTreeL (dir == RightToLeft)
-  | (RestartRight _ _)    <- rs
-  , (RestartEach dir)     <- mode rs = stopStart subTreeR dir
-  | otherwise = die $ "bang"
+tryRestartBranch rs sp _ st = -- TODO: use DiedReason for logging...
+  let mode' = mode rs
+      tree' = case rs of
+                RestartAll   _ _ -> childSpecs
+                RestartLeft  _ _ -> subTreeL
+                RestartRight _ _ -> subTreeR
+                _                -> error "IllegalState"
+      proc  = case mode' of
+                RestartEach     _ -> stopStart
+                RestartInOrder  _ -> restartL
+                RestartRevOrder _ -> reverseRestart
+      dir'  = order mode' in do
+    proc tree' dir'
   where
     stopStart :: ChildSpecs -> RestartOrder -> Process (ProcessAction State)
-    stopStart tree order = do
-      let tree' = case order of
+    stopStart tree order' = do
+      let tree' = case order' of
                     LeftToRight -> tree
                     RightToLeft -> Seq.reverse tree
---      liftIO $ putStrLn $ "stopping " ++ (show tree')
       state <- addRestart activeState
       case state of
         Nothing  -> die errorMaxIntensityReached
@@ -987,12 +1001,13 @@ tryRestartBranch rs sp st
     reverseRestart :: ChildSpecs
                    -> RestartOrder
                    -> Process (ProcessAction State)
-    reverseRestart tree LeftToRight = restartL tree               True
-    reverseRestart tree RightToLeft = restartL (Seq.reverse tree) True
+    reverseRestart tree LeftToRight = restartL tree RightToLeft -- force re-order
+    reverseRestart tree dir@(RightToLeft) = restartL (Seq.reverse tree) dir
 
     -- TODO: rename me for heaven's sake - this ISN'T a left biased traversal after all!
-    restartL :: ChildSpecs -> Bool -> Process (ProcessAction State)
-    restartL tree rev = do
+    restartL :: ChildSpecs -> RestartOrder -> Process (ProcessAction State)
+    restartL tree ro = do
+      let rev   = (ro == RightToLeft)
       let tree' = case rev of
                     False -> tree
                     True  -> Seq.reverse tree
@@ -1024,6 +1039,7 @@ tryRestartBranch rs sp st
     ensureActive cs it
       | (Right (ref, st')) <- it = return $ markActive st' ref cs
       | (Left err) <- it = die $ ExitOther $ (childKey cs) ++ ": " ++ (show err)
+      | otherwise = error "IllegalState"
 
     apply :: (Process State) -> Process (ProcessAction State)
     apply proc = do
@@ -1110,35 +1126,39 @@ tryRestartBranch rs sp st
           )
     -}
 
-tryRestartChild :: State
+tryRestartChild :: ProcessId
+                -> State
                 -> Map ProcessId ChildKey
                 -> ChildSpec
                 -> DiedReason
                 -> Process (ProcessAction State)
-tryRestartChild st active' spec reason
+tryRestartChild pid st active' spec reason
   | DiedNormal <- reason
   , True       <- isTransient (childRestart spec) = continue childDown
   | True       <- isTemporary (childRestart spec) = continue childRemoved
   | DiedNormal <- reason
   , True       <- isIntrinsic (childRestart spec) = stop ExitNormal
-  | otherwise     = continue =<< doRestartChild spec st
+  | otherwise     = continue =<< doRestartChild pid spec reason st
   where
     childDown     = (active ^= active') $ updateStopped
     childRemoved  = (active ^= active') $ removeChild spec st
     updateStopped = maybe st id $ updateChild chKey (setChildStopped False) st
     chKey         = childKey spec
 
-doRestartChild :: ChildSpec -> State -> Process State
-doRestartChild spec state = do
-  state'  <- addRestart state
+doRestartChild :: ProcessId -> ChildSpec -> DiedReason -> State -> Process State
+doRestartChild _ spec _ state = do -- TODO: use ProcessId and DiedReason to log
+  state' <- addRestart state
   case state' of
-    Nothing -> {- log it -} die errorMaxIntensityReached -- TODO: Delayed Restarts
+    Nothing -> die errorMaxIntensityReached
+--      case restartPolicy of
+--        Restart _            -> die errorMaxIntensityReached
+--        DelayedRestart _ del -> doRestartDelay oldPid del spec reason state
     Just st -> do
       start' <- doStartChild spec st
       case start' of
         Right (ref, st') -> do
           return $ (bumpStats Active chType (+1)) $ markActive st' ref spec
-        Left err -> do -- TODO: handle this by policy
+        Left _ -> do -- TODO: handle this by policy
           -- All child failures are handled via monitor signals, apart from
           -- BadClosure, which comes back from doStartChild as (Left err).
           -- Since we cannot recover from that, there's no point in trying
@@ -1151,8 +1171,27 @@ doRestartChild spec state = do
                    $ removeChild spec st
                    )
   where
+    chKey         = childKey spec
+    chType        = childType spec
+
+{-
+doRestartDelay :: ProcessId
+               -> TimeInterval
+               -> ChildSpec
+               -> DiedReason
+               -> State
+               -> Process State
+doRestartDelay oldPid rDelay spec reason state = do
+  self <- getSelfPid
+  _ <- runAfter rDelay $ MP.cast self (DelayedRestartReq (childKey spec) reason)
+  return $ ( (active ^: Map.filter (/= chKey))
+           . (bumpStats Active chType decrement)
+           $ maybe state id (updateChild chKey (setChildRestarting oldPid) state)
+           )
+  where
     chKey  = childKey spec
     chType = childType spec
+-}
 
 addRestart :: State -> Process (Maybe State)
 addRestart state = do
@@ -1320,6 +1359,14 @@ setChildStopped ignored child prefix remaining st =
     True  -> Just $ (specs ^= prefix >< remaining) $ st
     False -> Just $ (specs ^= prefix >< ((newRef, spec) <| remaining)) st
 
+{-
+setChildRestarting :: ProcessId -> Child -> Prefix -> Suffix -> State -> Maybe State
+setChildRestarting oldPid child prefix remaining st =
+  let spec   = snd child
+      newRef = ChildRestarting oldPid
+  in Just $ (specs ^= prefix >< ((newRef, spec) <| remaining)) st
+-}
+
 doAddChild :: AddChildReq -> Bool -> State -> AddChildRes
 doAddChild (AddChild _ spec) update st =
   let chType = childType spec
@@ -1373,20 +1420,14 @@ bumpStats Active    Supervisor fn st = (stats .> running ^: fn) . (stats .> acti
 bump :: (Int -> Int) -> State -> State
 bump with' = stats .> children ^: with'
 
-isTemporary :: ChildRestart -> Bool
-isTemporary = checkRestartType Temporary
+isTemporary :: RestartPolicy -> Bool
+isTemporary = (== Temporary)
 
-isTransient :: ChildRestart -> Bool
-isTransient = checkRestartType Transient
+isTransient :: RestartPolicy -> Bool
+isTransient = (== Transient)
 
-isIntrinsic :: ChildRestart -> Bool
-isIntrinsic = checkRestartType Intrinsic
-
-checkRestartType :: RestartPolicy -> ChildRestart -> Bool
-checkRestartType r rType
-  | (Restart r')          <- rType, r == r' = True
-  | (DelayedRestart r' _) <- rType, r == r' = True
-  | otherwise                               = False
+isIntrinsic :: RestartPolicy -> Bool
+isIntrinsic = (== Intrinsic)
 
 active :: Accessor State (Map ProcessId ChildKey)
 active = accessor _active (\act' st -> st { _active = act' })

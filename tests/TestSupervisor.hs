@@ -14,7 +14,7 @@ import Control.Concurrent.MVar
   , takeMVar
   )
 import qualified Control.Exception as Ex
-import Control.Exception (throwIO, SomeException)
+import Control.Exception (throwIO)
 import Control.Distributed.Process hiding (call, expect, monitor)
 import qualified Control.Distributed.Process as P (expect)
 import Control.Distributed.Process.Closure
@@ -73,7 +73,7 @@ defaultWorker clj =
   {
     childKey     = ""
   , childType    = Worker
-  , childRestart = Restart Temporary
+  , childRestart = Temporary
   , childStop    = TerminateImmediately
   , childRun     = clj
   , childRegName = Nothing
@@ -84,7 +84,7 @@ tempWorker clj =
   (defaultWorker clj)
   {
     childKey     = "temp-worker"
-  , childRestart = Restart Temporary
+  , childRestart = Temporary
   }
 
 transientWorker :: Closure (Process ()) -> ChildSpec
@@ -92,7 +92,7 @@ transientWorker clj =
   (defaultWorker clj)
   {
     childKey     = "transient-worker"
-  , childRestart = Restart Transient
+  , childRestart = Transient
   }
 
 intrinsicWorker :: Closure (Process ()) -> ChildSpec
@@ -100,7 +100,7 @@ intrinsicWorker clj =
   (defaultWorker clj)
   {
     childKey     = "intrinsic-worker"
-  , childRestart = Restart Intrinsic
+  , childRestart = Intrinsic
   }
 
 permChild :: Closure (Process ()) -> ChildSpec
@@ -108,7 +108,7 @@ permChild clj =
   (defaultWorker clj)
   {
     childKey     = "perm-child"
-  , childRestart = Restart Permanent
+  , childRestart = Permanent
   }
 
 ensureProcessIsAlive :: ProcessId -> Process ()
@@ -501,6 +501,35 @@ restartAfterThreeAttempts withSupervisor = do
     [(_, _)] <- listChildren sup
     return ()
 
+{-
+delayedRestartAfterThreeAttempts ::
+     (RestartStrategy -> [ChildSpec] -> (ProcessId -> Process ()) -> Assertion)
+  -> Assertion
+delayedRestartAfterThreeAttempts withSupervisor = do
+  let restartPolicy = DelayedRestart Permanent (within 1 Seconds)
+  let spec = (permChild $(mkStaticClosure 'blockIndefinitely))
+             { childRestart = restartPolicy }
+  let strategy = RestartOne $ limit (maxRestarts 2) (seconds 1)
+  withSupervisor strategy [spec] $ \sup -> do
+    mapM_ (\_ -> do
+      [(childRef, _)] <- listChildren sup
+      Just pid <- resolve childRef
+      ref <- monitor pid
+      testProcessStop pid
+      void $ waitForDown ref) [1..3 :: Int]
+    Just (ref, _) <- lookupChild sup $ childKey spec
+    case ref of
+      ChildRestarting _ -> return ()
+      _ -> liftIO $ assertFailure $ "Unexpected ChildRef: " ++ (show ref)
+    sleep $ seconds 2
+    [(ref', _)] <- listChildren sup
+    liftIO $ putStrLn $ "it is: " ++ (show ref')
+    Just pid <- resolve ref'
+    mRef <- monitor pid
+    testProcessStop pid
+    void $ waitForDown mRef
+-}
+
 permanentChildExceedsRestartsIntensity ::
      (RestartStrategy -> [ChildSpec] -> (ProcessId -> Process ()) -> Assertion)
   -> Assertion
@@ -814,6 +843,68 @@ restartLeftWithLeftToRightRestarts sup = do
   let [c1, c2] = [map fst cs | cs <- [(snd $ splitAt 7 children), notRestarted]]
   forM_ (zip c1 c2) $ \(p1, p2) -> p1 `shouldBe` equalTo p2
 
+restartRightWithLeftToRightRestarts :: ProcessId -> Process ()
+restartRightWithLeftToRightRestarts sup = do
+  self <- getSelfPid
+  let templ = permChild ($(mkClosure 'notifyMe) self)
+  let specs = [templ { childKey = (show i) } | i <- [1..20 :: Int]]
+  forM_ specs $ \s -> void $ startChild sup s
+  -- assert that we saw the startup sequence working...
+  let toStart = childKey $ head specs
+  Just (ref, _) <- lookupChild sup toStart
+  Just pid <- resolve ref
+  children <- listChildren sup
+  drainChildren children pid
+  let (_, toRestart) = splitAt 3 specs
+  let toStop = childKey $ head toRestart
+  Just (ref', _) <- lookupChild sup toStop
+  Just stopPid <- resolve ref'
+  kill stopPid "goodbye"
+  -- wait for all the exit signals, so we know the children are restarting
+  forM_ (map fst (snd $ splitAt 3 children)) $ \cRef -> do
+    mRef <- monitor cRef
+    waitForDown mRef
+  children' <- listChildren sup
+  let (notRestarted, restarted) = splitAt 3 children'
+  -- another (technically) unsafe check
+  let firstRestart = childKey $ snd $ head restarted
+  Just (rRef, _) <- lookupChild sup firstRestart
+  Just fPid <- resolve rRef
+  drainChildren restarted fPid
+  let [c1, c2] = [map fst cs | cs <- [(fst $ splitAt 3 children), notRestarted]]
+  forM_ (zip c1 c2) $ \(p1, p2) -> p1 `shouldBe` equalTo p2
+
+restartRightWithRightToLeftRestarts :: ProcessId -> Process ()
+restartRightWithRightToLeftRestarts sup = do
+  self <- getSelfPid
+  let templ = permChild ($(mkClosure 'notifyMe) self)
+  let specs = [templ { childKey = (show i) } | i <- [1..20 :: Int]]
+  forM_ specs $ \s -> void $ startChild sup s
+  -- assert that we saw the startup sequence working...
+  let toStart = childKey $ head specs
+  Just (ref, _) <- lookupChild sup toStart
+  Just pid <- resolve ref
+  children <- listChildren sup
+  drainChildren children pid
+  let (_, toRestart) = splitAt 3 specs
+  let toStop = childKey $ head toRestart
+  Just (ref', _) <- lookupChild sup toStop
+  Just stopPid <- resolve ref'
+  kill stopPid "goodbye"
+  -- wait for all the exit signals, so we know the children are restarting
+  forM_ (map fst (snd $ splitAt 3 children)) $ \cRef -> do
+    mRef <- monitor cRef
+    waitForDown mRef
+  children' <- listChildren sup
+  let (notRestarted, restarted) = splitAt 3 children'
+  -- another (technically) unsafe check
+  let firstRestart = childKey $ snd $ last restarted
+  Just (rRef, _) <- lookupChild sup firstRestart
+  Just fPid <- resolve rRef
+  drainChildren restarted fPid
+  let [c1, c2] = [map fst cs | cs <- [(fst $ splitAt 3 children), notRestarted]]
+  forM_ (zip c1 c2) $ \(p1, p2) -> p1 `shouldBe` equalTo p2
+
 restartLeftWithRightToLeftRestarts :: ProcessId -> Process ()
 restartLeftWithRightToLeftRestarts sup = do
   self <- getSelfPid
@@ -842,7 +933,7 @@ restartLeftWithRightToLeftRestarts sup = do
   let firstRestart = childKey $ snd $ last restarted
   Just (rRef, _) <- lookupChild sup firstRestart
   Just fPid <- resolve rRef
-  drainChildren restarted fPid
+  drainChildren (reverse restarted) fPid
   let [c1, c2] = [map fst cs | cs <- [toSurvive, notRestarted]]
   forM_ (zip c1 c2) $ \(p1, p2) -> p1 `shouldBe` equalTo p2
 
@@ -942,7 +1033,7 @@ tests transport = do
                   (withSupervisor
                    (RestartAll defaultLimits (RestartInOrder LeftToRight)) []
                     restartAllWithLeftToRightRestarts)
-            , testCase "Restart All, Left To Right Stop, Right To Left Start"
+            , testCase "Restart All, Right To Left Stop, Right To Left Start"
                   (withSupervisor
                    (RestartAll defaultLimits (RestartInOrder RightToLeft)) []
                     expectRightToLeftRestarts)
@@ -959,8 +1050,6 @@ tests transport = do
             [
               testCase "Restart Left, Left To Right (Sequential) Restarts"
                   (restartLeftWithLeftToRightSeqRestarts withSupervisor)
---          , testCase "Restart Left, Right To Left (Sequential) Restarts"
---            implied by the previous
             , testCase "Restart Left, Leftmost Child Dies"
                   (withSupervisor restartLeft [] restartLeftWhenLeftmostChildDies)
             , testCase "Restart Left, Left To Right Stop, Left To Right Start"
@@ -971,23 +1060,47 @@ tests transport = do
                   (withSupervisor
                    (RestartLeft defaultLimits (RestartInOrder RightToLeft)) []
                     restartLeftWithRightToLeftRestarts)
+            , testCase "Restart Left, Left To Right Stop, Reverse Start"
+                  (withSupervisor
+                   (RestartLeft defaultLimits (RestartRevOrder LeftToRight)) []
+                    restartLeftWithRightToLeftRestarts)
+            , testCase "Restart Left, Right To Left Stop, Reverse Start"
+                  (withSupervisor
+                   (RestartLeft defaultLimits (RestartRevOrder RightToLeft)) []
+                    restartLeftWithLeftToRightRestarts)
             ],
             testGroup "Restart Right"
             [
               testCase "Restart Right, Left To Right (Sequential) Restarts"
                   (restartRightWithLeftToRightSeqRestarts withSupervisor)
---          , testCase "Restart Left, Right To Left (Sequential) Restarts"
---            implied by the previous
             , testCase "Restart Right, Rightmost Child Dies"
                   (withSupervisor restartRight [] restartRightWhenRightmostChildDies)
+            , testCase "Restart Right, Left To Right Stop, Left To Right Start"
+                  (withSupervisor
+                   (RestartRight defaultLimits (RestartInOrder LeftToRight)) []
+                    restartRightWithLeftToRightRestarts)
+            , testCase "Restart Right, Right To Left Stop, Right To Left Start"
+                  (withSupervisor
+                   (RestartRight defaultLimits (RestartInOrder RightToLeft)) []
+                    restartRightWithRightToLeftRestarts)
+            , testCase "Restart Right, Left To Right Stop, Reverse Start"
+                  (withSupervisor
+                   (RestartRight defaultLimits (RestartRevOrder LeftToRight)) []
+                    restartRightWithRightToLeftRestarts)
+            , testCase "Restart Right, Right To Left Stop, Reverse Start"
+                  (withSupervisor
+                   (RestartRight defaultLimits (RestartRevOrder RightToLeft)) []
+                    restartRightWithLeftToRightRestarts)
             ]
             ]
-        , testGroup "Restart Intensity / Delayed Restarts"
+        , testGroup "Restart Intensity"
           [
             testCase "Three Attempts Before Successful Restart"
                 (restartAfterThreeAttempts withSupervisor)
           , testCase "Permanent Child Exceeds Restart Limits"
                 (permanentChildExceedsRestartsIntensity withSupervisor)
+--          , testCase "Permanent Child Delayed Restart"
+--                (delayedRestartAfterThreeAttempts withSupervisor)
           ]
       ]
     ]
