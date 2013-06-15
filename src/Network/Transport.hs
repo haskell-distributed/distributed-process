@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveGeneric #-}
+
 -- | Network Transport
 module Network.Transport
   ( -- * Types
@@ -30,7 +32,10 @@ import Control.Exception (Exception)
 import Control.Applicative ((<$>))
 import Data.Typeable (Typeable)
 import Data.Binary (Binary(get, put))
+import Data.Hashable
 import Data.Word (Word64)
+
+import GHC.Generics
 
 --------------------------------------------------------------------------------
 -- Main API                                                                   --
@@ -127,7 +132,9 @@ data MulticastGroup = MulticastGroup {
 
 -- | EndPointAddress of an endpoint.
 newtype EndPointAddress = EndPointAddress { endPointAddressToByteString :: ByteString }
-  deriving (Eq, Ord, Typeable)
+  deriving (Eq, Ord, Typeable, Generic)
+
+instance Hashable EndPointAddress where
 
 instance Binary EndPointAddress where
   put = put . endPointAddressToByteString
