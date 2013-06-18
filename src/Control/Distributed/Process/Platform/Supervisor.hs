@@ -1,6 +1,5 @@
 {-# LANGUAGE DeriveDataTypeable         #-}
 {-# LANGUAGE DeriveGeneric              #-}
-{-# LANGUAGE StandaloneDeriving         #-}
 {-# LANGUAGE ExistentialQuantification  #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE BangPatterns               #-}
@@ -235,6 +234,7 @@ module Control.Distributed.Process.Platform.Supervisor
   , ChildInitFailure(..)
   ) where
 
+import Control.DeepSeq (NFData)
 import Control.Distributed.Process hiding (call)
 import Control.Distributed.Process.Serializable()
 import Control.Distributed.Process.Platform.Internal.Primitives hiding (monitor)
@@ -262,9 +262,12 @@ import Control.Distributed.Process.Platform.ManagedProcess
   , DispatchPriority
   , UnhandledMessagePolicy(Drop)
   )
+import qualified Control.Distributed.Process.Platform.ManagedProcess.UnsafeClient as Unsafe
+  ( call
+  , cast
+  )
 import qualified Control.Distributed.Process.Platform.ManagedProcess as MP
   ( pserve
-  , cast
   )
 import Control.Distributed.Process.Platform.ManagedProcess.Server.Priority
   ( prioritiseCast_
@@ -305,7 +308,6 @@ import Data.Binary
 import Data.Foldable (find, foldlM, toList)
 import Data.List (foldl')
 import qualified Data.List as List (delete)
-import Data.Maybe (catMaybes)
 import Data.Map (Map)
 import qualified Data.Map.Strict as Map -- TODO: use Data.Map.Strict
 import Data.Sequence
@@ -337,6 +339,7 @@ import GHC.Generics
 newtype MaxRestarts = MaxR { maxNumberOfRestarts :: Int }
   deriving (Typeable, Generic, Show)
 instance Binary MaxRestarts where
+instance NFData MaxRestarts where
 
 -- | Smart constructor for @MaxRestarts@. The maximum
 -- restart count must be a positive integer.
@@ -357,6 +360,7 @@ data RestartLimit =
   }
   deriving (Typeable, Generic, Show)
 instance Binary RestartLimit where
+instance NFData RestartLimit where
 
 limit :: MaxRestarts -> TimeInterval -> RestartLimit
 limit mr ti = RestartLimit mr ti
@@ -367,6 +371,7 @@ defaultLimits = limit (MaxR 1) (seconds 1)
 data RestartOrder = LeftToRight | RightToLeft
   deriving (Typeable, Generic, Eq, Show)
 instance Binary RestartOrder where
+instance NFData RestartOrder where
 
 -- TODO: rename these, somehow...
 data RestartMode =
@@ -378,6 +383,7 @@ data RestartMode =
     {- ^ stop all children in the given order, but start them in reverse -}
   deriving (Typeable, Generic, Show, Eq)
 instance Binary RestartMode where
+instance NFData RestartMode where
 
 -- | Strategy used by a supervisor to handle child restarts, whether due to
 -- unexpected child failure or explicit restart requests from a client.
@@ -410,6 +416,7 @@ data RestartStrategy =
     } -- ^ restart subsequent siblings (i.e., subsequent /start order/)
   deriving (Typeable, Generic, Show)
 instance Binary RestartStrategy where
+instance NFData RestartStrategy where
 
 -- | Provides a default 'RestartStrategy' for @RestartOne@.
 -- > restartOne = RestartOne defaultLimits
@@ -446,6 +453,7 @@ data ChildRef =
   | ChildStartIgnored          -- ^ a non-temporary child exited with 'ChildInitIgnore'
   deriving (Typeable, Generic, Eq, Show)
 instance Binary ChildRef where
+instance NFData ChildRef where
 
 isRunning :: ChildRef -> Bool
 isRunning (ChildRunning _) = True
@@ -461,13 +469,17 @@ instance Addressable ChildRef where
   sendTo (ChildRunning addr) = sendTo addr
   sendTo _                   = error "invalid address for child process"
 
-  resolve (ChildRunning pid) = resolve pid
+  unsafeSendTo (ChildRunning ch) = unsafeSendTo ch
+  unsafeSendTo _                 = error "invalid address for child process"
+
+  resolve (ChildRunning pid) = return $ Just pid
   resolve _                  = return Nothing
 
 -- | Specifies whether the child is another supervisor, or a worker.
 data ChildType = Worker | Supervisor
   deriving (Typeable, Generic, Show, Eq)
 instance Binary ChildType where
+instance NFData ChildType where
 
 -- | Describes when a terminated child process should be restarted.
 data RestartPolicy =
@@ -477,6 +489,7 @@ data RestartPolicy =
   | Intrinsic  -- ^ as 'Transient', but if the child exits normally, the supervisor also exits normally
   deriving (Typeable, Generic, Eq, Show)
 instance Binary RestartPolicy where
+instance NFData RestartPolicy where
 
 {-
 data ChildRestart =
@@ -491,10 +504,12 @@ data ChildTerminationPolicy =
   | TerminateImmediately
   deriving (Typeable, Generic, Eq, Show)
 instance Binary ChildTerminationPolicy where
+instance NFData ChildTerminationPolicy where
 
 data RegisteredName = LocalName !String | GlobalName !String
   deriving (Typeable, Generic, Show, Eq)
 instance Binary RegisteredName where
+instance NFData RegisteredName where
 
 -- | Specification for a child process. The child must be uniquely identified
 -- by it's @childKey@ within the supervisor. The supervisor will start the child
@@ -510,6 +525,7 @@ data ChildSpec = ChildSpec {
   , childRegName :: !(Maybe RegisteredName)
   } deriving (Typeable, Generic, Show)
 instance Binary ChildSpec where
+instance NFData ChildSpec where
 
 data ChildInitFailure =
     ChildInitFailure !String
@@ -528,6 +544,7 @@ data SupervisorStats = SupervisorStats {
   , totalRestarts      :: Int
   } deriving (Typeable, Generic, Show)
 instance Binary SupervisorStats where
+instance NFData SupervisorStats where
 
 -- | Static labels (in the remote table) are strings.
 type StaticLabel = String
@@ -540,6 +557,7 @@ data StartFailure =
   | StartFailureDied !DiedReason         -- ^ a child died (almost) immediately on starting
   deriving (Typeable, Generic, Show, Eq)
 instance Binary StartFailure where
+instance NFData StartFailure where
 
 -- | The result of a call to 'removeChild'.
 data DeleteChildResult =
@@ -548,6 +566,7 @@ data DeleteChildResult =
   | ChildNotStopped !ChildRef -- ^ the child was not removed, as it was not stopped.
   deriving (Typeable, Generic, Show, Eq)
 instance Binary DeleteChildResult where
+instance NFData DeleteChildResult where
 
 type Child = (ChildRef, ChildSpec)
 
@@ -556,24 +575,29 @@ type Child = (ChildRef, ChildSpec)
 data DeleteChild = DeleteChild !ChildKey
   deriving (Typeable, Generic)
 instance Binary DeleteChild where
+instance NFData DeleteChild where
 
 data FindReq = FindReq ChildKey
     deriving (Typeable, Generic)
 instance Binary FindReq where
+instance NFData FindReq where
 
 data StatsReq = StatsReq
     deriving (Typeable, Generic)
 instance Binary StatsReq where
+instance NFData StatsReq where
 
 data ListReq = ListReq
     deriving (Typeable, Generic)
 instance Binary ListReq where
+instance NFData ListReq where
 
 type ImmediateStart = Bool
 
 data AddChildReq = AddChild !ImmediateStart !ChildSpec
     deriving (Typeable, Generic, Show)
 instance Binary AddChildReq where
+instance NFData AddChildReq where
 
 data AddChildRes = Exists ChildRef | Added State
 
@@ -582,10 +606,12 @@ data AddChildResult =
   | ChildFailedToStart !StartFailure
   deriving (Typeable, Generic, Show, Eq)
 instance Binary AddChildResult where
+instance NFData AddChildResult where
 
 data RestartChildReq = RestartChildReq !ChildKey
   deriving (Typeable, Generic, Show, Eq)
 instance Binary RestartChildReq where
+instance NFData RestartChildReq where
 
 {-
 data DelayedRestartReq = DelayedRestartReq !ChildKey !DiedReason
@@ -600,20 +626,24 @@ data RestartChildResult =
   | ChildRestartIgnored
   deriving (Typeable, Generic, Show, Eq)
 instance Binary RestartChildResult where
+instance NFData RestartChildResult where
 
 data TerminateChildReq = TerminateChildReq !ChildKey
   deriving (Typeable, Generic, Show, Eq)
 instance Binary TerminateChildReq where
+instance NFData TerminateChildReq where
 
 data TerminateChildResult =
     TerminateChildOk
   | TerminateChildUnknownId
   deriving (Typeable, Generic, Show, Eq)
 instance Binary TerminateChildResult where
+instance NFData TerminateChildResult where
 
 data IgnoreChildReq = IgnoreChildReq !ProcessId
   deriving (Typeable, Generic)
 instance Binary IgnoreChildReq where
+instance NFData IgnoreChildReq where
 
 type ChildSpecs = Seq Child
 type Prefix = ChildSpecs
@@ -652,37 +682,37 @@ run strategy' specs' = MP.pserve (strategy', specs') supInit serverDefinition
 --------------------------------------------------------------------------------
 
 statistics :: Addressable a => a -> Process (SupervisorStats)
-statistics = (flip call) StatsReq
+statistics = (flip Unsafe.call) StatsReq
 
 lookupChild :: Addressable a => a -> ChildKey -> Process (Maybe (ChildRef, ChildSpec))
-lookupChild addr key = call addr $ FindReq key
+lookupChild addr key = Unsafe.call addr $ FindReq key
 
 listChildren :: Addressable a => a -> Process [Child]
-listChildren addr = call addr ListReq
+listChildren addr = Unsafe.call addr ListReq
 
 addChild :: Addressable a => a -> ChildSpec -> Process AddChildResult
-addChild addr spec = call addr $ AddChild False spec
+addChild addr spec = Unsafe.call addr $ AddChild False spec
 
 startChild :: Addressable a
            => a
            -> ChildSpec
            -> Process AddChildResult
-startChild addr spec = call addr $ AddChild True spec
+startChild addr spec = Unsafe.call addr $ AddChild True spec
 
 deleteChild :: Addressable a => a -> ChildKey -> Process DeleteChildResult
-deleteChild addr spec = call addr $ DeleteChild spec
+deleteChild addr spec = Unsafe.call addr $ DeleteChild spec
 
 terminateChild :: Addressable a
                => a
                -> ChildKey
                -> Process TerminateChildResult
-terminateChild sid = call sid . TerminateChildReq
+terminateChild sid = Unsafe.call sid . TerminateChildReq
 
 restartChild :: Addressable a
              => a
              -> ChildKey
              -> Process RestartChildResult
-restartChild sid = call sid . RestartChildReq
+restartChild sid = Unsafe.call sid . RestartChildReq
 
 --------------------------------------------------------------------------------
 -- Server Initialisation/Startup                                              --
@@ -1265,7 +1295,7 @@ tryStartChild spec =
         filterInitFailures sup pid ex = do
           case ex of
             ChildInitFailure _ -> liftIO $ throwIO ex
-            ChildInitIgnore    -> MP.cast sup $ IgnoreChildReq pid
+            ChildInitIgnore    -> Unsafe.cast sup $ IgnoreChildReq pid
 
 --------------------------------------------------------------------------------
 -- Child Termination/Shutdown                                                 --
