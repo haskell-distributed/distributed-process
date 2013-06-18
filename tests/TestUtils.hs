@@ -6,6 +6,10 @@ module TestUtils
     -- ping !
   , Ping(Ping)
   , ping
+  , shouldBe
+  , shouldMatch
+  , shouldExitWith
+  , expectThat
   -- test process utilities
   , TestProcessControl
   , startTestProcess
@@ -57,12 +61,35 @@ import Control.Distributed.Process.Platform.Timer
 import Control.Exception
 import Control.Monad (forever)
 import Control.Monad.STM (atomically)
-import Test.HUnit (Assertion)
+import Control.Rematch hiding (match)
+import Control.Rematch.Run
+import Test.HUnit (Assertion, assertFailure)
 import Test.HUnit.Base (assertBool)
 import Test.Framework (Test, defaultMain)
 
 import Network.Transport.TCP
 import qualified Network.Transport as NT
+
+--expect :: a -> Matcher a -> Process ()
+--expect a m = liftIO $ Rematch.expect a m
+
+expectThat :: a -> Matcher a -> Process ()
+expectThat a matcher = case res of
+  MatchSuccess -> return ()
+  (MatchFailure msg) -> liftIO $ assertFailure msg
+  where res = runMatch matcher a
+
+shouldBe :: a -> Matcher a -> Process ()
+shouldBe = expectThat
+
+shouldMatch :: a -> Matcher a -> Process ()
+shouldMatch = expectThat
+
+shouldExitWith :: (Addressable a) => a -> DiedReason -> Process ()
+shouldExitWith a r = do
+  _ <- resolve a
+  d <- receiveWait [ match (\(ProcessMonitorNotification _ _ r') -> return r') ]
+  d `shouldBe` equalTo r
 
 waitForExit :: MVar ExitReason
             -> Process (Maybe ExitReason)
