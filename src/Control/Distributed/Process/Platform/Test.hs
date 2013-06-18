@@ -43,6 +43,7 @@ import Control.Concurrent.MVar
   ( MVar
   , putMVar
   )
+import Control.DeepSeq (NFData)
 import Control.Distributed.Process
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable()
@@ -62,6 +63,7 @@ type TestResult a = MVar a
 data Ping = Ping
     deriving (Typeable, Generic, Eq, Show)
 instance Binary Ping where
+instance NFData Ping where
 
 ping :: ProcessId -> Process ()
 ping pid = send pid Ping

@@ -1,8 +1,11 @@
-{-# LANGUAGE DeriveDataTypeable        #-}
-{-# LANGUAGE DeriveGeneric             #-}
-{-# LANGUAGE TemplateHaskell           #-}
+{-# LANGUAGE DeriveDataTypeable     #-}
+{-# LANGUAGE DeriveGeneric          #-}
+{-# LANGUAGE StandaloneDeriving     #-}
+{-# LANGUAGE TemplateHaskell        #-}
+{-# LANGUAGE FlexibleInstances      #-}
+{-# LANGUAGE UndecidableInstances   #-}
 
--- | Types used throughout the Cloud Haskell framework
+-- | Types used throughout the Platform
 --
 module Control.Distributed.Process.Platform.Internal.Types
   ( -- * Tagging
@@ -11,6 +14,7 @@ module Control.Distributed.Process.Platform.Internal.Types
   , newTagPool
   , getTag
     -- * Addressing
+  , Addressable(..)
   , sendToRecipient
   , Recipient(..)
   , RegisterSelf(..)
@@ -20,6 +24,7 @@ module Control.Distributed.Process.Platform.Internal.Types
   , Channel
   , Shutdown(..)
   , ExitReason(..)
+  , NFSerializable
     -- remote table
   , __remoteTable
   ) where
@@ -29,8 +34,13 @@ import Control.Concurrent.MVar
   , newMVar
   , modifyMVar
   )
+import Control.DeepSeq (NFData, ($!!))
 import Control.Distributed.Process hiding (send)
-import qualified Control.Distributed.Process as P (send)
+import qualified Control.Distributed.Process as P
+  ( send
+  , unsafeSend
+  , unsafeNSend
+  )
 import Control.Distributed.Process.Closure
   ( remotable
   , mkClosure
@@ -40,12 +50,22 @@ import Control.Distributed.Process.Serializable
 
 import Data.Binary
 import Data.Typeable (Typeable)
-
 import GHC.Generics
 
 --------------------------------------------------------------------------------
 -- API                                                                        --
 --------------------------------------------------------------------------------
+
+-- | Introduces a class that brings NFData into scope along with Serializable,
+-- such that we can force evaluation. Intended for use with the UnsafePrimitives
+-- module (which wraps "Control.Distributed.Process.UnsafePrimitives"), and
+-- guarantees evaluatedness in terms of @NFData@. Please note that we /cannot/
+-- guarantee that an @NFData@ instance will behave the same way as a @Binary@
+-- one with regards evaluation, so it is still possible to introduce unexpected
+-- behaviour by using /unsafe/ primitives in this way.
+--
+class (NFData a, Serializable a) => NFSerializable a
+instance (NFData a, Serializable a) => NFSerializable a
 
 -- | Tags provide uniqueness for messages, so that they can be
 -- matched with their response.
@@ -71,26 +91,33 @@ getTag tp = liftIO $ modifyMVar tp (\tag -> return (tag+1,tag))
 data CancelWait = CancelWait
     deriving (Eq, Show, Typeable, Generic)
 instance Binary CancelWait where
+instance NFData CancelWait where
 
 -- | Simple representation of a channel.
 type Channel a = (SendPort a, ReceivePort a)
 
--- | Used internally in whereisOrStart. Send as (RegisterSelf,ProcessId).
+-- | Used internally in whereisOrStart. Sent as (RegisterSelf,ProcessId).
 data RegisterSelf = RegisterSelf
   deriving (Typeable, Generic)
 instance Binary RegisterSelf where
+instance NFData RegisterSelf where
 
-data Recipient =
-    Pid ProcessId
-  | Registered String
-  | RemoteRegistered String NodeId
+-- | A ubiquitous /shutdown signal/ that can be used
+-- to maintain a consistent shutdown/stop protocol for
+-- any process that wishes to handle it.
+data Shutdown = Shutdown
   deriving (Typeable, Generic, Show, Eq)
-instance Binary Recipient where
+instance Binary Shutdown where
+instance NFData Shutdown where
 
-sendToRecipient :: (Serializable m) => Recipient -> m -> Process ()
-sendToRecipient (Pid p) m                = P.send p m
-sendToRecipient (Registered s) m         = nsend s m
-sendToRecipient (RemoteRegistered s n) m = nsendRemote n s m
+-- | Provides a /reason/ for process termination.
+data ExitReason =
+    ExitNormal        -- ^ indicates normal exit
+  | ExitShutdown      -- ^ normal response to a 'Shutdown'
+  | ExitOther !String -- ^ abnormal (error) shutdown
+  deriving (Typeable, Generic, Eq, Show)
+instance Binary ExitReason where
+instance NFData ExitReason where
 
 $(remotable ['whereis])
 
@@ -100,18 +127,84 @@ whereisRemote :: NodeId -> String -> Process (Maybe ProcessId)
 whereisRemote node name =
   call $(functionTDict 'whereis) node ($(mkClosure 'whereis) name)
 
--- | A ubiquitous /shutdown signal/ that can be used
--- to maintain a consistent shutdown/stop protocol for
--- any process that wishes to handle it.
-data Shutdown = Shutdown
+data Recipient =
+    Pid ProcessId
+  | Registered String
+  | RemoteRegistered String NodeId
+--  | ProcReg String
+--  | RemoteProcReg String
+--  | GlobalReg String
   deriving (Typeable, Generic, Show, Eq)
-instance Binary Shutdown where
+instance Binary Recipient where
 
--- | Provides a /reason/ for process termination.
-data ExitReason =
-    ExitNormal        -- ^ indicates normal exit
-  | ExitShutdown      -- ^ normal response to a 'Shutdown'
-  | ExitOther !String -- ^ abnormal (error) shutdown
-  deriving (Typeable, Generic, Eq, Show)
-instance Binary ExitReason where
+sendToRecipient :: (Serializable m) => Recipient -> m -> Process ()
+sendToRecipient (Pid p) m                = P.send p m
+sendToRecipient (Registered s) m         = nsend s m
+sendToRecipient (RemoteRegistered s n) m = nsendRemote n s m
+
+unsafeSendToRecipient :: (NFSerializable m) => Recipient -> m -> Process ()
+unsafeSendToRecipient (Pid p) m                = P.unsafeSend p $!! m
+unsafeSendToRecipient (Registered s) m         = P.unsafeNSend s $!! m
+unsafeSendToRecipient (RemoteRegistered s n) m = nsendRemote n s m
+
+baseAddressableErrorMessage :: (Addressable a) => a -> String
+baseAddressableErrorMessage _ = "CannotResolveAddressable"
+
+-- | Provides a unified API for addressing processes
+class Addressable a where
+  -- | Send a message to the target asynchronously
+  sendTo  :: (Serializable m) => a -> m -> Process ()
+  sendTo a m = do
+    mPid <- resolve a
+    maybe (die (unresolvableMessage a))
+          (\p -> P.send p m)
+          mPid
+
+  -- | Send some @NFData@ message to the target asynchronously,
+  -- forcing evaluation (i.e., @deepseq@) beforehand.
+  unsafeSendTo :: (NFSerializable m) => a -> m -> Process ()
+  unsafeSendTo a m = do
+    mPid <- resolve a
+    maybe (die (unresolvableMessage a))
+          (\p -> P.unsafeSend p $!! m)
+          mPid
+
+  -- | Resolve the reference to a process id, or @Nothing@ if resolution fails
+  resolve :: a -> Process (Maybe ProcessId)
+
+  -- | Unresolvable Addressable Message
+  unresolvableMessage :: a -> String
+  unresolvableMessage = baseAddressableErrorMessage
+
+instance Addressable Recipient where
+  sendTo = sendToRecipient
+
+  unsafeSendTo = unsafeSendToRecipient
+
+  resolve (Pid                p) = return (Just p)
+  resolve (Registered         n) = whereis n
+  resolve (RemoteRegistered s n) = whereisRemote n s
+
+  unresolvableMessage (Pid                p) = unresolvableMessage p
+  unresolvableMessage (Registered         n) = unresolvableMessage n
+  unresolvableMessage (RemoteRegistered s n) = unresolvableMessage (n, s)
+
+instance Addressable ProcessId where
+  sendTo                 = P.send
+  unsafeSendTo pid msg   = P.unsafeSend pid $!! msg
+  resolve p              = return (Just p)
+  unresolvableMessage p  = "CannotResolvePid[" ++ (show p) ++ "]"
+
+instance Addressable String where
+  sendTo                = nsend
+  unsafeSendTo name msg = P.unsafeNSend name $!! msg
+  resolve               = whereis
+  unresolvableMessage s = "CannotResolveRegisteredName[" ++ s ++ "]"
+
+instance Addressable (NodeId, String) where
+  sendTo  (nid, pname) msg   = nsendRemote nid pname msg
+  unsafeSendTo               = sendTo -- because serialisation *must* take place
+  resolve (nid, pname)       = whereisRemote nid pname
+  unresolvableMessage (n, s) =
+    "CannotResolveRemoteRegisteredName[name: " ++ s ++ ", node: " ++ (show n) ++ "]"
 

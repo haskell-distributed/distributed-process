@@ -46,6 +46,7 @@ module Control.Distributed.Process.Platform.Time
   ) where
 
 import Control.Concurrent (threadDelay)
+import Control.DeepSeq (NFData)
 import Control.Distributed.Process
 import Control.Distributed.Process.Platform.Internal.Types
 import Control.Monad (void)
@@ -63,16 +64,19 @@ data TimeUnit = Days | Hours | Minutes | Seconds | Millis | Micros
     deriving (Typeable, Generic, Eq, Show)
 
 instance Binary TimeUnit where
+instance NFData TimeUnit where
 
 data TimeInterval = TimeInterval TimeUnit Int
     deriving (Typeable, Generic, Eq, Show)
 
 instance Binary TimeInterval where
+instance NFData TimeInterval where
 
 data Delay = Delay TimeInterval | Infinity
     deriving (Typeable, Generic, Eq, Show)  -- TODO: ord/cmp
 
 instance Binary Delay where
+instance NFData Delay where
 
 -- | Represents a /timeout/ in terms of microseconds, where 'Nothing' stands for
 -- infinity and @Just 0@, no-delay.

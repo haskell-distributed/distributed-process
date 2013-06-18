@@ -52,10 +52,9 @@ import qualified Control.Distributed.Process as P (monitor)
 import Control.Distributed.Process.Closure (seqCP, remotable, mkClosure)
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Platform.Internal.Types
-  ( Recipient(..)
+  ( Addressable(..)
   , RegisterSelf(..)
   , ExitReason(ExitOther)
-  , sendToRecipient
   , whereisRemote
   )
 import Control.Monad (void)
@@ -84,31 +83,6 @@ n `times` proc = runP proc n
 forever' :: Monad m => m a -> m b
 forever' a = let a' = a >> a' in a'
 {-# INLINE forever' #-}
-
--- | Provides a unified API for addressing processes
-class Addressable a where
-  -- | Send a message to the target asynchronously
-  sendTo  :: (Serializable m) => a -> m -> Process ()
-  -- | Resolve the reference to a process id, or @Nothing@ if resolution fails
-  resolve :: a -> Process (Maybe ProcessId)
-
-instance Addressable Recipient where
-  sendTo = sendToRecipient
-  resolve (Pid                p) = return (Just p)
-  resolve (Registered         n) = whereis n
-  resolve (RemoteRegistered s n) = whereisRemote n s
-
-instance Addressable ProcessId where
-  sendTo    = send
-  resolve p = return (Just p)
-
-instance Addressable String where
-  sendTo  = nsend
-  resolve = whereis
-
-instance Addressable (NodeId, String) where
-  sendTo (nid, pname) msg = nsendRemote nid pname msg
-  resolve (nid, pname) = whereisRemote nid pname
 
 -- spawning, linking and generic server startup
 
