@@ -9,7 +9,8 @@ module Main where
 
 import Control.Concurrent.MVar
 import Control.Exception (SomeException)
-import Control.Distributed.Process hiding (call)
+import Control.DeepSeq (NFData)
+import Control.Distributed.Process hiding (call, send)
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Platform hiding (__remoteTable)
 import Control.Distributed.Process.Platform.Async
@@ -76,10 +77,12 @@ explodingServer pid =
 data GetState = GetState
   deriving (Typeable, Generic, Show, Eq)
 instance Binary GetState where
+instance NFData GetState where
 
 data MyAlarmSignal = MyAlarmSignal
   deriving (Typeable, Generic, Show, Eq)
 instance Binary MyAlarmSignal where
+instance NFData MyAlarmSignal where
 
 mkPrioritisedServer :: Process ProcessId
 mkPrioritisedServer =
