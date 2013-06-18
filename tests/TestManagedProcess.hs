@@ -10,7 +10,7 @@ import Control.Exception (SomeException)
 import Control.Distributed.Process hiding (call)
 import Control.Distributed.Process.Closure
 import Control.Distributed.Process.Node
-import Control.Distributed.Process.Platform hiding (__remoteTable, monitor)
+import Control.Distributed.Process.Platform hiding (__remoteTable, monitor, send, nsend)
 import Control.Distributed.Process.Platform.Async
 import Control.Distributed.Process.Platform.ManagedProcess
 import Control.Distributed.Process.Platform.Test
@@ -182,26 +182,30 @@ testSafeCounterIncrement pid result = do
 
 -- Counter tests
 
-testCounterCurrentState :: ProcessId -> TestResult Int -> Process ()
-testCounterCurrentState pid result = getCount pid >>= stash result
-
-testCounterIncrement :: ProcessId -> TestResult Int -> Process ()
-testCounterIncrement pid result = do
-  6 <- incCount pid
-  7 <- incCount pid
+testCounterCurrentState :: TestResult Int -> Process ()
+testCounterCurrentState result = do
+  pid <- Counter.startCounter 5
   getCount pid >>= stash result
 
-testCounterExceedsLimit :: ProcessId -> TestResult Bool -> Process ()
-testCounterExceedsLimit pid result = do
+testCounterIncrement :: TestResult Bool -> Process ()
+testCounterIncrement result = do
+  pid <- Counter.startCounter 1
+  n <- getCount pid
+  2 <- incCount pid
+  3 <- incCount pid
+  getCount pid >>= \n' -> stash result (n' == (n + 2))
+
+testCounterExceedsLimit :: TestResult Bool -> Process ()
+testCounterExceedsLimit result = do
+  pid <- Counter.startCounter 1
   mref <- monitor pid
-  7 <- getCount pid
 
   -- exceed the limit
-  3 `times` (void $ incCount pid)
+  9 `times` (void $ incCount pid)
 
   -- this time we should fail
   _ <- (incCount pid)
-         `catchExit` \_ (ExitOther _) -> return 1
+         `catchExit` \_ (_ :: ExitReason) -> return 0
 
   r <- receiveWait [
       matchIf (\(ProcessMonitorNotification ref _ _) -> ref == mref)
@@ -218,9 +222,6 @@ tests transport = do
   mpid <- newEmptyMVar
   _ <- forkProcess localNode $ launchMathServer >>= stash mpid
   pid <- takeMVar mpid
-  cpid <- newEmptyMVar
-  _ <- forkProcess localNode $ startCounter 5 >>= stash cpid
-  counter <- takeMVar cpid
   scpid <- newEmptyMVar
   _ <- forkProcess localNode $ SafeCounter.startCounter 5 >>= stash scpid
   safeCounter <- takeMVar scpid
@@ -230,51 +231,88 @@ tests transport = do
             (delayedAssertion
              "expected a response from the server"
              localNode (Just "foo") (testBasicCall $ wrap server))
+          , testCase "basic (unsafe) call with explicit server reply"
+            (delayedAssertion
+             "expected a response from the server"
+             localNode (Just "foo") (testUnsafeBasicCall $ wrap server))
           , testCase "basic call with implicit server reply"
             (delayedAssertion
              "expected n * 2 back from the server"
              localNode (Just 4) (testBasicCall_ $ wrap server))
+          , testCase "basic (unsafe) call with implicit server reply"
+            (delayedAssertion
+             "expected n * 2 back from the server"
+             localNode (Just 4) (testUnsafeBasicCall_ $ wrap server))
           , testCase "basic cast with manual send and explicit server continue"
             (delayedAssertion
              "expected pong back from the server"
              localNode (Just "pong") (testBasicCast $ wrap server))
+          , testCase "basic (unsafe) cast with manual send and explicit server continue"
+            (delayedAssertion
+             "expected pong back from the server"
+             localNode (Just "pong") (testUnsafeBasicCast $ wrap server))
           , testCase "cast and explicit server timeout"
             (delayedAssertion
              "expected the server to stop after the timeout"
              localNode (Just $ ExitOther "timeout") (testControlledTimeout $ wrap server))
+          , testCase "(unsafe) cast and explicit server timeout"
+            (delayedAssertion
+             "expected the server to stop after the timeout"
+             localNode (Just $ ExitOther "timeout") (testUnsafeControlledTimeout $ wrap server))
           , testCase "unhandled input when policy = Terminate"
             (delayedAssertion
              "expected the server to stop upon receiving unhandled input"
              localNode (Just $ ExitOther "UnhandledInput")
              (testTerminatePolicy $ wrap server))
+          , testCase "(unsafe) unhandled input when policy = Terminate"
+            (delayedAssertion
+             "expected the server to stop upon receiving unhandled input"
+             localNode (Just $ ExitOther "UnhandledInput")
+             (testUnsafeTerminatePolicy $ wrap server))
           , testCase "unhandled input when policy = Drop"
             (delayedAssertion
              "expected the server to ignore unhandled input and exit normally"
              localNode Nothing (testDropPolicy $ wrap (mkServer Drop)))
+          , testCase "(unsafe) unhandled input when policy = Drop"
+            (delayedAssertion
+             "expected the server to ignore unhandled input and exit normally"
+             localNode Nothing (testUnsafeDropPolicy $ wrap (mkServer Drop)))
           , testCase "unhandled input when policy = DeadLetter"
             (delayedAssertion
              "expected the server to forward unhandled messages"
              localNode (Just ("UNSOLICITED_MAIL", 500 :: Int))
              (testDeadLetterPolicy $ \p -> mkServer (DeadLetter p)))
+          , testCase "(unsafe) unhandled input when policy = DeadLetter"
+            (delayedAssertion
+             "expected the server to forward unhandled messages"
+             localNode (Just ("UNSOLICITED_MAIL", 500 :: Int))
+             (testUnsafeDeadLetterPolicy $ \p -> mkServer (DeadLetter p)))
           , testCase "incoming messages are ignored whilst hibernating"
             (delayedAssertion
              "expected the server to remain in hibernation"
              localNode True (testHibernation $ wrap server))
+          , testCase "(unsafe) incoming messages are ignored whilst hibernating"
+            (delayedAssertion
+             "expected the server to remain in hibernation"
+             localNode True (testUnsafeHibernation $ wrap server))
           , testCase "long running call cancellation"
             (delayedAssertion "expected to get AsyncCancelled"
              localNode True (testKillMidCall $ wrap server))
+          , testCase "(unsafe) long running call cancellation"
+            (delayedAssertion "expected to get AsyncCancelled"
+             localNode True (testUnsafeKillMidCall $ wrap server))
           , testCase "simple exit handling"
             (delayedAssertion "expected handler to catch exception and continue"
              localNode Nothing (testSimpleErrorHandling $ explodingServer))
+          , testCase "(unsafe) simple exit handling"
+            (delayedAssertion "expected handler to catch exception and continue"
+             localNode Nothing (testUnsafeSimpleErrorHandling $ explodingServer))
           , testCase "alternative exit handlers"
             (delayedAssertion "expected handler to catch exception and continue"
              localNode Nothing (testAlternativeErrorHandling $ explodingServer))
-          , testCase "call return type mismatch"
-            (delayedAssertion "expected the process to exit due to unhandled traffic"
-             localNode True testCallReturnTypeMismatchHandling)
-          , testCase "channel based services"
-            (delayedAssertion "expected a response via the provided channel"
-             localNode True testChannelBasedService)
+          , testCase "(unsafe) alternative exit handlers"
+            (delayedAssertion "expected handler to catch exception and continue"
+             localNode Nothing (testUnsafeAlternativeErrorHandling $ explodingServer))
           ]
         , testGroup "simple pool examples" [
             testCase "each task execution blocks the caller"
@@ -302,15 +340,15 @@ tests transport = do
             testCase "initial counter state = 5"
               (delayedAssertion
                "expected the server to return the initial state of 5"
-               localNode 5 (testCounterCurrentState counter))
+               localNode 5 testCounterCurrentState)
           , testCase "increment counter twice"
               (delayedAssertion
                "expected the server to return the incremented state as 7"
-               localNode 7 (testCounterIncrement counter))
+               localNode True testCounterIncrement)
           , testCase "exceed counter limits"
             (delayedAssertion
              "expected the server to terminate once the limit was exceeded"
-             localNode True (testCounterExceedsLimit counter))
+             localNode True testCounterExceedsLimit)
           ]
         , testGroup "safe counter examples" [
             testCase "initial counter state = 5"
