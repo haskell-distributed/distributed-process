@@ -35,8 +35,10 @@ module Control.Distributed.Process.Platform.Timer
   , flushTimer
   ) where
 
-import Control.Distributed.Process
+import Control.DeepSeq (NFData)
+import Control.Distributed.Process hiding (send)
 import Control.Distributed.Process.Serializable
+import Control.Distributed.Process.Platform (send, NFSerializable)
 import Control.Distributed.Process.Platform.Time
 import Data.Binary
 import Data.Typeable (Typeable)
@@ -51,15 +53,18 @@ type TimerRef = ProcessId
 data TimerConfig = Reset | Cancel
     deriving (Typeable, Generic, Eq, Show)
 instance Binary TimerConfig where
+instance NFData TimerConfig where
 
 -- | represents a 'tick' event that timers can generate
 data Tick = Tick
     deriving (Typeable, Generic, Eq, Show)
 instance Binary Tick where
+instance NFData Tick where
 
 data SleepingPill = SleepingPill
     deriving (Typeable, Generic, Eq, Show)
 instance Binary SleepingPill where
+instance NFData SleepingPill where
 
 --------------------------------------------------------------------------------
 -- API                                                                        --
@@ -85,7 +90,7 @@ sleepFor i u = sleep (within i u)
 
 -- | starts a timer which sends the supplied message to the destination
 -- process after the specified time interval.
-sendAfter :: (Serializable a)
+sendAfter :: (NFSerializable a)
           => TimeInterval
           -> ProcessId
           -> a
@@ -112,7 +117,7 @@ killAfter delay pid why = runAfter delay $ kill pid why
 -- | starts a timer that repeatedly sends the supplied message to the destination
 -- process each time the specified time interval elapses. To stop messages from
 -- being sent in future, 'cancelTimer' can be called.
-startTimer :: (Serializable a)
+startTimer :: (NFSerializable a)
            => TimeInterval
            -> ProcessId
            -> a
