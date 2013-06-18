@@ -15,11 +15,10 @@ import Control.Concurrent.MVar
   )
 import qualified Control.Exception as Ex
 import Control.Exception (throwIO)
-import Control.Distributed.Process hiding (call, expect, monitor)
-import qualified Control.Distributed.Process as P (expect)
+import Control.Distributed.Process hiding (call, monitor)
 import Control.Distributed.Process.Closure
 import Control.Distributed.Process.Node
-import Control.Distributed.Process.Platform hiding (__remoteTable)
+import Control.Distributed.Process.Platform hiding (__remoteTable, send)
 -- import Control.Distributed.Process.Platform as Alt (monitor)
 import Control.Distributed.Process.Platform.Test
 import Control.Distributed.Process.Platform.Time
@@ -30,8 +29,13 @@ import Control.Distributed.Process.Platform.ManagedProcess.Client (shutdown)
 import Control.Distributed.Process.Serializable()
 import Control.Distributed.Static (staticLabel)
 import Control.Monad (void, forM_, forM)
-import Control.Rematch hiding (expect, match)
-import qualified Control.Rematch as Rematch
+import Control.Rematch
+  ( equalTo
+  , is
+  , isNot
+  , isNothing
+  , isJust
+  )
 
 import Data.ByteString.Lazy (empty)
 import Data.Maybe (catMaybes)
@@ -47,21 +51,6 @@ import TestUtils hiding (waitForExit)
 import qualified Network.Transport as NT
 
 -- test utilities
-
-expect :: a -> Matcher a -> Process ()
-expect a m = liftIO $ Rematch.expect a m
-
-shouldBe :: a -> Matcher a -> Process ()
-shouldBe = expect
-
-shouldMatch :: a -> Matcher a -> Process ()
-shouldMatch = expect
-
-shouldExitWith :: (Addressable a) => a -> DiedReason -> Process ()
-shouldExitWith a r = do
-  _ <- resolve a
-  d <- receiveWait [ match (\(ProcessMonitorNotification _ _ r') -> return r') ]
-  d `shouldBe` equalTo r
 
 expectedExitReason :: ProcessId -> String
 expectedExitReason sup = "killed-by=" ++ (show sup) ++
@@ -114,7 +103,7 @@ permChild clj =
 ensureProcessIsAlive :: ProcessId -> Process ()
 ensureProcessIsAlive pid = do
   result <- isProcessAlive pid
-  expect result $ is True
+  expectThat result $ is True
 
 runInTestContext :: LocalNode
                  -> MVar ()
@@ -135,7 +124,7 @@ verifyChildWasRestarted key pid sup = do
   case cSpec of
     Just (ref, _) -> do
       Just pid' <- resolve ref
-      expect pid' $ isNot $ equalTo pid
+      expectThat pid' $ isNot $ equalTo pid
     _ -> do
       liftIO $ assertFailure $ "unexpected child ref: " ++ (show cSpec)
 
@@ -151,7 +140,7 @@ verifyTempChildWasRemoved :: ProcessId -> ProcessId -> Process ()
 verifyTempChildWasRemoved pid sup = do
   void $ waitForExit pid
   cSpec <- lookupChild sup "temp-worker"
-  expect cSpec isNothing
+  expectThat cSpec isNothing
 
 waitForExit :: ProcessId -> Process DiedReason
 waitForExit pid = do
@@ -168,7 +157,7 @@ drainChildren children expected = do
   -- Receive all pids then verify they arrived in the correct order.
   -- Any out-of-order messages (such as ProcessMonitorNotification) will
   -- violate the invariant asserted below, and fail the test case
-  pids <- forM children $ \_ -> P.expect :: Process ProcessId
+  pids <- forM children $ \_ -> expect :: Process ProcessId
   let first' = head pids
   Just exp' <- resolve expected
   -- however... we do allow for the scheduler and accept `head $ tail pids` in
@@ -323,7 +312,7 @@ configuredBadClosure withSupervisor = do
 --    ref <- monitor sup
     children <- (listChildren sup)
     let specs = map fst children
-    expect specs $ equalTo []
+    expectThat specs $ equalTo []
 
 deleteExistingChild :: ProcessId -> Process ()
 deleteExistingChild sup = do
@@ -409,19 +398,19 @@ intrinsicChildrenNormalExit sup = do
   Just pid <- resolve ref
   testProcessStop pid
   reason <- waitForExit sup
-  expect reason $ equalTo DiedNormal
+  expectThat reason $ equalTo DiedNormal
 
 explicitRestartRunningChild :: ProcessId -> Process ()
 explicitRestartRunningChild sup = do
   let spec = tempWorker $(mkStaticClosure 'blockIndefinitely)
   ChildAdded ref <- startChild sup spec
   result <- restartChild sup (childKey spec)
-  expect result $ equalTo $ ChildRestartFailed (StartFailureAlreadyRunning ref)
+  expectThat result $ equalTo $ ChildRestartFailed (StartFailureAlreadyRunning ref)
 
 explicitRestartUnknownChild :: ProcessId -> Process ()
 explicitRestartUnknownChild sup = do
   result <- restartChild sup "unknown-id"
-  expect result $ equalTo ChildRestartUnknownId
+  expectThat result $ equalTo ChildRestartUnknownId
 
 explicitRestartRestartingChild :: ProcessId -> Process ()
 explicitRestartRestartingChild sup = do
@@ -448,7 +437,7 @@ explicitRestartStoppedChild sup = do
   restarted <- restartChild sup key
   sleepFor 500 Millis
   Just (ref', _) <- lookupChild sup key
-  expect ref $ isNot $ equalTo ref'
+  expectThat ref $ isNot $ equalTo ref'
   case restarted of
     ChildRestartOk (ChildRunning _) -> return ()
     _ -> liftIO $ assertFailure $ "unexpected termination: " ++ (show restarted)
@@ -461,7 +450,7 @@ terminateChildImmediately sup = do
   mRef <- monitor ref
   void $ terminateChild sup (childKey spec)
   reason <- waitForDown mRef
-  expect reason $ equalTo $ DiedException (expectedExitReason sup)
+  expectThat reason $ equalTo $ DiedException (expectedExitReason sup)
 
 terminatingChildExceedsDelay :: ProcessId -> Process ()
 terminatingChildExceedsDelay sup = do
@@ -472,7 +461,7 @@ terminatingChildExceedsDelay sup = do
   mRef <- monitor ref
   void $ terminateChild sup (childKey spec)
   reason <- waitForDown mRef
-  expect reason $ equalTo $ DiedException (expectedExitReason sup)
+  expectThat reason $ equalTo $ DiedException (expectedExitReason sup)
 
 terminatingChildObeysDelay :: ProcessId -> Process ()
 terminatingChildObeysDelay sup = do
@@ -543,7 +532,7 @@ permanentChildExceedsRestartsIntensity withSupervisor = do
     void $ ((startChild sup spec >> return ())
              `catchExit` (\_ (_ :: ExitReason) -> return ()))
     reason <- waitForDown ref
-    expect reason $ equalTo $
+    expectThat reason $ equalTo $
                       DiedException $ "exit-from=" ++ (show sup) ++
                                       ",reason=ReachedMaxRestartIntensity"
 
@@ -610,7 +599,7 @@ restartLeftWithLeftToRightSeqRestarts withSupervisor = do
             True  -> liftIO $ assertFailure $ "unexpected exit from " ++ show pid'
             False -> return ())
       ]
-    expect r isNothing
+    expectThat r isNothing
 
 restartRightWithLeftToRightSeqRestarts ::
      (RestartStrategy -> [ChildSpec] -> (ProcessId -> Process ()) -> Assertion)
@@ -640,7 +629,7 @@ restartRightWithLeftToRightSeqRestarts withSupervisor = do
             True  -> liftIO $ assertFailure $ "unexpected exit from " ++ show pid'
             False -> return ())
       ]
-    expect r isNothing
+    expectThat r isNothing
 
 restartAllWithLeftToRightRestarts :: ProcessId -> Process ()
 restartAllWithLeftToRightRestarts sup = do
@@ -673,13 +662,13 @@ restartAllWithLeftToRightRestarts sup = do
   children' <- listChildren sup
   drainAllChildren children'
   let [c1, c2] = [map fst cs | cs <- [children, children']]
-  forM_ (zip c1 c2) $ \(p1, p2) -> expect p1 $ isNot $ equalTo p2
+  forM_ (zip c1 c2) $ \(p1, p2) -> expectThat p1 $ isNot $ equalTo p2
   where
     drainAllChildren children = do
       -- Receive all pids then verify they arrived in the correct order.
       -- Any out-of-order messages (such as ProcessMonitorNotification) will
       -- violate the invariant asserted below, and fail the test case
-      pids <- forM children $ \_ -> P.expect :: Process ProcessId
+      pids <- forM children $ \_ -> expect :: Process ProcessId
       forM_ pids ensureProcessIsAlive
 
 restartAllWithRightToLeftSeqRestarts :: ProcessId -> Process ()
@@ -722,7 +711,7 @@ expectLeftToRightRestarts sup = do
   forM_ specs $ \s -> do
     ChildAdded c <- startChild sup s
     Just p <- resolve c
-    p' <- P.expect
+    p' <- expect
     p' `shouldBe` equalTo p
   -- assert that we saw the startup sequence working...
   let toStop = childKey $ head specs
@@ -736,9 +725,9 @@ expectLeftToRightRestarts sup = do
                (asTimeout $ seconds 1)
                [ matchIf (\(ProcessMonitorNotification r _ _) -> (Just r) == (snd $ head refs))
                          (\sig@(ProcessMonitorNotification _ _ _) -> return sig) ]
-  expect initRes $ isJust
+  expectThat initRes $ isJust
   forM_ (reverse (filter ((/= ref) .fst ) refs)) $ \(_, Just mRef) -> do
-    (ProcessMonitorNotification ref' _ _) <- P.expect
+    (ProcessMonitorNotification ref' _ _) <- expect
     if ref' == mRef then (return ()) else (die "unexpected monitor signal")
   -- in this case, we expect the first child to be the first notification,
   -- since they were started in left to right order
