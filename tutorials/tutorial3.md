@@ -6,6 +6,10 @@ title: Managed Process Tutorial
 
 ### Introduction
 
+The source code on which this tutorial is based is kept on github,
+and can be accessed [here][1]. Please note that this tutorial is
+based on the stable (master) branch of distributed-process-platform.
+
 The main idea behind `ManagedProcess` is to separate the functional
 and non-functional aspects of a process. By functional, we mean whatever
 application specific task the process performs, and by non-functional
@@ -381,3 +385,5 @@ bit too much overhead for some applications. In our next tutorial, we'll look at
 `Control.Distributed.Process.Platform.Task` API, which looks a lot like `Async` but
 manages exit signals in a single thread and makes configurable task pools and task
 supervision strategy part of its API.
+
+[1]: https://github.com/haskell-distributed/distributed-process-platform/blob/master/tests/SimplePool.hs
