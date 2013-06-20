@@ -2,7 +2,7 @@
 
 GHC ?= $(shell which ghc)
 CABAL ?= $(shell which cabal)
-CABAL_DEV ?= $(shell which cabal-fav)
+CABAL_DEV ?= $(shell which cabal-dev)
 
 BASE_GIT := git://github.com/haskell-distributed
 REPOS=$(shell cat REPOS | sed '/^$$/d')
@@ -24,6 +24,7 @@ ci: travis-install travis-test
 
 .PHONY: travis-install
 travis-install: $(REPOS)
+	$(CABAL) install QuickCheck-2.6 --force-reinstalls
 	$(CABAL) install rematch --force-reinstalls
 	$(CABAL) install --with-ghc=$(GHC) $(REPOS) --force-reinstalls
 	$(CABAL) install
