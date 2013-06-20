@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveGeneric #-}
+
 -- | Types used throughout the Cloud Haskell framework
 --
 -- We collect all types used internally in a single module because
@@ -29,6 +31,7 @@ module Control.Distributed.Process.Internal.Types
   , ReceivePort(..)
     -- * Messages
   , Message(..)
+  , isEncoded
   , createMessage
   , createUnencodedMessage
   , unsafeCreateUnencodedMessage
@@ -77,7 +80,7 @@ module Control.Distributed.Process.Internal.Types
 import System.Mem.Weak (Weak)
 import Data.Map (Map)
 import Data.Int (Int32)
-import Data.Typeable (Typeable)
+import Data.Typeable (Typeable, typeOf)
 import Data.Binary (Binary(put, get), putWord8, getWord8, encode)
 import qualified Data.ByteString as BSS (ByteString, concat, copy)
 import qualified Data.ByteString.Lazy as BSL
@@ -90,6 +93,7 @@ import qualified Data.ByteString.Lazy as BSL
 import qualified Data.ByteString.Lazy.Internal as BSL (ByteString(..))
 import Data.Accessor (Accessor, accessor)
 import Control.Category ((>>>))
+import Control.DeepSeq (NFData(..))
 import Control.Exception (Exception)
 import Control.Concurrent (ThreadId)
 import Control.Concurrent.Chan (Chan)
@@ -113,14 +117,19 @@ import Control.Distributed.Process.Internal.WeakTQueue (TQueue)
 import Control.Distributed.Static (RemoteTable, Closure)
 import qualified Control.Distributed.Process.Internal.StrictContainerAccessors as DAC (mapMaybe)
 
+import Data.Hashable
+import GHC.Generics
+
 --------------------------------------------------------------------------------
 -- Node and process identifiers                                               --
 --------------------------------------------------------------------------------
 
 -- | Node identifier
 newtype NodeId = NodeId { nodeAddress :: NT.EndPointAddress }
-  deriving (Eq, Ord, Binary, Typeable)
-
+  deriving (Eq, Ord, Typeable, Generic)
+instance Binary NodeId where
+instance NFData NodeId
+instance Hashable NodeId where
 instance Show NodeId where
   show (NodeId addr) = "nid://" ++ show addr
 
@@ -130,7 +139,9 @@ data LocalProcessId = LocalProcessId
   { lpidUnique  :: {-# UNPACK #-} !Int32
   , lpidCounter :: {-# UNPACK #-} !Int32
   }
-  deriving (Eq, Ord, Typeable, Show)
+  deriving (Eq, Ord, Typeable, Generic, Show)
+
+instance Hashable LocalProcessId where
 
 -- | Process identifier
 data ProcessId = ProcessId
@@ -139,7 +150,11 @@ data ProcessId = ProcessId
     -- | Node-local identifier for the process
   , processLocalId :: {-# UNPACK #-} !LocalProcessId
   }
-  deriving (Eq, Ord, Typeable)
+  deriving (Eq, Ord, Typeable, Generic)
+
+instance Binary ProcessId where
+instance NFData ProcessId where
+instance Hashable ProcessId where
 
 instance Show ProcessId where
   show (ProcessId (NodeId addr) (LocalProcessId _ lid))
@@ -150,7 +165,9 @@ data Identifier =
     NodeIdentifier !NodeId
   | ProcessIdentifier !ProcessId
   | SendPortIdentifier !SendPortId
-  deriving (Eq, Ord)
+  deriving (Eq, Ord, Generic)
+
+instance Hashable Identifier where
 
 instance Show Identifier where
   show (NodeIdentifier nid)     = show nid
@@ -276,8 +293,9 @@ data SendPortId = SendPortId {
     -- | Process-local ID of the channel
   , sendPortLocalId   :: {-# UNPACK #-} !LocalSendPortId
   }
-  deriving (Eq, Ord)
+  deriving (Eq, Ord, Typeable, Generic)
 
+instance Hashable SendPortId where
 instance Show SendPortId where
   show (SendPortId (ProcessId (NodeId addr) (LocalProcessId _ plid)) clid)
     = "cid://" ++ show addr ++ ":" ++ show plid ++ ":" ++ show clid
@@ -289,7 +307,11 @@ newtype SendPort a = SendPort {
     -- | The (unique) ID of this send port
     sendPortId :: SendPortId
   }
-  deriving (Typeable, Binary, Show, Eq, Ord)
+  deriving (Typeable, Generic, Show, Eq, Ord)
+
+instance (Serializable a) => Binary (SendPort a) where
+instance (Hashable a) => Hashable (SendPort a) where
+instance (NFData a) => NFData (SendPort a) where
 
 -- | The receive end of a typed channel (not serializable)
 --
@@ -329,7 +351,19 @@ data Message =
 
 instance Show Message where
   show (EncodedMessage fp enc) = show enc ++ " :: " ++ showFingerprint fp []
-  show (UnencodedMessage fp _) = "[unencoded message] :: " ++ (showFingerprint fp [])
+  show (UnencodedMessage _ uenc) = "[unencoded message] :: " ++ (show $ typeOf uenc)
+
+-- | /internal use only/.
+isEncoded :: Message -> Bool
+isEncoded (EncodedMessage _ _) = True
+isEncoded _                    = False
+-- [note] isEncoded:
+-- This is just as internal as it looks and yes, it does feel a bit odd that
+-- we're exporting it for use, however DPP does a /lot/ of work with low
+-- level APIs such as unwrapMessage and handleMessage, and in the process
+-- tries very hard to avoid copying (and re-serialisation) where possible.
+-- Being able to determine that a message is encoded (or otherwise) makes
+-- that a lot more manageable.
 
 -- | Turn any serialiable term into a message
 createMessage :: Serializable a => a -> Message
@@ -377,7 +411,8 @@ data MonitorRef = MonitorRef
     -- | Unique to distinguish multiple monitor requests by the same process
   , monitorRefCounter :: !Int32
   }
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord, Show, Generic)
+instance Hashable MonitorRef where
 
 -- | Message sent by process monitors
 data ProcessMonitorNotification =
@@ -531,10 +566,6 @@ instance Binary LocalProcessId where
   put lpid = put (lpidUnique lpid) >> put (lpidCounter lpid)
   get      = LocalProcessId <$> get <*> get
 
-instance Binary ProcessId where
-  put pid = put (processNodeId pid) >> put (processLocalId pid)
-  get     = ProcessId <$> get <*> get
-
 instance Binary ProcessMonitorNotification where
   put (ProcessMonitorNotification ref pid reason) = put ref >> put pid >> put reason
   get = ProcessMonitorNotification <$> get <*> get <*> get
@@ -567,7 +598,7 @@ instance Binary ProcessSignal where
   put (NamedSend label msg)   = putWord8 8 >> put label >> put (messageToPayload msg)
   put (Kill pid reason)       = putWord8 9 >> put pid >> put reason
   put (Exit pid reason)       = putWord8 10 >> put pid >> put (messageToPayload reason)
-  put (LocalSend to msg)      = putWord8 11 >> put to >> put (messageToPayload msg)
+  put (LocalSend to' msg)      = putWord8 11 >> put to' >> put (messageToPayload msg)
   put (LocalPortSend sid msg) = putWord8 12 >> put sid >> put (messageToPayload msg)
   put (GetInfo about)         = putWord8 30 >> put about
   put (SigShutdown)         = putWord8 31
@@ -614,6 +645,9 @@ instance Binary DidSpawn where
 instance Binary SendPortId where
   put cid = put (sendPortProcessId cid) >> put (sendPortLocalId cid)
   get = SendPortId <$> get <*> get
+
+instance NFData SendPortId where
+  rnf cid = (sendPortProcessId cid) `seq` (sendPortLocalId cid) `seq` ()
 
 instance Binary Identifier where
   put (ProcessIdentifier pid)  = putWord8 0 >> put pid
@@ -667,7 +701,7 @@ localProcessWithId :: LocalProcessId -> Accessor LocalNodeState (Maybe LocalProc
 localProcessWithId lpid = localProcesses >>> DAC.mapMaybe lpid
 
 localConnectionBetween :: Identifier -> Identifier -> Accessor LocalNodeState (Maybe (NT.Connection, ImplicitReconnect))
-localConnectionBetween from to = localConnections >>> DAC.mapMaybe (from, to)
+localConnectionBetween from' to' = localConnections >>> DAC.mapMaybe (from', to')
 
 monitorCounter :: Accessor LocalProcessState Int32
 monitorCounter = accessor _monitorCounter (\cnt st -> st { _monitorCounter = cnt })

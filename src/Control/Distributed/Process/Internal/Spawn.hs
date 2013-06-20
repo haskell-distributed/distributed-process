@@ -7,7 +7,6 @@ module Control.Distributed.Process.Internal.Spawn
   , spawnChannel
   ) where
 
-import Data.Typeable (Typeable)
 import Control.Distributed.Static
   ( Static
   , Closure
@@ -144,7 +143,7 @@ spawnSupervised nid proc = do
 
 -- | Spawn a new process, supplying it with a new 'ReceivePort' and return
 -- the corresponding 'SendPort'.
-spawnChannel :: forall a. Typeable a => Static (SerializableDict a)
+spawnChannel :: forall a. Serializable a => Static (SerializableDict a)
              -> NodeId
              -> Closure (ReceivePort a -> Process ())
              -> Process (SendPort a)

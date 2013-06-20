@@ -30,9 +30,11 @@ module Control.Distributed.Process.Internal.Primitives
   , matchChan
   , matchMessage
   , matchMessageIf
+  , isEncoded
   , wrapMessage
   , unwrapMessage
   , handleMessage
+  , handleMessageIf
   , forward
   , delegate
   , relay
@@ -173,10 +175,11 @@ import Control.Distributed.Process.Internal.Types
   , ProcessRegistrationException(..)
   , ProcessInfo(..)
   , ProcessInfoNone(..)
+  , isEncoded
   , createMessage
   , createUnencodedMessage
   , runLocalProcess
-  , ImplicitReconnect(NoImplicitReconnect)
+  , ImplicitReconnect( NoImplicitReconnect)
   , LocalProcessState
   , LocalSendPortId
   , messageToPayload
@@ -444,14 +447,14 @@ wrapMessage = createUnencodedMessage -- see [note Serializable UnencodedMessage]
 -- Whereas this expression, will yield @Just "foo"@
 -- > unwrapMessage (wrapMessage "foo") :: Process (Maybe String)
 --
-unwrapMessage :: forall a. Serializable a => Message -> Process (Maybe a)
+unwrapMessage :: forall m a. (Monad m, Serializable a) => Message -> m (Maybe a)
 unwrapMessage msg =
   case messageFingerprint msg == fingerprint (undefined :: a) of
-    False -> return Nothing
+    False -> return Nothing :: m (Maybe a)
     True  -> case msg of
-      (UnencodedMessage _ m) ->
-        let m' = unsafeCoerce m :: a
-        in return (Just m')
+      (UnencodedMessage _ ms) ->
+        let ms' = unsafeCoerce ms :: a
+        in return (Just ms')
       (EncodedMessage _ _) ->
         return (Just (decoded))
         where
@@ -467,17 +470,28 @@ unwrapMessage msg =
 --
 -- Intended for use in `catchesExit` and `matchAny` primitives.
 --
-handleMessage :: forall a b. (Serializable a)
-                   => Message -> (a -> Process b) -> Process (Maybe b)
-handleMessage msg proc = do
+handleMessage :: forall m a b. (Monad m, Serializable a)
+              => Message -> (a -> m b) -> m (Maybe b)
+handleMessage msg proc = handleMessageIf msg (const True) proc
+
+handleMessageIf :: forall m a b . (Monad m, Serializable a)
+                => Message
+                -> (a -> Bool)
+                -> (a -> m b)
+                -> m (Maybe b)
+handleMessageIf msg c proc = do
   case messageFingerprint msg == fingerprint (undefined :: a) of
-    False -> return Nothing
+    False -> return Nothing :: m (Maybe b)
     True  -> case msg of
-      (UnencodedMessage _ m) ->
-        let m' = unsafeCoerce m :: a  -- note [decoding]
-        in do { r <- proc m'; return (Just r) }
+      (UnencodedMessage _ ms) ->
+        let ms' = unsafeCoerce ms :: a in
+        case (c ms') of
+          True  -> do { r <- proc ms'; return (Just r) }
+          False -> return Nothing :: m (Maybe b)
       (EncodedMessage _ _) ->
-        do { r <- proc (decoded :: a); return (Just r) }
+        case (c decoded) of
+          True  -> do { r <- proc (decoded :: a); return (Just r) }
+          False -> return Nothing :: m (Maybe b)
         where
           decoded :: a -- note [decoding]
           !decoded = decode (messageEncoding msg)
@@ -627,12 +641,12 @@ catchExit act exitHandler = catch act handleExit
 -- | Lift 'Control.Exception.catches' (almost).
 --
 -- As 'ProcessExitException' stores the exit @reason@ as a typed, encoded
--- message, a handler must accept an input of the expected type. In order to
+-- message, a handler must accept inputs of the expected type. In order to
 -- handle a list of potentially different handlers (and therefore input types),
--- a handler passed to 'catchesExit' must accept 'AbstractMessage' and return
+-- a handler passed to 'catchesExit' must accept 'Message' and return
 -- @Maybe@ (i.e., @Just p@ if it handled the exit reason, otherwise @Nothing@).
 --
--- See 'maybeHandleMessage' and 'AsbtractMessage' for more details.
+-- See 'maybeHandleMessage' and 'Message' for more details.
 catchesExit :: Process b
             -> [(ProcessId -> Message -> (Process (Maybe b)))]
             -> Process b

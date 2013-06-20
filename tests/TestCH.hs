@@ -36,11 +36,11 @@ import Control.Distributed.Process.Internal.Types
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable (Serializable)
 
-import Test.HUnit (Assertion)
+import Test.HUnit (Assertion, assertFailure)
 import Test.Framework (Test, defaultMain, testGroup)
 import Test.Framework.Providers.HUnit (testCase)
-import Control.Rematch hiding (expect, match)
-import qualified Control.Rematch as Rematch (expect)
+import Control.Rematch hiding (match)
+import Control.Rematch.Run (Match(..))
 
 newtype Ping = Ping ProcessId
   deriving (Typeable, Binary, Show)
@@ -51,6 +51,12 @@ newtype Pong = Pong ProcessId
 --------------------------------------------------------------------------------
 -- Supporting definitions                                                     --
 --------------------------------------------------------------------------------
+
+expectThat :: a -> Matcher a -> Assertion
+expectThat a matcher = case res of
+  MatchSuccess -> return ()
+  (MatchFailure msg) -> assertFailure msg
+  where res = runMatch matcher a
 
 -- | Like fork, but throw exceptions in the child thread to the parent
 forkTry :: IO () -> IO ThreadId
@@ -1080,6 +1086,22 @@ testCatchesExit transport = do
 
   takeMVar done
 
+testHandleMessageIf :: NT.Transport -> Assertion
+testHandleMessageIf transport = do
+  localNode <- newLocalNode transport initRemoteTable
+  done <- newEmptyMVar
+  _ <- forkProcess localNode $ do
+    self <- getSelfPid
+    send self (5 :: Integer, 10 :: Integer)
+    msg <- receiveWait [ matchMessage return ]
+    Nothing <- handleMessageIf msg (\() -> True) (\() -> die $ "whoops")
+    handleMessageIf msg (\(x :: Integer, y :: Integer) -> x == 5 && y == 10)
+                        (\input -> liftIO $ putMVar done input)
+    return ()
+
+  result <- takeMVar done
+  expectThat result $ equalTo (5, 10)
+
 testCatches :: NT.Transport -> Assertion
 testCatches transport = do
   localNode <- newLocalNode transport initRemoteTable
@@ -1106,7 +1128,7 @@ testMaskRestoreScope transport = do
 
   parent <- liftIO $ takeMVar parentPid
   child <- liftIO $ takeMVar spawnedPid
-  Rematch.expect parent $ isNot $ equalTo child
+  expectThat parent $ isNot $ equalTo child
 
 testDie :: NT.Transport -> Assertion
 testDie transport = do
@@ -1256,6 +1278,7 @@ tests (transport, transportInternals) = [
       , testCase "Registry"            (testRegistry            transport)
       , testCase "RemoteRegistry"      (testRemoteRegistry      transport)
       , testCase "SpawnLocal"          (testSpawnLocal          transport)
+      , testCase "HandleMessageIf"     (testHandleMessageIf     transport)
       , testCase "MatchAny"            (testMatchAny            transport)
       , testCase "MatchAnyHandle"      (testMatchAnyHandle      transport)
       , testCase "MatchAnyNoHandle"    (testMatchAnyNoHandle    transport)
@@ -1272,6 +1295,10 @@ tests (transport, transportInternals) = [
       , testCase "MaskRestoreScope"    (testMaskRestoreScope    transport)
       , testCase "ExitLocal"           (testExitLocal           transport)
       , testCase "ExitRemote"          (testExitRemote          transport)
+      -- Unsafe Primitives
+      , testCase "TestUnsafeSend"      (testUnsafeSend          transport)
+      , testCase "TestUnsafeNSend"     (testUnsafeNSend         transport)
+      , testCase "TestUnsafeSendChan"  (testUnsafeSendChan      transport)
       ]
   , testGroup "Monitoring and Linking" [
       -- Monitoring processes
@@ -1303,9 +1330,6 @@ tests (transport, transportInternals) = [
     , testCase "MonitorChannel"               (testMonitorChannel             transport)
       -- Reconnect
     , testCase "Reconnect"                    (testReconnect                  transport transportInternals)
-    , testCase "TestUnsafeSend"               (testUnsafeSend                 transport)
-    , testCase "TestUnsafeNSend"              (testUnsafeNSend                transport)
-    , testCase "TestUnsafeSendChan"           (testUnsafeSendChan             transport)
     ]
   ]
 

@@ -53,9 +53,11 @@ module Control.Distributed.Process
   , Message
   , matchMessage
   , matchMessageIf
+  , isEncoded
   , wrapMessage
   , unwrapMessage
   , handleMessage
+  , handleMessageIf
   , forward
   , delegate
   , relay
@@ -206,9 +208,11 @@ import Control.Distributed.Process.Internal.Primitives
   , matchChan
   , matchMessage
   , matchMessageIf
+  , isEncoded
   , wrapMessage
   , unwrapMessage
   , handleMessage
+  , handleMessageIf
   , forward
   , delegate
   , relay
