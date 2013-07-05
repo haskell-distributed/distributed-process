@@ -56,7 +56,7 @@ import Control.Exception
   , Exception
   , throwTo
   )
-import qualified Control.Exception as Exception (catch, finally)
+import qualified Control.Exception as Exception (Handler(..), catch, catches, finally)
 import Control.Concurrent (forkIO, myThreadId)
 import Control.Distributed.Process.Internal.StrictMVar
   ( newMVar
@@ -177,6 +177,7 @@ import Control.Distributed.Process.Internal.Primitives
   , match
   , sendChan
   , catch
+  , unwrapMessage
   )
 import Control.Distributed.Process.Internal.Types (SendPort)
 import qualified Control.Distributed.Process.Internal.Closure.BuiltIn as BuiltIn (remoteTable)
@@ -349,9 +350,15 @@ forkProcess node proc = modifyMVar (localState node) startProcess
                                  , processNode   = node
                                  }
         tid' <- forkIO $ do
-          reason <- Exception.catch
+          reason <- Exception.catches
             (runLocalProcess lproc proc >> return DiedNormal)
-            (return . DiedException . (show :: SomeException -> String))
+            [ (Exception.Handler (\ex@(ProcessExitException from msg) -> do
+                 mMsg <- unwrapMessage msg :: IO (Maybe String)
+                 case mMsg of
+                   Nothing -> return $ DiedException $ show ex
+                   Just m  -> return $ DiedException ("exit-from=" ++ (show from) ++ ",reason=" ++ m)))
+            , (Exception.Handler
+                (return . DiedException . (show :: SomeException -> String)))]
 
           -- [Unified: Table 4, rules termination and exiting]
           modifyMVar_ (localState node) (cleanupProcess pid)
