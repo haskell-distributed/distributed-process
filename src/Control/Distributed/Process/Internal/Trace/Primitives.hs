@@ -3,6 +3,8 @@
 -- the messaging primitives that rely on it, and also between the node
 -- controller (which requires access to the tracing related elements of
 -- our RemoteTable) and the Debug module, which requires @forkProcess@.
+-- This module is also used by the management agent, which relies on the
+-- tracing infrastructure's messaging fabric.
 module Control.Distributed.Process.Internal.Trace.Primitives
   ( Tracer
   , TraceEvent(..)
@@ -59,21 +61,23 @@ import Control.Distributed.Process.Internal.Types
   , Process
   , ProcessId
   , LocalProcess(..)
-  , LocalNode(localTracer)
+  , LocalNode(localEventBus)
   , SendPort
+  , MxEventBus(..)
   )
 import Control.Distributed.Process.Serializable
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (ask)
 
+import Data.Maybe (isJust)
 import qualified Data.Set as Set (fromList)
 
 --------------------------------------------------------------------------------
 -- Main API                                                                   --
 --------------------------------------------------------------------------------
 
--- | Maps a list of identifiers that can be mapped to process ids,
--- to a 'TraceSubject'.
+-- | Converts a list of identifiers (that can be
+-- mapped to process ids), to a 'TraceSubject'.
 class Traceable a where
   uod :: [a] -> TraceSubject
 
@@ -98,10 +102,10 @@ traceOff = Nothing
 -- | Determine whether or not tracing has been enabled.
 isTracingEnabled :: Process Bool
 isTracingEnabled = do
-  node <- processNode <$> ask
-  case (localTracer node) of
-    (ActiveTracer _ _) -> return True
-    _                  -> return False
+  processNode <$> ask >>= return . isActive . tracer . localEventBus
+  where
+    isActive InactiveTracer     = False
+    isActive (ActiveTracer _ _) = True
 
 -- | Enable tracing to the supplied process.
 enableTraceAsync :: ProcessId -> Process ()
@@ -157,22 +161,28 @@ traceLogFmt d ls = withLocalTracer $ \t -> liftIO $ Tracer.traceLogFmt t d ls
 traceMessage :: Serializable m => m -> Process ()
 traceMessage msg = withLocalTracer $ \t -> liftIO $ Tracer.traceMessage t msg
 
-withLocalTracer :: (Tracer -> Process ()) -> Process ()
+withLocalTracer :: (MxEventBus -> Process ()) -> Process ()
 withLocalTracer act = do
   node <- processNode <$> ask
-  act (localTracer node)
+  act (localEventBus node)
 
-withLocalTracerSync :: (Tracer -> SendPort TraceOk -> IO ()) -> Process ()
+withLocalTracerSync :: (MxEventBus -> SendPort TraceOk -> IO ()) -> Process ()
 withLocalTracerSync act = do
   (sp, rp) <- newChan
-  withLocalTracer $ \t -> liftIO $ (act t sp)
+  withLocalTracer $ \t -> do
+    case (tracer t) of
+      InactiveTracer -> error "TraceDisabled"
+      _              -> liftIO $ (act t sp)
   TraceOk <- receiveChan rp
   return ()
 
 withRegisteredTracer :: (ProcessId -> Process a) -> Process a
 withRegisteredTracer act = do
   (sp, rp) <- newChan
-  withLocalTracer $ \t -> liftIO $ Tracer.getCurrentTraceClient t sp
+  withLocalTracer $ \t -> do
+    case (tracer t) of
+      InactiveTracer -> error "TraceDisabled"
+      _              -> liftIO $ Tracer.getCurrentTraceClient t sp
   currentTracer <- receiveChan rp
   case currentTracer of
     Nothing  -> do { (Just p') <- whereis "tracer.initial"; act p' }

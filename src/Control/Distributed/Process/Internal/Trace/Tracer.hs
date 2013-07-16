@@ -1,6 +1,6 @@
 -- | Tracing/Debugging support - Trace Implementation
 module Control.Distributed.Process.Internal.Trace.Tracer
-  ( -- * API for the Node Controller
+  ( -- * API for the Management Agent
     traceController
     -- * Built in tracers
   , defaultTracer
@@ -89,7 +89,9 @@ import System.Mem.Weak
   ( Weak
   )
 
-data TracerState = TracerST {
+data TracerState =
+  TracerST
+  {
     client   :: !(Maybe ProcessId)
   , flags    :: !TraceFlags
   , regNames :: !(Map ProcessId (Set String))
@@ -119,7 +121,7 @@ defaultEventLogTracer =
 checkEnv :: String -> Process String
 checkEnv s = liftIO $ getEnv s
 
--- This trace client is (intentionally) useful - it simply provides
+-- This trace client is (intentionally) a noop - it simply provides
 -- an intial client for the trace controller to talk to, until some
 -- other (hopefully more useful) client is installed over the top of
 -- it. This is the default trace client.
@@ -136,8 +138,7 @@ systemLoggerTracer = do
     sendTraceMsg :: LocalNode -> TraceEvent -> Process ()
     sendTraceMsg node ev = do
       now <- liftIO $ getCurrentTime
-      txt <- buildTxt ev
-      msg <- return $ (formatTime defaultTimeLocale "%c" now, txt)
+      msg <- return $ (formatTime defaultTimeLocale "%c" now, buildTxt ev)
       emptyPid <- return $ (nullProcessId (localNodeId node))
       traceMsg <- return $ NCMsg {
                              ctrlMsgSender = ProcessIdentifier (emptyPid)
@@ -146,9 +147,9 @@ systemLoggerTracer = do
                            }
       liftIO $ writeChan (localCtrlChan node) traceMsg
 
-    buildTxt :: TraceEvent -> Process String
-    buildTxt (TraceEvLog msg) = return msg
-    buildTxt ev               = return $ show ev
+    buildTxt :: TraceEvent -> String
+    buildTxt (TraceEvLog msg) = msg
+    buildTxt ev               = show ev
 
 eventLogTracer :: Process ()
 eventLogTracer =
@@ -245,7 +246,6 @@ traceController mv = do
       catch (checkEnv "DISTRIBUTED_PROCESS_TRACE_FLAGS" >>= return . parseFlags)
             (\(_ :: IOError) -> return defaultTraceFlags)
 
-    -- quick and dirty fold-while
     parseFlags :: String -> TraceFlags
     parseFlags s = parseFlags' s defaultTraceFlags
       where parseFlags' :: String -> TraceFlags -> TraceFlags
@@ -259,22 +259,6 @@ traceController mv = do
               | x == 'r'  = parseFlags' xs parsedFlags { traceRecv = traceOn }
               | x == 'l'  = parseFlags' xs parsedFlags { traceNodes = True }
               | otherwise = parseFlags' xs parsedFlags
-
--- note [runtime tracer control]
---
--- The trace mechanism is designed to put as little stress on the system, and
--- in particular the node controller, as possible. The LocalNode's @tracer@
--- field is therefore immutable, since we don't want to be blocking the node
--- controller when writing trace information out. The runtime cost of enabling
--- tracing is therefore the cost of enqueue for all trace-able operations at
--- all times. If tracing is not explicitly enabled, the trace record stored in
--- the local node state is matched and ignored in API calls, reducing the cost
--- to a single function call.
---
--- To /disable/ tracing facilities in a runtime system that has tracing enabled
--- then, is to instruct the tracer process not to forward any trace event data
--- and it is not possible to remove the runtime overhead (of enqueue in the
--- caller and dequeue + noop in the tracer process) once the node is started.
 
 applyTraceFlags :: TraceFlags -> TracerState -> Process TracerState
 applyTraceFlags flags' state = return state { flags = flags' }
@@ -334,8 +318,8 @@ traceEv ev msg (Just (TraceProcs pids)) st = do
     True  -> sendTrace st msg
     False -> return ()
 traceEv ev msg (Just (TraceNames names)) st = do
-  -- TODO: if we have recorded regnames for p, then we
-  -- forward the trace iif there are overlapping trace targets
+  -- if we have recorded regnames for p, then we forward the trace iif
+  -- there are overlapping trace targets
   node <- processNode <$> ask
   let p = case resolveToPid ev of
             Nothing  -> (nullProcessId (localNodeId node))

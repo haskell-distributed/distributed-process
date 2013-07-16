@@ -106,7 +106,7 @@ import Control.Distributed.Process.Internal.Types
   , LocalProcessId(..)
   , ProcessId(..)
   , LocalNode(..)
-  , Tracer(..)
+  , MxEventBus(..)
   , LocalNodeState(..)
   , LocalProcess(..)
   , LocalProcessState(..)
@@ -160,8 +160,7 @@ import Control.Distributed.Process.Internal.Trace.Types
   , enableTrace
   )
 import Control.Distributed.Process.Internal.Trace.Tracer
-  ( traceController
-  , defaultTracer
+  ( defaultTracer
   )
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Internal.Messaging
@@ -179,12 +178,15 @@ import Control.Distributed.Process.Internal.Primitives
   , catch
   , unwrapMessage
   )
-import Control.Distributed.Process.Internal.Types (SendPort)
+import Control.Distributed.Process.Internal.Types (SendPort, Tracer(..))
 import qualified Control.Distributed.Process.Internal.Closure.BuiltIn as BuiltIn (remoteTable)
 import Control.Distributed.Process.Internal.WeakTQueue (TQueue, writeTQueue)
 import qualified Control.Distributed.Process.Internal.StrictContainerAccessors as DAC
   ( mapMaybe
   , mapDefault
+  )
+import Control.Distributed.Process.Management.Agent
+  ( mxAgentController
   )
 import System.Environment (getEnv)
 import Unsafe.Coerce
@@ -222,10 +224,10 @@ createBareLocalNode endPoint rtable = do
                          , localEndPoint = endPoint
                          , localState    = state
                          , localCtrlChan = ctrlChan
-                         , localTracer   = InactiveTracer
+                         , localEventBus = MxEventBusInitialising
                          , remoteTable   = rtable
                          }
-    tracedNode <- startTracing node
+    tracedNode <- startMxAgent node
 
     -- Once the NC terminates, the endpoint isn't much use,
     void $ forkIO $ Exception.finally (runNodeController tracedNode)
@@ -243,38 +245,25 @@ createBareLocalNode endPoint rtable = do
             , ctrlMsgSignal = SigShutdown
             }
 
-startTracing :: LocalNode -> IO LocalNode
-startTracing node =
-  -- TODO: use tryGetEnv once we drop support for GHC 7.2.x
-  Exception.catch
-        (getEnv "DISTRIBUTED_PROCESS_TRACE_ENABLED" >> procTracer node)
-        (\(_ :: IOError) -> return node)
-  where procTracer :: LocalNode -> IO LocalNode
-        procTracer n = do
-          -- see note [tracer/forkProcess races]
-          mv <- MVar.newEmptyMVar
-          pid <- forkProcess n (traceController mv)
-          wqRef <- MVar.takeMVar mv
-          return n { localTracer = (ActiveTracer pid wqRef) }
+startMxAgent :: LocalNode -> IO LocalNode
+startMxAgent node = do
+  -- see note [tracer/forkProcess races]
+  let fork = forkProcess node
+  mv <- MVar.newEmptyMVar
+  pid <- fork $ mxAgentController fork mv
+  (tracer, wqRef, mxNew) <- MVar.takeMVar mv
+  return node { localEventBus = (MxEventBus pid tracer wqRef mxNew) }
 
-startDefaultTracer :: LocalNode -> IO (Maybe ProcessId)
-startDefaultTracer node =
-  Exception.catch
-        (getEnv "DISTRIBUTED_PROCESS_TRACE_ENABLED" >> go node)
-        (\(_ :: IOError) -> return Nothing)
-  where go :: LocalNode -> IO (Maybe ProcessId)
-        go node' = do
-          registerTraceController node'
-          pid <- forkProcess node' defaultTracer
-          enableTrace (localTracer node') pid
-          return (Just pid)
-
-        registerTraceController :: LocalNode -> IO ()
-        registerTraceController n =
-          let t = localTracer n in
-          case t of
-            InactiveTracer       -> return ()
-            (ActiveTracer pid _) -> runProcess n $ register "trace.controller" pid
+startDefaultTracer :: LocalNode -> IO ()
+startDefaultTracer node' = do
+  let t = localEventBus node'
+  case t of
+    MxEventBus _ (ActiveTracer pid _) _ _ -> do
+      runProcess node' $ register "trace.controller" pid
+      pid' <- forkProcess node' defaultTracer
+      enableTrace (localEventBus node') pid'
+      runProcess node' $ register "tracer.initial" pid'
+    _ -> return ()
 
 -- | Start and register the service processes on a node
 startServiceProcesses :: LocalNode -> IO ()
@@ -283,11 +272,7 @@ startServiceProcesses node = do
   -- the default tracer first, even though it might @nsend@ to the logger
   -- before /that/ process has started - this is a totally harmless race
   -- however, so we deliberably ignore it
-  mPid <- startDefaultTracer node
-  case mPid of
-    Nothing  -> return ()
-    Just pid -> runProcess node $ register "tracer.initial" pid
-
+  startDefaultTracer node
   logger <- forkProcess node loop
   runProcess node $ register "logger" logger
  where
@@ -401,7 +386,7 @@ forkProcess node proc = modifyMVar (localState node) startProcess
 --
 -- Our startTracing function uses forkProcess to start the trace controller
 -- process, and of course forkProcess attempts to call traceEvent once the
--- process has started. This is harmless, as the localTracer is not updated
+-- process has started. This is harmless, as the localEventBus is not updated
 -- until /after/ the initial forkProcess completes, so the first call to
 -- traceEvent behaves as if tracing were disabled (i.e., it is ignored).
 --
@@ -607,7 +592,7 @@ instance Show ProcessKillException where
 -- Tracing/Debugging                                                          --
 --------------------------------------------------------------------------------
 
--- [Issue #104]
+-- [Issue #104 / DP-13]
 
 traceNotifyDied :: LocalNode -> Identifier -> DiedReason -> NC ()
 traceNotifyDied node ident reason =
@@ -628,8 +613,8 @@ traceEventFmtIO node fmt args =
 trace :: LocalNode -> TraceEvent -> IO ()
 trace node ev = withLocalTracer node $ \t -> traceEvent t ev
 
-withLocalTracer :: LocalNode -> (Tracer -> IO ()) -> IO ()
-withLocalTracer node act = act (localTracer node)
+withLocalTracer :: LocalNode -> (MxEventBus -> IO ()) -> IO ()
+withLocalTracer node act = act (localEventBus node)
 
 --------------------------------------------------------------------------------
 -- Core functionality                                                         --

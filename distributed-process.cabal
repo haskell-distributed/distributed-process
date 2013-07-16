@@ -64,10 +64,13 @@ Library
                      Control.Distributed.Process.Closure,
                      Control.Distributed.Process.Debug,
                      Control.Distributed.Process.Internal.Types,
+                     Control.Distributed.Process.Management,
+                     Control.Distributed.Process.Management.Agent,
                      Control.Distributed.Process.Node,
                      Control.Distributed.Process.Serializable,
                      Control.Distributed.Process.UnsafePrimitives
   Other-modules:     Control.Distributed.Process.Internal.Primitives,
+                     Control.Distributed.Process.Management.Bus,
                      Control.Distributed.Process.Internal.Spawn,
                      Control.Distributed.Process.Internal.Primitives,
                      Control.Distributed.Process.Internal.CQueue,
@@ -180,10 +183,16 @@ Test-Suite TestTracing
                      test-framework >= 0.6 && < 0.9,
                      test-framework-hunit >= 0.2.0 && < 0.4,
                      unix >= 2.5.0.0
-  Extensions:        CPP,
+  Extensions:        RankNTypes,
                      ScopedTypeVariables,
+                     FlexibleInstances,
+                     UndecidableInstances,
+                     ExistentialQuantification,
+                     GADTs,
+                     GeneralizedNewtypeDeriving,
                      DeriveDataTypeable,
-                     GeneralizedNewtypeDeriving
+                     CPP,
+                     BangPatterns
   ghc-options:       -Wall -debug -eventlog -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   HS-Source-Dirs:    tests 
 

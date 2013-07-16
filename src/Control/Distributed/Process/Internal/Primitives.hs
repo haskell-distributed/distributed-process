@@ -226,7 +226,7 @@ send them msg = do
                                   msg
   -- We do not fire the trace event until after the sending is complete;
   -- In the remote case, 'sendMessage' can block in the networking stack.
-  liftIO $ traceEvent (localTracer node)
+  liftIO $ traceEvent (localEventBus node)
                       (TraceEvSent them us (createUnencodedMessage msg))
 
 -- | /Unsafe/ variant of 'send'. This function makes /no/ attempt to serialize
@@ -410,7 +410,7 @@ forward msg them = do
                                   (messageToPayload msg)
   -- We do not fire the trace event until after the sending is complete;
   -- In the remote case, 'sendMessage' can block in the networking stack.
-  liftIO $ traceEvent (localTracer node)
+  liftIO $ traceEvent (localEventBus node)
                       (TraceEvSent them us msg)
 
 

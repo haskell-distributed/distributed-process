@@ -17,6 +17,7 @@ module Control.Distributed.Process.Internal.Types
     -- * Local nodes and processes
   , LocalNode(..)
   , Tracer(..)
+  , MxEventBus(..)
   , LocalNodeState(..)
   , LocalProcess(..)
   , LocalProcessState(..)
@@ -198,22 +199,24 @@ nullProcessId nid =
 -- Local nodes and processes                                                  --
 --------------------------------------------------------------------------------
 
--- | Required for system tracing in the node controller
 data Tracer =
-    ActiveTracer !ProcessId !(Weak (CQueue Message)) -- note [tracer longevity]
-  | InactiveTracer
+    InactiveTracer
+  | ActiveTracer
+    {
+      tracerPid :: !ProcessId
+    , weakQ     :: !(Weak (CQueue Message))
+    }
 
--- note [tracer longevity]
---
--- If the trace controller process crashes, we make no attempt to restart it
--- or handle the failure. Tracing is done on a 'best effort' basis, because
--- to make stronger guarantees (e.g., handling failures) would introduce
--- significant complexity and adversely affect performance. As such, we access
--- the process' mailbox directly via a weak reference, and calls to a dead
--- process have no effect just as with normal process/send interactions.
---
--- Also note that the ProcessId stored in an active tracer is that of the first
--- (initially registered) system tracer process.
+-- | Required for the system management and tracing facilities
+data MxEventBus =
+    MxEventBusInitialising
+  | MxEventBus
+    {
+      agent  :: !ProcessId
+    , tracer :: !Tracer
+    , evbuss :: !(Weak (CQueue Message))
+    , mxNew  :: !((Message -> Process ()) -> IO ProcessId)
+    }
 
 -- | Local nodes
 data LocalNode = LocalNode
@@ -226,7 +229,7 @@ data LocalNode = LocalNode
     -- | Channel for the node controller
   , localCtrlChan   :: !(Chan NCMsg)
     -- | Current active system debug/trace log
-  , localTracer     :: !Tracer
+  , localEventBus   :: !MxEventBus
     -- | Runtime lookup table for supporting closures
     -- TODO: this should be part of the CH state, not the local endpoint state
   , remoteTable     :: !RemoteTable
