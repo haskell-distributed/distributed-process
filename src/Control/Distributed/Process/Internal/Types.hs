@@ -199,15 +199,14 @@ nullProcessId nid =
 -- Local nodes and processes                                                  --
 --------------------------------------------------------------------------------
 
-data Tracer =
-    InactiveTracer
-  | ActiveTracer
-    {
-      tracerPid :: !ProcessId
-    , weakQ     :: !(Weak (CQueue Message))
-    }
+-- | Provides access to the trace controller.
+data Tracer = Tracer
+              {
+                tracerPid :: !ProcessId
+              , weakQ     :: !(Weak (CQueue Message))
+              }
 
--- | Required for the system management and tracing facilities
+-- | Required for the system management and tracing facilities.
 data MxEventBus =
     MxEventBusInitialising
   | MxEventBus

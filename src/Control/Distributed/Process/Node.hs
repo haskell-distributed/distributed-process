@@ -258,7 +258,7 @@ startDefaultTracer :: LocalNode -> IO ()
 startDefaultTracer node' = do
   let t = localEventBus node'
   case t of
-    MxEventBus _ (ActiveTracer pid _) _ _ -> do
+    MxEventBus _ (Tracer pid _) _ _ -> do
       runProcess node' $ register "trace.controller" pid
       pid' <- forkProcess node' defaultTracer
       enableTrace (localEventBus node') pid'

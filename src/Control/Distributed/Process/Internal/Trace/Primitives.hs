@@ -13,7 +13,6 @@ module Control.Distributed.Process.Internal.Trace.Primitives
   , traceLogFmt
   , traceMessage
     -- * Configuring A Tracer
-  , isTracingEnabled
   , defaultTraceFlags
   , enableTrace
   , enableTraceAsync
@@ -99,14 +98,6 @@ traceOn = Just TraceAll
 traceOff :: Maybe TraceSubject
 traceOff = Nothing
 
--- | Determine whether or not tracing has been enabled.
-isTracingEnabled :: Process Bool
-isTracingEnabled = do
-  processNode <$> ask >>= return . isActive . tracer . localEventBus
-  where
-    isActive InactiveTracer     = False
-    isActive (ActiveTracer _ _) = True
-
 -- | Enable tracing to the supplied process.
 enableTraceAsync :: ProcessId -> Process ()
 enableTraceAsync pid = withLocalTracer $ \t -> liftIO $ Tracer.enableTrace t pid
@@ -169,20 +160,14 @@ withLocalTracer act = do
 withLocalTracerSync :: (MxEventBus -> SendPort TraceOk -> IO ()) -> Process ()
 withLocalTracerSync act = do
   (sp, rp) <- newChan
-  withLocalTracer $ \t -> do
-    case (tracer t) of
-      InactiveTracer -> error "TraceDisabled"
-      _              -> liftIO $ (act t sp)
+  withLocalTracer $ \t -> liftIO $ (act t sp)
   TraceOk <- receiveChan rp
   return ()
 
 withRegisteredTracer :: (ProcessId -> Process a) -> Process a
 withRegisteredTracer act = do
   (sp, rp) <- newChan
-  withLocalTracer $ \t -> do
-    case (tracer t) of
-      InactiveTracer -> error "TraceDisabled"
-      _              -> liftIO $ Tracer.getCurrentTraceClient t sp
+  withLocalTracer $ \t -> liftIO $ Tracer.getCurrentTraceClient t sp
   currentTracer <- receiveChan rp
   case currentTracer of
     Nothing  -> do { (Just p') <- whereis "tracer.initial"; act p' }

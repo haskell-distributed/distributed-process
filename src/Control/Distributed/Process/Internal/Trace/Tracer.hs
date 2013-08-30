@@ -191,8 +191,8 @@ logfileTracer p = do
 
 traceController :: MVar ((Weak (CQueue Message))) -> Process ()
 traceController mv = do
-    -- This breach of encapsulation is deliberate: we don't want to tie up
-    -- the node's internal control channel if we can possibly help it!
+    -- See the documentation for mxAgentController for a
+    -- commentary that explains this breach of encapsulation
     weakQueue <- processWeakQ <$> ask
     liftIO $ putMVar mv weakQueue
     initState <- initialState

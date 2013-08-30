@@ -328,11 +328,8 @@ tests node1 = do
   -- various tracers will race with one another and
   -- we'll get garbage results (or worse, deadlocks)
   lock <- liftIO $ newMVar ()
-  enabled <- checkTraceEnabled
-  case enabled of
-    True ->
-      return [
-        testGroup "Tracing" [
+  return [
+    testGroup "Tracing" [
            testCase "Spawn Tracing"
              (delayedAssertion
               "expected dead process-info to be ProcessInfoNone"
@@ -366,14 +363,6 @@ tests node1 = do
               "expected blah"
               node1 True testRemoteTraceRelay lock)
          ] ]
-    False ->
-      return []
-
-checkTraceEnabled :: IO Bool
-checkTraceEnabled =
-  Ex.catch (getEnv "DISTRIBUTED_PROCESS_TRACE_ENABLED" >> return True)
-           (\(_ :: IOError) -> return False)
-
 
 mkNode :: String -> IO LocalNode
 mkNode port = do
@@ -383,7 +372,6 @@ mkNode port = do
 
 main :: IO ()
 main = do
-  setEnv "DISTRIBUTED_PROCESS_TRACE_ENABLED" "true" True
   node1 <- mkNode "8081"
   testData <- tests node1
   defaultMain testData

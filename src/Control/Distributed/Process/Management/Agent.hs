@@ -66,16 +66,17 @@ type AgentConfig =
 -- @LocalNode@ would be inelegant. We forward messages directly to the
 -- trace controller's message queue, just as the @MxEventBus@ that's
 -- set up on the @LocalNode@ forwards messages directly to us. This
--- also optimises the code path for tracing and avoids overloading the
--- node controller with additional routing, at the cost of a little
--- more complexity for us here.
+-- optimises the code path for tracing and avoids overloading the node
+-- node controller's internal control plane with additional routing, at the
+-- cost of a little more complexity and two cases where we break
+-- encapsulation.
 --
 mxAgentController :: Fork
                   -> MVar AgentConfig
                   -> Process ()
 mxAgentController forkProcess mv = do
     node <- processNode <$> ask
-    trc <- liftIO $ startTracing forkProcess node
+    trc <- liftIO $ startTracing forkProcess
     sigbus <- liftIO $ newBroadcastTChanIO
     weakQueue <- processWeakQ <$> ask
     liftIO $ putMVar mv (trc, weakQueue, mxAgent forkProcess sigbus)
@@ -88,14 +89,15 @@ mxAgentController forkProcess mv = do
           -- our mailbox, the dequeue (i.e., matchMessage) can fail and
           -- crash this process, which we DO NOT want. Alternatively,
           -- we handle IO exceptions here explicitly, since we don't want
-          -- this process to every crash, and the assumption we therefore
+          -- this process to ever crash, and the assumption we therefore
           -- make is thus:
           --
-          -- 1. only ThreadKilled can tell this thread to terminate
+          -- 1. only ThreadKilled can tell this process to terminate
           -- 2. all other exceptions are invalid and should be ignored
           --
-          -- The outcome of course, is that /bad/ calls to mxNotify will
-          -- be silently ignored.
+          -- The outcome of course, is that /bad/ calls to mxNotify
+          -- (e.g., passing unevaluated thunks that will crash when
+          -- they're eventually forced) are thus silently ignored.
           --
           matchAny (\msg -> liftIO $ broadcast bus tracer msg)
         ] `catches` [Handler (\ThreadKilled -> die "Killed"),
@@ -107,8 +109,7 @@ mxAgentController forkProcess mv = do
       atomicBroadcast ch tmQueue msg
 
     tracerQueue :: Tracer -> IO (Maybe (CQueue Message))
-    tracerQueue InactiveTracer      = return Nothing
-    tracerQueue (ActiveTracer _ wQ) = deRefWeak wQ
+    tracerQueue (Tracer _ wQ) = deRefWeak wQ
 
     atomicBroadcast :: TChan Message
                     -> Maybe (CQueue Message)
@@ -125,17 +126,10 @@ mxAgent fork chan handler = (atomically (dupTChan chan)) >>= fork . run handler
     run handler' chan' = do
       (liftIO $ atomically $ readTChan chan') >>= handler' >> run handler' chan'
 
-startTracing :: Fork -> LocalNode -> IO Tracer
-startTracing forkProcess node =
-  -- TODO: use tryGetEnv once we drop support for GHC 7.2.x
-  Ex.catch
-        (getEnv "DISTRIBUTED_PROCESS_TRACE_ENABLED" >> startTracing' forkProcess node)
-        (\(_ :: IOError) -> return InactiveTracer)
-  where
-    startTracing' :: Fork -> LocalNode -> IO Tracer
-    startTracing' fork' n = do
-      mv  <- newEmptyMVar
-      pid <- fork' $ traceController mv
-      wQ  <- liftIO $ takeMVar mv
-      return $ ActiveTracer pid wQ
+startTracing :: Fork -> IO Tracer
+startTracing forkProcess = do
+  mv  <- newEmptyMVar
+  pid <- forkProcess $ traceController mv
+  wQ  <- liftIO $ takeMVar mv
+  return $ Tracer pid wQ
 
