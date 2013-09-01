@@ -145,19 +145,19 @@ import Control.Distributed.Process.Internal.Types
   , LocalProcess(..)
   , ProcessMonitorNotification(..)
   )
-import Control.Distributed.Process.Internal.Trace.Types
+import Control.Distributed.Process.Management.Trace.Types
   ( TraceArg(..)
   , MxEvent(..)
   , TraceFlags(..)
   , TraceSubject(..)
   , defaultTraceFlags
   )
-import Control.Distributed.Process.Internal.Trace.Tracer
+import Control.Distributed.Process.Management.Trace.Tracer
   ( systemLoggerTracer
   , logfileTracer
   , eventLogTracer
   )
-import Control.Distributed.Process.Internal.Trace.Primitives
+import Control.Distributed.Process.Management.Trace.Primitives
   ( withRegisteredTracer
   , enableTrace
   , enableTraceAsync
@@ -172,7 +172,7 @@ import Control.Distributed.Process.Internal.Trace.Primitives
   , traceLogFmt
   , traceMessage
   )
-import qualified Control.Distributed.Process.Internal.Trace.Remote as Remote
+import qualified Control.Distributed.Process.Management.Trace.Remote as Remote
 import Control.Distributed.Process.Node
 
 import Control.Exception (SomeException)

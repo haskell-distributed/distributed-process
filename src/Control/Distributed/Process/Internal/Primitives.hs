@@ -191,7 +191,7 @@ import Control.Distributed.Process.Internal.Messaging
   , disconnect
   , sendCtrlMsg
   )
-import Control.Distributed.Process.Internal.Trace.Types
+import Control.Distributed.Process.Management.Trace.Types
   ( traceEvent
   , MxEvent(..)
   )

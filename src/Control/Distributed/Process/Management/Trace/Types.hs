@@ -1,5 +1,5 @@
 -- | Tracing/Debugging support - Types
-module Control.Distributed.Process.Internal.Trace.Types
+module Control.Distributed.Process.Management.Trace.Types
   ( MxEventBus(..)
   , MxEvent(..)
   , SetTrace(..)

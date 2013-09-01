@@ -5,7 +5,7 @@
 -- our RemoteTable) and the Debug module, which requires @forkProcess@.
 -- This module is also used by the management agent, which relies on the
 -- tracing infrastructure's messaging fabric.
-module Control.Distributed.Process.Internal.Trace.Primitives
+module Control.Distributed.Process.Management.Trace.Primitives
   ( Tracer
   , MxEvent(..)
     -- * Sending Trace Data
@@ -34,7 +34,7 @@ import Control.Distributed.Process.Internal.Primitives
   , newChan
   , receiveChan
   )
-import Control.Distributed.Process.Internal.Trace.Types
+import Control.Distributed.Process.Management.Trace.Types
   ( TraceArg(..)
   , MxEvent(..)
   , TraceFlags(..)
@@ -42,7 +42,7 @@ import Control.Distributed.Process.Internal.Trace.Types
   , TraceSubject(..)
   , defaultTraceFlags
   )
-import qualified Control.Distributed.Process.Internal.Trace.Types as Tracer
+import qualified Control.Distributed.Process.Management.Trace.Types as Tracer
   ( traceLog
   , traceLogFmt
   , traceMessage

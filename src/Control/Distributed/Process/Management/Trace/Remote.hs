@@ -1,4 +1,4 @@
-module Control.Distributed.Process.Internal.Trace.Remote
+module Control.Distributed.Process.Management.Trace.Remote
   ( -- * Configuring A Tracer
     setTraceFlagsRemote
   , startTraceRelay
@@ -14,11 +14,11 @@ import Control.Distributed.Process.Internal.Primitives
   , relay
   , nsendRemote
   )
-import Control.Distributed.Process.Internal.Trace.Types
+import Control.Distributed.Process.Management.Trace.Types
   ( TraceFlags(..)
   , TraceOk(..)
   )
-import Control.Distributed.Process.Internal.Trace.Primitives
+import Control.Distributed.Process.Management.Trace.Primitives
   ( withRegisteredTracer
   , enableTrace
   )

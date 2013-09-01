@@ -23,7 +23,7 @@ import Control.Distributed.Process.Internal.CQueue
   ( enqueueSTM
   , CQueue
   )
-import Control.Distributed.Process.Internal.Trace.Tracer
+import Control.Distributed.Process.Management.Trace.Tracer
   ( traceController
   )
 import Control.Distributed.Process.Internal.Types

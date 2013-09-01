@@ -149,17 +149,17 @@ import Control.Distributed.Process.Internal.Types
   , firstNonReservedProcessId
   , ImplicitReconnect(WithImplicitReconnect)
   )
-import qualified Control.Distributed.Process.Internal.Trace.Remote as Trace
+import qualified Control.Distributed.Process.Management.Trace.Remote as Trace
   ( remoteTable
   )
-import Control.Distributed.Process.Internal.Trace.Types
+import Control.Distributed.Process.Management.Trace.Types
   ( TraceArg(..)
   , MxEvent(..)
   , traceEvent
   , traceLogFmt
   , enableTrace
   )
-import Control.Distributed.Process.Internal.Trace.Tracer
+import Control.Distributed.Process.Management.Trace.Tracer
   ( defaultTracer
   )
 import Control.Distributed.Process.Serializable (Serializable)

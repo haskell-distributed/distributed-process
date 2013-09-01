@@ -1,5 +1,5 @@
 -- | Tracing/Debugging support - Trace Implementation
-module Control.Distributed.Process.Internal.Trace.Tracer
+module Control.Distributed.Process.Management.Trace.Tracer
   ( -- * API for the Management Agent
     traceController
     -- * Built in tracers
@@ -31,7 +31,7 @@ import Control.Distributed.Process.Internal.Primitives
   , handleMessage
   , matchUnknown
   )
-import Control.Distributed.Process.Internal.Trace.Types
+import Control.Distributed.Process.Management.Trace.Types
   ( MxEvent(..)
   , SetTrace(..)
   , Addressable(..)
@@ -40,7 +40,7 @@ import Control.Distributed.Process.Internal.Trace.Types
   , TraceOk(..)
   , defaultTraceFlags
   )
-import Control.Distributed.Process.Internal.Trace.Primitives
+import Control.Distributed.Process.Management.Trace.Primitives
   ( traceOn )
 import Control.Distributed.Process.Internal.Types
   ( LocalNode(..)
