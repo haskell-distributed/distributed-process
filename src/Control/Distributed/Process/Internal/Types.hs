@@ -215,6 +215,7 @@ data MxEventBus =
     , tracer :: !Tracer
     , evbuss :: !(Weak (CQueue Message))
     , mxNew  :: !((Message -> Process ()) -> IO ProcessId)
+--    , mxReg  :: !(StrictMVar (Map MxAgentId ))
     }
 
 -- | Local nodes

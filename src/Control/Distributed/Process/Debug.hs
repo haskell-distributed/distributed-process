@@ -20,10 +20,10 @@
 -- Throughout the lifecycle of a local node, the distributed-process runtime
 -- generates /trace events/, describing internal runtime activities such as
 -- the spawning and death of processes, message sending, delivery and so on.
--- See the 'TraceEvent' type's documentation for a list of all the published
--- event types.
+-- See the 'MxEvent' type's documentation for a list of all the published
+-- event types, which correspond directly to the types of 'Management' event.
 -- Users can additionally publish custom trace events in the form of
--- 'TraceEvLog' log messages or pass custom (i.e., completely user defined)
+-- 'MxLog' log messages or pass custom (i.e., completely user defined)
 -- event data using the 'traceMessage' function.
 --
 -- All published traces are forwarded to a /tracer process/, which can be
@@ -92,7 +92,7 @@
 module Control.Distributed.Process.Debug
   ( -- * Exported Data Types
     TraceArg(..)
-  , TraceEvent(..)
+  , MxEvent(..)
   , TraceFlags(..)
   , TraceSubject(..)
     -- * Configuring Tracing
@@ -147,7 +147,7 @@ import Control.Distributed.Process.Internal.Types
   )
 import Control.Distributed.Process.Internal.Trace.Types
   ( TraceArg(..)
-  , TraceEvent(..)
+  , MxEvent(..)
   , TraceFlags(..)
   , TraceSubject(..)
   , defaultTraceFlags
@@ -197,7 +197,7 @@ import Prelude hiding (catch)
 -- through all the layers in turn. Once the top layer is stopped, the user
 -- is responsible for re-registering the original (prior) tracer pid before
 -- terminating. See 'withTracer' for a mechanism that handles that.
-startTracer :: (TraceEvent -> Process ()) -> Process ProcessId
+startTracer :: (MxEvent -> Process ()) -> Process ProcessId
 startTracer handler = do
   withRegisteredTracer $ \pid -> do
     node <- processNode <$> ask
@@ -209,7 +209,7 @@ startTracer handler = do
 -- disable tracing thereafter, before giving the result (or exception
 -- in case of failure).
 withTracer :: forall a.
-              (TraceEvent -> Process ())
+              (MxEvent -> Process ())
            -> Process a
            -> Process (Either SomeException a)
 withTracer handler proc = do
@@ -224,7 +224,7 @@ withTracer handler proc = do
         Nothing -> return ()
         Just _  -> do
           ref <- monitor tracer
-          send tracer TraceEvDisable
+          send tracer MxTraceDisable
           receiveWait [
               matchIf (\(ProcessMonitorNotification ref' _ _) -> ref == ref')
                       (\_ -> return ())
@@ -241,12 +241,12 @@ withFlags flags proc = do
   finally (setTraceFlags flags >> try proc)
           (setTraceFlags oldFlags)
 
-traceProxy :: ProcessId -> (TraceEvent -> Process ()) -> Process ()
+traceProxy :: ProcessId -> (MxEvent -> Process ()) -> Process ()
 traceProxy pid act = do
-  proxy pid $ \(ev :: TraceEvent) ->
+  proxy pid $ \(ev :: MxEvent) ->
     case ev of
-      (TraceEvTakeover _) -> return False
-      TraceEvDisable      -> die "disabled"
+      (MxTraceTakeover _) -> return False
+      MxTraceDisable      -> die "disabled"
       _                   -> act ev >> return True
 
 -- | Stops a user supplied tracer started with 'startTracer'.
@@ -272,5 +272,5 @@ stopTracer =
     basePid <- whereis "tracer.initial"
     case basePid == (Just pid) of
       True  -> return ()
-      False -> send pid TraceEvDisable
+      False -> send pid MxTraceDisable
 

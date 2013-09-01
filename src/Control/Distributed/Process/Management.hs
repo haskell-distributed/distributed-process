@@ -20,7 +20,7 @@
 --
 -- /Management Extensions/ for Cloud Haskell.
 --
--- This module provides a standard API for monitoring and/or responding to
+-- This module provides a standard API for receiving and/or responding to
 -- system events in a Cloud Haskell node.
 --
 -- [Architecture Overview]
@@ -35,7 +35,6 @@
 -- 1. @Agent@ - registration and management of /Management Agents/
 -- 2. @Instrumentation@ - provides an API for publishing /instrumentation data/
 -- 3. @Remote@ - provides an API for remote management and administration
---
 --
 --
 -----------------------------------------------------------------------------
@@ -72,4 +71,14 @@ mxAgent handler = do
   pid <- liftIO $ mxNew (localEventBus node) handler
   -- registerAgent pid
   return pid
+
+mxPublish = undefined
+
+mxSet = undefined
+
+mxGet = undefined
+
+mxIncrement = undefined
+
+mxDecrement = undefined
 

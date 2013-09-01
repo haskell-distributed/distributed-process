@@ -154,7 +154,7 @@ import qualified Control.Distributed.Process.Internal.Trace.Remote as Trace
   )
 import Control.Distributed.Process.Internal.Trace.Types
   ( TraceArg(..)
-  , TraceEvent(..)
+  , MxEvent(..)
   , traceEvent
   , traceLogFmt
   , enableTrace
@@ -355,7 +355,7 @@ forkProcess node proc = modifyMVar (localState node) startProcess
 
 
       -- see note [tracer/forkProcess races]
-      trace node (TraceEvSpawned pid)
+      trace node (MxSpawned pid)
 
       if lpidCounter lpid == maxBound
         then do
@@ -435,7 +435,7 @@ handleIncomingMessages node = go initConnectionState
         NT.ConnectionOpened cid rel theirAddr ->
           if rel == NT.ReliableOrdered
             then
-              trace node (TraceEvConnected cid)
+              trace node (MxConnected cid theirAddr)
               >> go (
                       (incomingAt cid ^= Just (theirAddr, Uninit))
                     . (incomingFrom theirAddr ^: Set.insert cid)
@@ -451,7 +451,7 @@ handleIncomingMessages node = go initConnectionState
                 -- it from the NC state? (and same for channels, below)
                 let msg = payloadToMessage payload
                 enqueue queue msg -- 'enqueue' is strict
-                trace node (TraceEvReceived pid msg)
+                trace node (MxReceived pid msg)
               go st
             Just (_, ToChan (TypedChannel chan')) -> do
               mChan <- deRefWeak chan'
@@ -500,7 +500,7 @@ handleIncomingMessages node = go initConnectionState
             Nothing ->
               invalidRequest cid st
             Just (src, _) -> do
-              trace node (TraceEvDisconnected cid)
+              trace node (MxDisconnected cid src)
               go ( (incomingAt cid ^= Nothing)
                  . (incomingFrom src ^: Set.delete cid)
                  $ st
@@ -599,8 +599,8 @@ traceNotifyDied node ident reason =
   -- TODO: sendPortDied notifications
   liftIO $ withLocalTracer node $ \t ->
     case ident of
-      (NodeIdentifier nid)    -> traceEvent t (TraceEvNodeDied nid reason)
-      (ProcessIdentifier pid) -> traceEvent t (TraceEvDied pid reason)
+      (NodeIdentifier nid)    -> traceEvent t (MxNodeDied nid reason)
+      (ProcessIdentifier pid) -> traceEvent t (MxProcessDied pid reason)
       _                       -> return ()
 
 traceEventFmtIO :: LocalNode
@@ -610,7 +610,7 @@ traceEventFmtIO :: LocalNode
 traceEventFmtIO node fmt args =
   withLocalTracer node $ \t -> traceLogFmt t fmt args
 
-trace :: LocalNode -> TraceEvent -> IO ()
+trace :: LocalNode -> MxEvent -> IO ()
 trace node ev = withLocalTracer node $ \t -> traceEvent t ev
 
 withLocalTracer :: LocalNode -> (MxEventBus -> IO ()) -> IO ()
@@ -781,7 +781,7 @@ ncEffectSpawn pid cProc ref = do
   mProc <- unClosure cProc
   -- If the closure does not exist, we spawn a process that throws an exception
   -- This allows the remote node to find out what's happening
-  -- TODO: 
+  -- TODO:
   let proc = case mProc of
                Left err -> fail $ "Error: Could not resolve closure: " ++ err
                Right p  -> p
@@ -813,8 +813,8 @@ ncEffectRegister from label atnode mPid reregistration = do
                do modify' $ registeredHereFor label ^= mPid
                   updateRemote node currentVal mPid
                   case mPid of
-                    (Just p) -> liftIO $ trace node (TraceEvRegistered p label)
-                    Nothing  -> liftIO $ trace node (TraceEvUnRegistered (fromJust currentVal) label)
+                    (Just p) -> liftIO $ trace node (MxRegistered p label)
+                    Nothing  -> liftIO $ trace node (MxUnRegistered (fromJust currentVal) label)
              liftIO $ sendMessage node
                        (NodeIdentifier (localNodeId node))
                        (ProcessIdentifier from)
@@ -882,7 +882,7 @@ ncEffectLocalSend :: LocalNode -> ProcessId -> Message -> NC ()
 ncEffectLocalSend node to msg =
   liftIO $ withLocalProc node to $ \p -> do
     enqueue (processQueue p) msg
-    trace node (TraceEvReceived to msg)
+    trace node (MxReceived to msg)
 
 -- [Issue #DP-20]
 ncEffectLocalPortSend :: SendPortId -> Message -> NC ()

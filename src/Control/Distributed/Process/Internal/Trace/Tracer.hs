@@ -32,7 +32,7 @@ import Control.Distributed.Process.Internal.Primitives
   , matchUnknown
   )
 import Control.Distributed.Process.Internal.Trace.Types
-  ( TraceEvent(..)
+  ( MxEvent(..)
   , SetTrace(..)
   , Addressable(..)
   , TraceSubject(..)
@@ -135,7 +135,7 @@ systemLoggerTracer = do
   let tr = sendTraceMsg node
   forever' $ receiveWait [ matchAny (\m -> handleMessage m tr) ]
   where
-    sendTraceMsg :: LocalNode -> TraceEvent -> Process ()
+    sendTraceMsg :: LocalNode -> MxEvent -> Process ()
     sendTraceMsg node ev = do
       now <- liftIO $ getCurrentTime
       msg <- return $ (formatTime defaultTimeLocale "%c" now, buildTxt ev)
@@ -147,9 +147,9 @@ systemLoggerTracer = do
                            }
       liftIO $ writeChan (localCtrlChan node) traceMsg
 
-    buildTxt :: TraceEvent -> String
-    buildTxt (TraceEvLog msg) = msg
-    buildTxt ev               = show ev
+    buildTxt :: MxEvent -> String
+    buildTxt (MxLog msg) = msg
+    buildTxt ev          = show ev
 
 eventLogTracer :: Process ()
 eventLogTracer =
@@ -158,7 +158,7 @@ eventLogTracer =
   -- is a tracer process installed. This is just a stop gap until then.
   forever' $ receiveWait [ matchAny (\m -> handleMessage m writeTrace) ]
   where
-    writeTrace :: TraceEvent -> Process ()
+    writeTrace :: MxEvent -> Process ()
     writeTrace ev = liftIO $ traceEventIO (show ev)
 
 logfileTracer :: FilePath -> Process ()
@@ -172,14 +172,14 @@ logfileTracer p = do
     logger h' = forever' $ do
       receiveWait [
           matchIf (\ev -> case ev of
-                            TraceEvDisable      -> True
-                            (TraceEvTakeover _) -> True
+                            MxTraceDisable      -> True
+                            (MxTraceTakeover _) -> True
                             _                   -> False)
                   (\_ -> (liftIO $ hClose h') >> die "trace stopped")
         , matchAny (\ev -> handleMessage ev (writeTrace h'))
         ]
 
-    writeTrace :: Handle -> TraceEvent -> Process ()
+    writeTrace :: Handle -> MxEvent -> Process ()
     writeTrace h ev = do
       liftIO $ do
         now <- getCurrentTime
@@ -200,23 +200,23 @@ traceController mv = do
   where
     traceLoop :: TracerState -> Process ()
     traceLoop st = do
-      -- Trace events are forwarded to the trace target when tracing is enabled.
+      -- Trace events are forwarded to the enabled trace target.
       -- At some point in the future, we're going to start writing these custom
       -- events to the ghc eventlog, at which point this design might change.
       st' <- receiveWait [
           match (\(setResp, set :: SetTrace) -> do
-                  -- We allow at most one trace client, which is a process id.
+                  -- We consider at most one trace client, which is a process.
                   -- Tracking multiple clients represents too high an overhead,
-                  -- so we leave that kind of thing to our consumers to figure
-                  -- figure out.
+                  -- so we leave that kind of thing to our consumers (e.g., the
+                  -- high level Debug client module) to figure out.
                   case set of
                     (TraceEnable pid) -> do
                       -- notify the previous tracer it has been replaced
-                      sendTrace st (createUnencodedMessage (TraceEvTakeover pid))
+                      sendTrace st (createUnencodedMessage (MxTraceTakeover pid))
                       sendOk setResp
                       return st { client = (Just pid) }
                     TraceDisable -> do
-                      sendTrace st (createUnencodedMessage TraceEvDisable)
+                      sendTrace st (createUnencodedMessage MxTraceDisable)
                       sendOk setResp
                       return st { client = Nothing })
         , match (\(confResp, flags') ->
@@ -225,7 +225,7 @@ traceController mv = do
         , match (\chGetCurrent -> sendChan chGetCurrent (client st) >> return st)
           -- we dequeue incoming events even if we don't process them
         , matchAny (\ev ->
-                 handleMessage ev (handleTrace st ev) >>= return . fromMaybe st)
+            handleMessage ev (handleTrace st ev) >>= return . fromMaybe st)
         ]
       traceLoop st'
 
@@ -263,8 +263,8 @@ traceController mv = do
 applyTraceFlags :: TraceFlags -> TracerState -> Process TracerState
 applyTraceFlags flags' state = return state { flags = flags' }
 
-handleTrace :: TracerState -> Message -> TraceEvent -> Process TracerState
-handleTrace st msg ev@(TraceEvRegistered p n) =
+handleTrace :: TracerState -> Message -> MxEvent -> Process TracerState
+handleTrace st msg ev@(MxRegistered p n) =
   let regNames' =
         Map.insertWith (\_ ns -> Set.insert n ns) p
                        (Set.singleton n)
@@ -272,7 +272,7 @@ handleTrace st msg ev@(TraceEvRegistered p n) =
   in do
     traceEv ev msg (traceRegistered (flags st)) st
     return st { regNames = regNames' }
-handleTrace st msg ev@(TraceEvUnRegistered p n) =
+handleTrace st msg ev@(MxUnRegistered p n) =
   let f ns = case ns of
                Nothing  -> Nothing
                Just ns' -> Just (Set.delete n ns')
@@ -280,29 +280,29 @@ handleTrace st msg ev@(TraceEvUnRegistered p n) =
   in do
     traceEv ev msg (traceUnregistered (flags st)) st
     return st { regNames = regNames' }
-handleTrace st msg ev@(TraceEvSpawned  _)   = do
+handleTrace st msg ev@(MxSpawned  _)   = do
   traceEv ev msg (traceSpawned (flags st)) st >> return st
-handleTrace st msg ev@(TraceEvDied _ _)     = do
+handleTrace st msg ev@(MxProcessDied _ _)     = do
   traceEv ev msg (traceDied (flags st)) st >> return st
-handleTrace st msg ev@(TraceEvSent _ _ _)   =
+handleTrace st msg ev@(MxSent _ _ _)   =
   traceEv ev msg (traceSend (flags st)) st >> return st
-handleTrace st msg ev@(TraceEvReceived _ _) =
+handleTrace st msg ev@(MxReceived _ _) =
   traceEv ev msg (traceRecv (flags st)) st >> return st
 handleTrace st msg ev = do
   case ev of
-    (TraceEvNodeDied _ _) ->
+    (MxNodeDied _ _) ->
       case (traceNodes (flags st)) of
         True  -> sendTrace st msg
         False -> return ()
-    (TraceEvUser _) -> sendTrace st msg
-    (TraceEvLog _)  -> sendTrace st msg
+    (MxUser _) -> sendTrace st msg
+    (MxLog _)  -> sendTrace st msg
     _ ->
       case (traceConnections (flags st)) of
         True  -> sendTrace st msg
         False -> return ()
   return st
 
-traceEv :: TraceEvent
+traceEv :: MxEvent
         -> Message
         -> Maybe TraceSubject
         -> TracerState

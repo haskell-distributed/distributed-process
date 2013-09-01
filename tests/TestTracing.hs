@@ -18,7 +18,6 @@ import Control.Distributed.Process.Node
   , initRemoteTable
   , closeLocalNode
   , LocalNode)
-import Control.Exception as Ex (catch)
 import Network.Transport.TCP
 #if ! MIN_VERSION_base(4,6,0)
 import Prelude hiding (catch, log)
@@ -31,11 +30,6 @@ import Test.Framework
 import Test.HUnit (Assertion)
 import Test.HUnit.Base (assertBool)
 import Test.Framework.Providers.HUnit (testCase)
-
-import System.Environment (getEnv)
-import System.Posix.Env
-  ( setEnv
-  )
 
 -- these utilities have been cribbed from distributed-process-platform
 -- we should really find a way to share them...
@@ -81,8 +75,8 @@ testSpawnTracing result = do
   evDied <- liftIO $ newEmptyMVar
   tracer <- startTracer $ \ev -> do
     case ev of
-      (TraceEvSpawned p) -> liftIO $ putMVar evSpawned p
-      (TraceEvDied p r)  -> liftIO $ putMVar evDied (p, r)
+      (MxSpawned p)       -> liftIO $ putMVar evSpawned p
+      (MxProcessDied p r) -> liftIO $ putMVar evDied (p, r)
       _ -> return ()
 
   (sp, rp) <- newChan
@@ -115,7 +109,7 @@ testTraceRecvExplicitPid result = do
     withTracer
       (\ev ->
         case ev of
-          (TraceEvReceived pid' _) -> stash res (pid == pid')
+          (MxReceived pid' _) -> stash res (pid == pid')
           _                        -> return ()) $ do
         (sp, rp) <- newChan
         send pid sp
@@ -137,7 +131,7 @@ testTraceRecvNamedPid result = do
     withTracer
       (\ev ->
         case ev of
-          (TraceEvReceived pid' _) -> stash res (pid == pid')
+          (MxReceived pid' _) -> stash res (pid == pid')
           _                        -> return ()) $ do
         (sp, rp) <- newChan
         send pid sp
@@ -155,7 +149,7 @@ testTraceSending result = do
     withTracer
       (\ev ->
         case ev of
-          (TraceEvSent to from msg) -> do
+          (MxSent to from msg) -> do
             (Just s) <- unwrapMessage msg :: Process (Maybe String)
             stash res (to == pid && from == self && s == "hello there")
             stash res (to == pid && from == self)
@@ -180,7 +174,7 @@ testTraceRegistration result = do
     withTracer
       (\ev ->
         case ev of
-          TraceEvRegistered p s ->
+          MxRegistered p s ->
             stash res (p == pid && s == "foobar")
           _ ->
             return ()) $ do
@@ -207,7 +201,7 @@ testTraceUnRegistration result = do
     withTracer
       (\ev ->
         case ev of
-          TraceEvUnRegistered p n -> do
+          MxUnRegistered p n -> do
             stash res (p == pid && n == "foobar")
             send pid ()
           _ ->
@@ -241,21 +235,21 @@ testTraceLayering result = do
       withTracer
        (\ev ->
          case ev of
-           TraceEvDied _ _ -> liftIO $ putMVar died ()
-           _               -> return ())
+           MxProcessDied _ _ -> liftIO $ putMVar died ()
+           _                 -> return ())
        ( do {
            recv <- liftIO $ newEmptyMVar
          ; withTracer
             (\ev' ->
               case ev' of
-                TraceEvReceived _ _ -> liftIO $ putMVar recv ()
+                MxReceived _ _ -> liftIO $ putMVar recv ()
                 _                   -> return ())
             ( do {
                 user <- liftIO $ newEmptyMVar
               ; withTracer
                   (\ev'' ->
                     case ev'' of
-                      TraceEvUser _ -> liftIO $ putMVar user ()
+                      MxUser _ -> liftIO $ putMVar user ()
                       _             -> return ())
                   (send pid () >> (liftIO $ takeMVar user))
               ; liftIO $ takeMVar recv
@@ -276,7 +270,7 @@ testRemoteTraceRelay result =
     -- garbage on stderr for the duration of the test run.
     -- Here we set up that relay, and then wait for a signal
     -- that the tracer (on node1) has seen the expected
-    -- TraceEvSpawned message, at which point we're finished
+    -- MxSpawned message, at which point we're finished
     (Just log') <- whereis "logger"
     pid <- liftIO $ forkProcess node2 $ do
       logRelay <- spawnLocal $ relay log'
@@ -293,7 +287,7 @@ testRemoteTraceRelay result =
       withTracer
         (\ev ->
           case ev of
-            TraceEvSpawned p -> stash observedPid p >> send pid ()
+            MxSpawned p -> stash observedPid p >> send pid ()
             _                -> return ()) $ do
           relayPid <- startTraceRelay nid
           liftIO $ threadDelay 1000000

@@ -7,7 +7,7 @@
 -- tracing infrastructure's messaging fabric.
 module Control.Distributed.Process.Internal.Trace.Primitives
   ( Tracer
-  , TraceEvent(..)
+  , MxEvent(..)
     -- * Sending Trace Data
   , traceLog
   , traceLogFmt
@@ -36,7 +36,7 @@ import Control.Distributed.Process.Internal.Primitives
   )
 import Control.Distributed.Process.Internal.Trace.Types
   ( TraceArg(..)
-  , TraceEvent(..)
+  , MxEvent(..)
   , TraceFlags(..)
   , TraceOk(..)
   , TraceSubject(..)

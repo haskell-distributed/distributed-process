@@ -1,7 +1,7 @@
 -- | Tracing/Debugging support - Types
 module Control.Distributed.Process.Internal.Trace.Types
   ( MxEventBus(..)
-  , TraceEvent(..)
+  , MxEvent(..)
   , SetTrace(..)
   , Addressable(..)
   , TraceSubject(..)
@@ -47,6 +47,7 @@ import Data.Typeable
 import System.Mem.Weak (deRefWeak)
 import Network.Transport
   ( ConnectionId
+  , EndPointAddress
   )
 
 --------------------------------------------------------------------------------
@@ -56,47 +57,49 @@ import Network.Transport
 data SetTrace = TraceEnable !ProcessId | TraceDisable
   deriving (Typeable, Eq, Show)
 
+-- TODO: MOVE the whole Trace namespace into C.D.Process.Management
+
 -- | An event that is fired when something /interesting/ happens.
 -- Trace events are forwarded to a trace listener process, of which
 -- at most one can be registered per-node.
-data TraceEvent =
-    TraceEvSpawned        ProcessId
+data MxEvent =
+    MxSpawned          ProcessId
     -- ^ fired whenever a local process is spawned
-  | TraceEvRegistered     ProcessId    String
+  | MxRegistered       ProcessId    String
     -- ^ fired whenever a process/name is registered (locally)
-  | TraceEvUnRegistered   ProcessId    String
+  | MxUnRegistered     ProcessId    String
     -- ^ fired whenever a process/name is unregistered (locally)
-  | TraceEvDied           ProcessId    DiedReason
+  | MxProcessDied      ProcessId    DiedReason
     -- ^ fired whenever a process dies
-  | TraceEvNodeDied       NodeId       DiedReason
+  | MxNodeDied         NodeId       DiedReason
     -- ^ fired whenever a node /dies/ (i.e., the connection is broken/disconnected)
-  | TraceEvSent           ProcessId    ProcessId Message
+  | MxSent             ProcessId    ProcessId Message
     -- ^ fired whenever a message is sent from a local process
-  | TraceEvReceived       ProcessId    Message
+  | MxReceived         ProcessId    Message
     -- ^ fired whenever a message is received by a local process
-  | TraceEvConnected      ConnectionId
+  | MxConnected        ConnectionId EndPointAddress
     -- ^ fired when a network-transport connection is first established
-  | TraceEvDisconnected   ConnectionId
+  | MxDisconnected     ConnectionId EndPointAddress
     -- ^ fired when a network-transport connection is broken/disconnected
-  | TraceEvUser           Message
+  | MxUser             Message
     -- ^ a user defined trace event (see 'traceMessage')
-  | TraceEvLog            String
+  | MxLog              String
     -- ^ a /logging/ event - used for debugging purposes only
-  | TraceEvTakeover       ProcessId
+  | MxTraceTakeover    ProcessId
     -- ^ notifies a trace listener that all subsequent traces will be sent to /pid/
-  | TraceEvDisable
+  | MxTraceDisable
     -- ^ notifies a trace listener that it has been disabled/removed
     deriving (Typeable, Show)
 
 class Addressable a where
   resolveToPid :: a -> Maybe ProcessId
 
-instance Addressable TraceEvent where
-  resolveToPid (TraceEvSpawned  p)     = Just p
-  resolveToPid (TraceEvDied     p _)   = Just p
-  resolveToPid (TraceEvSent     _ p _) = Just p
-  resolveToPid (TraceEvReceived p _)   = Just p
-  resolveToPid _                       = Nothing
+instance Addressable MxEvent where
+  resolveToPid (MxSpawned     p)     = Just p
+  resolveToPid (MxProcessDied p _)   = Just p
+  resolveToPid (MxSent        _ p _) = Just p
+  resolveToPid (MxReceived    p _)   = Just p
+  resolveToPid _                     = Nothing
 
 -- | Defines which processes will be traced by a given 'TraceFlag',
 -- either by name, or @ProcessId@. Choosing @TraceAll@ is /by far/
@@ -149,7 +152,7 @@ data TraceOk = TraceOk
 --------------------------------------------------------------------------------
 
 traceLog :: MxEventBus -> String -> IO ()
-traceLog tr s = publishEvent tr (unsafeCreateUnencodedMessage $ TraceEvLog s)
+traceLog tr s = publishEvent tr (unsafeCreateUnencodedMessage $ MxLog s)
 
 traceLogFmt :: MxEventBus
             -> String
@@ -161,11 +164,11 @@ traceLogFmt t d ls =
         toS (TraceStr s) = s
         toS (Trace    a) = show a
 
-traceEvent :: MxEventBus -> TraceEvent -> IO ()
+traceEvent :: MxEventBus -> MxEvent -> IO ()
 traceEvent tr ev = publishEvent tr (unsafeCreateUnencodedMessage ev)
 
 traceMessage :: Serializable m => MxEventBus -> m -> IO ()
-traceMessage tr msg = traceEvent tr (TraceEvUser (unsafeCreateUnencodedMessage msg))
+traceMessage tr msg = traceEvent tr (MxUser (unsafeCreateUnencodedMessage msg))
 
 enableTrace :: MxEventBus -> ProcessId -> IO ()
 enableTrace t p =
@@ -223,38 +226,38 @@ instance Binary SetTrace where
       2 -> return TraceDisable
       _ -> error "SetTrace.get - invalid header"
 
-instance Binary TraceEvent where
-  put (TraceEvSpawned pid)          = putWord8 1 >> put pid
-  put (TraceEvRegistered pid str)   = putWord8 2 >> put pid >> put str
-  put (TraceEvUnRegistered pid str) = putWord8 3 >> put pid >> put str
-  put (TraceEvDied pid res)         = putWord8 4 >> put pid >> put res
-  put (TraceEvNodeDied nid res)     = putWord8 5 >> put nid >> put res
-  put (TraceEvSent to from msg)     = putWord8 6 >> put to >> put from >> put msg
-  put (TraceEvReceived pid msg)     = putWord8 7 >> put pid >> put msg
-  put (TraceEvConnected cid)        = putWord8 8 >> put cid
-  put (TraceEvDisconnected cid)     = putWord8 9 >> put cid
-  put (TraceEvUser msg)             = putWord8 10 >> put msg
-  put (TraceEvLog  msg)             = putWord8 11 >> put msg
-  put (TraceEvTakeover pid)         = putWord8 12 >> put pid
-  put TraceEvDisable                = putWord8 13
+instance Binary MxEvent where
+  put (MxSpawned pid)           = putWord8 1 >> put pid
+  put (MxRegistered pid str)    = putWord8 2 >> put pid >> put str
+  put (MxUnRegistered pid str)  = putWord8 3 >> put pid >> put str
+  put (MxProcessDied pid res)   = putWord8 4 >> put pid >> put res
+  put (MxNodeDied nid res)      = putWord8 5 >> put nid >> put res
+  put (MxSent to from msg)      = putWord8 6 >> put to >> put from >> put msg
+  put (MxReceived pid msg)      = putWord8 7 >> put pid >> put msg
+  put (MxConnected cid epid)    = putWord8 8 >> put cid >> put epid
+  put (MxDisconnected cid epid) = putWord8 9 >> put cid >> put epid
+  put (MxUser msg)              = putWord8 10 >> put msg
+  put (MxLog  msg)              = putWord8 11 >> put msg
+  put (MxTraceTakeover pid)     = putWord8 12 >> put pid
+  put MxTraceDisable            = putWord8 13
 
   get = do
     header <- getWord8
     case header of
-      1  -> TraceEvSpawned <$> get
-      2  -> TraceEvRegistered <$> get <*> get
-      3  -> TraceEvUnRegistered <$> get <*> get
-      4  -> TraceEvDied <$> get <*> get
-      5  -> TraceEvNodeDied <$> get <*> get
-      6  -> TraceEvSent <$> get <*> get <*> get
-      7  -> TraceEvReceived <$> get <*> get
-      8  -> TraceEvConnected <$> get
-      9  -> TraceEvDisconnected <$> get
-      10 -> TraceEvUser <$> get
-      11 -> TraceEvLog <$> get
-      12 -> TraceEvTakeover <$> get
-      13 -> return TraceEvDisable
-      _ -> error "TraceEvent.get - invalid header"
+      1  -> MxSpawned <$> get
+      2  -> MxRegistered <$> get <*> get
+      3  -> MxUnRegistered <$> get <*> get
+      4  -> MxProcessDied <$> get <*> get
+      5  -> MxNodeDied <$> get <*> get
+      6  -> MxSent <$> get <*> get <*> get
+      7  -> MxReceived <$> get <*> get
+      8  -> MxConnected <$> get <*> get
+      9  -> MxDisconnected <$> get <*> get
+      10 -> MxUser <$> get
+      11 -> MxLog <$> get
+      12 -> MxTraceTakeover <$> get
+      13 -> return MxTraceDisable
+      _ -> error "MxEvent.get - invalid header"
 
 instance Binary TraceSubject where
   put TraceAll           = putWord8 1

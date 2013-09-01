@@ -193,7 +193,7 @@ import Control.Distributed.Process.Internal.Messaging
   )
 import Control.Distributed.Process.Internal.Trace.Types
   ( traceEvent
-  , TraceEvent(..)
+  , MxEvent(..)
   )
 import Control.Distributed.Process.Internal.WeakTQueue
   ( newTQueueIO
@@ -227,7 +227,7 @@ send them msg = do
   -- We do not fire the trace event until after the sending is complete;
   -- In the remote case, 'sendMessage' can block in the networking stack.
   liftIO $ traceEvent (localEventBus node)
-                      (TraceEvSent them us (createUnencodedMessage msg))
+                      (MxSent them us (createUnencodedMessage msg))
 
 -- | /Unsafe/ variant of 'send'. This function makes /no/ attempt to serialize
 -- and (in the case when the destination process resides on the same local
@@ -411,7 +411,7 @@ forward msg them = do
   -- We do not fire the trace event until after the sending is complete;
   -- In the remote case, 'sendMessage' can block in the networking stack.
   liftIO $ traceEvent (localEventBus node)
-                      (TraceEvSent them us msg)
+                      (MxSent them us msg)
 
 
 -- | Wrap a 'Serializable' value in a 'Message'. Note that 'Message's are
