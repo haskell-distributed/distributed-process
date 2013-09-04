@@ -8,7 +8,6 @@ import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TChan
   ( TChan
   , newBroadcastTChanIO
-  , readTChan
   , writeTChan
   , dupTChan
   )
@@ -23,39 +22,36 @@ import Control.Distributed.Process.Internal.CQueue
   ( enqueueSTM
   , CQueue
   )
+import Control.Distributed.Process.Management.Types
+  ( Fork
+  )
 import Control.Distributed.Process.Management.Trace.Tracer
   ( traceController
   )
 import Control.Distributed.Process.Internal.Types
   ( Process
-  , SendPort
   , Message
-  , MxEventBus(..)
   , Tracer(..)
-  , LocalNode(..)
   , LocalProcess(..)
   , ProcessId
   , forever'
   )
 import Control.Exception (AsyncException(ThreadKilled), SomeException)
-import qualified Control.Exception as Ex (catch, finally)
 import Control.Monad (void)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (ask)
-import GHC.Weak (Weak(Weak), deRefWeak)
-import System.Environment (getEnv)
+import GHC.Weak (Weak, deRefWeak)
 
--- | Gross though it is, this synonym represents a function
--- used to forking new processes, which has to be passed as a HOF
--- when calling mxAgentController, since there's no other way to
--- avoid a circular dependency with Node.hs
-type Fork = (Process () -> IO ProcessId)
+--------------------------------------------------------------------------------
+-- Agent Controller Implementation                                            --
+--------------------------------------------------------------------------------
+
 
 -- | A triple containing a configured tracer, weak pointer to the
 -- agent controller's mailbox (CQueue) and an expression used to
 -- instantiate new agents on the current node.
 type AgentConfig =
-  (Tracer, Weak (CQueue Message), ((Message -> Process ()) -> IO ProcessId))
+  (Tracer, Weak (CQueue Message), ((TChan Message -> Process ()) -> IO ProcessId))
 
 -- | Starts a management agent for the current node. The agent process
 -- must not crash or be killed, so we generally avoid publishing its
@@ -75,11 +71,11 @@ mxAgentController :: Fork
                   -> MVar AgentConfig
                   -> Process ()
 mxAgentController forkProcess mv = do
-    node <- processNode <$> ask
+    -- node <- processNode <$> ask
     trc <- liftIO $ startTracing forkProcess
     sigbus <- liftIO $ newBroadcastTChanIO
     weakQueue <- processWeakQ <$> ask
-    liftIO $ putMVar mv (trc, weakQueue, mxAgent forkProcess sigbus)
+    liftIO $ putMVar mv (trc, weakQueue, mxStartAgent forkProcess sigbus)
     go sigbus trc forkProcess
   where
     go bus tracer fork = forever' $ do
@@ -119,12 +115,8 @@ mxAgentController forkProcess mv = do
       liftIO $ atomically $ enqueueSTM q msg >> writeTChan ch msg
 
 -- | Forks a new process in which an mxAgent is run.
-mxAgent :: Fork -> TChan Message -> (Message -> Process ()) -> IO ProcessId
-mxAgent fork chan handler = (atomically (dupTChan chan)) >>= fork . run handler
-  where
-    run :: (Message -> Process ()) -> TChan Message -> Process ()
-    run handler' chan' = do
-      (liftIO $ atomically $ readTChan chan') >>= handler' >> run handler' chan'
+mxStartAgent :: Fork -> TChan Message -> (TChan Message -> Process ()) -> IO ProcessId
+mxStartAgent fork chan handler = (atomically (dupTChan chan)) >>= fork . handler
 
 startTracing :: Fork -> IO Tracer
 startTracing forkProcess = do

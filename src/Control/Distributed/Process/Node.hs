@@ -56,7 +56,7 @@ import Control.Exception
   , Exception
   , throwTo
   )
-import qualified Control.Exception as Exception (Handler(..), catch, catches, finally)
+import qualified Control.Exception as Exception (Handler(..), catches, finally)
 import Control.Concurrent (forkIO, myThreadId)
 import Control.Distributed.Process.Internal.StrictMVar
   ( newMVar
@@ -188,7 +188,6 @@ import qualified Control.Distributed.Process.Internal.StrictContainerAccessors a
 import Control.Distributed.Process.Management.Agent
   ( mxAgentController
   )
-import System.Environment (getEnv)
 import Unsafe.Coerce
 
 --------------------------------------------------------------------------------
@@ -251,8 +250,8 @@ startMxAgent node = do
   let fork = forkProcess node
   mv <- MVar.newEmptyMVar
   pid <- fork $ mxAgentController fork mv
-  (tracer, wqRef, mxNew) <- MVar.takeMVar mv
-  return node { localEventBus = (MxEventBus pid tracer wqRef mxNew) }
+  (tracer', wqRef, mxNew') <- MVar.takeMVar mv
+  return node { localEventBus = (MxEventBus pid tracer' wqRef mxNew') }
 
 startDefaultTracer :: LocalNode -> IO ()
 startDefaultTracer node' = do
@@ -353,12 +352,13 @@ forkProcess node proc = modifyMVar (localState node) startProcess
             }
         return (tid', lproc)
 
-
       -- see note [tracer/forkProcess races]
       trace node (MxSpawned pid)
 
       if lpidCounter lpid == maxBound
         then do
+          -- TODO: this doesn't look right at all - how do we know
+          -- that newUnique represents a process id that is available!?
           newUnique <- randomIO
           return ( (localProcessWithId lpid ^= Just lproc)
                  . (localPidCounter ^= firstNonReservedProcessId)

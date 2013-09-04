@@ -99,6 +99,7 @@ import Control.Exception (Exception)
 import Control.Concurrent (ThreadId)
 import Control.Concurrent.Chan (Chan)
 import Control.Concurrent.STM (STM)
+import Control.Concurrent.STM.TChan (TChan)
 import qualified Network.Transport as NT (EndPoint, EndPointAddress, Connection)
 import Control.Applicative (Applicative, Alternative, (<$>), (<*>))
 import Control.Monad.Reader (MonadReader(..), ReaderT, runReaderT)
@@ -214,7 +215,7 @@ data MxEventBus =
       agent  :: !ProcessId
     , tracer :: !Tracer
     , evbuss :: !(Weak (CQueue Message))
-    , mxNew  :: !((Message -> Process ()) -> IO ProcessId)
+    , mxNew  :: !((TChan Message -> Process ()) -> IO ProcessId)
 --    , mxReg  :: !(StrictMVar (Map MxAgentId ))
     }
 
