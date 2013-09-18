@@ -3,17 +3,25 @@
 GHC ?= $(shell which ghc)
 CABAL ?= $(shell which cabal)
 CABAL_DEV ?= $(shell which cabal-dev)
-
-BASE_GIT := git://github.com/haskell-distributed
+PWD = $(shell pwd)
+SANDBOX ?= $(PWD)/cabal-dev
+BRANCH ?= $(shell git branch | grep '*' | awk '/.*/ { print $NF }')
+GIT_BASE ?= git://github.com/haskell-distributed
+USE_LOCAL_UMBRELLA ?=
 REPOS=$(shell cat REPOS | sed '/^$$/d')
 
 .PHONY: all
-all: dev-install
+all:
+	$(info branch = ${BRANCH})
+
+.PHONY: clean
+clean:
+	rm -rf ${REPOS} ./dist ./cabal-dev
 
 .PHONY: dev-install
 ifneq (,$(CABAL_DEV))
-dev-install:
-	$(CABAL_DEV) install
+dev-install: $(REPOS)
+	$(CABAL_DEV) install --enable-tests
 else
 dev-install:
 	$(error install cabal-dev to proceed)
@@ -24,8 +32,6 @@ ci: travis-install travis-test
 
 .PHONY: travis-install
 travis-install: $(REPOS)
-	$(CABAL) install QuickCheck-2.6 --force-reinstalls
-	$(CABAL) install rematch --force-reinstalls
 	$(CABAL) install --with-ghc=$(GHC) $(REPOS) --force-reinstalls
 	$(CABAL) install
 
@@ -35,5 +41,22 @@ travis-test:
 	$(CABAL) build
 	$(CABAL) test --show-details=always
 
+ifneq (,$(USE_LOCAL_UMBRELLA))
+define clone
+	git clone $(GIT_BASE)/$1 $1
+endef
+else
+define clone
+	git clone $(GIT_BASE)/$1.git $1
+endef
+endif
+
 $(REPOS):
-	git clone $(BASE_GIT)/$@.git
+	$(call clone,$@)
+	git --git-dir=$@/.git \
+		--work-tree=$@ \
+		checkout $(BRANCH)
+	cd $@ && $(CABAL_DEV) install --sandbox=$(SANDBOX)
+
+./build:
+	mkdir -p build
