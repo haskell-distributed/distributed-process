@@ -81,6 +81,7 @@ Library
                      Control.Distributed.Process.Internal.StrictContainerAccessors,
                      Control.Distributed.Process.Management.Bus,
                      Control.Distributed.Process.Management.Table,
+                     Control.Distributed.Process.Management.Types,
                      Control.Distributed.Process.Management.Trace.Primitives,
                      Control.Distributed.Process.Management.Trace.Remote,
                      Control.Distributed.Process.Management.Trace.Types,

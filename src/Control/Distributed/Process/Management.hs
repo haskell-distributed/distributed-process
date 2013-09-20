@@ -3,7 +3,6 @@
 {-# LANGUAGE StandaloneDeriving         #-}
 {-# LANGUAGE ExistentialQuantification  #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
-{-# LANGUAGE PatternGuards              #-}
 {-# LANGUAGE RecordWildCards            #-}
 {-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE UndecidableInstances       #-}
@@ -40,20 +39,24 @@
 -----------------------------------------------------------------------------
 module Control.Distributed.Process.Management
   (
-    MxAction()
-  , MxAgentId
-    -- * Firing /mx events/
+    MxEvent(..)
+    -- * Firing Arbitrary /Mx Events/
   , mxNotify
-    -- * Constructing Agents
+    -- * Constructing Mx Agents
+  , MxAction()
+  , MxAgentId
+  , MxAgent()
   , mxAgent
-  , mxAgentDeactivate
-  , mxAgentReady
-  , mxAgentPublish
+  , MxSink
+  , mxSink
+  , mxGetId
+  , mxDeactivate
+  , mxReady
+  , mxBroadcast
   , mxSetLocal
   , mxGetLocal
-    -- * Lifting
-  , liftP
-    -- * Management Data API
+  , mxLift
+    -- * Mx Data API
   , mxPublish
   , mxSet
   , mxGet
@@ -63,12 +66,14 @@ import Control.Applicative ((<$>))
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TChan
   ( readTChan
+  , writeTChan
   )
 import Control.Distributed.Process.Internal.Primitives
   ( newChan
   , nsend
   , receiveWait
   , matchChan
+  , unwrapMessage
   )
 import Control.Distributed.Process.Internal.Types
   ( Process
@@ -84,8 +89,11 @@ import qualified Control.Distributed.Process.Management.Table as Table
 import Control.Distributed.Process.Management.Types
   ( MxAgentId(..)
   , MxAgent(..)
+  , MxAction(..)
   , MxAgentState(..)
   , MxAgentStart(..)
+  , MxSink
+  , MxEvent(..)
   )
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Monad.IO.Class (liftIO)
@@ -98,10 +106,6 @@ import qualified Control.Monad.State as ST
   , lift
   , runStateT
   )
-
-data MxAction =
-    MxAgentDeactivate !String
-  | MxAgentReady
 
 -- | Publishes an arbitrary @Serializable@ message to the management event bus.
 -- Note that /no attempt is made to force the argument/, therefore it is very
@@ -141,16 +145,23 @@ mxGet mxId = Table.fetch (Table.MxForAgent mxId)
 -- API for writing user defined management extensions (i.e., agents)          --
 --------------------------------------------------------------------------------
 
-mxAgentPublish = undefined
+mxGetId :: MxAgent s MxAgentId
+mxGetId = ST.get >>= return . mxAgentId
 
-mxAgentDeactivate :: forall s. String -> MxAgent s MxAction
-mxAgentDeactivate = return . MxAgentDeactivate
+mxBroadcast :: (Serializable m) => m -> MxAgent s ()
+mxBroadcast msg = do
+  state <- ST.get
+  mxLift $ liftIO $ atomically $ do
+    writeTChan (mxBus state) (unsafeCreateUnencodedMessage msg)
 
-mxAgentReady :: forall s. MxAgent s MxAction
-mxAgentReady = return MxAgentReady
+mxDeactivate :: forall s. String -> MxAgent s MxAction
+mxDeactivate = return . MxAgentDeactivate
 
-liftP :: Process a -> MxAgent s a
-liftP p = MxAgent $ ST.lift p
+mxReady :: forall s. MxAgent s MxAction
+mxReady = return MxAgentReady
+
+mxLift :: Process a -> MxAgent s a
+mxLift p = MxAgent $ ST.lift p
 
 mxSetLocal :: s -> MxAgent s ()
 mxSetLocal s = ST.modify $ \st -> st { mxLocalState = s }
@@ -158,30 +169,63 @@ mxSetLocal s = ST.modify $ \st -> st { mxLocalState = s }
 mxGetLocal :: MxAgent s s
 mxGetLocal = ST.get >>= return . mxLocalState
 
+mxSink :: forall s m . (Serializable m)
+       => (m -> MxAgent s MxAction)
+       -> MxSink s
+mxSink act msg = do
+  msg' <- mxLift $ (unwrapMessage msg :: Process (Maybe m))
+  case msg' of
+    Nothing -> return Nothing
+    Just m  -> act m >>= return . Just
+
+data MxPipeline s =
+  MxPipeline
+  {
+    current :: !(MxSink s)
+  , next    :: !(MxPipeline s)
+  } | MxStop
+
 -- | Activates a new agent.
 --
 mxAgent :: MxAgentId
         -> s
-        -> (Message -> MxAgent s MxAction)
+        -> [MxSink s]
         -> Process ProcessId
-mxAgent mxId initState handler = do
+mxAgent mxId initState handlers = do
     node <- processNode <$> ask
     pid <- liftIO $ mxNew (localEventBus node) $ start
     return pid
   where
-    start chan = do
+    start (sendTChan, recvTChan) = do
       (sp, rp) <- newChan
       nsend Table.mxTableCoordinator (MxAgentStart sp mxId)
       tablePid <- receiveWait [ matchChan rp (\(p :: ProcessId) -> return p) ]
-      runAgent handler chan $ MxAgentState mxId tablePid initState
+      runAgent handlers recvTChan $ MxAgentState mxId sendTChan tablePid initState
 
-    runAgent h c s = do
+    runAgent hs c s = do
       msg <- (liftIO $ atomically $ readTChan c)
-      (action, state) <- runAgentST s $ h msg
+      (action, state) <- runPipeline msg s $ pipeline hs
       case action of
-        MxAgentReady        -> runAgent h c state
+        MxAgentReady        -> runAgent hs c state
         MxAgentDeactivate _ -> {- TODO: log r -} return ()
 --        MxAgentBecome h'    -> runAgent h' c state
+
+    pipeline :: forall s . [MxSink s] -> MxPipeline s
+    pipeline []           = MxStop
+    pipeline (sink:sinks) = MxPipeline sink (pipeline sinks)
+
+    runPipeline :: forall s .
+                   Message
+                -> MxAgentState s
+                -> MxPipeline s
+                -> Process (MxAction, MxAgentState s)
+    runPipeline _   state MxStop         = return (MxAgentReady, state)
+    runPipeline msg state MxPipeline{..} = do
+      let act = current msg
+      (pass, state') <- ST.runStateT (unAgent act) state
+      case pass of
+        Nothing     -> runPipeline msg state next
+        Just result -> return (result, state')
 
     runAgentST :: MxAgentState s
                -> MxAgent s MxAction

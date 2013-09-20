@@ -6,10 +6,8 @@
 -- This module is also used by the management agent, which relies on the
 -- tracing infrastructure's messaging fabric.
 module Control.Distributed.Process.Management.Trace.Primitives
-  ( Tracer
-  , MxEvent(..)
-    -- * Sending Trace Data
-  , traceLog
+  ( -- * Sending Trace Data
+    traceLog
   , traceLogFmt
   , traceMessage
     -- * Configuring A Tracer
@@ -34,9 +32,11 @@ import Control.Distributed.Process.Internal.Primitives
   , newChan
   , receiveChan
   )
+import Control.Distributed.Process.Management.Types
+  ( MxEvent(..)
+  )
 import Control.Distributed.Process.Management.Trace.Types
   ( TraceArg(..)
-  , MxEvent(..)
   , TraceFlags(..)
   , TraceOk(..)
   , TraceSubject(..)
@@ -60,7 +60,7 @@ import Control.Distributed.Process.Internal.Types
   , Process
   , ProcessId
   , LocalProcess(..)
-  , LocalNode(localEventBus)
+  , LocalNode(localEventBus, localTracer)
   , SendPort
   , MxEventBus(..)
   )
@@ -152,12 +152,12 @@ traceLogFmt d ls = withLocalTracer $ \t -> liftIO $ Tracer.traceLogFmt t d ls
 traceMessage :: Serializable m => m -> Process ()
 traceMessage msg = withLocalTracer $ \t -> liftIO $ Tracer.traceMessage t msg
 
-withLocalTracer :: (MxEventBus -> Process ()) -> Process ()
+withLocalTracer :: (Tracer -> Process ()) -> Process ()
 withLocalTracer act = do
   node <- processNode <$> ask
-  act (localEventBus node)
+  act (localTracer node)
 
-withLocalTracerSync :: (MxEventBus -> SendPort TraceOk -> IO ()) -> Process ()
+withLocalTracerSync :: (Tracer -> SendPort TraceOk -> IO ()) -> Process ()
 withLocalTracerSync act = do
   (sp, rp) <- newChan
   withLocalTracer $ \t -> liftIO $ (act t sp)

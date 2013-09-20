@@ -46,16 +46,16 @@ import GHC.Weak (Weak, deRefWeak)
 -- Agent Controller Implementation                                            --
 --------------------------------------------------------------------------------
 
-
 -- | A triple containing a configured tracer, weak pointer to the
 -- agent controller's mailbox (CQueue) and an expression used to
 -- instantiate new agents on the current node.
 type AgentConfig =
-  (Tracer, Weak (CQueue Message), ((TChan Message -> Process ()) -> IO ProcessId))
+  (Tracer, Weak (CQueue Message),
+   (((TChan Message, TChan Message) -> Process ()) -> IO ProcessId))
 
 -- | Starts a management agent for the current node. The agent process
 -- must not crash or be killed, so we generally avoid publishing its
--- 'ProcessId' where possible.
+-- @ProcessId@ where possible.
 --
 -- Our process is also responsible for forwarding messages to the trace
 -- controller, since having two /special processes/ handled via the
@@ -76,9 +76,9 @@ mxAgentController forkProcess mv = do
     sigbus <- liftIO $ newBroadcastTChanIO
     weakQueue <- processWeakQ <$> ask
     liftIO $ putMVar mv (trc, weakQueue, mxStartAgent forkProcess sigbus)
-    go sigbus trc forkProcess
+    go sigbus trc
   where
-    go bus tracer fork = forever' $ do
+    go bus tracer = forever' $ do
       void $ receiveWait [
           -- This is exactly what it appears to be: a "catch all" handler.
           -- Since mxNotify can potentially pass an unevaluated thunk to
@@ -115,8 +115,13 @@ mxAgentController forkProcess mv = do
       liftIO $ atomically $ enqueueSTM q msg >> writeTChan ch msg
 
 -- | Forks a new process in which an mxAgent is run.
-mxStartAgent :: Fork -> TChan Message -> (TChan Message -> Process ()) -> IO ProcessId
-mxStartAgent fork chan handler = (atomically (dupTChan chan)) >>= fork . handler
+mxStartAgent :: Fork
+             -> TChan Message
+             -> ((TChan Message, TChan Message) -> Process ())
+             -> IO ProcessId
+mxStartAgent fork chan handler = do
+  chan' <- atomically (dupTChan chan)
+  let proc = handler (chan, chan') in fork proc
 
 startTracing :: Fork -> IO Tracer
 startTracing forkProcess = do

@@ -12,6 +12,9 @@ import Control.Concurrent.MVar
   )
 import Control.Distributed.Process
 import Control.Distributed.Process.Debug
+import Control.Distributed.Process.Management
+  ( MxEvent(..)
+  )
 import Control.Distributed.Process.Node
   ( forkProcess
   , newLocalNode

@@ -92,7 +92,6 @@
 module Control.Distributed.Process.Debug
   ( -- * Exported Data Types
     TraceArg(..)
-  , MxEvent(..)
   , TraceFlags(..)
   , TraceSubject(..)
     -- * Configuring Tracing
@@ -145,9 +144,11 @@ import Control.Distributed.Process.Internal.Types
   , LocalProcess(..)
   , ProcessMonitorNotification(..)
   )
+import Control.Distributed.Process.Management.Types
+  ( MxEvent(..)
+  )
 import Control.Distributed.Process.Management.Trace.Types
   ( TraceArg(..)
-  , MxEvent(..)
   , TraceFlags(..)
   , TraceSubject(..)
   , defaultTraceFlags

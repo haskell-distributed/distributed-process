@@ -200,22 +200,26 @@ nullProcessId nid =
 -- Local nodes and processes                                                  --
 --------------------------------------------------------------------------------
 
--- | Provides access to the trace controller.
+-- | Provides access to the trace controller
 data Tracer = Tracer
               {
+                -- | Process id for the currently active trace handler
                 tracerPid :: !ProcessId
+                -- | Weak reference to the tracer controller's mailbox
               , weakQ     :: !(Weak (CQueue Message))
               }
 
--- | Required for the system management and tracing facilities.
+-- | Local system management event bus state
 data MxEventBus =
     MxEventBusInitialising
   | MxEventBus
     {
+      -- | Process id of the management agent controller process
       agent  :: !ProcessId
-    , tracer :: !Tracer
+      -- | Weak reference to the management agent controller's mailbox
     , evbuss :: !(Weak (CQueue Message))
-    , mxNew  :: !((TChan Message -> Process ()) -> IO ProcessId)
+      -- | API for adding management agents to a running node
+    , mxNew  :: !(((TChan Message, TChan Message) -> Process ()) -> IO ProcessId)
 --    , mxReg  :: !(StrictMVar (Map MxAgentId ))
     }
 
@@ -229,11 +233,13 @@ data LocalNode = LocalNode
   , localState      :: !(StrictMVar LocalNodeState)
     -- | Channel for the node controller
   , localCtrlChan   :: !(Chan NCMsg)
-    -- | Current active system debug/trace log
+    -- | Internal management event bus
   , localEventBus   :: !MxEventBus
     -- | Runtime lookup table for supporting closures
     -- TODO: this should be part of the CH state, not the local endpoint state
   , remoteTable     :: !RemoteTable
+    -- | Active local tracer process. This is our only non-strict field.
+  , localTracer     :: Tracer
   }
 
 data ImplicitReconnect = WithImplicitReconnect | NoImplicitReconnect

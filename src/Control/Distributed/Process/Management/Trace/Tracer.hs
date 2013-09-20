@@ -31,10 +31,12 @@ import Control.Distributed.Process.Internal.Primitives
   , handleMessage
   , matchUnknown
   )
-import Control.Distributed.Process.Management.Trace.Types
+import Control.Distributed.Process.Management.Types
   ( MxEvent(..)
-  , SetTrace(..)
   , Addressable(..)
+  )
+import Control.Distributed.Process.Management.Trace.Types
+  ( SetTrace(..)
   , TraceSubject(..)
   , TraceFlags(..)
   , TraceOk(..)
