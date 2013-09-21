@@ -60,7 +60,7 @@ import Control.Distributed.Process.Internal.Types
   , Process
   , ProcessId
   , LocalProcess(..)
-  , LocalNode(localEventBus, localTracer)
+  , LocalNode(localEventBus)
   , SendPort
   , MxEventBus(..)
   )
@@ -152,12 +152,12 @@ traceLogFmt d ls = withLocalTracer $ \t -> liftIO $ Tracer.traceLogFmt t d ls
 traceMessage :: Serializable m => m -> Process ()
 traceMessage msg = withLocalTracer $ \t -> liftIO $ Tracer.traceMessage t msg
 
-withLocalTracer :: (Tracer -> Process ()) -> Process ()
+withLocalTracer :: (MxEventBus -> Process ()) -> Process ()
 withLocalTracer act = do
   node <- processNode <$> ask
-  act (localTracer node)
+  act (localEventBus node)
 
-withLocalTracerSync :: (Tracer -> SendPort TraceOk -> IO ()) -> Process ()
+withLocalTracerSync :: (MxEventBus -> SendPort TraceOk -> IO ()) -> Process ()
 withLocalTracerSync act = do
   (sp, rp) <- newChan
   withLocalTracer $ \t -> liftIO $ (act t sp)

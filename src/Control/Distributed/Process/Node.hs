@@ -259,17 +259,18 @@ startMxAgent node = do
   mv <- MVar.newEmptyMVar
   pid <- fork $ mxAgentController fork mv
   (tracer', wqRef, mxNew') <- MVar.takeMVar mv
-  return $ node { localEventBus = (MxEventBus pid wqRef mxNew')
-                , localTracer   = tracer'
-                }
+  return node { localEventBus = (MxEventBus pid tracer' wqRef mxNew') }
 
 startDefaultTracer :: LocalNode -> IO ()
 startDefaultTracer node' = do
-  let (Tracer pid _) = localTracer node'
-  runProcess node' $ register "trace.controller" pid
-  pid' <- forkProcess node' defaultTracer
-  enableTrace (localTracer node') pid'
-  runProcess node' $ register "tracer.initial" pid'
+  let t = localEventBus node'
+  case t of
+    MxEventBus _ (Tracer pid _) _ _ -> do
+      runProcess node' $ register "trace.controller" pid
+      pid' <- forkProcess node' defaultTracer
+      enableTrace (localEventBus node') pid'
+      runProcess node' $ register "tracer.initial" pid'
+    _ -> return ()
 
 -- | Start and register the service processes on a node
 startServiceProcesses :: LocalNode -> IO ()
@@ -360,7 +361,7 @@ forkProcess node proc = modifyMVar (localState node) startProcess
         return (tid', lproc)
 
       -- see note [tracer/forkProcess races]
-      mxNotify node (MxSpawned pid)
+      trace node (MxSpawned pid)
 
       if lpidCounter lpid == maxBound
         then do
@@ -442,7 +443,7 @@ handleIncomingMessages node = go initConnectionState
         NT.ConnectionOpened cid rel theirAddr ->
           if rel == NT.ReliableOrdered
             then
-              mxNotify node (MxConnected cid theirAddr)
+              trace node (MxConnected cid theirAddr)
               >> go (
                       (incomingAt cid ^= Just (theirAddr, Uninit))
                     . (incomingFrom theirAddr ^: Set.insert cid)
@@ -458,7 +459,7 @@ handleIncomingMessages node = go initConnectionState
                 -- it from the NC state? (and same for channels, below)
                 let msg = payloadToMessage payload
                 enqueue queue msg -- 'enqueue' is strict
-                mxNotify node (MxReceived pid msg)
+                trace node (MxReceived pid msg)
               go st
             Just (_, ToChan (TypedChannel chan')) -> do
               mChan <- deRefWeak chan'
@@ -502,13 +503,12 @@ handleIncomingMessages node = go initConnectionState
                     else invalidRequest cid st
             Nothing ->
               invalidRequest cid st
-        NT.ConnectionClosed cid -> do
-          putStrLn "connection closed..."
+        NT.ConnectionClosed cid ->
           case st ^. incomingAt cid of
             Nothing ->
               invalidRequest cid st
             Just (src, _) -> do
-              mxNotify node (MxDisconnected cid src)
+              trace node (MxDisconnected cid src)
               go ( (incomingAt cid ^= Nothing)
                  . (incomingFrom src ^: Set.delete cid)
                  $ st
@@ -604,21 +604,25 @@ instance Show ProcessKillException where
 
 traceNotifyDied :: LocalNode -> Identifier -> DiedReason -> NC ()
 traceNotifyDied node ident reason =
-  -- TODO: SendPortDied notifications
-  case ident of
-    (NodeIdentifier nid)    -> liftIO $ mxNotify node (MxNodeDied nid reason)
-    (ProcessIdentifier pid) -> liftIO $ mxNotify node (MxProcessDied pid reason)
-    _                       -> return ()
+  -- TODO: sendPortDied notifications
+  liftIO $ withLocalTracer node $ \t ->
+    case ident of
+      (NodeIdentifier nid)    -> traceEvent t (MxNodeDied nid reason)
+      (ProcessIdentifier pid) -> traceEvent t (MxProcessDied pid reason)
+      _                       -> return ()
 
 traceEventFmtIO :: LocalNode
                 -> String
                 -> [TraceArg]
                 -> IO ()
-traceEventFmtIO LocalNode{..} fmt args = traceLogFmt localTracer fmt args
+traceEventFmtIO node fmt args =
+  withLocalTracer node $ \t -> traceLogFmt t fmt args
 
-mxNotify :: LocalNode -> MxEvent -> IO ()
-mxNotify LocalNode{..} ev =
-  Mx.publishEvent localEventBus $ unsafeCreateUnencodedMessage ev
+trace :: LocalNode -> MxEvent -> IO ()
+trace node ev = withLocalTracer node $ \t -> traceEvent t ev
+
+withLocalTracer :: LocalNode -> (MxEventBus -> IO ()) -> IO ()
+withLocalTracer node act = act (localEventBus node)
 
 --------------------------------------------------------------------------------
 -- Core functionality                                                         --
@@ -817,8 +821,8 @@ ncEffectRegister from label atnode mPid reregistration = do
                do modify' $ registeredHereFor label ^= mPid
                   updateRemote node currentVal mPid
                   case mPid of
-                    (Just p) -> liftIO $ mxNotify node (MxRegistered p label)
-                    Nothing  -> liftIO $ mxNotify node (MxUnRegistered (fromJust currentVal) label)
+                    (Just p) -> liftIO $ trace node (MxRegistered p label)
+                    Nothing  -> liftIO $ trace node (MxUnRegistered (fromJust currentVal) label)
              liftIO $ sendMessage node
                        (NodeIdentifier (localNodeId node))
                        (ProcessIdentifier from)
@@ -886,7 +890,7 @@ ncEffectLocalSend :: LocalNode -> ProcessId -> Message -> NC ()
 ncEffectLocalSend node to msg =
   liftIO $ withLocalProc node to $ \p -> do
     enqueue (processQueue p) msg
-    mxNotify node (MxReceived to msg)
+    trace node (MxReceived to msg)
 
 -- [Issue #DP-20]
 ncEffectLocalPortSend :: SendPortId -> Message -> NC ()

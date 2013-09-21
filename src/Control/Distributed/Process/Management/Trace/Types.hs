@@ -35,7 +35,7 @@ import Control.Distributed.Process.Internal.Types
   , unsafeCreateUnencodedMessage
   )
 import Control.Distributed.Process.Management.Bus
-  ( enqueueEvent
+  ( publishEvent
   )
 import Control.Distributed.Process.Management.Types
   ( MxEvent(..)
@@ -116,10 +116,10 @@ instance Binary TraceOk where
 -- Internal/Common API                                                        --
 --------------------------------------------------------------------------------
 
-traceLog :: Tracer -> String -> IO ()
-traceLog (Tracer _ wqRef) s = enqueueEvent wqRef (unsafeCreateUnencodedMessage $ MxLog s)
+traceLog :: MxEventBus -> String -> IO ()
+traceLog tr s = publishEvent tr (unsafeCreateUnencodedMessage $ MxLog s)
 
-traceLogFmt :: Tracer
+traceLogFmt :: MxEventBus
             -> String
             -> [TraceArg]
             -> IO ()
@@ -129,43 +129,43 @@ traceLogFmt t d ls =
         toS (TraceStr s) = s
         toS (Trace    a) = show a
 
-traceEvent :: Tracer -> MxEvent -> IO ()
-traceEvent (Tracer _ wqRef) ev = enqueueEvent wqRef (unsafeCreateUnencodedMessage ev)
+traceEvent :: MxEventBus -> MxEvent -> IO ()
+traceEvent tr ev = publishEvent tr (unsafeCreateUnencodedMessage ev)
 
-traceMessage :: Serializable m => Tracer -> m -> IO ()
+traceMessage :: Serializable m => MxEventBus -> m -> IO ()
 traceMessage tr msg = traceEvent tr (MxUser (unsafeCreateUnencodedMessage msg))
 
-enableTrace :: Tracer -> ProcessId -> IO ()
-enableTrace (Tracer _ wqRef) p =
-  enqueueEvent wqRef (unsafeCreateUnencodedMessage ((Nothing :: Maybe (SendPort TraceOk)),
-                                                    (TraceEnable p)))
+enableTrace :: MxEventBus -> ProcessId -> IO ()
+enableTrace t p =
+  publishEvent t (unsafeCreateUnencodedMessage ((Nothing :: Maybe (SendPort TraceOk)),
+                                                (TraceEnable p)))
 
-enableTraceSync :: Tracer -> SendPort TraceOk -> ProcessId -> IO ()
-enableTraceSync (Tracer _ wqRef) s p =
-  enqueueEvent wqRef (unsafeCreateUnencodedMessage (Just s, TraceEnable p))
+enableTraceSync :: MxEventBus -> SendPort TraceOk -> ProcessId -> IO ()
+enableTraceSync t s p =
+  publishEvent t (unsafeCreateUnencodedMessage (Just s, TraceEnable p))
 
-disableTrace :: Tracer -> IO ()
-disableTrace (Tracer _ wqRef) =
-  enqueueEvent wqRef (unsafeCreateUnencodedMessage ((Nothing :: Maybe (SendPort TraceOk)),
+disableTrace :: MxEventBus -> IO ()
+disableTrace t =
+  publishEvent t (unsafeCreateUnencodedMessage ((Nothing :: Maybe (SendPort TraceOk)),
                                      TraceDisable))
 
-disableTraceSync :: Tracer -> SendPort TraceOk -> IO ()
-disableTraceSync (Tracer _ wqRef) s =
-  enqueueEvent wqRef (unsafeCreateUnencodedMessage ((Just s), TraceDisable))
+disableTraceSync :: MxEventBus -> SendPort TraceOk -> IO ()
+disableTraceSync t s =
+  publishEvent t (unsafeCreateUnencodedMessage ((Just s), TraceDisable))
 
-setTraceFlags :: Tracer -> TraceFlags -> IO ()
-setTraceFlags (Tracer _ wqRef) f =
-  enqueueEvent wqRef (unsafeCreateUnencodedMessage ((Nothing :: Maybe (SendPort TraceOk)), f))
+setTraceFlags :: MxEventBus -> TraceFlags -> IO ()
+setTraceFlags t f =
+  publishEvent t (unsafeCreateUnencodedMessage ((Nothing :: Maybe (SendPort TraceOk)), f))
 
-setTraceFlagsSync :: Tracer -> SendPort TraceOk -> TraceFlags -> IO ()
-setTraceFlagsSync (Tracer _ wqRef) s f =
-  enqueueEvent wqRef (unsafeCreateUnencodedMessage ((Just s), f))
+setTraceFlagsSync :: MxEventBus -> SendPort TraceOk -> TraceFlags -> IO ()
+setTraceFlagsSync t s f =
+  publishEvent t (unsafeCreateUnencodedMessage ((Just s), f))
 
-getTraceFlags :: Tracer -> SendPort TraceFlags -> IO ()
-getTraceFlags (Tracer _ wqRef) s = enqueueEvent wqRef (unsafeCreateUnencodedMessage s)
+getTraceFlags :: MxEventBus -> SendPort TraceFlags -> IO ()
+getTraceFlags t s = publishEvent t (unsafeCreateUnencodedMessage s)
 
-getCurrentTraceClient :: Tracer -> SendPort (Maybe ProcessId) -> IO ()
-getCurrentTraceClient (Tracer _ wqRef) s = enqueueEvent wqRef (unsafeCreateUnencodedMessage s)
+getCurrentTraceClient :: MxEventBus -> SendPort (Maybe ProcessId) -> IO ()
+getCurrentTraceClient t s = publishEvent t (unsafeCreateUnencodedMessage s)
 
 class Traceable a where
   uod :: [a] -> TraceSubject

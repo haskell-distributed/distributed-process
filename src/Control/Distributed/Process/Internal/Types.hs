@@ -216,6 +216,8 @@ data MxEventBus =
     {
       -- | Process id of the management agent controller process
       agent  :: !ProcessId
+      -- | Configuration for the local trace controller
+    , tracer :: !Tracer
       -- | Weak reference to the management agent controller's mailbox
     , evbuss :: !(Weak (CQueue Message))
       -- | API for adding management agents to a running node
@@ -238,8 +240,6 @@ data LocalNode = LocalNode
     -- | Runtime lookup table for supporting closures
     -- TODO: this should be part of the CH state, not the local endpoint state
   , remoteTable     :: !RemoteTable
-    -- | Active local tracer process. This is our only non-strict field.
-  , localTracer     :: Tracer
   }
 
 data ImplicitReconnect = WithImplicitReconnect | NoImplicitReconnect
