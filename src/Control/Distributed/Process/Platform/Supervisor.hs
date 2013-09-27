@@ -220,6 +220,7 @@ module Control.Distributed.Process.Platform.Supervisor
   , AddChildResult(..)
   , startChild
   , terminateChild
+  , TerminateChildResult(..)
   , deleteChild
   , DeleteChildResult(..)
   , restartChild
