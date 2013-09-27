@@ -1517,4 +1517,3 @@ activeWorkers = accessor _activeWorkers (\c st -> st { _activeWorkers = c })
 
 activeSupervisors :: Accessor SupervisorStats Int
 activeSupervisors = accessor _activeSupervisors (\c st -> st { _activeSupervisors = c })
-
