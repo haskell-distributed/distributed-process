@@ -18,9 +18,12 @@ import Control.Distributed.Process.Node
 import Data.Binary()
 import Data.Typeable()
 import Network.Transport.TCP
+import qualified Network.Transport as NT
+
 #if ! MIN_VERSION_base(4,6,0)
 import Prelude hiding (catch)
 #endif
+
 import Test.Framework
   ( Test
   , defaultMain
@@ -29,29 +32,7 @@ import Test.Framework
 import Test.HUnit (Assertion)
 import Test.HUnit.Base (assertBool)
 import Test.Framework.Providers.HUnit (testCase)
-
--- these utilities have been cribbed from distributed-process-platform
--- we should really find a way to share them...
-
--- | A mutable cell containing a test result.
-type TestResult a = MVar a
-
-delayedAssertion :: (Eq a) => String -> LocalNode -> a ->
-                    (TestResult a -> Process ()) -> Assertion
-delayedAssertion note localNode expected testProc = do
-  result <- newEmptyMVar
-  _ <- forkProcess localNode $ testProc result
-  assertComplete note result expected
-
-assertComplete :: (Eq a) => String -> MVar a -> a -> IO ()
-assertComplete msg mv a = do
-  b <- takeMVar mv
-  assertBool msg (a == b)
-
-stash :: TestResult a -> a -> Process ()
-stash mvar x = liftIO $ putMVar mvar x
-
-------
+import TestUtils
 
 testLocalDeadProcessInfo :: TestResult (Maybe ProcessInfo) -> Process ()
 testLocalDeadProcessInfo result = do
@@ -149,16 +130,10 @@ tests node1 = do
                  (testRemoteLiveProcessInfo node1)
     ] ]
 
-mkNode :: String -> IO LocalNode
-mkNode port = do
-  Right (transport1, _) <- createTransportExposeInternals
-                                    "127.0.0.1" port defaultTCPParameters
-  newLocalNode transport1 initRemoteTable
+statsTests :: NT.Transport -> IO [Test]
+statsTests transport = do
+  mkNode "8080" >>= tests >>= return
 
 main :: IO ()
-main = do
-  node1 <- mkNode "8081"
-  testData <- tests node1
-  defaultMain testData
-  closeLocalNode node1
-  return ()
+main = testMain $ statsTests
+

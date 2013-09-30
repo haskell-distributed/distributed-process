@@ -71,7 +71,6 @@ mxAgentController :: Fork
                   -> MVar AgentConfig
                   -> Process ()
 mxAgentController forkProcess mv = do
-    -- node <- processNode <$> ask
     trc <- liftIO $ startTracing forkProcess
     sigbus <- liftIO $ newBroadcastTChanIO
     weakQueue <- processWeakQ <$> ask
@@ -112,6 +111,7 @@ mxAgentController forkProcess mv = do
                     -> Message -> IO ()
     atomicBroadcast ch Nothing  msg = liftIO $ atomically $ writeTChan ch msg
     atomicBroadcast ch (Just q) msg = do
+      -- liftIO $ putStrLn $ "broadcasting " ++ (show msg)
       liftIO $ atomically $ enqueueSTM q msg >> writeTChan ch msg
 
 -- | Forks a new process in which an mxAgent is run.
@@ -121,7 +121,8 @@ mxStartAgent :: Fork
              -> IO ProcessId
 mxStartAgent fork chan handler = do
   chan' <- atomically (dupTChan chan)
-  let proc = handler (chan, chan') in fork proc
+  let proc = handler (chan, chan')
+  fork proc
 
 startTracing :: Fork -> IO Tracer
 startTracing forkProcess = do

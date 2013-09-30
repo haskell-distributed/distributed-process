@@ -22,9 +22,12 @@ import Control.Distributed.Process.Node
   , closeLocalNode
   , LocalNode)
 import Network.Transport.TCP
+import qualified Network.Transport as NT
+
 #if ! MIN_VERSION_base(4,6,0)
 import Prelude hiding (catch, log)
 #endif
+
 import Test.Framework
   ( Test
   , defaultMain
@@ -33,39 +36,7 @@ import Test.Framework
 import Test.HUnit (Assertion)
 import Test.HUnit.Base (assertBool)
 import Test.Framework.Providers.HUnit (testCase)
-
--- these utilities have been cribbed from distributed-process-platform
--- we should really find a way to share them...
-
--- | A mutable cell containing a test result.
-type TestResult a = MVar a
-
-delayedAssertion :: (Eq a)
-                 => String
-                 -> LocalNode
-                 -> a
-                 -> (TestResult a -> Process ())
-                 -> MVar ()
-                 -> Assertion
-delayedAssertion note localNode expected testProc lock = do
-  result <- newEmptyMVar
-  _ <- forkProcess localNode $ do
-         acquire lock
-         finally (testProc result)
-                 (release lock)
-  assertComplete note result expected
-  where acquire lock' = liftIO $ takeMVar lock'
-        release lock' = liftIO $ putMVar lock' ()
-
-assertComplete :: (Eq a) => String -> MVar a -> a -> IO ()
-assertComplete msg mv a = do
-  b <- takeMVar mv
-  assertBool msg (a == b)
-
-stash :: TestResult a -> a -> Process ()
-stash mvar x = liftIO $ putMVar mvar x
-
-------
+import TestUtils
 
 testSpawnTracing :: TestResult Bool -> Process ()
 testSpawnTracing result = do
@@ -328,50 +299,43 @@ tests node1 = do
   return [
     testGroup "Tracing" [
            testCase "Spawn Tracing"
-             (delayedAssertion
+             (synchronisedAssertion
               "expected dead process-info to be ProcessInfoNone"
               node1 True testSpawnTracing lock)
          , testCase "Recv Tracing (Explicit Pid)"
-             (delayedAssertion
+             (synchronisedAssertion
               "expected a recv trace for the supplied pid"
               node1 True testTraceRecvExplicitPid lock)
          , testCase "Recv Tracing (Named Pid)"
-             (delayedAssertion
+             (synchronisedAssertion
               "expected a recv trace for the process registered as 'foobar'"
               node1 True testTraceRecvNamedPid lock)
          , testCase "Trace Send(er)"
-             (delayedAssertion
+             (synchronisedAssertion
               "expected a 'send' trace with the requisite fields set"
               node1 True testTraceSending lock)
          , testCase "Trace Registration"
-              (delayedAssertion
+              (synchronisedAssertion
                "expected a 'registered' trace"
                node1 True testTraceRegistration lock)
          , testCase "Trace Unregistration"
-              (delayedAssertion
+              (synchronisedAssertion
                "expected an 'unregistered' trace"
                node1 True testTraceUnRegistration lock)
          , testCase "Trace Layering"
-             (delayedAssertion
-              "expected blah"
-              node1 () testTraceLayering lock)
+              (synchronisedAssertion
+               "expected blah"
+               node1 () testTraceLayering lock)
          , testCase "Remote Trace Relay"
-             (delayedAssertion
-              "expected blah"
-              node1 True testRemoteTraceRelay lock)
+              (synchronisedAssertion
+               "expected blah"
+               node1 True testRemoteTraceRelay lock)
          ] ]
 
-mkNode :: String -> IO LocalNode
-mkNode port = do
-  Right (transport1, _) <- createTransportExposeInternals
-                                    "127.0.0.1" port defaultTCPParameters
-  newLocalNode transport1 initRemoteTable
+timerTests :: NT.Transport -> IO [Test]
+timerTests transport = do
+  mkNode "8080" >>= tests >>= return
 
 main :: IO ()
-main = do
-  node1 <- mkNode "8081"
-  testData <- tests node1
-  defaultMain testData
-  closeLocalNode node1
-  return ()
+main = testMain $ timerTests
 

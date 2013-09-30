@@ -134,11 +134,11 @@ nullTracer =
 systemLoggerTracer :: Process ()
 systemLoggerTracer = do
   node <- processNode <$> ask
-  let tr = sendTraceMsg node
+  let tr = sendTraceLog node
   forever' $ receiveWait [ matchAny (\m -> handleMessage m tr) ]
   where
-    sendTraceMsg :: LocalNode -> MxEvent -> Process ()
-    sendTraceMsg node ev = do
+    sendTraceLog :: LocalNode -> MxEvent -> Process ()
+    sendTraceLog node ev = do
       now <- liftIO $ getCurrentTime
       msg <- return $ (formatTime defaultTimeLocale "%c" now, buildTxt ev)
       emptyPid <- return $ (nullProcessId (localNodeId node))
@@ -202,6 +202,7 @@ traceController mv = do
   where
     traceLoop :: TracerState -> Process ()
     traceLoop st = do
+      let client' = client st
       -- Trace events are forwarded to the enabled trace target.
       -- At some point in the future, we're going to start writing these custom
       -- events to the ghc eventlog, at which point this design might change.
@@ -214,11 +215,11 @@ traceController mv = do
                   case set of
                     (TraceEnable pid) -> do
                       -- notify the previous tracer it has been replaced
-                      sendTrace st (createUnencodedMessage (MxTraceTakeover pid))
+                      sendTraceMsg client' (createUnencodedMessage (MxTraceTakeover pid))
                       sendOk setResp
                       return st { client = (Just pid) }
                     TraceDisable -> do
-                      sendTrace st (createUnencodedMessage MxTraceDisable)
+                      sendTraceMsg client' (createUnencodedMessage MxTraceDisable)
                       sendOk setResp
                       return st { client = Nothing })
         , match (\(confResp, flags') ->
@@ -294,13 +295,13 @@ handleTrace st msg ev = do
   case ev of
     (MxNodeDied _ _) ->
       case (traceNodes (flags st)) of
-        True  -> sendTrace st msg
+        True  -> sendTrace st ev msg
         False -> return ()
-    (MxUser _) -> sendTrace st msg
-    (MxLog _)  -> sendTrace st msg
+    (MxUser _) -> sendTrace st ev msg
+    (MxLog _)  -> sendTrace st ev msg
     _ ->
       case (traceConnections (flags st)) of
-        True  -> sendTrace st msg
+        True  -> sendTrace st ev msg
         False -> return ()
   return st
 
@@ -310,14 +311,14 @@ traceEv :: MxEvent
         -> TracerState
         -> Process ()
 traceEv _  _   Nothing                  _  = return ()
-traceEv _  msg (Just TraceAll)          st = sendTrace st msg
+traceEv ev msg (Just TraceAll)          st = sendTrace st ev msg
 traceEv ev msg (Just (TraceProcs pids)) st = do
   node <- processNode <$> ask
   let p = case resolveToPid ev of
             Nothing  -> (nullProcessId (localNodeId node))
             Just pid -> pid
   case (Set.member p pids) of
-    True  -> sendTrace st msg
+    True  -> sendTrace st ev msg
     False -> return ()
 traceEv ev msg (Just (TraceNames names)) st = do
   -- if we have recorded regnames for p, then we forward the trace iif
@@ -330,13 +331,16 @@ traceEv ev msg (Just (TraceNames names)) st = do
     Nothing -> return ()
     Just ns -> if (Set.null (Set.intersection ns names))
                  then return ()
-                 else sendTrace st msg
+                 else sendTrace st ev msg
 
-sendTrace :: TracerState -> Message -> Process ()
-sendTrace st msg =
-  let pid = (client st) in do
-    case pid of
-      Just p  -> (flip forward) p msg
-      Nothing -> return ()
+sendTrace :: TracerState -> MxEvent -> Message -> Process ()
+sendTrace st ev msg = do
+  let c = client st
+  if c == (resolveToPid ev)  -- we do not send the tracer events about itself...
+     then return ()
+     else sendTraceMsg c msg
 
+sendTraceMsg :: Maybe ProcessId -> Message -> Process ()
+sendTraceMsg Nothing  _   = return ()
+sendTraceMsg (Just p) msg = (flip forward) p msg
 

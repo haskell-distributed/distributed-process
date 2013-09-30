@@ -44,7 +44,7 @@ module Control.Distributed.Process.Management
   , mxNotify
     -- * Constructing Mx Agents
   , MxAction()
-  , MxAgentId
+  , MxAgentId(..)
   , MxAgent()
   , mxAgent
   , MxSink
@@ -74,6 +74,7 @@ import Control.Distributed.Process.Internal.Primitives
   , receiveWait
   , matchChan
   , unwrapMessage
+  , whereis
   )
 import Control.Distributed.Process.Internal.Types
   ( Process

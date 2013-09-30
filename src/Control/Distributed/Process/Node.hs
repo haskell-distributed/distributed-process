@@ -158,6 +158,10 @@ import Control.Distributed.Process.Management.Agent
 import qualified Control.Distributed.Process.Management.Bus as Mx
   ( publishEvent
   )
+import qualified Control.Distributed.Process.Management.Table as Table
+  ( mxTableCoordinator
+  , startTableCoordinator
+  )
 import qualified Control.Distributed.Process.Management.Trace.Remote as Trace
   ( remoteTable
   )
@@ -272,6 +276,8 @@ startDefaultTracer node' = do
       runProcess node' $ register "tracer.initial" pid'
     _ -> return ()
 
+-- TODO: we need a better mechanism for defining and registering services
+
 -- | Start and register the service processes on a node
 startServiceProcesses :: LocalNode -> IO ()
 startServiceProcesses node = do
@@ -280,21 +286,25 @@ startServiceProcesses node = do
   -- before /that/ process has started - this is a totally harmless race
   -- however, so we deliberably ignore it
   startDefaultTracer node
+  tableCoordinatorPid <- fork $ Table.startTableCoordinator fork
+  runProcess node $ register Table.mxTableCoordinator tableCoordinatorPid
   logger <- forkProcess node loop
   runProcess node $ register "logger" logger
  where
-  loop = do
-    receiveWait
-      [ match $ \((time, pid, string) ::(String, ProcessId, String)) -> do
-          liftIO . hPutStrLn stderr $ time ++ " " ++ show pid ++ ": " ++ string
-          loop
-      , match $ \((time, string) :: (String, String)) -> do
-          -- this is a 'trace' message from the local node tracer
-          liftIO . hPutStrLn stderr $ time ++ " [trace] " ++ string
-          loop
-      , match $ \(ch :: SendPort ()) -> -- a shutdown request
-          sendChan ch ()
-      ]
+   fork = forkProcess node
+
+   loop = do
+     receiveWait
+       [ match $ \((time, pid, string) ::(String, ProcessId, String)) -> do
+           liftIO . hPutStrLn stderr $ time ++ " " ++ show pid ++ ": " ++ string
+           loop
+       , match $ \((time, string) :: (String, String)) -> do
+           -- this is a 'trace' message from the local node tracer
+           liftIO . hPutStrLn stderr $ time ++ " [trace] " ++ string
+           loop
+       , match $ \(ch :: SendPort ()) -> -- a shutdown request
+           sendChan ch ()
+       ]
 
 -- | Force-close a local node
 --

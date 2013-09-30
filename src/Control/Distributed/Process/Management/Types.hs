@@ -41,7 +41,6 @@ import Network.Transport
   , EndPointAddress
   )
 
-
 -- TODO: consider factoring out MxEvent's tracing specific constructors
 
 -- | This is the /default/ management event, fired for various internal
