@@ -17,11 +17,8 @@ import Control.Distributed.Process.Management
   )
 import Control.Distributed.Process.Node
   ( forkProcess
-  , newLocalNode
-  , initRemoteTable
   , closeLocalNode
   , LocalNode)
-import Network.Transport.TCP
 import qualified Network.Transport as NT
 
 #if ! MIN_VERSION_base(4,6,0)
@@ -30,11 +27,8 @@ import Prelude hiding (catch, log)
 
 import Test.Framework
   ( Test
-  , defaultMain
   , testGroup
   )
-import Test.HUnit (Assertion)
-import Test.HUnit.Base (assertBool)
 import Test.Framework.Providers.HUnit (testCase)
 import TestUtils
 
@@ -333,7 +327,7 @@ tests node1 = do
          ] ]
 
 timerTests :: NT.Transport -> IO [Test]
-timerTests transport = do
+timerTests _ = do
   mkNode "8080" >>= tests >>= return
 
 main :: IO ()

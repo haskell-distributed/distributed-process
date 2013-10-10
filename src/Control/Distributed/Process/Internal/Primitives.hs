@@ -553,7 +553,7 @@ delegate pid p = do
     ]
   delegate pid p
 
--- | A straight relay that simply forwards all messages to the supplied pid.
+-- | A straight relay that forwards all messages to the supplied pid.
 relay :: ProcessId -> Process ()
 relay !pid = receiveWait [ matchAny (\m -> forward m pid) ] >> relay pid
 

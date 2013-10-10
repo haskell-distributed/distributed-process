@@ -55,11 +55,14 @@ module Control.Distributed.Process.Management
   , mxBroadcast
   , mxSetLocal
   , mxGetLocal
-  , mxLift
+  , liftMX
     -- * Mx Data API
   , mxPublish
   , mxSet
   , mxGet
+  , mxClear
+  , mxPurgeTable
+  , mxDropTable
   ) where
 
 import Control.Applicative ((<$>))
@@ -74,7 +77,6 @@ import Control.Distributed.Process.Internal.Primitives
   , receiveWait
   , matchChan
   , unwrapMessage
-  , whereis
   )
 import Control.Distributed.Process.Internal.Types
   ( Process
@@ -133,14 +135,27 @@ mxPublish a k v = Table.set k v (Table.MxForAgent a)
 -- and attempts to force the value later on.
 --
 mxSet :: Serializable a => MxAgentId -> String -> a -> Process ()
-mxSet mxId key msg =
+mxSet mxId key msg = do
   Table.set key (unsafeCreateUnencodedMessage msg) (Table.MxForAgent mxId)
 
 -- | Fetches a property from the management database for the given key.
 -- If the property is not set, or does not match the expected type when
 -- typechecked (at runtime), returns @Nothing@.
 mxGet :: Serializable a => MxAgentId -> String -> Process (Maybe a)
-mxGet mxId = Table.fetch (Table.MxForAgent mxId)
+mxGet = Table.fetch . Table.MxForAgent
+
+-- | Clears a property from the management database using the given key.
+-- If the key does not exist in the database, this is a noop.
+mxClear :: MxAgentId -> String -> Process ()
+mxClear mxId key = Table.clear key (Table.MxForAgent mxId)
+
+-- | Purges a table in the management database of all its stored properties.
+mxPurgeTable :: MxAgentId -> Process ()
+mxPurgeTable = Table.purge . Table.MxForAgent
+
+-- | Deletes a table from the management database.
+mxDropTable :: MxAgentId -> Process ()
+mxDropTable = Table.delete . Table.MxForAgent
 
 --------------------------------------------------------------------------------
 -- API for writing user defined management extensions (i.e., agents)          --
@@ -152,7 +167,7 @@ mxGetId = ST.get >>= return . mxAgentId
 mxBroadcast :: (Serializable m) => m -> MxAgent s ()
 mxBroadcast msg = do
   state <- ST.get
-  mxLift $ liftIO $ atomically $ do
+  liftMX $ liftIO $ atomically $ do
     writeTChan (mxBus state) (unsafeCreateUnencodedMessage msg)
 
 mxDeactivate :: forall s. String -> MxAgent s MxAction
@@ -161,8 +176,8 @@ mxDeactivate = return . MxAgentDeactivate
 mxReady :: forall s. MxAgent s MxAction
 mxReady = return MxAgentReady
 
-mxLift :: Process a -> MxAgent s a
-mxLift p = MxAgent $ ST.lift p
+liftMX :: Process a -> MxAgent s a
+liftMX p = MxAgent $ ST.lift p
 
 mxSetLocal :: s -> MxAgent s ()
 mxSetLocal s = ST.modify $ \st -> st { mxLocalState = s }
@@ -174,7 +189,7 @@ mxSink :: forall s m . (Serializable m)
        => (m -> MxAgent s MxAction)
        -> MxSink s
 mxSink act msg = do
-  msg' <- mxLift $ (unwrapMessage msg :: Process (Maybe m))
+  msg' <- liftMX $ (unwrapMessage msg :: Process (Maybe m))
   case msg' of
     Nothing -> return Nothing
     Just m  -> act m >>= return . Just
@@ -200,7 +215,11 @@ mxAgent mxId initState handlers = do
     start (sendTChan, recvTChan) = do
       (sp, rp) <- newChan
       nsend Table.mxTableCoordinator (MxAgentStart sp mxId)
+      -- liftIO $ putStrLn $ "waiting on table coordinator " ++ Table.mxTableCoordinator
+      -- p <- whereis Table.mxTableCoordinator
+      -- liftIO $ putStrLn $ "registration == " ++ (show p)
       tablePid <- receiveWait [ matchChan rp (\(p :: ProcessId) -> return p) ]
+      -- liftIO $ putStrLn "starting agent listener..."
       runAgent handlers recvTChan $ MxAgentState mxId sendTChan tablePid initState
 
     runAgent hs c s = do
@@ -227,9 +246,4 @@ mxAgent mxId initState handlers = do
       case pass of
         Nothing     -> runPipeline msg state next
         Just result -> return (result, state')
-
-    runAgentST :: MxAgentState s
-               -> MxAgent s MxAction
-               -> Process (MxAction, MxAgentState s)
-    runAgentST state proc = ST.runStateT (unAgent proc) state
 

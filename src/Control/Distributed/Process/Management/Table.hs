@@ -141,33 +141,33 @@ resolve (MxForPid   pid)   = \msg -> send pid msg
 startTableCoordinator :: Fork -> Process ()
 startTableCoordinator fork = run Map.empty
   where
-
-    -- TODO: rethink this design. routing via the
-    -- coordinator will be a publishing bottle neck,
-    -- plus the code in 'fetch' really requires a
-    -- pid to send to, so that'll not work via an
-    -- intermediary anyway
-
     run :: MxTables -> Process ()
     run tables =
       receiveWait [
-          match (\(MxAgentStart ch agent) ->
-                  lookupAgent tables agent >>= \(p, t) -> do
-                    sendChan ch p >> return t)
-        , match (\(agent, Get k sp) -> do
+          -- note that this state change can race with MxAgentStart requests
+          match (\(ProcessMonitorNotification _ pid _) -> do
+                    return $ Map.filter (/= pid) tables)
+        , match (\(MxAgentStart ch agent) -> do
                     lookupAgent tables agent >>= \(p, t) -> do
-                      safeFetch p k >>= sendChan sp >> return t)
-        , match $ handleRequest tables
+                    sendChan ch p >> return t)
+        , match (\req@(agent, tReq :: MxTableRequest) -> do
+                    case tReq of
+                      Get k sp -> do
+                        lookupAgent tables agent >>= \(p, t) -> do
+                            safeFetch p k >>= sendChan sp >> return t
+                      _ -> do
+                        handleRequest tables req)
+        , matchAny (\_ -> return tables) -- unrecognised messages are dropped
         ] >>= run
 
     handleRequest :: MxTables
                   -> (MxAgentId, MxTableRequest)
                   -> Process MxTables
-    handleRequest tables' (agent, req) =
-      lookupAgent tables' agent >>= \(p, t) -> do send p req >> return t
+    handleRequest tables' (agent, req) = do
+      lookupAgent tables' agent >>= \(p, t) -> send p req >> return t
 
     lookupAgent :: MxTables -> MxAgentId -> Process (ProcessId, MxTables)
-    lookupAgent tables' agentId' =
+    lookupAgent tables' agentId' = do
       case Map.lookup agentId' tables' of
         Nothing -> launchNew agentId' tables'
         Just p  -> return (p, tables')
@@ -188,28 +188,31 @@ startTableCoordinator fork = run Map.empty
       -- break an import cycle with Node.hs via the management
       -- agent, management API and the tracing modules
       them <- liftIO $ fork $ link us >> proc
-      -- them <- spawnLocal nid $ link us >> proc
       ref  <- monitor them
       return (them, ref)
 
 tableHandler :: MxTableState -> Process ()
 tableHandler state = do
   ns <- receiveWait [
-      match (\Delete    -> return Nothing)
-    , match (\Purge     -> return $ Just $ (entries ^= Map.empty) $ state)
-    , match (\(Clear k) -> return $ Just $ (entries ^: Map.delete k) $ state)
-    , match (\(Set k v) -> return $ Just $ (entries ^: Map.insert k v) state)
-    , match (\(Get k c) -> getEntry k c state >> return (Just state))
+      match (handleTableRequest state)
+    , matchAny (\_ -> return (Just state))
     ]
   case ns of
     Nothing -> return ()
     Just s' -> tableHandler s'
+  where
+    handleTableRequest _  Delete    = return Nothing
+    handleTableRequest st Purge     = return $ Just $ (entries ^= Map.empty) $ st
+    handleTableRequest st (Clear k) = return $ Just $ (entries ^: Map.delete k) $ st
+    handleTableRequest st (Set k v) = return $ Just $ (entries ^: Map.insert k v) st
+    handleTableRequest st (Get k c) = getEntry k c st >> return (Just st)
 
 getEntry :: String
          -> SendPort (Maybe Message)
          -> MxTableState
          -> Process ()
-getEntry k m MxTableState{..} = sendChan m =<< return (Map.lookup k _entries)
+getEntry k m MxTableState{..} = do
+  sendChan m =<< return (Map.lookup k _entries)
 
 entries :: Accessor MxTableState (Map String Message)
 entries = accessor _entries (\ls st -> st { _entries = ls })
