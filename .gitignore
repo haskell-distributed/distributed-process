@@ -11,4 +11,5 @@ dist/
 *.ps
 *.swp
 cabal-dev
+cabal-dev*
 .DS_Store

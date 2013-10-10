@@ -1,5 +1,5 @@
-module Control.Distributed.Process.Internal.Trace.Remote
-  ( -- * Configuring A Tracer
+module Control.Distributed.Process.Management.Trace.Remote
+  ( -- * Configuring A Remote Tracer
     setTraceFlagsRemote
   , startTraceRelay
     -- * Remote Table
@@ -14,11 +14,11 @@ import Control.Distributed.Process.Internal.Primitives
   , relay
   , nsendRemote
   )
-import Control.Distributed.Process.Internal.Trace.Types
+import Control.Distributed.Process.Management.Trace.Types
   ( TraceFlags(..)
   , TraceOk(..)
   )
-import Control.Distributed.Process.Internal.Trace.Primitives
+import Control.Distributed.Process.Management.Trace.Primitives
   ( withRegisteredTracer
   , enableTrace
   )
@@ -50,7 +50,6 @@ enableTraceRemote pid =
 startTraceRelay :: NodeId -> Process ProcessId
 startTraceRelay nodeId = do
   withRegisteredTracer $ \pid ->
-    -- TODO: move cpEnableTraceRemote here?
     spawn nodeId $ cpEnableTraceRemote pid
 
 -- | Set the given flags for a remote node (asynchronous).

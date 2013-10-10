@@ -1,6 +1,6 @@
 -- | Tracing/Debugging support - Trace Implementation
-module Control.Distributed.Process.Internal.Trace.Tracer
-  ( -- * API for the Node Controller
+module Control.Distributed.Process.Management.Trace.Tracer
+  ( -- * API for the Management Agent
     traceController
     -- * Built in tracers
   , defaultTracer
@@ -31,16 +31,18 @@ import Control.Distributed.Process.Internal.Primitives
   , handleMessage
   , matchUnknown
   )
-import Control.Distributed.Process.Internal.Trace.Types
-  ( TraceEvent(..)
-  , SetTrace(..)
+import Control.Distributed.Process.Management.Types
+  ( MxEvent(..)
   , Addressable(..)
+  )
+import Control.Distributed.Process.Management.Trace.Types
+  ( SetTrace(..)
   , TraceSubject(..)
   , TraceFlags(..)
   , TraceOk(..)
   , defaultTraceFlags
   )
-import Control.Distributed.Process.Internal.Trace.Primitives
+import Control.Distributed.Process.Management.Trace.Primitives
   ( traceOn )
 import Control.Distributed.Process.Internal.Types
   ( LocalNode(..)
@@ -89,7 +91,9 @@ import System.Mem.Weak
   ( Weak
   )
 
-data TracerState = TracerST {
+data TracerState =
+  TracerST
+  {
     client   :: !(Maybe ProcessId)
   , flags    :: !TraceFlags
   , regNames :: !(Map ProcessId (Set String))
@@ -119,7 +123,7 @@ defaultEventLogTracer =
 checkEnv :: String -> Process String
 checkEnv s = liftIO $ getEnv s
 
--- This trace client is (intentionally) useful - it simply provides
+-- This trace client is (intentionally) a noop - it simply provides
 -- an intial client for the trace controller to talk to, until some
 -- other (hopefully more useful) client is installed over the top of
 -- it. This is the default trace client.
@@ -130,14 +134,13 @@ nullTracer =
 systemLoggerTracer :: Process ()
 systemLoggerTracer = do
   node <- processNode <$> ask
-  let tr = sendTraceMsg node
+  let tr = sendTraceLog node
   forever' $ receiveWait [ matchAny (\m -> handleMessage m tr) ]
   where
-    sendTraceMsg :: LocalNode -> TraceEvent -> Process ()
-    sendTraceMsg node ev = do
+    sendTraceLog :: LocalNode -> MxEvent -> Process ()
+    sendTraceLog node ev = do
       now <- liftIO $ getCurrentTime
-      txt <- buildTxt ev
-      msg <- return $ (formatTime defaultTimeLocale "%c" now, txt)
+      msg <- return $ (formatTime defaultTimeLocale "%c" now, buildTxt ev)
       emptyPid <- return $ (nullProcessId (localNodeId node))
       traceMsg <- return $ NCMsg {
                              ctrlMsgSender = ProcessIdentifier (emptyPid)
@@ -146,9 +149,9 @@ systemLoggerTracer = do
                            }
       liftIO $ writeChan (localCtrlChan node) traceMsg
 
-    buildTxt :: TraceEvent -> Process String
-    buildTxt (TraceEvLog msg) = return msg
-    buildTxt ev               = return $ show ev
+    buildTxt :: MxEvent -> String
+    buildTxt (MxLog msg) = msg
+    buildTxt ev          = show ev
 
 eventLogTracer :: Process ()
 eventLogTracer =
@@ -157,7 +160,7 @@ eventLogTracer =
   -- is a tracer process installed. This is just a stop gap until then.
   forever' $ receiveWait [ matchAny (\m -> handleMessage m writeTrace) ]
   where
-    writeTrace :: TraceEvent -> Process ()
+    writeTrace :: MxEvent -> Process ()
     writeTrace ev = liftIO $ traceEventIO (show ev)
 
 logfileTracer :: FilePath -> Process ()
@@ -171,14 +174,14 @@ logfileTracer p = do
     logger h' = forever' $ do
       receiveWait [
           matchIf (\ev -> case ev of
-                            TraceEvDisable      -> True
-                            (TraceEvTakeover _) -> True
+                            MxTraceDisable      -> True
+                            (MxTraceTakeover _) -> True
                             _                   -> False)
                   (\_ -> (liftIO $ hClose h') >> die "trace stopped")
         , matchAny (\ev -> handleMessage ev (writeTrace h'))
         ]
 
-    writeTrace :: Handle -> TraceEvent -> Process ()
+    writeTrace :: Handle -> MxEvent -> Process ()
     writeTrace h ev = do
       liftIO $ do
         now <- getCurrentTime
@@ -190,8 +193,8 @@ logfileTracer p = do
 
 traceController :: MVar ((Weak (CQueue Message))) -> Process ()
 traceController mv = do
-    -- This breach of encapsulation is deliberate: we don't want to tie up
-    -- the node's internal control channel if we can possibly help it!
+    -- See the documentation for mxAgentController for a
+    -- commentary that explains this breach of encapsulation
     weakQueue <- processWeakQ <$> ask
     liftIO $ putMVar mv weakQueue
     initState <- initialState
@@ -199,23 +202,24 @@ traceController mv = do
   where
     traceLoop :: TracerState -> Process ()
     traceLoop st = do
-      -- Trace events are forwarded to the trace target when tracing is enabled.
+      let client' = client st
+      -- Trace events are forwarded to the enabled trace target.
       -- At some point in the future, we're going to start writing these custom
       -- events to the ghc eventlog, at which point this design might change.
       st' <- receiveWait [
           match (\(setResp, set :: SetTrace) -> do
-                  -- We allow at most one trace client, which is a process id.
+                  -- We consider at most one trace client, which is a process.
                   -- Tracking multiple clients represents too high an overhead,
-                  -- so we leave that kind of thing to our consumers to figure
-                  -- figure out.
+                  -- so we leave that kind of thing to our consumers (e.g., the
+                  -- high level Debug client module) to figure out.
                   case set of
                     (TraceEnable pid) -> do
                       -- notify the previous tracer it has been replaced
-                      sendTrace st (createUnencodedMessage (TraceEvTakeover pid))
+                      sendTraceMsg client' (createUnencodedMessage (MxTraceTakeover pid))
                       sendOk setResp
                       return st { client = (Just pid) }
                     TraceDisable -> do
-                      sendTrace st (createUnencodedMessage TraceEvDisable)
+                      sendTraceMsg client' (createUnencodedMessage MxTraceDisable)
                       sendOk setResp
                       return st { client = Nothing })
         , match (\(confResp, flags') ->
@@ -224,7 +228,7 @@ traceController mv = do
         , match (\chGetCurrent -> sendChan chGetCurrent (client st) >> return st)
           -- we dequeue incoming events even if we don't process them
         , matchAny (\ev ->
-                 handleMessage ev (handleTrace st ev) >>= return . fromMaybe st)
+            handleMessage ev (handleTrace st ev) >>= return . fromMaybe st)
         ]
       traceLoop st'
 
@@ -245,7 +249,6 @@ traceController mv = do
       catch (checkEnv "DISTRIBUTED_PROCESS_TRACE_FLAGS" >>= return . parseFlags)
             (\(_ :: IOError) -> return defaultTraceFlags)
 
-    -- quick and dirty fold-while
     parseFlags :: String -> TraceFlags
     parseFlags s = parseFlags' s defaultTraceFlags
       where parseFlags' :: String -> TraceFlags -> TraceFlags
@@ -260,27 +263,11 @@ traceController mv = do
               | x == 'l'  = parseFlags' xs parsedFlags { traceNodes = True }
               | otherwise = parseFlags' xs parsedFlags
 
--- note [runtime tracer control]
---
--- The trace mechanism is designed to put as little stress on the system, and
--- in particular the node controller, as possible. The LocalNode's @tracer@
--- field is therefore immutable, since we don't want to be blocking the node
--- controller when writing trace information out. The runtime cost of enabling
--- tracing is therefore the cost of enqueue for all trace-able operations at
--- all times. If tracing is not explicitly enabled, the trace record stored in
--- the local node state is matched and ignored in API calls, reducing the cost
--- to a single function call.
---
--- To /disable/ tracing facilities in a runtime system that has tracing enabled
--- then, is to instruct the tracer process not to forward any trace event data
--- and it is not possible to remove the runtime overhead (of enqueue in the
--- caller and dequeue + noop in the tracer process) once the node is started.
-
 applyTraceFlags :: TraceFlags -> TracerState -> Process TracerState
 applyTraceFlags flags' state = return state { flags = flags' }
 
-handleTrace :: TracerState -> Message -> TraceEvent -> Process TracerState
-handleTrace st msg ev@(TraceEvRegistered p n) =
+handleTrace :: TracerState -> Message -> MxEvent -> Process TracerState
+handleTrace st msg ev@(MxRegistered p n) =
   let regNames' =
         Map.insertWith (\_ ns -> Set.insert n ns) p
                        (Set.singleton n)
@@ -288,7 +275,7 @@ handleTrace st msg ev@(TraceEvRegistered p n) =
   in do
     traceEv ev msg (traceRegistered (flags st)) st
     return st { regNames = regNames' }
-handleTrace st msg ev@(TraceEvUnRegistered p n) =
+handleTrace st msg ev@(MxUnRegistered p n) =
   let f ns = case ns of
                Nothing  -> Nothing
                Just ns' -> Just (Set.delete n ns')
@@ -296,46 +283,46 @@ handleTrace st msg ev@(TraceEvUnRegistered p n) =
   in do
     traceEv ev msg (traceUnregistered (flags st)) st
     return st { regNames = regNames' }
-handleTrace st msg ev@(TraceEvSpawned  _)   = do
+handleTrace st msg ev@(MxSpawned  _)   = do
   traceEv ev msg (traceSpawned (flags st)) st >> return st
-handleTrace st msg ev@(TraceEvDied _ _)     = do
+handleTrace st msg ev@(MxProcessDied _ _)     = do
   traceEv ev msg (traceDied (flags st)) st >> return st
-handleTrace st msg ev@(TraceEvSent _ _ _)   =
+handleTrace st msg ev@(MxSent _ _ _)   =
   traceEv ev msg (traceSend (flags st)) st >> return st
-handleTrace st msg ev@(TraceEvReceived _ _) =
+handleTrace st msg ev@(MxReceived _ _) =
   traceEv ev msg (traceRecv (flags st)) st >> return st
 handleTrace st msg ev = do
   case ev of
-    (TraceEvNodeDied _ _) ->
+    (MxNodeDied _ _) ->
       case (traceNodes (flags st)) of
-        True  -> sendTrace st msg
+        True  -> sendTrace st ev msg
         False -> return ()
-    (TraceEvUser _) -> sendTrace st msg
-    (TraceEvLog _)  -> sendTrace st msg
+    (MxUser _) -> sendTrace st ev msg
+    (MxLog _)  -> sendTrace st ev msg
     _ ->
       case (traceConnections (flags st)) of
-        True  -> sendTrace st msg
+        True  -> sendTrace st ev msg
         False -> return ()
   return st
 
-traceEv :: TraceEvent
+traceEv :: MxEvent
         -> Message
         -> Maybe TraceSubject
         -> TracerState
         -> Process ()
 traceEv _  _   Nothing                  _  = return ()
-traceEv _  msg (Just TraceAll)          st = sendTrace st msg
+traceEv ev msg (Just TraceAll)          st = sendTrace st ev msg
 traceEv ev msg (Just (TraceProcs pids)) st = do
   node <- processNode <$> ask
   let p = case resolveToPid ev of
             Nothing  -> (nullProcessId (localNodeId node))
             Just pid -> pid
   case (Set.member p pids) of
-    True  -> sendTrace st msg
+    True  -> sendTrace st ev msg
     False -> return ()
 traceEv ev msg (Just (TraceNames names)) st = do
-  -- TODO: if we have recorded regnames for p, then we
-  -- forward the trace iif there are overlapping trace targets
+  -- if we have recorded regnames for p, then we forward the trace iif
+  -- there are overlapping trace targets
   node <- processNode <$> ask
   let p = case resolveToPid ev of
             Nothing  -> (nullProcessId (localNodeId node))
@@ -344,13 +331,16 @@ traceEv ev msg (Just (TraceNames names)) st = do
     Nothing -> return ()
     Just ns -> if (Set.null (Set.intersection ns names))
                  then return ()
-                 else sendTrace st msg
+                 else sendTrace st ev msg
 
-sendTrace :: TracerState -> Message -> Process ()
-sendTrace st msg =
-  let pid = (client st) in do
-    case pid of
-      Just p  -> (flip forward) p msg
-      Nothing -> return ()
+sendTrace :: TracerState -> MxEvent -> Message -> Process ()
+sendTrace st ev msg = do
+  let c = client st
+  if c == (resolveToPid ev)  -- we do not send the tracer events about itself...
+     then return ()
+     else sendTraceMsg c msg
 
+sendTraceMsg :: Maybe ProcessId -> Message -> Process ()
+sendTraceMsg Nothing  _   = return ()
+sendTraceMsg (Just p) msg = (flip forward) p msg
 

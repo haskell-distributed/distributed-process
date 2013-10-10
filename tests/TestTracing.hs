@@ -12,63 +12,25 @@ import Control.Concurrent.MVar
   )
 import Control.Distributed.Process
 import Control.Distributed.Process.Debug
+import Control.Distributed.Process.Management
+  ( MxEvent(..)
+  )
 import Control.Distributed.Process.Node
   ( forkProcess
-  , newLocalNode
-  , initRemoteTable
   , closeLocalNode
   , LocalNode)
-import Control.Exception as Ex (catch)
-import Network.Transport.TCP
+import qualified Network.Transport as NT
+
 #if ! MIN_VERSION_base(4,6,0)
 import Prelude hiding (catch, log)
 #endif
+
 import Test.Framework
   ( Test
-  , defaultMain
   , testGroup
   )
-import Test.HUnit (Assertion)
-import Test.HUnit.Base (assertBool)
 import Test.Framework.Providers.HUnit (testCase)
-
-import System.Environment (getEnv)
-import System.Posix.Env
-  ( setEnv
-  )
-
--- these utilities have been cribbed from distributed-process-platform
--- we should really find a way to share them...
-
--- | A mutable cell containing a test result.
-type TestResult a = MVar a
-
-delayedAssertion :: (Eq a)
-                 => String
-                 -> LocalNode
-                 -> a
-                 -> (TestResult a -> Process ())
-                 -> MVar ()
-                 -> Assertion
-delayedAssertion note localNode expected testProc lock = do
-  result <- newEmptyMVar
-  _ <- forkProcess localNode $ do
-         acquire lock
-         finally (testProc result)
-                 (release lock)
-  assertComplete note result expected
-  where acquire lock' = liftIO $ takeMVar lock'
-        release lock' = liftIO $ putMVar lock' ()
-
-assertComplete :: (Eq a) => String -> MVar a -> a -> IO ()
-assertComplete msg mv a = do
-  b <- takeMVar mv
-  assertBool msg (a == b)
-
-stash :: TestResult a -> a -> Process ()
-stash mvar x = liftIO $ putMVar mvar x
-
-------
+import TestUtils
 
 testSpawnTracing :: TestResult Bool -> Process ()
 testSpawnTracing result = do
@@ -81,8 +43,8 @@ testSpawnTracing result = do
   evDied <- liftIO $ newEmptyMVar
   tracer <- startTracer $ \ev -> do
     case ev of
-      (TraceEvSpawned p) -> liftIO $ putMVar evSpawned p
-      (TraceEvDied p r)  -> liftIO $ putMVar evDied (p, r)
+      (MxSpawned p)       -> liftIO $ putMVar evSpawned p
+      (MxProcessDied p r) -> liftIO $ putMVar evDied (p, r)
       _ -> return ()
 
   (sp, rp) <- newChan
@@ -115,7 +77,7 @@ testTraceRecvExplicitPid result = do
     withTracer
       (\ev ->
         case ev of
-          (TraceEvReceived pid' _) -> stash res (pid == pid')
+          (MxReceived pid' _) -> stash res (pid == pid')
           _                        -> return ()) $ do
         (sp, rp) <- newChan
         send pid sp
@@ -137,7 +99,7 @@ testTraceRecvNamedPid result = do
     withTracer
       (\ev ->
         case ev of
-          (TraceEvReceived pid' _) -> stash res (pid == pid')
+          (MxReceived pid' _) -> stash res (pid == pid')
           _                        -> return ()) $ do
         (sp, rp) <- newChan
         send pid sp
@@ -155,7 +117,7 @@ testTraceSending result = do
     withTracer
       (\ev ->
         case ev of
-          (TraceEvSent to from msg) -> do
+          (MxSent to from msg) -> do
             (Just s) <- unwrapMessage msg :: Process (Maybe String)
             stash res (to == pid && from == self && s == "hello there")
             stash res (to == pid && from == self)
@@ -180,7 +142,7 @@ testTraceRegistration result = do
     withTracer
       (\ev ->
         case ev of
-          TraceEvRegistered p s ->
+          MxRegistered p s ->
             stash res (p == pid && s == "foobar")
           _ ->
             return ()) $ do
@@ -207,7 +169,7 @@ testTraceUnRegistration result = do
     withTracer
       (\ev ->
         case ev of
-          TraceEvUnRegistered p n -> do
+          MxUnRegistered p n -> do
             stash res (p == pid && n == "foobar")
             send pid ()
           _ ->
@@ -241,21 +203,21 @@ testTraceLayering result = do
       withTracer
        (\ev ->
          case ev of
-           TraceEvDied _ _ -> liftIO $ putMVar died ()
-           _               -> return ())
+           MxProcessDied _ _ -> liftIO $ putMVar died ()
+           _                 -> return ())
        ( do {
            recv <- liftIO $ newEmptyMVar
          ; withTracer
             (\ev' ->
               case ev' of
-                TraceEvReceived _ _ -> liftIO $ putMVar recv ()
+                MxReceived _ _ -> liftIO $ putMVar recv ()
                 _                   -> return ())
             ( do {
                 user <- liftIO $ newEmptyMVar
               ; withTracer
                   (\ev'' ->
                     case ev'' of
-                      TraceEvUser _ -> liftIO $ putMVar user ()
+                      MxUser _ -> liftIO $ putMVar user ()
                       _             -> return ())
                   (send pid () >> (liftIO $ takeMVar user))
               ; liftIO $ takeMVar recv
@@ -276,7 +238,7 @@ testRemoteTraceRelay result =
     -- garbage on stderr for the duration of the test run.
     -- Here we set up that relay, and then wait for a signal
     -- that the tracer (on node1) has seen the expected
-    -- TraceEvSpawned message, at which point we're finished
+    -- MxSpawned message, at which point we're finished
     (Just log') <- whereis "logger"
     pid <- liftIO $ forkProcess node2 $ do
       logRelay <- spawnLocal $ relay log'
@@ -293,7 +255,7 @@ testRemoteTraceRelay result =
       withTracer
         (\ev ->
           case ev of
-            TraceEvSpawned p -> stash observedPid p >> send pid ()
+            MxSpawned p -> stash observedPid p >> send pid ()
             _                -> return ()) $ do
           relayPid <- startTraceRelay nid
           liftIO $ threadDelay 1000000
@@ -328,65 +290,46 @@ tests node1 = do
   -- various tracers will race with one another and
   -- we'll get garbage results (or worse, deadlocks)
   lock <- liftIO $ newMVar ()
-  enabled <- checkTraceEnabled
-  case enabled of
-    True ->
-      return [
-        testGroup "Tracing" [
+  return [
+    testGroup "Tracing" [
            testCase "Spawn Tracing"
-             (delayedAssertion
+             (synchronisedAssertion
               "expected dead process-info to be ProcessInfoNone"
               node1 True testSpawnTracing lock)
          , testCase "Recv Tracing (Explicit Pid)"
-             (delayedAssertion
+             (synchronisedAssertion
               "expected a recv trace for the supplied pid"
               node1 True testTraceRecvExplicitPid lock)
          , testCase "Recv Tracing (Named Pid)"
-             (delayedAssertion
+             (synchronisedAssertion
               "expected a recv trace for the process registered as 'foobar'"
               node1 True testTraceRecvNamedPid lock)
          , testCase "Trace Send(er)"
-             (delayedAssertion
+             (synchronisedAssertion
               "expected a 'send' trace with the requisite fields set"
               node1 True testTraceSending lock)
          , testCase "Trace Registration"
-              (delayedAssertion
+              (synchronisedAssertion
                "expected a 'registered' trace"
                node1 True testTraceRegistration lock)
          , testCase "Trace Unregistration"
-              (delayedAssertion
+              (synchronisedAssertion
                "expected an 'unregistered' trace"
                node1 True testTraceUnRegistration lock)
          , testCase "Trace Layering"
-             (delayedAssertion
-              "expected blah"
-              node1 () testTraceLayering lock)
+              (synchronisedAssertion
+               "expected blah"
+               node1 () testTraceLayering lock)
          , testCase "Remote Trace Relay"
-             (delayedAssertion
-              "expected blah"
-              node1 True testRemoteTraceRelay lock)
+              (synchronisedAssertion
+               "expected blah"
+               node1 True testRemoteTraceRelay lock)
          ] ]
-    False ->
-      return []
 
-checkTraceEnabled :: IO Bool
-checkTraceEnabled =
-  Ex.catch (getEnv "DISTRIBUTED_PROCESS_TRACE_ENABLED" >> return True)
-           (\(_ :: IOError) -> return False)
-
-
-mkNode :: String -> IO LocalNode
-mkNode port = do
-  Right (transport1, _) <- createTransportExposeInternals
-                                    "127.0.0.1" port defaultTCPParameters
-  newLocalNode transport1 initRemoteTable
+timerTests :: NT.Transport -> IO [Test]
+timerTests _ = do
+  mkNode "8080" >>= tests >>= return
 
 main :: IO ()
-main = do
-  setEnv "DISTRIBUTED_PROCESS_TRACE_ENABLED" "true" True
-  node1 <- mkNode "8081"
-  testData <- tests node1
-  defaultMain testData
-  closeLocalNode node1
-  return ()
+main = testMain $ timerTests
 

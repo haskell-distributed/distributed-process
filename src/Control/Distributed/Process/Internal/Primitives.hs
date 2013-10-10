@@ -191,9 +191,11 @@ import Control.Distributed.Process.Internal.Messaging
   , disconnect
   , sendCtrlMsg
   )
-import Control.Distributed.Process.Internal.Trace.Types
+import Control.Distributed.Process.Management.Types
+  ( MxEvent(..)
+  )
+import Control.Distributed.Process.Management.Trace.Types
   ( traceEvent
-  , TraceEvent(..)
   )
 import Control.Distributed.Process.Internal.WeakTQueue
   ( newTQueueIO
@@ -226,8 +228,8 @@ send them msg = do
                                   msg
   -- We do not fire the trace event until after the sending is complete;
   -- In the remote case, 'sendMessage' can block in the networking stack.
-  liftIO $ traceEvent (localTracer node)
-                      (TraceEvSent them us (createUnencodedMessage msg))
+  liftIO $ traceEvent (localEventBus node)
+                      (MxSent them us (createUnencodedMessage msg))
 
 -- | /Unsafe/ variant of 'send'. This function makes /no/ attempt to serialize
 -- and (in the case when the destination process resides on the same local
@@ -410,8 +412,8 @@ forward msg them = do
                                   (messageToPayload msg)
   -- We do not fire the trace event until after the sending is complete;
   -- In the remote case, 'sendMessage' can block in the networking stack.
-  liftIO $ traceEvent (localTracer node)
-                      (TraceEvSent them us msg)
+  liftIO $ traceEvent (localEventBus node)
+                      (MxSent them us msg)
 
 
 -- | Wrap a 'Serializable' value in a 'Message'. Note that 'Message's are
@@ -551,7 +553,7 @@ delegate pid p = do
     ]
   delegate pid p
 
--- | A straight relay that simply forwards all messages to the supplied pid.
+-- | A straight relay that forwards all messages to the supplied pid.
 relay :: ProcessId -> Process ()
 relay !pid = receiveWait [ matchAny (\m -> forward m pid) ] >> relay pid
 

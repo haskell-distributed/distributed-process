@@ -6,6 +6,7 @@ module Control.Distributed.Process.Internal.CQueue
   , MatchOn(..)
   , newCQueue
   , enqueue
+  , enqueueSTM
   , dequeue
   , mkWeakCQueue
   ) where
@@ -52,7 +53,11 @@ newCQueue = CQueue <$> newMVar Nil <*> atomically newTChan
 --
 -- Enqueue is strict.
 enqueue :: CQueue a -> a -> IO ()
-enqueue (CQueue _arrived incoming) !a = atomically $ writeTChan incoming a 
+enqueue (CQueue _arrived incoming) !a = atomically $ writeTChan incoming a
+
+-- | Variant of enqueue for use in the STM monad.
+enqueueSTM :: CQueue a -> a -> STM ()
+enqueueSTM (CQueue _arrived incoming) !a = writeTChan incoming a
 
 data BlockSpec =
     NonBlocking

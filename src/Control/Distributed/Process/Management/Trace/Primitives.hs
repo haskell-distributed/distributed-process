@@ -3,15 +3,14 @@
 -- the messaging primitives that rely on it, and also between the node
 -- controller (which requires access to the tracing related elements of
 -- our RemoteTable) and the Debug module, which requires @forkProcess@.
-module Control.Distributed.Process.Internal.Trace.Primitives
-  ( Tracer
-  , TraceEvent(..)
-    -- * Sending Trace Data
-  , traceLog
+-- This module is also used by the management agent, which relies on the
+-- tracing infrastructure's messaging fabric.
+module Control.Distributed.Process.Management.Trace.Primitives
+  ( -- * Sending Trace Data
+    traceLog
   , traceLogFmt
   , traceMessage
     -- * Configuring A Tracer
-  , isTracingEnabled
   , defaultTraceFlags
   , enableTrace
   , enableTraceAsync
@@ -33,15 +32,14 @@ import Control.Distributed.Process.Internal.Primitives
   , newChan
   , receiveChan
   )
-import Control.Distributed.Process.Internal.Trace.Types
+import Control.Distributed.Process.Management.Trace.Types
   ( TraceArg(..)
-  , TraceEvent(..)
   , TraceFlags(..)
   , TraceOk(..)
   , TraceSubject(..)
   , defaultTraceFlags
   )
-import qualified Control.Distributed.Process.Internal.Trace.Types as Tracer
+import qualified Control.Distributed.Process.Management.Trace.Types as Tracer
   ( traceLog
   , traceLogFmt
   , traceMessage
@@ -55,12 +53,12 @@ import qualified Control.Distributed.Process.Internal.Trace.Types as Tracer
   , getCurrentTraceClient
   )
 import Control.Distributed.Process.Internal.Types
-  ( Tracer(..)
-  , Process
+  ( Process
   , ProcessId
   , LocalProcess(..)
-  , LocalNode(localTracer)
+  , LocalNode(localEventBus)
   , SendPort
+  , MxEventBus(..)
   )
 import Control.Distributed.Process.Serializable
 import Control.Monad.IO.Class (liftIO)
@@ -72,8 +70,8 @@ import qualified Data.Set as Set (fromList)
 -- Main API                                                                   --
 --------------------------------------------------------------------------------
 
--- | Maps a list of identifiers that can be mapped to process ids,
--- to a 'TraceSubject'.
+-- | Converts a list of identifiers (that can be
+-- mapped to process ids), to a 'TraceSubject'.
 class Traceable a where
   uod :: [a] -> TraceSubject
 
@@ -94,14 +92,6 @@ traceOn = Just TraceAll
 -- | Trace no targets.
 traceOff :: Maybe TraceSubject
 traceOff = Nothing
-
--- | Determine whether or not tracing has been enabled.
-isTracingEnabled :: Process Bool
-isTracingEnabled = do
-  node <- processNode <$> ask
-  case (localTracer node) of
-    (ActiveTracer _ _) -> return True
-    _                  -> return False
 
 -- | Enable tracing to the supplied process.
 enableTraceAsync :: ProcessId -> Process ()
@@ -157,12 +147,12 @@ traceLogFmt d ls = withLocalTracer $ \t -> liftIO $ Tracer.traceLogFmt t d ls
 traceMessage :: Serializable m => m -> Process ()
 traceMessage msg = withLocalTracer $ \t -> liftIO $ Tracer.traceMessage t msg
 
-withLocalTracer :: (Tracer -> Process ()) -> Process ()
+withLocalTracer :: (MxEventBus -> Process ()) -> Process ()
 withLocalTracer act = do
   node <- processNode <$> ask
-  act (localTracer node)
+  act (localEventBus node)
 
-withLocalTracerSync :: (Tracer -> SendPort TraceOk -> IO ()) -> Process ()
+withLocalTracerSync :: (MxEventBus -> SendPort TraceOk -> IO ()) -> Process ()
 withLocalTracerSync act = do
   (sp, rp) <- newChan
   withLocalTracer $ \t -> liftIO $ (act t sp)

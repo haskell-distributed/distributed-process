@@ -1,3 +1,5 @@
+{-# LANGUAGE RecordWildCards #-}
+
 -- | Local nodes
 --
 module Control.Distributed.Process.Node
@@ -56,7 +58,7 @@ import Control.Exception
   , Exception
   , throwTo
   )
-import qualified Control.Exception as Exception (Handler(..), catch, catches, finally)
+import qualified Control.Exception as Exception (Handler(..), catches, finally)
 import Control.Concurrent (forkIO, myThreadId)
 import Control.Distributed.Process.Internal.StrictMVar
   ( newMVar
@@ -106,7 +108,7 @@ import Control.Distributed.Process.Internal.Types
   , LocalProcessId(..)
   , ProcessId(..)
   , LocalNode(..)
-  , Tracer(..)
+  , MxEventBus(..)
   , LocalNodeState(..)
   , LocalProcess(..)
   , LocalProcessState(..)
@@ -149,19 +151,27 @@ import Control.Distributed.Process.Internal.Types
   , firstNonReservedProcessId
   , ImplicitReconnect(WithImplicitReconnect)
   )
-import qualified Control.Distributed.Process.Internal.Trace.Remote as Trace
+import Control.Distributed.Process.Management.Agent
+  ( mxAgentController
+  )
+import qualified Control.Distributed.Process.Management.Table as Table
+  ( mxTableCoordinator
+  , startTableCoordinator
+  )
+import qualified Control.Distributed.Process.Management.Trace.Remote as Trace
   ( remoteTable
   )
-import Control.Distributed.Process.Internal.Trace.Types
+import Control.Distributed.Process.Management.Trace.Tracer
+  ( defaultTracer
+  )
+import Control.Distributed.Process.Management.Trace.Types
   ( TraceArg(..)
-  , TraceEvent(..)
   , traceEvent
   , traceLogFmt
   , enableTrace
   )
-import Control.Distributed.Process.Internal.Trace.Tracer
-  ( traceController
-  , defaultTracer
+import Control.Distributed.Process.Management.Types
+  ( MxEvent(..)
   )
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Internal.Messaging
@@ -179,14 +189,13 @@ import Control.Distributed.Process.Internal.Primitives
   , catch
   , unwrapMessage
   )
-import Control.Distributed.Process.Internal.Types (SendPort)
+import Control.Distributed.Process.Internal.Types (SendPort, Tracer(..))
 import qualified Control.Distributed.Process.Internal.Closure.BuiltIn as BuiltIn (remoteTable)
 import Control.Distributed.Process.Internal.WeakTQueue (TQueue, writeTQueue)
 import qualified Control.Distributed.Process.Internal.StrictContainerAccessors as DAC
   ( mapMaybe
   , mapDefault
   )
-import System.Environment (getEnv)
 import Unsafe.Coerce
 
 --------------------------------------------------------------------------------
@@ -222,10 +231,10 @@ createBareLocalNode endPoint rtable = do
                          , localEndPoint = endPoint
                          , localState    = state
                          , localCtrlChan = ctrlChan
-                         , localTracer   = InactiveTracer
+                         , localEventBus = MxEventBusInitialising
                          , remoteTable   = rtable
                          }
-    tracedNode <- startTracing node
+    tracedNode <- startMxAgent node
 
     -- Once the NC terminates, the endpoint isn't much use,
     void $ forkIO $ Exception.finally (runNodeController tracedNode)
@@ -243,38 +252,27 @@ createBareLocalNode endPoint rtable = do
             , ctrlMsgSignal = SigShutdown
             }
 
-startTracing :: LocalNode -> IO LocalNode
-startTracing node =
-  -- TODO: use tryGetEnv once we drop support for GHC 7.2.x
-  Exception.catch
-        (getEnv "DISTRIBUTED_PROCESS_TRACE_ENABLED" >> procTracer node)
-        (\(_ :: IOError) -> return node)
-  where procTracer :: LocalNode -> IO LocalNode
-        procTracer n = do
-          -- see note [tracer/forkProcess races]
-          mv <- MVar.newEmptyMVar
-          pid <- forkProcess n (traceController mv)
-          wqRef <- MVar.takeMVar mv
-          return n { localTracer = (ActiveTracer pid wqRef) }
+startMxAgent :: LocalNode -> IO LocalNode
+startMxAgent node = do
+  -- see note [tracer/forkProcess races]
+  let fork = forkProcess node
+  mv <- MVar.newEmptyMVar
+  pid <- fork $ mxAgentController fork mv
+  (tracer', wqRef, mxNew') <- MVar.takeMVar mv
+  return node { localEventBus = (MxEventBus pid tracer' wqRef mxNew') }
 
-startDefaultTracer :: LocalNode -> IO (Maybe ProcessId)
-startDefaultTracer node =
-  Exception.catch
-        (getEnv "DISTRIBUTED_PROCESS_TRACE_ENABLED" >> go node)
-        (\(_ :: IOError) -> return Nothing)
-  where go :: LocalNode -> IO (Maybe ProcessId)
-        go node' = do
-          registerTraceController node'
-          pid <- forkProcess node' defaultTracer
-          enableTrace (localTracer node') pid
-          return (Just pid)
+startDefaultTracer :: LocalNode -> IO ()
+startDefaultTracer node' = do
+  let t = localEventBus node'
+  case t of
+    MxEventBus _ (Tracer pid _) _ _ -> do
+      runProcess node' $ register "trace.controller" pid
+      pid' <- forkProcess node' defaultTracer
+      enableTrace (localEventBus node') pid'
+      runProcess node' $ register "tracer.initial" pid'
+    _ -> return ()
 
-        registerTraceController :: LocalNode -> IO ()
-        registerTraceController n =
-          let t = localTracer n in
-          case t of
-            InactiveTracer       -> return ()
-            (ActiveTracer pid _) -> runProcess n $ register "trace.controller" pid
+-- TODO: we need a better mechanism for defining and registering services
 
 -- | Start and register the service processes on a node
 startServiceProcesses :: LocalNode -> IO ()
@@ -283,26 +281,26 @@ startServiceProcesses node = do
   -- the default tracer first, even though it might @nsend@ to the logger
   -- before /that/ process has started - this is a totally harmless race
   -- however, so we deliberably ignore it
-  mPid <- startDefaultTracer node
-  case mPid of
-    Nothing  -> return ()
-    Just pid -> runProcess node $ register "tracer.initial" pid
-
+  startDefaultTracer node
+  tableCoordinatorPid <- fork $ Table.startTableCoordinator fork
+  runProcess node $ register Table.mxTableCoordinator tableCoordinatorPid
   logger <- forkProcess node loop
   runProcess node $ register "logger" logger
  where
-  loop = do
-    receiveWait
-      [ match $ \((time, pid, string) ::(String, ProcessId, String)) -> do
-          liftIO . hPutStrLn stderr $ time ++ " " ++ show pid ++ ": " ++ string
-          loop
-      , match $ \((time, string) :: (String, String)) -> do
-          -- this is a 'trace' message from the local node tracer
-          liftIO . hPutStrLn stderr $ time ++ " [trace] " ++ string
-          loop
-      , match $ \(ch :: SendPort ()) -> -- a shutdown request
-          sendChan ch ()
-      ]
+   fork = forkProcess node
+
+   loop = do
+     receiveWait
+       [ match $ \((time, pid, string) ::(String, ProcessId, String)) -> do
+           liftIO . hPutStrLn stderr $ time ++ " " ++ show pid ++ ": " ++ string
+           loop
+       , match $ \((time, string) :: (String, String)) -> do
+           -- this is a 'trace' message from the local node tracer
+           liftIO . hPutStrLn stderr $ time ++ " [trace] " ++ string
+           loop
+       , match $ \(ch :: SendPort ()) -> -- a shutdown request
+           sendChan ch ()
+       ]
 
 -- | Force-close a local node
 --
@@ -368,12 +366,13 @@ forkProcess node proc = modifyMVar (localState node) startProcess
             }
         return (tid', lproc)
 
-
       -- see note [tracer/forkProcess races]
-      trace node (TraceEvSpawned pid)
+      trace node (MxSpawned pid)
 
       if lpidCounter lpid == maxBound
         then do
+          -- TODO: this doesn't look right at all - how do we know
+          -- that newUnique represents a process id that is available!?
           newUnique <- randomIO
           return ( (localProcessWithId lpid ^= Just lproc)
                  . (localPidCounter ^= firstNonReservedProcessId)
@@ -401,7 +400,7 @@ forkProcess node proc = modifyMVar (localState node) startProcess
 --
 -- Our startTracing function uses forkProcess to start the trace controller
 -- process, and of course forkProcess attempts to call traceEvent once the
--- process has started. This is harmless, as the localTracer is not updated
+-- process has started. This is harmless, as the localEventBus is not updated
 -- until /after/ the initial forkProcess completes, so the first call to
 -- traceEvent behaves as if tracing were disabled (i.e., it is ignored).
 --
@@ -450,7 +449,7 @@ handleIncomingMessages node = go initConnectionState
         NT.ConnectionOpened cid rel theirAddr ->
           if rel == NT.ReliableOrdered
             then
-              trace node (TraceEvConnected cid)
+              trace node (MxConnected cid theirAddr)
               >> go (
                       (incomingAt cid ^= Just (theirAddr, Uninit))
                     . (incomingFrom theirAddr ^: Set.insert cid)
@@ -466,7 +465,7 @@ handleIncomingMessages node = go initConnectionState
                 -- it from the NC state? (and same for channels, below)
                 let msg = payloadToMessage payload
                 enqueue queue msg -- 'enqueue' is strict
-                trace node (TraceEvReceived pid msg)
+                trace node (MxReceived pid msg)
               go st
             Just (_, ToChan (TypedChannel chan')) -> do
               mChan <- deRefWeak chan'
@@ -515,7 +514,7 @@ handleIncomingMessages node = go initConnectionState
             Nothing ->
               invalidRequest cid st
             Just (src, _) -> do
-              trace node (TraceEvDisconnected cid)
+              trace node (MxDisconnected cid src)
               go ( (incomingAt cid ^= Nothing)
                  . (incomingFrom src ^: Set.delete cid)
                  $ st
@@ -607,15 +606,15 @@ instance Show ProcessKillException where
 -- Tracing/Debugging                                                          --
 --------------------------------------------------------------------------------
 
--- [Issue #104]
+-- [Issue #104 / DP-13]
 
 traceNotifyDied :: LocalNode -> Identifier -> DiedReason -> NC ()
 traceNotifyDied node ident reason =
   -- TODO: sendPortDied notifications
   liftIO $ withLocalTracer node $ \t ->
     case ident of
-      (NodeIdentifier nid)    -> traceEvent t (TraceEvNodeDied nid reason)
-      (ProcessIdentifier pid) -> traceEvent t (TraceEvDied pid reason)
+      (NodeIdentifier nid)    -> traceEvent t (MxNodeDied nid reason)
+      (ProcessIdentifier pid) -> traceEvent t (MxProcessDied pid reason)
       _                       -> return ()
 
 traceEventFmtIO :: LocalNode
@@ -625,11 +624,11 @@ traceEventFmtIO :: LocalNode
 traceEventFmtIO node fmt args =
   withLocalTracer node $ \t -> traceLogFmt t fmt args
 
-trace :: LocalNode -> TraceEvent -> IO ()
+trace :: LocalNode -> MxEvent -> IO ()
 trace node ev = withLocalTracer node $ \t -> traceEvent t ev
 
-withLocalTracer :: LocalNode -> (Tracer -> IO ()) -> IO ()
-withLocalTracer node act = act (localTracer node)
+withLocalTracer :: LocalNode -> (MxEventBus -> IO ()) -> IO ()
+withLocalTracer node act = act (localEventBus node)
 
 --------------------------------------------------------------------------------
 -- Core functionality                                                         --
@@ -796,7 +795,7 @@ ncEffectSpawn pid cProc ref = do
   mProc <- unClosure cProc
   -- If the closure does not exist, we spawn a process that throws an exception
   -- This allows the remote node to find out what's happening
-  -- TODO: 
+  -- TODO:
   let proc = case mProc of
                Left err -> fail $ "Error: Could not resolve closure: " ++ err
                Right p  -> p
@@ -828,8 +827,8 @@ ncEffectRegister from label atnode mPid reregistration = do
                do modify' $ registeredHereFor label ^= mPid
                   updateRemote node currentVal mPid
                   case mPid of
-                    (Just p) -> liftIO $ trace node (TraceEvRegistered p label)
-                    Nothing  -> liftIO $ trace node (TraceEvUnRegistered (fromJust currentVal) label)
+                    (Just p) -> liftIO $ trace node (MxRegistered p label)
+                    Nothing  -> liftIO $ trace node (MxUnRegistered (fromJust currentVal) label)
              liftIO $ sendMessage node
                        (NodeIdentifier (localNodeId node))
                        (ProcessIdentifier from)
@@ -897,7 +896,7 @@ ncEffectLocalSend :: LocalNode -> ProcessId -> Message -> NC ()
 ncEffectLocalSend node to msg =
   liftIO $ withLocalProc node to $ \p -> do
     enqueue (processQueue p) msg
-    trace node (TraceEvReceived to msg)
+    trace node (MxReceived to msg)
 
 -- [Issue #DP-20]
 ncEffectLocalPortSend :: SendPortId -> Message -> NC ()

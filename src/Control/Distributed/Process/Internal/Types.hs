@@ -17,6 +17,7 @@ module Control.Distributed.Process.Internal.Types
     -- * Local nodes and processes
   , LocalNode(..)
   , Tracer(..)
+  , MxEventBus(..)
   , LocalNodeState(..)
   , LocalProcess(..)
   , LocalProcessState(..)
@@ -98,6 +99,7 @@ import Control.Exception (Exception)
 import Control.Concurrent (ThreadId)
 import Control.Concurrent.Chan (Chan)
 import Control.Concurrent.STM (STM)
+import Control.Concurrent.STM.TChan (TChan)
 import qualified Network.Transport as NT (EndPoint, EndPointAddress, Connection)
 import Control.Applicative (Applicative, Alternative, (<$>), (<*>))
 import Control.Monad.Reader (MonadReader(..), ReaderT, runReaderT)
@@ -198,22 +200,30 @@ nullProcessId nid =
 -- Local nodes and processes                                                  --
 --------------------------------------------------------------------------------
 
--- | Required for system tracing in the node controller
-data Tracer =
-    ActiveTracer !ProcessId !(Weak (CQueue Message)) -- note [tracer longevity]
-  | InactiveTracer
+-- | Provides access to the trace controller
+data Tracer = Tracer
+              {
+                -- | Process id for the currently active trace handler
+                tracerPid :: !ProcessId
+                -- | Weak reference to the tracer controller's mailbox
+              , weakQ     :: !(Weak (CQueue Message))
+              }
 
--- note [tracer longevity]
---
--- If the trace controller process crashes, we make no attempt to restart it
--- or handle the failure. Tracing is done on a 'best effort' basis, because
--- to make stronger guarantees (e.g., handling failures) would introduce
--- significant complexity and adversely affect performance. As such, we access
--- the process' mailbox directly via a weak reference, and calls to a dead
--- process have no effect just as with normal process/send interactions.
---
--- Also note that the ProcessId stored in an active tracer is that of the first
--- (initially registered) system tracer process.
+-- | Local system management event bus state
+data MxEventBus =
+    MxEventBusInitialising
+  | MxEventBus
+    {
+      -- | Process id of the management agent controller process
+      agent  :: !ProcessId
+      -- | Configuration for the local trace controller
+    , tracer :: !Tracer
+      -- | Weak reference to the management agent controller's mailbox
+    , evbuss :: !(Weak (CQueue Message))
+      -- | API for adding management agents to a running node
+    , mxNew  :: !(((TChan Message, TChan Message) -> Process ()) -> IO ProcessId)
+--    , mxReg  :: !(StrictMVar (Map MxAgentId ))
+    }
 
 -- | Local nodes
 data LocalNode = LocalNode
@@ -225,8 +235,8 @@ data LocalNode = LocalNode
   , localState      :: !(StrictMVar LocalNodeState)
     -- | Channel for the node controller
   , localCtrlChan   :: !(Chan NCMsg)
-    -- | Current active system debug/trace log
-  , localTracer     :: !Tracer
+    -- | Internal management event bus
+  , localEventBus   :: !MxEventBus
     -- | Runtime lookup table for supporting closures
     -- TODO: this should be part of the CH state, not the local endpoint state
   , remoteTable     :: !RemoteTable
