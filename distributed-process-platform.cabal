@@ -274,7 +274,7 @@ test-suite RegistryTests
   hs-source-dirs:
                    src,
                    tests
-  ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind -eventlog
+  ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind -fhpc -eventlog
   extensions:      CPP
   main-is:         TestRegistry.hs
 
