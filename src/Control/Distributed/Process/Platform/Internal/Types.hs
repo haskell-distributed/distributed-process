@@ -119,14 +119,6 @@ data ExitReason =
 instance Binary ExitReason where
 instance NFData ExitReason where
 
-$(remotable ['whereis])
-
--- | A synchronous version of 'whereis', this relies on 'call'
--- to perform the relevant monitoring of the remote node.
-whereisRemote :: NodeId -> String -> Process (Maybe ProcessId)
-whereisRemote node name =
-  call $(functionTDict 'whereis) node ($(mkClosure 'whereis) name)
-
 data Recipient =
     Pid ProcessId
   | Registered String
@@ -136,6 +128,14 @@ data Recipient =
 --  | GlobalReg String
   deriving (Typeable, Generic, Show, Eq)
 instance Binary Recipient where
+
+$(remotable ['whereis])
+
+-- | A synchronous version of 'whereis', this relies on 'call'
+-- to perform the relevant monitoring of the remote node.
+whereisRemote :: NodeId -> String -> Process (Maybe ProcessId)
+whereisRemote node name =
+  call $(functionTDict 'whereis) node ($(mkClosure 'whereis) name)
 
 sendToRecipient :: (Serializable m) => Recipient -> m -> Process ()
 sendToRecipient (Pid p) m                = P.send p m
