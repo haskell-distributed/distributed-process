@@ -102,27 +102,6 @@ data RegisterSelf = RegisterSelf
 instance Binary RegisterSelf where
 instance NFData RegisterSelf where
 
--- | A generalisation of /addressability/.
-data Recipient =
-    Pid ProcessId
-  | Registered String
-  | RemoteRegistered String NodeId
-  deriving (Typeable, Generic, Show, Eq)
-instance Binary Recipient where
-
-sendToRecipient :: (Serializable m) => Recipient -> m -> Process ()
-sendToRecipient (Pid p) m                = P.send p m
-sendToRecipient (Registered s) m         = nsend s m
-sendToRecipient (RemoteRegistered s n) m = nsendRemote n s m
-
-$(remotable ['whereis])
-
--- | A synchronous version of 'whereis', this relies on 'call'
--- to perform the relevant monitoring of the remote node.
-whereisRemote :: NodeId -> String -> Process (Maybe ProcessId)
-whereisRemote node name =
-  call $(functionTDict 'whereis) node ($(mkClosure 'whereis) name)
-
 -- | A ubiquitous /shutdown signal/ that can be used
 -- to maintain a consistent shutdown/stop protocol for
 -- any process that wishes to handle it.
@@ -140,14 +119,6 @@ data ExitReason =
 instance Binary ExitReason where
 instance NFData ExitReason where
 
-$(remotable ['whereis])
-
--- | A synchronous version of 'whereis', this relies on 'call'
--- to perform the relevant monitoring of the remote node.
-whereisRemote :: NodeId -> String -> Process (Maybe ProcessId)
-whereisRemote node name =
-  call $(functionTDict 'whereis) node ($(mkClosure 'whereis) name)
-
 data Recipient =
     Pid ProcessId
   | Registered String
@@ -157,6 +128,14 @@ data Recipient =
 --  | GlobalReg String
   deriving (Typeable, Generic, Show, Eq)
 instance Binary Recipient where
+
+$(remotable ['whereis])
+
+-- | A synchronous version of 'whereis', this relies on 'call'
+-- to perform the relevant monitoring of the remote node.
+whereisRemote :: NodeId -> String -> Process (Maybe ProcessId)
+whereisRemote node name =
+  call $(functionTDict 'whereis) node ($(mkClosure 'whereis) name)
 
 sendToRecipient :: (Serializable m) => Recipient -> m -> Process ()
 sendToRecipient (Pid p) m                = P.send p m
