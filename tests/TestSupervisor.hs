@@ -305,9 +305,6 @@ startBadClosure cs sup = do
     (ChildFailedToStart $ StartFailureBadClosure
        "user error (Could not resolve closure: Invalid static label 'non-existing')")
 
--- configuredBadClosure ::
---      (RestartStrategy -> [ChildSpec] -> (ProcessId -> Process ()) -> Assertion)
---   -> Assertion
 -- configuredBadClosure withSupervisor = do
 --   let spec = permChild (closure (staticLabel "non-existing") empty)
 --   -- we make sure we don't hit the supervisor's limits
