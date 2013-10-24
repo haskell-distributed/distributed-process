@@ -32,6 +32,7 @@ module Control.Distributed.Process.Internal.Primitives
   , matchMessageIf
   , isEncoded
   , wrapMessage
+  , unsafeWrapMessage
   , unwrapMessage
   , handleMessage
   , handleMessageIf
@@ -432,6 +433,9 @@ forward msg them = do
 --
 wrapMessage :: Serializable a => a -> Message
 wrapMessage = createUnencodedMessage -- see [note Serializable UnencodedMessage]
+
+unsafeWrapMessage :: Serializable a => a -> Message
+unsafeWrapMessage = Unsafe.wrapMessage
 
 -- [note Serializable UnencodedMessage]
 -- if we attempt to serialise an UnencodedMessage, it will be converted to an

@@ -44,6 +44,7 @@ module Control.Distributed.Process.UnsafePrimitives
     send
   , sendChan
   , nsend
+  , wrapMessage
   ) where
 
 import Control.Distributed.Process.Internal.Messaging
@@ -62,6 +63,7 @@ import Control.Distributed.Process.Internal.Types
   , Identifier(..)
   , ImplicitReconnect(..)
   , SendPortId(..)
+  , Message
   , sendPortProcessId
   , unsafeCreateUnencodedMessage
   )
@@ -103,6 +105,9 @@ sendChan (SendPort cid) msg = do
                           (SendPortIdentifier cid)
                           NoImplicitReconnect
                           msg
+
+wrapMessage :: Serializable a => a -> Message
+wrapMessage = unsafeCreateUnencodedMessage
 
 unsafeSendLocal :: (Serializable a) => ProcessId -> a -> Process ()
 unsafeSendLocal pid msg =
