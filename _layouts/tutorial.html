@@ -21,13 +21,11 @@
         <div class="span3 sidebar">
           <div data-spy="affix" data-offset-bottom="290">
             <ul class="nav nav-list sidenav">
-              <li><a href="#introduction"><i class="icon-chevron-right"></i> Introduction</a></li>
-              <li><a href="#implementing_the_client"><i class="icon-chevron-right"></i> Implementing the client</a></li>
-              <li><a href="#implementing_the_server"><i class="icon-chevron-right"></i> Implementing the server</a></li>
-              <li><a href="#making_use_of_async"><i class="icon-chevron-right"></i> Making use of Async</a></li>
-              <li><a href="#wiring_up_handlers"><i class="icon-chevron-right"></i> Wiring up handlers</a></li>
-              <li><a href="#putting_it_all_together"><i class="icon-chevron-right"></i> Putting it all together</a></li>
-              <li><a href="#performance_considerations"><i class="icon-chevron-right"></i> Performance Considerations</a></li>
+              {% for section in page.sections %}
+                <li>
+                    <a href="#{{ section | downcase | replace: ' ', '_' }}"><i class="icon-chevron-right"></i> {{ section }}</a>
+                </li>
+              {% endfor %}
            </ul>
           </div>
         </div>
@@ -40,3 +38,4 @@
     {% include js.html %}
   </body>
 </html>
+

@@ -1,27 +1,30 @@
 ---
-layout: tutorial3
+layout: tutorial
+sections: ['Introduction', 'Implementing the Client', 'Implementing the Server', 'Making use of Async', 'Wiring up Handlers', 'Putting it all together', 'Performance Considerations']
 categories: tutorial
 title: Managed Process Tutorial
 ---
 
 ### Introduction
 
-The source code on which this tutorial is based is kept on github,
+The source code on which this tutorial is (loosely) based is kept on github,
 and can be accessed [here][1]. Please note that this tutorial is
 based on the stable (master) branch of distributed-process-platform.
 
-The main idea behind `ManagedProcess` is to separate the functional
-and non-functional aspects of a process. By functional, we mean whatever
-application specific task the process performs, and by non-functional
-we mean the *concurrency* or, more precisely, handling of the process'
-mailbox.
+### Managed Processes
 
-Another effect that `ManagedProcess` has is to provide client code
-with a typed, specific API for interacting with the process, much as
-a TypedChannel does. We achieve this by writing and exporting functions
-that operate on the types we want clients to see, and using the API
-from `Control.Distributed.Process.Platform.ManagedProcess.Client` to
-interact with the server.
+The main idea behind a `ManagedProcess` is to separate the functional
+and non-functional aspects of an actor. By functional, we mean whatever
+application specific task the actor performs, and by non-functional
+we mean the *concurrency* or, more precisely, handling of the process'
+mailbox and its interaction with other actors (i.e., clients).
+
+Another effect of the `ManagedProcess` API is to provide client code
+with a typed (i.e., type specific) API for interacting with the process,
+much as a `TypedChannel` does. We achieve this by writing and exporting
+functions that operate on the types we want clients to see, and using
+the API from `Control.Distributed.Process.Platform.ManagedProcess.Client`
+to interact with the server.
 
 Let's imagine we want to execute tasks on an arbitrary node, using a
 mechanism much as we would with the `call` API from distributed-process.
@@ -31,22 +34,25 @@ concurrent tasks. We will use `ManagedProcess` to implement a generic
 task server with the following characteristics
 
 * requests to enqueue a task are handled immediately
-* callers will block until the task completes (or fails)
+* callers however, are blocked until the task completes (or fails)
 * an upper bound is placed on the number of concurrent running tasks
 
 Once the upper bound is reached, tasks will be queued up for later
-execution, and only when we drop below the limit will tasks be taken
+execution. Only when we drop below this limit will tasks be taken
 from the backlog and executed.
 
 `ManagedProcess` provides a basic protocol for *server-like* processes
 such as this, based on the synchronous `call` and asynchronous `cast`
-functions used by code we provide to client clients and matching
-*handler* functions in the process itself, for which there is a similar
-API on the *server*. Although `call` is a synchronous protocol,
-communication with the *server process* is out of band, both from the
-client and the server's point of view. The server implementation chooses
-whether to reply to a call request immediately, or defer its reply until
-a later stage and go back to receiving other messages in the meanwhile.
+functions. We use these to determine client behaviour, and matching
+*handler* functions are set up in the process itself, to process the
+requests and (if required) replies. This style of programming will
+already be familiar if you've used some combination of `send` in your
+clients and the `receive [ match ... ]` family of functions to write
+your servers. The primary difference here, is that the choice of when
+to return to (potentially blocking on) the server's mailbox is taken
+out of the programmer's hands, leaving the implementor to worry only
+about the logic to be applied once a message of one type or another
+is received.
 
 ### Implementing the client
 
@@ -74,10 +80,19 @@ executeTask :: forall s a . (Addressable s, Serializable a)
 executeTask sid t = call sid t
 {% endhighlight %}
 
-That's it for the client! Note that the type signature we expose to
-our consumers is specific, and that we do not expose them to either
-arbitrary messages arriving in their mailbox or to exceptions being
-thrown in their thread. Instead we return an `Either`.
+Although `call` is a synchronous protocol, communication with the
+*server process* is out of band, both from the client and the server's
+point of view. The server implementation chooses whether to reply to a
+call request immediately, or defer its reply until a later stage (and
+thus go back to receiving other messages in the meanwhile).
+
+In terms of code, that's all there is to it for our client! Note that
+the type signature we expose to our consumers is specific, and that
+we do not expose them to either arbitrary messages arriving in their
+mailbox or to exceptions being thrown in their thread. Instead we
+return an `Either`. One very important thing about this approach is
+that if the server replies with some other type (i.e., a type other
+than `Either String a`) then our client will be blocked indefinitely!
 
 There are several varieties of the `call` API that deal with error
 handling in different ways. Consult the haddocks for more info about
@@ -96,7 +111,7 @@ data Pool a = Pool a
 
 I've called the state type `Pool` as we're providing a fixed size resource
 pool from the consumer's perspective. We could think of this as a bounded
-size latch or barrier of sorts, but that conflates the example a bit too
+queue, latch or barrier of sorts, but that conflates the example a bit too
 much. We parameterise the state by the type of data that can be returned
 by submitted tasks.
 
@@ -124,11 +139,14 @@ data Pool a = Pool {
   } deriving (Typeable)
 {% endhighlight %}
 
+Given a pool of closures, we must now work out how to execute them
+on the caller's behalf.
+
 ### Making use of Async
 
 So **how** can we execute this `Closure (Process a)` without blocking the server
 process itself? We will use the `Control.Distributed.Process.Platform.Async` API
-to execute the task asynchronously and provide a means for waiting on the result.
+to execute each task asynchronously and provide a means for waiting on the result.
 
 In order to use the `Async` handle to get the result of the computation once it's
 complete, we'll have to hang on to a reference. We also need a way to associate the
@@ -152,11 +170,12 @@ proc <- unClosure task'
 asyncHandle <- async proc
 {% endhighlight %}
 
-Of course, we decided that we wouldn't block on each `Async` handle, and we're not
-able to sit in a *loop* polling all the handles representing tasks we're running,
-because no submissions would be handled whilst spinning and waiting for results.
-We're relying on monitors instead, so we need to store the `MonitorRef` so we know
-which monitor signal relates to which async task (and recipient).
+Of course, we decided not to block on each `Async` handle, and we can't sit
+in a *loop* polling all the handles representing tasks we're running
+(since no submissions would be handled whilst we're spinning waiting
+for results). Instead we rely on monitors instead, so we must store a
+`MonitorRef` in order to know which monitor signal relates to which
+async task (and recipient).
 
 {% highlight haskell %}
 data Pool a = Pool {
@@ -193,17 +212,16 @@ ref, caller ref and the async handle together in the `active` field. Prepending
 to the list of active/running tasks is a somewhat arbitrary choice. One might
 argue that heuristically, the younger a task is the less likely it is that it
 will run for a long time. Either way, I've done this to avoid cluttering the
-example other data structures, so we can focus on the `ManagedProcess` APIs
-only.
+example with data structures, so we can focus on the `ManagedProcess` APIs.
 
-Now we will write a function that handles the results. When the monitor signal
-arrives, we use the async handle to obtain the result and send it back to the caller.
-Because, even if we were running at capacity, we've now seen a task complete (and
-therefore reduce the number of active tasks by one), we will also pull off a pending
-task from the backlog (i.e., accepted), if any exists, and execute it. As with the
-active task list, we're going to take from the backlog in FIFO order, which is
-almost certainly not what you'd want in a real application, but that's not the
-point of the example either.
+Now we will write a function that handles the results. When a monitor signal
+arrives, we lookup an async handle that we can use to obtain the result
+and send it back to the caller. Because, even if we were running at capacity,
+we've now seen a task complete (and therefore reduced the number of active tasks
+by one), we will also pull off a pending task from the backlog (i.e., accepted),
+if any exists, and execute it. As with the active task list, we're going to
+take from the backlog in FIFO order, which is almost certainly not what you'd want
+in a real application, but that's not the point of the example either.
 
 The steps then, are
 
@@ -216,9 +234,9 @@ The steps then, are
 This chain then, looks like `wait h >>= respond c >> bump s t >>= continue`.
 
 Item (3) requires special API support from `ManagedProcess`, because we're not
-just sending *any* message back to the caller. We're replying to a `call`
-that has already taken place and is, in fact, still running. The API call for
-this is `replyTo`.
+just sending *any* message back to the caller. We're replying to a specific `call`
+that has taken place and is, from the client's perspective, still running.
+The `ManagedProcess` API call for this is `replyTo`.
 
 {% highlight haskell %}
 taskComplete :: forall a . Serializable a
@@ -258,23 +276,24 @@ deleteFromRunQueue :: (MonitorRef, Recipient, Async a)
 deleteFromRunQueue c@(p, _, _) runQ = deleteBy (\_ (b, _, _) -> b == p) c runQ
 {% endhighlight %}
 
-That was pretty simple. We've deal with mapping the `AsyncResult` to `Either` values,
+That was pretty simple. We've dealt with mapping the `AsyncResult` to `Either` values,
 which we *could* have left to the caller, but this makes the client facing API much
 simpler to work with.
 
 ### Wiring up handlers
 
 The `ProcessDefinition` takes a number of different kinds of handler. The only ones
-we care about are the call handler for submission handling, and the handler that
+_we_ care about are the call handler for submissions, and the handler that
 deals with monitor signals.
 
 Call and cast handlers live in the `apiHandlers` list of a `ProcessDefinition` and
 must have the type `Dispatcher s` where `s` is the state type for the process. We
 cannot construct a `Dispatcher` ourselves, but a range of functions in the
 `ManagedProcess.Server` module exist to lift functions like the ones we've just
-defined. The particular function we need is `handleCallFrom`, which works with
-functions over the state, `Recipient` and the call data/message. All the varieties
-of `handleCall` need to return a `ProcessReply`, which has the following type
+defined, to the correct type. The particular function we need is `handleCallFrom`,
+which works with functions over the state, `Recipient` and call data/message.
+All varieties of `handleCall` need to return a `ProcessReply`, which has the
+following type:
 
 {% highlight haskell %}
 data ProcessReply s a =
@@ -282,11 +301,11 @@ data ProcessReply s a =
   | NoReply (ProcessAction s)
 {% endhighlight %}
 
-There are also various utility function in the API to construct a `ProcessAction`
-and we will make use of `noReply_` here, which constructs `NoReply` for us and
+There are also various utility functions in the API to construct a `ProcessAction`
+and we make use of `noReply_` here, which constructs `NoReply` for us and
 presets the `ProcessAction` to `ProcessContinue`, which goes back to receiving
-messages without further action. We already have a function over the right input
-domain which evaluates to a new state so we end up with:
+messages from clients. We already have a function over our input domain, which
+evaluates to a new state, so we end up with:
 
 {% highlight haskell %}
 storeTask :: Serializable a
@@ -321,6 +340,9 @@ poolServer =
 {% endhighlight %}
 
 Starting the pool is fairly simple and `ManagedProcess` has some utilities to help.
+The `start` function takes an _initialising_ thunk, which must generate the initial
+state and per-call timeout setting, and the process definition which we've already
+encountered.
 
 {% highlight haskell %}
 simplePool :: forall a . (Serializable a)
@@ -335,8 +357,8 @@ simplePool sz server = start sz init' server
 ### Putting it all together
 
 Starting up a pool locally or on a remote node is just a matter of using `spawn`
-or `spawnLocal` with `simplePool`. The second argument should specify the type of
-results, e.g.,
+or `spawnLocal` with `simplePool`. The second argument should add specificity to
+the type of results the process definition operates on, e.g.,
 
 {% highlight haskell %}
 let s' = poolServer :: ProcessDefinition (Pool String)
@@ -356,22 +378,25 @@ And executing them is just as simple too. Given a pool which has been registered
 locally as "mypool", we can simply call it directly:
 
 {% highlight haskell %}
-job <- return $ ($(mkClosure 'sampleTask) (seconds 2, "foobar"))
-call "mypool" job >>= wait >>= stash result
+tsk <- return $ ($(mkClosure 'sampleTask) (seconds 2, "foobar"))
+executeTask "mypool" tsk
 {% endhighlight %}
 
-Hopefully this has demonstrated a few benefits of the `ManagedProcess` API, although
-it's really just scratching the surface. We have focussed on the code that matters -
-state transitions and decision making, without getting bogged down (much) with receiving
-or sending messages, apart from using some simple APIs when we needed to.
+In this tutorial, we've really just scratched the surface of the `ManagedProcess`
+API. By handing over control of the client/server protocol to the framework, we
+are able to focus on the code that matters, such as state transitions and decision
+making, without getting bogged down (much) with the business of sending and
+receiving messages, handling client/server failures and such like.
 
 ### Performance Considerations
 
 We did not take much care over our choice of data structures. Might this have profound
 consequences for clients? The LIFO nature of the pending backlog is surprising, but
-we can change that quite easily by changing data structures.
+we can change that quite easily by changing data structures. In fact, the code on which
+this example is based uses `Data.Sequence` to provide both strictness and FIFO
+execution ordering.
 
-What's perhaps more of a concern is the cost of using `Async` everywhere - remember
+Perhaps more of a concern is the cost of using `Async` everywhere - remember
 we used this in the *server* to handle concurrently executing tasks and obtaining
 their results. The `Async` module is also used by `ManagedProcess` to handle the
 `call` mechanism, and there *are* some overheads to using it. An invocation of

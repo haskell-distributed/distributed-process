@@ -1,5 +1,4 @@
 exclude: [".rvmrc", ".rbenv-version", "README.md", "Rakefile", "changelog.md"]
-auto: true
 lsi: false
 pygments: true
 safe: true
