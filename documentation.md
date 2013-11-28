@@ -373,7 +373,7 @@ The [distributed-process-platform][18] library implements parts of the
 in the original paper and implemented by the [remote][14] package. In particular,
 we diverge from the original design and defer to many of the principles
 defined by Erlang's [Open Telecom Platform][13], taking in some well established
-Haskell concurrency design patterns alongside.
+Haskell concurrency design patterns along the way.
 
 In fact, [distributed-process-platform][18] does not really consider the
 *task layer* in great detail. We provide an API comparable to remote's

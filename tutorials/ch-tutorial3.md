@@ -1,9 +1,26 @@
 ---
 layout: tutorial
 categories: tutorial
-sections: ['Message Ordering', 'Selective Receive', 'Advanced Mailbox Processing']
+sections: ['The Thing About Nodes', 'Message Ordering', 'Selective Receive', 'Advanced Mailbox Processing', 'Process Lifetime', 'Monitoring And Linking', 'Getting Process Info']
 title: Getting to know Processes
 ---
+
+### The Thing About Nodes
+
+Before we can really get to know _processes_, we need to consider the role of
+the _Node Controller_ in Cloud Haskell. As per the [_semantics_][4], Cloud
+Haskell makes the role of _Node Controller_ (occasionally referred to by the original
+"Unified Semantics for Future Erlang" paper on which our semantics are modelled
+as the "ether") explicit.
+
+Architecturally, Cloud Haskell's _Node Controller_ consists of a pair of message
+buss processes, one of which listens for network-transport level events whilst the
+other is busy processing _signal events_ (most of which pertain to either message
+delivery or process lifecycle notification). Both these _event loops_ runs sequentially
+in the system at all times.
+
+With this in mind, let's consider Cloud Haskell's lightweight processes in a bit
+more detail...
 
 ### Message Ordering
 
@@ -85,6 +102,19 @@ objects, each derived from evaluating a [`match`][3] style primitive. This
 subject was covered briefly in the first tutorial. Matching on messages allows
 us to separate the type(s) of messages we can handle from the type that the
 whole `receive` expression evaluates to.
+
+Consider the following snippet:
+
+{% highlight haskell %}
+usingReceive = do
+  () <- receiveWait [
+      match (\(s :: String) -> say s)
+    , match (\(i :: Int)    -> say $ show i)
+    ]
+{% endhighlight %}
+
+Note that each of the matches in the list must evaluate to the same type,
+as the type signature indicates: `receiveWait :: [Match b] -> Process b`.
 
 The behaviour of `receiveWait` differs from `receiveTimeout` in that it
 blocks forever (until a match is found in the process' mailbox), whereas the
@@ -183,7 +213,101 @@ distributed-process can be utilised to develop highly generic message processing
 All the richness of the distributed-process-platform APIs (such as `ManagedProcess`) which
 will be discussed in later tutorials are, in fact, built upon these families of primitives.
 
+### Process Lifetime
+
+A process will continue executing until it has evaluated to some value, or is abruptly
+terminated either by crashing (with an un-handled exception) or being instructed to
+stop executing. Stop instructions to stop take one of two forms: a `ProcessExitException`
+or `ProcessKillException`. As the names suggest, these _signals_ are delivered in the form
+of asynchronous exceptions, however you should not to rely on that fact! After all,
+we cannot throw an exception to a thread that is executing in some other operating
+system process or on a remote host! Instead, you should use the [`exit`][5] and [`kill`][6]
+primitives from distributed-process, which not only ensure that remote target processes
+are handled seamlessly, but also maintain a guarantee that if you send a message and
+*then* an exit signal, the message will be delivered to the destination process (via its
+local node controller) before the exception is thrown - note that this does not guarantee
+that the destination process will have time to _do anything_ with the message before it
+is terminated.
+
+The `ProcessExitException` signal is sent from one process to another, indicating that the
+receiver is being asked to terminate. A process can choose to tell itself to exit, and since
+this is a useful way for processes to terminate _abnormally_, distributed-processes provides
+the [`die`][7] primitive to simplify doing so. In fact, [`die`][7] has slightly different
+semantics from [`exit`][5], since the latter involves sending an internal signal to the
+local node controller. A direct consequence of this is that the _exit signal_ may not
+arrive immediately, since the _Node Controller_ could be busy processing other events.
+On the other hand, the [`die`][7] primitive throws a `ProcessExitException` directly
+in the calling thread, thus terminating it without delay.
+
+The `ProcessExitException` type holds a _reason_ field, which is serialised as a raw `Message`.
+This exception type is exported, so it is possible to catch these _exit signals_ and decide how
+to respond to them. Catching _exit signals_ is done via a set of primitives in
+distributed-process, and the use of them forms a key component of the various fault tolerance
+strategies provided by distributed-process-platform. For example, most of the utility
+code found in distributed-process-platform relies on processes terminating with a
+`ProcessKillException` or `ProcessExitException` where the _reason_ has the type
+`ExitReason` - processes which fail with other exception types are routinely converted to
+`ProcessExitException $ ExitOther reason {- reason :: String -}` automatically. This pattern
+is most prominently found in supervisors and supervised _managed processes_, which will be
+covered in subsequent tutorials.
+
+A `ProcessKillException` is intended to be an _untrappable_ exit signal, so its type is
+not exported and therefore you can __only__ handle it by catching all exceptions, which
+as we all know is very bad practise. The [`kill`][6] primitive is intended to be a
+_brutal_ means for terminating process - e.g., it is used to terminate supervised child
+processes that haven't shutdown on request, or to terminate processes that don't require
+any special cleanup code to run when exiting - although it does behave like [`exit`][5]
+in so much as it is dispatched (to the target process) via the _Node Controller_.
+
+### Monitoring and Linking
+
+Processes can be linked to other processes (or nodes or channels). A link, which is
+unidirectional, guarantees that once any object we have linked to *dies*, we will also
+be terminated. A simple way to test this is to spawn a child process, link to it and then
+terminate it, noting that we will subsequently die ourselves. Here's a simple example,
+in which we link to a child process and then cause it to terminate (by sending it a message
+of the type it is waiting for). Even though the child terminates "normally", our process
+is also terminated since `link` will _link the lifetime of two processes together_ regardless
+of exit reasons.
+
+{% highlight haskell %}
+demo = do
+  pid <- spawnLocal $ receive >>= return
+  link pid
+  send pid ()
+  () <- receive
+{% endhighlight %}
+
+The medium that link failures uses to signal exit conditions is the same as exit and kill
+signals - asynchronous exceptions. Once again, it is a bad idea to rely on this (not least
+because it might fail in some future release) and the exception type (`ProcessLinkException`)
+is not exported so as to prevent developers from abusing exception handling code in this
+special case. 
+
+Whilst the built-in `link` primitive terminates the link-ee regardless of exit reason,
+distributed-process-platform provides an alternate function `linkOnFailure`, which only
+dispatches the `ProcessLinkException` if the link-ed process dies abnormally (i.e., with
+some `DiedReason` other than `DiedNormal`).
+
+Monitors on the other hand, do not cause the *listening* process to exit at all, instead
+putting a `ProcessMonitorNotification` into the process' mailbox. This signal and its
+constituent fields can be introspected in order to decide what action (if any) the receiver
+can/should take in response to the monitored processes death.
+
+Linking and monitoring are foundational tools for *supervising* processes, where a top level
+process manages a set of children, starting, stopping and restarting them as necessary.
+
+### Getting Process Info
+
+The `getProcessInfo` function provides a means for us to obtain information about a running
+process. The `ProcessInfo` type it returns contains the local node id and a list of
+registered names, monitors and links for the process. The call returns `Nothing` if the
+process in question is not alive.
+
 [1]: hackage.haskell.org/package/distributed-process/docs/Control-Distributed-Process.html#v:receiveWait
 [2]: hackage.haskell.org/package/distributed-process/docs/Control-Distributed-Process.html#v:expect
 [3]: http://hackage.haskell.org/package/distributed-process-0.4.2/docs/Control-Distributed-Process.html#v:match
 [4]: /static/semantics.pdf
+[5]: http://hackage.haskell.org/package/distributed-process-0.4.2/docs/Control-Distributed-Process.html#v:exit
+[6]: http://hackage.haskell.org/package/distributed-process-0.4.2/docs/Control-Distributed-Process.html#v:kill
+[7]: http://hackage.haskell.org/package/distributed-process-0.4.2/docs/Control-Distributed-Process.html#v:die
