@@ -73,6 +73,7 @@ Library
                      Control.Distributed.Process.Internal.Primitives,
                      Control.Distributed.Process.Internal.CQueue,
                      Control.Distributed.Process.Internal.Closure.BuiltIn,
+                     Control.Distributed.Process.Internal.Closure.Explicit,
                      Control.Distributed.Process.Internal.Messaging,
                      Control.Distributed.Process.Internal.StrictList,
                      Control.Distributed.Process.Internal.StrictMVar,
