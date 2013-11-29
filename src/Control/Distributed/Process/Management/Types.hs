@@ -75,38 +75,6 @@ data MxEvent =
 
 instance Binary MxEvent where
 
-  -- put (MxSpawned pid)           = putWord8 1 >> put pid
-  -- put (MxRegistered pid str)    = putWord8 2 >> put pid >> put str
-  -- put (MxUnRegistered pid str)  = putWord8 3 >> put pid >> put str
-  -- put (MxProcessDied pid res)   = putWord8 4 >> put pid >> put res
-  -- put (MxNodeDied nid res)      = putWord8 5 >> put nid >> put res
-  -- put (MxSent to fro msg)       = putWord8 6 >> put to >> put fro >> put msg
-  -- put (MxReceived pid msg)      = putWord8 7 >> put pid >> put msg
-  -- put (MxConnected cid epid)    = putWord8 8 >> put cid >> put epid
-  -- put (MxDisconnected cid epid) = putWord8 9 >> put cid >> put epid
-  -- put (MxUser msg)              = putWord8 10 >> put msg
-  -- put (MxLog  msg)              = putWord8 11 >> put msg
-  -- put (MxTraceTakeover pid)     = putWord8 12 >> put pid
-  -- put MxTraceDisable            = putWord8 13
-
-  -- get = do
-  --   header <- getWord8
-  --   case header of
-  --     1  -> MxSpawned <$> get
-  --     2  -> MxRegistered <$> get <*> get
-  --     3  -> MxUnRegistered <$> get <*> get
-  --     4  -> MxProcessDied <$> get <*> get
-  --     5  -> MxNodeDied <$> get <*> get
-  --     6  -> MxSent <$> get <*> get <*> get
-  --     7  -> MxReceived <$> get <*> get
-  --     8  -> MxConnected <$> get <*> get
-  --     9  -> MxDisconnected <$> get <*> get
-  --     10 -> MxUser <$> get
-  --     11 -> MxLog <$> get
-  --     12 -> MxTraceTakeover <$> get
-  --     13 -> return MxTraceDisable
-  --     _ -> error "MxEvent.get - invalid header"
-
 class Addressable a where
   resolveToPid :: a -> Maybe ProcessId
 

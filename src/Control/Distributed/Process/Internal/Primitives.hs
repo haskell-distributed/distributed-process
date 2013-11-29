@@ -419,7 +419,7 @@ forward msg them = do
 
 -- | Wrap a 'Serializable' value in a 'Message'. Note that 'Message's are
 -- 'Serializable' - like the datum they contain - but also note, deserialising
--- a 'Message' will yield a 'Message', not the type within it! To obtain the
+-- such a 'Message' will yield a 'Message', not the type within it! To obtain the
 -- wrapped datum, use 'unwrapMessage' or 'handleMessage' with a specific type.
 --
 -- @
