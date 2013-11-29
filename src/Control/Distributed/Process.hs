@@ -40,6 +40,7 @@ module Control.Distributed.Process
   , unsafeSend
   , unsafeSendChan
   , unsafeNSend
+  , unsafeWrapMessage
     -- * Advanced messaging
   , Match
   , receiveWait
@@ -210,6 +211,7 @@ import Control.Distributed.Process.Internal.Primitives
   , matchMessageIf
   , isEncoded
   , wrapMessage
+  , unsafeWrapMessage
   , unwrapMessage
   , handleMessage
   , handleMessageIf

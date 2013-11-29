@@ -434,6 +434,8 @@ forward msg them = do
 wrapMessage :: Serializable a => a -> Message
 wrapMessage = createUnencodedMessage -- see [note Serializable UnencodedMessage]
 
+-- | This is the /unsafe/ variant of 'wrapMessage'. See
+-- "Control.Distributed.Process.UnsafePrimitives" for details.
 unsafeWrapMessage :: Serializable a => a -> Message
 unsafeWrapMessage = Unsafe.wrapMessage
 

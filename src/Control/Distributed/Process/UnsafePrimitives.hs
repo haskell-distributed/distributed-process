@@ -24,11 +24,12 @@
 -- by several orders of magnitude.
 --
 -- This module provides variants of Cloud Haskell's messaging primitives
--- ('send', 'sendChan' and 'nsend') which do /not/ force binary serialisation in
--- the local case, thereby offering superior intra-node messaging performance.
--- The /catch/ is that any evaluation problems lurking within the passed data
--- structure - e.g., fields set to @undefined@ and so on - will show up in the
--- receiver rather than in the caller (as they would with the /normal/ strategy).
+-- ('send', 'sendChan', 'nsend' and 'wrapMessage') which do /not/ force binary
+-- serialisation in the local case, thereby offering superior intra-node
+-- messaging performance. The /catch/ is that any evaluation problems lurking
+-- within the passed data structure (e.g., fields set to @undefined@ and so on)
+-- will show up in the receiver rather than in the caller (as they would with
+-- the /normal/ strategy).
 --
 -- Use of the functions in this module can potentially change the runtime
 -- behaviour of your application. You have been warned!
@@ -90,6 +91,10 @@ send them msg = do
                                   (ProcessIdentifier them)
                                   NoImplicitReconnect
                                   msg
+  where
+    unsafeSendLocal :: (Serializable a) => ProcessId -> a -> Process ()
+    unsafeSendLocal pid msg =
+      sendCtrlMsg Nothing $ LocalSend pid (unsafeCreateUnencodedMessage msg)
 
 -- | Send a message on a typed channel
 sendChan :: Serializable a => SendPort a -> a -> Process ()
@@ -105,15 +110,12 @@ sendChan (SendPort cid) msg = do
                           (SendPortIdentifier cid)
                           NoImplicitReconnect
                           msg
+  where
+    unsafeSendChanLocal :: (Serializable a) => SendPortId -> a -> Process ()
+    unsafeSendChanLocal spId msg =
+      sendCtrlMsg Nothing $ LocalPortSend spId (unsafeCreateUnencodedMessage msg)
 
+-- | Create an unencoded @Message@ for any @Serializable@ type.
 wrapMessage :: Serializable a => a -> Message
 wrapMessage = unsafeCreateUnencodedMessage
-
-unsafeSendLocal :: (Serializable a) => ProcessId -> a -> Process ()
-unsafeSendLocal pid msg =
-  sendCtrlMsg Nothing $ LocalSend pid (unsafeCreateUnencodedMessage msg)
-
-unsafeSendChanLocal :: (Serializable a) => SendPortId -> a -> Process ()
-unsafeSendChanLocal spId msg =
-  sendCtrlMsg Nothing $ LocalPortSend spId (unsafeCreateUnencodedMessage msg)
 
