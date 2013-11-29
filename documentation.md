@@ -238,14 +238,14 @@ types such as `TMVar` just as normal Haskell threads would.
 ### Typed Channels
 
 Channels provides an alternative to message transmission with `send` and `expect`.
-While `send` and `expect` allow  transmission of messages of any `Serializable`
+While `send` and `expect` allow us to transmit messages of any `Serializable`
 type, channels require a uniform type. Channels work like a distributed equivalent
 of Haskell's `Control.Concurrent.Chan`, however they have distinct ends: a single
 receiving port and a corollary send port.
 
 Channels provide a nice alternative to *bare send and receive*, which is a bit
-*unHaskellish*, because the processes message queue has messages of multiple
-types, and we have to do dynamic type checking.
+*un-Haskell-ish*, since our process' message queue can contain messages of multiple
+types, forcing us to undertake dynamic type checking at runtime.
 
 We create channels with a call to `newChan`, and send/receive on them using the
 `{send,receive}Chan` primitives:
@@ -264,19 +264,17 @@ channelsDemo = do
 {% endhighlight %}
 
 Channels are particularly useful when you are sending a message that needs a
-response, because the code that receives the response knows exactly where it
-came from - i.e., it knows that it came from the `SendPort` connected to
-the `ReceivePort` on which it just received a response.
+response, because we know exactly where to look for the reply.
 
-Channels can sometimes allows message types to be simplified, as passing a
-`ProcessId` to reply to isn't required. Channels are not so useful when you
-need to spawn a process and then send a bunch a messages to it and wait for
-replies, because we can’t send the `ReceivePort`.
+Channels can also allow message types to be simplified, as passing a
+`ProcessId` for the reply isn't required. Channels aren't so useful when we
+need to spawn a process and send a bunch a messages to it, then wait for
+replies however; we can’t send a `ReceivePort` since it is not `Serializable`.
 
-ReceivePorts can be merged, so you can listen on several simultaneously. In the
-latest version of [distributed-process][2], you can listen for *regular* messages
-and on multiple channels at the same time, using `matchChan` in the list of
-allowed matches passed `receive`.
+`ReceivePort`s can be merged, so we can listen on several simultaneously. In the
+latest version of [distributed-process][2], we can listen for *regular* messages
+and multiple channels at the same time, using `matchChan` in the list of
+allowed matches passed `receiveWait` and `receiveTimeout`.
 
 ### Linking and monitoring
 
@@ -318,7 +316,7 @@ function, which sends an exit signal that cannot be handled.
 #### __An important note about exit signals__
 
 Exit signals in Cloud Haskell are unlike asynchronous exceptions in regular
-haskell code. Whilst processes *can* use asynchronous exceptions - there's
+haskell code. Whilst a process *can* use asynchronous exceptions - there's
 nothing stoping this since the `Process` monad is an instance of `MonadIO` -
 exceptions thrown are not bound by the same ordering guarantees as messages
 delivered to a process. Link failures and exit signals *might* be implemented

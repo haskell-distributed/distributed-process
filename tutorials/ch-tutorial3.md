@@ -8,25 +8,29 @@ title: Getting to know Processes
 ### The Thing About Nodes
 
 Before we can really get to know _processes_, we need to consider the role of
-the _Node Controller_ in Cloud Haskell. As per the [_semantics_][4], Cloud
-Haskell makes the role of _Node Controller_ (occasionally referred to by the original
-"Unified Semantics for Future Erlang" paper on which our semantics are modelled
-as the "ether") explicit.
+the _Node Controller_ in Cloud Haskell. In our formal [_semantics_][4], Cloud
+Haskell hides the role of _Node Controller_ (explicitly defined in the original
+"Unified Semantics for Future Erlang" paper on which our semantics are modelled).
+Nonetheless, each Cloud Haskell _node_ is serviced and managed by a
+conceptual _Node Controller_.
 
 Architecturally, Cloud Haskell's _Node Controller_ consists of a pair of message
 buss processes, one of which listens for network-transport level events whilst the
 other is busy processing _signal events_ (most of which pertain to either message
 delivery or process lifecycle notification). Both these _event loops_ runs sequentially
-in the system at all times.
+in the system at all times. Messages are delivered via the _Node Controller's_
+_event loops_, which broadly correspond to the _system queue (or "ether")_ mentioned
+in the [_semantics_][4]. The _system queue_ delivers messages to individual process
+mailboxes in a completely transparent fashion, leaving us with the illusion that
+processes exist in a unidimensional space.
 
-With this in mind, let's consider Cloud Haskell's lightweight processes in a bit
+With all this in mind, let's consider Cloud Haskell's lightweight processes in a bit
 more detail...
 
 ### Message Ordering
 
-We have already met the `send` primitive, which is used to deliver
-a message to another process. Here's a review of what we've learned
-about `send` thus far:
+We have already met the `send` primitive, used to deliver messages from one
+process to another. Here's a review of what we've learned about `send` thus far:
 
 1. sending is asynchronous (i.e., it does not block the caller)
 2. sending _never_ fails, regardless of the state of the recipient process
@@ -34,8 +38,8 @@ about `send` thus far:
 4. there are **no** guarantees that the message will be received at all
 
 Asynchronous sending buys us several benefits. Improved concurrency is
-possible, because processes do not need to block and wait for acknowledgements
-and error handling need not be implemented each time a message is sent.
+possible, because processes need not block or wait for acknowledgements,
+nor does error handling need to be implemented each time a message is sent.
 Consider a stream of messages sent from one process to another. If the
 stream consists of messages `a, b, c` and we have seen `c`, then we know for
 certain that we will have already seen `a, b` (in that order), so long as the
@@ -58,15 +62,14 @@ their mailbox.
 
 Processes dequeue messages (from their mailbox) using the [`expect`][1]
 and [`recieve`][2] family of primitives. Both take an optional timeout,
-which leads to the expression evaluating to `Nothing` if no matching input
+allowing the expression to evaluate to `Nothing` if no matching input
 is found.
 
 The [`expect`][1] primitive blocks until a message matching the expected type
-(of the expression) is found in the process' mailbox. If such a message can be
-found by scanning the mailbox, it is dequeued and given to the caller. If no
-message (matching the expected type) can be found, the caller (i.e., the
-calling thread) is blocked until a matching message is delivered to the mailbox.
-Let's take a look at this in action:
+(of the expression) is found in the process' mailbox. If a match is found by
+scanning the mailbox, it is dequeued and given to the caller, otherwise the
+caller (i.e., the calling thread) is blocked until a message of the expected
+type is delivered to the mailbox. Let's take a look at this in action:
 
 {% highlight haskell %}
 demo :: Process ()
@@ -79,23 +82,23 @@ demo = do
     listen = do
       third <- expect :: Process ProcessId
       first <- expect :: Process String
-      Nothing <- expectTimeout 100000 :: Process String
-      say first
+      second <- expectTimeout 100000 :: Process String
+      mapM_ (say . show) [first, second, third]
       send third ()
 {% endhighlight %}
 
 This program will print `"hello"`, then `Nothing` and finally `pid://...`.
-The first `expect` - labelled "third" because of the order in which it is
-due to be received - **will** succeed, since the parent process sends its
-`ProcessId` after the string "hello", yet the listener blocks until it can dequeue
-the `ProcessId` before "expecting" a string. The second `expect` (labelled "first")
-also succeeds, demonstrating that the listener has selectively removed messages
-from its mailbox based on their type rather than the order in which they arrived.
-The third `expect` will timeout and evaluate to `Nothing`, because only one string
-is ever sent to the listener and that has already been removed from the mailbox.
-The removal of messages from the process' mailbox based on type is what makes this
-program viable - without this "selective receiving", the program would block and
-never complete.
+The first `expect` - labelled "third" because of the order in which we
+know it will arrive in our mailbox - **will** succeed, since the parent process
+sends its `ProcessId` after the string "hello", yet the listener blocks until it
+can dequeue the `ProcessId` before "expecting" a string. The second `expect`
+(labelled "first") also succeeds, demonstrating that the listener has selectively
+removed messages from its mailbox based on their type rather than the order in
+which they arrived. The third `expect` will timeout and evaluate to `Nothing`,
+because only one string is ever sent to the listener and that has already been
+removed from the mailbox. The removal of messages from the process' mailbox based
+on type is what makes this program viable - without this "selective receiving",
+the program would block and never complete.
 
 By contrast, the [`recieve`][2] family of primitives take a list of `Match`
 objects, each derived from evaluating a [`match`][3] style primitive. This
@@ -292,7 +295,47 @@ some `DiedReason` other than `DiedNormal`).
 Monitors on the other hand, do not cause the *listening* process to exit at all, instead
 putting a `ProcessMonitorNotification` into the process' mailbox. This signal and its
 constituent fields can be introspected in order to decide what action (if any) the receiver
-can/should take in response to the monitored processes death.
+can/should take in response to the monitored processes death. Let's take a look at how
+monitors can be used to determine both when and _how_ a process has terminated. Tucked
+away in distributed-process-platform, the `linkOnFailure` primitive works just like our
+built-in `link` except that it only terminates the process which evaluated it (the
+_linker_), if the process it is linking with (the _linkee_) terminates abnormally.
+Let's take a look...
+
+{% highlight haskell %}
+linkOnFailure them = do
+  us <- getSelfPid
+  tid <- liftIO $ myThreadId
+  void $ spawnLocal $ do
+    callerRef <- P.monitor us
+    calleeRef <- P.monitor them
+    reason <- receiveWait [
+             matchIf (\(ProcessMonitorNotification mRef _ _) ->
+                       mRef == callerRef) -- nothing left to do
+                     (\_ -> return DiedNormal)
+           , matchIf (\(ProcessMonitorNotification mRef' _ _) ->
+                       mRef' == calleeRef)
+                     (\(ProcessMonitorNotification _ _ r') -> return r')
+         ]
+    case reason of
+      DiedNormal -> return ()
+      _ -> liftIO $ throwTo tid (ProcessLinkException us reason)
+{% endhighlight %}
+
+As we can see, this code makes use of monitors to track both processes involved in the
+link. In order to track _both_ processes and react to changes in their status, it is
+necessary to spawn a third process which will do the monitoring. This doesn't happen
+with the built-in link primitive, but is necessary in this case since the link handling
+code resides outside the _Node Controller_.
+
+The two matches passed to `receiveWait` both handle a `ProcessMonitorNotification`, and
+the predicate passed to `matchIf` is used to determine whether the notification we're
+receiving is for the _linker_ or the _linkee_. If the _linker_ dies, we've nothing more
+to do, since links are unidirectional. If the _linkee_ dies however, we must examine
+the `DiedReason` the `ProcessMonitorNotification` provides us with, to determine whether
+the _linkee_ exited normally (i.e., with `DiedNormal`) or otherwise. In the latter case,
+we throw a `ProcessLinkException` to the _linker_, which is exactly how an ordinary link
+would behave.
 
 Linking and monitoring are foundational tools for *supervising* processes, where a top level
 process manages a set of children, starting, stopping and restarting them as necessary.

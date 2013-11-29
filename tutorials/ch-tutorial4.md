@@ -406,7 +406,7 @@ cheap, but not free as each process is a haskell thread, plus some additional bo
 keeping data.
 
 The cost of spawning two processes for each computation/task might represent just that
-bit too much overhead for some applications. In our next tutorial, we'll look at the
+bit too much overhead for some applications. In a forthcoming tutorial, we'll look at the
 `Control.Distributed.Process.Platform.Task` API, which looks a lot like `Async` but
 manages exit signals in a single thread and makes configurable task pools and task
 supervision strategy part of its API.
