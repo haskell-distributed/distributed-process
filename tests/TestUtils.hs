@@ -8,6 +8,7 @@ module TestUtils
   , ping
   , shouldBe
   , shouldMatch
+  , shouldContain
   , shouldExitWith
   , expectThat
   -- test process utilities
@@ -81,6 +82,9 @@ expectThat a matcher = case res of
 
 shouldBe :: a -> Matcher a -> Process ()
 shouldBe = expectThat
+
+shouldContain :: (Show a, Eq a) => [a] -> a -> Process ()
+shouldContain xs x = expectThat xs $ hasItem (equalTo x)
 
 shouldMatch :: a -> Matcher a -> Process ()
 shouldMatch = expectThat
