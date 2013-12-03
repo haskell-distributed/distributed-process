@@ -89,7 +89,6 @@ pool :: forall a . Serializable a
      -> Process (InitResult (Pool a))
 pool sz' = return $ InitOk (Pool sz' [] Seq.empty) Infinity
 
-
 -- enqueues the task in the pool and blocks
 -- the caller until the task is complete
 executeTask :: forall s a . (Addressable s, Serializable a)
