@@ -163,6 +163,9 @@ testJobQueueSizeLimiting result = do
 testAdd :: ProcessId -> TestResult Double -> Process ()
 testAdd pid result = add pid 10 10 >>= stash result
 
+testBadAdd :: ProcessId -> TestResult (Either ExitReason Int) -> Process ()
+testBadAdd pid result = safeCall pid (Add 10 10) >>= stash result
+
 testDivByZero :: ProcessId -> TestResult (Either DivByZero Double) -> Process ()
 testDivByZero pid result = divide pid 125 0 >>= stash result
 
@@ -335,6 +338,12 @@ tests transport = do
               (delayedAssertion
                "expected the server to return DivByZero"
                localNode 20 (testAdd pid))
+          , testCase "10 + 10 does not evaluate to 10 :: Int at all!"
+            (delayedAssertion
+             "expected the server to return ExitOther..."
+             localNode
+             (Left $ ExitOther $ "DiedException \"exit-from=" ++ (show pid) ++ "\"")
+             (testBadAdd pid))
           ]
         , testGroup "counter server examples" [
             testCase "initial counter state = 5"

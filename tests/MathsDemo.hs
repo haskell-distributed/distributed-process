@@ -5,6 +5,7 @@ module MathsDemo
   , divide
   , launchMathServer
   , DivByZero(..)
+  , Add(..)
   ) where
 
 import Control.Applicative
