@@ -127,7 +127,7 @@ import Prelude hiding (drop)
 -- | Opaque handle to a mailbox.
 --
 data Mailbox = Mailbox { pid :: !ProcessId }
-  deriving (Typeable, Generic)
+  deriving (Typeable, Generic, Show, Eq)
 instance Binary Mailbox where
 
 instance Addressable Mailbox where
@@ -151,7 +151,7 @@ type Filter = Closure (Message -> Process FilterResult)
 
 -- | Marker message indicating to the owning process that mail has arrived.
 --
-data NewMail = NewMail ProcessId
+data NewMail = NewMail !Mailbox
   deriving (Typeable, Generic, Show)
 instance Binary NewMail where
 
@@ -450,7 +450,8 @@ handlePost st (Post msg) =
 --------------------------------------------------------------------------------
 
 sendNotification :: State -> Process State
-sendNotification st = getSelfPid >>= send (st ^. state ^. owner) . NewMail >> return st
+sendNotification st =
+  getSelfPid >>= send (st ^. state ^. owner) . NewMail . Mailbox >> return st
 
 type Count = Integer
 type Skipped = Integer
