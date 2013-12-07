@@ -150,7 +150,9 @@ unsafeSendToRecipient (RemoteRegistered s n) m = nsendRemote n s m
 baseAddressableErrorMessage :: (Addressable a) => a -> String
 baseAddressableErrorMessage _ = "CannotResolveAddressable"
 
--- | Provides a unified API for addressing processes
+-- | Provides a unified API for addressing processes.
+-- Minimal definition: 'resolve'.
+--
 class Addressable a where
   -- | Send a message to the target asynchronously
   sendTo  :: (Serializable m) => a -> m -> Process ()
