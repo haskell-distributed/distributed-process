@@ -41,8 +41,9 @@ import Data.Foldable (Foldable)
 import qualified Data.Foldable as Foldable
 import Data.Function (on)
 import Data.List hiding (drop)
-import Data.Maybe (fromJust)
+import Data.Maybe (fromJust, catMaybes)
 import Debug.Trace
+import Control.Distributed.Process.Closure (remotable, mkClosure)
 
 import Test.HUnit.Base (assertBool)
 import Test.Framework as TF (defaultMain, testGroup, Test)
@@ -50,6 +51,8 @@ import Test.Framework.Providers.HUnit
 -- import Test.Framework.Providers.QuickCheck2 (testProperty)
 import Test.HUnit (Assertion, assertFailure)
 import TestUtils
+import qualified MailboxTestFilters (__remoteTable)
+import MailboxTestFilters (myFilter)
 
 import qualified Network.Transport as NT
 
@@ -136,8 +139,28 @@ createMailboxAndPost buffT maxSz msgs = do
   () <- receiveChan cp
   return mbox
 
+complexMailboxFiltering :: (String, Int, Bool)
+                        -> TestResult (String, Int, Bool)
+                        -> Process ()
+complexMailboxFiltering inputs@(s', i', b') result = do
+  mbox <- createMailbox Stack (10 :: Integer)
+  post mbox s'
+  post mbox i'
+  post mbox b'
+
+  active mbox $ myFilter inputs
+  Just Delivery{ messages = [m1, m2, m3]
+               , totalDropped = skipped } <- receiveTimeout (after 5 Seconds)
+                                                            [ match return ]
+  Just s <- unwrapMessage m1 :: Process (Maybe String)
+  Just i <- unwrapMessage m2 :: Process (Maybe Int)
+  Just b <- unwrapMessage m3 :: Process (Maybe Bool)
+  stash result $ (s, i, b)
+
 myRemoteTable :: RemoteTable
-myRemoteTable = Control.Distributed.Process.Platform.__remoteTable initRemoteTable
+myRemoteTable =
+  Control.Distributed.Process.Platform.__remoteTable $
+  MailboxTestFilters.__remoteTable initRemoteTable
 
 tests :: NT.Transport  -> IO [Test]
 tests transport = do
@@ -199,8 +222,14 @@ tests transport = do
            (delayedAssertion
             "Expected traffic to be relayed directly to us"
             localNode True mailboxActsAsRelayForRawTraffic)
+        , testCase "Complex Filtering Rules"
+           (delayedAssertion
+            "Expected the relevant filters to accept our data"
+            localNode inputs (complexMailboxFiltering inputs))
         ]
     ]
+  where
+    inputs = ("hello", 10 :: Int, True)
 
 main :: IO ()
 main = testMain $ tests
