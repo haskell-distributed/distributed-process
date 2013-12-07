@@ -1220,7 +1220,7 @@ doRestartChild _ spec _ state = do -- TODO: use ProcessId and DiedReason to log
           -- BadClosure, which comes back from doStartChild as (Left err).
           -- Since we cannot recover from that, there's no point in trying
           -- to start this child again (as the closure will never resolve),
-          -- so we remove this child forthwith. We should provide a policy
+          -- so we remove the child forthwith. We should provide a policy
           -- for handling this situation though...
           return $ ( (active ^: Map.filter (/= chKey))
                    . (bumpStats Active chType decrement)
@@ -1331,6 +1331,7 @@ tryStartChild ChildSpec{..} =
       ref <- monitor restarterPid
       send restarterPid (selfPid, childKey, sendPid)
       ePid <- receiveWait [
+                -- TODO: tighten up this contract to correct for erroneous mail
                 matchChan recvPid (\(pid :: ProcessId) -> return $ Right pid)
               , matchIf (\(ProcessMonitorNotification mref _ dr) ->
                            mref == ref && dr /= DiedNormal)
