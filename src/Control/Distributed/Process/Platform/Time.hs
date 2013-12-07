@@ -32,7 +32,7 @@ module Control.Distributed.Process.Platform.Time
   , asTimeout
   , after
   , within
-  , timeToMs
+  , timeToMicros
   , TimeInterval
   , TimeUnit(..)
   , Delay(..)
@@ -94,14 +94,14 @@ instance Binary TimeoutNotification where
 
 -- | converts the supplied @TimeInterval@ to milliseconds
 asTimeout :: TimeInterval -> Int
-asTimeout (TimeInterval u v) = timeToMs u v
+asTimeout (TimeInterval u v) = timeToMicros u v
 
 -- | Convenience for making timeouts; e.g.,
 --
 -- > receiveTimeout (after 3 Seconds) [ match (\"ok" -> return ()) ]
 --
 after :: Int -> TimeUnit -> Int
-after n m = timeToMs m n
+after n m = timeToMicros m n
 
 -- | Convenience for making 'TimeInterval'; e.g.,
 --
@@ -129,17 +129,17 @@ minutes = TimeInterval Minutes
 hours :: Int -> TimeInterval
 hours = TimeInterval Hours
 
--- TODO: is timeToMs efficient enough?
+-- TODO: is timeToMicros efficient enough?
 
 -- | converts the supplied @TimeUnit@ to microseconds
-{-# INLINE timeToMs #-}
-timeToMs :: TimeUnit -> Int -> Int
-timeToMs Micros  us   = us
-timeToMs Millis  ms   = ms  * (10 ^ (3 :: Int)) -- (1000µs == 1ms)
-timeToMs Seconds secs = timeToMs Millis  (secs * milliSecondsPerSecond)
-timeToMs Minutes mins = timeToMs Seconds (mins * secondsPerMinute)
-timeToMs Hours   hrs  = timeToMs Minutes (hrs  * minutesPerHour)
-timeToMs Days    days = timeToMs Hours   (days * hoursPerDay)
+{-# INLINE timeToMicros #-}
+timeToMicros :: TimeUnit -> Int -> Int
+timeToMicros Micros  us   = us
+timeToMicros Millis  ms   = ms  * (10 ^ (3 :: Int)) -- (1000µs == 1ms)
+timeToMicros Seconds secs = timeToMicros Millis  (secs * milliSecondsPerSecond)
+timeToMicros Minutes mins = timeToMicros Seconds (mins * secondsPerMinute)
+timeToMicros Hours   hrs  = timeToMicros Minutes (hrs  * minutesPerHour)
+timeToMicros Days    days = timeToMicros Hours   (days * hoursPerDay)
 
 {-# INLINE hoursPerDay #-}
 hoursPerDay :: Int
