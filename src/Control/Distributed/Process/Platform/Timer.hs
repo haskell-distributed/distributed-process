@@ -38,7 +38,8 @@ module Control.Distributed.Process.Platform.Timer
 import Control.DeepSeq (NFData)
 import Control.Distributed.Process hiding (send)
 import Control.Distributed.Process.Serializable
-import Control.Distributed.Process.Platform (send, NFSerializable)
+import Control.Distributed.Process.Platform.UnsafePrimitives (send)
+import Control.Distributed.Process.Platform.Internal.Types (NFSerializable)
 import Control.Distributed.Process.Platform.Time
 import Data.Binary
 import Data.Typeable (Typeable)
