@@ -4,8 +4,6 @@
 
 module Main where
 
-import qualified Control.Exception as E (SomeException)
-import Control.Concurrent.MVar (newEmptyMVar, takeMVar)
 import Control.Distributed.Process
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Platform
@@ -16,17 +14,9 @@ import qualified Control.Distributed.Process.Platform (__remoteTable)
 import Control.Distributed.Process.Platform.Mailbox
 import Control.Distributed.Process.Platform.Test
 import Control.Distributed.Process.Platform.Time
-import Control.Distributed.Process.Platform.Timer (sleep)
-import Control.Distributed.Process.Serializable
-import Control.Monad (void, forM_, forM)
-import Control.Rematch
-  ( equalTo
-  )
+import Control.Monad (forM_)
 
-import qualified Data.Foldable as Foldable
-import qualified Data.List as List
--- import Data.Sequence
-import qualified Data.Sequence as Seq
+import Control.Rematch (equalTo)
 
 #if ! MIN_VERSION_base(4,6,0)
 import Prelude hiding (catch, drop)
@@ -34,21 +24,10 @@ import Prelude hiding (catch, drop)
 import Prelude hiding (drop)
 #endif
 
-import Control.Rematch hiding (on, expect, match)
-import qualified Control.Rematch as Rematch
-import Control.Rematch.Run
-import Data.Foldable (Foldable)
-import qualified Data.Foldable as Foldable
-import Data.Function (on)
-import Data.List hiding (drop)
-import Data.Maybe (fromJust, catMaybes)
-import Debug.Trace
-import Control.Distributed.Process.Closure (remotable, mkClosure)
+import Data.Maybe (catMaybes)
 
-import Test.HUnit.Base (assertBool)
-import Test.Framework as TF (defaultMain, testGroup, Test)
+import Test.Framework as TF (testGroup, Test)
 import Test.Framework.Providers.HUnit
-import Test.HUnit (Assertion, assertFailure)
 import TestUtils
 import qualified MailboxTestFilters (__remoteTable)
 import MailboxTestFilters (myFilter, intFilter)
@@ -143,8 +122,8 @@ complexMailboxFiltering inputs@(s', i', b') result = do
 
   active mbox $ myFilter inputs
   Just Delivery{ messages = [m1, m2, m3]
-               , totalDropped = skipped } <- receiveTimeout (after 5 Seconds)
-                                                            [ match return ]
+               , totalDropped = _ } <- receiveTimeout (after 5 Seconds)
+                                                      [ match return ]
   Just s <- unwrapMessage m1 :: Process (Maybe String)
   Just i <- unwrapMessage m2 :: Process (Maybe Int)
   Just b <- unwrapMessage m3 :: Process (Maybe Bool)
