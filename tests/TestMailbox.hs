@@ -48,13 +48,17 @@ import Control.Distributed.Process.Closure (remotable, mkClosure)
 import Test.HUnit.Base (assertBool)
 import Test.Framework as TF (defaultMain, testGroup, Test)
 import Test.Framework.Providers.HUnit
--- import Test.Framework.Providers.QuickCheck2 (testProperty)
 import Test.HUnit (Assertion, assertFailure)
 import TestUtils
 import qualified MailboxTestFilters (__remoteTable)
-import MailboxTestFilters (myFilter)
+import MailboxTestFilters (myFilter, intFilter)
 
 import qualified Network.Transport as NT
+
+-- TODO: This whole test suite would be much better off using QuickCheck.
+-- The test-framework driver however, doesn't have the API support we'd need
+-- to wire in our tests, so we'll have to write a compatibility layer.
+-- That should probably go into (or beneath) the C.D.P.P.Test module.
 
 allBuffersShouldRespectFIFOOrdering :: BufferType -> TestResult Bool -> Process ()
 allBuffersShouldRespectFIFOOrdering buffT result = do
@@ -128,17 +132,6 @@ mailboxActsAsRelayForRawTraffic result = do
       Just (_ :: Int) -> return ()
   stash result True
 
-createAndSend :: BufferType -> [String] -> Process Mailbox
-createAndSend buffT msgs = createMailboxAndPost buffT 10 msgs
-
-createMailboxAndPost :: BufferType -> Limit -> [String] -> Process Mailbox
-createMailboxAndPost buffT maxSz msgs = do
-  (cc, cp) <- newChan
-  mbox <- createMailbox buffT maxSz
-  spawnLocal $ mapM_ (post mbox) msgs >> sendChan cc ()
-  () <- receiveChan cp
-  return mbox
-
 complexMailboxFiltering :: (String, Int, Bool)
                         -> TestResult (String, Int, Bool)
                         -> Process ()
@@ -156,6 +149,30 @@ complexMailboxFiltering inputs@(s', i', b') result = do
   Just i <- unwrapMessage m2 :: Process (Maybe Int)
   Just b <- unwrapMessage m3 :: Process (Maybe Bool)
   stash result $ (s, i, b)
+
+dropDuringFiltering :: TestResult Bool -> Process ()
+dropDuringFiltering result = do
+  let rng = [1..50] :: [Int]
+  mbox <- createMailbox Stack (50 :: Integer)
+  mapM_ (post mbox) rng
+
+  active mbox $ intFilter
+
+  Just Delivery{ messages = msgs } <- receiveTimeout (after 5 Seconds)
+                                                            [ match return ]
+  seen <- mapM unwrapMessage msgs
+  stash result $ (catMaybes seen) == (filter even rng)
+
+createAndSend :: BufferType -> [String] -> Process Mailbox
+createAndSend buffT msgs = createMailboxAndPost buffT 10 msgs
+
+createMailboxAndPost :: BufferType -> Limit -> [String] -> Process Mailbox
+createMailboxAndPost buffT maxSz msgs = do
+  (cc, cp) <- newChan
+  mbox <- createMailbox buffT maxSz
+  spawnLocal $ mapM_ (post mbox) msgs >> sendChan cc ()
+  () <- receiveChan cp
+  return mbox
 
 myRemoteTable :: RemoteTable
 myRemoteTable =
@@ -212,7 +229,7 @@ tests transport = do
            "expected a, b, c, d"
            localNode ((3 :: Integer), map Just ["a", "b", "c", "d"]) $ bufferLimiting Ring)
         ]
-      , testGroup "Notify & Activation"
+      , testGroup "Notification, Activation and Delivery"
         [
           testCase "Mailbox is initially Passive"
            (delayedAssertion
@@ -226,6 +243,10 @@ tests transport = do
            (delayedAssertion
             "Expected the relevant filters to accept our data"
             localNode inputs (complexMailboxFiltering inputs))
+        , testCase "Filter out unwanted messages"
+           (delayedAssertion
+            "Expected only even numbers to be sent delivered"
+            localNode True dropDuringFiltering)
         ]
     ]
   where
