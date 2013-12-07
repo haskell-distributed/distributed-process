@@ -77,7 +77,6 @@ instance NFData SleepingPill where
 sleep :: TimeInterval -> Process ()
 sleep t =
   let ms = asTimeout t in do
-  -- liftIO $ putStrLn $ "sleeping for " ++ (show ms) ++ "micros"
   _ <- receiveTimeout ms [matchIf (\SleepingPill -> True)
                                   (\_ -> return ())]
   return ()
