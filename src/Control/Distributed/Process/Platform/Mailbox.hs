@@ -175,7 +175,7 @@ data MailboxStats =
                , droppedMessages :: Integer
                , currentLimit    :: Limit
                , owningProcess   :: ProcessId
-               } deriving (Typeable, Generic)
+               } deriving (Typeable, Generic, Show)
 instance Binary MailboxStats where
 
 -- internal APIs
@@ -184,7 +184,7 @@ data Post = Post !Message
   deriving (Typeable, Generic)
 instance Binary Post where
 
-data StatsReq
+data StatsReq = StatsReq
   deriving (Typeable, Generic)
 instance Binary StatsReq where
 
@@ -263,7 +263,7 @@ instance Buffered State where
       dropR q' = maybe q' (\(s' :> _) -> dropOne q' s') $ getR (q' ^. buffer)
       dropL q' = maybe q' (\(_ :< s') -> dropOne q' s') $ getL (q' ^. buffer)
       dropOne q' s = ( (buffer ^= s)
-                     . (state .> size ^: (1-))
+                     . (state .> size ^: (\n' -> n' - 1))
                      . (state .> dropped ^: (+1))
                      $ q' )
 
@@ -368,7 +368,8 @@ resize Mailbox{..} = cast pid . Resize
 post :: Serializable a => Mailbox -> a -> Process ()
 post Mailbox{..} = send pid . Post . unsafeWrapMessage
 
--- statistics = undefined
+statistics :: Mailbox -> Process MailboxStats
+statistics mb = call mb StatsReq
 
 --------------------------------------------------------------------------------
 -- Mailbox Initialisation/Startup                                             --
