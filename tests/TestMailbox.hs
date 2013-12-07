@@ -84,6 +84,25 @@ resizeShouldRespectOrdering buffT result = do
   let values = [c', d', e']
   stash result $ values
 
+bufferLimiting :: BufferType -> TestResult (Integer, [Maybe String]) -> Process ()
+bufferLimiting buffT result = do
+  let msgs = ["a", "b", "c", "d", "e", "f", "g"]
+  mbox <- createMailboxAndPost buffT 4 msgs
+
+  MailboxStats{ pendingMessages = pending'
+              , droppedMessages = dropped'
+              , currentLimit    = limit' } <- statistics mbox
+  pending' `shouldBe` equalTo 4
+  dropped' `shouldBe` equalTo 3
+  limit'   `shouldBe` equalTo 4
+
+  active mbox acceptEverything
+  Just Delivery{ messages = recvd
+               , totalDropped = skipped } <- receiveTimeout (after 5 Seconds)
+                                                            [ match return ]
+  seen <- mapM unwrapMessage recvd
+  stash result (skipped, seen)
+
 mailboxIsInitiallyPassive :: TestResult Bool -> Process ()
 mailboxIsInitiallyPassive result = do
   mbox <- createMailbox Stack (6 :: Integer)
@@ -107,9 +126,12 @@ mailboxActsAsRelayForRawTraffic result = do
   stash result True
 
 createAndSend :: BufferType -> [String] -> Process Mailbox
-createAndSend buffT msgs = do
+createAndSend buffT msgs = createMailboxAndPost buffT 10 msgs
+
+createMailboxAndPost :: BufferType -> Limit -> [String] -> Process Mailbox
+createMailboxAndPost buffT maxSz msgs = do
   (cc, cp) <- newChan
-  mbox <- createMailbox buffT (10 :: Integer)
+  mbox <- createMailbox buffT maxSz
   spawnLocal $ mapM_ (post mbox) msgs >> sendChan cc ()
   () <- receiveChan cp
   return mbox
@@ -151,6 +173,21 @@ tests transport = do
           (delayedAssertion
            "expected a, b, c"
            localNode ["a", "b", "c"] $ resizeShouldRespectOrdering Ring)
+        ]
+      , testGroup "Buffer Limits & Discarded Messages"
+        [
+          testCase "Queue Drops Eldest and Enqueues New"
+          (delayedAssertion
+           "expected d, e, f, g"
+           localNode ((3 :: Integer), map Just ["d", "e", "f", "g"]) $ bufferLimiting Queue)
+        , testCase "Stack Drops Youngest And Pushes New"
+          (delayedAssertion
+           "expected a, b, c, g"
+           localNode ((3 :: Integer), map Just ["a", "b", "c", "g"]) $ bufferLimiting Stack)
+        , testCase "Ring Rejects New Entries"
+          (delayedAssertion
+           "expected a, b, c, d"
+           localNode ((3 :: Integer), map Just ["a", "b", "c", "d"]) $ bufferLimiting Ring)
         ]
       , testGroup "Notify & Activation"
         [
