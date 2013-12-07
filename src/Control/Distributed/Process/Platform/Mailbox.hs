@@ -20,14 +20,107 @@
 -- Stability   :  experimental
 -- Portability :  non-portable (requires concurrency)
 --
--- Generic process that acts as an external mailbox and a message buffer,
--- dropping and/or delivering messages on demand.
+-- Generic process that acts as an external mailbox and message buffer.
+--
+-- [Overview]
+--
+-- For use when rate limiting is not possible (or desired), this module
+-- provides a /buffer process/ that receives mail via its 'post' API, buffers
+-- the received messages and delivers them when its /owning process/ asks for
+-- them. A mailbox has to be started with a maximum buffer size - the so called
+-- /limit/ - and will discard messages once its internal storage reaches this
+-- user defined threshold.
+--
+-- The usual behaviour of the /buffer process/ is to accumulate messages in
+-- its internal memory. When a client evaluates 'notify', the buffer will
+-- send a 'NewMail' message to the (real) mailbox of its owning process as
+-- soon as it has any message(s) ready to deliver. If the buffer already
+-- contains undelivered mail, the 'NewMail' message will be dispatched
+-- immediately.
+--
+-- When the owning process wishes to receive mail, evaluating 'deliver' (from
+-- any process) will cause the buffer to send its owner a 'Delivery' message
+-- containing the accumulated messages and additional information about the
+-- number of messages it is delivering, the number of messages dropped since
+-- the last delivery and a handle for the mailbox (so that processes can have
+-- multiple mailboxes if required, and distinguish between them).
+--
+-- [Overflow Handling]
+--
+-- A mailbox handles overflow - when the number of messages it is holding
+-- reaches the limit - differently depending on the 'BufferType' selected
+-- when it starts. The @Queue@ buffer will, once the limit is reached, drop
+-- older messages first (i.e., the head of the queue) to make space for
+-- newer ones. The @Ring@ buffer works similarly, but blocks new messages
+-- so as to preserve existing ones instead. Finally, the @Stack@ buffer will
+-- drop the last (i.e., most recently received) message to make room for new
+-- mail.
+--
+-- Mailboxes can be /resized/ by evaluating 'resize' with a new value for the
+-- limit. If the new limit is older that the current/previous one, messages
+-- are dropped as though the mailbox had previously seen a volume of mail
+-- equal to the difference (in size) between the limits. In this situation,
+-- the @Queue@ will drop as many older messages as neccessary to come within
+-- the limit, whilst the other two buffer types will drop as many newer messages
+-- as needed.
+--
+-- [Ordering Guarantees]
+--
+-- When messages are delivered to the owner, they arrive as a list of raw
+-- @Message@ entries, given in descending age order (i.e., eldest first).
+-- Whilst this approximates the FIFO ordering a process' mailbox would usually
+-- offer, the @Stack@ buffer will appear to offer no ordering at all, since
+-- it always deletes the most recent message(s). The @Queue@ and @Ring@ buffers
+-- will maintain a more queue-like (i.e., FIFO) view of received messages,
+-- with the obvious constraint the newer or older data might have been deleted.
+--
+-- [Post API and Relaying]
+--
+-- For messages to be properly handled by the mailbox, they /must/ be sent
+-- via the 'post' API. Messages sent directly to the mailbox (via @send@ or
+-- the @Addressable@ type class @sendTo@ function) /will not be handled via
+-- the internal buffers/ or subjected to the mailbox limits. Instead, they
+-- will simply be relayed (i.e., forwarded) directly to the owner.
+--
+-- [Acknowledgements]
+--
+-- This API is based on the work of Erlang programmers Fred Hebert and
+-- Geoff Cant, its design closely mirroring that of the the /pobox/ library
+-- application.
 --
 -----------------------------------------------------------------------------
-module Control.Distributed.Process.Platform.Mailbox where
+module Control.Distributed.Process.Platform.Mailbox
+  (
+    -- * Creating, Starting, Configuring and Running a Mailbox
+    Mailbox()
+  , startMailbox
+  , createMailbox
+  , runMailbox
+  , resize
+  , statistics
+  , Limit
+  , BufferType(..)
+  , MailboxStats(..)
+    -- * Posting Mail
+  , post
+    -- * Obtaining Mail and Notifications
+  , notify
+  , deliver
+  , active
+  , NewMail(..)
+  , Delivery(..)
+  , FilterResult(..)
+  , acceptEverything
+  , acceptMatching
+    -- * Remote Table
+  , __remoteTable
+  ) where
 
 import Control.Distributed.Process hiding (call)
-import Control.Distributed.Process.Closure (remotable, mkClosure, mkStaticClosure)
+import Control.Distributed.Process.Closure
+  ( remotable
+  , mkStaticClosure
+  )
 import Control.Distributed.Process.Serializable hiding (SerializableDict)
 import Control.Distributed.Process.Platform.Internal.Types
   ( ExitReason(..)
@@ -35,63 +128,34 @@ import Control.Distributed.Process.Platform.Internal.Types
   )
 import Control.Distributed.Process.Platform.ManagedProcess
   ( call
-  , safeCall
   , UnhandledMessagePolicy(..)
   , cast
   , handleInfo
-  , reply
   , continue
-  , input
   , defaultProcess
-  , prioritised
   , InitHandler
   , InitResult(..)
   , ProcessAction
-  , ProcessReply
   , ProcessDefinition(..)
-  , PrioritisedProcessDefinition(..)
-  , DispatchPriority
-  , CallRef
   )
 import qualified Control.Distributed.Process.Platform.ManagedProcess as MP
   ( serve
   )
 import Control.Distributed.Process.Platform.ManagedProcess.Server
-  ( handleCallIf
-  , handleCallFrom
-  , handleCallFromIf
-  , handleCast
+  ( handleCast
   , stop
   )
-import Control.Distributed.Process.Platform.ManagedProcess.Server.Priority
-  ( prioritiseCast_
-  , prioritiseCall_
-  , prioritiseInfo_
-  , setPriority
-  )
 import Control.Distributed.Process.Platform.ManagedProcess.Server.Restricted as Restricted
-  ( modifyState
-  , getState
+  ( getState
   , Result
   , RestrictedProcess
-  , RestrictedAction
   )
 import qualified Control.Distributed.Process.Platform.ManagedProcess.Server.Restricted as Restricted
   ( handleCall
-  , handleCast
   , reply
-  , continue
   )
 import Control.Distributed.Process.Platform.Time
 import Control.Exception (SomeException)
-import Control.Monad (forM_, void)
-import Data.Accessor
-  ( Accessor
-  , accessor
-  , (^:)
-  , (^=)
-  , (^.)
-  )
 import Data.Accessor
   ( Accessor
   , accessor
@@ -101,19 +165,16 @@ import Data.Accessor
   , (^.)
   )
 import Data.Binary
-import Data.Foldable (Foldable)
 import qualified Data.Foldable as Foldable
-import Data.Maybe (fromJust, isJust)
 import Data.Sequence
   ( Seq
   , ViewL(EmptyL, (:<))
   , ViewR(EmptyR, (:>))
   , (<|)
   , (|>)
-  , (><)
-  , filter)
+  )
 import qualified Data.Sequence as Seq
-import Data.Typeable (Typeable, typeOf)
+import Data.Typeable (Typeable)
 
 import GHC.Generics
 
@@ -158,10 +219,10 @@ instance Binary NewMail where
 
 -- | Mail delivery.
 --
-data Delivery = Delivery { box          :: ProcessId
-                         , messages     :: [Message]
-                         , count        :: Integer
-                         , totalDropped :: Integer
+data Delivery = Delivery { box          :: Mailbox -- ^ handle to the sending mailbox
+                         , messages     :: [Message] -- ^ raw messages
+                         , count        :: Integer -- ^ number of messages delivered
+                         , totalDropped :: Integer -- ^ total dropped/skipped messages
                          }
   deriving (Typeable, Generic)
 instance Binary Delivery where
@@ -299,11 +360,6 @@ dropping from the LHS.
 -- Starting/Running a Mailbox                                                 --
 --------------------------------------------------------------------------------
 
-sizeLimit :: Integer -> Limit
-sizeLimit n
-  | n < 1     = error "InvalidLimit"
-  | otherwise = n
-
 -- | Start a mailbox for the calling process.
 --
 -- > create = getSelfPid >>= start
@@ -331,11 +387,41 @@ runMailbox pid buffT maxSz = do
 -- Client Facing API                                                          --
 --------------------------------------------------------------------------------
 
+-- | Instructs the mailbox to send a 'NewMail' signal as soon as any mail is
+-- available for delivery. Once the signal is sent, it will not be resent, even
+-- when further mail arrives, until 'notify' is called again.
+--
+-- NB: signals are /only/ delivered to the mailbox's owning process.
+--
 notify :: Mailbox -> Process ()
 notify Mailbox{..} = cast pid $ SetActiveMode Notify
 
+-- | Instructs the mailbox to send a 'Delivery' as soon as any mail is
+-- available, or immediately (if the buffer already contains data).
+--
+-- NB: signals are /only/ delivered to the mailbox's owning process.
+--
 active :: Mailbox -> Filter -> Process ()
 active Mailbox{..} = cast pid . SetActiveMode . Active
+
+-- | Alters the mailbox's /limit/ - this might cause messages to be dropped!
+--
+resize :: Mailbox -> Integer -> Process ()
+resize Mailbox{..} = cast pid . Resize
+
+-- | Posts a message to someone's mailbox.
+--
+post :: Serializable a => Mailbox -> a -> Process ()
+post Mailbox{..} = send pid . Post . unsafeWrapMessage
+
+-- | Obtain statistics (from/to anywhere) about a mailbox.
+--
+statistics :: Mailbox -> Process MailboxStats
+statistics mb = call mb StatsReq
+
+--------------------------------------------------------------------------------
+-- PRIVATE Filter Implementation(s)                                           --
+--------------------------------------------------------------------------------
 
 everything :: Message -> Process FilterResult
 everything _ = return Keep
@@ -349,29 +435,6 @@ matching predicate msg = do
   case res of
     Nothing -> return Skip
     Just fr -> return fr
-
--- allStatic :: Static (ProcessId -> Int -> Process ())
--- allStatic = staticLabel "$all"
-
--- > rtable :: RemoteTable
--- > rtable = registerStatic "$send" (toDynamic sendInt)
--- >        . registerStatic "$decodeProcessId" (toDynamic (decode :: ByteString -> Int))
--- >        $ initRemoteTable
-
--- > sendIntClosure :: ProcessId -> Closure (Int -> Process ())
--- > sendIntClosure pid = closure decoder (encode pid)
--- >   where
--- >     decoder :: Static (ByteString -> Int -> Process ())
--- >     decoder = sendIntStatic `staticCompose` decodeProcessIdStatic
-
-resize :: Mailbox -> Integer -> Process ()
-resize Mailbox{..} = cast pid . Resize
-
-post :: Serializable a => Mailbox -> a -> Process ()
-post Mailbox{..} = send pid . Post . unsafeWrapMessage
-
-statistics :: Mailbox -> Process MailboxStats
-statistics mb = call mb StatsReq
 
 --------------------------------------------------------------------------------
 -- Mailbox Initialisation/Startup                                             --
@@ -468,7 +531,7 @@ sendMail st = do
       Just f' -> do
         (st', cnt, skipped, msgs) <- applyFilter f' st
         us <- getSelfPid
-        send ownerPid $ Delivery { box          = us
+        send ownerPid $ Delivery { box          = Mailbox us
                                  , messages     = Foldable.toList msgs
                                  , count        = cnt
                                  , totalDropped = skipped + droppedMsgs
@@ -552,13 +615,21 @@ stats = accessor getStats (\_ s -> s) -- TODO: use a READ ONLY accessor for this
 
 $(remotable ['everything, 'matching])
 
+-- | A /do-nothing/ filter that accepts all messages (i.e., returns @Keep@
+-- for any input).
 acceptEverything :: Closure (Message -> Process FilterResult)
 acceptEverything = $(mkStaticClosure 'everything)
 
+-- | A filter that takes a @Closure (Message -> Process FilterResult)@ holding
+-- the filter function and applies it remotely (i.e., in the mailbox's own
+-- managed process).
+--
 acceptMatching :: Closure (Closure (Message -> Process FilterResult)
                            -> Message -> Process FilterResult)
 acceptMatching = $(mkStaticClosure 'matching)
 
--- filterMatching :: (Serializable a) => a -> Filter
--- filterMatching = $(mkClosure 'matching)
+-- | Instructs the mailbox to deliver all pending messages to the owner.
+--
+deliver :: Mailbox -> Process ()
+deliver mb = active mb acceptEverything
 
