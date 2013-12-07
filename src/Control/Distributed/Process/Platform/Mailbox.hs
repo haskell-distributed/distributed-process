@@ -1,13 +1,14 @@
-{-# LANGUAGE DeriveDataTypeable         #-}
-{-# LANGUAGE DeriveGeneric              #-}
-{-# LANGUAGE StandaloneDeriving         #-}
-{-# LANGUAGE ScopedTypeVariables        #-}
-{-# LANGUAGE PatternGuards              #-}
-{-# LANGUAGE RecordWildCards            #-}
-{-# LANGUAGE FlexibleInstances          #-}
-{-# LANGUAGE EmptyDataDecls             #-}
-{-# LANGUAGE TemplateHaskell            #-}
-{-# LANGUAGE ImpredicativeTypes         #-}
+{-# LANGUAGE DeriveDataTypeable   #-}
+{-# LANGUAGE DeriveGeneric        #-}
+{-# LANGUAGE StandaloneDeriving   #-}
+{-# LANGUAGE ScopedTypeVariables  #-}
+{-# LANGUAGE PatternGuards        #-}
+{-# LANGUAGE RecordWildCards      #-}
+{-# LANGUAGE FlexibleInstances    #-}
+{-# LANGUAGE EmptyDataDecls       #-}
+{-# LANGUAGE TemplateHaskell      #-}
+{-# LANGUAGE ImpredicativeTypes   #-}
+{-# LANGUAGE GADTs                #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -26,8 +27,8 @@
 module Control.Distributed.Process.Platform.Mailbox where
 
 import Control.Distributed.Process hiding (call)
-import Control.Distributed.Process.Closure (seqCP, remotable, mkStaticClosure)
-import Control.Distributed.Process.Serializable
+import Control.Distributed.Process.Closure (remotable, mkClosure, mkStaticClosure)
+import Control.Distributed.Process.Serializable hiding (SerializableDict)
 import Control.Distributed.Process.Platform.Internal.Types
   ( ExitReason(..)
   , Addressable(..)
@@ -339,14 +340,15 @@ active Mailbox{..} = cast pid . SetActiveMode . Active
 everything :: Message -> Process FilterResult
 everything _ = return Keep
 
-{-
-matching :: Serializable a
-         => (a -> Process FilterResult)
+matching :: Closure (Message -> Process FilterResult)
          -> Message
          -> Process FilterResult
-matching pred msg = do
-  maybe (return Skip) return (handleMessage msg pred)
--}
+matching predicate msg = do
+  pred' <- unClosure predicate :: Process (Message -> Process FilterResult)
+  res   <- handleMessage msg pred'
+  case res of
+    Nothing -> return Skip
+    Just fr -> return fr
 
 -- allStatic :: Static (ProcessId -> Int -> Process ())
 -- allStatic = staticLabel "$all"
@@ -548,10 +550,14 @@ stats = accessor getStats (\_ s -> s) -- TODO: use a READ ONLY accessor for this
   where
     getStats (State _ (BufferState _ _ lm sz dr op)) = MailboxStats sz dr lm op
 
-$(remotable ['everything])
+$(remotable ['everything, 'matching])
 
 acceptEverything :: Closure (Message -> Process FilterResult)
 acceptEverything = $(mkStaticClosure 'everything)
+
+acceptMatching :: Closure (Closure (Message -> Process FilterResult)
+                           -> Message -> Process FilterResult)
+acceptMatching = $(mkStaticClosure 'matching)
 
 -- filterMatching :: (Serializable a) => a -> Filter
 -- filterMatching = $(mkClosure 'matching)
