@@ -95,9 +95,9 @@ module Control.Distributed.Process.Platform.Mailbox
     Mailbox()
   , startMailbox
   , createMailbox
-  , runMailbox
   , resize
   , statistics
+  , monitor
   , Limit
   , BufferType(..)
   , MailboxStats(..)
@@ -116,7 +116,16 @@ module Control.Distributed.Process.Platform.Mailbox
   , __remoteTable
   ) where
 
-import Control.Distributed.Process hiding (call)
+import Control.Concurrent.STM (atomically)
+import Control.Concurrent.STM.TChan
+  ( TChan
+  , newBroadcastTChanIO
+  , dupTChan
+  , readTChan
+  , writeTChan
+  )
+import Control.Distributed.Process hiding (call, monitor)
+import qualified Control.Distributed.Process as P (monitor)
 import Control.Distributed.Process.Closure
   ( remotable
   , mkStaticClosure
@@ -128,22 +137,25 @@ import Control.Distributed.Process.Platform.Internal.Types
   )
 import Control.Distributed.Process.Platform.ManagedProcess
   ( call
-  , UnhandledMessagePolicy(..)
-  , cast
+  , sendControlMessage
+  , channelControlPort
+  , handleControlChan
   , handleInfo
   , continue
   , defaultProcess
+  , UnhandledMessagePolicy(..)
   , InitHandler
   , InitResult(..)
   , ProcessAction
   , ProcessDefinition(..)
+  , ControlChannel
+  , ControlPort
   )
 import qualified Control.Distributed.Process.Platform.ManagedProcess as MP
-  ( serve
+  ( chanServe
   )
 import Control.Distributed.Process.Platform.ManagedProcess.Server
-  ( handleCast
-  , stop
+  ( stop
   )
 import Control.Distributed.Process.Platform.ManagedProcess.Server.Restricted as Restricted
   ( getState
@@ -188,12 +200,20 @@ import Prelude hiding (drop)
 
 -- | Opaque handle to a mailbox.
 --
-data Mailbox = Mailbox { pid :: !ProcessId }
-  deriving (Typeable, Generic, Show, Eq)
+data Mailbox = Mailbox { pid   :: !ProcessId
+                       , cchan :: !(ControlPort ControlMessage)
+                       } deriving (Typeable, Generic, Eq)
 instance Binary Mailbox where
+instance Show Mailbox where
+  show = ("Mailbox:" ++) . show . pid
 
 instance Addressable Mailbox where
   resolve = return . Just . pid
+
+sendCtrlMsg :: Mailbox
+            -> ControlMessage
+            -> Process ()
+sendCtrlMsg Mailbox{..} = sendControlMessage cchan
 
 -- | Describes the different types of buffer.
 --
@@ -201,7 +221,7 @@ data BufferType =
     Queue -- ^ FIFO buffer, limiter drops the eldest message (queue head)
   | Stack -- ^ unordered buffer, limiter drops the newest (top) message
   | Ring  -- ^ FIFO buffer, limiter refuses (i.e., drops) new messages
-  deriving (Typeable, Eq)
+  deriving (Typeable, Eq, Show)
 
 -- | Represents the maximum number of messages the internal buffer can hold.
 --
@@ -213,14 +233,14 @@ type Filter = Closure (Message -> Process FilterResult)
 
 -- | Marker message indicating to the owning process that mail has arrived.
 --
-data NewMail = NewMail !Mailbox
+data NewMail = NewMail !Mailbox !Integer
   deriving (Typeable, Generic, Show)
 instance Binary NewMail where
 
 -- | Mail delivery.
 --
 data Delivery = Delivery { box          :: Mailbox -- ^ handle to the sending mailbox
-                         , messages     :: [Message] -- ^ raw messages
+                         , messages     :: [Message] -- ^ list of raw messages
                          , count        :: Integer -- ^ number of messages delivered
                          , totalDropped :: Integer -- ^ total dropped/skipped messages
                          }
@@ -260,6 +280,10 @@ data Mode =
   | Passive -- ^ Accumulate messages in the buffer, dropping them if necessary
   deriving (Typeable, Generic)
 instance Binary Mode where
+instance Show Mode where
+  show (Active _) = "Active"
+  show Notify     = "Notify"
+  show Passive    = "Passive"
 
 data ControlMessage =
     Resize !Integer
@@ -281,16 +305,22 @@ data BufferState =
               , _size    :: Integer
               , _dropped :: Integer
               , _owner   :: ProcessId
+              , ctrlChan :: ControlPort ControlMessage
               }
 
-defaultState :: BufferType -> Limit -> ProcessId -> BufferState
-defaultState bufferT limit' pid =
+defaultState :: BufferType
+             -> Limit
+             -> ProcessId
+             -> ControlPort ControlMessage
+             -> BufferState
+defaultState bufferT limit' pid cc =
   BufferState { _mode    = Passive
               , _bufferT = bufferT
               , _limit   = limit'
               , _size    = 0
               , _dropped = 0
               , _owner   = pid
+              , ctrlChan = cc
               }
 
 data State = State { _buffer :: Seq Message
@@ -373,19 +403,43 @@ createMailbox buffT maxSz =
 -- > start = spawnLocal $ run
 --
 startMailbox :: ProcessId -> BufferType -> Limit -> Process Mailbox
-startMailbox p b l = spawnLocal (runMailbox p b l) >>= return . Mailbox
+startMailbox p b l = do
+  bchan <- liftIO $ newBroadcastTChanIO
+  rchan <- liftIO $ atomically $ dupTChan bchan
+  spawnLocal (runMailbox bchan p b l) >>= \pid -> do
+    cc <- liftIO $ atomically $ readTChan rchan
+    return $ Mailbox pid cc
 
 -- | Run the mailbox server loop.
 --
-runMailbox :: ProcessId -> BufferType -> Limit -> Process ()
-runMailbox pid buffT maxSz = do
+runMailbox :: TChan (ControlPort ControlMessage)
+           -> ProcessId
+           -> BufferType
+           -> Limit
+           -> Process ()
+runMailbox tc pid buffT maxSz = do
   link pid
-  -- TODO: add control channel support to ManagedProcess and use it here...
-  MP.serve (pid, buffT, maxSz) mboxInit (processDefinition pid)
+  tc' <- liftIO $ atomically $ dupTChan tc
+  MP.chanServe (pid, buffT, maxSz) (mboxInit tc') (processDefinition pid tc)
+
+--------------------------------------------------------------------------------
+-- Mailbox Initialisation/Startup                                             --
+--------------------------------------------------------------------------------
+
+mboxInit :: TChan (ControlPort ControlMessage)
+         -> InitHandler (ProcessId, BufferType, Limit) State
+mboxInit tc (pid, buffT, maxSz) = do
+  cc <- liftIO $ atomically $ readTChan tc
+  return $ InitOk (State Seq.empty $ defaultState buffT maxSz pid cc) Infinity
 
 --------------------------------------------------------------------------------
 -- Client Facing API                                                          --
 --------------------------------------------------------------------------------
+
+-- | Monitor a mailbox.
+--
+monitor :: Mailbox -> Process MonitorRef
+monitor = P.monitor . pid
 
 -- | Instructs the mailbox to send a 'NewMail' signal as soon as any mail is
 -- available for delivery. Once the signal is sent, it will not be resent, even
@@ -394,7 +448,7 @@ runMailbox pid buffT maxSz = do
 -- NB: signals are /only/ delivered to the mailbox's owning process.
 --
 notify :: Mailbox -> Process ()
-notify Mailbox{..} = cast pid $ SetActiveMode Notify
+notify mb = sendCtrlMsg mb $ SetActiveMode Notify
 
 -- | Instructs the mailbox to send a 'Delivery' as soon as any mail is
 -- available, or immediately (if the buffer already contains data).
@@ -402,17 +456,17 @@ notify Mailbox{..} = cast pid $ SetActiveMode Notify
 -- NB: signals are /only/ delivered to the mailbox's owning process.
 --
 active :: Mailbox -> Filter -> Process ()
-active Mailbox{..} = cast pid . SetActiveMode . Active
+active mb f = sendCtrlMsg mb $ SetActiveMode $ Active f
 
 -- | Alters the mailbox's /limit/ - this might cause messages to be dropped!
 --
 resize :: Mailbox -> Integer -> Process ()
-resize Mailbox{..} = cast pid . Resize
+resize mb sz = sendCtrlMsg mb $ Resize sz
 
 -- | Posts a message to someone's mailbox.
 --
 post :: Serializable a => Mailbox -> a -> Process ()
-post Mailbox{..} = send pid . Post . unsafeWrapMessage
+post Mailbox{..} m = send pid (Post $ wrapMessage m)
 
 -- | Obtain statistics (from/to anywhere) about a mailbox.
 --
@@ -437,86 +491,71 @@ matching predicate msg = do
     Just fr -> return fr
 
 --------------------------------------------------------------------------------
--- Mailbox Initialisation/Startup                                             --
---------------------------------------------------------------------------------
-
-mboxInit :: InitHandler (ProcessId, BufferType, Limit) State
-mboxInit (pid, buffT, maxSz) = do
-  return $ InitOk initState Infinity
-  where
-    initState = State Seq.empty $ defaultState buffT maxSz pid
-
---------------------------------------------------------------------------------
 -- Process Definition/State & API Handlers                                    --
 --------------------------------------------------------------------------------
 
 processDefinition :: ProcessId
-                  -> ProcessDefinition State
-processDefinition pid =
-  defaultProcess {
-    apiHandlers = [
-       handleCast              handleControlMessages
-     , Restricted.handleCall   handleGetStats
-     ]
-  , infoHandlers = [handleInfo handlePost]
-  , unhandledMessagePolicy = DeadLetter pid
-  } :: ProcessDefinition State
+                  -> TChan (ControlPort ControlMessage)
+                  -> ControlChannel ControlMessage
+                  -> Process (ProcessDefinition State)
+processDefinition pid tc cc = do
+  liftIO $ atomically $ writeTChan tc $ channelControlPort cc
+  return $ defaultProcess { apiHandlers = [
+                               handleControlChan     cc handleControlMessages
+                             , Restricted.handleCall handleGetStats
+                             ]
+                          , infoHandlers = [handleInfo handlePost]
+                          , unhandledMessagePolicy = DeadLetter pid
+                          } :: Process (ProcessDefinition State)
 
 handleControlMessages :: State
                       -> ControlMessage
                       -> Process (ProcessAction State)
 handleControlMessages st cm
-  | (SetActiveMode new) <- cm = activateMode st current new
+  | (SetActiveMode new) <- cm = activateMode st new
   | (Resize sz')        <- cm = continue $ adjust sz' st
   | otherwise                 = stop $ ExitOther "IllegalState"
   where
-    activateMode :: State -> Mode -> Mode -> Process (ProcessAction State)
-    activateMode st' old new
-      | Passive <- old
-      , Notify  <- new    = run st' sendNotification new
-      | Passive    <- old
-      , (Active _) <- new = run st' sendMail new
-      | Notify     <- old
-      , (Active _) <- new = run st' sendMail new
-      | (Active _) <- old
-      , (Active _) <- new = run st' return new
-      | (Active _) <- old
-      , Notify     <- new = run st' return new
-      | otherwise         = stop $ ExitOther "IllegalStateDetected"
+    activateMode :: State -> Mode -> Process (ProcessAction State)
+    activateMode st' new
+      | sz <- (st ^. state ^. size)
+      , sz == 0           = continue $ updated st' new
+      | otherwise         = do
+          let updated' = updated st' new
+          case new of
+            Notify     -> sendNotification updated' >> continue updated'
+            (Active _) -> sendMail updated' >>= continue
+            Passive    -> {- shouldn't happen! -} die $ "IllegalState"
 
-    run :: State
-        -> (State -> Process State)
-        -> Mode
-        -> Process (ProcessAction State)
-    run s h n = if sz == 0 then (cont s n) else h (updated s n) >>= continue
-
-    current = (st ^. state ^. mode)
-    cont st' new' = continue $ updated st' new'
-    updated st' new' = (state .> mode ^= new') st'
-    sz = (st ^. state ^. size)
+    updated s m = (state .> mode ^= m) s
 
 handleGetStats :: StatsReq -> RestrictedProcess State (Result MailboxStats)
 handleGetStats _ = Restricted.reply . (^. stats) =<< getState
 
 handlePost :: State -> Post -> Process (ProcessAction State)
-handlePost st (Post msg) =
-  let st' = insert msg st in do
-    continue . (state .> mode ^= Passive) =<< forwardIfNecessary st'
+handlePost st (Post msg) = do
+  let st' = insert msg st
+  continue . (state .> mode ^= Passive) =<< forwardIfNecessary st'
   where
     forwardIfNecessary s
-      | Notify   <- currentMode = sendNotification s
+      | Notify   <- currentMode = sendNotification s >> return s
       | Active _ <- currentMode = sendMail s
       | otherwise               = return s
 
-    currentMode = (st ^. state ^. mode)
+    currentMode = st ^. state ^. mode
 
 --------------------------------------------------------------------------------
 -- Accessors, State/Stats Management & Utilities                              --
 --------------------------------------------------------------------------------
 
-sendNotification :: State -> Process State
-sendNotification st =
-  getSelfPid >>= send (st ^. state ^. owner) . NewMail . Mailbox >> return st
+sendNotification :: State -> Process ()
+sendNotification st = do
+    pid <- getSelfPid
+    send ownerPid $ NewMail (Mailbox pid cchan) pending
+  where
+    ownerPid = st ^. state ^. owner
+    pending  = st ^. state ^. size
+    cchan    = ctrlChan (st ^. state)
 
 type Count = Integer
 type Skipped = Integer
@@ -527,11 +566,11 @@ sendMail st = do
     unCl <- catch (unClosure f >>= return . Just)
                   (\(_ :: SomeException) -> return Nothing)
     case unCl of
-      Nothing -> return st
+      Nothing -> return st -- TODO: Logging!?
       Just f' -> do
         (st', cnt, skipped, msgs) <- applyFilter f' st
         us <- getSelfPid
-        send ownerPid $ Delivery { box          = Mailbox us
+        send ownerPid $ Delivery { box          = Mailbox us (ctrlChan $ st ^. state)
                                  , messages     = Foldable.toList msgs
                                  , count        = cnt
                                  , totalDropped = skipped + droppedMsgs
@@ -611,7 +650,7 @@ state = accessor _state (\s qb -> qb { _state = s })
 stats :: Accessor State MailboxStats
 stats = accessor getStats (\_ s -> s) -- TODO: use a READ ONLY accessor for this
   where
-    getStats (State _ (BufferState _ _ lm sz dr op)) = MailboxStats sz dr lm op
+    getStats (State _ (BufferState _ _ lm sz dr op _)) = MailboxStats sz dr lm op
 
 $(remotable ['everything, 'matching])
 
