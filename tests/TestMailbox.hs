@@ -4,7 +4,7 @@
 
 module Main where
 
-import Control.Distributed.Process
+import Control.Distributed.Process hiding (monitor)
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Platform
   ( Addressable(..)
@@ -14,6 +14,7 @@ import qualified Control.Distributed.Process.Platform (__remoteTable)
 import Control.Distributed.Process.Platform.Mailbox
 import Control.Distributed.Process.Platform.Test
 import Control.Distributed.Process.Platform.Time
+import Control.Distributed.Process.Platform.Timer
 import Control.Monad (forM_)
 
 import Control.Rematch (equalTo)
@@ -44,13 +45,17 @@ allBuffersShouldRespectFIFOOrdering buffT result = do
   let [a, b, c] = ["a", "b", "c"]
   mbox <- createAndSend buffT [a, b, c]
   active mbox acceptEverything
-  Just Delivery{ messages = msgs } <- receiveTimeout (after 2 Seconds) [ match return ]
+  Just Delivery { messages = msgs } <- receiveTimeout (after 2 Seconds)
+                                                         [ match return ]
   let [ma', mb', mc'] = msgs
   Just a' <- unwrapMessage ma' :: Process (Maybe String)
   Just b' <- unwrapMessage mb' :: Process (Maybe String)
   Just c' <- unwrapMessage mc' :: Process (Maybe String)
   let values = [a', b', c']
   stash result $ values == [a, b, c]
+--  if values /= [a, b, c]
+--     then liftIO $ putStrLn $ "unexpected " ++ ((show buffT) ++ (" values: " ++ (show values)))
+--     else return ()
 
 resizeShouldRespectOrdering :: BufferType
            -> TestResult [String]
@@ -97,8 +102,8 @@ mailboxIsInitiallyPassive result = do
   notify mbox
   inbound <- receiveTimeout (after 3 Seconds) [ match return ]
   case inbound of
-    Just (NewMail _) -> stash result True
-    Nothing          -> stash result False
+    Just (NewMail _ _) -> stash result True
+    Nothing            -> stash result False
 
 mailboxActsAsRelayForRawTraffic :: TestResult Bool -> Process ()
 mailboxActsAsRelayForRawTraffic result = do
@@ -119,6 +124,7 @@ complexMailboxFiltering inputs@(s', i', b') result = do
   post mbox s'
   post mbox i'
   post mbox b'
+  waitForMailboxReady mbox 3
 
   active mbox $ myFilter inputs
   Just Delivery{ messages = [m1, m2, m3]
@@ -135,12 +141,25 @@ dropDuringFiltering result = do
   mbox <- createMailbox Stack (50 :: Integer)
   mapM_ (post mbox) rng
 
+  waitForMailboxReady mbox 50
   active mbox $ intFilter
 
   Just Delivery{ messages = msgs } <- receiveTimeout (after 5 Seconds)
-                                                            [ match return ]
+                                                     [ match return ]
   seen <- mapM unwrapMessage msgs
   stash result $ (catMaybes seen) == (filter even rng)
+
+mailboxHandleReUse :: TestResult Bool -> Process ()
+mailboxHandleReUse result = do
+  mbox <- createMailbox Queue (1 :: Limit)
+  post mbox "abc"
+
+  notify mbox
+  Just (NewMail mbox' _) <- receiveTimeout (after 2 Seconds)
+                                           [ match return ]
+  deliver mbox'
+  _ <- expect :: Process Delivery
+  stash result True
 
 createAndSend :: BufferType -> [String] -> Process Mailbox
 createAndSend buffT msgs = createMailboxAndPost buffT 10 msgs
@@ -151,7 +170,22 @@ createMailboxAndPost buffT maxSz msgs = do
   mbox <- createMailbox buffT maxSz
   spawnLocal $ mapM_ (post mbox) msgs >> sendChan cc ()
   () <- receiveChan cp
+  waitForMailboxReady mbox $ min (toInteger (length msgs)) maxSz
   return mbox
+
+waitForMailboxReady :: Mailbox -> Integer -> Process ()
+waitForMailboxReady mbox sz = do
+  sleep $ seconds 1
+  notify mbox
+  m <- receiveWait [
+            matchIf (\(NewMail mbox' sz') -> mbox == mbox' && sz' >= sz)
+                    (\_ -> return True)
+          , match (\(NewMail _ sz') -> return False)
+          , matchAny (\_ -> return False)
+          ]
+  case m of
+    True  -> return ()
+    False -> waitForMailboxReady mbox sz
 
 myRemoteTable :: RemoteTable
 myRemoteTable =
@@ -218,6 +252,10 @@ tests transport = do
            (delayedAssertion
             "Expected traffic to be relayed directly to us"
             localNode True mailboxActsAsRelayForRawTraffic)
+        , testCase "Mailbox Notifications include usable control channel"
+           (delayedAssertion
+            "Expected traffic to be relayed directly to us"
+            localNode True mailboxHandleReUse)
         , testCase "Complex Filtering Rules"
            (delayedAssertion
             "Expected the relevant filters to accept our data"
