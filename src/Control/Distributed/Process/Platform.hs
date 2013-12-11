@@ -95,12 +95,12 @@ import Control.Distributed.Process.Platform.UnsafePrimitives
 import Control.Distributed.Process.Platform.Internal.Primitives hiding (__remoteTable)
 import qualified Control.Distributed.Process.Platform.Internal.Primitives (__remoteTable)
 import qualified Control.Distributed.Process.Platform.Internal.Types      (__remoteTable)
-import qualified Control.Distributed.Process.Platform.Mailbox (__remoteTable)
+import qualified Control.Distributed.Process.Platform.Execution.Mailbox (__remoteTable)
 
 -- remote table
 
 __remoteTable :: RemoteTable -> RemoteTable
 __remoteTable =
-  Control.Distributed.Process.Platform.Mailbox.__remoteTable .
+  Control.Distributed.Process.Platform.Execution.Mailbox.__remoteTable .
   Control.Distributed.Process.Platform.Internal.Primitives.__remoteTable .
   Control.Distributed.Process.Platform.Internal.Types.__remoteTable

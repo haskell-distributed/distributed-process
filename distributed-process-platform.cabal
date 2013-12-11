@@ -52,7 +52,7 @@ library
                    Control.Distributed.Process.Platform.Async.AsyncChan,
                    Control.Distributed.Process.Platform.Async.AsyncSTM,
                    Control.Distributed.Process.Platform.Call,
-                   Control.Distributed.Process.Platform.Mailbox,
+                   Control.Distributed.Process.Platform.Execution.Mailbox,
                    Control.Distributed.Process.Platform.ManagedProcess,
                    Control.Distributed.Process.Platform.ManagedProcess.Client,
                    Control.Distributed.Process.Platform.ManagedProcess.UnsafeClient,
@@ -61,6 +61,7 @@ library
                    Control.Distributed.Process.Platform.ManagedProcess.Server.Restricted,
                    Control.Distributed.Process.Platform.Service.Registry,
                    Control.Distributed.Process.Platform.Supervisor,
+                   Control.Distributed.Process.Platform.Task.Queue.BlockingQueue,
                    Control.Distributed.Process.Platform.Test,
                    Control.Distributed.Process.Platform.Time,
                    Control.Distributed.Process.Platform.Timer,
@@ -279,6 +280,43 @@ test-suite RegistryTests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind -eventlog
   extensions:      CPP
   main-is:         TestRegistry.hs
+
+test-suite TaskQueueTests
+  type:            exitcode-stdio-1.0
+--  x-uses-tf:       true
+  build-depends:
+                   base >= 4.4 && < 5,
+                   ansi-terminal >= 0.5 && < 0.6,
+                   containers,
+                   hashable,
+                   unordered-containers >= 0.2.3.0 && < 0.3,
+                   distributed-process,
+                   distributed-process-platform,
+                   distributed-static,
+                   bytestring,
+                   data-accessor,
+                   fingertree == 0.0.1.1,
+                   network-transport >= 0.3 && < 0.4,
+                   deepseq >= 1.3.0.1 && < 1.4,
+                   mtl,
+                   network-transport-tcp >= 0.3 && < 0.4,
+                   binary >= 0.6.3.0 && < 0.8,
+                   network >= 2.3 && < 2.5,
+                   HUnit >= 1.2 && < 2,
+                   stm >= 2.3 && < 2.5,
+                   time > 1.4 && < 1.5,
+                   test-framework >= 0.6 && < 0.9,
+                   test-framework-hunit,
+                   QuickCheck >= 2.4,
+                   test-framework-quickcheck2,
+                   transformers,
+                   rematch >= 0.2.0.0,
+                   ghc-prim
+  hs-source-dirs:
+                   tests
+  ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind -eventlog
+  extensions:      CPP
+  main-is:         TestTaskQueues.hs
 
 test-suite MailboxTests
   type:            exitcode-stdio-1.0
