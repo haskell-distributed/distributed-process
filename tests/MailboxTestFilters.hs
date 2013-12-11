@@ -4,7 +4,7 @@
 module MailboxTestFilters where
 
 import Control.Distributed.Process
-import Control.Distributed.Process.Platform.Mailbox (FilterResult(..))
+import Control.Distributed.Process.Platform.Execution.Mailbox (FilterResult(..))
 import Control.Monad (forM)
 
 #if ! MIN_VERSION_base(4,6,0)

@@ -12,7 +12,7 @@
 
 -----------------------------------------------------------------------------
 -- |
--- Module      :  Control.Distributed.Process.Platform.Mailbox
+-- Module      :  Control.Distributed.Process.Platform.Execution.Mailbox
 -- Copyright   :  (c) Tim Watson 2012 - 2013
 -- License     :  BSD3 (see the file LICENSE)
 --
@@ -89,7 +89,7 @@
 -- application.
 --
 -----------------------------------------------------------------------------
-module Control.Distributed.Process.Platform.Mailbox
+module Control.Distributed.Process.Platform.Execution.Mailbox
   (
     -- * Creating, Starting, Configuring and Running a Mailbox
     Mailbox()
@@ -222,6 +222,12 @@ data BufferType =
   | Stack -- ^ unordered buffer, limiter drops the newest (top) message
   | Ring  -- ^ FIFO buffer, limiter refuses (i.e., drops) new messages
   deriving (Typeable, Eq, Show)
+
+-- TODO: re-implement this process in terms of a limiter expression, i.e.,
+--
+-- data Limit s = Accept s | Block s
+--
+-- limit :: forall s. Closure (Message {- new mail -} -> Process (Limit s))
 
 -- | Represents the maximum number of messages the internal buffer can hold.
 --

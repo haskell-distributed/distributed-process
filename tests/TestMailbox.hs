@@ -11,7 +11,7 @@ import Control.Distributed.Process.Platform
   )
 
 import qualified Control.Distributed.Process.Platform (__remoteTable)
-import Control.Distributed.Process.Platform.Mailbox
+import Control.Distributed.Process.Platform.Execution.Mailbox
 import Control.Distributed.Process.Platform.Test
 import Control.Distributed.Process.Platform.Time
 import Control.Distributed.Process.Platform.Timer
@@ -180,7 +180,7 @@ waitForMailboxReady mbox sz = do
   m <- receiveWait [
             matchIf (\(NewMail mbox' sz') -> mbox == mbox' && sz' >= sz)
                     (\_ -> return True)
-          , match (\(NewMail _ sz') -> return False)
+          , match (\(NewMail _ _) -> return False)
           , matchAny (\_ -> return False)
           ]
   case m of
