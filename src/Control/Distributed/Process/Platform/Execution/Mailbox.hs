@@ -8,7 +8,6 @@
 {-# LANGUAGE EmptyDataDecls       #-}
 {-# LANGUAGE TemplateHaskell      #-}
 {-# LANGUAGE ImpredicativeTypes   #-}
-{-# LANGUAGE GADTs                #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -94,6 +93,7 @@ module Control.Distributed.Process.Platform.Execution.Mailbox
     -- * Creating, Starting, Configuring and Running a Mailbox
     Mailbox()
   , startMailbox
+  , startSupervisedMailbox
   , createMailbox
   , resize
   , statistics
@@ -166,6 +166,7 @@ import qualified Control.Distributed.Process.Platform.ManagedProcess.Server.Rest
   ( handleCall
   , reply
   )
+import Control.Distributed.Process.Platform.Supervisor (SupervisorPid)
 import Control.Distributed.Process.Platform.Time
 import Control.Exception (SomeException)
 import Data.Accessor
@@ -409,12 +410,35 @@ createMailbox buffT maxSz =
 -- > start = spawnLocal $ run
 --
 startMailbox :: ProcessId -> BufferType -> Limit -> Process Mailbox
-startMailbox p b l = do
+startMailbox = doStartMailbox Nothing
+
+-- | As 'startMailbox', but suitable for use in supervisor child specs.
+--
+-- Example:
+-- > childSpec = toChildStart $ startSupervisedMailbox pid bufferType mboxLimit
+--
+startSupervisedMailbox :: ProcessId
+                       -> BufferType
+                       -> Limit
+                       -> SupervisorPid
+                       -> Process Mailbox
+startSupervisedMailbox p b l s = doStartMailbox (Just s) p b l
+
+doStartMailbox :: Maybe SupervisorPid
+               -> ProcessId
+               -> BufferType
+               -> Limit
+               -> Process Mailbox
+doStartMailbox mSp p b l = do
   bchan <- liftIO $ newBroadcastTChanIO
   rchan <- liftIO $ atomically $ dupTChan bchan
   spawnLocal (runMailbox bchan p b l) >>= \pid -> do
+    maybeLink mSp
     cc <- liftIO $ atomically $ readTChan rchan
     return $ Mailbox pid cc
+  where
+    maybeLink Nothing   = return ()
+    maybeLink (Just p') = link p'
 
 -- | Run the mailbox server loop.
 --
