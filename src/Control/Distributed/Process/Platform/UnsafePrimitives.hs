@@ -34,7 +34,8 @@ import Control.Distributed.Process
   )
 import Control.Distributed.Process.Platform.Internal.Types
   ( NFSerializable
-  , Addressable(..)
+  , Addressable
+  , Resolvable(..)
   )
 import qualified Control.Distributed.Process.UnsafePrimitives as Unsafe
 

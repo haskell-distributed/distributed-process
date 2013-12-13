@@ -4,6 +4,7 @@
 {-# LANGUAGE TemplateHaskell        #-}
 {-# LANGUAGE FlexibleInstances      #-}
 {-# LANGUAGE UndecidableInstances   #-}
+{-# LANGUAGE OverlappingInstances   #-}
 
 -- | Types used throughout the Platform
 --
@@ -14,7 +15,9 @@ module Control.Distributed.Process.Platform.Internal.Types
   , newTagPool
   , getTag
     -- * Addressing
-  , Addressable(..)
+  , Resolvable(..)
+  , Routable(..)
+  , Addressable
   , sendToRecipient
   , Recipient(..)
   , RegisterSelf(..)
@@ -120,11 +123,11 @@ instance Binary ExitReason where
 instance NFData ExitReason where
 
 data Recipient =
-    Pid ProcessId
-  | Registered String
-  | RemoteRegistered String NodeId
---  | ProcReg String
---  | RemoteProcReg String
+    Pid !ProcessId
+  | Registered !String
+  | RemoteRegistered !String !NodeId
+--  | ProcReg !ProcessId !String
+--  | RemoteProcReg NodeId String
 --  | GlobalReg String
   deriving (Typeable, Generic, Show, Eq)
 instance Binary Recipient where
@@ -147,66 +150,83 @@ unsafeSendToRecipient (Pid p) m                = P.unsafeSend p $!! m
 unsafeSendToRecipient (Registered s) m         = P.unsafeNSend s $!! m
 unsafeSendToRecipient (RemoteRegistered s n) m = nsendRemote n s m
 
-baseAddressableErrorMessage :: (Addressable a) => a -> String
+baseAddressableErrorMessage :: (Routable a) => a -> String
 baseAddressableErrorMessage _ = "CannotResolveAddressable"
 
--- | Provides a unified API for addressing processes.
--- Minimal definition: 'resolve'.
+-- | Class of things that can be resolved to a 'ProcessId'.
 --
-class Addressable a where
+class Resolvable a where
+  -- | Resolve the reference to a process id, or @Nothing@ if resolution fails
+  resolve :: a -> Process (Maybe ProcessId)
+
+-- | Provides a unified API for addressing processes.
+--
+class Routable a where
   -- | Send a message to the target asynchronously
   sendTo  :: (Serializable m) => a -> m -> Process ()
+
+  -- | Send some @NFData@ message to the target asynchronously,
+  -- forcing evaluation (i.e., @deepseq@) beforehand.
+  unsafeSendTo :: (NFSerializable m) => a -> m -> Process ()
+
+  -- | Unresolvable Addressable Message
+  unresolvableMessage :: a -> String
+  unresolvableMessage = baseAddressableErrorMessage
+
+instance (Resolvable a) => Routable a where
   sendTo a m = do
     mPid <- resolve a
     maybe (die (unresolvableMessage a))
           (\p -> P.send p m)
           mPid
 
-  -- | Send some @NFData@ message to the target asynchronously,
-  -- forcing evaluation (i.e., @deepseq@) beforehand.
-  unsafeSendTo :: (NFSerializable m) => a -> m -> Process ()
   unsafeSendTo a m = do
     mPid <- resolve a
     maybe (die (unresolvableMessage a))
           (\p -> P.unsafeSend p $!! m)
           mPid
 
-  -- | Resolve the reference to a process id, or @Nothing@ if resolution fails
-  resolve :: a -> Process (Maybe ProcessId)
-
   -- | Unresolvable Addressable Message
-  unresolvableMessage :: a -> String
   unresolvableMessage = baseAddressableErrorMessage
 
-instance Addressable Recipient where
-  sendTo = sendToRecipient
-
-  unsafeSendTo = unsafeSendToRecipient
-
+instance Resolvable Recipient where
   resolve (Pid                p) = return (Just p)
   resolve (Registered         n) = whereis n
   resolve (RemoteRegistered s n) = whereisRemote n s
+
+instance Routable Recipient where
+  sendTo = sendToRecipient
+  unsafeSendTo = unsafeSendToRecipient
 
   unresolvableMessage (Pid                p) = unresolvableMessage p
   unresolvableMessage (Registered         n) = unresolvableMessage n
   unresolvableMessage (RemoteRegistered s n) = unresolvableMessage (n, s)
 
-instance Addressable ProcessId where
+instance Resolvable ProcessId where
+  resolve p = return (Just p)
+
+instance Routable ProcessId where
   sendTo                 = P.send
   unsafeSendTo pid msg   = P.unsafeSend pid $!! msg
-  resolve p              = return (Just p)
   unresolvableMessage p  = "CannotResolvePid[" ++ (show p) ++ "]"
 
-instance Addressable String where
+instance Resolvable String where
+  resolve = whereis
+
+instance Routable String where
   sendTo                = nsend
   unsafeSendTo name msg = P.unsafeNSend name $!! msg
-  resolve               = whereis
   unresolvableMessage s = "CannotResolveRegisteredName[" ++ s ++ "]"
 
-instance Addressable (NodeId, String) where
+instance Resolvable (NodeId, String) where
+  resolve (nid, pname) = whereisRemote nid pname
+
+instance Routable (NodeId, String) where
   sendTo  (nid, pname) msg   = nsendRemote nid pname msg
   unsafeSendTo               = sendTo -- because serialisation *must* take place
-  resolve (nid, pname)       = whereisRemote nid pname
   unresolvableMessage (n, s) =
     "CannotResolveRemoteRegisteredName[name: " ++ s ++ ", node: " ++ (show n) ++ "]"
+
+class (Resolvable a, Routable a) => Addressable a
+instance (Resolvable a, Routable a) => Addressable a
 

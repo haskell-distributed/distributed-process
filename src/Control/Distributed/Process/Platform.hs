@@ -50,7 +50,9 @@ various flavours of @catchExit@ primitive from distributed-process.
 module Control.Distributed.Process.Platform
   (
     -- * Exported Types
-    Addressable(..)
+    Addressable
+  , Resolvable(..)
+  , Routable(..)
   , NFSerializable
   , Recipient(..)
   , ExitReason(..)

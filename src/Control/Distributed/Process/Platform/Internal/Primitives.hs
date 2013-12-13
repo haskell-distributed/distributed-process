@@ -1,8 +1,10 @@
-{-# LANGUAGE DeriveDataTypeable     #-}
-{-# LANGUAGE TemplateHaskell        #-}
-{-# LANGUAGE TypeSynonymInstances   #-}
-{-# LANGUAGE FlexibleInstances      #-}
-{-# LANGUAGE ScopedTypeVariables    #-}
+{-# LANGUAGE DeriveDataTypeable    #-}
+{-# LANGUAGE DeriveGeneric         #-}
+{-# LANGUAGE StandaloneDeriving    #-}
+{-# LANGUAGE ScopedTypeVariables   #-}
+{-# LANGUAGE TemplateHaskell       #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleInstances     #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -20,7 +22,10 @@
 
 module Control.Distributed.Process.Platform.Internal.Primitives
   ( -- * General Purpose Process Addressing
-    Addressable(..)
+    Addressable
+  , Routable(..)
+  , Resolvable(..)
+  , Observable(..)
 
     -- * Spawning and Linking
   , spawnLinkLocal
@@ -48,11 +53,13 @@ module Control.Distributed.Process.Platform.Internal.Primitives
 
 import Control.Concurrent (myThreadId, throwTo)
 import Control.Distributed.Process hiding (monitor)
-import qualified Control.Distributed.Process as P (monitor)
+import qualified Control.Distributed.Process as P (monitor, unmonitor)
 import Control.Distributed.Process.Closure (seqCP, remotable, mkClosure)
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Platform.Internal.Types
-  ( Addressable(..)
+  ( Addressable
+  , Resolvable(..)
+  , Routable(..)
   , RegisterSelf(..)
   , ExitReason(ExitOther)
   , whereisRemote
@@ -62,7 +69,25 @@ import Data.Maybe (isJust, fromJust)
 
 -- utility
 
-monitor :: Addressable a => a -> Process (Maybe MonitorRef)
+-- | Things (e.g., processes, nodes, etc) that can be monitored.
+--
+class Observable o r n where
+  observe        :: o -> Process r
+  unobserve      :: r -> Process ()
+  observableFrom :: o -> n -> Process (Maybe DiedReason)
+
+instance (Resolvable a) =>
+         Observable a MonitorRef ProcessMonitorNotification where
+  observe   addr = maybe (die "InvalidAddressable") return =<< monitor addr
+  unobserve ref  = P.unmonitor ref
+
+  observableFrom a (ProcessMonitorNotification _ p r) = do
+    mPid <- resolve a
+    case mPid of
+      Just p' -> return $ if p == p' then Just r else Nothing
+      _       -> return Nothing
+
+monitor :: Resolvable a => a -> Process (Maybe MonitorRef)
 monitor addr = do
   mPid <- resolve addr
   case mPid of
