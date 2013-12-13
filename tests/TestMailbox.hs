@@ -7,7 +7,7 @@ module Main where
 import Control.Distributed.Process hiding (monitor)
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Platform
-  ( Addressable(..)
+  ( Routable(..)
   )
 
 import qualified Control.Distributed.Process.Platform (__remoteTable)

@@ -133,7 +133,7 @@ import Control.Distributed.Process.Closure
 import Control.Distributed.Process.Serializable hiding (SerializableDict)
 import Control.Distributed.Process.Platform.Internal.Types
   ( ExitReason(..)
-  , Addressable(..)
+  , Resolvable(..)
   )
 import Control.Distributed.Process.Platform.ManagedProcess
   ( call
@@ -208,7 +208,7 @@ instance Binary Mailbox where
 instance Show Mailbox where
   show = ("Mailbox:" ++) . show . pid
 
-instance Addressable Mailbox where
+instance Resolvable Mailbox where
   resolve = return . Just . pid
 
 sendCtrlMsg :: Mailbox
