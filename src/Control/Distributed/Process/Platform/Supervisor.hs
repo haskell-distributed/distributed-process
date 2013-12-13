@@ -490,17 +490,18 @@ isRestarting :: ChildRef -> Bool
 isRestarting (ChildRestarting _) = True
 isRestarting _                   = False
 
+instance Resolvable ChildRef where
+  resolve (ChildRunning pid) = return $ Just pid
+  resolve _                  = return Nothing
+
 -- these look a bit odd, but we basically want to avoid resolving
 -- or sending to (ChildRestarting oldPid)
-instance Addressable ChildRef where
+instance Routable ChildRef where
   sendTo (ChildRunning addr) = sendTo addr
   sendTo _                   = error "invalid address for child process"
 
   unsafeSendTo (ChildRunning ch) = unsafeSendTo ch
   unsafeSendTo _                 = error "invalid address for child process"
-
-  resolve (ChildRunning pid) = return $ Just pid
-  resolve _                  = return Nothing
 
 -- | Specifies whether the child is another supervisor, or a worker.
 data ChildType = Worker | Supervisor
@@ -839,7 +840,7 @@ restartChild sid = Unsafe.call sid . RestartChildReq
 -- | Gracefully terminate a running supervisor. Returns immediately if the
 -- /address/ cannot be resolved.
 --
-shutdown :: Addressable a => a -> Process ()
+shutdown :: Resolvable a => a -> Process ()
 shutdown sid = do
   mPid <- resolve sid
   case mPid of
@@ -850,7 +851,7 @@ shutdown sid = do
 -- point the caller can be sure that all children have also stopped. Returns
 -- immediately if the /address/ cannot be resolved.
 --
-shutdownAndWait :: Addressable a => a -> Process ()
+shutdownAndWait :: Resolvable a => a -> Process ()
 shutdownAndWait sid = do
   mPid <- resolve sid
   case mPid of
