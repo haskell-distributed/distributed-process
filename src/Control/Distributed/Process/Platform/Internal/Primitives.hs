@@ -121,7 +121,8 @@ spawnLinkLocal p = do
   link pid
   return pid
 
--- | Like 'spawnLinkLocal', but monitor the spawned process
+-- | Like 'spawnLinkLocal', but monitors the spawned process.
+--
 spawnMonitorLocal :: Process () -> Process (ProcessId, MonitorRef)
 spawnMonitorLocal p = do
   pid <- spawnLocal p
@@ -131,6 +132,7 @@ spawnMonitorLocal p = do
 -- | CH's 'link' primitive, unlike Erlang's, will trigger when the target
 -- process dies for any reason. This function has semantics like Erlang's:
 -- it will trigger 'ProcessLinkException' only when the target dies abnormally.
+--
 linkOnFailure :: ProcessId -> Process ()
 linkOnFailure them = do
   us <- getSelfPid
@@ -154,6 +156,7 @@ linkOnFailure them = do
 -- under the given name. This refers to a local, per-node registration,
 -- not @global@ registration. If that name is unregistered, a process
 -- is started. This is a handy way to start per-node named servers.
+--
 whereisOrStart :: String -> Process () -> Process ProcessId
 whereisOrStart name proc =
   do mpid <- whereis name
@@ -194,6 +197,7 @@ $(remotable ['registerSelf])
 -- | A remote equivalent of 'whereisOrStart'. It deals with the
 -- node registry on the given node, and the process, if it needs to be started,
 -- will run on that node. If the node is inaccessible, Nothing will be returned.
+--
 whereisOrStartRemote :: NodeId -> String -> Closure (Process ()) -> Process (Maybe ProcessId)
 whereisOrStartRemote nid name proc =
      do mRef <- monitorNode nid
