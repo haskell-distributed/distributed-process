@@ -23,7 +23,7 @@ import Control.Distributed.Process.Platform hiding (__remoteTable, send)
 import Control.Distributed.Process.Platform.Test
 import Control.Distributed.Process.Platform.Time
 import Control.Distributed.Process.Platform.Timer
-import Control.Distributed.Process.Platform.Supervisor hiding (start)
+import Control.Distributed.Process.Platform.Supervisor hiding (start, shutdown)
 import qualified Control.Distributed.Process.Platform.Supervisor as Supervisor
 import Control.Distributed.Process.Platform.ManagedProcess.Client (shutdown)
 import Control.Distributed.Process.Serializable()
@@ -936,6 +936,33 @@ restartLeftWithRightToLeftRestarts sup = do
   let [c1, c2] = [map fst cs | cs <- [toSurvive, notRestarted]]
   forM_ (zip c1 c2) $ \(p1, p2) -> p1 `shouldBe` equalTo p2
 
+localChildStartLinking :: TestResult Bool -> Process ()
+localChildStartLinking result = do
+    s1 <- toChildStart procExpect
+    s2 <- toChildStart procLinkExpect
+    pid <- Supervisor.start restartOne [tempWorker s1, tempWorker s2]
+    [(r1, _), (r2, _)] <- listChildren pid
+    Just p1 <- resolve r1
+    Just p2 <- resolve r2
+    monitor p1
+    monitor p2
+    shutdownAndWait pid
+    waitForChildShutdown [p1, p2]
+    stash result True
+  where
+    procExpect :: Process ()
+    procExpect = expect >>= return
+
+    procLinkExpect :: SupervisorPid -> Process ProcessId
+    procLinkExpect p = spawnLocal $ link p >> procExpect
+
+    waitForChildShutdown []   = return ()
+    waitForChildShutdown pids = do
+      p <- receiveWait [
+               match (\(ProcessMonitorNotification _ p _) -> return p)
+             ]
+      waitForChildShutdown $ filter (/= p) pids
+
 -- remote table definition and main
 
 myRemoteTable :: RemoteTable
@@ -1228,6 +1255,13 @@ tests transport = do
                  (RunClosure $(mkStaticClosure 'noOp)) withSupervisor)
 --          , testCase "Permanent Child Delayed Restart"
 --                (delayedRestartAfterThreeAttempts withSupervisor)
+          ]
+        , testGroup "ToChildStart Link Setup"
+          [
+            testCase "Both Local Process Instances Link Appropriately"
+             (delayedAssertion
+              "expected the server to return the task outcome"
+              localNode True localChildStartLinking)
           ]
       ]
     ]

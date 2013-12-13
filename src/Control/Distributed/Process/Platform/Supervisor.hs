@@ -249,6 +249,9 @@ module Control.Distributed.Process.Platform.Supervisor
   , DeleteChildResult(..)
   , restartChild
   , RestartChildResult(..)
+    -- * Normative Shutdown
+  , shutdown
+  , shutdownAndWait
     -- * Queries and Statistics
   , lookupChild
   , listChildren
@@ -782,38 +785,81 @@ run strategy' specs' = MP.pserve (strategy', specs') supInit serverDefinition
 -- Client Facing API                                                          --
 --------------------------------------------------------------------------------
 
+-- | Obtain statistics about a running supervisor.
+--
 statistics :: Addressable a => a -> Process (SupervisorStats)
 statistics = (flip Unsafe.call) StatsReq
 
+-- | Lookup a possibly supervised child, given its 'ChildKey'.
+--
 lookupChild :: Addressable a => a -> ChildKey -> Process (Maybe (ChildRef, ChildSpec))
 lookupChild addr key = Unsafe.call addr $ FindReq key
 
+-- | List all know (i.e., configured) children.
+--
 listChildren :: Addressable a => a -> Process [Child]
 listChildren addr = Unsafe.call addr ListReq
 
+-- | Add a new child.
+--
 addChild :: Addressable a => a -> ChildSpec -> Process AddChildResult
 addChild addr spec = Unsafe.call addr $ AddChild False spec
 
+-- | Start an existing (configured) child. The 'ChildSpec' must already be
+-- present (see 'addChild').
+--
 startChild :: Addressable a
            => a
            -> ChildSpec
            -> Process AddChildResult
 startChild addr spec = Unsafe.call addr $ AddChild True spec
 
+-- | Delete a supervised child. The child must already be stopped (see
+-- 'terminateChild').
+--
 deleteChild :: Addressable a => a -> ChildKey -> Process DeleteChildResult
 deleteChild addr spec = Unsafe.call addr $ DeleteChild spec
 
+-- | Terminate a running child.
+--
 terminateChild :: Addressable a
                => a
                -> ChildKey
                -> Process TerminateChildResult
 terminateChild sid = Unsafe.call sid . TerminateChildReq
 
+-- | Forcibly restart a running child.
+--
 restartChild :: Addressable a
              => a
              -> ChildKey
              -> Process RestartChildResult
 restartChild sid = Unsafe.call sid . RestartChildReq
+
+-- | Gracefully terminate a running supervisor. Returns immediately if the
+-- /address/ cannot be resolved.
+--
+shutdown :: Addressable a => a -> Process ()
+shutdown sid = do
+  mPid <- resolve sid
+  case mPid of
+    Nothing -> return ()
+    Just p  -> exit p ExitShutdown
+
+-- | As 'shutdown', but waits until the supervisor process has exited, at which
+-- point the caller can be sure that all children have also stopped. Returns
+-- immediately if the /address/ cannot be resolved.
+--
+shutdownAndWait :: Addressable a => a -> Process ()
+shutdownAndWait sid = do
+  mPid <- resolve sid
+  case mPid of
+    Nothing -> return ()
+    Just p  -> withMonitor p $ do
+      shutdown p
+      receiveWait [ matchIf (\(ProcessMonitorNotification _ p' _) -> p' == p)
+                            (\_ -> return ())
+                  ]
 
 --------------------------------------------------------------------------------
 -- Server Initialisation/Startup                                              --
