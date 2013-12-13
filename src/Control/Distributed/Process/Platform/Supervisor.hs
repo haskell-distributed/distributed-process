@@ -35,17 +35,15 @@
 -- The supervisors children are defined as a list of child specifications
 -- (see 'ChildSpec'). When a supervisor is started, its children are started
 -- in left-to-right (insertion order) according to this list. When a supervisor
--- stops, it will terminate its children in reverse (i.e., from
--- right-to-left of insertion order). Child specs can be added to the supervisor
--- after it has started, either on the left or right of the existing list of
--- children.
+-- stops (or exits for any reason), it will terminate its children in reverse
+-- (i.e., from right-to-left of insertion) order. Child specs can be added to
+-- the supervisor after it has started, either on the left or right of the
+-- existing list of children.
 --
--- When a supervisor exits (for any reason), it will always attempt to terminate
--- all its children, which it does from left-to-right (in insertion order). When
--- the supervisor spawns its child processes, they are always linked to thier
--- parent (i.e., the supervisor), therefore even if the supervisor is terminated
--- abruptly by an asynchronous exception, the children will still be taken down
--- with it, though somewhat less ceremoniously in that case.
+-- When the supervisor spawns its child processes, they are always linked to
+-- thier parent (i.e., the supervisor), therefore even if the supervisor is
+-- terminated abruptly by an asynchronous exception, the children will still be
+-- taken down with it, though somewhat less ceremoniously in that case.
 --
 -- [Restart Strategies]
 --
@@ -177,7 +175,28 @@
 -- occur during a timed-out shutdown will be logged, however exit reasons
 -- resulting from @TerminateImmediately@ are ignored.
 --
--- [Supervision Trees]
+-- [Creating Child Specs]
+--
+-- The 'ToChildStart' typeclass simplifies the process of defining a 'ChildStart'
+-- providing three default instances from which a 'ChildStart' datum can be
+-- generated. The first, takes a @Closure (Process ())@, where the enclosed
+-- action (in the @Process@ monad) is the actual (long running) code that we
+-- wish to supervise. In the case of a /managed process/, this is usually the
+-- server loop, constructed by evaluating some variant of @ManagedProcess.serve@.
+--
+-- The other two instances provide a means for starting children without having
+-- to provide a @Closure@. Both instances wrap the supplied @Process@ action in
+-- some necessary boilerplate code, which handles spawning a new process and
+-- communicating its @ProcessId@ to the supervisor. The instance for
+-- @Addressable a => SupervisorPid -> Process a@ is special however, since this
+-- API is intended for uses where the typical interactions with a process take
+-- place via an opaque handle, for which an instance of the @Addressable@
+-- typeclass is provided. This latter approach requires the expression which is
+-- responsible for yielding the @Addressable@ handle to handling linking the
+-- target process with the supervisor, since we have delegated responsibility
+-- for spawning the new process and cannot perform the link oepration ourselves.
+--
+-- [Supervision Trees & Supervisor Termination]
 --
 -- To create a supervision tree, one simply adds supervisors below one another
 -- as children, setting the @childType@ field of their 'ChildSpec' to
@@ -203,6 +222,7 @@ module Control.Distributed.Process.Platform.Supervisor
   , isRestarting
   , Child
   , StaticLabel
+  , SupervisorPid
   , ToChildStart(..)
   , start
   , run
@@ -517,7 +537,7 @@ instance NFData RegisteredName where
 
 data ChildStart =
     RunClosure !(Closure (Process ()))
-  | StarterProcess  !ProcessId
+  | StarterProcess !ProcessId
   deriving (Typeable, Generic, Show)
 instance Binary ChildStart where
 instance NFData ChildStart  where
@@ -580,6 +600,7 @@ instance Binary DeleteChildResult where
 instance NFData DeleteChildResult where
 
 type Child = (ChildRef, ChildSpec)
+type SupervisorPid = ProcessId
 
 -- | A type that can be converted to a 'ChildStart'.
 class ToChildStart a where
@@ -590,19 +611,64 @@ instance ToChildStart (Closure (Process ())) where
 
 instance ToChildStart (Process ()) where
   toChildStart proc = do
-      starterPid <- spawnLocal $ forever' $ do
-        (supervisor, _, sendPidPort) <- expectTriple
-        supervisedPid <- spawnLocal $ do
-          link supervisor
-          self <- getSelfPid
-          (proc `catch` filterInitFailures supervisor self)
-            `catchesExit` [(\_ m -> handleMessageIf m (== ExitShutdown)
-                                                      (\_ -> return ()))]
-        sendChan sendPidPort supervisedPid
-      return $ StarterProcess starterPid
-    where
-      expectTriple :: Process (ProcessId, ChildKey, SendPort ProcessId)
-      expectTriple = expect
+    starterPid <- spawnLocal $ do
+      -- note [linking] the first time we see the supervisor's pid,
+      -- we must link to it, but only once, otherwise
+      -- we waste resources (and cycles) linking unnecessarily
+      (supervisor, _, sendPidPort) <- expectTriple
+      link supervisor
+      spawnIt proc supervisor sendPidPort
+      tcsProcLoop proc
+    return (StarterProcess starterPid)
+
+tcsProcLoop :: Process () -> Process ()
+tcsProcLoop p = forever' $ do
+  (supervisor, _, sendPidPort) <- expectTriple
+  spawnIt p supervisor sendPidPort
+
+spawnIt :: Process ()
+        -> ProcessId
+        -> SendPort ProcessId
+        -> Process ()
+spawnIt proc' supervisor sendPidPort = do
+  supervisedPid <- spawnLocal $ do
+    link supervisor
+    self <- getSelfPid
+    (proc' `catch` filterInitFailures supervisor self)
+      `catchesExit` [(\_ m -> handleMessageIf m (== ExitShutdown)
+                                                (\_ -> return ()))]
+  sendChan sendPidPort supervisedPid
+
+instance (Addressable a) => ToChildStart (SupervisorPid -> Process a) where
+  toChildStart proc = do
+    starterPid <- spawnLocal $ do
+      -- see note [linking] in the previous instance (above)
+      (supervisor, _, sendPidPort) <- expectTriple
+      link supervisor
+      injectIt proc supervisor sendPidPort >> injectorLoop proc
+    return $ StarterProcess starterPid
+
+injectorLoop :: Addressable a
+             => (SupervisorPid -> Process a)
+             -> Process ()
+injectorLoop p = forever' $ do
+  (supervisor, _, sendPidPort) <- expectTriple
+  injectIt p supervisor sendPidPort
+
+injectIt :: Addressable a
+         => (SupervisorPid -> Process a)
+         -> ProcessId
+         -> SendPort ProcessId
+         -> Process ()
+injectIt proc' supervisor sendPidPort = do
+  addr <- proc' supervisor
+  mPid <- resolve addr
+  case mPid of
+    Nothing -> die "UnresolvableAddress"
+    Just p  -> sendChan sendPidPort p
+
+expectTriple :: Process (ProcessId, ChildKey, SendPort ProcessId)
+expectTriple = expect
 
 -- internal APIs
 
