@@ -70,22 +70,23 @@ import Data.Maybe (isJust, fromJust)
 -- utility
 
 -- | Things (e.g., processes, nodes, etc) that can be monitored.
+-- A multi-parameter type classs, @o@ is the type of the subject
+-- (being monitored), @r@ the type of reference returned from
+-- 'observe' and @n@ the type of notification that will be given.
 --
 class Observable o r n where
   observe        :: o -> Process r
   unobserve      :: r -> Process ()
-  observableFrom :: o -> n -> Process (Maybe DiedReason)
+  observableFrom :: r -> n -> Process (Maybe DiedReason)
 
 instance (Resolvable a) =>
          Observable a MonitorRef ProcessMonitorNotification where
+
   observe   addr = maybe (die "InvalidAddressable") return =<< monitor addr
   unobserve ref  = P.unmonitor ref
 
-  observableFrom a (ProcessMonitorNotification _ p r) = do
-    mPid <- resolve a
-    case mPid of
-      Just p' -> return $ if p == p' then Just r else Nothing
-      _       -> return Nothing
+  observableFrom r (ProcessMonitorNotification r' _ d) = do
+    return $ if r == r' then Just d else Nothing
 
 monitor :: Resolvable a => a -> Process (Maybe MonitorRef)
 monitor addr = do
