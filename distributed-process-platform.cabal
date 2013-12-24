@@ -67,6 +67,7 @@ library
                    Control.Distributed.Process.Platform.Timer,
                    Control.Distributed.Process.Platform.UnsafePrimitives
   other-modules:
+                   Control.Distributed.Process.Platform.Internal.Containers.MultiMap,
                    Control.Distributed.Process.Platform.Internal.Primitives,
                    Control.Distributed.Process.Platform.Internal.Types,
                    Control.Distributed.Process.Platform.Internal.Queue.SeqQ,
