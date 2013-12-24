@@ -59,6 +59,7 @@ library
                    Control.Distributed.Process.Platform.ManagedProcess.Server,
                    Control.Distributed.Process.Platform.ManagedProcess.Server.Priority,
                    Control.Distributed.Process.Platform.ManagedProcess.Server.Restricted,
+                   Control.Distributed.Process.Platform.Service.Monitoring,
                    Control.Distributed.Process.Platform.Service.Registry,
                    Control.Distributed.Process.Platform.Supervisor,
                    Control.Distributed.Process.Platform.Task.Queue.BlockingQueue,
