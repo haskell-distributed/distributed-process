@@ -70,6 +70,7 @@ module Control.Distributed.Process.Platform
   , times
   , isProcessAlive
   , matchCond
+  , deliver
 
     -- * Call/Tagging support
   , newTagPool
