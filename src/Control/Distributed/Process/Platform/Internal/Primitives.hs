@@ -44,6 +44,7 @@ module Control.Distributed.Process.Platform.Internal.Primitives
     -- * General Utilities
   , times
   , monitor
+  , awaitExit
   , isProcessAlive
   , forever'
 
@@ -94,6 +95,18 @@ monitor addr = do
   case mPid of
     Nothing -> return Nothing
     Just p  -> return . Just =<< P.monitor p
+
+awaitExit :: Resolvable a => a -> Process ()
+awaitExit addr = do
+  mPid <- resolve addr
+  case mPid of
+    Nothing -> return ()
+    Just p  -> do
+      mRef <- P.monitor p
+      receiveWait [
+          matchIf (\(ProcessMonitorNotification r p' _) -> r == mRef && p == p')
+                  (\_ -> return ())
+        ]
 
 isProcessAlive :: ProcessId -> Process Bool
 isProcessAlive pid = getProcessInfo pid >>= \info -> return $ info /= Nothing
