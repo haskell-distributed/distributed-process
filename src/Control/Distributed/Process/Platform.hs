@@ -71,6 +71,7 @@ module Control.Distributed.Process.Platform
   , isProcessAlive
   , matchCond
   , awaitExit
+  , deliver
 
     -- * Call/Tagging support
   , newTagPool

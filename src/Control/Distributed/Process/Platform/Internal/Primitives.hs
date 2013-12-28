@@ -47,6 +47,7 @@ module Control.Distributed.Process.Platform.Internal.Primitives
   , awaitExit
   , isProcessAlive
   , forever'
+  , deliver
 
     -- * Remote Table
   , __remoteTable
@@ -89,6 +90,8 @@ instance (Resolvable a) =>
   observableFrom r (ProcessMonitorNotification r' _ d) = do
     return $ if r == r' then Just d else Nothing
 
+-- | Monitor any @Resolvable@ object.
+--
 monitor :: Resolvable a => a -> Process (Maybe MonitorRef)
 monitor addr = do
   mPid <- resolve addr
@@ -107,6 +110,9 @@ awaitExit addr = do
           matchIf (\(ProcessMonitorNotification r p' _) -> r == mRef && p == p')
                   (\_ -> return ())
         ]
+
+deliver :: (Addressable a, Serializable m) => m -> a -> Process ()
+deliver = flip sendTo
 
 isProcessAlive :: ProcessId -> Process Bool
 isProcessAlive pid = getProcessInfo pid >>= \info -> return $ info /= Nothing
