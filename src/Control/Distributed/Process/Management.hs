@@ -47,6 +47,7 @@ module Control.Distributed.Process.Management
   , MxAgentId(..)
   , MxAgent()
   , mxAgent
+  , mxAgentWithFinalize
   , MxSink
   , mxSink
   , mxGetId
@@ -77,6 +78,7 @@ import Control.Distributed.Process.Internal.Primitives
   , receiveWait
   , matchChan
   , unwrapMessage
+  , onException
   )
 import Control.Distributed.Process.Internal.Types
   ( Process
@@ -197,17 +199,27 @@ mxSink act msg = do
 data MxPipeline s =
   MxPipeline
   {
-    current :: !(MxSink s)
-  , next    :: !(MxPipeline s)
+    current  :: !(MxSink s)
+  , next     :: !(MxPipeline s)
   } | MxStop
 
 -- | Activates a new agent.
 --
-mxAgent :: MxAgentId
+mxAgent :: MxAgentId -> s -> [MxSink s] -> Process ProcessId
+mxAgent mxId st hs = mxAgentWithFinalize mxId st hs $ return ()
+
+-- | Activates a new agent. This variant takes a /finalizer/ expression,
+-- that is run once the agent shuts down (even in case of failure/exceptions).
+-- The /finalizer/ expression runs in the mx monad -  @MxAgent s ()@ - such
+-- that the agent's internal state remains accessible to the shutdown/cleanup
+-- code.
+--
+mxAgentWithFinalize :: MxAgentId
         -> s
         -> [MxSink s]
+        -> MxAgent s ()
         -> Process ProcessId
-mxAgent mxId initState handlers = do
+mxAgentWithFinalize mxId initState handlers dtor = do
     node <- processNode <$> ask
     pid <- liftIO $ mxNew (localEventBus node) $ start
     return pid
@@ -220,15 +232,21 @@ mxAgent mxId initState handlers = do
       -- liftIO $ putStrLn $ "registration == " ++ (show p)
       tablePid <- receiveWait [ matchChan rp (\(p :: ProcessId) -> return p) ]
       -- liftIO $ putStrLn "starting agent listener..."
-      runAgent handlers recvTChan $ MxAgentState mxId sendTChan tablePid initState
+      runAgent dtor handlers recvTChan $ MxAgentState mxId sendTChan tablePid initState
 
-    runAgent hs c s = do
-      msg <- (liftIO $ atomically $ readTChan c)
-      (action, state) <- runPipeline msg s $ pipeline hs
-      case action of
-        MxAgentReady        -> runAgent hs c state
-        MxAgentDeactivate _ -> {- TODO: log r -} return ()
---        MxAgentBecome h'    -> runAgent h' c state
+    runAgent eh hs c s =
+      runAgentWithFinalizer eh hs c s `onException` runAgentFinalizer eh s
+
+    runAgentWithFinalizer eh' hs' c' s' = do
+          msg <- (liftIO $ atomically $ readTChan c')
+          (action, state) <- runPipeline msg s' $ pipeline hs'
+          case action of
+            MxAgentReady        -> runAgent eh' hs' c' state
+            MxAgentDeactivate _ -> runAgentFinalizer eh' state
+--          MxAgentBecome h'    -> runAgent h' c state
+
+    runAgentFinalizer :: MxAgent s () -> MxAgentState s -> Process ()
+    runAgentFinalizer f s = ST.runStateT (unAgent f) s >>= return . fst
 
     pipeline :: forall s . [MxSink s] -> MxPipeline s
     pipeline []           = MxStop
