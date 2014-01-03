@@ -69,16 +69,19 @@ module Control.Distributed.Process.Management
 import Control.Applicative ((<$>))
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TChan
-  ( readTChan
+  ( tryReadTChan
   , writeTChan
   )
 import Control.Distributed.Process.Internal.Primitives
   ( newChan
   , nsend
   , receiveWait
+  , receiveTimeout
   , matchChan
+  , matchAny
   , unwrapMessage
   , onException
+  , register
   )
 import Control.Distributed.Process.Internal.Types
   ( Process
@@ -222,6 +225,7 @@ mxAgentWithFinalize :: MxAgentId
 mxAgentWithFinalize mxId initState handlers dtor = do
     node <- processNode <$> ask
     pid <- liftIO $ mxNew (localEventBus node) $ start
+    register (agentId mxId) pid
     return pid
   where
     start (sendTChan, recvTChan) = do
@@ -238,12 +242,22 @@ mxAgentWithFinalize mxId initState handlers dtor = do
       runAgentWithFinalizer eh hs c s `onException` runAgentFinalizer eh s
 
     runAgentWithFinalizer eh' hs' c' s' = do
-          msg <- (liftIO $ atomically $ readTChan c')
+          msg <- getNextMessage c'
           (action, state) <- runPipeline msg s' $ pipeline hs'
           case action of
             MxAgentReady        -> runAgent eh' hs' c' state
             MxAgentDeactivate _ -> runAgentFinalizer eh' state
 --          MxAgentBecome h'    -> runAgent h' c state
+
+    getNextMessage tch = do
+      inputs <- liftIO $ atomically $ tryReadTChan tch
+      case inputs of
+        Nothing -> do
+          m <- receiveTimeout 0 [ matchAny return ]
+          case m of
+            Nothing  -> getNextMessage tch
+            Just msg -> return msg
+        Just m  -> return m
 
     runAgentFinalizer :: MxAgent s () -> MxAgentState s -> Process ()
     runAgentFinalizer f s = ST.runStateT (unAgent f) s >>= return . fst
