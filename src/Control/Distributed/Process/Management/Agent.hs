@@ -94,7 +94,7 @@ mxAgentController forkProcess mv = do
           -- (e.g., passing unevaluated thunks that will crash when
           -- they're eventually forced) are thus silently ignored.
           --
-          matchAny (\msg -> liftIO $ broadcast bus tracer msg)
+          matchAny (liftIO . broadcast bus tracer)
         ] `catches` [Handler (\ThreadKilled -> die "Killed"),
                      Handler (\(_ :: SomeException) -> return ())]
 
