@@ -21,7 +21,7 @@
 -- generates /trace events/, describing internal runtime activities such as
 -- the spawning and death of processes, message sending, delivery and so on.
 -- See the 'MxEvent' type's documentation for a list of all the published
--- event types, which correspond directly to the types of 'Management' event.
+-- event types, which correspond directly to the types of /management/ events.
 -- Users can additionally publish custom trace events in the form of
 -- 'MxLog' log messages or pass custom (i.e., completely user defined)
 -- event data using the 'traceMessage' function.

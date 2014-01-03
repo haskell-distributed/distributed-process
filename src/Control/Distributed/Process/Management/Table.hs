@@ -72,8 +72,9 @@ data MxTableRequest =
   deriving (Typeable, Generic)
 instance Binary MxTableRequest where
 
-data MxTableState =
-  MxTableState { _name :: !String, _entries :: !(Map String Message) }
+data MxTableState = MxTableState { _name    :: !String
+                                 , _entries :: !(Map String Message)
+                                 }
 
 type MxTables = Map MxAgentId ProcessId
 
@@ -185,8 +186,8 @@ startTableCoordinator fork = run Map.empty
     spawnSup proc = do
       us   <- getSelfPid
       -- we need to use that passed in "fork", in order to
-      -- break an import cycle with Node.hs via the management
-      -- agent, management API and the tracing modules
+      -- break an import cycle with Node.hs courtesy of the
+      -- management agent, API and tracing modules
       them <- liftIO $ fork $ link us >> proc
       ref  <- monitor them
       return (them, ref)
