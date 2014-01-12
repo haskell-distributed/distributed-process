@@ -71,6 +71,7 @@ module Control.Distributed.Process.Platform
   , isProcessAlive
   , matchCond
   , deliver
+  , awaitExit
 
     -- * Call/Tagging support
   , newTagPool
@@ -107,3 +108,4 @@ __remoteTable =
   Control.Distributed.Process.Platform.Execution.Mailbox.__remoteTable .
   Control.Distributed.Process.Platform.Internal.Primitives.__remoteTable .
   Control.Distributed.Process.Platform.Internal.Types.__remoteTable
+
