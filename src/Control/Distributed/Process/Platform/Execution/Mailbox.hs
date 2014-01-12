@@ -432,8 +432,7 @@ doStartMailbox :: Maybe SupervisorPid
 doStartMailbox mSp p b l = do
   bchan <- liftIO $ newBroadcastTChanIO
   rchan <- liftIO $ atomically $ dupTChan bchan
-  spawnLocal (runMailbox bchan p b l) >>= \pid -> do
-    maybeLink mSp
+  spawnLocal (maybeLink mSp >> runMailbox bchan p b l) >>= \pid -> do
     cc <- liftIO $ atomically $ readTChan rchan
     return $ Mailbox pid cc
   where
