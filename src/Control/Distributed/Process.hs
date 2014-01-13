@@ -59,6 +59,8 @@ module Control.Distributed.Process
   , unwrapMessage
   , handleMessage
   , handleMessageIf
+  , handleMessage_
+  , handleMessageIf_
   , forward
   , delegate
   , relay
@@ -215,6 +217,8 @@ import Control.Distributed.Process.Internal.Primitives
   , unwrapMessage
   , handleMessage
   , handleMessageIf
+  , handleMessage_
+  , handleMessageIf_
   , forward
   , delegate
   , relay

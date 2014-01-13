@@ -36,6 +36,8 @@ module Control.Distributed.Process.Internal.Primitives
   , unwrapMessage
   , handleMessage
   , handleMessageIf
+  , handleMessage_
+  , handleMessageIf_
   , forward
   , delegate
   , relay
@@ -482,6 +484,11 @@ handleMessage :: forall m a b. (Monad m, Serializable a)
               => Message -> (a -> m b) -> m (Maybe b)
 handleMessage msg proc = handleMessageIf msg (const True) proc
 
+-- | Conditionally handle a raw 'Message'.
+-- If the predicate @(a -> Bool)@ evaluates to @True@, invokes the supplied
+-- handler, other returns @Nothing@ to indicate failure. See 'handleMessage'
+-- for further information about runtime type checking.
+--
 handleMessageIf :: forall m a b . (Monad m, Serializable a)
                 => Message
                 -> (a -> Bool)
@@ -503,6 +510,22 @@ handleMessageIf msg c proc = do
         where
           decoded :: a -- note [decoding]
           !decoded = decode (messageEncoding msg)
+
+-- | As 'handleMessage' but ignores result, which is useful if you don't
+-- care whether or not the handler succeeded.
+--
+handleMessage_ :: forall m a . (Monad m, Serializable a)
+               => Message -> (a -> m ()) -> m ()
+handleMessage_ msg proc = handleMessageIf_ msg (const True) proc
+
+-- | Conditional version of 'handleMessage_'.
+--
+handleMessageIf_ :: forall m a . (Monad m, Serializable a)
+                => Message
+                -> (a -> Bool)
+                -> (a -> m ())
+                -> m ()
+handleMessageIf_ msg c proc = handleMessageIf msg c proc >> return ()
 
 -- | Match against an arbitrary message. 'matchAny' removes the first available
 -- message from the process mailbox. To handle arbitrary /raw/ messages once
