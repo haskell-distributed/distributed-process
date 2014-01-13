@@ -177,6 +177,13 @@ module Control.Distributed.Process.Closure
   , cpSend
   , cpExpect
   , cpNewChan
+    -- * Working with static values and closures (without Template Haskell)
+  , RemoteRegister
+  , MkTDict(..)
+  , mkStaticVal
+  , mkClosureValSingle
+  , mkClosureVal
+  , call'
 #ifdef TemplateHaskellSupport
     -- * Template Haskell support for creating static values and closures
   , remotable
@@ -210,6 +217,15 @@ import Control.Distributed.Process.Internal.Closure.BuiltIn
   , cpSend
   , cpExpect
   , cpNewChan
+  )
+import Control.Distributed.Process.Internal.Closure.Explicit
+  (
+    RemoteRegister
+  , MkTDict(..)
+  , mkStaticVal
+  , mkClosureValSingle
+  , mkClosureVal
+  , call'
   )
 #ifdef TemplateHaskellSupport
 import Control.Distributed.Process.Internal.Closure.TH
