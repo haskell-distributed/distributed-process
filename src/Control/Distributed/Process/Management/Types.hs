@@ -5,6 +5,7 @@ module Control.Distributed.Process.Management.Types
   , MxAgentState(..)
   , MxAgent(..)
   , MxAction(..)
+  , ChannelSelector(..)
   , MxAgentStart(..)
   , Fork
   , MxSink
@@ -36,8 +37,6 @@ import Network.Transport
   ( ConnectionId
   , EndPointAddress
   )
-
--- TODO: consider factoring out MxEvent's tracing specific constructors
 
 -- | This is the /default/ management event, fired for various internal
 -- events around the NT connection and Process lifecycle. All published
@@ -75,6 +74,8 @@ data MxEvent =
 
 instance Binary MxEvent where
 
+-- | The class of things that we might be able to resolve to
+-- a @ProcessId@ (or not).
 class Addressable a where
   resolveToPid :: a -> Maybe ProcessId
 
@@ -109,8 +110,8 @@ data MxAgentState s = MxAgentState
                       , mxLocalState  :: !s
                       }
 
--- | Monad for management agents, encapsulting the
--- agent's state and private
+-- | Monad for management agents.
+--
 newtype MxAgent s a =
   MxAgent
   {
@@ -131,9 +132,16 @@ data MxAgentStart = MxAgentStart
   deriving (Typeable, Generic)
 instance Binary MxAgentStart where
 
+data ChannelSelector = InputChan | Mailbox
+
+-- | Represents the actions a management agent can take
+-- when evaluating an /event sink/.
+--
 data MxAction =
     MxAgentDeactivate !String
+  | MxAgentPrioritise !ChannelSelector
   | MxAgentReady
+  | MxAgentSkip
 
 -- | Type of a management agent's event sink.
 type MxSink s = Message -> MxAgent s (Maybe MxAction)

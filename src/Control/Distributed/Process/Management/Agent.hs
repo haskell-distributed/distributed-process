@@ -3,11 +3,13 @@
 module Control.Distributed.Process.Management.Agent where
 
 import Control.Applicative ((<$>))
+import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar)
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TChan
   ( TChan
   , newBroadcastTChanIO
+  , readTChan
   , writeTChan
   , dupTChan
   )
@@ -73,6 +75,7 @@ mxAgentController :: Fork
 mxAgentController forkProcess mv = do
     trc <- liftIO $ startTracing forkProcess
     sigbus <- liftIO $ newBroadcastTChanIO
+    liftIO $ startDeadLetterQueue sigbus
     weakQueue <- processWeakQ <$> ask
     liftIO $ putMVar mv (trc, weakQueue, mxStartAgent forkProcess sigbus)
     go sigbus trc
@@ -94,7 +97,7 @@ mxAgentController forkProcess mv = do
           -- (e.g., passing unevaluated thunks that will crash when
           -- they're eventually forced) are thus silently ignored.
           --
-          matchAny (\msg -> liftIO $ broadcast bus tracer msg)
+          matchAny (liftIO . broadcast bus tracer)
         ] `catches` [Handler (\ThreadKilled -> die "Killed"),
                      Handler (\(_ :: SomeException) -> return ())]
 
@@ -115,6 +118,7 @@ mxAgentController forkProcess mv = do
       liftIO $ atomically $ enqueueSTM q msg >> writeTChan ch msg
 
 -- | Forks a new process in which an mxAgent is run.
+--
 mxStartAgent :: Fork
              -> TChan Message
              -> ((TChan Message, TChan Message) -> Process ())
@@ -124,10 +128,29 @@ mxStartAgent fork chan handler = do
   let proc = handler (chan, chan')
   fork proc
 
+-- | Start the tracer controller.
+--
 startTracing :: Fork -> IO Tracer
 startTracing forkProcess = do
   mv  <- newEmptyMVar
   pid <- forkProcess $ traceController mv
   wQ  <- liftIO $ takeMVar mv
   return $ Tracer pid wQ
+
+-- | Start a dead letter (agent) queue.
+--
+-- If no agents are registered on the system, the management
+-- event bus will fill up and its data won't be GC'ed until someone
+-- comes along and reads from the broadcast channel (via dupTChan
+-- of course). This is effectively a leak, so to mitigate it, we
+-- start a /dead letter queue/ that drains the event bus continuously,
+-- thus ensuring if there are no other consumers that we won't use
+-- up heap space unnecessarily.
+--
+startDeadLetterQueue :: TChan Message
+                     -> IO ()
+startDeadLetterQueue sigbus = do
+  chan' <- atomically (dupTChan sigbus)
+  void $ forkIO $ forever' $ do
+    void $ atomically $ readTChan chan'
 
