@@ -93,8 +93,8 @@ send them msg = do
                                   msg
   where
     unsafeSendLocal :: (Serializable a) => ProcessId -> a -> Process ()
-    unsafeSendLocal pid msg =
-      sendCtrlMsg Nothing $ LocalSend pid (unsafeCreateUnencodedMessage msg)
+    unsafeSendLocal pid msg' =
+      sendCtrlMsg Nothing $ LocalSend pid (unsafeCreateUnencodedMessage msg')
 
 -- | Send a message on a typed channel
 sendChan :: Serializable a => SendPort a -> a -> Process ()
@@ -112,8 +112,8 @@ sendChan (SendPort cid) msg = do
                           msg
   where
     unsafeSendChanLocal :: (Serializable a) => SendPortId -> a -> Process ()
-    unsafeSendChanLocal spId msg =
-      sendCtrlMsg Nothing $ LocalPortSend spId (unsafeCreateUnencodedMessage msg)
+    unsafeSendChanLocal spId msg' =
+      sendCtrlMsg Nothing $ LocalPortSend spId (unsafeCreateUnencodedMessage msg')
 
 -- | Create an unencoded @Message@ for any @Serializable@ type.
 wrapMessage :: Serializable a => a -> Message
