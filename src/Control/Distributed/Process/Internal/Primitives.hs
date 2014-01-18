@@ -28,6 +28,7 @@ module Control.Distributed.Process.Internal.Primitives
   , matchAny
   , matchAnyIf
   , matchChan
+  , matchSTM
   , matchMessage
   , matchMessageIf
   , isEncoded
@@ -360,8 +361,25 @@ receiveTimeout t ms = do
     Nothing   -> return Nothing
     Just proc -> Just <$> proc
 
+-- | Match on a typed channel
 matchChan :: ReceivePort a -> (a -> Process b) -> Match b
 matchChan p fn = Match $ MatchChan (fmap fn (receiveSTM p))
+
+-- | Match on an arbitrary STM action.
+--
+-- This rather unusaul /match primitive/ allows us to compose arbitrary STM
+-- actions with checks against our process' mailbox and/or any typed channel
+-- @ReceivePort@s we may hold.
+--
+-- This allows us to process multiple input streams /along with our mailbox/,
+-- in just the same way that 'matchChan' supports checking both the mailbox
+-- /and/ an arbitrary set of typed channels in one atomic transaction.
+--
+-- Note there are no ordering guarnatees with respect to these disparate input
+-- sources.
+--
+matchSTM :: STM a -> (a -> Process b) -> Match b
+matchSTM stm fn = Match $ MatchChan (fmap fn stm)
 
 -- | Match against any message of the right type
 match :: forall a b. Serializable a => (a -> Process b) -> Match b

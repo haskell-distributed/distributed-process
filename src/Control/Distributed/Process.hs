@@ -16,7 +16,7 @@ please see the distributed-process wiki page on github:
 module Control.Distributed.Process
   ( -- * Basic types
     ProcessId
-  , NodeId
+  , NodeId(..)
   , Process
   , SendPortId
   , processNodeId
@@ -51,6 +51,7 @@ module Control.Distributed.Process
   , matchAny
   , matchAnyIf
   , matchChan
+  , matchSTM
   , Message
   , matchMessage
   , matchMessageIf
@@ -209,6 +210,7 @@ import Control.Distributed.Process.Internal.Primitives
   , matchAny
   , matchAnyIf
   , matchChan
+  , matchSTM
   , matchMessage
   , matchMessageIf
   , isEncoded
