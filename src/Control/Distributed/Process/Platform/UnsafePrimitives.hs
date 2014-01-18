@@ -24,6 +24,7 @@ module Control.Distributed.Process.Platform.UnsafePrimitives
   , nsend
   , sendToAddr
   , sendChan
+  , wrapMessage
   ) where
 
 import Control.DeepSeq (($!!))
@@ -31,6 +32,7 @@ import Control.Distributed.Process
   ( Process
   , ProcessId
   , SendPort
+  , Message
   )
 import Control.Distributed.Process.Platform.Internal.Types
   ( NFSerializable
@@ -54,4 +56,8 @@ sendToAddr addr msg = do
 
 sendChan :: (NFSerializable m) => SendPort m -> m -> Process ()
 sendChan port msg = Unsafe.sendChan port $!! msg
+
+-- | Create an unencoded @Message@ for any @Serializable@ type.
+wrapMessage :: NFSerializable a => a -> Message
+wrapMessage msg = Unsafe.wrapMessage $!! msg
 

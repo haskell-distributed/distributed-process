@@ -27,6 +27,7 @@ module Control.Distributed.Process.Platform.Internal.Types
   , Channel
   , Shutdown(..)
   , ExitReason(..)
+  , ServerDisconnected(..)
   , NFSerializable
     -- remote table
   , __remoteTable
@@ -43,6 +44,7 @@ import qualified Control.Distributed.Process as P
   ( send
   , unsafeSend
   , unsafeNSend
+  , unsafeSendChan
   )
 import Control.Distributed.Process.Closure
   ( remotable
@@ -122,6 +124,7 @@ data ExitReason =
 instance Binary ExitReason where
 instance NFData ExitReason where
 
+-- | A simple means of mapping to a receiver.
 data Recipient =
     Pid !ProcessId
   | Registered !String
@@ -131,6 +134,14 @@ data Recipient =
 --  | GlobalReg String
   deriving (Typeable, Generic, Show, Eq)
 instance Binary Recipient where
+
+-- useful exit reasons
+
+-- | Given when a server is unobtainable.
+data ServerDisconnected = ServerDisconnected !DiedReason
+  deriving (Typeable, Generic)
+instance Binary ServerDisconnected where
+instance NFData ServerDisconnected where
 
 $(remotable ['whereis])
 
@@ -169,7 +180,7 @@ class Routable a where
   -- forcing evaluation (i.e., @deepseq@) beforehand.
   unsafeSendTo :: (NFSerializable m) => a -> m -> Process ()
 
-  -- | Unresolvable Addressable Message
+  -- | Unresolvable @Addressable@ Message
   unresolvableMessage :: a -> String
   unresolvableMessage = baseAddressableErrorMessage
 
@@ -226,6 +237,10 @@ instance Routable (NodeId, String) where
   unsafeSendTo               = sendTo -- because serialisation *must* take place
   unresolvableMessage (n, s) =
     "CannotResolveRemoteRegisteredName[name: " ++ s ++ ", node: " ++ (show n) ++ "]"
+
+instance Routable (Message -> Process ()) where
+  sendTo f       = f . wrapMessage
+  unsafeSendTo f = f . unsafeWrapMessage
 
 class (Resolvable a, Routable a) => Addressable a
 instance (Resolvable a, Routable a) => Addressable a

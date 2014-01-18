@@ -53,6 +53,7 @@ module Control.Distributed.Process.Platform
     Addressable
   , Resolvable(..)
   , Routable(..)
+  , Observable(..)
   , NFSerializable
   , Recipient(..)
   , ExitReason(..)
@@ -60,8 +61,8 @@ module Control.Distributed.Process.Platform
   , TagPool
 
     -- * Primitives overriding those in distributed-process
-  , module Control.Distributed.Process.Platform.UnsafePrimitives
   , monitor
+  , module Control.Distributed.Process.Platform.UnsafePrimitives
 
     -- * Utilities and Extended Primitives
   , spawnLinkLocal
@@ -72,6 +73,7 @@ module Control.Distributed.Process.Platform
   , matchCond
   , deliver
   , awaitExit
+  , awaitResponse
 
     -- * Call/Tagging support
   , newTagPool
