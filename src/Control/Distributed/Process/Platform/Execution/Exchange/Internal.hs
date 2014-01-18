@@ -207,13 +207,17 @@ handleMonitor :: forall s.
                  ExchangeType s
               -> ProcessMonitorNotification
               -> Process (ProcessAction (ExchangeType s))
-handleMonitor ex m = handleControlMessage ex (Configure (unsafeWrapMessage m))
+handleMonitor ex m = do
+  liftIO $ putStrLn "handle monitor signal!"
+  handleControlMessage ex (Configure (unsafeWrapMessage m))
 
 convertToCC :: forall s.
                ExchangeType s
             -> P.Message
             -> Process (ProcessAction (ExchangeType s))
-convertToCC ex msg = handleControlMessage ex (Post $ Message "" [] msg)
+convertToCC ex msg = do
+  liftIO $ putStrLn "convert to cc"
+  handleControlMessage ex (Post $ Message "" [] msg)
 
 handleControlMessage :: forall s.
                         ExchangeType s

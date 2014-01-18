@@ -43,31 +43,23 @@ testIt result = do
   (sp, rp) <- newChan
   em <- EventManager.start
   EventManager.monitor em
-  pid <- addHandler em (myHandler sp) ()  -- cast message
+  pid <- addHandler em (myHandler sp) ()
   link pid
 
   notify em ("hello", "event", "manager") -- cast message
-  r <- receiveTimeout 2000000 [
+  r <- receiveTimeout 100000000 [
       matchChan rp return
-    , match (\(ProcessMonitorNotification _ _ r) -> do
-                (liftIO $ putStrLn (show r)) >> die "FUCK")
+    , match (\(ProcessMonitorNotification _ _ r) -> die "ServerDied")
     ]
   case r of
-    Nothing -> do
-      stash result False
-      mPid <- resolve em
-      case mPid of
-        Just p -> liftIO . putStrLn . show =<< getProcessInfo p
-        Nothing -> return ()
+    Nothing -> stash result False
     Just ("hello", "event", "manager") -> stash result True
 
 myHandler :: SendPort (String, String, String)
           -> ()
           -> (String, String, String)
           -> Process ()
-myHandler sp s m@(_, _, _) = do
-  liftIO $ putStrLn "running handler...."
-  sendChan sp m >> return s
+myHandler sp s m@(_, _, _) = sendChan sp m >> return s
 
 myRemoteTable :: RemoteTable
 myRemoteTable =

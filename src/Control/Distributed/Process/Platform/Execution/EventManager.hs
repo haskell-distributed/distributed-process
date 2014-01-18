@@ -38,23 +38,29 @@ monitor :: EventManager -> Process MonitorRef
 monitor = B.monitor . ex
 
 notify :: Serializable a => EventManager -> a -> Process ()
-notify = post . ex
+notify em msg = post (ex em) msg
 
 addHandler :: forall s a. Serializable a
            => EventManager
            -> (s -> a -> Process s)
            -> s
            -> Process ProcessId
-addHandler m h s = spawnLocal (newHandler (ex m) h s)
+addHandler m h s = do
+  (sp, rp) <- newChan
+  pid <- spawnLocal (newHandler sp (ex m) h s)
+  () <- receiveChan rp
+  return pid
 
 newHandler :: forall s a. Serializable a
-           => Exchange
+           => SendPort ()
+           -> Exchange
            -> (s -> a -> Process s)
            -> s
            -> Process ()
-newHandler ex handler state = do
+newHandler sp ex handler state = do
   link ex
   is <- broadcastClient ex
+  unsafeSendChan sp ()
   listen is handler state
 
 listen :: forall s a. Serializable a

@@ -192,10 +192,11 @@ broadcastClient ex@Exchange{..} = do
   myNode <- getSelfNode
   us     <- getSelfPid
   if processNodeId pid == myNode -- see [note: pcopy]
-     then do (sp, rp) <- newChan :: Process (Channel (PCopy (InputStream Message)))
+     then do (sp, rp) <- newChan
              configureExchange ex $ pCopy (BindSTM us sp)
              mRef <- P.monitor pid
-             P.finally (receiveWait [ matchChanP rp, handleServerFailure mRef ])
+             P.finally (receiveWait [ matchChanP rp
+                                    , handleServerFailure mRef ])
                        (P.unmonitor mRef)
      else do (sp, rp) <- newChan :: Process (Channel Message)
              configureExchange ex $ BindPort us sp
