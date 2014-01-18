@@ -5,7 +5,7 @@
 
 module Main where
 
-import Control.Distributed.Process hiding (monitor)
+import Control.Distributed.Process
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Platform
   ( Routable(..)
@@ -17,13 +17,12 @@ import qualified Control.Distributed.Process.Platform (__remoteTable)
 import Control.Distributed.Process.Platform.Execution.EventManager hiding (start)
 import qualified Control.Distributed.Process.Platform.Execution.EventManager as EventManager
   ( start
-  , monitor
   )
 -- import Control.Distributed.Process.Platform.Execution.Exchange.Broadcast (monitor)
 import Control.Distributed.Process.Platform.Test
 -- import Control.Distributed.Process.Platform.Time
 -- import Control.Distributed.Process.Platform.Timer
--- import Control.Monad (forM_)
+import Control.Monad (void)
 import Control.Rematch (equalTo)
 
 #if ! MIN_VERSION_base(4,6,0)
@@ -41,10 +40,14 @@ import TestUtils
 testIt :: TestResult Bool -> Process ()
 testIt result = do
   (sp, rp) <- newChan
+  (sigStart, recvStart) <- newChan
   em <- EventManager.start
-  EventManager.monitor em
-  pid <- addHandler em (myHandler sp) ()
+  Just pid <- resolve em
+  void $ monitor pid
+  pid <- addHandler em (myHandler sp) (sendChan sigStart ())
   link pid
+
+  () <- receiveChan recvStart
 
   notify em ("hello", "event", "manager") -- cast message
   r <- receiveTimeout 100000000 [
