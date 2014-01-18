@@ -385,7 +385,7 @@ createUnencodedMessage a =
   let encoded = encode a in BSL.length encoded `seq` UnencodedMessage (fingerprint a) a
 
 -- | Turn any serializable term into an unencodede/local message, without
--- evalutaing it!
+-- evalutaing it! This is a dangerous business.
 unsafeCreateUnencodedMessage :: Serializable a => a -> Message
 unsafeCreateUnencodedMessage a = UnencodedMessage (fingerprint a) a
 
