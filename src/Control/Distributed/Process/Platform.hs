@@ -57,6 +57,7 @@ module Control.Distributed.Process.Platform
   , NFSerializable
   , Recipient(..)
   , ExitReason(..)
+  , Channel
   , Tag
   , TagPool
 
@@ -94,6 +95,7 @@ import Control.Distributed.Process.Platform.Internal.Types
   , ExitReason(..)
   , Tag
   , TagPool
+  , Channel
   , newTagPool
   , getTag
   )
