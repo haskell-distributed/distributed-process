@@ -11,10 +11,12 @@ import Control.Distributed.Process.Platform
   ( Routable(..)
   , Resolvable(..)
   , Observable(..)
+  , Channel
   )
-
 import qualified Control.Distributed.Process.Platform (__remoteTable)
 import Control.Distributed.Process.Platform.Execution.EventManager hiding (start)
+import Control.Distributed.Process.Platform.Execution.Exchange
+import Control.Distributed.Process.Platform.Execution.Exchange.Router
 import qualified Control.Distributed.Process.Platform.Execution.EventManager as EventManager
   ( start
   )
@@ -37,13 +39,31 @@ import Test.Framework as TF (testGroup, Test)
 import Test.Framework.Providers.HUnit
 import TestUtils
 
-testIt :: TestResult Bool -> Process ()
-testIt result = do
+testKeyBasedRouting :: TestResult Bool -> Process ()
+testKeyBasedRouting result = do
+  (sp, rp) <- newChan :: Process (Channel Int)
+  rex <- messageKeyRouter PayloadOnly
+  void $ spawnLocal $ do
+    bindKey "foobar" rex
+    receiveWait [ match (\(s :: Int) -> sendChan sp s) ]
+
+  -- TODO: This is hanging...... Looks like it's because binding is async!!!
+
+  routeMessage rex (createMessage "foobar" [] (123 :: Int))
+
+  stash result . (== (123 :: Int)) =<< receiveChan rp
+
+testSimpleEventHandling :: TestResult Bool -> Process ()
+testSimpleEventHandling result = do
   (sp, rp) <- newChan
   (sigStart, recvStart) <- newChan
   em <- EventManager.start
   Just pid <- resolve em
   void $ monitor pid
+
+  -- Note that in our init (state) function, we write a "start signal"
+  -- here; Without a start signal, the message sent to the event manager
+  -- (via notify) would race with the addHandler registration.
   pid <- addHandler em (myHandler sp) (sendChan sigStart ())
   link pid
 
@@ -55,8 +75,8 @@ testIt result = do
     , match (\(ProcessMonitorNotification _ _ r) -> die "ServerDied")
     ]
   case r of
-    Nothing -> stash result False
     Just ("hello", "event", "manager") -> stash result True
+    _                                  -> stash result False
 
 myHandler :: SendPort (String, String, String)
           -> ()
@@ -76,14 +96,22 @@ tests transport = do
         [
           testCase "Simple Event Handlers"
           (delayedAssertion
-           "Expected the handler to run" localNode True testIt)
+           "Expected the handler to run" localNode True testSimpleEventHandling)
+--        , testCase "Simple Event Handlers 2"
+--          (delayedAssertion
+--           "Expected the handler to run" localNode True testIt)
+        ]
+
+      , testGroup "Router"
+        [
+          testCase "Key Based Routing"
+          (delayedAssertion
+           "Expected the handler to run" localNode True testKeyBasedRouting)
 --        , testCase "Simple Event Handlers 2"
 --          (delayedAssertion
 --           "Expected the handler to run" localNode True testIt)
         ]
     ]
-  where
-    inputs = ("hello", 10 :: Int, True)
 
 main :: IO ()
 main = testMain $ tests

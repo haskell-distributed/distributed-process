@@ -221,6 +221,8 @@ apiRoute ex@BroadcastEx{..} msg = do
   where
     routeToClient m b = writeToStream (outputStream b) m
 
+-- TODO: implement unbind!!?
+
 apiConfigure :: BroadcastEx -> P.Message -> Process BroadcastEx
 apiConfigure ex msg = do
   -- for unsafe / non-serializable message passing hacks, see [note: pcopy]

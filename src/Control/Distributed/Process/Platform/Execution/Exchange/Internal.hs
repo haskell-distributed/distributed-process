@@ -184,6 +184,9 @@ postMessage ex msg = msg `seq` sendCtrlMsg ex $ Post msg
 configureExchange :: Serializable m => Exchange -> m -> Process ()
 configureExchange e m = sendCtrlMsg e $ Configure (unsafeWrapMessage m)
 
+createMessage :: Serializable m => String -> [(String, String)] -> m -> Message
+createMessage k h m = Message k h $ unsafeWrapMessage m
+
 --------------------------------------------------------------------------------
 -- Process Definition/State & API Handlers                                    --
 --------------------------------------------------------------------------------

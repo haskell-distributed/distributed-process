@@ -24,7 +24,10 @@
 -----------------------------------------------------------------------------
 
 module Control.Distributed.Process.Platform.Execution.Exchange
-  ( 
+  ( Exchange
+  , ExchangeType(..)
+  , Message(..)
+  , createMessage
   ) where
 
 import Control.Distributed.Process.Platform.Execution.Exchange.Broadcast
@@ -34,9 +37,9 @@ import Control.Distributed.Process.Platform.Execution.Exchange.Broadcast
   , BroadcastExchange
   )
 import Control.Distributed.Process.Platform.Execution.Exchange.Internal
-  (
-    Exchange
+  ( Exchange
   , ExchangeType(..)
   , Message(..)
+  , createMessage
   )
 
