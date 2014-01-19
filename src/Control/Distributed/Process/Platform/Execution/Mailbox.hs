@@ -134,6 +134,7 @@ import Control.Distributed.Process.Serializable hiding (SerializableDict)
 import Control.Distributed.Process.Platform.Internal.Types
   ( ExitReason(..)
   , Resolvable(..)
+  , Routable(..)
   )
 import Control.Distributed.Process.Platform.ManagedProcess
   ( call
@@ -210,6 +211,10 @@ instance Show Mailbox where
 
 instance Resolvable Mailbox where
   resolve = return . Just . pid
+
+instance Routable Mailbox where
+  sendTo       = post
+  unsafeSendTo = post
 
 sendCtrlMsg :: Mailbox
             -> ControlMessage
