@@ -45,6 +45,7 @@ import Control.Distributed.Process.Platform.Execution.Exchange.Internal
   , ExchangeType(..)
   , post
   , postMessage
+  , applyHandlers
   )
 import Control.Distributed.Process.Platform.Internal.Primitives
   ( deliver
@@ -85,13 +86,11 @@ instance Hashable Binding where
 class (Hashable k, Eq k, Serializable k) => Bindable k
 instance (Hashable k, Eq k, Serializable k) => Bindable k
 
-type Bindings k = HashMap k (HashSet ProcessId)
-
 type BindingSelector k = (Message -> Process k)
 
 data RelayType = PayloadOnly | WholeMessage
 
-data State k = State { bindings  :: !(Bindings k)
+data State k = State { bindings  :: !(HashMap k (HashSet ProcessId))
                      , selector  :: !(BindingSelector k)
                      , relayType :: !RelayType
                      }
@@ -183,14 +182,21 @@ apiConfigure :: forall k. Bindable k
              -> P.Message
              -> Process (State k)
 apiConfigure st msg = do
-  return . maybe st id =<< handleMessage msg (createBinding st)
+  applyHandlers st msg $ [ \m -> handleMessage m (createBinding st)
+                         , \m -> handleMessage m (handleMonitorSignal st)
+                         ]
   where
     createBinding s@State{..} (pid, bind) = do
       case Map.lookup bind bindings of
-        Nothing -> return $ s { bindings = newBind bind pid bindings }
+        Nothing -> do _ <- monitor pid
+                      return $ s { bindings = newBind bind pid bindings }
         Just ps -> return $ s { bindings = addBind bind pid bindings ps }
 
     newBind b p bs = Map.insert b (Set.singleton p) bs
-
     addBind b' p' bs' ps = Map.insert b' (Set.insert p' ps) bs'
+
+    handleMonitorSignal s@State{..} (ProcessMonitorNotification _ p _) =
+      let bs  = bindings
+          bs' = Map.foldlWithKey' (\a k v -> Map.insert k (Set.delete p v) a) bs bs
+      in return $ s { bindings = bs' }
 

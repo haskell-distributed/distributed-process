@@ -79,6 +79,7 @@ import Control.Distributed.Process.Platform.Execution.Exchange.Internal
   , post
   , link
   , monitor
+  , applyHandlers
   )
 import Control.Distributed.Process.Platform.Internal.Types
   ( Channel
@@ -225,11 +226,11 @@ apiRoute ex@BroadcastEx{..} msg = do
 apiConfigure :: BroadcastEx -> P.Message -> Process BroadcastEx
 apiConfigure ex msg = do
   -- for unsafe / non-serializable message passing hacks, see [note: pcopy]
-  first ex msg $ [ \m -> handleMessage m (handleBindPort ex)
-                 , \m -> handleBindSTM ex m
-                 , \m -> handleMessage m (handleMonitorSignal ex)
-                 , (const $ return $ Just ex)
-                 ]
+  applyHandlers ex msg $ [ \m -> handleMessage m (handleBindPort ex)
+                         , \m -> handleBindSTM ex m
+                         , \m -> handleMessage m (handleMonitorSignal ex)
+                         , (const $ return $ Just ex)
+                         ]
   where
     handleMonitorSignal bx (ProcessMonitorNotification _ p _) =
       return $ (routingTable ^: Map.delete p) bx
@@ -308,17 +309,6 @@ handleServerFailure :: MonitorRef -> Match (InputStream Message)
 handleServerFailure mRef =
   matchIf (\(ProcessMonitorNotification r _ _) -> r == mRef)
           (\(ProcessMonitorNotification _ _ d) -> die $ ServerDisconnected d)
-
-first :: BroadcastEx
-      -> P.Message
-      -> [P.Message -> Process (Maybe BroadcastEx)]
-      -> Process BroadcastEx
-first e _ []     = return e
-first e m (f:fs) = do
-  r <- f m
-  case r of
-    Nothing -> first e m fs
-    Just r' -> return r'
 
 routingTable :: Accessor BroadcastEx BroadcastClients
 routingTable = accessor _routingTable (\r e -> e { _routingTable = r })

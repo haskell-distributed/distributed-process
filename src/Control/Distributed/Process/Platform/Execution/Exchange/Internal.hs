@@ -187,6 +187,17 @@ configureExchange e m = sendCtrlMsg e $ Configure (unsafeWrapMessage m)
 createMessage :: Serializable m => String -> [(String, String)] -> m -> Message
 createMessage k h m = Message k h $ unsafeWrapMessage m
 
+applyHandlers :: a
+              -> P.Message
+              -> [P.Message -> Process (Maybe a)]
+              -> Process a
+applyHandlers e _ []     = return e
+applyHandlers e m (f:fs) = do
+  r <- f m
+  case r of
+    Nothing -> applyHandlers e m fs
+    Just r' -> return r'
+
 --------------------------------------------------------------------------------
 -- Process Definition/State & API Handlers                                    --
 --------------------------------------------------------------------------------
