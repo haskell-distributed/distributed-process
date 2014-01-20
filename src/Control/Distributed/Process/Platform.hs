@@ -66,6 +66,7 @@ module Control.Distributed.Process.Platform
   , module Control.Distributed.Process.Platform.UnsafePrimitives
 
     -- * Utilities and Extended Primitives
+  , spawnSignalled
   , spawnLinkLocal
   , spawnMonitorLocal
   , linkOnFailure

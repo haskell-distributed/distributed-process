@@ -28,6 +28,7 @@ module Control.Distributed.Process.Platform.Internal.Primitives
   , Observable(..)
 
     -- * Spawning and Linking
+  , spawnSignalled
   , spawnLinkLocal
   , spawnMonitorLocal
   , linkOnFailure
@@ -130,6 +131,25 @@ forever' a = let a' = a >> a' in a'
 {-# INLINE forever' #-}
 
 -- spawning, linking and generic server startup
+
+-- | Spawn a new (local) process. This variant takes an initialisation
+-- action and a secondary expression from the result of the initialisation
+-- to @Process ()@. The spawn operation synchronises on the completion of the
+-- @before@ action, such that the calling process is guaranteed to only see
+-- the newly spawned @ProcessId@ once the initialisation has successfully
+-- completed.
+spawnSignalled :: Process a -> (a -> Process ()) -> Process ProcessId
+spawnSignalled before after = do
+  (sigStart, recvStart) <- newChan
+  (pid, mRef) <- spawnMonitorLocal $ do
+    initProc <- before
+    sendChan sigStart ()
+    after initProc
+  receiveWait [
+      matchIf (\(ProcessMonitorNotification ref _ _) -> ref == mRef)
+              (\(ProcessMonitorNotification _ _ dr) -> die $ ExitOther (show dr))
+    , matchChan recvStart (\() -> return pid)
+    ]
 
 -- | Node local version of 'Control.Distributed.Process.spawnLink'.
 -- Note that this is just the sequential composition of 'spawn' and 'link'.
