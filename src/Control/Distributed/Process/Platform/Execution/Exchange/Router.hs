@@ -76,6 +76,7 @@ data Binding =
   | BindHeader { bindingKey :: !String
                , headerName :: !HeaderName
                }
+  | BindNone
   deriving (Typeable, Generic, Eq, Show)
 instance Binary Binding where
 instance NFData Binding where
@@ -108,7 +109,12 @@ messageKeyRouter t = router t matchOnKey -- (return . BindKey . key)
     matchOnKey m = return $ BindKey (key m)
 
 headerContentRouter :: RelayType -> HeaderName -> Process Exchange
-headerContentRouter t n = router t (\m -> return $ BindHeader (key m) n)
+headerContentRouter t n = router t (checkHeaders n)
+  where
+    checkHeaders hn Message{..} = do
+      case Map.lookup hn (Map.fromList headers) of
+        Nothing -> return BindNone
+        Just hv -> return $ BindHeader hn hv
 
 router :: (Bindable k) => RelayType -> BindingSelector k -> Process Exchange
 router t s = routerT t s >>= startExchange
@@ -140,6 +146,11 @@ bindKey :: String -> Exchange -> Process ()
 bindKey k ex = do
   self <- P.getSelfPid
   configureExchange ex (self, BindKey k)
+
+bindHeader :: HeaderName -> String -> Exchange -> Process ()
+bindHeader n v ex = do
+  self <- P.getSelfPid
+  configureExchange ex (self, BindHeader v n)
 
 route :: Serializable m => Exchange -> m -> Process ()
 route = post

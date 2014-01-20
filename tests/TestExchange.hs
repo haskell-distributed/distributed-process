@@ -95,6 +95,43 @@ testMultipleRoutes result = do
   received `shouldNotContain` Just (p2, Left "Goodbye")
   received `shouldNotContain` Just (p3, Left "Goodbye")
 
+testHeaderBasedRouting :: TestResult () -> Process ()
+testHeaderBasedRouting result = do
+  stash result ()  -- we don't rely on the test result for assertions...
+  (sp, rp) <- newChan
+  rex <- headerContentRouter PayloadOnly "x-name"
+  let recv = const $ forever $ receiveWait [
+          match (\(s :: String) -> getSelfPid >>= \us -> sendChan sp (us, Left s))
+        , match (\(i :: Int) -> getSelfPid >>= \us -> sendChan sp (us, Right i))
+        ]
+
+  us <- getSelfPid
+  p1 <- spawnSignalled (link us >> bindHeader "x-name" "yellow" rex) recv
+  p2 <- spawnSignalled (link us >> bindHeader "x-name" "red"    rex) recv
+  p3 <- spawnSignalled (link us >> bindHeader "x-type" "fast"   rex) recv
+
+  -- publish 2 messages with the routing-key set to 'abc'
+  routeMessage rex (createMessage "" [("x-name", "yellow")] "Hello")
+  routeMessage rex (createMessage "" [("x-name", "yellow")] (123 :: Int))
+  routeMessage rex (createMessage "" [("x-name", "red")]    (456 :: Int))
+  routeMessage rex (createMessage "" [("x-name", "red")]    (789 :: Int))
+  routeMessage rex (createMessage "" [("x-type", "fast")]   "Goodbye")
+
+  -- route another message with the 'abc' value a header (should be ignored)
+  routeMessage rex (createMessage "" [("abc", "abc")] "FooBar")
+
+  received <- forM (replicate 5 us) (const $ receiveChanTimeout 1000 rp)
+
+  -- all bindings fired correctly
+  received `shouldContain` Just (p1, Left "Hello")
+  received `shouldContain` Just (p1, Right (123 :: Int))
+  received `shouldContain` Just (p2, Right (456 :: Int))
+  received `shouldContain` Just (p2, Right (789 :: Int))
+  received `shouldContain` Nothing
+
+  -- simple check that no other bindings have fired
+  length received `shouldBe` equalTo (5 :: Int)
+
 testSimpleEventHandling :: TestResult Bool -> Process ()
 testSimpleEventHandling result = do
   (sp, rp) <- newChan
@@ -149,6 +186,9 @@ tests transport = do
         , testCase "Key Based Selective Routing"
           (delayedAssertion "Expected only the matching routes to run"
            localNode () testMultipleRoutes)
+        , testCase "Header Based Selective Routing"
+          (delayedAssertion "Expected only the matching routes to run"
+           localNode () testHeaderBasedRouting)
         ]
     ]
 
