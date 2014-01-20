@@ -12,6 +12,7 @@ import Control.Distributed.Process.Platform
   , Resolvable(..)
   , Observable(..)
   , Channel
+  , spawnSignalled
   )
 import qualified Control.Distributed.Process.Platform (__remoteTable)
 import Control.Distributed.Process.Platform.Execution.EventManager hiding (start)
@@ -43,14 +44,16 @@ testKeyBasedRouting :: TestResult Bool -> Process ()
 testKeyBasedRouting result = do
   (sp, rp) <- newChan :: Process (Channel Int)
   rex <- messageKeyRouter PayloadOnly
-  void $ spawnLocal $ do
-    bindKey "foobar" rex
+
+  -- Since the /router/ doesn't offer a syncrhonous start
+  -- option, we use spawnSignalled to get the same effect,
+  -- making it more likely (though it's not guaranteed) that
+  -- the spawned process will be bound to the routing exchange
+  -- prior to our evaluating 'routeMessage' below.
+  void $ spawnSignalled (bindKey "foobar" rex) $ const $ do
     receiveWait [ match (\(s :: Int) -> sendChan sp s) ]
 
-  -- TODO: This is hanging...... Looks like it's because binding is async!!!
-
   routeMessage rex (createMessage "foobar" [] (123 :: Int))
-
   stash result . (== (123 :: Int)) =<< receiveChan rp
 
 testSimpleEventHandling :: TestResult Bool -> Process ()
