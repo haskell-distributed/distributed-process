@@ -214,7 +214,6 @@ broadcastClient ex@Exchange{..} = do
 
 apiRoute :: BroadcastEx -> Message -> Process BroadcastEx
 apiRoute ex@BroadcastEx{..} msg = do
-  liftIO $ putStrLn "apiRoute is running!"
   liftIO $ atomically $ writeTChan channel msg
   forM_ (Foldable.toList _routingTable) $ routeToClient msg
   return ex
@@ -226,7 +225,6 @@ apiRoute ex@BroadcastEx{..} msg = do
 apiConfigure :: BroadcastEx -> P.Message -> Process BroadcastEx
 apiConfigure ex msg = do
   -- for unsafe / non-serializable message passing hacks, see [note: pcopy]
-  liftIO $ putStrLn "Handling Configuration Change"
   first ex msg $ [ \m -> handleMessage m (handleBindPort ex)
                  , \m -> handleBindSTM ex m
                  , \m -> handleMessage m (handleMonitorSignal ex)

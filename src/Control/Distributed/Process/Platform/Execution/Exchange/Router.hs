@@ -105,9 +105,7 @@ messageKeyRouter :: RelayType -> Process Exchange
 messageKeyRouter t = router t matchOnKey -- (return . BindKey . key)
   where
     matchOnKey :: Message -> Process Binding
-    matchOnKey m = do
-      P.liftIO $ putStrLn $ "GotM: " ++ (show (key m))
-      return $ BindKey (key m)
+    matchOnKey m = return $ BindKey (key m)
 
 headerContentRouter :: RelayType -> HeaderName -> Process Exchange
 headerContentRouter t n = router t (\m -> return $ BindHeader (key m) n)
