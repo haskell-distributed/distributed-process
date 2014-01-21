@@ -8,23 +8,17 @@ module Main where
 import Control.Distributed.Process
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Platform
-  ( Routable(..)
-  , Resolvable(..)
-  , Observable(..)
+  ( Resolvable(..)
   , Channel
   , spawnSignalled
   )
 import qualified Control.Distributed.Process.Platform (__remoteTable)
 import Control.Distributed.Process.Platform.Execution.EventManager hiding (start)
 import Control.Distributed.Process.Platform.Execution.Exchange
-import Control.Distributed.Process.Platform.Execution.Exchange.Router
 import qualified Control.Distributed.Process.Platform.Execution.EventManager as EventManager
   ( start
   )
--- import Control.Distributed.Process.Platform.Execution.Exchange.Broadcast (monitor)
 import Control.Distributed.Process.Platform.Test
--- import Control.Distributed.Process.Platform.Time
--- import Control.Distributed.Process.Platform.Timer
 import Control.Monad (void, forM, forever)
 import Control.Rematch (equalTo)
 
@@ -33,7 +27,6 @@ import Prelude hiding (catch, drop)
 #else
 import Prelude hiding (drop)
 #endif
-import Data.Maybe (catMaybes)
 import qualified Network.Transport as NT
 import Test.Framework as TF (testGroup, Test)
 import Test.Framework.Providers.HUnit
@@ -108,7 +101,7 @@ testHeaderBasedRouting result = do
   us <- getSelfPid
   p1 <- spawnSignalled (link us >> bindHeader "x-name" "yellow" rex) recv
   p2 <- spawnSignalled (link us >> bindHeader "x-name" "red"    rex) recv
-  p3 <- spawnSignalled (link us >> bindHeader "x-type" "fast"   rex) recv
+  _  <- spawnSignalled (link us >> bindHeader "x-type" "fast"   rex) recv
 
   -- publish 2 messages with the routing-key set to 'abc'
   routeMessage rex (createMessage "" [("x-name", "yellow")] "Hello")
@@ -143,15 +136,15 @@ testSimpleEventHandling result = do
   -- Note that in our init (state) function, we write a "start signal"
   -- here; Without a start signal, the message sent to the event manager
   -- (via notify) would race with the addHandler registration.
-  pid <- addHandler em (myHandler sp) (sendChan sigStart ())
-  link pid
+  pid' <- addHandler em (myHandler sp) (sendChan sigStart ())
+  link pid'
 
   () <- receiveChan recvStart
 
   notify em ("hello", "event", "manager") -- cast message
   r <- receiveTimeout 100000000 [
       matchChan rp return
-    , match (\(ProcessMonitorNotification _ _ r) -> die "ServerDied")
+    , match (\(ProcessMonitorNotification _ _ _) -> die "ServerDied")
     ]
   case r of
     Just ("hello", "event", "manager") -> stash result True

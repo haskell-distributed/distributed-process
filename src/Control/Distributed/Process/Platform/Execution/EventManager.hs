@@ -46,15 +46,13 @@ module Control.Distributed.Process.Platform.Execution.EventManager
 
 import Control.Distributed.Process hiding (Message, link)
 import qualified Control.Distributed.Process as P (Message)
-import Control.Distributed.Process.Platform.Execution.Exchange.Broadcast
-  ( broadcastExchange
-  , broadcastClient
-  , Exchange
+import Control.Distributed.Process.Platform.Execution.Exchange
+  ( Exchange
   , Message(..)
   , post
-  , link
+  , broadcastExchange
+  , broadcastClient
   )
-import qualified Control.Distributed.Process.Platform.Execution.Exchange.Broadcast as B (monitor)
 import Control.Distributed.Process.Platform.Internal.Primitives
 import Control.Distributed.Process.Platform.Internal.Unsafe
   ( InputStream
@@ -99,6 +97,7 @@ addHandler :: forall s a. Serializable a
 addHandler m h s =
   spawnLocal $ newHandler (ex m) (\s' m' -> handleMessage m' (h s')) s
 
+-- | As 'addHandler', but operates over a raw @Control.Distributed.Process.Message@.
 addMessageHandler :: forall s.
                      EventManager
                   -> (s -> P.Message -> Process (Maybe s))
@@ -112,12 +111,11 @@ newHandler :: forall s .
            -> Process s
            -> Process ()
 newHandler ex handler initState = do
-  link ex
+  linkTo ex
   is <- broadcastClient ex
   listen is handler =<< initState
 
-listen :: forall s .
-          InputStream Message
+listen :: forall s . InputStream Message
        -> (s -> P.Message -> Process (Maybe s))
        -> s
        -> Process ()

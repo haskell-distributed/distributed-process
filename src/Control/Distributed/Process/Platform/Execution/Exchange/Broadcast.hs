@@ -11,30 +11,14 @@
 {-# LANGUAGE UndecidableInstances  #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 
------------------------------------------------------------------------------
--- |
--- Module      :  Control.Distributed.Process.Platform.Execution.Exchange.Broadcast
--- Copyright   :  (c) Tim Watson 2012 - 2014
--- License     :  BSD3 (see the file LICENSE)
---
--- Maintainer  :  Tim Watson <watson.timothy@gmail.com>
--- Stability   :  experimental
--- Portability :  non-portable (requires concurrency)
---
------------------------------------------------------------------------------
-
+-- | An exchange type that broadcasts all incomings 'Post' messages.
 module Control.Distributed.Process.Platform.Execution.Exchange.Broadcast
   (
     broadcastExchange
   , supervisedBroadcastExchange
   , broadcastClient
+  , bindToBroadcaster
   , BroadcastExchange
-    -- re-exported for convenience
-  , Exchange
-  , Message(..)
-  , post
-  , link
-  , monitor
   ) where
 
 import Control.Concurrent.STM (STM, atomically)
@@ -76,9 +60,6 @@ import Control.Distributed.Process.Platform.Execution.Exchange.Internal
   , Message(..)
   , Exchange(..)
   , ExchangeType(..)
-  , post
-  , link
-  , monitor
   , applyHandlers
   )
 import Control.Distributed.Process.Platform.Internal.Types
@@ -144,7 +125,9 @@ data OutputStream =
 
 data Binding = Binding { outputStream :: !OutputStream
                        , inputStream  :: !(InputStream Message)
-                       } deriving (Typeable)
+                       }
+             | PidBinding !ProcessId
+  deriving (Typeable)
 
 data BindOk = BindOk
   deriving (Typeable, Generic)
@@ -155,6 +138,11 @@ data BindFail = BindFail !String
   deriving (Typeable, Generic)
 instance Binary BindFail where
 instance NFData BindFail where
+
+data BindPlease = BindPlease
+  deriving (Typeable, Generic)
+instance Binary BindPlease where
+instance NFData BindPlease where
 
 type BroadcastClients = Map ProcessId Binding
 data BroadcastEx =
@@ -168,9 +156,11 @@ type BroadcastExchange = ExchangeType BroadcastEx
 -- Starting/Running the Exchange                                              --
 --------------------------------------------------------------------------------
 
+-- | Start a new /broadcast exchange/ and return a handle to the exchange.
 broadcastExchange :: Process Exchange
 broadcastExchange = broadcastExchangeT >>= startExchange
 
+-- | Start a new /broadcast exchange/ as part of a supervision tree.
 supervisedBroadcastExchange :: SupervisorPid -> Process Exchange
 supervisedBroadcastExchange spid =
   broadcastExchangeT >>= \t -> startSupervisedExchange t spid
@@ -178,16 +168,22 @@ supervisedBroadcastExchange spid =
 broadcastExchangeT :: Process BroadcastExchange
 broadcastExchangeT = do
   ch <- liftIO newBroadcastTChanIO
-  return $ ExchangeType { name      = "BroadcastExchange"
-                        , state     = BroadcastEx Map.empty ch
-                        , configure = apiConfigure
-                        , route     = apiRoute
+  return $ ExchangeType { name        = "BroadcastExchange"
+                        , state       = BroadcastEx Map.empty ch
+                        , configureEx = apiConfigure
+                        , routeEx     = apiRoute
                         }
 
 --------------------------------------------------------------------------------
 -- Client Facing API                                                          --
 --------------------------------------------------------------------------------
 
+-- | Create a binding to the given /broadcast exchange/ for the calling process
+-- and return an 'InputStream' that can be used in the @expect@ and
+-- @receiveWait@ family of messaging primitives. This form of client interaction
+-- helps avoid cluttering the caller's mailbox with 'Message' data, since the
+-- 'InputChannel' provides a separate input stream (in a similar fashion to
+-- a typed channel).
 broadcastClient :: Exchange -> Process (InputStream Message)
 broadcastClient ex@Exchange{..} = do
   myNode <- getSelfNode
@@ -209,6 +205,14 @@ broadcastClient ex@Exchange{..} = do
                          ])
                        (P.unmonitor mRef)
 
+-- | Bind the calling process to the given /broadcast exchange/. For each
+-- 'Message' the exchange receives, /only the payload will be sent/
+-- to the calling process' mailbox.
+bindToBroadcaster :: Exchange -> Process ()
+bindToBroadcaster ex@Exchange{..} = do
+  us <- getSelfPid
+  configureExchange ex $ (BindPlease, us)
+
 --------------------------------------------------------------------------------
 -- Exchage Definition/State & API Handlers                                    --
 --------------------------------------------------------------------------------
@@ -219,7 +223,8 @@ apiRoute ex@BroadcastEx{..} msg = do
   forM_ (Foldable.toList _routingTable) $ routeToClient msg
   return ex
   where
-    routeToClient m b = writeToStream (outputStream b) m
+    routeToClient m (PidBinding p)  = P.forward (payload m) p
+    routeToClient m b@(Binding _ _) = writeToStream (outputStream b) m
 
 -- TODO: implement unbind!!?
 
@@ -228,10 +233,16 @@ apiConfigure ex msg = do
   -- for unsafe / non-serializable message passing hacks, see [note: pcopy]
   applyHandlers ex msg $ [ \m -> handleMessage m (handleBindPort ex)
                          , \m -> handleBindSTM ex m
+                         , \m -> handleMessage m (handleBindPlease ex)
                          , \m -> handleMessage m (handleMonitorSignal ex)
                          , (const $ return $ Just ex)
                          ]
   where
+    handleBindPlease ex' (BindPlease, p) = do
+      case lookupBinding ex' p of
+        Nothing -> return $ (routingTable ^: Map.insert p (PidBinding p)) ex'
+        Just _  -> return ex'
+
     handleMonitorSignal bx (ProcessMonitorNotification _ p _) =
       return $ (routingTable ^: Map.delete p) bx
 

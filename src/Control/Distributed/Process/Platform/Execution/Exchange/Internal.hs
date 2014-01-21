@@ -12,7 +12,19 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 
 -- | Internal Exchange Implementation
-module Control.Distributed.Process.Platform.Execution.Exchange.Internal where
+module Control.Distributed.Process.Platform.Execution.Exchange.Internal
+  ( Exchange(..)
+  , Message(..)
+  , ExchangeType(..)
+  , startExchange
+  , startSupervisedExchange
+  , runExchange
+  , post
+  , postMessage
+  , configureExchange
+  , createMessage
+  , applyHandlers
+  ) where
 
 import Control.Concurrent.MVar (MVar, takeMVar, putMVar, newEmptyMVar)
 import Control.DeepSeq (NFData)
@@ -28,24 +40,19 @@ import Control.Distributed.Process
 import qualified Control.Distributed.Process as P (Message, link, monitor, unmonitor)
 import Control.Distributed.Process.Serializable hiding (SerializableDict)
 import Control.Distributed.Process.Platform.Internal.Types
-  ( ExitReason(..)
-  , Resolvable(..)
-  , NFSerializable
-  , Channel
-  , ServerDisconnected(..)
+  ( Resolvable(..)
   )
 import Control.Distributed.Process.Platform.Internal.Primitives
   ( Observable(..)
+  , Linkable(..)
   )
 import Control.Distributed.Process.Platform.ManagedProcess
-  ( call
-  , channelControlPort
+  ( channelControlPort
   , handleControlChan
   , handleInfo
   , handleRaw
   , continue
   , defaultProcess
-  , UnhandledMessagePolicy(..)
   , InitHandler
   , InitResult(..)
   , ProcessAction
@@ -58,9 +65,6 @@ import qualified Control.Distributed.Process.Platform.ManagedProcess as MP
   )
 import Control.Distributed.Process.Platform.ManagedProcess.UnsafeClient
   ( sendControlMessage
-  )
-import Control.Distributed.Process.Platform.ManagedProcess.Server
-  ( stop
   )
 import Control.Distributed.Process.Platform.Supervisor (SupervisorPid)
 import Control.Distributed.Process.Platform.Time (Delay(Infinity))
@@ -97,11 +101,8 @@ instance Observable Exchange MonitorRef ProcessMonitorNotification where
   observableFrom ref (ProcessMonitorNotification ref' _ r) =
     return $ if ref' == ref then Just r else Nothing
 
-link :: Exchange -> Process ()
-link = P.link . pid
-
-monitor :: Exchange -> Process MonitorRef
-monitor = P.monitor . pid
+instance Linkable Exchange where
+  linkTo = P.link . pid
 
 -- we communicate with exchanges using control channels
 sendCtrlMsg :: Exchange -> ControlMessage -> Process ()
@@ -134,10 +135,10 @@ instance NFData ControlMessage where
 -- (potentially updated) state and run in the @Process@ monad.
 --
 data ExchangeType s =
-  ExchangeType { name      :: String
-               , state     :: s
-               , configure :: s -> P.Message -> Process s
-               , route     :: s -> Message -> Process s
+  ExchangeType { name        :: String
+               , state       :: s
+               , configureEx :: s -> P.Message -> Process s
+               , routeEx     :: s -> Message -> Process s
                }
 
 --------------------------------------------------------------------------------
@@ -222,7 +223,6 @@ handleMonitor :: forall s.
               -> ProcessMonitorNotification
               -> Process (ProcessAction (ExchangeType s))
 handleMonitor ex m = do
-  liftIO $ putStrLn "handle monitor signal!"
   handleControlMessage ex (Configure (unsafeWrapMessage m))
 
 convertToCC :: forall s.
@@ -239,7 +239,7 @@ handleControlMessage :: forall s.
                      -> Process (ProcessAction (ExchangeType s))
 handleControlMessage ex@ExchangeType{..} cm =
   let action = case cm of
-                 Configure msg -> configure state msg
-                 Post      msg -> route state msg
+                 Configure msg -> configureEx state msg
+                 Post      msg -> routeEx     state msg
   in action >>= \s -> continue $ ex { state = s }
 

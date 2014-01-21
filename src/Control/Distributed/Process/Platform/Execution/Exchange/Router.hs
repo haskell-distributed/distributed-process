@@ -11,24 +11,31 @@
 {-# LANGUAGE UndecidableInstances  #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 
------------------------------------------------------------------------------
--- |
--- Module      :  Control.Distributed.Process.Platform.Execution.Exchange.Router
--- Copyright   :  (c) Tim Watson 2012 - 2014
--- License     :  BSD3 (see the file LICENSE)
---
--- Maintainer  :  Tim Watson <watson.timothy@gmail.com>
--- Stability   :  experimental
--- Portability :  non-portable (requires concurrency)
---
------------------------------------------------------------------------------
-
-module Control.Distributed.Process.Platform.Execution.Exchange.Router where
+-- | A simple API for /routing/, using a custom exchange type.
+module Control.Distributed.Process.Platform.Execution.Exchange.Router
+  ( -- * Types
+    HeaderName
+  , Binding(..)
+  , Bindable
+  , BindingSelector
+  , RelayType(..)
+    -- * Starting a Router
+  , router
+  , supervisedRouter
+    -- * Client (Publishing) API
+  , route
+  , routeMessage
+    -- * Routing via message/binding keys
+  , messageKeyRouter
+  , bindKey
+    -- * Routing via message headers
+  , headerContentRouter
+  , bindHeader
+  ) where
 
 import Control.DeepSeq (NFData)
 import Control.Distributed.Process
   ( Process
-  , MonitorRef
   , ProcessMonitorNotification(..)
   , ProcessId
   , monitor
@@ -61,17 +68,10 @@ import qualified Data.HashSet as Set
 import Data.Typeable (Typeable)
 import GHC.Generics
 
-data BindOk = BindOk
-  deriving (Typeable, Generic)
-instance Binary BindOk where
-instance NFData BindOk where
-
-data BindFail = BindFail !String
-  deriving (Typeable, Generic)
-instance Binary BindFail where
-instance NFData BindFail where
-
 type HeaderName = String
+
+-- | The binding key used by the built-in key and header based
+-- routers.
 data Binding =
     BindKey    { bindingKey :: !String }
   | BindHeader { bindingKey :: !String
@@ -83,11 +83,16 @@ instance Binary Binding where
 instance NFData Binding where
 instance Hashable Binding where
 
+-- | Things that can be used as binding keys in a router.
 class (Hashable k, Eq k, Serializable k) => Bindable k
 instance (Hashable k, Eq k, Serializable k) => Bindable k
 
+-- | Used to convert a 'Message' into a 'Bindable' routing key.
 type BindingSelector k = (Message -> Process k)
 
+-- | Given to a /router/ to indicate whether clients should
+-- receive 'Message' payloads only, or the whole 'Message' object
+-- itself.
 data RelayType = PayloadOnly | WholeMessage
 
 data State k = State { bindings  :: !(HashMap k (HashSet ProcessId))
@@ -101,12 +106,16 @@ type Router k = ExchangeType (State k)
 -- Starting/Running the Exchange                                              --
 --------------------------------------------------------------------------------
 
+-- | A router that matches on a 'Message' 'key'. To bind a client @Process@ to
+-- such an exchange, use the 'bindKey' function.
 messageKeyRouter :: RelayType -> Process Exchange
 messageKeyRouter t = router t matchOnKey -- (return . BindKey . key)
   where
     matchOnKey :: Message -> Process Binding
     matchOnKey m = return $ BindKey (key m)
 
+-- | A router that matches on a specific (named) header. To bind a client
+-- @Process@ to such an exchange, use the 'bindHeader' function.
 headerContentRouter :: RelayType -> HeaderName -> Process Exchange
 headerContentRouter t n = router t (checkHeaders n)
   where
@@ -115,9 +124,24 @@ headerContentRouter t n = router t (checkHeaders n)
         Nothing -> return BindNone
         Just hv -> return $ BindHeader hn hv
 
+-- | Defines a /router/ exchange. The 'BindingSelector' is used to construct
+-- a binding (i.e., an instance of the 'Bindable' type @k@) for each incoming
+-- 'Message'. Such bindings are matched against bindings stored in the exchange.
+-- Clients of a /router/ exchange are identified by a binding, mapped to
+-- one or more 'ProcessId's.
+--
+-- The format of the bindings, nature of their storage and mechanism for
+-- submitting new bindings is implementation dependent (i.e., will vary by
+-- exchange type). For example, the 'messageKeyRouter' and 'headerContentRouter'
+-- implementations both use the 'Binding' data type, which can represent a
+-- 'Message' key or a 'HeaderName' and content. As with all custom exchange
+-- types, bindings should be submitted by evaluating 'configureExchange' with
+-- a suitable data type.
+--
 router :: (Bindable k) => RelayType -> BindingSelector k -> Process Exchange
 router t s = routerT t s >>= startExchange
 
+-- | Defines a /router/ that can be used in a supervision tree.
 supervisedRouter :: Bindable k
                  => RelayType
                  -> BindingSelector k
@@ -131,29 +155,40 @@ routerT :: Bindable k
         -> BindingSelector k
         -> Process (Router k)
 routerT t s = do
-  return $ ExchangeType { name      = "Router"
-                        , state     = State Map.empty s t
-                        , configure = apiConfigure
-                        , route     = apiRoute
+  return $ ExchangeType { name        = "Router"
+                        , state       = State Map.empty s t
+                        , configureEx = apiConfigure
+                        , routeEx     = apiRoute
                         }
 
 --------------------------------------------------------------------------------
 -- Client Facing API                                                          --
 --------------------------------------------------------------------------------
 
+-- | Add a binding (for the calling process) to a 'messageKeyRouter' exchange.
 bindKey :: String -> Exchange -> Process ()
 bindKey k ex = do
   self <- P.getSelfPid
   configureExchange ex (self, BindKey k)
 
+-- | Add a binding (for the calling process) to a 'headerContentRouter' exchange.
 bindHeader :: HeaderName -> String -> Exchange -> Process ()
 bindHeader n v ex = do
   self <- P.getSelfPid
   configureExchange ex (self, BindHeader v n)
 
+-- | Send a 'Serializable' message to the supplied 'Exchange'. The given datum
+-- will be converted to a 'Message', with the 'key' set to @""@ and the
+-- 'headers' to @[]@.
+--
+-- The routing behaviour will be dependent on the choice of 'BindingSelector'
+-- given when initialising the /router/.
 route :: Serializable m => Exchange -> m -> Process ()
 route = post
 
+-- | Send a 'Message' to the supplied 'Exchange'.
+-- The routing behaviour will be dependent on the choice of 'BindingSelector'
+-- given when initialising the /router/.
 routeMessage :: Exchange -> Message -> Process ()
 routeMessage = postMessage
 
