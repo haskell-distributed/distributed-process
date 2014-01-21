@@ -184,6 +184,12 @@ broadcastExchangeT = do
 -- helps avoid cluttering the caller's mailbox with 'Message' data, since the
 -- 'InputChannel' provides a separate input stream (in a similar fashion to
 -- a typed channel).
+-- Example:
+--
+-- > is <- broadcastClient ex
+-- > msg <- receiveWait [ matchInputStream is ]
+-- > handleMessage (payload msg)
+--
 broadcastClient :: Exchange -> Process (InputStream Message)
 broadcastClient ex@Exchange{..} = do
   myNode <- getSelfNode
@@ -208,6 +214,16 @@ broadcastClient ex@Exchange{..} = do
 -- | Bind the calling process to the given /broadcast exchange/. For each
 -- 'Message' the exchange receives, /only the payload will be sent/
 -- to the calling process' mailbox.
+--
+-- Example:
+--
+-- (producer)
+-- > post ex "Hello"
+--
+-- (consumer)
+-- > bindToBroadcaster ex
+-- > expect >>= liftIO . putStrLn
+--
 bindToBroadcaster :: Exchange -> Process ()
 bindToBroadcaster ex@Exchange{..} = do
   us <- getSelfPid

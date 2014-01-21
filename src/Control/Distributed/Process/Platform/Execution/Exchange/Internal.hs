@@ -111,10 +111,11 @@ sendCtrlMsg Exchange{..} = sendControlMessage cchan
 -- | Messages sent to an exchange can optionally provide a routing
 -- key and a list of (key, value) headers in addition to the underlying
 -- payload.
-data Message = Message { key     :: !String
-                       , headers :: ![(String, String)]
-                       , payload :: !P.Message
-                       } deriving (Typeable, Generic, Show)
+data Message =
+  Message { key     :: !String  -- ^ a /routing key/ for the payload
+          , headers :: ![(String, String)] -- ^ arbitrary key-value headers
+          , payload :: !P.Message  -- ^ the underlying @Message@ payload
+          } deriving (Typeable, Generic, Show)
 instance Binary Message where
 instance NFData Message where
 
@@ -126,11 +127,11 @@ instance Binary ControlMessage where
 instance NFData ControlMessage where
 
 -- | Different exchange types are defined using record syntax.
--- The 'configure' and 'route' API functions are called during the exchange
+-- The 'configureEx' and 'routeEx' API functions are called during the exchange
 -- lifecycle when incoming traffic arrives. Configuration messages are
 -- completely arbitrary types and the exchange type author is entirely
 -- responsible for decoding them. Messages posted to the exchange (see the
--- 'Message' data type) are passed to the 'route' API function along with the
+-- 'Message' data type) are passed to the 'routeEx' API function along with the
 -- exchange type's own internal state. Both API functions return a new
 -- (potentially updated) state and run in the @Process@ monad.
 --
@@ -145,9 +146,15 @@ data ExchangeType s =
 -- Starting/Running an Exchange                                               --
 --------------------------------------------------------------------------------
 
+-- | Starts an /exchange process/ with the given 'ExchangeType'.
 startExchange :: forall s. ExchangeType s -> Process Exchange
 startExchange = doStart Nothing
 
+-- | Starts an exchange as part of a supervision tree.
+--
+-- Example:
+-- > childSpec = toChildStart $ startSupervisedExchange exType
+--
 startSupervisedExchange :: forall s . ExchangeType s
                         -> SupervisorPid
                         -> Process Exchange
@@ -176,18 +183,29 @@ exInit t = return $ InitOk t Infinity
 -- Client Facing API                                                          --
 --------------------------------------------------------------------------------
 
+-- | Posts an arbitrary 'Serializable' datum to an /exchange/. The raw datum is
+-- wrapped in the 'Message' data type, with its 'key' set to @""@ and its
+-- 'headers' to @[]@.
 post :: Serializable a => Exchange -> a -> Process ()
 post ex msg = postMessage ex $ Message "" [] (unsafeWrapMessage msg)
 
+-- | Posts a 'Message' to an /exchange/.
 postMessage :: Exchange -> Message -> Process ()
 postMessage ex msg = msg `seq` sendCtrlMsg ex $ Post msg
 
+-- | Sends an arbitrary 'Serializable' datum to an /exchange/, for use as a
+-- configuration change - see 'configureEx' for details.
 configureExchange :: Serializable m => Exchange -> m -> Process ()
 configureExchange e m = sendCtrlMsg e $ Configure (unsafeWrapMessage m)
 
+-- | Utility for creating a 'Message' datum from its 'key', 'headers' and
+-- 'payload'.
 createMessage :: Serializable m => String -> [(String, String)] -> m -> Message
 createMessage k h m = Message k h $ unsafeWrapMessage m
 
+-- | Utility for custom exchange type authors - evaluates a set of primitive
+-- message handlers from left to right, returning the first which evaluates
+-- to @Just a@, or the initial @e@ value if all the handlers yield @Nothing@.
 applyHandlers :: a
               -> P.Message
               -> [P.Message -> Process (Maybe a)]

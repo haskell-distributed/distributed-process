@@ -31,8 +31,7 @@
 -- event/message and performing an action in the @Process@ monad that evaluates
 -- to a new state.
 --
--- See "Control.Distributed.Process.Platform.Execution.Exchange",
---     "Control.Distributed.Process.Platform.Execution.Exchange.Broadcast".
+-- See "Control.Distributed.Process.Platform.Execution.Exchange".
 --
 -----------------------------------------------------------------------------
 
