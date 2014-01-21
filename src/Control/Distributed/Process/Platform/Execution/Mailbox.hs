@@ -135,6 +135,7 @@ import Control.Distributed.Process.Platform.Internal.Types
   ( ExitReason(..)
   , Resolvable(..)
   , Routable(..)
+  , Linkable(..)
   )
 import Control.Distributed.Process.Platform.ManagedProcess
   ( call
@@ -208,6 +209,9 @@ data Mailbox = Mailbox { pid   :: !ProcessId
 instance Binary Mailbox where
 instance Show Mailbox where
   show = ("Mailbox:" ++) . show . pid
+
+instance Linkable Mailbox where
+  linkTo = link . pid
 
 instance Resolvable Mailbox where
   resolve = return . Just . pid
