@@ -54,8 +54,6 @@ library
                    Control.Distributed.Process.Platform.Call,
                    Control.Distributed.Process.Platform.Execution.EventManager,
                    Control.Distributed.Process.Platform.Execution.Exchange,
-                   Control.Distributed.Process.Platform.Execution.Exchange.Broadcast,
-                   Control.Distributed.Process.Platform.Execution.Exchange.Router,
                    Control.Distributed.Process.Platform.Execution.Mailbox,
                    Control.Distributed.Process.Platform.ManagedProcess,
                    Control.Distributed.Process.Platform.ManagedProcess.Client,
@@ -74,7 +72,9 @@ library
                    Control.Distributed.Process.Platform.UnsafePrimitives
   other-modules:
                    Control.Distributed.Process.Platform.Async.Types,
+                   Control.Distributed.Process.Platform.Execution.Exchange.Broadcast,
                    Control.Distributed.Process.Platform.Execution.Exchange.Internal,
+                   Control.Distributed.Process.Platform.Execution.Exchange.Router,
                    Control.Distributed.Process.Platform.Internal.Primitives,
                    Control.Distributed.Process.Platform.Internal.Types,
                    Control.Distributed.Process.Platform.Internal.Queue.SeqQ,

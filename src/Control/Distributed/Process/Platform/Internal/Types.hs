@@ -45,7 +45,6 @@ import qualified Control.Distributed.Process as P
   ( send
   , unsafeSend
   , unsafeNSend
-  , unsafeSendChan
   )
 import Control.Distributed.Process.Closure
   ( remotable
