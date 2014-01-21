@@ -15,6 +15,7 @@ module Control.Distributed.Process.Platform.Internal.Types
   , newTagPool
   , getTag
     -- * Addressing
+  , Linkable(..)
   , Resolvable(..)
   , Routable(..)
   , Addressable
@@ -163,6 +164,11 @@ unsafeSendToRecipient (RemoteRegistered s n) m = nsendRemote n s m
 
 baseAddressableErrorMessage :: (Routable a) => a -> String
 baseAddressableErrorMessage _ = "CannotResolveAddressable"
+
+-- | Class of things to which a @Process@ can /link/ itself.
+class Linkable a where
+  -- | Create a /link/ with the supplied object.
+  linkTo :: a -> Process ()
 
 -- | Class of things that can be resolved to a 'ProcessId'.
 --

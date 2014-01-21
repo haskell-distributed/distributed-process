@@ -26,6 +26,7 @@ module Control.Distributed.Process.Platform.Internal.Primitives
   , Routable(..)
   , Resolvable(..)
   , Observable(..)
+  , Linkable(..)
 
     -- * Spawning and Linking
   , spawnSignalled
@@ -61,6 +62,7 @@ import Control.Distributed.Process.Closure (seqCP, remotable, mkClosure)
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Platform.Internal.Types
   ( Addressable
+  , Linkable(..)
   , Resolvable(..)
   , Routable(..)
   , RegisterSelf(..)

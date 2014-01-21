@@ -54,6 +54,7 @@ module Control.Distributed.Process.Platform
   , Resolvable(..)
   , Routable(..)
   , Observable(..)
+  , Linkable(..)
   , NFSerializable
   , Recipient(..)
   , ExitReason(..)
