@@ -5,6 +5,8 @@
 {-# LANGUAGE FlexibleInstances      #-}
 {-# LANGUAGE UndecidableInstances   #-}
 {-# LANGUAGE OverlappingInstances   #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE ScopedTypeVariables   #-}
 
 -- | Types used throughout the Platform
 --
@@ -39,6 +41,7 @@ import Control.Concurrent.MVar
   , newMVar
   , modifyMVar
   )
+import Control.Exception (SomeException, throw)
 import Control.DeepSeq (NFData, ($!!))
 import Control.Distributed.Process hiding (send)
 import qualified Control.Distributed.Process as P
