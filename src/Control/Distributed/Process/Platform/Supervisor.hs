@@ -6,6 +6,7 @@
 {-# LANGUAGE PatternGuards             #-}
 {-# LANGUAGE RecordWildCards           #-}
 {-# LANGUAGE ScopedTypeVariables       #-}
+{-# LANGUAGE OverlappingInstances      #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -73,7 +74,7 @@
 -- > restartsFor RestartOne children failure   = [c]
 -- > restartsFor RestartAll children failure   = [a,b,c,d]
 -- > restartsFor RestartLeft children failure  = [a,b,c]
--- > restartsFor RestartRight children failure = [a,b,c,d]
+-- > restartsFor RestartRight children failure = [c,d]
 --
 -- [Branch Restarts]
 --
@@ -318,6 +319,13 @@ import qualified Control.Distributed.Process.Platform.ManagedProcess.Server.Rest
   )
 -- import Control.Distributed.Process.Platform.ManagedProcess.Server.Unsafe
 -- import Control.Distributed.Process.Platform.ManagedProcess.Server
+import Control.Distributed.Process.Platform.Service.SystemLog
+  ( LogClient
+  , LogChan
+  , LogText
+  , Logger(..)
+  )
+import qualified Control.Distributed.Process.Platform.Service.SystemLog as Log
 import Control.Distributed.Process.Platform.Time
 import Control.Exception (SomeException, Exception, throwIO)
 
@@ -616,7 +624,7 @@ instance ToChildStart (Closure (Process ())) where
 instance ToChildStart (Process ()) where
   toChildStart proc = do
     starterPid <- spawnLocal $ do
-      -- note [linking] the first time we see the supervisor's pid,
+      -- note [linking]: the first time we see the supervisor's pid,
       -- we must link to it, but only once, otherwise
       -- we waste resources (and cycles) linking unnecessarily
       (supervisor, _, sendPidPort) <- expectTriple
@@ -638,7 +646,8 @@ spawnIt proc' supervisor sendPidPort = do
   supervisedPid <- spawnLocal $ do
     link supervisor
     self <- getSelfPid
-    (proc' `catch` filterInitFailures supervisor self)
+    (proc' `catches` [ Handler $ filterInitFailures supervisor self
+                     , Handler $ logFailure supervisor self ])
       `catchesExit` [(\_ m -> handleMessageIf m (== ExitShutdown)
                                                 (\_ -> return ()))]
   sendChan sendPidPort supervisedPid
@@ -756,6 +765,12 @@ type Suffix = ChildSpecs
 
 data StatsType = Active | Specified
 
+data LogSink = LogProcess !LogClient | LogChan
+
+instance Logger LogSink where
+  logMessage LogChan              = logMessage Log.logChannel
+  logMessage (LogProcess client') = logMessage client'
+
 data State = State {
     _specs         :: ChildSpecs
   , _active        :: Map ProcessId ChildKey
@@ -763,6 +778,7 @@ data State = State {
   , _restartPeriod :: NominalDiffTime
   , _restarts      :: [UTCTime]
   , _stats         :: SupervisorStats
+  , _logger        :: LogSink
   }
 
 --------------------------------------------------------------------------------
@@ -867,25 +883,30 @@ shutdownAndWait sid = do
 --------------------------------------------------------------------------------
 
 supInit :: InitHandler (RestartStrategy, [ChildSpec]) State
-supInit (strategy', specs') =
-  -- TODO: should we return Ignore, as per OTP's supervisor, if no child starts?
+supInit (strategy', specs') = do
+  logClient <- Log.client
+  let client' = case logClient of
+                  Nothing -> LogChan
+                  Just c  -> LogProcess c
   let initState = ( ( -- as a NominalDiffTime (in seconds)
                       restartPeriod ^= configuredRestartPeriod
                     )
                   . (strategy ^= strategy')
+                  . (logger   ^= client')
                   $ emptyState
                   )
+  -- TODO: should we return Ignore, as per OTP's supervisor, if no child starts?
+  (foldlM initChild initState specs' >>= return . (flip InitOk) Infinity)
+    `catch` \(e :: SomeException) -> return $ InitStop (show e)
+  where
+    initChild :: State -> ChildSpec -> Process State
+    initChild st ch = tryStartChild ch >>= initialised st ch
 
-  in (foldlM initChild initState specs' >>= return . (flip InitOk) Infinity)
-       `catch` \(e :: SomeException) -> return $ InitStop (show e)
-  where initChild :: State -> ChildSpec -> Process State
-        initChild st ch = tryStartChild ch >>= initialised st ch
-
-        configuredRestartPeriod =
-          let maxT' = maxT (intensity strategy')
-              tI    = asTimeout maxT'
-              tMs   = (fromIntegral tI * (0.000001 :: Float))
-          in fromRational (toRational tMs) :: NominalDiffTime
+    configuredRestartPeriod =
+      let maxT' = maxT (intensity strategy')
+          tI    = asTimeout maxT'
+          tMs   = (fromIntegral tI * (0.000001 :: Float))
+      in fromRational (toRational tMs) :: NominalDiffTime
 
 initialised :: State
             -> ChildSpec
@@ -916,6 +937,7 @@ emptyState = State {
   , _restartPeriod = (fromIntegral (0 :: Integer)) :: NominalDiffTime
   , _restarts      = []
   , _stats         = emptyStats
+  , _logger        = LogChan
   }
 
 emptyStats :: SupervisorStats
@@ -1341,8 +1363,8 @@ doRestartChild _ spec _ state = do -- TODO: use ProcessId and DiedReason to log
                    $ removeChild spec st
                    )
   where
-    chKey         = childKey spec
-    chType        = childType spec
+    chKey  = childKey spec
+    chType = childType spec
 
 {-
 doRestartDelay :: ProcessId
@@ -1427,7 +1449,8 @@ tryStartChild ChildSpec{..} =
         maybeRegister regName self
         () <- expect    -- wait for a start signal (pid is still private)
         -- we translate `ExitShutdown' into a /normal/ exit
-        (proc `catch` filterInitFailures supervisor self)
+        (proc `catches` [ Handler $ filterInitFailures supervisor self
+                        , Handler $ logFailure supervisor self ])
           `catchesExit` [
             (\_ m -> handleMessageIf m (== ExitShutdown)
                                        (\_ -> return ()))]
@@ -1512,15 +1535,15 @@ doTerminateChild ref spec state = do
     Nothing  -> return state -- an already dead child is not an error
     Just pid -> do
       stopped <- childShutdown (childStop spec) pid state
-      state' <- shutdownComplete state stopped
+      state' <- shutdownComplete state pid stopped
       return $ ( (active ^: Map.delete pid)
                $ state'
                )
   where
-    shutdownComplete :: State -> DiedReason -> Process State
-    shutdownComplete _ DiedNormal             = return $ updateStopped
-    shutdownComplete state' (r :: DiedReason) = do
-      logShutdown chKey r >> return state'
+    shutdownComplete :: State -> ProcessId -> DiedReason -> Process State
+    shutdownComplete _ _ DiedNormal               = return $ updateStopped
+    shutdownComplete state' pid (r :: DiedReason) = do
+      logShutdown (state' ^. logger) chKey pid r >> return state'
 
     chKey         = childKey spec
     updateStopped = maybe state id $ updateChild chKey (setChildStopped False) state
@@ -1556,14 +1579,36 @@ childShutdown policy pid st = do
         ]
 
 --------------------------------------------------------------------------------
--- Logging/Reporting                                                          --
+-- Loging/Reporting                                                          --
 --------------------------------------------------------------------------------
 
 errorMaxIntensityReached :: ExitReason
 errorMaxIntensityReached = ExitOther "ReachedMaxRestartIntensity"
 
-logShutdown :: ChildKey -> DiedReason -> Process ()
-logShutdown _ _ = return ()
+logShutdown :: LogSink -> ChildKey -> ProcessId -> DiedReason -> Process ()
+logShutdown log' child pid reason = do
+    self <- getSelfPid
+    Log.info log' $ mkReport banner self pid shutdownReason
+  where
+    banner         = "Child Shutdown Complete"
+    shutdownReason = (show reason) ++ ", child-key: " ++ child
+
+logFailure :: ProcessId -> ProcessId -> SomeException -> Process ()
+logFailure sup pid ex = do
+  logEntry Log.notice $ mkReport "Detected Child Exit" sup pid (show ex)
+  liftIO $ throwIO ex
+
+logEntry :: (LogChan -> LogText -> Process ()) -> String -> Process ()
+logEntry lg = Log.report lg Log.logChannel
+
+mkReport :: String -> ProcessId -> ProcessId -> String -> String
+mkReport b s c r = foldl' (\x xs -> xs ++ " " ++ x) "" items
+  where
+    items :: [String]
+    items = [ "[" ++ s' ++ "]" | s' <- [ b
+                                       , "supervisor: " ++ show s
+                                       , "child: " ++ show c
+                                       , "reason: " ++ r] ]
 
 --------------------------------------------------------------------------------
 -- Accessors and State/Stats Utilities                                        --
@@ -1672,6 +1717,9 @@ specs = accessor _specs (\sp' st -> st { _specs = sp' })
 
 stats :: Accessor State SupervisorStats
 stats = accessor _stats (\st' st -> st { _stats = st' })
+
+logger :: Accessor State LogSink
+logger = accessor _logger (\l st -> st { _logger = l })
 
 children :: Accessor SupervisorStats Int
 children = accessor _children (\c st -> st { _children = c })
