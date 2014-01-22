@@ -69,7 +69,8 @@ library
                    Control.Distributed.Process.Platform.Test,
                    Control.Distributed.Process.Platform.Time,
                    Control.Distributed.Process.Platform.Timer,
-                   Control.Distributed.Process.Platform.UnsafePrimitives
+                   Control.Distributed.Process.Platform.UnsafePrimitives,
+                   Control.Concurrent.Utils
   other-modules:
                    Control.Distributed.Process.Platform.Internal.Containers.MultiMap,
                    Control.Distributed.Process.Platform.Async.Types,
