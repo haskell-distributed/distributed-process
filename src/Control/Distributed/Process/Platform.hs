@@ -74,6 +74,7 @@ module Control.Distributed.Process.Platform
   , times
   , isProcessAlive
   , matchCond
+  , awaitExit
   , deliver
   , awaitExit
   , awaitResponse
