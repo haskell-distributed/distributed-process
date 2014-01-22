@@ -9,6 +9,7 @@ module TestUtils
   , shouldBe
   , shouldMatch
   , shouldContain
+  , shouldNotContain
   , shouldExitWith
   , expectThat
   -- test process utilities
@@ -85,6 +86,9 @@ shouldBe = expectThat
 
 shouldContain :: (Show a, Eq a) => [a] -> a -> Process ()
 shouldContain xs x = expectThat xs $ hasItem (equalTo x)
+
+shouldNotContain :: (Show a, Eq a) => [a] -> a -> Process ()
+shouldNotContain xs x = expectThat xs $ isNot (hasItem (equalTo x))
 
 shouldMatch :: a -> Matcher a -> Process ()
 shouldMatch = expectThat
