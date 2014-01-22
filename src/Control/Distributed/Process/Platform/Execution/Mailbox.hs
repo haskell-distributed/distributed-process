@@ -134,6 +134,8 @@ import Control.Distributed.Process.Serializable hiding (SerializableDict)
 import Control.Distributed.Process.Platform.Internal.Types
   ( ExitReason(..)
   , Resolvable(..)
+  , Routable(..)
+  , Linkable(..)
   )
 import Control.Distributed.Process.Platform.ManagedProcess
   ( call
@@ -208,8 +210,15 @@ instance Binary Mailbox where
 instance Show Mailbox where
   show = ("Mailbox:" ++) . show . pid
 
+instance Linkable Mailbox where
+  linkTo = link . pid
+
 instance Resolvable Mailbox where
   resolve = return . Just . pid
+
+instance Routable Mailbox where
+  sendTo       = post
+  unsafeSendTo = post
 
 sendCtrlMsg :: Mailbox
             -> ControlMessage
@@ -432,8 +441,7 @@ doStartMailbox :: Maybe SupervisorPid
 doStartMailbox mSp p b l = do
   bchan <- liftIO $ newBroadcastTChanIO
   rchan <- liftIO $ atomically $ dupTChan bchan
-  spawnLocal (runMailbox bchan p b l) >>= \pid -> do
-    maybeLink mSp
+  spawnLocal (maybeLink mSp >> runMailbox bchan p b l) >>= \pid -> do
     cc <- liftIO $ atomically $ readTChan rchan
     return $ Mailbox pid cc
   where
