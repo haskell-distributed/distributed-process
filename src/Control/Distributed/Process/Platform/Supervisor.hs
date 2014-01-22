@@ -74,7 +74,7 @@
 -- > restartsFor RestartOne children failure   = [c]
 -- > restartsFor RestartAll children failure   = [a,b,c,d]
 -- > restartsFor RestartLeft children failure  = [a,b,c]
--- > restartsFor RestartRight children failure = [a,b,c,d]
+-- > restartsFor RestartRight children failure = [c,d]
 --
 -- [Branch Restarts]
 --
