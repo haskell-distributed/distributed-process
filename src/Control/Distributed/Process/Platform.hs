@@ -53,17 +53,21 @@ module Control.Distributed.Process.Platform
     Addressable
   , Resolvable(..)
   , Routable(..)
+  , Observable(..)
+  , Linkable(..)
   , NFSerializable
   , Recipient(..)
   , ExitReason(..)
+  , Channel
   , Tag
   , TagPool
 
     -- * Primitives overriding those in distributed-process
-  , module Control.Distributed.Process.Platform.UnsafePrimitives
   , monitor
+  , module Control.Distributed.Process.Platform.UnsafePrimitives
 
     -- * Utilities and Extended Primitives
+  , spawnSignalled
   , spawnLinkLocal
   , spawnMonitorLocal
   , linkOnFailure
@@ -72,6 +76,8 @@ module Control.Distributed.Process.Platform
   , matchCond
   , awaitExit
   , deliver
+  , awaitExit
+  , awaitResponse
 
     -- * Call/Tagging support
   , newTagPool
@@ -92,6 +98,7 @@ import Control.Distributed.Process.Platform.Internal.Types
   , ExitReason(..)
   , Tag
   , TagPool
+  , Channel
   , newTagPool
   , getTag
   )
@@ -108,3 +115,4 @@ __remoteTable =
   Control.Distributed.Process.Platform.Execution.Mailbox.__remoteTable .
   Control.Distributed.Process.Platform.Internal.Primitives.__remoteTable .
   Control.Distributed.Process.Platform.Internal.Types.__remoteTable
+
