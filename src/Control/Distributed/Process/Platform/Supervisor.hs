@@ -243,7 +243,9 @@ module Control.Distributed.Process.Platform.Supervisor
     -- * Adding and Removing Children
   , addChild
   , AddChildResult(..)
+  , StartChildResult(..)
   , startChild
+  , startNewChild
   , terminateChild
   , TerminateChildResult(..)
   , deleteChild
@@ -319,6 +321,9 @@ import qualified Control.Distributed.Process.Platform.ManagedProcess.Server.Rest
   )
 -- import Control.Distributed.Process.Platform.ManagedProcess.Server.Unsafe
 -- import Control.Distributed.Process.Platform.ManagedProcess.Server
+import Control.Distributed.Process.Platform.Service.Registry
+  ( registerName
+  )
 import Control.Distributed.Process.Platform.Service.SystemLog
   ( LogClient
   , LogChan
@@ -343,8 +348,8 @@ import Data.Binary
 import Data.Foldable (find, foldlM, toList)
 import Data.List (foldl')
 import qualified Data.List as List (delete)
-import Data.Map (Map)
-import qualified Data.Map.Strict as Map -- TODO: use Data.Map.Strict
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
 import Data.Sequence
   ( Seq
   , ViewL(EmptyL, (:<))
@@ -483,7 +488,7 @@ type ChildKey = String
 -- | A reference to a (possibly running) child.
 data ChildRef =
     ChildRunning !ProcessId    -- ^ a reference to the (currently running) child
-  | ChildRestarting !ProcessId -- ^ a reference to the /old/ (previous) child, which is now restarting
+  | ChildRestarting !ProcessId -- ^ a reference to the /old/ (previous) child (now restarting)
   | ChildStopped               -- ^ indicates the child is not currently running
   | ChildStartIgnored          -- ^ a non-temporary child exited with 'ChildInitIgnore'
   deriving (Typeable, Generic, Eq, Show)
@@ -542,10 +547,19 @@ data ChildTerminationPolicy =
 instance Binary ChildTerminationPolicy where
 instance NFData ChildTerminationPolicy where
 
-data RegisteredName = LocalName !String | GlobalName !String
-  deriving (Typeable, Generic, Show, Eq)
+data RegisteredName =
+    LocalName          { name :: !String }
+  | GlobalName         { name :: !String }
+  | LocalRegistry      { name :: !String, regServer :: !ProcessId }
+  | LocalNamedRegistry { name :: !String, regServerName :: !String }
+  | CustomRegister     { regProc :: !(Closure (ProcessId -> Process ())) }
+  deriving (Typeable, Generic)
 instance Binary RegisteredName where
 instance NFData RegisteredName where
+
+instance Show RegisteredName where
+  show (CustomRegister _) = "Custom Register"
+  show r                  = name r
 
 data ChildStart =
     RunClosure !(Closure (Process ()))
@@ -721,6 +735,20 @@ data AddChildResult =
 instance Binary AddChildResult where
 instance NFData AddChildResult where
 
+data StartChildReq = StartChild !ChildKey
+  deriving (Typeable, Generic)
+instance Binary StartChildReq where
+instance NFData StartChildReq where
+
+data StartChildResult =
+    ChildStartOk        !ChildRef
+  | ChildStartFailed    !StartFailure
+  | ChildStartUnknownId
+  | ChildStartInitIgnored
+  deriving (Typeable, Generic, Show, Eq)
+instance Binary StartChildResult where
+instance NFData StartChildResult where
+
 data RestartChildReq = RestartChildReq !ChildKey
   deriving (Typeable, Generic, Show, Eq)
 instance Binary RestartChildReq where
@@ -823,13 +851,19 @@ addChild :: Addressable a => a -> ChildSpec -> Process AddChildResult
 addChild addr spec = Unsafe.call addr $ AddChild False spec
 
 -- | Start an existing (configured) child. The 'ChildSpec' must already be
--- present (see 'addChild').
+-- present (see 'addChild'), otherwise the operation will fail.
 --
-startChild :: Addressable a
+startChild :: Addressable a => a -> ChildKey -> Process StartChildResult
+startChild addr key = Unsafe.call addr $ StartChild key
+
+-- | Atomically add and start a new child spec. Will fail if a child with
+-- the given key is already present.
+--
+startNewChild :: Addressable a
            => a
            -> ChildSpec
            -> Process AddChildResult
-startChild addr spec = Unsafe.call addr $ AddChild True spec
+startNewChild addr spec = Unsafe.call addr $ AddChild True spec
 
 -- | Delete a supervised child. The child must already be stopped (see
 -- 'terminateChild').
@@ -975,6 +1009,7 @@ processDefinition =
      , Restricted.handleCall   handleDeleteChild
      , Restricted.handleCallIf (input (\(AddChild immediate _) -> not immediate))
                                handleAddChild
+     , handleCall              handleStartNewChild
      , handleCall              handleStartChild
      , handleCall              handleRestartChild
        -- stats/info
@@ -1050,9 +1085,27 @@ handleDeleteChild (DeleteChild k) = getState >>= handleDelete k
       | otherwise = Restricted.reply $ ChildNotStopped ref
 
 handleStartChild :: State
+                 -> StartChildReq
+                 -> Process (ProcessReply StartChildResult State)
+handleStartChild state (StartChild key) =
+  let child = findChild key state in
+  case child of
+    Nothing ->
+      reply ChildStartUnknownId state
+    Just (ref@(ChildRunning _), _) ->
+      reply (ChildStartFailed (StartFailureAlreadyRunning ref)) state
+    Just (ref@(ChildRestarting _), _) ->
+      reply (ChildStartFailed (StartFailureAlreadyRunning ref)) state
+    Just (_, spec) -> do
+      started <- doStartChild spec state
+      case started of
+        Left err         -> reply (ChildStartFailed err) state
+        Right (ref, st') -> reply (ChildStartOk ref) st'
+
+handleStartNewChild :: State
                  -> AddChildReq
                  -> Process (ProcessReply AddChildResult State)
-handleStartChild state req@(AddChild _ spec) =
+handleStartNewChild state req@(AddChild _ spec) =
   let added = doAddChild req False state in
   case added of
     Exists e -> reply (ChildFailedToStart $ StartFailureDuplicateChild e) state
@@ -1430,6 +1483,7 @@ tryStartChild :: ChildSpec
 tryStartChild ChildSpec{..} =
     case childStart of
       RunClosure proc -> do
+        -- TODO: cache your closures!!!
         mProc <- catch (unClosure proc >>= return . Right)
                        (\(e :: SomeException) -> return $ Left (show e))
         case mProc of
@@ -1483,9 +1537,18 @@ tryStartChild ChildSpec{..} =
 
 
     maybeRegister :: Maybe RegisteredName -> ProcessId -> Process ()
-    maybeRegister Nothing              _   = return ()
-    maybeRegister (Just (LocalName n)) pid = register n pid
-    maybeRegister (Just (GlobalName _)) _  = return () -- TODO: fixme
+    maybeRegister Nothing                         _     = return ()
+    maybeRegister (Just (LocalName n))            pid   = register n pid
+    maybeRegister (Just (GlobalName _))           _     = return ()
+    maybeRegister (Just (LocalRegistry p n))      pid   = registerName p n pid >> return ()
+    maybeRegister (Just (LocalNamedRegistry r n)) pid   = registerName r n pid >> return ()
+    maybeRegister (Just (CustomRegister clj))     pid   = do
+        -- TODO: cache your closures!!!
+        mProc <- catch (unClosure clj >>= return . Right)
+                       (\(e :: SomeException) -> return $ Left (show e))
+        case mProc of
+          Left err -> die $ ExitOther (show err)
+          Right p  -> p pid
 
 filterInitFailures :: ProcessId
                    -> ProcessId
