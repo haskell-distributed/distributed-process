@@ -321,9 +321,6 @@ import qualified Control.Distributed.Process.Platform.ManagedProcess.Server.Rest
   )
 -- import Control.Distributed.Process.Platform.ManagedProcess.Server.Unsafe
 -- import Control.Distributed.Process.Platform.ManagedProcess.Server
-import Control.Distributed.Process.Platform.Service.Registry
-  ( registerName
-  )
 import Control.Distributed.Process.Platform.Service.SystemLog
   ( LogClient
   , LogChan
@@ -550,8 +547,6 @@ instance NFData ChildTerminationPolicy where
 data RegisteredName =
     LocalName          { name :: !String }
   | GlobalName         { name :: !String }
-  | LocalRegistry      { name :: !String, regServer :: !ProcessId }
-  | LocalNamedRegistry { name :: !String, regServerName :: !String }
   | CustomRegister     { regProc :: !(Closure (ProcessId -> Process ())) }
   deriving (Typeable, Generic)
 instance Binary RegisteredName where
@@ -1540,8 +1535,6 @@ tryStartChild ChildSpec{..} =
     maybeRegister Nothing                         _     = return ()
     maybeRegister (Just (LocalName n))            pid   = register n pid
     maybeRegister (Just (GlobalName _))           _     = return ()
-    maybeRegister (Just (LocalRegistry p n))      pid   = registerName p n pid >> return ()
-    maybeRegister (Just (LocalNamedRegistry r n)) pid   = registerName r n pid >> return ()
     maybeRegister (Just (CustomRegister clj))     pid   = do
         -- TODO: cache your closures!!!
         mProc <- catch (unClosure clj >>= return . Right)
