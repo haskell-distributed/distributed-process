@@ -26,6 +26,7 @@ module Control.Distributed.Process.Platform.Internal.Primitives
   , Routable(..)
   , Resolvable(..)
   , Linkable(..)
+  , Killable(..)
 
     -- * Spawning and Linking
   , spawnSignalled
@@ -62,6 +63,7 @@ import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Platform.Internal.Types
   ( Addressable
   , Linkable(..)
+  , Killable(..)
   , Resolvable(..)
   , Routable(..)
   , RegisterSelf(..)
