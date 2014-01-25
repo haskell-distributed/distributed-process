@@ -7,7 +7,7 @@ module Main where
 import Control.Distributed.Process hiding (monitor)
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Platform
-  ( Routable(..)
+  ( Resolvable(..)
   )
 
 import qualified Control.Distributed.Process.Platform (__remoteTable)
@@ -108,7 +108,8 @@ mailboxIsInitiallyPassive result = do
 mailboxActsAsRelayForRawTraffic :: TestResult Bool -> Process ()
 mailboxActsAsRelayForRawTraffic result = do
   mbox <- createMailbox Stack (6 :: Integer)
-  mapM_ (sendTo mbox) ([1..5] :: [Int])
+  Just pid <- resolve mbox
+  mapM_ (send pid) ([1..5] :: [Int])
   forM_ [1..5] $ \(_ :: Int) -> do
     i <- receiveTimeout (after 3 Seconds) [ match return ]
     case i of
