@@ -230,6 +230,8 @@ test-suite SupervisorTests
                    base >= 4.4 && < 5,
                    ansi-terminal >= 0.5 && < 0.6,
                    containers,
+                   unordered-containers,
+                   hashable,
                    distributed-process,
                    distributed-static,
                    bytestring,

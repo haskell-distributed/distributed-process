@@ -25,7 +25,6 @@ module Control.Distributed.Process.Platform.Internal.Primitives
     Addressable
   , Routable(..)
   , Resolvable(..)
-  , Observable(..)
   , Linkable(..)
 
     -- * Spawning and Linking
@@ -57,7 +56,7 @@ module Control.Distributed.Process.Platform.Internal.Primitives
 
 import Control.Concurrent (myThreadId, throwTo)
 import Control.Distributed.Process hiding (monitor)
-import qualified Control.Distributed.Process as P (monitor, unmonitor)
+import qualified Control.Distributed.Process as P (monitor)
 import Control.Distributed.Process.Closure (seqCP, remotable, mkClosure)
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Platform.Internal.Types
@@ -73,25 +72,6 @@ import Control.Monad (void)
 import Data.Maybe (isJust, fromJust)
 
 -- utility
-
--- | Things (e.g., processes, nodes, etc) that can be monitored.
--- A multi-parameter type classs, @o@ is the type of the subject
--- (being monitored), @r@ the type of reference returned from
--- 'observe' and @n@ the type of notification that will be given.
---
-class Observable o r n where
-  observe        :: o -> Process r
-  unobserve      :: r -> Process ()
-  observableFrom :: r -> n -> Process (Maybe DiedReason)
-
-instance (Resolvable a) =>
-         Observable a MonitorRef ProcessMonitorNotification where
-
-  observe   addr = maybe (die "InvalidAddressable") return =<< monitor addr
-  unobserve ref  = P.unmonitor ref
-
-  observableFrom r (ProcessMonitorNotification r' _ d) = do
-    return $ if r == r' then Just d else Nothing
 
 -- | Monitor any @Resolvable@ object.
 --

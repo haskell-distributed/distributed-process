@@ -53,7 +53,6 @@ module Control.Distributed.Process.Platform
     Addressable
   , Resolvable(..)
   , Routable(..)
-  , Observable(..)
   , Linkable(..)
   , NFSerializable
   , Recipient(..)
@@ -74,7 +73,6 @@ module Control.Distributed.Process.Platform
   , times
   , isProcessAlive
   , matchCond
-  , awaitExit
   , deliver
   , awaitExit
   , awaitResponse
