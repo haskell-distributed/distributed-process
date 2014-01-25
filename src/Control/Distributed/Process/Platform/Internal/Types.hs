@@ -18,6 +18,7 @@ module Control.Distributed.Process.Platform.Internal.Types
   , getTag
     -- * Addressing
   , Linkable(..)
+  , Killable(..)
   , Resolvable(..)
   , Routable(..)
   , Addressable
@@ -176,6 +177,19 @@ class Linkable a where
 class Resolvable a where
   -- | Resolve the reference to a process id, or @Nothing@ if resolution fails
   resolve :: a -> Process (Maybe ProcessId)
+
+-- | Class of things that can be killed (or instructed to exit).
+class Killable a where
+  killProc :: a -> String -> Process ()
+  exitProc :: (Serializable m) => a -> m -> Process ()
+
+instance Killable ProcessId where
+  killProc = kill
+  exitProc = exit
+
+instance Resolvable r => Killable r where
+  killProc r s = resolve r >>= maybe (return ()) (flip kill $ s)
+  exitProc r m = resolve r >>= maybe (return ()) (flip exit $ m)
 
 -- | Provides a unified API for addressing processes.
 --
