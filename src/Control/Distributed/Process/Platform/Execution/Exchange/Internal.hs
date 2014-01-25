@@ -43,8 +43,7 @@ import Control.Distributed.Process.Platform.Internal.Types
   ( Resolvable(..)
   )
 import Control.Distributed.Process.Platform.Internal.Primitives
-  ( Observable(..)
-  , Linkable(..)
+  ( Linkable(..)
   )
 import Control.Distributed.Process.Platform.ManagedProcess
   ( channelControlPort
@@ -95,11 +94,13 @@ instance Show Exchange where
 instance Resolvable Exchange where
   resolve = return . Just . pid
 
+{-
 instance Observable Exchange MonitorRef ProcessMonitorNotification where
   observe   = P.monitor . pid
   unobserve = P.unmonitor
   observableFrom ref (ProcessMonitorNotification ref' _ r) =
     return $ if ref' == ref then Just r else Nothing
+-}
 
 instance Linkable Exchange where
   linkTo = P.link . pid
