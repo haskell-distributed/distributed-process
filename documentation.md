@@ -3,9 +3,9 @@ layout: documentation
 title: Documentation
 ---
 
-### Cloud Haskell Platform
+### Cloud Haskell
 
-This is the [*Cloud Haskell Platform*][1]. Cloud Haskell is a set of libraries
+This is [*Cloud Haskell*][1]. Cloud Haskell is a set of libraries
 that bring Erlang-style concurrency and distribution to Haskell programs. This
 project is an implementation of that distributed computing interface, where
 processes communicate with one another through explicit message passing rather
