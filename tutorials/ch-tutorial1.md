@@ -1,7 +1,7 @@
 ---
 layout: tutorial
 categories: tutorial
-sections: ['Getting Started', 'Create a node', 'Sending messages', 'Spawning Remote Processes']
+sections: ['Getting Started', 'Installing from source', 'Creating a node', 'Sending messages', 'Spawning Remote Processes']
 title: Getting Started
 ---
 
@@ -27,7 +27,7 @@ run `make` to obtain the complete set of source repositories for building
 Cloud Haskell. The additional makefiles bundled with the umbrella assume
 that you have a recent version of cabal-dev installed.
 
-### Create a node
+### Creating a node
 
 Cloud Haskell's *lightweight processes* reside on a "node", which must
 be initialised with a network transport implementation and a remote table.
@@ -78,16 +78,16 @@ will send one to ourselves!
 {% endhighlight %}
 
 Lightweight processes are implemented as `forkIO` threads. In general we will
-try to forget about this implementation detail, but let us note that we
+try to forget about this implementation detail, but let's note that we
 haven't deadlocked our own thread by sending to and receiving from its mailbox
 in this fashion. Sending messages is a completely asynchronous operation - even
 if the recipient doesn't exist, no error will be raised and evaluating `send`
-will not block the caller, not even if the caller is sending messages to itself!
+will not block the caller, even if the caller is sending messages to itself!
 
-Receiving works quite the other way around, blocking the caller until a message
+Receiving works the opposite way, blocking the caller until a message
 matching the expected type arrives in our (conceptual) mailbox. If multiple
-messages of that type are in the queue, they will be returned in FIFO
-order, otherwise the caller will be blocked until a message arrives that can be
+messages of that type are present in the mailbox, they're be returned in FIFO
+order, if not, the caller is blocked until a message arrives that can be
 decoded to the correct type.
 
 Let's spawn two processes on the same node and have them talk to each other.
@@ -150,15 +150,14 @@ In the _echo server_ above, our first match prints out whatever string it
 receives. If first message in out mailbox is not a `String`, then our second
 match is evaluated. This, given a tuple `t :: (ProcessId, String)`, will send
 the `String` component back to the sender's `ProcessId`. If neither match
-succeeds, the echo server process blocks until another message arrives and
+succeeds, the echo server blocks until another message arrives and
 tries again.
 
 ### Serializable Data
 
 Processes may send any datum whose type implements the `Serializable` typeclass,
-which is done indirectly by implementing `Binary` and deriving `Typeable`.
-Implementations are already provided for off of Cloud Haskell's primitives
-and the most commonly used data structures.
+which is done indirectly by deriving `Binary` and `Typeable`. Implementations are 
+provided for most of Cloud Haskell's primitives and various common data types.
 
 ### Spawning Remote Processes
 
@@ -211,6 +210,11 @@ main = do
  localNode <- newLocalNode transport myRemoteTable
  -- etc
 {% endhighlight %}
+
+Note that we're not limited to sending `Closure`s - it is possible to send data
+without having static values, and assuming the receiving code is able to decode
+this data and operate on it, we can easily put together a simple AST that maps
+to operations we wish to execute remotely.
 
 ------
 

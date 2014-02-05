@@ -1,75 +1,269 @@
 ---
 layout: tutorial
-sections: ['Introduction', 'Implementing the Client', 'Implementing the Server', 'Making use of Async', 'Wiring up Handlers', 'Putting it all together', 'Performance Considerations']
+sections: ['Introduction', 'Managed Processes', 'A Basic Example', 'Building a Task Queue', 'Implementing the Client', 'Implementing the Server', 'Making use of Async', 'Wiring up Handlers', 'Putting it all together', 'Performance Considerations']
 categories: tutorial
 title: Managed Process Tutorial
 ---
 
 ### Introduction
 
-The source code on which this tutorial is (loosely) based is kept on github,
-and can be accessed [here][1]. Please note that this tutorial is
-based on the stable (master) branch of distributed-process-platform.
+The source code for this tutorial is based on the `BlockingQueue` module
+from distributed-process-platform and can be accessed [here][1].
+Please note that this tutorial is based on the stable (master) branch
+of distributed-process-platform.
 
 ### Managed Processes
 
-The main idea behind a `ManagedProcess` is to separate the functional
-and non-functional aspects of an actor. By functional, we mean whatever
-application specific task the actor performs, and by non-functional
-we mean the *concurrency* or, more precisely, handling of the process'
-mailbox and its interaction with other actors (i.e., clients).
+There are subtle bugs waiting in code that evaluated `send` and `receive`
+directly. Forgetting to monitor the destination whilst waiting for a reply
+and failing to match on the correct message types are the most common ones,
+but others exist (such as badly formed `Binary` instances for user defined
+data types).
 
-Another effect of the `ManagedProcess` API is to provide client code
-with a typed (i.e., type specific) API for interacting with the process,
-much as a `TypedChannel` does. We achieve this by writing and exporting
-functions that operate on the types we want clients to see, and using
-the API from `Control.Distributed.Process.Platform.ManagedProcess.Client`
-to interact with the server.
+The /Managed Process/ API handles _all_ sending and receiving of messages,
+error handling and decoding problems on your behalf, leaving you to focus
+on writing code that describes _what the server process does_ when it receives
+messages, rather than how it receives them. The API also provides a set of
+pre-defined client interactions, all of which have well defined semantics
+and failure modes.
 
-Let's imagine we want to execute tasks on an arbitrary node, using a
-mechanism much as we would with the `call` API from distributed-process.
-As with `call`, we want the caller to block whilst the remote task is
-executing, but we also want to put an upper bound on the number of
-concurrent tasks. We will use `ManagedProcess` to implement a generic
-task server with the following characteristics
+A managed process server definition is defined using record syntax, with
+a list of `Dispatcher` types that describe how the server should handle
+particular kinds of client interaction, for specific types. The fields
+of the `ProcessDefinition` record also provide for error handling (in case
+of either server code crashing _or_ exit signals dispatched to the server
+process) and _cleanup_ code required to run on terminate/shutdown.
+
+{% highlight haskell %}
+myServer :: ProcessDefinition MyStateType
+myServer = 
+  ProcessDefinition { 
+    apiHandlers = [
+        -- a list of Dispatcher, derived from calling
+        -- handleInfo or handleRaw with a suitable function, e.g.,
+        handleCast myFunctionThatDoesNotReply
+      , handleCall myFunctionThatDoesReply
+      , handleRpcChan myFunctionThatRepliesViaTypedChannels
+      ]
+    , infoHandlers = [
+        -- a list of DeferredDispatcher, derived from calling
+        -- handleInfo or handleRaw with a suitable function, e.g.,
+        handleInfo myFunctionThatHandlesOneSpecificNonCastNonCallMessageType
+      , handleRaw  myFunctionThatHandlesRawMessages
+      ]
+    , exitHandlers = [
+        -- a list of ExitSignalDispatcher, derived from calling
+        -- handleExit with a suitable function, e.g.,
+        handleExit myExitHandlingFunction
+      ]
+      -- what should I do just before stopping?
+    , terminateHandler = myTerminateFunction
+      -- what should I do about messages that cannot be handled?
+    , unhandledMessagePolicy = Drop -- Terminate | (DeadLetter ProcessId)
+    }
+
+{% endhighlight %}
+
+Client interactions with a managed process come in various flavours. It is
+still possible to send an arbitrary message to a managed process, just as
+you would a regular process. When defining a protocol between client and
+server processes however, it is useful to define a specific set of types
+that the server expects to receive from the client and possibly replies
+that the server may send back. The `cast` and `call` mechanisms in the
+/managed process/ API cater for this requirement specifically, allowing
+the developer tighter control over the domain of input messages from
+clients, whilst ensuring that client code handles errors (such as server
+failures) consistently and those input messages are routed to a suitable
+message handling function in the server process.
+
+---------
+
+### A Basic Example
+
+Let's consider a simple _math server_ like the one in the main documentation
+page. We could allow clients to send us `(ProcessId, Double, Double)` and
+reply to the first tuple element with the sum of the second and third. But
+what happens if our process is killed while the client is waiting for the
+reply? (The client would deadlock). The client could always set up a monitor
+and wait for the reply _or_ a monitor signal, and could even write that code
+generically, but what if the code evaluating the client's utility function
+`expect`s the wrong type? We could use a typed channel to alleviate that ill,
+but that only helps with the client receiving messages, not the server. How
+can we ensure that the server receives the correct type(s) as well? Creating
+multiple typed channels (one for each kind of message we're expecting) and
+then distributing those to all our clients seems like a kludge.
+
+The `call` and `cast` APIs help us to avoid precisely this conundrum by
+providing a uniform API for both the client _and_ the server to observe. Whilst
+there is nothing to stop clients from sending messages directly to a managed
+process, it is simple enough to prevent this as well (just by hiding its
+`ProcessId`, either behind a newtype or some other opaque structure). The
+author of the server is then able to force clients through API calls that
+can enforce the required types _and_ ensure that the correct client-server
+protocol is used. Here's a better example of that math server that does
+just so:
+
+----
+
+{% highlight haskell %}
+module MathServer 
+  ( -- client facing API
+    add
+    -- starting/spawning the server process
+  , launchMathServer
+  ) where
+
+import .... -- elided
+
+-- We keep this data-type hidden from the outside world, and we ignore
+-- messages sent to us that we do not recognise, so misbehaving clients
+-- (who do not use our API) are basically ignored.
+data Add = Add Double Double
+  deriving (Typeable, Generic)
+instance Binary Add where
+
+-- client facing API
+
+-- This is the only way clients can get a message through to us that
+-- we will respond to, and since we control the type(s), there is no
+-- risk of decoding errors on the server. The /call/ API ensures that
+-- if the server does fail for some other reason however (such as being
+-- killed by another process), the client will get an exit signal also.
+--
+add :: ProcessId -> Double -> Double -> Process Double
+add sid = call sid . Add
+
+-- server side code
+
+launchMathServer :: Process ProcessId
+launchMathServer =
+  let server = statelessProcess {
+      apiHandlers = [ handleCall_ (\(Add x y) -> return (x + y)) ]
+    , unhandledMessagePolicy = Drop
+    }
+  in spawnLocal $ start () (statelessInit Infinity) server >> return ()
+{% endhighlight %}
+
+
+This style of programming will already be familiar if you've used some
+combination of `send` in your clients and the `receive [ match ... ]`
+family of functions to write your servers. The primary difference here,
+is that the choice of when to return to (potentially blocking on) the
+server's mailbox is taken out of the programmer's hands, leaving the
+implementor to worry only about the logic to be applied once a message
+of one type or another is received.
+
+----
+
+Of course, it would still be possible to write the server and client code
+and encounter a type resolution failure, since `call` still takes an
+arbitrary `Serializable` datum just like `send`. We can solve that for
+the return type of the _remote_ call by sending a typed channel and
+replying explicitly to it in our server side code. Whilst this doesn't
+make the server code any prettier (since it has to reply to the channel
+explicitly, rather than just evaluating to a result), it does the
+likelihood of runtime errors somewhat.
+
+{% highlight haskell %}
+-- This is the only way clients can get a message through to us that
+-- we will respond to, and since we control the type(s), there is no
+-- risk of decoding errors on the server. The /call/ API ensures that
+-- if the server does fail for some other reason however (such as being
+-- killed by another process), the client will get an exit signal also.
+--
+add :: ProcessId -> Double -> Double -> Process Double
+add sid = syncCallChan sid . Add
+
+launchMathServer :: Process ProcessId
+launchMathServer =
+  let server = statelessProcess {
+      apiHandlers = [ handleRpcChan_ (\chan (Add x y) -> sendChan chan (x + y)) ]
+    , unhandledMessagePolicy = Drop
+    }
+  in spawnLocal $ start () (statelessInit Infinity) server >> return ()
+{% endhighlight %}
+
+Ensuring that only valid types are sent to the server is relatively simple,
+given that we do not expose the client directly to `call` and write our own
+wrapper functions. An additional level of isolation and safety is available
+when using /control channels/, which will be covered in a subsequent tutorial.
+
+Before we leave the math server behind, let's take a brief look at the `cast`
+side of the client-server protocol. Unlike its synchronous cousin, `cast` does
+not expect a reply at all - it is a fire and forget call, much like `send`,
+but carries the same additional type information that a `call` does (about its
+inputs) and is also routed to a `Dispatcher` in the `apiHandlers` field of the
+process definition.
+
+We will use cast with the existing `Add` type, to implement a function that
+takes an /add request/ and prints the result instead of returning it. If we
+were implementing this with `call` we would be a bit stuck, because there is
+nothing to differentiate between two `Add` instances and the server would
+choose the first valid (i.e., type safe) handler and ignore the others.
+
+Note that because the client doesn't wait for a reply, if you execute this
+function in a test/demo application, you'll need to block the main thread
+for a while to wait for the server to receive the message and print out
+the result.
+
+{% highlight haskell %}
+
+printSum :: ProcessId -> Double -> Double -> Process ()
+printSum sid = cast sid . Add
+
+launchMathServer :: Process ProcessId
+launchMathServer =
+  let server = statelessProcess {
+      apiHandlers = [ handleRpcChan_ (\chan (Add x y) -> sendChan chan (x + y))
+                    , handleCast_ (\(Add x y) -> liftIO $ putStrLn $ show (x + y) >> continue_) ]
+    , unhandledMessagePolicy = Drop
+    }
+  in spawnLocal $ start () (statelessInit Infinity) server >> return ()
+{% endhighlight %}
+
+
+Of course this is a toy example - why defer simple computations like addition
+and/or printing results to a separate process? Next, we'll build something a bit
+more interesting and useful.
+
+### Building a Task Queue
+
+This section of the tutorial is based on a real module from the
+distributed-process-platform library, called `BlockingQueue`.
+
+Let's imagine we want to execute tasks on an arbitrary node, but want 
+the caller to block whilst the remote task is executing. We also want
+to put an upper bound on the number of concurrent tasks/callers that
+the server will accept. Let's use `ManagedProcess` to implement a generic
+task server like this, with the following characteristics
 
 * requests to enqueue a task are handled immediately
 * callers however, are blocked until the task completes (or fails)
 * an upper bound is placed on the number of concurrent running tasks
 
-Once the upper bound is reached, tasks will be queued up for later
-execution. Only when we drop below this limit will tasks be taken
-from the backlog and executed.
+Once the upper bound is reached, tasks will be queued up for execution.
+Only when we drop below this limit will tasks be taken from the backlog
+and executed.
 
-`ManagedProcess` provides a basic protocol for *server-like* processes
-such as this, based on the synchronous `call` and asynchronous `cast`
-functions. We use these to determine client behaviour, and matching
-*handler* functions are set up in the process itself, to process the
-requests and (if required) replies. This style of programming will
-already be familiar if you've used some combination of `send` in your
-clients and the `receive [ match ... ]` family of functions to write
-your servers. The primary difference here, is that the choice of when
-to return to (potentially blocking on) the server's mailbox is taken
-out of the programmer's hands, leaving the implementor to worry only
-about the logic to be applied once a message of one type or another
-is received.
+Since we want the server to proceed with its work whilst the client is
+blocked, the asynchronous `cast` API may sound like the ideal approach,
+or we might use the asynchronous cousin of our typed-channel
+handling API `callChan`. The `call` API however, offers exactly the
+tools we need to keep the client blocked (waiting for a reply) whilst
+the server is allowed to proceed with its work.
 
 ### Implementing the client
 
-Before we figure out the shape of our state, let's think about the types
-we'll need to consume in the server process: the tasks we perform and the
-maximum pool size.
-
-{% highlight haskell %}
-type PoolSize = Int
-type SimpleTask a = Closure (Process a)
-{% endhighlight %}
+We'll start by thinking about the types we need to consume in the server
+and client processes: the tasks we're being asked to perform.
 
 To submit a task, our clients will submit an action in the process
 monad, wrapped in a `Closure` environment. We will use the `Addressable`
 typeclass to allow clients to specify the server's location in whatever
-manner suits them:
-
+manner suits them: The type of a task will be `Closure (Process a)` and
+the server will explicitly return an /either/ value with `Left String`
+for errors and `Right a` for successful results.
+ 
 {% highlight haskell %}
 -- enqueues the task in the pool and blocks
 -- the caller until the task is complete
@@ -231,7 +425,7 @@ The steps then, are
 4. bump another task from the backlog (if there is one)
 5. carry on
 
-This chain then, looks like `wait h >>= respond c >> bump s t >>= continue`.
+This chain then, looks like `wait >>= respond >> bump-next-task >>= continue`.
 
 Item (3) requires special API support from `ManagedProcess`, because we're not
 just sending *any* message back to the caller. We're replying to a specific `call`
@@ -284,10 +478,10 @@ simpler to work with.
 
 The `ProcessDefinition` takes a number of different kinds of handler. The only ones
 _we_ care about are the call handler for submissions, and the handler that
-deals with monitor signals.
+deals with monitor signals. TODO: THIS DOES NOT READ WELL
 
-Call and cast handlers live in the `apiHandlers` list of a `ProcessDefinition` and
-must have the type `Dispatcher s` where `s` is the state type for the process. We
+Call and cast handlers live in the `apiHandlers` list of our `ProcessDefinition`
+and have the type `Dispatcher s` where `s` is the state type for the process. We
 cannot construct a `Dispatcher` ourselves, but a range of functions in the
 `ManagedProcess.Server` module exist to lift functions like the ones we've just
 defined, to the correct type. The particular function we need is `handleCallFrom`,
@@ -301,11 +495,11 @@ data ProcessReply s a =
   | NoReply (ProcessAction s)
 {% endhighlight %}
 
-There are also various utility functions in the API to construct a `ProcessAction`
-and we make use of `noReply_` here, which constructs `NoReply` for us and
-presets the `ProcessAction` to `ProcessContinue`, which goes back to receiving
-messages from clients. We already have a function over our input domain, which
-evaluates to a new state, so we end up with:
+Again, various utility functions are defined by the API for constructing a
+`ProcessAction` and we make use of `noReply_` here, which constructs `NoReply`
+for us and presets the `ProcessAction` to `continue`, which goes back to
+receiving messages from clients. We already have a function over our input domain,
+which evaluates to a new state, so we end up with:
 
 {% highlight haskell %}
 storeTask :: Serializable a
@@ -324,7 +518,7 @@ handleCallFrom (\s f (p :: Closure (Process a)) -> storeTask s f p)
 {% endhighlight %}
 
 No such thing is required for `taskComplete`, as there's no ambiguity about its
-type. Our process definition is finished, and here it is:
+type. Our process definition is now finished, and here it is:
 
 {% highlight haskell %}
 poolServer :: forall a . (Serializable a) => ProcessDefinition (Pool a)
@@ -339,9 +533,10 @@ poolServer =
       } :: ProcessDefinition (Pool a)
 {% endhighlight %}
 
-Starting the pool is fairly simple and `ManagedProcess` has some utilities to help.
+Starting the pool is simple: `ManagedProcess` provides several utility functions
+to help with spawning and running processes.
 The `start` function takes an _initialising_ thunk, which must generate the initial
-state and per-call timeout setting, and the process definition which we've already
+state and per-call timeout settings, then the process definition which we've already
 encountered.
 
 {% highlight haskell %}
@@ -351,7 +546,10 @@ simplePool :: forall a . (Serializable a)
               -> Process (Either (InitResult (Pool a)) TerminateReason)
 simplePool sz server = start sz init' server
   where init' :: PoolSize -> Process (InitResult (Pool a))
-        init' sz' = return $ InitOk (Pool sz' [] []) Infinity
+        init' sz' = return $ InitOk (emptyPool sz') Infinity
+
+        emptyPool :: Int -> Pool a
+        emptyPool s = Pool s [] []
 {% endhighlight %}
 
 ### Putting it all together
@@ -361,8 +559,8 @@ or `spawnLocal` with `simplePool`. The second argument should add specificity to
 the type of results the process definition operates on, e.g.,
 
 {% highlight haskell %}
-let s' = poolServer :: ProcessDefinition (Pool String)
-in simplePool s s'
+let svr' = poolServer :: ProcessDefinition (Pool String)
+in simplePool s svr'
 {% endhighlight %}
 
 Defining tasks is as simple as making them remote-worthy:
@@ -375,7 +573,7 @@ $(remotable ['sampleTask])
 {% endhighlight %}
 
 And executing them is just as simple too. Given a pool which has been registered
-locally as "mypool", we can simply call it directly:
+locally as "mypool":
 
 {% highlight haskell %}
 tsk <- return $ ($(mkClosure 'sampleTask) (seconds 2, "foobar"))
@@ -398,17 +596,9 @@ execution ordering.
 
 Perhaps more of a concern is the cost of using `Async` everywhere - remember
 we used this in the *server* to handle concurrently executing tasks and obtaining
-their results. The `Async` module is also used by `ManagedProcess` to handle the
-`call` mechanism, and there *are* some overheads to using it. An invocation of
-`async` will create two new processes: one to perform the calculation and another
-to monitor the first and handle failure and/or cancellation. Spawning processes is
-cheap, but not free as each process is a haskell thread, plus some additional book
-keeping data.
+their results. An invocation of `async` will create two new processes: one to perform
+the calculation and another to monitor the first and handle failures and/or cancellation.
+Spawning processes is cheap, but not free as each process is a haskell thread, plus
+some additional book keeping data.
 
-The cost of spawning two processes for each computation/task might represent just that
-bit too much overhead for some applications. In a forthcoming tutorial, we'll look at the
-`Control.Distributed.Process.Platform.Task` API, which looks a lot like `Async` but
-manages exit signals in a single thread and makes configurable task pools and task
-supervision strategy part of its API.
-
-[1]: https://github.com/haskell-distributed/distributed-process-platform/blob/master/tests/SimplePool.hs
+[1]: https://github.com/haskell-distributed/distributed-process-platform/blob/master/src/Control/Distributed/Process/Platform/Task/Queue/BlockingQueue.hs
