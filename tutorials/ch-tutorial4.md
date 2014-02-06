@@ -274,23 +274,39 @@ executeTask :: forall s a . (Addressable s, Serializable a)
 executeTask sid t = call sid t
 {% endhighlight %}
 
-Although `call` is a synchronous protocol, communication with the
-*server process* is out of band, both from the client and the server's
-point of view. The server implementation chooses whether to reply to a
-call request immediately, or defer its reply until a later stage (and
-thus go back to receiving other messages in the meanwhile).
+Remember that in Cloud Haskell, the only way to communicate with a process
+(apart from introducing scoped concurrency primitives like `MVar` or using
+stm) is via its mailbox and typed channels. Also, all communication with
+the process is asynchronous from the sender's perspective and synchronous
+from the receiver's. Although `call` is a synchronous (RPC-like) protocol,
+communication with the *server process* has to take place out of band.
 
-In terms of code, that's all there is to it for our client! Note that
-the type signature we expose to our consumers is specific, and that
-we do not expose them to either arbitrary messages arriving in their
-mailbox or to exceptions being thrown in their thread. Instead we
-return an `Either`. One very important thing about this approach is
-that if the server replies with some other type (i.e., a type other
-than `Either String a`) then our client will be blocked indefinitely!
+The server implementation chooses to reply to each request and when handling
+a `call`, can defer its reply until a later stage, thus going back to
+receiving and processing other messages in the meantime. As far as the client
+is concerned, it is simply waiting for a reply. Note that the `call` primitive
+is implemented so that messages from other processes cannot interleave with
+the server's response. This is very important, since another message of type
+`Either String a` could theoretically arrive in our mailbox from somewhere
+else whilst we're receiving, therefore `call` transparently tags the call
+message and awaits a specific reply from the server (containing the same
+tag). These tags are guaranteed to be unique across multiple nodes, since
+they're based on a `MonitorRef`, which holds a `Identifier ProcessId` and
+a node local monitor ref counter. All monitor creation is coordinated by
+the caller's node controller (guaranteeing the uniqueness of the ref
+counter for the lifetime of the node) and the references are not easily
+forged (i.e., sent by mistake - this is not a security feature of any sort)
+since the type is opaque.
 
-There are several varieties of the `call` API that deal with error
-handling in different ways. Consult the haddocks for more info about
-these.
+In terms of code for the client then, that's all there is to it!
+Note that the type signature we expose to our consumers is specific, and that
+we do not expose them to either arbitrary messages arriving in their mailbox
+or to exceptions being thrown in their thread. Instead we return an `Either`.
+One very important thing about this approach is that if the server replies
+with some other type (i.e., a type other than `Either String a`) then our
+client will be blocked indefinitely! We could alleviate this by using a
+typed channel as we saw previously with our math server, but there's little
+point since we're in total charge of both client and server.
 
 ### Implementing the server
 

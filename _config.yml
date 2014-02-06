@@ -1,5 +1,6 @@
 exclude: [".rvmrc", ".rbenv-version", "README.md", "Rakefile", "changelog.md"]
 lsi: false
+auto: true
 pygments: true
 safe: true
 
@@ -12,4 +13,4 @@ author:
   github: hyperthunk
   twitter: hyperthunk
 
-production_url: http://haskell-distributed.github.com/distributed-process-platform
+production_url: http://hyperthunk.github.com/website-next-preview
