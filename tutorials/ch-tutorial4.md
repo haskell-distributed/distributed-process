@@ -214,7 +214,7 @@ printSum sid = cast sid . Add
 launchMathServer :: Process ProcessId
 launchMathServer =
   let server = statelessProcess {
-      apiHandlers = [ handleRpcChan_ (\chan (Add x y) -> sendChan chan (x + y))
+      apiHandlers = [ handleRpcChan_ (\chan (Add x y) -> sendChan chan (x + y) >> continue_)
                     , handleCast_ (\(Add x y) -> liftIO $ putStrLn $ show (x + y) >> continue_) ]
     , unhandledMessagePolicy = Drop
     }
@@ -300,143 +300,152 @@ since the type is opaque.
 
 In terms of code for the client then, that's all there is to it!
 Note that the type signature we expose to our consumers is specific, and that
-we do not expose them to either arbitrary messages arriving in their mailbox
-or to exceptions being thrown in their thread. Instead we return an `Either`.
-One very important thing about this approach is that if the server replies
-with some other type (i.e., a type other than `Either String a`) then our
-client will be blocked indefinitely! We could alleviate this by using a
-typed channel as we saw previously with our math server, but there's little
-point since we're in total charge of both client and server.
+we do not expose them to arbitrary messages arriving in their mailbox. Note
+that if a `call` fails, a `ProcessExitException` will be thrown in the caller's
+thread (since the implementation calls `die` if it detects that the server has
+died before replying). Other variations of `call` exist that return a `Maybe` or
+an `Either ExitReason a` instead of making the caller's process exit.
+
+Note that if the server replies to this call with some other type (i.e., a type
+other than `Either String a`) then our client will be blocked indefinitely!
+We could alleviate this by using a typed channel as we saw previously with our
+math server, but there's little point since we're in total charge of both the
+client and the server's code.
 
 ### Implementing the server
 
-Back on the server, we write a function that takes our state and an
-input message - in this case, the `Closure` we've been sent - and
-have that update the process' state and possibility launch the task
-if we have enough spare capacity.
+To implement the server, we'll need to hang on to some internal state. As well as
+knowing our queue's size limit, we will need to track the _active_ tasks we're
+currently running. Each task will be submitted as a `Closure (Process a)` and we'll
+need to spawn the task (asynchronously), handle the result (once the closure has
+run to completion) and communicate the result (or failure) to the original caller.
+
+This means our pool state will need to be parameterised by the result type it will
+accept in its closures. So now we have the beginnings of our state type:
 
 {% highlight haskell %}
-data Pool a = Pool a
+data BlockingQueue a = BlockingQueue
 {% endhighlight %}
-
-I've called the state type `Pool` as we're providing a fixed size resource
-pool from the consumer's perspective. We could think of this as a bounded
-queue, latch or barrier of sorts, but that conflates the example a bit too
-much. We parameterise the state by the type of data that can be returned
-by submitted tasks.
-
-The updated pool must store the task **and** the caller (so we can reply
-once the task is complete). The `ManagedProcess.Server` API will provide us
-with a `Recipient` value which can be used to reply to the caller at a later
-time, so we'll make use of that here.
-
-{% highlight haskell %}
-acceptTask :: Serializable a
-           => Pool a
-           -> Recipient
-           -> Closure (Process a)
-           -> Process (Pool a)
-{% endhighlight %}
-
-For our example we will avoid using even vaguely exotic types to manage our
-process' internal state, and stick to simple property lists. This is hardly
-efficient, but that's fine for a test/demo.
-
-{% highlight haskell %}
-data Pool a = Pool {
-    poolSize :: PoolSize
-  , accepted :: [(Recipient, Closure (Process a))]
-  } deriving (Typeable)
-{% endhighlight %}
-
-Given a pool of closures, we must now work out how to execute them
-on the caller's behalf.
 
 ### Making use of Async
 
 So **how** can we execute this `Closure (Process a)` without blocking the server
-process itself? We will use the `Control.Distributed.Process.Platform.Async` API
+process itself? We can use the `Control.Distributed.Process.Platform.Async` API
 to execute each task asynchronously and provide a means for waiting on the result.
 
-In order to use the `Async` handle to get the result of the computation once it's
+In order to use an `Async` handle to get the result of the computation once it's
 complete, we'll have to hang on to a reference. We also need a way to associate the
 submitter with the handle, so we end up with one field for the active (running)
-tasks and another for the queue of accepted (but inactive) ones, like so...
+tasks and another for the queue of accepted (but inactive) ones, as expected.
+
+Since we cannot wait on all these `Async` handles at once whilst we're supposed to
+be accepting new messages from clients - actually, /async/ does provide an API for
+multiplexing on async results, but that's no use here - instead we will monitor the
+async tasks and pull the results when we receive their monitor signals. So for the
+active tasks, we'll need to store a `MonitorRef` and a reference to the original
+caller, plus the async handle itself. We'll use a simple association list for this
+state, though we should probably use a more optimal data structure eventually.
+
+For the tasks that we cannot execute immediately (i.e., when we reach the queue's
+size limit), we hold the client ref and the closure, but no monitor ref. We'll
+use a data structure that support FIFO ordering semantics for this, since that's
+probably what clients will expect of something calling itself a "queue".
 
 {% highlight haskell %}
-data Pool a = Pool {
-    poolSize :: PoolSize
-  , active   :: [(Recipient, Async a)]
-  , accepted :: [(Recipient, Closure (Process a))]
-  } deriving (Typeable)
+data BlockingQueue a = BlockingQueue {
+    poolSize :: SizeLimit
+  , active   :: [(MonitorRef, CallRef (Either ExitReason a), Async a)]
+  , accepted :: Seq (CallRef (Either ExitReason a), Closure (Process a))
+  }
 {% endhighlight %}
 
-To turn that `Closure` environment into a thunk we can evaluate, we'll use the
+Our queue-like behaviour is fairly simple to define using `Data.Sequence`:
+
+{% highlight haskell %}
+enqueue :: Seq a -> a -> Seq a
+enqueue s a = a <| s
+
+dequeue :: Seq a -> Maybe (a, Seq a)
+dequeue s = maybe Nothing (\(s' :> a) -> Just (a, s')) $ getR s
+
+getR :: Seq a -> Maybe (ViewR a)
+getR s =
+  case (viewr s) of
+    EmptyR -> Nothing
+    a      -> Just a
+{% endhighlight %}
+
+
+Now, to turn that `Closure` environment into a thunk we can evaluate, we'll use the
 built in `unClosure` function, and we'll pass the thunk to `async` and get back
-a handle to the async task.
+a handle to the running async task, which we'll then need to monitor. We won't cover
+the async API in detail here, except to point out that the call to `async` spawns a
+new process to do the actual work and returns a handle that we can use to query for
+the result.
 
 {% highlight haskell %}
 proc <- unClosure task'
 asyncHandle <- async proc
+ref <- monitorAsync asyncHandle
 {% endhighlight %}
 
-Of course, we decided not to block on each `Async` handle, and we can't sit
-in a *loop* polling all the handles representing tasks we're running
-(since no submissions would be handled whilst we're spinning waiting
-for results). Instead we rely on monitors instead, so we must store a
-`MonitorRef` in order to know which monitor signal relates to which
-async task (and recipient).
+We can now implement the `acceptTask` function, which the server will use to handle
+submitted tasks. The signature of our function must be compatible with the message
+handling API from `ManagedProcess` that we're going to use it with - in this case
+`handleCallFrom`. This variant of the `handleCall` family of functions is specifically
+intended for use when the server is going to potentially delay its reply, rather than
+replying immediately. It takes an expression that operates over our server's state, a
+`CallRef` that uniquely identifies the caller and can be used to reply to them later
+on and the message that was sent to the server - in this case, a `Closure (Process a)`.
+
+All managed process handler functions must return either a `ProcessAction`, indicating
+how the server should proceed, or a `ProcessReply`, which combines a `ProcessAction`
+with a possible reply to one of the `call` derivatives. Since we're deferring our reply
+until later, we will use `noReply_`, which creates a `ProcessAction` for us, telling
+the server to continue receiving messages.
 
 {% highlight haskell %}
-data Pool a = Pool {
-    poolSize :: PoolSize
-  , active   :: [(MonitorRef, Recipient, Async a)]
-  , accepted :: [(Recipient, Closure (Process a))]
-  } deriving (Typeable)
-{% endhighlight %}
+storeTask :: Serializable a
+          => BlockingQueue a
+          -> CallRef (Either ExitReason a)
+          -> Closure (Process a)
+          -> Process (ProcessReply (Either ExitReason a) (BlockingQueue a))
+storeTask s r c = acceptTask s r c >>= noReply_
 
-Finally we can implement the `acceptTask` function.
-
-{% highlight haskell %}
 acceptTask :: Serializable a
-           => Pool a
-           -> Recipient
+           => BlockingQueue a
+           -> CallRef (Either ExitReason a)
            -> Closure (Process a)
-           -> Process (Pool a)
-acceptTask s@(Pool sz' runQueue taskQueue) from task' =
+           -> Process (BlockingQueue a)
+acceptTask s@(BlockingQueue sz' runQueue taskQueue) from task' =
   let currentSz = length runQueue
   in case currentSz >= sz' of
     True  -> do
-      return $ s { accepted = ((from, task'):taskQueue) }
+      return $ s { accepted = enqueue taskQueue (from, task') }
     False -> do
       proc <- unClosure task'
       asyncHandle <- async proc
       ref <- monitorAsync asyncHandle
-      taskEntry <- return (ref, from, asyncHandle)
+      let taskEntry = (ref, from, asyncHandle)
       return s { active = (taskEntry:runQueue) }
 {% endhighlight %}
 
 If we're at capacity, we add the task (and caller) to the `accepted` queue,
 otherwise we launch and monitor the task using `async` and stash the monitor
-ref, caller ref and the async handle together in the `active` field. Prepending
-to the list of active/running tasks is a somewhat arbitrary choice. One might
-argue that heuristically, the younger a task is the less likely it is that it
-will run for a long time. Either way, I've done this to avoid cluttering the
-example with data structures, so we can focus on the `ManagedProcess` APIs.
+ref, caller ref and the async handle together in the `active` field.
 
-Now we will write a function that handles the results. When a monitor signal
-arrives, we lookup an async handle that we can use to obtain the result
-and send it back to the caller. Because, even if we were running at capacity,
-we've now seen a task complete (and therefore reduced the number of active tasks
-by one), we will also pull off a pending task from the backlog (i.e., accepted),
-if any exists, and execute it. As with the active task list, we're going to
-take from the backlog in FIFO order, which is almost certainly not what you'd want
-in a real application, but that's not the point of the example either.
+Now we must write a function that handles the results of these closures. When
+a monitor signal arrives in our mailbox, we need to lookup the async handle
+associated with it so as to obtain the result and send it back to the caller.
+Because, even if we were running at capacity, we've now seen a task complete
+(and therefore reduced the number of active tasks by one), we will also pull
+off a pending task from the backlog (i.e., accepted), if any exists, and execute
+it.
 
 The steps then, are
 
-1. find the async handle for the monitor ref
-2. pull the result out of it
+1. find the async handle for our monitor ref
+2. obtain the result using the handle
 3. send the result to the client
 4. bump another task from the backlog (if there is one)
 5. carry on
@@ -448,86 +457,77 @@ just sending *any* message back to the caller. We're replying to a specific `cal
 that has taken place and is, from the client's perspective, still running.
 The `ManagedProcess` API call for this is `replyTo`.
 
+There is quite a bit of code in this next function, which we'll look at in detail.
+Firstly, note that the signature is similar to the one we used for `storeTask`, but
+returns just a `ProcessAction` instead of `ProcessReply`. This function will not be
+wired up to a `call` (or even a `cast`), because the node controller will send the
+monitor signal directly to our mailbox, not using the managed process APIs at all.
+This kind of client interaction is called an _info call_ in the managed process API,
+and since there's no expected reply, as with `cast`, we simply return a `ProcessAction`
+telling the server what to do next - in this case, to `continue` reading from the
+mailbox.
+
 {% highlight haskell %}
 taskComplete :: forall a . Serializable a
-             => Pool a
+             => BlockingQueue a
              -> ProcessMonitorNotification
-             -> Process (ProcessAction (Pool a))
-taskComplete s@(Pool _ runQ _)
+             -> Process (ProcessAction (BlockingQueue a))
+taskComplete s@(BlockingQueue _ runQ _)
              (ProcessMonitorNotification ref _ _) =
   let worker = findWorker ref runQ in
   case worker of
     Just t@(_, c, h) -> wait h >>= respond c >> bump s t >>= continue
     Nothing          -> continue s
-    where
-      respond :: Recipient
-              -> AsyncResult a
-              -> Process ()
-      respond c (AsyncDone       r) = replyTo c ((Right r) :: (Either String a))
-      respond c (AsyncFailed     d) = replyTo c ((Left (show d)) :: (Either String a))
-      respond c (AsyncLinkFailed d) = replyTo c ((Left (show d)) :: (Either String a))
-      respond _      _              = die $ TerminateOther "IllegalState"
 
-      bump :: Pool a -> (MonitorRef, Recipient, Async a) -> Process (Pool a)
-      bump st@(Pool _ runQueue acc) worker =
-        let runQ2  = deleteFromRunQueue worker runQueue in
-        case acc of
-          []           -> return st { active = runQ2 }
-          ((tr,tc):ts) -> acceptTask (st { accepted = ts, active = runQ2 }) tr tc
+  where
+    respond :: CallRef (Either ExitReason a)
+            -> AsyncResult a
+            -> Process ()
+    respond c (AsyncDone       r) = replyTo c ((Right r) :: (Either ExitReason a))
+    respond c (AsyncFailed     d) = replyTo c ((Left (ExitOther $ show d))  :: (Either ExitReason a))
+    respond c (AsyncLinkFailed d) = replyTo c ((Left (ExitOther $ show d))  :: (Either ExitReason a))
+    respond _ _                   = die $ ExitOther "IllegalState"
+
+    bump :: BlockingQueue a
+         -> (MonitorRef, CallRef (Either ExitReason a), Async a)
+         -> Process (BlockingQueue a)
+    bump st@(BlockingQueue _ runQueue acc) worker =
+      let runQ2 = deleteFromRunQueue worker runQueue
+          accQ  = dequeue acc in
+      case accQ of
+        Nothing            -> return st { active = runQ2 }
+        Just ((tr,tc), ts) -> acceptTask (st { accepted = ts, active = runQ2 }) tr tc
 
 findWorker :: MonitorRef
-         -> [(MonitorRef, Recipient, Async a)]
-         -> Maybe (MonitorRef, Recipient, Async a)
+           -> [(MonitorRef, CallRef (Either ExitReason a), Async a)]
+           -> Maybe (MonitorRef, CallRef (Either ExitReason a), Async a)
 findWorker key = find (\(ref,_,_) -> ref == key)
 
-deleteFromRunQueue :: (MonitorRef, Recipient, Async a)
-                 -> [(MonitorRef, Recipient, Async a)]
-                 -> [(MonitorRef, Recipient, Async a)]
+deleteFromRunQueue :: (MonitorRef, CallRef (Either ExitReason a), Async a)
+                   -> [(MonitorRef, CallRef (Either ExitReason a), Async a)]
+                   -> [(MonitorRef, CallRef (Either ExitReason a), Async a)]
 deleteFromRunQueue c@(p, _, _) runQ = deleteBy (\_ (b, _, _) -> b == p) c runQ
 {% endhighlight %}
 
-That was pretty simple. We've dealt with mapping the `AsyncResult` to `Either` values,
-which we *could* have left to the caller, but this makes the client facing API much
-simpler to work with.
+We've dealt with mapping the `AsyncResult` to `Either` values, which we *could* have
+left to the caller, but this makes the client facing API much simpler to work with.
+Note that our use of an association list for the active _run queue_ makes for an
+O(n) search for our worker, but that can be optimised with a map or dictionary later.
+Worse, we have to scan the list again when deleting the worker from the _run queue_,
+but the same fix (using a Map) should alleviate that problem too. We leave that as
+an exercise for the reader.
 
 ### Wiring up handlers
-
-The `ProcessDefinition` takes a number of different kinds of handler. The only ones
-_we_ care about are the call handler for submissions, and the handler that
-deals with monitor signals. TODO: THIS DOES NOT READ WELL
 
 Call and cast handlers live in the `apiHandlers` list of our `ProcessDefinition`
 and have the type `Dispatcher s` where `s` is the state type for the process. We
 cannot construct a `Dispatcher` ourselves, but a range of functions in the
-`ManagedProcess.Server` module exist to lift functions like the ones we've just
-defined, to the correct type. The particular function we need is `handleCallFrom`,
-which works with functions over the state, `Recipient` and call data/message.
-All varieties of `handleCall` need to return a `ProcessReply`, which has the
-following type:
-
-{% highlight haskell %}
-data ProcessReply s a =
-    ProcessReply a (ProcessAction s)
-  | NoReply (ProcessAction s)
-{% endhighlight %}
-
-Again, various utility functions are defined by the API for constructing a
-`ProcessAction` and we make use of `noReply_` here, which constructs `NoReply`
-for us and presets the `ProcessAction` to `continue`, which goes back to
-receiving messages from clients. We already have a function over our input domain,
-which evaluates to a new state, so we end up with:
-
-{% highlight haskell %}
-storeTask :: Serializable a
-          => Pool a
-          -> Recipient
-          -> Closure (Process a)
-          -> Process (ProcessReply (Pool a) ())
-storeTask s r c = acceptTask s r c >>= noReply_
-{% endhighlight %}
+`ManagedProcess.Server` module exist to convert functions like the ones we've just
+defined, to the correct type.
 
 In order to spell things out for the compiler, we need to put a type signature
-in place at the call site too, so our final construct is
+in place at the call site for `storeTask`, so our final construct for that
+handler is thus:
 
 {% highlight haskell %}
 handleCallFrom (\s f (p :: Closure (Process a)) -> storeTask s f p)
@@ -537,47 +537,43 @@ No such thing is required for `taskComplete`, as there's no ambiguity about its
 type. Our process definition is now finished, and here it is:
 
 {% highlight haskell %}
-poolServer :: forall a . (Serializable a) => ProcessDefinition (Pool a)
-poolServer =
-    defaultProcess {
-        apiHandlers = [
-          handleCallFrom (\s f (p :: Closure (Process a)) -> storeTask s f p)
-        ]
-      , infoHandlers = [
-            handleInfo taskComplete
-        ]
-      } :: ProcessDefinition (Pool a)
+defaultProcess {
+    apiHandlers = [
+            handleCallFrom (\s f (p :: Closure (Process a)) -> storeTask s f p)
+          , handleCall poolStatsRequest
+    ]
+  , infoHandlers = [ handleInfo taskComplete ]
+  }
 {% endhighlight %}
 
-Starting the pool is simple: `ManagedProcess` provides several utility functions
-to help with spawning and running processes.
-The `start` function takes an _initialising_ thunk, which must generate the initial
-state and per-call timeout settings, then the process definition which we've already
-encountered.
+Starting the server takes a bit of work: `ManagedProcess` provides several
+utility functions to help with spawning and running processes. The `serve`
+function takes an _initialising_ thunk (which has the type `InitHandler`)
+that must generate the initial state and set up the server's receive timeout,
+then the process definition which we've already encountered. For more details
+about starting managed processes, see the haddocks.
 
 {% highlight haskell %}
-simplePool :: forall a . (Serializable a)
-              => PoolSize
-              -> ProcessDefinition (Pool a)
-              -> Process (Either (InitResult (Pool a)) TerminateReason)
-simplePool sz server = start sz init' server
-  where init' :: PoolSize -> Process (InitResult (Pool a))
-        init' sz' = return $ InitOk (emptyPool sz') Infinity
+run :: forall a . (Serializable a)
+         => Process (InitResult (BlockingQueue a))
+         -> Process ()
+run init' = ManagedProcess.serve () (\() -> init') poolServer
+  where poolServer =
+          defaultProcess {
+              apiHandlers = [
+                 handleCallFrom (\s f (p :: Closure (Process a)) -> storeTask s f p)
+               , handleCall poolStatsRequest
+               ]
+            , infoHandlers = [ handleInfo taskComplete ]
+            } :: ProcessDefinition (BlockingQueue a)
 
-        emptyPool :: Int -> Pool a
-        emptyPool s = Pool s [] []
+pool :: forall a . Serializable a
+     => SizeLimit
+     -> Process (InitResult (BlockingQueue a))
+pool sz' = return $ InitOk (BlockingQueue sz' [] Seq.empty) Infinity
 {% endhighlight %}
 
 ### Putting it all together
-
-Starting up a pool locally or on a remote node is just a matter of using `spawn`
-or `spawnLocal` with `simplePool`. The second argument should add specificity to
-the type of results the process definition operates on, e.g.,
-
-{% highlight haskell %}
-let svr' = poolServer :: ProcessDefinition (Pool String)
-in simplePool s svr'
-{% endhighlight %}
 
 Defining tasks is as simple as making them remote-worthy:
 
@@ -588,13 +584,55 @@ sampleTask (t, s) = sleep t >> return s
 $(remotable ['sampleTask])
 {% endhighlight %}
 
-And executing them is just as simple too. Given a pool which has been registered
-locally as "mypool":
+And executing them is just as simple too.
 
 {% highlight haskell %}
 tsk <- return $ ($(mkClosure 'sampleTask) (seconds 2, "foobar"))
-executeTask "mypool" tsk
+executeTask taskQueuePid tsk
 {% endhighlight %}
+
+Starting up the server itself locally or on a remote node, is just a matter of
+combining `spawn` or `spawnLocal` with `start`. We can go a step further though,
+and add a bit more type safety to our API by using an opaque handle to communicate
+with the server. The advantage of this is that it right now it is possible for
+a client to send a `Closure` to the server with a return type different from the
+one the server is expecting! Since the server won't recognise that message, the
+`unhandledMessagePolicy` will be applied, which by default crashes the server with
+an exit reason referring to "unhandled inputs"!
+
+By returning a handle to the server using a parameterised type, we can ensure that
+only closures returning a matching type are sent. To do so, we use a phantom type
+parameter and simply stash the real `ProcessId` in a newtype. We also need to be
+able to pass this handle to the managed process `call` API, so we define an
+instance of the `Resolvable` typeclass for it, which makes a (default) instance of
+`Routable` available, which is exactly what `call` is expecting:
+
+{% highlight haskell %}
+newtype TaskQueue a = TaskQueue { unQueue :: ProcessId }
+
+instance Resolvable (TaskQueue a) where
+  resolve = return . unQueue
+{% endhighlight %}
+
+Finally, we write a `start` function that returns this handle and change the
+signature of `executeTask` to match it:
+
+{% highlight haskell %}
+start :: forall a . (Serializable a)
+      => SizeLimit
+      -> Process (TaskQueue a)
+start lim = spawnLocal (start $ pool lim) >>= return . TaskQueue
+
+-- .......
+
+executeTask :: (Serializable a)
+            => TaskQueue a
+            -> Closure (Process a)
+            -> Process (Either ExitReason a)
+executeTask sid t = call sid t
+{% endhighlight %}
+
+----------
 
 In this tutorial, we've really just scratched the surface of the `ManagedProcess`
 API. By handing over control of the client/server protocol to the framework, we
@@ -604,17 +642,13 @@ receiving messages, handling client/server failures and such like.
 
 ### Performance Considerations
 
-We did not take much care over our choice of data structures. Might this have profound
-consequences for clients? The LIFO nature of the pending backlog is surprising, but
-we can change that quite easily by changing data structures. In fact, the code on which
-this example is based uses `Data.Sequence` to provide both strictness and FIFO
-execution ordering.
-
-Perhaps more of a concern is the cost of using `Async` everywhere - remember
-we used this in the *server* to handle concurrently executing tasks and obtaining
-their results. An invocation of `async` will create two new processes: one to perform
-the calculation and another to monitor the first and handle failures and/or cancellation.
-Spawning processes is cheap, but not free as each process is a haskell thread, plus
-some additional book keeping data.
+We did not take much care over our choice of data structures. Might this have
+profound consequences for clients? Perhaps more of a concern is the cost of
+using `Async` everywhere - remember we used this in the *server* to handle
+concurrently executing tasks and obtaining their results. An invocation of
+`async` will create two new processes: one to perform the calculation and
+another to monitor the first and handle failures and/or cancellation. Spawning
+processes is cheap, but not free as each process is a haskell thread, plus some
+additional book keeping data.
 
 [1]: https://github.com/haskell-distributed/distributed-process-platform/blob/master/src/Control/Distributed/Process/Platform/Task/Queue/BlockingQueue.hs
