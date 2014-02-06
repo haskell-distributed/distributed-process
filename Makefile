@@ -21,4 +21,4 @@ endif
 
 .PHONY: serve
 serve:
-	jekyll --pygments --no-lsi --safe --server
+	jekyll serve -w

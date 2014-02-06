@@ -3,9 +3,9 @@ layout: documentation
 title: Documentation
 ---
 
-### Cloud Haskell
+### Cloud Haskell Platform
 
-This is [*Cloud Haskell*][1]. Cloud Haskell is a set of libraries
+This is the [*Cloud Haskell Platform*][1]. Cloud Haskell is a set of libraries
 that bring Erlang-style concurrency and distribution to Haskell programs. This
 project is an implementation of that distributed computing interface, where
 processes communicate with one another through explicit message passing rather
@@ -238,14 +238,14 @@ types such as `TMVar` just as normal Haskell threads would.
 ### Typed Channels
 
 Channels provides an alternative to message transmission with `send` and `expect`.
-While `send` and `expect` allow  transmission of messages of any `Serializable`
+While `send` and `expect` allow us to transmit messages of any `Serializable`
 type, channels require a uniform type. Channels work like a distributed equivalent
 of Haskell's `Control.Concurrent.Chan`, however they have distinct ends: a single
 receiving port and a corollary send port.
 
 Channels provide a nice alternative to *bare send and receive*, which is a bit
-*unHaskellish*, because the processes message queue has messages of multiple
-types, and we have to do dynamic type checking.
+*un-Haskell-ish*, since our process' message queue can contain messages of multiple
+types, forcing us to undertake dynamic type checking at runtime.
 
 We create channels with a call to `newChan`, and send/receive on them using the
 `{send,receive}Chan` primitives:
@@ -264,19 +264,17 @@ channelsDemo = do
 {% endhighlight %}
 
 Channels are particularly useful when you are sending a message that needs a
-response, because the code that receives the response knows exactly where it
-came from - i.e., it knows that it came from the `SendPort` connected to
-the `ReceivePort` on which it just received a response.
+response, because we know exactly where to look for the reply.
 
-Channels can sometimes allows message types to be simplified, as passing a
-`ProcessId` to reply to isn't required. Channels are not so useful when you
-need to spawn a process and then send a bunch a messages to it and wait for
-replies, because we can’t send the `ReceivePort`.
+Channels can also allow message types to be simplified, as passing a
+`ProcessId` for the reply isn't required. Channels aren't so useful when we
+need to spawn a process and send a bunch a messages to it, then wait for
+replies however; we can’t send a `ReceivePort` since it is not `Serializable`.
 
-ReceivePorts can be merged, so you can listen on several simultaneously. In the
-latest version of [distributed-process][2], you can listen for *regular* messages
-and on multiple channels at the same time, using `matchChan` in the list of
-allowed matches passed `receive`.
+`ReceivePort`s can be merged, so we can listen on several simultaneously. In the
+latest version of [distributed-process][2], we can listen for *regular* messages
+and multiple channels at the same time, using `matchChan` in the list of
+allowed matches passed `receiveWait` and `receiveTimeout`.
 
 ### Linking and monitoring
 
@@ -289,71 +287,27 @@ a set of children, starting, stopping and restarting them as necessary.
 
 ### Stopping Processes
 
-Some processes, like the *outer* process in the previous example, will run until
-they've completed and then return their value. This is just as we find with IO action,
-and there is an instance of `MonadIO` for the `Process` monad, so you can `liftIO` if
-you need to evaluate IO actions.
-
 Because processes are implemented with `forkIO` we might be tempted to stop
 them by throwing an asynchronous exception to the process, but this is almost
-certainly the wrong thing to do. Instead we might send a kind of poison pill,
-which the process *ought* to handle by shutting down gracefully. Unfortunately
-because of the asynchronous nature of sending, this is no good because `send`
-will not fail under any circumstances. In fact, because `send` doesn't block,
-we therefore have no way to know if the recipient existed at the time we sent the
-poison pill. Even if the recipient did exist, we still have no guarantee that
-the message we sent actually arrived - the network connection between the nodes
-could have broken, for example. Making this *shutdown* protocol synchronous is
-no good either - how long would we wait for a reply? Indefinitely?
+certainly the wrong thing to do. Firstly, processes might reside on a remote
+node, in which case throwing an exception is impossible. Secondly, if we send
+some messages to a process' mailbox and then dispatch an exception to kill it,
+there is no guarantee that the subject will receive our message before being
+terminated by the asynchronous exception.
 
-Exit signals come in two flavours - those that can
-be caught and those that cannot. A call to
-`exit :: (Serializable a) => ProcessId -> a -> Process ()` will dispatch an
-exit signal to the specified process. These *signals* can be intercepted and
-handled by the destination process however, so if you need to terminate the
-process in a brutal way, you can use the `kill :: ProcessId -> String -> Process ()`
-function, which sends an exit signal that cannot be handled.
+To terminate a process unconditionally, we use the `kill` primitive, which
+dispatches an asynchronous exception (killing the subject) safely, respecting
+remote calls to processes on disparate nodes and observing message ordering
+guarantees such that `send pid "hello" >> kill pid "goodbye"` behaves quite
+unsurprisingly, delivering the message before the kill signal.
 
-------
-#### __An important note about exit signals__
-
-Exit signals in Cloud Haskell are unlike asynchronous exceptions in regular
-haskell code. Whilst processes *can* use asynchronous exceptions - there's
-nothing stoping this since the `Process` monad is an instance of `MonadIO` -
-exceptions thrown are not bound by the same ordering guarantees as messages
-delivered to a process. Link failures and exit signals *might* be implemented
-using asynchronous exceptions - that is the case in the current
-implementation - but these are implemented in such a fashion that if you
-send a message and *then* an exit signal, the message is guaranteed to arrive
-first.
-
-You should avoid throwing your own exceptions in code where possible. Instead,
-you should terminate yourself, or another process, using the built-in primitives
-`exit`, `kill` and `die`.
-
-{% highlight haskell %}
-exit pid reason  -- force `pid` to exit - reason can be any `Serializable` message
-kill pid reason  -- reason is a string - the *kill* signal cannot be caught
-die reason       -- as 'exit' but kills *us*
-{% endhighlight %}
-
-The `exit` and `kill` primitives do essentially the same thing, but catching
-the specific exception thrown by `kill` is impossible, making `kill` an
-*untrappable exit signal*. Of course you could trap **all** exceptions, but
-you already know that's a very bad idea right!?
-
-The `exit` primitive is a little different. This provides support for trapping
-exit signals in a generic way, so long as your *exit handler* is able to
-recognise the underlying type of the 'exit reason'. This (reason for exiting)
-is stored as a raw `Message`, so if your handler takes the appropriate type
-as an input (and therefore the `Message` can be decoded and passed to the
-handler) then the handler will run. This is pretty much the same approach as
-exception handling using `Typeable`, except that we decide whether or not the
-exception can be handled based on the type of `reason` instead of the type of
-the exception itself.
-
-Calling `die` will immediately raise an exit signal (i.e., `ProcessExitException`)
-in the calling process.
+Exit signals come in two flavours however - those that can be caught and those
+that cannot. Whilst a call to `kill` results in an _un-trappable_ exception,
+a call to `exit :: (Serializable a) => ProcessId -> a -> Process ()` will dispatch
+an exit signal to the specified process that can be caught. These *signals* are
+intercepted and handled by the destination process using `catchExit`, allowing
+the receiver to match on the `Serializable` datum tucked away in the *exit signal*
+and decide whether to oblige or not.
 
 ----
 
@@ -373,7 +327,7 @@ The [distributed-process-platform][18] library implements parts of the
 in the original paper and implemented by the [remote][14] package. In particular,
 we diverge from the original design and defer to many of the principles
 defined by Erlang's [Open Telecom Platform][13], taking in some well established
-Haskell concurrency design patterns alongside.
+Haskell concurrency design patterns along the way.
 
 In fact, [distributed-process-platform][18] does not really consider the
 *task layer* in great detail. We provide an API comparable to remote's
@@ -465,6 +419,12 @@ The API for `Async` is fairly rich, so reading the haddocks is suggested.
 
 #### Managed Processes
 
+The main idea behind a `ManagedProcess` is to separate the functional
+and non-functional aspects of an actor. By functional, we mean whatever
+application specific task the actor performs, and by non-functional
+we mean the *concurrency* or, more precisely, handling of the process'
+mailbox and its interaction with other actors (i.e., clients).
+
 Looking at *typed channels*, we noted that their insistence on a specific input
 domain was more *haskell-ish* than working with bare send and receive primitives.
 The `Async` sub-package also provides a type safe interface for receiving data,
@@ -473,12 +433,12 @@ although it is limited to running a computation and waiting for its result.
 The [Control.Distributed.Processes.Platform.ManagedProcess][21] API provides a
 number of different abstractions that can be used to achieve similar benefits
 in your code. It works by introducing a standard protocol between your process
-and the *world around*, which governs how to handle request/reply processing,
-exit signals, timeouts, sleep/hibernation with `threadDelay` and even provides
+and the *world outside*, which governs how to handle request/reply processing,
+exit signals, timeouts, sleeping/hibernation with `threadDelay` and even provides
 hooks that terminating processes can use to clean up residual state.
 
 The [API documentation][21] is quite extensive, so here we will simply point
-out the obvious differences. A implemented implemented with `ManagedProcess`
+out the obvious differences. A process implemented with `ManagedProcess`
 can present a type safe API to its callers (and the server side code too!),
 although that's not its primary benefit. For a very simplified example:
 
@@ -515,6 +475,18 @@ waiting/blocking, converting the async result and so on. Note that the
 just provides callback functions which take some state and either return a
 new state and a reply, or just a new state. The process is *managed* in the
 sense that its mailbox is under someone else's control.
+
+A NOTE ABOUT THE CALL API AND THAT IT WILL FAIL (WITH UNHANDLED MESSAGE) IF
+THE CALLER IS EXPECTING A TYPE THAT DIFFERS FROM THE ONE THE SERVER PLANS
+TO RETURN, SINCE THE RETURN TYPE IS ENCODED IN THE CALL-MESSAGE TYPE ITSELF.
+
+TODO: WRITE A TEST TO PROVE THE ABOVE
+
+TODO: ADD AN API BASED ON SESSION TYPES AS A KIND OF MANAGED PROCESS.....
+
+In a forthcoming tutorial, we'll look at the `Control.Distributed.Process.Platform.Task`
+API, which looks a lot like `Async` but manages exit signals in a single thread and makes
+configurable task pools and task supervision strategy part of its API.
 
 More complex examples of the `ManagedProcess` API can be seen in the
 [Managed Processes tutorial][22]. API documentation for HEAD is available
