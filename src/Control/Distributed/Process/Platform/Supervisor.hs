@@ -1214,7 +1214,7 @@ tryRestartBranch :: RestartStrategy
                  -> DiedReason
                  -> State
                  -> Process (ProcessAction State)
-tryRestartBranch rs sp _ st = -- TODO: use DiedReason for logging...
+tryRestartBranch rs sp dr st = -- TODO: use DiedReason for logging...
   let mode' = mode rs
       tree' = case rs of
                 RestartAll   _ _ -> childSpecs
@@ -1305,7 +1305,13 @@ tryRestartBranch rs sp _ st = -- TODO: use DiedReason for logging...
     splitTree splitWith = splitWith ((== childKey sp) . childKey . snd) childSpecs
 
     childSpecs :: ChildSpecs
-    childSpecs = st ^. specs
+    childSpecs =
+      let cs  = activeState ^. specs
+          ck  = childKey sp
+          rs' = childRestart sp
+      in case (isTransient rs', dr) of
+           (True, DiedNormal) -> filter ((/= ck) . childKey . snd) cs
+           _                  -> cs
 
 {-  restartParallel :: ChildSpecs
                     -> RestartOrder
