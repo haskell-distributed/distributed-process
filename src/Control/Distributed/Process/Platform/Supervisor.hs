@@ -42,7 +42,7 @@
 -- existing list of children.
 --
 -- When the supervisor spawns its child processes, they are always linked to
--- thier parent (i.e., the supervisor), therefore even if the supervisor is
+-- their parent (i.e., the supervisor), therefore even if the supervisor is
 -- terminated abruptly by an asynchronous exception, the children will still be
 -- taken down with it, though somewhat less ceremoniously in that case.
 --
