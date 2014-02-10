@@ -59,7 +59,7 @@
 -- @Message@ (from "Control.Distributed.Process") and is responsible for
 -- decoding the message and updating its own state (if required). It is via
 -- this callback that custom exchange types can receive information about
--- clients and handle it in thier own way. The 'routeEx' callback is evaluated
+-- clients and handle it in their own way. The 'routeEx' callback is evaluated
 -- with the exchange type's own internal state and the 'Message' originally
 -- sent to the exchange process (via 'post') and is responsible for delivering
 -- the message to its clients in whatever way makes sense for that exchange
