@@ -12,7 +12,7 @@
 --
 -- The concept of a /message exchange/ is borrowed from the world of
 -- messaging and enterprise integration. The /exchange/ acts like a kind of
--- mailbox, accepting inputs from /producers/ and forwarding these messaages
+-- mailbox, accepting inputs from /producers/ and forwarding these messages
 -- to one or more /consumers/, depending on the implementation's semantics.
 --
 -- This module provides some basic types of message exchange and exposes an API
