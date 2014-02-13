@@ -1421,7 +1421,7 @@ doRestartChild _ spec _ state = do -- TODO: use ProcessId and DiedReason to log
       start' <- doStartChild spec st
       case start' of
         Right (ref, st') -> do
-          return $ (bumpStats Active chType (+1)) $ markActive st' ref spec
+          return $ markActive st' ref spec
         Left _ -> do -- TODO: handle this by policy
           -- All child failures are handled via monitor signals, apart from
           -- BadClosure, which comes back from doStartChild as (Left err).
