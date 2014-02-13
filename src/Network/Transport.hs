@@ -110,7 +110,9 @@ data Reliability =
     ReliableOrdered
   | ReliableUnordered
   | Unreliable
-  deriving (Show, Eq)
+  deriving (Show, Eq, Typeable, Generic)
+
+instance Binary Reliability
 
 -- | Multicast group.
 data MulticastGroup = MulticastGroup {
