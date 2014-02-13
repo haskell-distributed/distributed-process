@@ -27,6 +27,8 @@ import Control.Distributed.Process.Platform.Supervisor hiding (start, shutdown)
 import qualified Control.Distributed.Process.Platform.Supervisor as Supervisor
 import Control.Distributed.Process.Platform.ManagedProcess.Client (shutdown)
 import Control.Distributed.Process.Serializable()
+import Control.Distributed.Process.Platform.Service.SystemLog hiding (logMessage, error)
+
 import Control.Distributed.Static (staticLabel)
 import Control.Monad (void, forM_, forM)
 import Control.Rematch
@@ -114,7 +116,7 @@ runInTestContext :: LocalNode
 runInTestContext node lock rs cs proc = do
   Ex.bracket (takeMVar lock) (putMVar lock) $ \() -> runProcess node $ do
     sup <- Supervisor.start rs cs
-    (proc sup) `finally` (kill sup "goodbye")
+    (proc sup) `finally` (exit sup ExitShutdown)
 
 verifyChildWasRestarted :: ChildKey -> ProcessId -> ProcessId -> Process ()
 verifyChildWasRestarted key pid sup = do
@@ -122,11 +124,10 @@ verifyChildWasRestarted key pid sup = do
   cSpec <- lookupChild sup key
   -- TODO: handle (ChildRestarting _) too!
   case cSpec of
-    Just (ref, _) -> do
-      Just pid' <- resolve ref
-      expectThat pid' $ isNot $ equalTo pid
-    _ -> do
-      liftIO $ assertFailure $ "unexpected child ref: " ++ (show cSpec)
+    Just (ref, _) -> do Just pid' <- resolve ref
+                        expectThat pid' $ isNot $ equalTo pid
+    _             -> do
+      liftIO $ assertFailure $ "unexpected child ref: " ++ (show (key, cSpec))
 
 verifyChildWasNotRestarted :: ChildKey -> ProcessId -> ProcessId -> Process ()
 verifyChildWasNotRestarted key pid sup = do
@@ -134,7 +135,7 @@ verifyChildWasNotRestarted key pid sup = do
   cSpec <- lookupChild sup key
   case cSpec of
     Just (ChildStopped, _) -> return ()
-    _ -> liftIO $ assertFailure $ "unexpected child ref: " ++ (show cSpec)
+    _ -> liftIO $ assertFailure $ "unexpected child ref: " ++ (show (key, cSpec))
 
 verifyTempChildWasRemoved :: ProcessId -> ProcessId -> Process ()
 verifyTempChildWasRemoved pid sup = do
@@ -162,7 +163,7 @@ drainChildren children expected = do
   Just exp' <- resolve expected
   -- however... we do allow for the scheduler and accept `head $ tail pids` in
   -- lieu of the correct result, since when there are multiple senders we have
-  -- no causal guarnatee
+  -- no causal guarantees
   if first' /= exp'
      then let second' = head $ tail pids in second' `shouldBe` equalTo exp'
      else first' `shouldBe` equalTo exp'
@@ -812,6 +813,20 @@ restartLeftWhenLeftmostChildDies cs sup = do
   Just pid2' <- resolve ref3
   pid2 `shouldBe` equalTo pid2'
 
+restartWithoutTempChildren :: ChildStart -> ProcessId -> Process ()
+restartWithoutTempChildren cs sup = do
+  (ChildAdded refTrans) <- startNewChild sup $ transientWorker cs
+  (ChildAdded refTemp)  <- startNewChild sup $ tempWorker cs
+  (ChildAdded refPerm)  <- startNewChild sup $ permChild cs
+  Just pid2 <- resolve refTrans
+  Just pid3 <- resolve refPerm
+
+  kill pid2 "foobar"
+  void $ waitForExit pid2 -- this wait reduces the likelihood of a race in the test
+  Nothing <- lookupChild sup "temp-worker"
+  verifyChildWasRestarted "transient-worker" pid2 sup
+  verifyChildWasRestarted "perm-child"       pid3 sup
+
 restartRightWhenRightmostChildDies :: ChildStart -> ProcessId -> Process ()
 restartRightWhenRightmostChildDies cs sup = do
   let spec = permChild cs
@@ -1097,6 +1112,10 @@ tests transport = do
           , testCase "Delete Stopped Child Succeeds"
                 (withSupervisor restartOne []
                     (withClosure deleteStoppedChild
+                                 $(mkStaticClosure 'blockIndefinitely)))
+          , testCase "Restart Minus Dropped (Temp) Child"
+                (withSupervisor restartAll []
+                    (withClosure restartWithoutTempChildren
                                  $(mkStaticClosure 'blockIndefinitely)))
           ]
         , testGroup "Stopping and Restarting Children"

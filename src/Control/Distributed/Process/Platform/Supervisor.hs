@@ -61,19 +61,22 @@
 -- restarted if /any/ child fails. The @RestartAll@ strategy, as its name
 -- suggests, selects /all/ children, whilst the @RestartLeft@ and @RestartRight@
 -- strategies select /all/ children to the left or right of the failed child,
--- in insertion (i.e., startup) order. The failing child is /always/ included in
--- the /branch/ to be restarted, unless it is a @Temporary@ child, in which case
--- it will be removed from the supervisor and never restarted (see
--- 'RestartPolicy' for details).
+-- in insertion (i.e., startup) order.
+--
+-- Note that a /branch/ restart will only occur if the child that exited is
+-- meant to be restarted. Since @Temporary@ children are never restarted and
+-- @Transient@ children are /not/ restarted if they exit normally, in both these
+-- circumstances we leave the remaining supervised children alone. Otherwise,
+-- the failing child is /always/ included in the /branch/ to be restarted.
 --
 -- For a hypothetical set of children @a@ through @d@, the following pseudocode
 -- demonstrates how the restart strategies work.
 --
 -- > let children = [a..d]
 -- > let failure = c
--- > restartsFor RestartOne children failure   = [c]
--- > restartsFor RestartAll children failure   = [a,b,c,d]
--- > restartsFor RestartLeft children failure  = [a,b,c]
+-- > restartsFor RestartOne   children failure = [c]
+-- > restartsFor RestartAll   children failure = [a,b,c,d]
+-- > restartsFor RestartLeft  children failure = [a,b,c]
 -- > restartsFor RestartRight children failure = [c,d]
 --
 -- [Branch Restarts]
@@ -1207,7 +1210,19 @@ tryRestart :: ProcessId
 tryRestart pid state active' spec reason = do
   case state ^. strategy of
     RestartOne _ -> tryRestartChild pid state active' spec reason
-    strat        -> tryRestartBranch strat spec reason $ (active ^= active') state
+    strat        -> do
+      case (childRestart spec, isNormal reason) of
+        (Intrinsic, True) -> stopWith newState ExitNormal
+        (Transient, True) -> continue newState
+        (Temporary, _)    -> continue removeTemp
+        _                 -> tryRestartBranch strat spec reason $ newState
+  where
+    newState = (active ^= active') state
+
+    removeTemp = removeChild spec $ newState
+
+    isNormal (DiedException _) = False
+    isNormal _                 = True
 
 tryRestartBranch :: RestartStrategy
                  -> ChildSpec
@@ -1264,7 +1279,9 @@ tryRestartBranch rs sp dr st = -- TODO: use DiedReason for logging...
     stopIt s (cr, cs) = doTerminateChild cr cs s
 
     startIt :: State -> Child -> Process State
-    startIt s (_, cs) = ensureActive cs =<< doStartChild cs s
+    startIt s (_, cs)
+      | isTemporary (childRestart cs) = return $ removeChild cs s
+      | otherwise                     = ensureActive cs =<< doStartChild cs s
 
     -- Note that ensureActive will kill this (supervisor) process if
     -- doStartChild fails, simply because the /only/ failure that can
@@ -1309,9 +1326,10 @@ tryRestartBranch rs sp dr st = -- TODO: use DiedReason for logging...
       let cs  = activeState ^. specs
           ck  = childKey sp
           rs' = childRestart sp
-      in case (isTransient rs', dr) of
-           (True, DiedNormal) -> filter ((/= ck) . childKey . snd) cs
-           _                  -> cs
+      in case (isTransient rs', isTemporary rs', dr) of
+           (True, _, DiedNormal) -> filter ((/= ck) . childKey . snd) cs
+           (_, True, _)          -> filter ((/= ck) . childKey . snd) cs
+           _                     -> cs
 
 {-  restartParallel :: ChildSpecs
                     -> RestartOrder
