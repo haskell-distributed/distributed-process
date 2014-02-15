@@ -1646,6 +1646,7 @@ childShutdown policy pid st = do
       let monitored = (Map.member pid' $ state ^. active)
       let recv = case delay of
                    Infinity -> receiveWait (matches pid') >>= return . Just
+                   NoDelay  -> receiveTimeout 0 (matches pid')
                    Delay t  -> receiveTimeout (asTimeout t) (matches pid')
       -- we set up an additional monitor here, since child shutdown can occur
       -- during a restart which was triggered by the /old/ monitor signal

@@ -816,7 +816,7 @@ restartLeftWhenLeftmostChildDies cs sup = do
 restartWithoutTempChildren :: ChildStart -> ProcessId -> Process ()
 restartWithoutTempChildren cs sup = do
   (ChildAdded refTrans) <- startNewChild sup $ transientWorker cs
-  (ChildAdded refTemp)  <- startNewChild sup $ tempWorker cs
+  (ChildAdded _)        <- startNewChild sup $ tempWorker cs
   (ChildAdded refPerm)  <- startNewChild sup $ permChild cs
   Just pid2 <- resolve refTrans
   Just pid3 <- resolve refPerm
