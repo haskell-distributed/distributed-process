@@ -66,13 +66,16 @@ data TimeUnit = Days | Hours | Minutes | Seconds | Millis | Micros
 instance Binary TimeUnit where
 instance NFData TimeUnit where
 
+-- | A time interval.
 data TimeInterval = TimeInterval TimeUnit Int
     deriving (Typeable, Generic, Eq, Show)
 
 instance Binary TimeInterval where
 instance NFData TimeInterval where
 
-data Delay = Delay TimeInterval | Infinity
+-- | Represents either a delay of 'TimeInterval', an infinite wait or no delay
+-- (i.e., non-blocking).
+data Delay = Delay TimeInterval | Infinity | NoDelay
     deriving (Typeable, Generic, Eq, Show)  -- TODO: ord/cmp
 
 instance Binary Delay where
@@ -110,6 +113,7 @@ after n m = timeToMicros m n
 within :: Int -> TimeUnit -> TimeInterval
 within n m = TimeInterval m n
 
+-- | given a number, produces a @TimeInterval@ of microseconds
 microSeconds :: Int -> TimeInterval
 microSeconds = TimeInterval Micros
 

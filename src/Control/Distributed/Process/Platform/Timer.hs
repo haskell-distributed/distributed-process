@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric      #-}
+{-# LANGUAGE PatternGuards      #-}
 {-# LANGUAGE TemplateHaskell    #-}
 
 -----------------------------------------------------------------------------
@@ -82,9 +83,7 @@ sleep t =
                                   (\_ -> return ())]
   return ()
 
--- | Literate way of saying
--- > sleepFor 3 Seconds
---
+-- | Literate way of saying @sleepFor 3 Seconds@.
 sleepFor :: Int -> TimeUnit -> Process ()
 sleepFor i u = sleep (within i u)
 
@@ -150,9 +149,9 @@ flushTimer ref ignore t = do
     cancelTimer ref
     performFlush mRef t
     return ()
-  where performFlush mRef Infinity    = receiveWait $ filters mRef
-        performFlush mRef (Delay i) =
-            receiveTimeout (asTimeout i) (filters mRef) >> return ()
+  where performFlush mRef Infinity  = receiveWait $ filters mRef
+        performFlush mRef NoDelay   = performFlush mRef (Delay $ microSeconds 0)
+        performFlush mRef (Delay i) = receiveTimeout (asTimeout i) (filters mRef) >> return ()
         filters mRef = [
                 matchIf (\x -> x == ignore)
                         (\_ -> return ())
