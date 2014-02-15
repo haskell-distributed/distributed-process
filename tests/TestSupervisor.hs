@@ -27,7 +27,6 @@ import Control.Distributed.Process.Platform.Supervisor hiding (start, shutdown)
 import qualified Control.Distributed.Process.Platform.Supervisor as Supervisor
 import Control.Distributed.Process.Platform.ManagedProcess.Client (shutdown)
 import Control.Distributed.Process.Serializable()
-import Control.Distributed.Process.Platform.Service.SystemLog hiding (logMessage, error)
 
 import Control.Distributed.Static (staticLabel)
 import Control.Monad (void, forM_, forM)

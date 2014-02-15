@@ -218,7 +218,7 @@ module Control.Distributed.Process.Platform.Supervisor
   , ChildType(..)
   , ChildTerminationPolicy(..)
   , ChildStart(..)
-  , RegisteredName(LocalName)
+  , RegisteredName(LocalName, CustomRegister)
   , RestartPolicy(..)
 --  , ChildRestart(..)
   , ChildRef(..)
@@ -548,16 +548,17 @@ instance Binary ChildTerminationPolicy where
 instance NFData ChildTerminationPolicy where
 
 data RegisteredName =
-    LocalName          { name :: !String }
-  | GlobalName         { name :: !String }
-  | CustomRegister     { regProc :: !(Closure (ProcessId -> Process ())) }
+    LocalName          !String
+  | GlobalName         !String
+  | CustomRegister     !(Closure (ProcessId -> Process ()))
   deriving (Typeable, Generic)
 instance Binary RegisteredName where
 instance NFData RegisteredName where
 
 instance Show RegisteredName where
   show (CustomRegister _) = "Custom Register"
-  show r                  = name r
+  show (LocalName      n) = n
+  show (GlobalName     n) = "global::" ++ n
 
 data ChildStart =
     RunClosure !(Closure (Process ()))
