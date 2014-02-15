@@ -54,7 +54,7 @@ standardTestServer policy =
             , handleCast    (\s' ("ping", pid :: ProcessId) ->
                                  send pid "pong" >> continue s')
             , handleCastIf_ (input (\(c :: String, _ :: Delay) -> c == "timeout"))
-                            (\("timeout", Delay d) -> timeoutAfter_ d)
+                            (\("timeout", d) -> timeoutAfter_ d)
 
             , handleCast_   (\("hibernate", d :: TimeInterval) -> hibernate_ d)
           ]
