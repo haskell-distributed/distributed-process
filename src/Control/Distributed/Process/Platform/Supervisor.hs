@@ -1526,18 +1526,23 @@ tryStartChild ChildSpec{..} =
         mProc <- catch (unClosure proc >>= return . Right)
                        (\(e :: SomeException) -> return $ Left (show e))
         case mProc of
-          Left err -> return $ Left (StartFailureBadClosure err)
+          Left err -> logStartFailure $ StartFailureBadClosure err
           Right p  -> wrapClosure childRegName p >>= return . Right
       CreateHandle fn -> do
         mFn <- catch (unClosure fn >>= return . Right)
                      (\(e :: SomeException) -> return $ Left (show e))
         case mFn of
-          Left err  -> return $ Left (StartFailureBadClosure err)
+          Left err  -> logStartFailure $ StartFailureBadClosure err
           Right fn' -> do
             wrapHandle childRegName fn' >>= return . Right
       StarterProcess restarterPid ->
           wrapRestarterProcess childRegName restarterPid
   where
+    logStartFailure sf = do
+      sup <- getSelfPid
+      logEntry Log.error $ mkReport "Child Start Error" sup "noproc" (show sf)
+      return $ Left sf
+
     wrapClosure :: Maybe RegisteredName
                 -> Process ()
                 -> Process ChildRef
@@ -1705,26 +1710,26 @@ errorMaxIntensityReached = ExitOther "ReachedMaxRestartIntensity"
 logShutdown :: LogSink -> ChildKey -> ProcessId -> DiedReason -> Process ()
 logShutdown log' child pid reason = do
     self <- getSelfPid
-    Log.info log' $ mkReport banner self pid shutdownReason
+    Log.info log' $ mkReport banner self (show pid) shutdownReason
   where
     banner         = "Child Shutdown Complete"
     shutdownReason = (show reason) ++ ", child-key: " ++ child
 
 logFailure :: ProcessId -> ProcessId -> SomeException -> Process ()
 logFailure sup pid ex = do
-  logEntry Log.notice $ mkReport "Detected Child Exit" sup pid (show ex)
+  logEntry Log.notice $ mkReport "Detected Child Exit" sup (show pid) (show ex)
   liftIO $ throwIO ex
 
 logEntry :: (LogChan -> LogText -> Process ()) -> String -> Process ()
 logEntry lg = Log.report lg Log.logChannel
 
-mkReport :: String -> ProcessId -> ProcessId -> String -> String
+mkReport :: String -> ProcessId -> String -> String -> String
 mkReport b s c r = foldl' (\x xs -> xs ++ " " ++ x) "" items
   where
     items :: [String]
     items = [ "[" ++ s' ++ "]" | s' <- [ b
                                        , "supervisor: " ++ show s
-                                       , "child: " ++ show c
+                                       , "child: " ++ c
                                        , "reason: " ++ r] ]
 
 --------------------------------------------------------------------------------
