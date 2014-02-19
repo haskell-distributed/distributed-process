@@ -94,6 +94,7 @@ module Control.Distributed.Process.Platform.Execution.Mailbox
     -- * Creating, Starting, Configuring and Running a Mailbox
     Mailbox()
   , startMailbox
+  , startSupervised
   , startSupervisedMailbox
   , createMailbox
   , resize
@@ -424,9 +425,30 @@ startMailbox :: ProcessId -> BufferType -> Limit -> Process Mailbox
 startMailbox = doStartMailbox Nothing
 
 -- | As 'startMailbox', but suitable for use in supervisor child specs.
+-- This variant is for use when you want to access to the underlying
+-- 'Mailbox' handle in your supervised child refs. See supervisor's
+-- @ChildRef@ data type for more information.
+--
+-- Example:
+-- > childSpec = toChildStart $ startSupervised pid bufferType mboxLimit
+--
+-- See "Control.Distributed.Process.Platform.Supervisor"
+--
+startSupervised :: ProcessId
+                -> BufferType
+                -> Limit
+                -> SupervisorPid
+                -> Process (ProcessId, Message)
+startSupervised p b l s = do
+  mb <- startSupervisedMailbox p b l s
+  return (pid mb, unsafeWrapMessage mb)
+
+-- | As 'startMailbox', but suitable for use in supervisor child specs.
 --
 -- Example:
 -- > childSpec = toChildStart $ startSupervisedMailbox pid bufferType mboxLimit
+--
+-- See "Control.Distributed.Process.Platform.Supervisor"
 --
 startSupervisedMailbox :: ProcessId
                        -> BufferType

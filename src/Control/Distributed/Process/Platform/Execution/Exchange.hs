@@ -73,7 +73,8 @@ module Control.Distributed.Process.Platform.Execution.Exchange
   , Message(..)
     -- * Starting/Running an Exchange
   , startExchange
-  , startSupervisedExchange
+  , startSupervised
+  , startSupervisedRef
   , runExchange
     -- * Client Facing API
   , post
@@ -82,7 +83,7 @@ module Control.Distributed.Process.Platform.Execution.Exchange
   , createMessage
     -- * Broadcast Exchange
   , broadcastExchange
-  , supervisedBroadcastExchange
+  , broadcastExchangeT
   , broadcastClient
   , bindToBroadcaster
   , BroadcastExchange
@@ -111,7 +112,7 @@ module Control.Distributed.Process.Platform.Execution.Exchange
 
 import Control.Distributed.Process.Platform.Execution.Exchange.Broadcast
   ( broadcastExchange
-  , supervisedBroadcastExchange
+  , broadcastExchangeT
   , broadcastClient
   , bindToBroadcaster
   , BroadcastExchange
@@ -121,7 +122,8 @@ import Control.Distributed.Process.Platform.Execution.Exchange.Internal
   , Message(..)
   , ExchangeType(..)
   , startExchange
-  , startSupervisedExchange
+  , startSupervised
+  , startSupervisedRef
   , runExchange
   , post
   , postMessage

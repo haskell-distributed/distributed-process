@@ -22,6 +22,7 @@ module Control.Distributed.Process.Platform.Execution.Exchange.Router
     -- * Starting a Router
   , router
   , supervisedRouter
+  , supervisedRouterRef
     -- * Client (Publishing) API
   , route
   , routeMessage
@@ -40,12 +41,13 @@ import Control.Distributed.Process
   , ProcessId
   , monitor
   , handleMessage
+  , unsafeWrapMessage
   )
 import qualified Control.Distributed.Process as P
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Platform.Execution.Exchange.Internal
   ( startExchange
-  , startSupervisedExchange
+  , startSupervised
   , configureExchange
   , Message(..)
   , Exchange
@@ -56,6 +58,7 @@ import Control.Distributed.Process.Platform.Execution.Exchange.Internal
   )
 import Control.Distributed.Process.Platform.Internal.Primitives
   ( deliver
+  , Resolvable(..)
   )
 import Control.Distributed.Process.Platform.Supervisor (SupervisorPid)
 import Data.Binary
@@ -141,6 +144,16 @@ headerContentRouter t n = router t (checkHeaders n)
 router :: (Bindable k) => RelayType -> BindingSelector k -> Process Exchange
 router t s = routerT t s >>= startExchange
 
+supervisedRouterRef :: Bindable k
+                    => RelayType
+                    -> BindingSelector k
+                    -> SupervisorPid
+                    -> Process (ProcessId, P.Message)
+supervisedRouterRef t sel spid = do
+  ex <- supervisedRouter t sel spid
+  Just pid <- resolve ex
+  return (pid, unsafeWrapMessage ex)
+
 -- | Defines a /router/ that can be used in a supervision tree.
 supervisedRouter :: Bindable k
                  => RelayType
@@ -148,7 +161,7 @@ supervisedRouter :: Bindable k
                  -> SupervisorPid
                  -> Process Exchange
 supervisedRouter t sel spid =
-  routerT t sel >>= \t' -> startSupervisedExchange t' spid
+  routerT t sel >>= \t' -> startSupervised t' spid
 
 routerT :: Bindable k
         => RelayType

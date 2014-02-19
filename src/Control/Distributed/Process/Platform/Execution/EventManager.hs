@@ -38,6 +38,8 @@
 module Control.Distributed.Process.Platform.Execution.EventManager
   ( EventManager
   , start
+  , startSupervised
+  , startSupervisedRef
   , notify
   , addHandler
   , addMessageHandler
@@ -50,14 +52,22 @@ import Control.Distributed.Process.Platform.Execution.Exchange
   , Message(..)
   , post
   , broadcastExchange
+  , broadcastExchangeT
   , broadcastClient
+  )
+import qualified Control.Distributed.Process.Platform.Execution.Exchange as Exchange
+  ( startSupervised
   )
 import Control.Distributed.Process.Platform.Internal.Primitives
 import Control.Distributed.Process.Platform.Internal.Unsafe
   ( InputStream
   , matchInputStream
   )
+import Control.Distributed.Process.Platform.Supervisor (SupervisorPid)
 import Control.Distributed.Process.Serializable hiding (SerializableDict)
+import Data.Binary
+import Data.Typeable (Typeable)
+import GHC.Generics
 
 {- notes
 
@@ -73,6 +83,8 @@ registration, supervision, etc) to be utilised instead.
 -- | Opaque handle to an Event Manager.
 --
 newtype EventManager = EventManager { ex :: Exchange }
+  deriving (Typeable, Generic)
+instance Binary EventManager where
 
 instance Resolvable EventManager where
   resolve = resolve . ex
@@ -81,6 +93,17 @@ instance Resolvable EventManager where
 -- to it.
 start :: Process EventManager
 start = broadcastExchange >>= return . EventManager
+
+startSupervised :: SupervisorPid -> Process EventManager
+startSupervised sPid = do
+  ex <- broadcastExchangeT >>= \t -> Exchange.startSupervised t sPid
+  return $ EventManager ex
+
+startSupervisedRef :: SupervisorPid -> Process (ProcessId, P.Message)
+startSupervisedRef sPid = do
+  ex <- startSupervised sPid
+  Just pid <- resolve ex
+  return (pid, unsafeWrapMessage ex)
 
 -- | Broadcast an event to all registered handlers.
 notify :: Serializable a => EventManager -> a -> Process ()

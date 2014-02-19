@@ -17,7 +17,8 @@ module Control.Distributed.Process.Platform.Execution.Exchange.Internal
   , Message(..)
   , ExchangeType(..)
   , startExchange
-  , startSupervisedExchange
+  , startSupervised
+  , startSupervisedRef
   , runExchange
   , post
   , postMessage
@@ -30,14 +31,13 @@ import Control.Concurrent.MVar (MVar, takeMVar, putMVar, newEmptyMVar)
 import Control.DeepSeq (NFData)
 import Control.Distributed.Process
   ( Process
-  , MonitorRef
   , ProcessMonitorNotification(..)
   , ProcessId
   , liftIO
   , spawnLocal
   , unsafeWrapMessage
   )
-import qualified Control.Distributed.Process as P (Message, link, monitor, unmonitor)
+import qualified Control.Distributed.Process as P (Message, link)
 import Control.Distributed.Process.Serializable hiding (SerializableDict)
 import Control.Distributed.Process.Platform.Internal.Types
   ( Resolvable(..)
@@ -154,12 +154,24 @@ startExchange = doStart Nothing
 -- | Starts an exchange as part of a supervision tree.
 --
 -- Example:
--- > childSpec = toChildStart $ startSupervisedExchange exType
+-- > childSpec = toChildStart $ startSupervisedRef exType
 --
-startSupervisedExchange :: forall s . ExchangeType s
-                        -> SupervisorPid
-                        -> Process Exchange
-startSupervisedExchange t s = doStart (Just s) t
+startSupervisedRef :: forall s . ExchangeType s
+                   -> SupervisorPid
+                   -> Process (ProcessId, P.Message)
+startSupervisedRef t s = do
+  ex <- startSupervised t s
+  return (pid ex, unsafeWrapMessage ex)
+
+-- | Starts an exchange as part of a supervision tree.
+--
+-- Example:
+-- > childSpec = toChildStart $ startSupervised exType
+--
+startSupervised :: forall s . ExchangeType s
+                -> SupervisorPid
+                -> Process Exchange
+startSupervised t s = doStart (Just s) t
 
 doStart :: Maybe SupervisorPid -> ExchangeType s -> Process Exchange
 doStart mSp t = do

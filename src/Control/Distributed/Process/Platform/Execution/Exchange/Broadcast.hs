@@ -15,7 +15,7 @@
 module Control.Distributed.Process.Platform.Execution.Exchange.Broadcast
   (
     broadcastExchange
-  , supervisedBroadcastExchange
+  , broadcastExchangeT
   , broadcastClient
   , bindToBroadcaster
   , BroadcastExchange
@@ -55,7 +55,6 @@ import qualified Control.Distributed.Process as P
 import Control.Distributed.Process.Serializable()
 import Control.Distributed.Process.Platform.Execution.Exchange.Internal
   ( startExchange
-  , startSupervisedExchange
   , configureExchange
   , Message(..)
   , Exchange(..)
@@ -160,11 +159,9 @@ type BroadcastExchange = ExchangeType BroadcastEx
 broadcastExchange :: Process Exchange
 broadcastExchange = broadcastExchangeT >>= startExchange
 
--- | Start a new /broadcast exchange/ as part of a supervision tree.
-supervisedBroadcastExchange :: SupervisorPid -> Process Exchange
-supervisedBroadcastExchange spid =
-  broadcastExchangeT >>= \t -> startSupervisedExchange t spid
-
+-- | The 'ExchangeType' of a broadcast exchange. Can be combined with the
+-- @startSupervisedRef@ and @startSupervised@ APIs.
+--
 broadcastExchangeT :: Process BroadcastExchange
 broadcastExchangeT = do
   ch <- liftIO newBroadcastTChanIO
