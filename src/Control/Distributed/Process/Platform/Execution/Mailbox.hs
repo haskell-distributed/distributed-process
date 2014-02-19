@@ -75,11 +75,12 @@
 --
 -- [Post API and Relaying]
 --
--- For messages to be properly handled by the mailbox, they /must/ be sent
--- via the 'post' API. Messages sent directly to the mailbox (via @send@ or
--- the @Addressable@ type class @sendTo@ function) /will not be handled via
--- the internal buffers/ or subjected to the mailbox limits. Instead, they
--- will simply be relayed (i.e., forwarded) directly to the owner.
+-- For messages to be properly handled by the mailbox, they can either be sent
+-- via the 'post' API or directly to the 'Mailbox'. Messages sent directly to
+-- the mailbox will still be handled via the internal buffers and subjected to
+-- the mailbox limits. The 'post' API is really just a means to ensure that
+-- the conversion from @Serializable a -> Message@ is done in the caller's
+-- process and uses the safe @wrapMessage@ variant.
 --
 -- [Acknowledgements]
 --
@@ -143,6 +144,7 @@ import Control.Distributed.Process.Platform.ManagedProcess
   , channelControlPort
   , handleControlChan
   , handleInfo
+  , handleRaw
   , continue
   , defaultProcess
   , UnhandledMessagePolicy(..)
@@ -542,7 +544,8 @@ processDefinition pid tc cc = do
                                handleControlChan     cc handleControlMessages
                              , Restricted.handleCall handleGetStats
                              ]
-                          , infoHandlers = [handleInfo handlePost]
+                          , infoHandlers = [ handleInfo handlePost
+                                           , handleRaw  handleRawInputs ]
                           , unhandledMessagePolicy = DeadLetter pid
                           } :: Process (ProcessDefinition State)
 
@@ -569,6 +572,9 @@ handleControlMessages st cm
 
 handleGetStats :: StatsReq -> RestrictedProcess State (Result MailboxStats)
 handleGetStats _ = Restricted.reply . (^. stats) =<< getState
+
+handleRawInputs :: State -> Message -> Process (ProcessAction State)
+handleRawInputs st msg = handlePost st (Post msg)
 
 handlePost :: State -> Post -> Process (ProcessAction State)
 handlePost st (Post msg) = do

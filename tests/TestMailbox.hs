@@ -105,18 +105,6 @@ mailboxIsInitiallyPassive result = do
     Just (NewMail _ _) -> stash result True
     Nothing            -> stash result False
 
-mailboxActsAsRelayForRawTraffic :: TestResult Bool -> Process ()
-mailboxActsAsRelayForRawTraffic result = do
-  mbox <- createMailbox Stack (6 :: Integer)
-  Just pid <- resolve mbox
-  mapM_ (send pid) ([1..5] :: [Int])
-  forM_ [1..5] $ \(_ :: Int) -> do
-    i <- receiveTimeout (after 3 Seconds) [ match return ]
-    case i of
-      Nothing         -> stash result False >> die "failed!"
-      Just (_ :: Int) -> return ()
-  stash result True
-
 complexMailboxFiltering :: (String, Int, Bool)
                         -> TestResult (String, Int, Bool)
                         -> Process ()
@@ -249,10 +237,6 @@ tests transport = do
            (delayedAssertion
             "Expected the Mailbox to remain passive until told otherwise"
             localNode True mailboxIsInitiallyPassive)
-        , testCase "Mailbox Relays Raw (Un-Posted) Traffic"
-           (delayedAssertion
-            "Expected traffic to be relayed directly to us"
-            localNode True mailboxActsAsRelayForRawTraffic)
         , testCase "Mailbox Notifications include usable control channel"
            (delayedAssertion
             "Expected traffic to be relayed directly to us"
