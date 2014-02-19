@@ -1,6 +1,10 @@
 language: haskell
-script: "make ci"
-install: "make deps"
+install: true
+before_script: "sudo apt-get install curl"
+script: "./travis-build.sh"
+ghc:
+  - 7.6
+  - 7.4
 notifications:
   email:
     recipients:
@@ -9,3 +13,4 @@ notifications:
     channels:
       - "irc.freenode.org#haskell-distributed"
     use_notice: true
+
