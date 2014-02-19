@@ -338,6 +338,7 @@ deleteExistingChild :: ChildStart -> ProcessId -> Process ()
 deleteExistingChild cs sup = do
   let spec = transientWorker cs
   (ChildAdded ref) <- startNewChild sup spec
+  liftIO $ putStrLn (show ref)
   result <- deleteChild sup "transient-worker"
   result `shouldBe` equalTo (ChildNotStopped ref)
 

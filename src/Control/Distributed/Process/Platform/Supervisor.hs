@@ -488,24 +488,35 @@ type ChildKey = String
 -- | A reference to a (possibly running) child.
 data ChildRef =
     ChildRunning !ProcessId    -- ^ a reference to the (currently running) child
+  | ChildRunningExtra !ProcessId !Message -- ^ also a currently running child, with /extra/ child info
   | ChildRestarting !ProcessId -- ^ a reference to the /old/ (previous) child (now restarting)
   | ChildStopped               -- ^ indicates the child is not currently running
   | ChildStartIgnored          -- ^ a non-temporary child exited with 'ChildInitIgnore'
-  deriving (Typeable, Generic, Eq, Show)
+  deriving (Typeable, Generic, Show)
 instance Binary ChildRef where
 instance NFData ChildRef where
 
+instance Eq ChildRef where
+  ChildRunning      p1   == ChildRunning      p2   = p1 == p2
+  ChildRunningExtra p1 _ == ChildRunningExtra p2 _ = p1 == p2
+  ChildRestarting   p1   == ChildRestarting   p2   = p1 == p2
+  ChildStopped           == ChildStopped           = True
+  ChildStartIgnored      == ChildStartIgnored      = True
+  _                      == _                      = False
+
 isRunning :: ChildRef -> Bool
-isRunning (ChildRunning _) = True
-isRunning _                = False
+isRunning (ChildRunning _)        = True
+isRunning (ChildRunningExtra _ _) = True
+isRunning _                       = False
 
 isRestarting :: ChildRef -> Bool
 isRestarting (ChildRestarting _) = True
 isRestarting _                   = False
 
 instance Resolvable ChildRef where
-  resolve (ChildRunning pid) = return $ Just pid
-  resolve _                  = return Nothing
+  resolve (ChildRunning pid)        = return $ Just pid
+  resolve (ChildRunningExtra pid _) = return $ Just pid
+  resolve _                         = return Nothing
 
 -- these look a bit odd, but we basically want to avoid resolving
 -- or sending to (ChildRestarting oldPid)
@@ -562,6 +573,7 @@ instance Show RegisteredName where
 
 data ChildStart =
     RunClosure !(Closure (Process ()))
+  | CreateHandle !(Closure (SupervisorPid -> Process (ProcessId, Message)))
   | StarterProcess !ProcessId
   deriving (Typeable, Generic, Show)
 instance Binary ChildStart where
@@ -634,12 +646,15 @@ class ToChildStart a where
 instance ToChildStart (Closure (Process ())) where
   toChildStart = return . RunClosure
 
+instance ToChildStart (Closure (SupervisorPid -> Process (ProcessId, Message))) where
+  toChildStart = return . CreateHandle
+
 instance ToChildStart (Process ()) where
   toChildStart proc = do
     starterPid <- spawnLocal $ do
       -- note [linking]: the first time we see the supervisor's pid,
-      -- we must link to it, but only once, otherwise
-      -- we waste resources (and cycles) linking unnecessarily
+      -- we must link to it, but only once, otherwise we simply waste
+      -- time and resources creating duplicate links
       (supervisor, _, sendPidPort) <- expectTriple
       link supervisor
       spawnIt proc supervisor sendPidPort
@@ -665,7 +680,7 @@ spawnIt proc' supervisor sendPidPort = do
                                                 (\_ -> return ()))]
   sendChan sendPidPort supervisedPid
 
-instance (Addressable a) => ToChildStart (SupervisorPid -> Process a) where
+instance (Resolvable a) => ToChildStart (SupervisorPid -> Process a) where
   toChildStart proc = do
     starterPid <- spawnLocal $ do
       -- see note [linking] in the previous instance (above)
@@ -674,14 +689,14 @@ instance (Addressable a) => ToChildStart (SupervisorPid -> Process a) where
       injectIt proc supervisor sendPidPort >> injectorLoop proc
     return $ StarterProcess starterPid
 
-injectorLoop :: Addressable a
+injectorLoop :: Resolvable a
              => (SupervisorPid -> Process a)
              -> Process ()
 injectorLoop p = forever' $ do
   (supervisor, _, sendPidPort) <- expectTriple
   injectIt p supervisor sendPidPort
 
-injectIt :: Addressable a
+injectIt :: Resolvable a
          => (SupervisorPid -> Process a)
          -> ProcessId
          -> SendPort ProcessId
@@ -1093,6 +1108,8 @@ handleStartChild state (StartChild key) =
       reply ChildStartUnknownId state
     Just (ref@(ChildRunning _), _) ->
       reply (ChildStartFailed (StartFailureAlreadyRunning ref)) state
+    Just (ref@(ChildRunningExtra _ _), _) ->
+      reply (ChildStartFailed (StartFailureAlreadyRunning ref)) state
     Just (ref@(ChildRestarting _), _) ->
       reply (ChildStartFailed (StartFailureAlreadyRunning ref)) state
     Just (_, spec) -> do
@@ -1129,6 +1146,8 @@ handleRestartChild state (RestartChildReq key) =
     Nothing ->
       reply ChildRestartUnknownId state
     Just (ref@(ChildRunning _), _) ->
+      reply (ChildRestartFailed (StartFailureAlreadyRunning ref)) state
+    Just (ref@(ChildRunningExtra _ _), _) ->
       reply (ChildRestartFailed (StartFailureAlreadyRunning ref)) state
     Just (ref@(ChildRestarting _), _) ->
       reply (ChildRestartFailed (StartFailureAlreadyRunning ref)) state
@@ -1509,6 +1528,13 @@ tryStartChild ChildSpec{..} =
         case mProc of
           Left err -> return $ Left (StartFailureBadClosure err)
           Right p  -> wrapClosure childRegName p >>= return . Right
+      CreateHandle fn -> do
+        mFn <- catch (unClosure fn >>= return . Right)
+                     (\(e :: SomeException) -> return $ Left (show e))
+        case mFn of
+          Left err  -> return $ Left (StartFailureBadClosure err)
+          Right fn' -> do
+            wrapHandle childRegName fn' >>= return . Right
       StarterProcess restarterPid ->
           wrapRestarterProcess childRegName restarterPid
   where
@@ -1531,6 +1557,15 @@ tryStartChild ChildSpec{..} =
       void $ monitor pid
       send pid ()
       return $ ChildRunning pid
+
+    wrapHandle :: Maybe RegisteredName
+               -> (SupervisorPid -> Process (ProcessId, Message))
+               -> Process ChildRef
+    wrapHandle regName proc = do
+      super <- getSelfPid
+      (pid, msg) <- proc super
+      maybeRegister regName pid
+      return $ ChildRunningExtra pid msg
 
     wrapRestarterProcess :: Maybe RegisteredName
                          -> ProcessId
@@ -1748,10 +1783,11 @@ removeChild spec state =
 markActive :: State -> ChildRef -> ChildSpec -> State
 markActive state ref spec =
   case ref of
-    ChildRunning (pid :: ProcessId) ->
-      active ^: Map.insert pid (childKey spec) $ state
-    _ ->
-      error $ "InternalError"
+    ChildRunning (pid :: ProcessId) -> inserted pid
+    ChildRunningExtra pid _         -> inserted pid
+    _                               -> error $ "InternalError"
+  where
+    inserted pid' = active ^: Map.insert pid' (childKey spec) $ state
 
 decrement :: Int -> Int
 decrement n = n - 1
