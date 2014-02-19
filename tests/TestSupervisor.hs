@@ -139,6 +139,7 @@ verifyChildWasNotRestarted key pid sup = do
 verifyTempChildWasRemoved :: ProcessId -> ProcessId -> Process ()
 verifyTempChildWasRemoved pid sup = do
   void $ waitForExit pid
+  sleepFor 500 Millis
   cSpec <- lookupChild sup "temp-worker"
   expectThat cSpec isNothing
 
