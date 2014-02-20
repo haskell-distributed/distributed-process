@@ -1,5 +1,3 @@
-{-# LANGUAGE DeriveGeneric #-}
-
 -- | Network Transport
 module Network.Transport
   ( -- * Types
@@ -31,11 +29,9 @@ import qualified Data.ByteString.Char8 as BSC (unpack)
 import Control.Exception (Exception)
 import Control.Applicative ((<$>))
 import Data.Typeable (Typeable)
-import Data.Binary (Binary(get, put))
+import Data.Binary (Binary(put, get), putWord8, getWord8)
 import Data.Hashable
 import Data.Word (Word64)
-
-import GHC.Generics
 
 --------------------------------------------------------------------------------
 -- Main API                                                                   --
@@ -110,9 +106,19 @@ data Reliability =
     ReliableOrdered
   | ReliableUnordered
   | Unreliable
-  deriving (Show, Eq, Typeable, Generic)
+  deriving (Show, Eq, Typeable)
 
-instance Binary Reliability
+instance Binary Reliability where
+  put ReliableOrdered   = putWord8 0
+  put ReliableUnordered = putWord8 1
+  put Unreliable        = putWord8 2
+  get = do
+    header <- getWord8
+    case header of
+      0 -> return ReliableOrdered
+      1 -> return ReliableUnordered
+      2 -> return Unreliable
+      _ -> fail "Reliability.get: invalid"
 
 -- | Multicast group.
 data MulticastGroup = MulticastGroup {
@@ -134,9 +140,7 @@ data MulticastGroup = MulticastGroup {
 
 -- | EndPointAddress of an endpoint.
 newtype EndPointAddress = EndPointAddress { endPointAddressToByteString :: ByteString }
-  deriving (Eq, Ord, Typeable, Generic)
-
-instance Hashable EndPointAddress where
+  deriving (Eq, Ord, Typeable, Hashable)
 
 instance Binary EndPointAddress where
   put = put . endPointAddressToByteString
