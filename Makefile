@@ -1,11 +1,7 @@
-# CI build
 
-GHC ?= $(shell which ghc)
-CABAL ?= $(shell which cabal)
+ifneq (,$(BASE_DIR))
+include $(BASE_DIR)/build.mk
+else
+include ../build.mk
+endif
 
-.PHONY: install
-install:
-	$(CABAL) install --with-ghc=$(GHC)
-
-.PHONY: ci
-ci: install
