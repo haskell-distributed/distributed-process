@@ -366,7 +366,12 @@ import Data.Time.Clock
   , diffUTCTime
   )
 import Data.Typeable (Typeable)
+
+#if ! MIN_VERSION_base(4,6,0)
+import Prelude hiding (catch, filter, init, rem)
+#else
 import Prelude hiding (filter, init, rem)
+#endif
 
 import GHC.Generics
 
