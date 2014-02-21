@@ -196,7 +196,11 @@ import Data.Typeable (Typeable)
 
 import GHC.Generics
 
+#if ! MIN_VERSION_base(4,6,0)
+import Prelude hiding (catch, drop)
+#else
 import Prelude hiding (drop)
+#endif
 
 --------------------------------------------------------------------------------
 -- Types                                                                      --

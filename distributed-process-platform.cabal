@@ -42,8 +42,13 @@ library
                    fingertree == 0.0.1.1,
                    stm >= 2.4 && < 2.5,
                    time > 1.4 && < 1.5,
-                   transformers,
-                   ghc-prim
+                   transformers
+  if impl(ghc <= 7.5) 
+    Build-Depends:   template-haskell == 2.7.0.0,
+                     derive == 2.5.5,
+                     uniplate == 1.6.12,
+                     ghc-prim
+  extensions:      CPP
   hs-source-dirs:   src
   ghc-options:      -Wall
   exposed-modules:
