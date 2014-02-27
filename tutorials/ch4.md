@@ -7,101 +7,108 @@ title: Managed Process Tutorial
 
 ### Introduction
 
-The source code for this tutorial is based on the `BlockingQueue` module
+The source code for this tutorial is based on the `BlockingQueue` API
 from distributed-process-platform and can be accessed [here][1].
 Please note that this tutorial is based on the stable (master) branch
-of distributed-process-platform.
+of [distributed-process-platform][3].
 
 ### Managed Processes
 
-There are subtle bugs waiting in code that evaluated `send` and `receive`
+There may be subtle bugs hiding in code that evaluates `send` and `receive`
 directly. Forgetting to monitor the destination whilst waiting for a reply
-and failing to match on the correct message types are the most common ones,
-but others exist (such as badly formed `Binary` instances for user defined
-data types).
+or failing to match on the correct message types are the most common and
+other, more esoteric problems exist, such as badly formed `Binary` instances
+for user defined data types which can crash the sender or worse, in the
+presence of [_unsafe operations_][4] and unevaluated thunks, unexpectedly
+crash the receiver.
 
-The /Managed Process/ API handles _all_ sending and receiving of messages,
-error handling and decoding problems on your behalf, leaving you to focus
+The /Managed Process/ API handles sending to and receiving from the server
+process, in-process error handling and message decoding, leaving you to focus
 on writing code that describes _what the server process does_ when it receives
 messages, rather than how it receives them. The API also provides a set of
 pre-defined client interactions, all of which have well defined semantics
-and failure modes.
+and failure modes. There is support for sending messages to/from a process'
+mailbox, using typed channels for inputs and outputs, RPC calls (i.e., waiting
+for a reply from the server) and fire-and-forget client-server messages.
 
-A managed process server definition is defined using record syntax, with
-a list of `Dispatcher` types that describe how the server should handle
-particular kinds of client interaction, for specific types. The fields
-of the `ProcessDefinition` record also provide for error handling (in case
-of either server code crashing _or_ exit signals dispatched to the server
-process) and _cleanup_ code required to run on terminate/shutdown.
+Managed processess are defined using record syntax, providing lists of
+`Dispatcher` objects describing how the server handles particular kinds of
+client interaction for specific input types. The `ProcessDefinition` record
+also provides hooks for error handling (in case of either server code crashing
+_or_ exit signals dispatched to the server process from elsewhere) and _cleanup_
+code to be run on termination/shutdown.
 
 {% highlight haskell %}
 myServer :: ProcessDefinition MyStateType
 myServer = 
   ProcessDefinition { 
-    apiHandlers = [
-        -- a list of Dispatcher, derived from calling
-        -- handleInfo or handleRaw with a suitable function, e.g.,
+      -- handle messages sent to us via the call/cast API functions
+      apiHandlers = [
+        -- a list of Dispatchers, derived by calling on of the various
+        -- handle<X> functions with a suitable thunk, e.g.,
         handleCast myFunctionThatDoesNotReply
       , handleCall myFunctionThatDoesReply
       , handleRpcChan myFunctionThatRepliesViaTypedChannels
       ]
+
+      -- handle messages that can only be sent directly to our mailbox
+      -- (i.e., without going through the call/casts APIs), such as
+      -- `ProcessMonitorNotification`
     , infoHandlers = [
         -- a list of DeferredDispatcher, derived from calling
         -- handleInfo or handleRaw with a suitable function, e.g.,
         handleInfo myFunctionThatHandlesOneSpecificNonCastNonCallMessageType
       , handleRaw  myFunctionThatHandlesRawMessages
       ]
+
+      -- what should we do about exit signals?
     , exitHandlers = [
         -- a list of ExitSignalDispatcher, derived from calling
         -- handleExit with a suitable function, e.g.,
         handleExit myExitHandlingFunction
       ]
+
       -- what should I do just before stopping?
     , terminateHandler = myTerminateFunction
+
       -- what should I do about messages that cannot be handled?
     , unhandledMessagePolicy = Drop -- Terminate | (DeadLetter ProcessId)
     }
 
 {% endhighlight %}
 
-Client interactions with a managed process come in various flavours. It is
-still possible to send an arbitrary message to a managed process, just as
-you would a regular process. When defining a protocol between client and
-server processes however, it is useful to define a specific set of types
-that the server expects to receive from the client and possibly replies
-that the server may send back. The `cast` and `call` mechanisms in the
-/managed process/ API cater for this requirement specifically, allowing
-the developer tighter control over the domain of input messages from
-clients, whilst ensuring that client code handles errors (such as server
-failures) consistently and those input messages are routed to a suitable
-message handling function in the server process.
+When defining a protocol between client and server, we typically decide on
+a set of types the server will handle and possibly maps these to replies we
+may wish to send back. The `cast` and `call` mechanisms cater for this
+specifically, providing tight control over the domain of input messages from
+clients, whilst ensuring that client code handles errors consistently and
+input messages are routed to a suitable message handling function in the
+server process.
+
+In the following example, we'll take a look at this API in action.
 
 ---------
 
 ### A Basic Example
 
-Let's consider a simple _math server_ like the one in the main documentation
-page. We could allow clients to send us `(ProcessId, Double, Double)` and
-reply to the first tuple element with the sum of the second and third. But
-what happens if our process is killed while the client is waiting for the
-reply? (The client would deadlock). The client could always set up a monitor
-and wait for the reply _or_ a monitor signal, and could even write that code
-generically, but what if the code evaluating the client's utility function
-`expect`s the wrong type? We could use a typed channel to alleviate that ill,
-but that only helps with the client receiving messages, not the server. How
-can we ensure that the server receives the correct type(s) as well? Creating
-multiple typed channels (one for each kind of message we're expecting) and
-then distributing those to all our clients seems like a kludge.
+Let's consider the simple _math server_ we encountered in the high level
+[documentation][5]. We could allow clients to send us a tuple of
+`(ProcessId, Double, Double)`, replying to the first tuple element with the
+sum of the second and third. What happens if our server process is killed
+while the client is waiting for the reply though? The client would deadlock.
+Clients could always set up a monitor and wait for the reply _or_ a monitor
+signal, and could even write such code generically, but what if the code
+evaluating some such utility function then `expect`s the wrong type? We could
+use a typed channel to alleviate that ill, but that only helps with the client
+receiving messages, not the server. How can we ensure that the server receives
+the correct type(s) as well? Creating multiple typed channels (one for each
+kind of message we're expecting) and then distributing those to all our clients
+is awkward at best (though we will see how to do something like this using the
+API in a later tutorial).
 
-The `call` and `cast` APIs help us to avoid precisely this conundrum by
-providing a uniform API for both the client _and_ the server to observe. Whilst
-there is nothing to stop clients from sending messages directly to a managed
-process, it is simple enough to prevent this as well (just by hiding its
-`ProcessId`, either behind a newtype or some other opaque structure). The
-author of the server is then able to force clients through API calls that
-can enforce the required types _and_ ensure that the correct client-server
-protocol is used. Here's a better example of that math server that does
-just so:
+The `call` and `cast` APIs help us to avoid this conundrum, providing a uniform
+API for both the client _and_ the server to observe. Here's a better example of
+that math server that does just that:
 
 ----
 
@@ -153,15 +160,19 @@ server's mailbox is taken out of the programmer's hands, leaving the
 implementor to worry only about the logic to be applied once a message
 of one type or another is received.
 
+We could even hide the math server behind a newtype and prevent messages
+being sent to its `ProcessId` altogether, but we will leave that as an
+exercise for the reader.
+
 ----
 
 Of course, it would still be possible to write the server and client code
-and encounter a type resolution failure, since `call` still takes an
-arbitrary `Serializable` datum just like `send`. We can solve that for
+and encounter data type decoding failures, since the `call` function takes
+an arbitrary `Serializable` datum just like `send`. We can solve that for
 the return type of the _remote_ call by sending a typed channel and
 replying explicitly to it in our server side code. Whilst this doesn't
 make the server code any prettier (since it has to reply to the channel
-explicitly, rather than just evaluating to a result), it does the
+explicitly, rather than just evaluating to a result), it does reduce the
 likelihood of runtime errors somewhat.
 
 {% highlight haskell %}
@@ -189,22 +200,23 @@ wrapper functions. An additional level of isolation and safety is available
 when using /control channels/, which will be covered in a subsequent tutorial.
 
 Before we leave the math server behind, let's take a brief look at the `cast`
-side of the client-server protocol. Unlike its synchronous cousin, `cast` does
+part of the client-server protocol. Unlike its synchronous cousin, `cast` does
 not expect a reply at all - it is a fire and forget call, much like `send`,
 but carries the same additional type information that a `call` does (about its
-inputs) and is also routed to a `Dispatcher` in the `apiHandlers` field of the
-process definition.
+inputs) and is also routed to a `Dispatcher` in the `apiHandlers`[2] field of
+the process definition.
 
 We will use cast with the existing `Add` type, to implement a function that
 takes an /add request/ and prints the result instead of returning it. If we
 were implementing this with `call` we would be a bit stuck, because there is
 nothing to differentiate between two `Add` instances and the server would
-choose the first valid (i.e., type safe) handler and ignore the others.
+choose the first valid (i.e., type safe) handler and ignore the others we'd
+declared.
 
-Note that because the client doesn't wait for a reply, if you execute this
-function in a test/demo application, you'll need to block the main thread
-for a while to wait for the server to receive the message and print out
-the result.
+Also note that because the client doesn't wait for a reply, if you execute
+this function in a test/demo application, you'll need to block the main
+thread for a while to wait for the server to receive the message and print
+out the result.
 
 {% highlight haskell %}
 
@@ -652,3 +664,7 @@ processes is cheap, but not free as each process is a haskell thread, plus some
 additional book keeping data.
 
 [1]: https://github.com/haskell-distributed/distributed-process-platform/blob/master/src/Control/Distributed/Process/Platform/Task/Queue/BlockingQueue.hs
+[2]: /static/doc/distributed-process-platform/Control-Distributed-Process-Platform-ManagedProcess.html#t:ProcessDefinition
+[3]: https://github.com/haskell-distributed/distributed-process-platform/tree/master/
+[4]: https://github.com/haskell-distributed/distributed-process-platform/tree/master/src/Control/Distributed/Process/Platform/UnsafePrimitives.hs
+[5]: /documentation.html

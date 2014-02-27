@@ -331,7 +331,7 @@ Haskell concurrency design patterns along the way.
 
 In fact, [distributed-process-platform][18] does not really consider the
 *task layer* in great detail. We provide an API comparable to remote's
-`Promise` in [Control.Distributed.Process.Platform.Async][17]. This API however,
+`Promise` in Control.Distributed.Process.Platform.Async. This API however,
 is derived from Simon Marlow's [Control.Concurrent.Async][19] package, and is not
 limited to blocking queries on `Async` handles in the same way. Instead our
 [API][17] handles both blocking and non-blocking queries, polling
@@ -516,9 +516,9 @@ TBC
 [14]: http://hackage.haskell.org/package/remote
 [15]: http://www.erlang.org/doc/design_principles/sup_princ.html
 [16]: http://www.erlang.org/doc/man/supervisor.html
-[17]: /static/doc/distributed-process-platform/Control-Distributed-Process-Platform-Async.html
+[17]: http://hackage.haskell.org/package/distributed-process-platform/Control-Distributed-Process-Platform-Async.html
 [18]: https://github.com/haskell-distributed/distributed-process-platform
 [19]: http://hackage.haskell.org/package/async
 [20]: /wiki/networktransport.html
-[21]: /static/doc/distributed-process-platform/Control-Distributed-Process-Platform-ManagedProcess.html
+[21]: http://hackage.haskell.org/package/distributed-process-platform/Control-Distributed-Process-Platform-ManagedProcess.html
 [22]: /tutorials/tutorial3.html
