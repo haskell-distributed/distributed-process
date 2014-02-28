@@ -24,11 +24,10 @@ We have a rather full backlog, so your help will be most welcome assisting
 us in clearing that. You can view the exiting open issues on the
 [jira issue tracker](https://cloud-haskell.atlassian.net/issues/?filter=10001).
 
-If you wish to submit an issue there, you can do so without logging in,
-although you obviously won't get any email notifications unless you create
-an account and provide your email address.
+If you wish to submit a new issue there, you cannot do so without logging in
+creating an account (by providing your email address) and logging in.
 
-It is also important to work out which component or sub-system should be
+It is also helpful to work out which component or sub-system should be
 changed. You may wish to email the maintainers to discuss this first.
 
 ### __2. Make sure your patch merges cleanly__
@@ -47,7 +46,8 @@ local branch. For example:
 
 $ git checkout -b bugfix-issue123
 
-## make, add and commit your changes
+## add and commit your changes
+## base them on master for bugfixes or development for new features
 
 $ git checkout master
 $ git remote add upstream git://github.com/haskell-distributed/distributed-process.git
@@ -70,9 +70,9 @@ conventions page [here](http://hackage.haskell.org/trac/ghc/wiki/WorkingConventi
 
 1. try to make small patches - the bigger they are, the longer the pull request QA process will take
 2. strictly separate all changes that affect functionality from those that just affect code layout, indentation, whitespace, filenames etc
-3. always include the issue number (of the form `fixes #N`) in the final commit message for the patch - pull requests without an issue are unlikely to have been discussed (see above)
+3. always include the issue number (of the form `PROJECT_CODE #resolve Fixed`) in the final commit message for the patch - pull requests without an issue are unlikely to have been discussed (see above)
 4. use Unix conventions for line endings. If you are on Windows, ensure that git handles line-endings sanely by running `git config --global core.autocrlf false`
-5. make sure you have setup git to use the correct name and email for your commits - see the [github help guide](https://help.github.com/articles/setting-your-email-in-git)
+5. make sure you have setup git to use the correct name and email for your commits - see the [github help guide](https://help.github.com/articles/setting-your-email-in-git) - otherwise you won't be attributed in the scm history!
 
 ### __4. Make sure all the tests pass__
 
@@ -171,7 +171,7 @@ import Data.Blah
 import Data.Boom (Typeable)
 {% endhighlight %}
 
-Personally I don't care *that much* about alignment for other things,
+We generally don't care *that much* about alignment for other things,
 but as always, try to follow the convention in the file you're editing
 and don't change things just for the sake of it.
 
@@ -186,18 +186,18 @@ punctuation.
 
 Comment every top level function (particularly exported functions),
 and provide a type signature; use Haddock syntax in the comments.
-Comment every exported data type.  Function example:
+Comment every exported data type. Function example:
 
 {% highlight haskell %}
--- | Send a message on a socket.  The socket must be in a connected
--- state.  Returns the number of bytes sent.  Applications are
+-- | Send a message on a socket. The socket must be in a connected
+-- state.  Returns the number of bytes sent. Applications are
 -- responsible for ensuring that all data has been sent.
 send :: Socket      -- ^ Connected socket
      -> ByteString  -- ^ Data to send
      -> IO Int      -- ^ Bytes sent
 {% endhighlight %}
 
-For functions the documentation should give enough information to
+For functions, the documentation should give enough information to
 apply the function without looking at the function's definition.
 
 ### Naming
@@ -214,3 +214,4 @@ abbreviation.  For example, write `HttpServer` instead of
 Use singular when naming modules e.g. use `Data.Map` and
 `Data.ByteString.Internal` instead of `Data.Maps` and
 `Data.ByteString.Internals`.
+

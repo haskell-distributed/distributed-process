@@ -117,17 +117,9 @@ What's good for the goose...
 
 #### Making API documentation available on the website
 
-Currently this is a manual process. If you don't sed/awk out the
-reference/link paths, it'll be a mess. We will add a script to
-handle this some time soon. I tend to only update the static
-documentation for d-p and d-p-platform, at least until the process has
-been automated. I also do this *only* for mainline branches (i.e.,
-for development and master), although again, automation could solve
-a lot of issues there.
-
-There is also an open ticket to set up nightly builds, which will
-update the HEAD haddocks (on the website) and produce an 'sdist'
-bundle and add that to the website too.
+There is an open ticket to set up nightly builds, which will update
+the HEAD haddocks (on the website) and produce an 'sdist' bundle and
+add that to the website too.
 
 See https://cloud-haskell.atlassian.net/browse/INFRA-1 for details.
 

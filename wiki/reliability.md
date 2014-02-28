@@ -28,8 +28,6 @@ child processes. A supervisors *children* can be either worker processes or
 supervisors, which allows us to build hierarchical process structures (called
 supervision trees in Erlang parlance).
 
-The supervision APIs are a work in progress.
-
 [1]: http://en.wikipedia.org/wiki/Open_Telecom_Platform
 [2]: http://www.erlang.org/doc/design_principles/sup_princ.html
 [3]: http://www.erlang.org/doc/man/supervisor.html
