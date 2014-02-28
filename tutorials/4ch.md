@@ -2,7 +2,7 @@
 layout: tutorial
 sections: ['Introduction', 'Managed Processes', 'A Basic Example', 'Building a Task Queue', 'Implementing the Client', 'Implementing the Server', 'Making use of Async', 'Wiring up Handlers', 'Putting it all together', 'Performance Considerations']
 categories: tutorial
-title: Managed Process Tutorial
+title: 4. Managed Process Tutorial
 ---
 
 ### Introduction

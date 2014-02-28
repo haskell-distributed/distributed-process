@@ -2,7 +2,7 @@
 layout: tutorial
 categories: tutorial
 sections: ['Getting Started', 'Installing from source', 'Creating a node', 'Sending messages', 'Spawning Remote Processes']
-title: Getting Started
+title: 1. Getting Started
 ---
 
 ### Getting Started

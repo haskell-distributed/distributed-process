@@ -2,7 +2,7 @@
 layout: tutorial
 categories: tutorial
 sections: ['Overview', 'A Simple Example', 'Master Slave Configurations', 'Other Topologies and Backends']
-title: Managing Topologies
+title: 2. Managing Topologies
 ---
 
 ### Overview

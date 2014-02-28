@@ -2,7 +2,7 @@
 layout: tutorial
 categories: tutorial
 sections: ['Message Ordering', 'Selective Receive', 'Advanced Mailbox Processing', 'Typed Channels', 'Process Lifetime', 'Monitoring And Linking', 'Getting Process Info']
-title: Getting to know Processes
+title: 3. Getting to know Processes
 ---
 
 ### Message Ordering

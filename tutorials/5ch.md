@@ -2,7 +2,7 @@
 layout: tutorial
 categories: tutorial
 sections: ['Introduction']
-title: Supervision Principles
+title: 5. Supervision Principles
 ---
 
 ### Introduction

@@ -2,7 +2,7 @@
 layout: tutorial
 sections: ['Introduction', 'Unexpected Messages', 'Hiding Implementation Details', 'Using Typed Channels']
 categories: tutorial
-title: Advanced Managed Processes
+title: 6. Advanced Managed Processes
 ---
 
 ### Introduction
