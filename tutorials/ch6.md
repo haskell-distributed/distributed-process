@@ -113,8 +113,8 @@ Each `Registry` server deals with specific types of keys and values. Allowing
 clients to send and receive instructions pertaining to a registry server without
 knowing the exact types the server was _spawned_ to handle, is a recipe for
 disaster, since the client is very likely to block indefinitely if the expected
-types do not match up, since the server will never process such requests.
-We can alleviate this problem using phantom type parameters, but storing only
+request types don't match up, since the server will ignore them.
+We can alleviate this problem using phantom type parameters, storing only
 the real `ProcessId` we need to communicate with the server, whilst utilising
 the compiler to ensure the correct types are assumed at both ends.
 
@@ -216,7 +216,7 @@ types, so it is enough to provide just that instance for your handles.
 
 Typed Channels can be used in two ways via the managed process API, either as
 inputs to the server or as a _reply channel_ for RPC style interactions that
-offer an alternative to the `call` approach.
+offer an alternative to using `call`.
 
 #### Reply Channels
 
@@ -225,9 +225,8 @@ match the type(s) the client expects. This will cause the client to either
 deadlock or timeout, depending on which variant of `call` was used. This isn't
 usually a problem, since the server author also writes the client facing API(s)
 and can therefore carefully check that the correct types are being returned.
-That's still potentially error prone during development however, and using a
-`SendPort` as a reply channel can make it easier to spot potential type
-discrepancies.
+That's still potentially error prone however, and using a `SendPort` as a reply
+channel can make it easier to spot potential type discrepancies.
 
 The machinery behind _reply channels_ is very simple: We create a new channel
 for the reply and pass the `SendPort` to the server along with our input message.
@@ -245,7 +244,7 @@ server).
 ------
 
 Typed channels are better suited to handling deferred client-server RPC calls
-than plain inter-process messaging. The only non-blocking `call` API is based
+than plain inter-process messaging too. The only non-blocking `call` API is based
 on [`Async`][2] and its only failure mode is an `AsyncFailed` result containing
 a corresponding `ExitReason`. The `callTimeout` API is equally limited, since
 once its delay is exceeded (and the call times out), you cannot subsequently
@@ -257,13 +256,13 @@ a reply from the `ReceivePort` until it's ready, timeout waiting for the reply
 **and** try again at a later time and even wait on the results of multiple RPC
 calls (to one or _more_ servers) at the same by merging the ports.
 
-We might wish to block and wait for a reply immediately, treating the API just
-we would `call`. Two blocking operations are provided to simplify this, one of
-which returns an `ExitReason` on failure, whilst the other crashes (with the given
-`ExitReason` of course!). The implementation is precisely what you'd expect a
-blocking _call_ to do, right up to monitoring the server for potential exit signals
-(so as not to deadlock the client if the server dies before replying) - all of
-which is handled by `awaitResponse` in the platform's `Primitives` module.
+If we wish to block and wait for a reply immediately (just as we would with `call`),
+two blocking operations are provided to simplify the task, one of which returns an
+`ExitReason` on failure, whilst the other crashes (with the given `ExitReason` of
+course!). The implementation is precisely what you'd expect a blocking _call_ to
+do, right up to monitoring the server for potential exit signals (so as not to
+deadlock the client if the server dies before replying) - all of which is handled
+by `awaitResponse` in the platform's `Primitives` module.
 
 {% highlight haskell %}
 syncSafeCallChan server msg = do
@@ -277,8 +276,9 @@ with the programmer left to ensure the types always match up. In reality, there
 is a trade-off to be made however. Using the `handleCall` APIs means that our server
 side code can use the fluent server API for state changes, immediate replies and
 so on. None of these features will work with the corollary family of
-`handleRpcChan` functions. The difference is perhaps an aesthetic one, as the
-following example code demonstrates:
+`handleRpcChan` functions. Whether or not the difference is merely aesthetic, we
+leave as a question for the reader to determine. The following example demonstrates
+the use of reply channels:
 
 {% highlight haskell %}
 -- two versions of the same handler, one for calls, one for typed (reply) channels
@@ -315,27 +315,256 @@ chanHandler = handleRpcChan $ \state port Input -> replyChan port Output >> cont
 
 #### Input (Control) Channels
 
-An alternative input plane for managed process servers, /control channels/ provide a
-number of benefits over the standard `call` and `cast` APIs. These include efficiency
-- _typed channels_ are very lightweight constructs! - and type safety, as well as
-giving the server the ability to prioritise information sent on control channels over
-other traffic.
+An alternative input plane managed process servers; _Control Channels_ provide a
+number of benefits above and beyond both the standard `call` and `cast` APIs and the
+use of reply channels. These include efficiency - _typed channels_ are very lightweight
+constructs in general! - and type safety, as well as giving the server the ability to
+prioritise information sent on control channels over other traffic.
 
 Using typed channels as inputs to your managed process is _the_ most efficient way
 to enable client-server communication, particularly for intra-node traffic, due to
 their internal use of STM (and in particular, its use during selective receives).
+Control channels can provide an alternative to prioritised process definitions, since
+their use of channels ensures that, providing the control channel handler(s) occur
+in the process definition's `apiHandlers` list before the other dispatchers, any
+messages received on those channels will be prioritised over other traffic. This is
+the most efficient kind of prioritisation - not much use if you need to prioritise
+_info messages_ of course, but very useful if _control messages_ need to be given
+priority over other inputs.
 
-In order to use control channels as input planes, it is necessary to _leak_ their
+------
+> ![Warning: ][alert] Control channels are **not** compatible with prioritised
+> process definitions! The type system does not prevent them from being declared
+> though, since they _are_ represented by a `Dispatcher` and therefore deemded
+> valid entries of the `apiHandlers` field. Upon startup, a prioritised process
+> definition that contains control channel dispatchers in its `apiHandlers` will
+> immediately exit with the reason `ExitOther "IllegalControlChannel"` though.
+------
+
+In order to use a typed channel as an input plane, it is necessary to _leak_ the
 `SendPort` to your clients somehow. One way would be to `send` it on demand, but the
-simplest approach is actually to initialise a handle with all the relevant SendPorts
-and return this to the spawning process via an MVar (or similar construct). Because a
-`SendPort` is `Serializable`, forwarding them (or the handle they're contained within)
-is no problem either. Combining control channels with opaque handles is another great
-way to enforce additional type safety, since the channels must be initialised by the
-server code before it can create handlers for them and the client code that passes
-data to them (via the `SendPort`) is bound to exactly the same type(s)! This means that
-there can be no ambiguity and therefore no unhandled messages due to runtime type
-mismatches - the compiler will catch that sort of thing for us.
+simplest approach is actually to initialise a handle with all the relevant send ports
+and return this to the spawning process via a private channel, MVar or STM (or similar).
+Because a `SendPort` is `Serializable`, forwarding them (or the handle they're
+contained within) is no problem either.
+
+Since typed channels are a one way street, there's no direct API support for RPC calls
+when using them to send data to a server. The work-around for this remains simple,
+type-safe and elegant though: we encode a reply channel into our command/request datum
+so the server knows where (and with what type) to reply. This does increase the amount
+of boilerplate code the client-facing API has to endure, but it's a small price to pay
+for the efficiency and additional type safety provided.
+
+First, we'll look at an example of a single control channel being used with the
+`chanServe` API. This handles the messy details of passing the control channel back
+to the calling process, at least to some extent. For this example, we'll examine the
+[`Mailbox`][mailbox] module, since this combines a fire-and-forget control channel with
+an opaque server handle.
+
+{% highlight haskell %}
+-- our handle is fairly simple
+data Mailbox = Mailbox { pid   :: !ProcessId
+                       , cchan :: !(ControlPort ControlMessage)
+                       } deriving (Typeable, Generic, Eq)
+instance Binary Mailbox where
+
+instance Linkable Mailbox where
+  linkTo = link . pid
+
+instance Resolvable Mailbox where
+  resolve = return . Just . pid
+
+-- lots of details elided....
+
+-- Starting the mailbox involves both spawning, and passing back the process id,
+-- plus we need to get our hands on a control port for the control channel!
+
+doStartMailbox :: Maybe SupervisorPid
+               -> ProcessId
+               -> BufferType
+               -> Limit
+               -> Process Mailbox
+doStartMailbox mSp p b l = do
+  bchan <- liftIO $ newBroadcastTChanIO
+  rchan <- liftIO $ atomically $ dupTChan bchan
+  spawnLocal (maybeLink mSp >> runMailbox bchan p b l) >>= \pid -> do
+    cc <- liftIO $ atomically $ readTChan rchan
+    return $ Mailbox pid cc  -- return our opaque handle!
+  where
+    maybeLink Nothing   = return ()
+    maybeLink (Just p') = link p'
+
+runMailbox :: TChan (ControlPort ControlMessage)
+           -> ProcessId
+           -> BufferType
+           -> Limit
+           -> Process ()
+runMailbox tc pid buffT maxSz = do
+  link pid
+  tc' <- liftIO $ atomically $ dupTChan tc
+  MP.chanServe (pid, buffT, maxSz) (mboxInit tc') (processDefinition pid tc)
+
+mboxInit :: TChan (ControlPort ControlMessage)
+         -> InitHandler (ProcessId, BufferType, Limit) State
+mboxInit tc (pid, buffT, maxSz) = do
+  cc <- liftIO $ atomically $ readTChan tc
+  return $ InitOk (State Seq.empty $ defaultState buffT maxSz pid cc) Infinity
+
+processDefinition :: ProcessId
+                  -> TChan (ControlPort ControlMessage)
+                  -> ControlChannel ControlMessage
+                  -> Process (ProcessDefinition State)
+processDefinition pid tc cc = do
+  liftIO $ atomically $ writeTChan tc $ channelControlPort cc
+  return $ defaultProcess { apiHandlers = [
+                               handleControlChan     cc handleControlMessages
+                             , Restricted.handleCall handleGetStats
+                             ]
+                          , infoHandlers = [ handleInfo handlePost
+                                           , handleRaw  handleRawInputs ]
+                          , unhandledMessagePolicy = DeadLetter pid
+                          } :: Process (ProcessDefinition State)
+{% endhighlight %}
+
+Since the rest of the mailbox initialisation code is quite complex, we'll leave it
+there for now. The important details to take away are the use of `chanServe`
+and its requirement for a thunk that initialises the `ProcessDefinition`, so it can
+perform IO - a pre-requisite to sharing the control channels with the spawning process,
+which must use STM or something similar in order to share data with the newly spawned
+server's initialisation code. In our case, we want to pass the control port from the
+thunk passed to `chanServe` back to both the spawning process _and_ the init function
+(which is normally de-coupled from the initialising thunk), which makes this a good
+example of how to utilise a broadcast TChan (or TQueue) to share control plane
+structures during initialisation.
+
+------
+
+Now we'll cook up another (contrived) example that uses multiple typed control channels,
+demonstrating how to create control channels explicitly, how to obtain a `ControlPort`
+for each one, one way of passing these back to the process spawning the server (so as
+to fill in the opaque server handle) and how to utilise these in your client code,
+complete with the use of typed reply channels. This code will not use `chanServe`,
+since _that_ API only supports a single control channel - the original purpose behind
+the control channel concept - and instead, we'll create the process loop ourselves,
+using the exported low level `recvLoop` function.
+
+{% highlight haskell %}
+
+type NumRequests = Int
+
+data EchoServer = EchoServer { echoRequests :: ControlPort String
+                             , statRequests :: ControlPort NumRequests
+                             , serverPid    :: ProcessId
+                             }
+  deriving (Typeable, Generic)
+instance Binary EchoServer where
+instance NFData EchoServer where
+
+instance Resolvable EchoServer where
+  resolve = return . Just . serverPid
+
+instance Linkable EchoServer where
+  linkTo = link . serverPid
+
+-- The server takes a String and returns it verbatim
+
+data EchoRequest = EchoReq !String !(SendPort String)
+  deriving (Typeable, Generic)
+instance Binary EchoRequest where
+instance NFData EchoRequest where
+
+data StatsRequest = StatsReq !(SendPort Int)
+  deriving (Typeable, Generic)
+instance Binary StatsRequest where
+instance NFData StatsRequest where
+
+-- client code
+
+echo :: EchoServer -> String -> Process String
+echo h s = do
+  (sp, rp) <- newChan
+  let req = EchoReq s sp
+  sendControlMessage (echoRequests h) req
+  receiveWait [ matchChan rp return ]
+
+stats :: EchoServer -> Process NumRequests
+stats h = do
+  (sp, rp) <- newChan
+  let req = StatsReq sp
+  sendControlMessage (statRequests h) req
+  receiveWait [ matchChan rp return ]
+
+demo :: Process ()
+demo = do
+  server <- spawnEchoServer
+  foobar <- echo server "foobar"
+  foobar `shouldBe` equalTo "foobar"
+
+  baz <- echo server "baz"
+  baz `shouldBe` equalTo baz
+
+  count <- stats server
+  count `shouldBe` equalTo (2 :: NumRequests)
+
+-- server code
+
+spawnEchoServer :: Process EchoServer
+spawnEchoServer = do
+  (sp, rp) <- newChan
+  pid <- spawnLocal $ runEchoServer sp
+  (echoPort, statsPort) <- receiveChan rp
+  return $ EchoServer echoPort statsPort pid
+
+runEchoServer :: SendPort (ControlPort EchoRequest, ControlPort StatsRequest)
+              -> Process ()
+runEchoServer portsChan = do
+  echoChan <- newControlChan
+  echoPort <- channelControlPort echoChan
+  statChan <- newControlChan
+  statPort <- channelControlPort statChan
+  sendChan portsChan (echoPort, statPort)
+  runProcess (recvLoop $ echoServerDefinition echoChan statChan ) echoServerInit
+
+echoServerInit :: InitHandler () NumRequests
+echoServerInit = return $ InitOk (0 :: Int) Infinity
+
+echoServerDefinition :: ControlChannel EchoRequest
+                     -> ControlChannel StatsRequest
+                     -> ProcessDefinition NumRequests
+echoServerDefinition echoChan statChan =
+  defaultProcess {
+      apiHandlers = [ handleControlChan echoChan handleEcho
+                    , handleControlChan statChan handleStats
+                    ]
+    }
+
+handleEcho :: NumRequests -> EchoRequest -> Process (ProcessAction State)
+handleEcho count (EchoReq req replyTo) = do
+  replyChan replyTo req  -- echo back the string
+  continue $ count + 1
+
+handleStats :: NumRequests -> StatsRequest -> Process (ProcessAction State)
+handleStats count (StatsReq replyTo) = do
+  replyChan replyTo count
+  continue count
+{% endhighlight %}
+
+Although not very useful, this is a working example. Note that the client must
+deal with a `ControlPort` and not the complete `ControlChannel` itself. Also
+note that the server is completely responsible for replying (explicitly) to
+the client using the send ports supplied in the request data.
+
+------
+> ![Info: ][info] Combining control channels with opaque handles is another great
+> way to enforce additional type safety, since the channels must be initialised by
+> the server code before it can create handlers for them and the client code that
+> passes data to them (via the `SendPort`) is bound to exactly the same type(s)!
+> Furthermore, adding reply channels (in the form of a `SendPort`) to the request
+> types ensures that the replies will be handled correctly as well! As a result,
+> there can be no ambiguity about the types involved for _either_ side of the 
+> client-server relationship and therefore no unhandled messages due to runtime
+> type mismatches - the compiler will catch that sort of thing for us!
+------
 
 [1]: http://hackage.haskell.org/package/distributed-process-platform/Control-Distributed-Process-Platform-Service-Registry.html
 [2]: http://hackage.haskell.org/package/distributed-process-platform/Control-Distributed-Process-Platform-Async.html
@@ -347,4 +576,5 @@ mismatches - the compiler will catch that sort of thing for us.
 [alert]: /img/alert.png
 [info]: /img/info.png
 [policy]: http://hackage.haskell.org/package/distributed-process-platform/Control-Distributed-Process-Platform-ManagedProcess.html#t:UnhandledMessagePolicy
+[mailbox]: http://hackage.haskell.org/package/distributed-process-platform/Control-Distributed-Process-Platform-Execution-Mailbox.html
 
