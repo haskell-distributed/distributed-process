@@ -270,6 +270,7 @@ matchCond cond =
        res = v . cond
     in matchIf (fst . res) (snd . res)
 
+-- | Safe (i.e., monitored) waiting on an expected response/message.
 awaitResponse :: Addressable a
               => a
               -> [Match (Either ExitReason b)]
