@@ -14,11 +14,13 @@
               <li class="dropdown">
                   <a class="dropdown-toggle" data-toggle="dropdown">Tutorials <b class="caret"></b></a>
                   <ul class="dropdown-menu">
-                      {% for page in site.pages | sort %}
-                          {% if page.categories contains 'tutorial' %}
-                          <li><a href="{{ page.url }}">{{ page.title }}</a></li>
-                          {% endif %}
-                      {% endfor %}
+                    <li><a href="/tutorials/1ch.html">Getting Started</a></li>
+                    <li><a href="/tutorials/2ch.html">Managing Topologies</a></li>
+                    <li><a href="/tutorials/3ch.html">Getting to know Processes</a></li>
+                    <li><a href="/tutorials/4ch.html">Managed (Generic) Processes</a></li>
+                    <li><a href="/tutorials/5ch.html">Supervision Principles</a></li>
+                    <li><a href="/tutorials/6ch.html">Advanced Managed Processes</a></li>
+                    <li><a href="/tutorials/tutorial-NT2.html">Programming with Network.Transport</a></li>
                   </ul>
               </li>
               <!-- <li {% if page.url == "/faq.html" %}class="active"{% endif %}><a href="/faq.html">FAQ</a></li> -->
