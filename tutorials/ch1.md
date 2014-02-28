@@ -25,7 +25,7 @@ If you're installing from source, the simplest method is to checkout the
 [Umbrella Project](https://github.com/haskell-distributed/cloud-haskell) and
 run `make` to obtain the complete set of source repositories for building
 Cloud Haskell. The additional makefiles bundled with the umbrella assume
-that you have a recent version of cabal-dev installed.
+that you have a recent version of cabal (with support for sandboxes) installed.
 
 ### Creating a node
 
