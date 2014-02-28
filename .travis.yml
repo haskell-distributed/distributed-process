@@ -3,6 +3,8 @@ language: haskell
 env:
   matrix:
     - GHCVER=7.4.2
+    - GHCVER=7.6.1
+    - GHCVER=7.6.2
     - GHCVER=7.6.3
   global:
     - CABALVER=1.18
