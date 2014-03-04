@@ -421,7 +421,7 @@ data MonitorRef = MonitorRef
     -- | Unique to distinguish multiple monitor requests by the same process
   , monitorRefCounter :: !Int32
   }
-  deriving (Eq, Ord, Show, Generic)
+  deriving (Eq, Ord, Show, Typeable, Generic)
 instance Hashable MonitorRef where
 
 -- | Message sent by process monitors
