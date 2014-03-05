@@ -239,6 +239,7 @@ module Control.Distributed.Process.Platform.Supervisor
   , RestartMode(..)
   , RestartOrder(..)
   , RestartStrategy(..)
+  , ShutdownMode(..)
   , restartOne
   , restartAll
   , restartLeft
@@ -430,6 +431,12 @@ data RestartMode =
 instance Binary RestartMode where
 instance NFData RestartMode where
 
+data ShutdownMode = SequentialShutdown !RestartOrder
+                      | ParallelShutdown
+  deriving (Typeable, Generic, Show, Eq)
+instance Binary ShutdownMode where
+instance NFData ShutdownMode where
+
 -- | Strategy used by a supervisor to handle child restarts, whether due to
 -- unexpected child failure or explicit restart requests from a client.
 --
@@ -437,7 +444,8 @@ instance NFData RestartMode where
 -- as /siblings/. When restarting a child process, the 'RestartNone' policy
 -- indicates that sibling processes should be left alone, whilst the 'RestartAll'
 -- policy will cause /all/ children to be restarted (in the same order they were
--- started). ************************************************************************
+-- started).
+--
 -- The other two restart strategies refer to /prior/ and /subsequent/
 -- siblings, which describe's those children's configured position
 -- (i.e., insertion order). These latter modes allow one to control the order
@@ -446,18 +454,19 @@ instance NFData RestartMode where
 --
 data RestartStrategy =
     RestartOne
-    { intensity :: !RestartLimit } -- ^ restart only the failed child process
+    { intensity        :: !RestartLimit
+    } -- ^ restart only the failed child process
   | RestartAll
-    { intensity :: !RestartLimit
-    , mode      :: !RestartMode
+    { intensity        :: !RestartLimit
+    , mode             :: !RestartMode
     } -- ^ also restart all siblings
   | RestartLeft
-    { intensity :: !RestartLimit
-    , mode      :: !RestartMode
+    { intensity        :: !RestartLimit
+    , mode             :: !RestartMode
     } -- ^ restart prior siblings (i.e., prior /start order/)
   | RestartRight
-    { intensity :: !RestartLimit
-    , mode      :: !RestartMode
+    { intensity        :: !RestartLimit
+    , mode             :: !RestartMode
     } -- ^ restart subsequent siblings (i.e., subsequent /start order/)
   deriving (Typeable, Generic, Show)
 instance Binary RestartStrategy where
@@ -542,7 +551,7 @@ instance NFData ChildType where
 data RestartPolicy =
     Permanent  -- ^ a permanent child will always be restarted
   | Temporary  -- ^ a temporary child will /never/ be restarted
-  | Transient  -- ^ a transient child will be restarted only if it terminates abnormally
+  | Transient  -- ^ A transient child will be restarted only if it terminates abnormally
   | Intrinsic  -- ^ as 'Transient', but if the child exits normally, the supervisor also exits normally
   deriving (Typeable, Generic, Eq, Show)
 instance Binary RestartPolicy where
@@ -819,13 +828,14 @@ instance Logger LogSink where
   logMessage (LogProcess client') = logMessage client'
 
 data State = State {
-    _specs         :: ChildSpecs
-  , _active        :: Map ProcessId ChildKey
-  , _strategy      :: RestartStrategy
-  , _restartPeriod :: NominalDiffTime
-  , _restarts      :: [UTCTime]
-  , _stats         :: SupervisorStats
-  , _logger        :: LogSink
+    _specs           :: ChildSpecs
+  , _active          :: Map ProcessId ChildKey
+  , _strategy        :: RestartStrategy
+  , _restartPeriod   :: NominalDiffTime
+  , _restarts        :: [UTCTime]
+  , _stats           :: SupervisorStats
+  , _logger          :: LogSink
+  , shutdownStrategy :: ShutdownMode
   }
 
 --------------------------------------------------------------------------------
@@ -837,13 +847,13 @@ data State = State {
 --
 -- > start = spawnLocal . run
 --
-start :: RestartStrategy -> [ChildSpec] -> Process ProcessId
-start s cs = spawnLocal $ run s cs
+start :: RestartStrategy -> ShutdownMode -> [ChildSpec] -> Process ProcessId
+start rs ss cs = spawnLocal $ run rs ss cs
 
 -- | Run the supplied children using the provided restart strategy.
 --
-run :: RestartStrategy -> [ChildSpec] -> Process ()
-run strategy' specs' = MP.pserve (strategy', specs') supInit serverDefinition
+run :: RestartStrategy -> ShutdownMode -> [ChildSpec] -> Process ()
+run rs ss specs' = MP.pserve (rs, ss, specs') supInit serverDefinition
 
 --------------------------------------------------------------------------------
 -- Client Facing API                                                          --
@@ -935,8 +945,8 @@ shutdownAndWait sid = do
 -- Server Initialisation/Startup                                              --
 --------------------------------------------------------------------------------
 
-supInit :: InitHandler (RestartStrategy, [ChildSpec]) State
-supInit (strategy', specs') = do
+supInit :: InitHandler (RestartStrategy, ShutdownMode, [ChildSpec]) State
+supInit (strategy', shutdown', specs') = do
   logClient <- Log.client
   let client' = case logClient of
                   Nothing -> LogChan
@@ -946,7 +956,7 @@ supInit (strategy', specs') = do
                     )
                   . (strategy ^= strategy')
                   . (logger   ^= client')
-                  $ emptyState
+                  $ emptyState shutdown'
                   )
   -- TODO: should we return Ignore, as per OTP's supervisor, if no child starts?
   (foldlM initChild initState specs' >>= return . (flip InitOk) Infinity)
@@ -982,15 +992,16 @@ initialised state spec (Right ref) = do
 -- Server Definition/State                                                    --
 --------------------------------------------------------------------------------
 
-emptyState :: State
-emptyState = State {
-    _specs         = Seq.empty
-  , _active        = Map.empty
-  , _strategy      = restartAll
-  , _restartPeriod = (fromIntegral (0 :: Integer)) :: NominalDiffTime
-  , _restarts      = []
-  , _stats         = emptyStats
-  , _logger        = LogChan
+emptyState :: ShutdownMode -> State
+emptyState strat = State {
+    _specs           = Seq.empty
+  , _active          = Map.empty
+  , _strategy        = restartAll
+  , _restartPeriod   = (fromIntegral (0 :: Integer)) :: NominalDiffTime
+  , _restarts        = []
+  , _stats           = emptyStats
+  , _logger          = LogChan
+  , shutdownStrategy = strat
   }
 
 emptyStats :: SupervisorStats
@@ -1218,7 +1229,6 @@ handleMonitorSignal state (ProcessMonitorNotification _ pid reason) = do
 --------------------------------------------------------------------------------
 
 handleShutdown :: State -> ExitReason -> Process ()
--- TODO: stop all our children from left to right...
 handleShutdown state (ExitOther reason) = terminateChildren state >> die reason
 handleShutdown state _                  = terminateChildren state
 
@@ -1260,7 +1270,7 @@ tryRestartBranch rs sp dr st = -- TODO: use DiedReason for logging...
                 RestartAll   _ _ -> childSpecs
                 RestartLeft  _ _ -> subTreeL
                 RestartRight _ _ -> subTreeR
-                _                -> error "IllegalState"
+                _                  -> error "IllegalState"
       proc  = case mode' of
                 RestartEach     _ -> stopStart
                 RestartInOrder  _ -> restartL
@@ -1628,17 +1638,24 @@ filterInitFailures sup pid ex = do
 
 terminateChildren :: State -> Process ()
 terminateChildren state = do
-  let allChildren = toList $ state ^. specs
-  pids <- forM allChildren $ \ch -> do
-    pid <- spawnLocal $ asyncTerminate ch $ (active ^= Map.empty) state
-    void $ monitor pid
-    return pid
-  _ <- collectExits [] pids
-  -- TODO: report errs???
-  return ()
+  case (shutdownStrategy state) of
+    ParallelShutdown -> do
+      let allChildren = toList $ state ^. specs
+      pids <- forM allChildren $ \ch -> do
+        pid <- spawnLocal $ void $ syncTerminate ch $ (active ^= Map.empty) state
+        void $ monitor pid
+        return pid
+      void $ collectExits [] pids
+      -- TODO: report errs???
+    SequentialShutdown ord -> do
+      let specs'      = state ^. specs
+      let allChildren = case ord of
+                          RightToLeft -> Seq.reverse specs'
+                          LeftToRight -> specs'
+      void $ foldlM (flip syncTerminate) state (toList allChildren)
   where
-    asyncTerminate :: Child -> State -> Process ()
-    asyncTerminate (cr, cs) state' = void $ doTerminateChild cr cs state'
+    syncTerminate :: Child -> State -> Process State
+    syncTerminate (cr, cs) state' = doTerminateChild cr cs state'
 
     collectExits :: [DiedReason]
                  -> [ProcessId]
@@ -1667,7 +1684,7 @@ doTerminateChild ref spec state = do
                )
   where
     shutdownComplete :: State -> ProcessId -> DiedReason -> Process State
-    shutdownComplete _ _ DiedNormal               = return $ updateStopped
+    shutdownComplete _      _   DiedNormal        = return $ updateStopped
     shutdownComplete state' pid (r :: DiedReason) = do
       logShutdown (state' ^. logger) chKey pid r >> return state'
 

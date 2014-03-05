@@ -18,7 +18,7 @@ import Control.Exception (throwIO)
 import Control.Distributed.Process hiding (call, monitor)
 import Control.Distributed.Process.Closure
 import Control.Distributed.Process.Node
-import Control.Distributed.Process.Platform hiding (__remoteTable, send)
+import Control.Distributed.Process.Platform hiding (__remoteTable, send, sendChan)
 -- import Control.Distributed.Process.Platform as Alt (monitor)
 import Control.Distributed.Process.Platform.Test
 import Control.Distributed.Process.Platform.Time
@@ -114,7 +114,7 @@ runInTestContext :: LocalNode
                  -> Assertion
 runInTestContext node lock rs cs proc = do
   Ex.bracket (takeMVar lock) (putMVar lock) $ \() -> runProcess node $ do
-    sup <- Supervisor.start rs cs
+    sup <- Supervisor.start rs ParallelShutdown cs
     (proc sup) `finally` (exit sup ExitShutdown)
 
 verifyChildWasRestarted :: ChildKey -> ProcessId -> ProcessId -> Process ()
@@ -208,6 +208,44 @@ normalStartStop sup = do
   void $ monitor sup
   shutdown sup
   sup `shouldExitWith` DiedNormal
+
+sequentialShutdown :: TestResult (Maybe ()) -> Process ()
+sequentialShutdown result = do
+  (sp, rp) <- newChan
+  (sg, rg) <- newChan
+  core' <- toChildStart $ runCore sp
+  app'  <- toChildStart $ runApp sg
+  let core = (permChild core') { childRegName = Just (LocalName "core")
+                               , childStop = TerminateTimeout (Delay $ within 2 Seconds)
+                               }
+  let app  = (permChild app')  { childRegName = Just (LocalName "app")
+                               , childStop = TerminateTimeout (Delay $ within 2 Seconds)
+                               }
+
+  sup <- Supervisor.start restartRight
+                          (SequentialShutdown RightToLeft)
+                          [core, app]
+
+  () <- receiveChan rg
+  exit sup ExitShutdown
+  res <- receiveChanTimeout (asTimeout $ seconds 2) rp
+
+--  whereis "core" >>= liftIO . putStrLn . ("core :" ++) . show
+--  whereis "app"  >>= liftIO . putStrLn . ("app :" ++) . show
+
+  sleepFor 1 Seconds
+  stash result res
+
+  where
+    runCore :: SendPort () -> Process ()
+    runCore sp = (expect >>= say) `catchExit` (\_ ExitShutdown -> sendChan sp ())
+
+    runApp :: SendPort () -> Process ()
+    runApp sg = do
+      Just pid <- whereis "core"
+      link pid  -- if the real "core" exits first, we go too
+      sendChan sg ()
+      expect >>= say
 
 configuredTemporaryChildExitsWithIgnore ::
      ChildStart
@@ -973,7 +1011,7 @@ localChildStartLinking :: TestResult Bool -> Process ()
 localChildStartLinking result = do
     s1 <- toChildStart procExpect
     s2 <- toChildStart procLinkExpect
-    pid <- Supervisor.start restartOne [tempWorker s1, tempWorker s2]
+    pid <- Supervisor.start restartOne ParallelShutdown [tempWorker s1, tempWorker s2]
     [(r1, _), (r2, _)] <- listChildren pid
     Just p1 <- resolve r1
     Just p2 <- resolve r2
@@ -1117,6 +1155,10 @@ tests transport = do
                 (withSupervisor restartAll []
                     (withClosure restartWithoutTempChildren
                                  $(mkStaticClosure 'blockIndefinitely)))
+          , testCase "Sequential Shutdown Ordering"
+             (delayedAssertion
+              "expected the shutdown order to hold"
+              localNode (Just ()) sequentialShutdown)
           ]
         , testGroup "Stopping and Restarting Children"
           [
