@@ -275,6 +275,7 @@ module Control.Distributed.Process.Management
   ) where
 
 import Control.Applicative ((<$>))
+import Control.Concurrent (threadDelay)
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TChan
   ( tryReadTChan
@@ -559,12 +560,16 @@ mxAgentWithFinalize mxId initState handlers dtor = do
     getNextInput' InputChan c' n = do
       inputs <- liftIO $ atomically $ tryReadTChan c'
       case inputs of
-        Nothing -> getNextInput' Mailbox c' (n - 1)
+        Nothing -> do
+            liftIO $ threadDelay 1000
+            getNextInput' Mailbox c' (n - 1)
         Just m  -> return (m, Mailbox)
     getNextInput' Mailbox   c' n = do
       m <- receiveTimeout 0 [ matchAny return ]
       case m of
-        Nothing  -> getNextInput' InputChan c' (n - 1)
+        Nothing  -> do
+            liftIO $ threadDelay 1000
+            getNextInput' InputChan c' (n - 1)
         Just msg -> return (msg, InputChan)
 
     runAgentFinalizer :: MxAgent s () -> MxAgentState s -> Process ()
