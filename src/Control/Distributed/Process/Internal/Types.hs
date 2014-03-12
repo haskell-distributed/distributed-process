@@ -736,4 +736,3 @@ typedChannelWithId cid = typedChannels >>> DAC.mapMaybe cid
 {-# INLINE forever' #-}
 forever' :: Monad m => m a -> m b
 forever' a = let a' = a >> a' in a'
-

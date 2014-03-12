@@ -3,7 +3,8 @@
 -- | Local nodes
 --
 module Control.Distributed.Process.Node
-  ( LocalNode
+  ( LocalNode(..)
+  , LocalNodeState(..)
   , newLocalNode
   , closeLocalNode
   , forkProcess
