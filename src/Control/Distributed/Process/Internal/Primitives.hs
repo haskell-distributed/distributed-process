@@ -58,6 +58,9 @@ module Control.Distributed.Process.Internal.Primitives
   , getSelfNode
   , ProcessInfo(..)
   , getProcessInfo
+  , NodeStats(..)
+  , getNodeStats
+  , getLocalNodeStats
     -- * Monitoring and linking
   , link
   , unlink
@@ -160,6 +163,7 @@ import Control.Distributed.Process.Internal.Types
   , MonitorRef(..)
   , SpawnRef(..)
   , ProcessSignal(..)
+  , NodeMonitorNotification(..)
   , monitorCounter
   , spawnCounter
   , SendPort(..)
@@ -170,6 +174,7 @@ import Control.Distributed.Process.Internal.Types
   , SendPortId(..)
   , Identifier(..)
   , ProcessExitException(..)
+  , DiedReason(..)
   , DidUnmonitor(..)
   , DidUnlinkProcess(..)
   , DidUnlinkNode(..)
@@ -179,6 +184,7 @@ import Control.Distributed.Process.Internal.Types
   , ProcessRegistrationException(..)
   , ProcessInfo(..)
   , ProcessInfoNone(..)
+  , NodeStats(..)
   , isEncoded
   , createMessage
   , createUnencodedMessage
@@ -718,6 +724,31 @@ getSelfPid = processId <$> ask
 -- | Get the node ID of our local node
 getSelfNode :: Process NodeId
 getSelfNode = localNodeId . processNode <$> ask
+
+
+-- | Get statistics about the specified node
+getNodeStats :: NodeId -> Process (Either DiedReason NodeStats)
+getNodeStats nid = do
+    selfNode <- getSelfNode
+    if nid == selfNode
+      then Right `fmap` getLocalNodeStats -- optimisation
+      else getNodeStatsRemote nid
+  where
+    getNodeStatsRemote :: NodeId -> Process (Either DiedReason NodeStats)
+    getNodeStatsRemote nid = do
+        sendCtrlMsg (Just nid) $ GetNodeStats nid
+        bracket (monitorNode nid) unmonitor $ \mRef ->
+            receiveWait [ match (\(stats :: NodeStats) -> return $ Right stats)
+                        , matchIf (\(NodeMonitorNotification ref _ _) -> ref == mRef)
+                                  (\(NodeMonitorNotification _ _ dr) -> return $ Left dr)
+                        ]
+
+-- | Get statistics about our local node
+getLocalNodeStats :: Process NodeStats
+getLocalNodeStats = do
+  self <- getSelfNode
+  sendCtrlMsg Nothing $ GetNodeStats self
+  receiveWait [ match (\(stats :: NodeStats) -> return stats) ]
 
 -- | Get information about the specified process
 getProcessInfo :: ProcessId -> Process (Maybe ProcessInfo)
