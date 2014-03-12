@@ -6,6 +6,7 @@ module Control.Distributed.Process.Internal.StrictMVar
   , newMVar
   , takeMVar
   , putMVar
+  , readMVar
   , withMVar
   , modifyMVar_
   , modifyMVar
@@ -20,6 +21,7 @@ import qualified Control.Concurrent.MVar as MVar
   , newEmptyMVar
   , newMVar
   , takeMVar
+  , readMVar
   , putMVar
   , withMVar
   , modifyMVar_
@@ -40,6 +42,9 @@ newMVar x = evaluate x >> StrictMVar <$> MVar.newMVar x
 
 takeMVar :: StrictMVar a -> IO a
 takeMVar (StrictMVar v) = MVar.takeMVar v
+
+readMVar :: StrictMVar a -> IO a
+readMVar (StrictMVar v) = MVar.readMVar v
 
 putMVar :: StrictMVar a -> a -> IO ()
 putMVar (StrictMVar v) x = evaluate x >> MVar.putMVar v x
