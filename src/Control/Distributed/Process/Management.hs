@@ -526,7 +526,7 @@ mxAgentWithFinalize mxId initState handlers dtor = do
         MxAgentSkip                -> error "IllegalState"
 --      MxAgentBecome h'           -> runAgent h' c state
 
-    getNextInput sel chan = getNextInput' sel chan (10 :: Int)
+    getNextInput sel chan = getNextInput' sel chan (10 :: Int) []
 
     -- when reading inputs, we generally want to maintain a degree of
     -- fairness in choosing between the TChan and our mailbox, but to
@@ -554,23 +554,24 @@ mxAgentWithFinalize mxId initState handlers dtor = do
     -- in which case we needn't worry too much about the overheads
     -- described thus far.
 
-    getNextInput' InputChan c' 0 = do
+    getNextInput' InputChan c' 0 _ = do
       m <- liftIO $ atomically $ readTChan c'
       return (m, Mailbox)
-    getNextInput' InputChan c' n = do
+    getNextInput' InputChan c' n delay = do
       inputs <- liftIO $ atomically $ tryReadTChan c'
       case inputs of
-        Nothing -> do
-            liftIO $ threadDelay 1000
-            getNextInput' Mailbox c' (n - 1)
+        Nothing -> spreadDelay delay >>= getNextInput' Mailbox c' (n - 1)
         Just m  -> return (m, Mailbox)
-    getNextInput' Mailbox   c' n = do
+    getNextInput' Mailbox c' n delay = do
       m <- receiveTimeout 0 [ matchAny return ]
       case m of
-        Nothing  -> do
-            liftIO $ threadDelay 1000
-            getNextInput' InputChan c' (n - 1)
+        Nothing  -> spreadDelay delay >>= getNextInput' InputChan c' (n - 1)
         Just msg -> return (msg, InputChan)
+
+    spreadDelay [] = do
+        liftIO $ threadDelay 50
+        return [1000, 100, 900, 200, 800, 300, 700, 400, 600, 500]
+    spreadDelay (x:xs) = liftIO $ threadDelay x >> return xs
 
     runAgentFinalizer :: MxAgent s () -> MxAgentState s -> Process ()
     runAgentFinalizer f s = ST.runStateT (unAgent f) s >>= return . fst
