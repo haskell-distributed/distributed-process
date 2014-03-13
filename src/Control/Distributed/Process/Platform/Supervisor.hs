@@ -963,7 +963,10 @@ supInit (strategy', shutdown', specs') = do
     `catch` \(e :: SomeException) -> return $ InitStop (show e)
   where
     initChild :: State -> ChildSpec -> Process State
-    initChild st ch = tryStartChild ch >>= initialised st ch
+    initChild st ch =
+      case (findChild (childKey ch) st) of
+        Just (ref, _) -> die $ StartFailureDuplicateChild ref
+        Nothing       -> tryStartChild ch >>= initialised st ch
 
     configuredRestartPeriod =
       let maxT' = maxT (intensity strategy')

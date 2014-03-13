@@ -217,9 +217,11 @@ sequentialShutdown result = do
   app'  <- toChildStart $ runApp sg
   let core = (permChild core') { childRegName = Just (LocalName "core")
                                , childStop = TerminateTimeout (Delay $ within 2 Seconds)
+                               , childKey  = "child-1"
                                }
   let app  = (permChild app')  { childRegName = Just (LocalName "app")
                                , childStop = TerminateTimeout (Delay $ within 2 Seconds)
+                               , childKey  = "child-2"
                                }
 
   sup <- Supervisor.start restartRight
@@ -1011,7 +1013,8 @@ localChildStartLinking :: TestResult Bool -> Process ()
 localChildStartLinking result = do
     s1 <- toChildStart procExpect
     s2 <- toChildStart procLinkExpect
-    pid <- Supervisor.start restartOne ParallelShutdown [tempWorker s1, tempWorker s2]
+    pid <- Supervisor.start restartOne ParallelShutdown [ (tempWorker s1) { childKey = "w1" }
+                                                        , (tempWorker s2) { childKey = "w2" } ]
     [(r1, _), (r2, _)] <- listChildren pid
     Just p1 <- resolve r1
     Just p2 <- resolve r2
