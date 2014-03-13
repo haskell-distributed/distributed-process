@@ -534,40 +534,7 @@ mxAgentWithFinalize mxId initState handlers dtor = do
                            , matchSTM (readTChan chan) return]
               InputChan -> [ matchSTM (readTChan chan) return
                            , matchAny return]
-      in getNextInput' matches 100
-
-    -- when reading inputs, we generally want to maintain a degree of
-    -- fairness in choosing between the TChan and our mailbox, but to
-    -- ultimately favour the TChan overall. We do this by flipping
-    -- between the two (using the ChannelSelector) each time we call
-    -- getNextInput - it returns the opposite ChannelSelector to the
-    -- one which succeeded last time it was called.
-
-    -----------------------------------------------------------------------
-    --
-    -- This strategy works well, yet we wish to avoid blocking on one
-    -- input if the other is empty/busy, so we begin by reading both
-    -- sources conditionally - tryReadTChan for the event bus and
-    -- receiveTimeout for the mailbox. If polling (either source) does
-    -- not yield an input, we swap to the other, but we cannot continue
-    -- in this fashion ad infinitum, since that would waste considerable
-    -- system resoures. Instead, we switch ten times, after which (if no
-    -- data were obtained) we block on the event bus, since that is our
-    -- main priority.
-    -----------------------------------------------------------------------
-
-    --
-    -- An agent can of course, choose to override which source should be
-    -- checked first. We consider this a /hint/ rather than a dictat.
-    -- When reading from the mailbox, we perform a non-blocking read.
-    -- We assume that most agents will prefer using mxReceiveChan to its
-    -- mailbox reading counterpart, this we expect the event bus to be
-    -- non-empty or the entire subsystem is likely doing very little work,
-    -- in which case we needn't worry too much about the overheads
-    -- described thus far.
-
-    -- TODO: use mersenne-random / (System.Random.MWC) to get a
-    -- uniform distribution of values between 10..2000
+      in getNextInput' matches 0
 
     getNextInput' ms n = do
       mIn <- receiveTimeout n ms
@@ -576,22 +543,8 @@ mxAgentWithFinalize mxId initState handlers dtor = do
         Just msg -> return msg
 
     tryNextInput ms n
-      | n < 2000  = getNextInput' ms $ n * 2
-      | otherwise = getNextInput' ms 100
-
-    -- getNextInput' c' 0 = do
-    --   m <- liftIO $ atomically $ readTChan c'
-    --   return (m, Mailbox)
-    -- getNextInput' InputChan c' n = do
-    --   inputs <- liftIO $ atomically $ tryReadTChan c'
-    --   case inputs of
-    --     Nothing -> getNextInput' Mailbox c' (n - 1)
-    --     Just m  -> return (m, Mailbox)
-    -- getNextInput' Mailbox   c' n = do
-    --   m <- receiveTimeout 0 [ matchAny return ]
-    --   case m of
-    --     Nothing  -> getNextInput' InputChan c' (n - 1)
-    --     Just msg -> return (msg, InputChan)
+      | n > 0 && n < 2000 = getNextInput' ms $ n * 2
+      | otherwise         = getNextInput' ms 100
 
     runAgentFinalizer :: MxAgent s () -> MxAgentState s -> Process ()
     runAgentFinalizer f s = ST.runStateT (unAgent f) s >>= return . fst
