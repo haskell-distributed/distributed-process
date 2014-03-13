@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveDataTypeable  #-}
+{-# LANGUAGE ExistentialQuantification  #-}
 {-# LANGUAGE FlexibleInstances  #-}
 {-# LANGUAGE TypeSynonymInstances  #-}
 {-# LANGUAGE GADTs  #-}
@@ -165,4 +167,3 @@ instance Traceable ProcessId where
 
 instance Traceable String where
   uod = TraceNames . Set.fromList
-

@@ -1,3 +1,4 @@
+{-# LANGUAGE RankNTypes  #-}
 module Control.Distributed.Process.Internal.Spawn
   ( spawn
   , spawnLink
@@ -158,4 +159,3 @@ spawnChannel dict nid proc = do
              (cpSend (sdictSendPort dict) pid `splitCP` proc)
            `bindCP`
              (idCP `closureCompose` staticClosure sndStatic)
-

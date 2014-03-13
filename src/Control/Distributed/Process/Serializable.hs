@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveDataTypeable  #-}
 {-# LANGUAGE UndecidableInstances  #-}
 {-# LANGUAGE FlexibleInstances  #-}
 {-# LANGUAGE GADTs  #-}

@@ -1,3 +1,6 @@
+{-# LANGUAGE RankNTypes  #-}
+{-# LANGUAGE DeriveDataTypeable  #-}
+{-# LANGUAGE ScopedTypeVariables  #-}
 {-# LANGUAGE ExistentialQuantification  #-}
 {-# LANGUAGE BangPatterns #-}
 

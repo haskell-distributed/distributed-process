@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveDataTypeable  #-}
 {-# LANGUAGE StandaloneDeriving  #-}
 {-# LANGUAGE ExistentialQuantification  #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving  #-}
@@ -148,4 +149,3 @@ data MxAction =
 
 -- | Type of a management agent's event sink.
 type MxSink s = Message -> MxAgent s (Maybe MxAction)
-
