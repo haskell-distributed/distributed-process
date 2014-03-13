@@ -1,3 +1,5 @@
+{-# LANGUAGE GeneralizedNewtypeDeriving  #-}
+{-# LANGUAGE GADTs  #-}
 {-# LANGUAGE DeriveGeneric #-}
 
 -- | Types used throughout the Cloud Haskell framework

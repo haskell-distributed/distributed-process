@@ -1,3 +1,6 @@
+{-# LANGUAGE FlexibleInstances  #-}
+{-# LANGUAGE TypeSynonymInstances  #-}
+{-# LANGUAGE GADTs  #-}
 {-# LANGUAGE DeriveGeneric  #-}
 
 -- | Tracing/Debugging support - Types

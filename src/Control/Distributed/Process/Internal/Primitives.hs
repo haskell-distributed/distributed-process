@@ -1,3 +1,4 @@
+{-# LANGUAGE ExistentialQuantification  #-}
 {-# LANGUAGE BangPatterns #-}
 
 -- | Cloud Haskell primitives

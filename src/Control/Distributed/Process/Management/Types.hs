@@ -1,3 +1,6 @@
+{-# LANGUAGE StandaloneDeriving  #-}
+{-# LANGUAGE ExistentialQuantification  #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving  #-}
 {-# LANGUAGE DeriveGeneric   #-}
 module Control.Distributed.Process.Management.Types
   ( MxAgentId(..)

@@ -1,10 +1,11 @@
+{-# LANGUAGE DeriveDataTypeable  #-}
+{-# LANGUAGE MagicHash, UnboxedTuples #-}
 -- | Clone of Control.Concurrent.STM.TQueue with support for mkWeakTQueue
 --
 -- Not all functionality from the original module is available: unGetTQueue,
 -- peekTQueue and tryPeekTQueue are missing. In order to implement these we'd
 -- need to be able to touch# the write end of the queue inside unGetTQueue, but
 -- that means we need a version of touch# that works within the STM monad.
-{-# LANGUAGE MagicHash, UnboxedTuples #-}
 module Control.Distributed.Process.Internal.WeakTQueue (
   -- * Original functionality
   TQueue,

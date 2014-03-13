@@ -1,3 +1,4 @@
+{-# LANGUAGE GeneralizedNewtypeDeriving  #-}
 {-# LANGUAGE RecordWildCards #-}
 
 -- | Local nodes
