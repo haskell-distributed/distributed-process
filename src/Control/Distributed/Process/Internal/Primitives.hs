@@ -1,3 +1,8 @@
+{-# LANGUAGE CPP  #-}
+{-# LANGUAGE RankNTypes  #-}
+{-# LANGUAGE DeriveDataTypeable  #-}
+{-# LANGUAGE ScopedTypeVariables  #-}
+{-# LANGUAGE ExistentialQuantification  #-}
 {-# LANGUAGE BangPatterns #-}
 
 -- | Cloud Haskell primitives

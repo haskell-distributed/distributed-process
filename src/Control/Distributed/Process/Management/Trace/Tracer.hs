@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP  #-}
+{-# LANGUAGE ScopedTypeVariables  #-}
 -- | Tracing/Debugging support - Trace Implementation
 module Control.Distributed.Process.Management.Trace.Tracer
   ( -- * API for the Management Agent
@@ -343,4 +345,3 @@ sendTrace st ev msg = do
 sendTraceMsg :: Maybe ProcessId -> Message -> Process ()
 sendTraceMsg Nothing  _   = return ()
 sendTraceMsg (Just p) msg = (flip forward) p msg
-

@@ -1,3 +1,6 @@
+{-# LANGUAGE DeriveDataTypeable  #-}
+{-# LANGUAGE ScopedTypeVariables  #-}
+{-# LANGUAGE RankNTypes  #-}
 {-# LANGUAGE DeriveGeneric   #-}
 {-# LANGUAGE RecordWildCards #-}
 
@@ -217,4 +220,3 @@ getEntry k m MxTableState{..} = do
 
 entries :: Accessor MxTableState (Map String Message)
 entries = accessor _entries (\ls st -> st { _entries = ls })
-

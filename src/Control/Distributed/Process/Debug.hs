@@ -1,3 +1,6 @@
+{-# LANGUAGE CPP  #-}
+{-# LANGUAGE ScopedTypeVariables  #-}
+{-# LANGUAGE RankNTypes  #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  Control.Distributed.Process.Debug
@@ -274,4 +277,3 @@ stopTracer =
     case basePid == (Just pid) of
       True  -> return ()
       False -> send pid MxTraceDisable
-
