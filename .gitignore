@@ -11,3 +11,4 @@ cabal-dev
 .project
 .hpc
 *.tix
+.cabal-sandbox
