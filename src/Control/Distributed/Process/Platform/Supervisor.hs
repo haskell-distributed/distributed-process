@@ -1588,6 +1588,7 @@ tryStartChild ChildSpec{..} =
       super <- getSelfPid
       (pid, msg) <- proc super
       maybeRegister regName pid
+      void $ monitor pid
       return $ ChildRunningExtra pid msg
 
     wrapRestarterProcess :: Maybe RegisteredName
