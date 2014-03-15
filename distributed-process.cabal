@@ -81,7 +81,7 @@ Library
   ghc-options:       -Wall
   HS-Source-Dirs:    src
   if flag(th)
-     Build-Depends:   template-haskell >= 2.6 && < 2.9
+     Build-Depends:   template-haskell >= 2.6 && < 2.10
      Exposed-modules: Control.Distributed.Process.Internal.Closure.TH
      CPP-Options:     -DTemplateHaskellSupport
 
