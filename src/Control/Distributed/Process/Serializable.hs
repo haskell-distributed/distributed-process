@@ -11,7 +11,7 @@ module Control.Distributed.Process.Serializable
 
 import Data.Binary (Binary)
 import Data.Typeable (Typeable(..))
-import Data.Typeable.Internal (TypeRep(TypeRep))
+import Data.Typeable.Internal (TypeRep(TypeRep), typeOf)
 import Numeric (showHex)
 import Control.Exception (throw)
 import GHC.Fingerprint.Type (Fingerprint(..))
