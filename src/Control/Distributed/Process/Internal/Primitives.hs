@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP  #-}
 {-# LANGUAGE RankNTypes  #-}
 {-# LANGUAGE DeriveDataTypeable  #-}
 {-# LANGUAGE ScopedTypeVariables  #-}

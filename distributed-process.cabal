@@ -87,16 +87,7 @@ Library
                      Control.Distributed.Process.Management.Trace.Remote,
                      Control.Distributed.Process.Management.Trace.Types,
                      Control.Distributed.Process.Management.Trace.Tracer
-  Extensions:        RankNTypes,
-                     ScopedTypeVariables,
-                     FlexibleInstances,
-                     UndecidableInstances,
-                     ExistentialQuantification,
-                     GADTs,
-                     GeneralizedNewtypeDeriving,
-                     DeriveDataTypeable,
-                     CPP,
-                     BangPatterns
+  -- Extensions:     -- we use explicit per-file LANGUAGE pragmas
   ghc-options:       -Wall
   HS-Source-Dirs:    src
   if flag(th)

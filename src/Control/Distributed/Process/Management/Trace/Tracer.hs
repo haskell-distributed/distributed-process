@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP  #-}
 {-# LANGUAGE ScopedTypeVariables  #-}
 -- | Tracing/Debugging support - Trace Implementation
 module Control.Distributed.Process.Management.Trace.Tracer
