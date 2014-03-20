@@ -59,6 +59,7 @@ module Control.Distributed.Process.Internal.Types
   , RegisterReply(..)
   , ProcessInfo(..)
   , ProcessInfoNone(..)
+  , NodeStats(..)
     -- * Node controller internal data types
   , NCMsg(..)
   , ProcessSignal(..)
@@ -522,6 +523,14 @@ data WhereIsReply = WhereIsReply String (Maybe ProcessId)
 data RegisterReply = RegisterReply String Bool
   deriving (Show, Typeable)
 
+data NodeStats = NodeStats {
+     nodeStatsRegisteredNames :: Int
+   , nodeStatsMonitors :: Int
+   , nodeStatsLinks :: Int
+   , nodeStatsProcesses :: Int
+   }
+   deriving (Show, Eq, Typeable)
+
 -- | Provide information about a running process
 data ProcessInfo = ProcessInfo {
     infoNode               :: NodeId
@@ -562,6 +571,7 @@ data ProcessSignal =
   | Exit !ProcessId !Message
   | GetInfo !ProcessId
   | SigShutdown
+  | GetNodeStats !NodeId
   deriving Show
 
 --------------------------------------------------------------------------------
@@ -612,6 +622,7 @@ instance Binary ProcessSignal where
   put (LocalPortSend sid msg) = putWord8 12 >> put sid >> put (messageToPayload msg)
   put (GetInfo about)         = putWord8 30 >> put about
   put (SigShutdown)         = putWord8 31
+  put (GetNodeStats nid)         = putWord8 32 >> put nid
   get = do
     header <- getWord8
     case header of
@@ -630,6 +641,7 @@ instance Binary ProcessSignal where
       12 -> LocalPortSend <$> get <*> (payloadToMessage <$> get)
       30 -> GetInfo <$> get
       31 -> return SigShutdown
+      32 -> GetNodeStats <$> get
       _ -> fail "ProcessSignal.get: invalid"
 
 instance Binary DiedReason where
@@ -686,6 +698,13 @@ instance Binary ProcessInfo where
            >> put (infoMessageQueueLength pInfo)
            >> put (infoMonitors pInfo)
            >> put (infoLinks pInfo)
+
+instance Binary NodeStats where
+  get = NodeStats <$> get <*> get <*> get <*> get
+  put nStats = put (nodeStatsRegisteredNames nStats)
+             >> put (nodeStatsMonitors nStats)
+             >> put (nodeStatsLinks nStats)
+             >> put (nodeStatsProcesses nStats)
 
 instance Binary ProcessInfoNone where
   get = ProcessInfoNone <$> get

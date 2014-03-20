@@ -30,6 +30,7 @@ import qualified Data.Map as Map
   , filter
   , partitionWithKey
   , elems
+  , size
   , filterWithKey
   , foldlWithKey
   )
@@ -68,6 +69,7 @@ import Control.Distributed.Process.Internal.StrictMVar
   , newEmptyMVar
   , putMVar
   , takeMVar
+  , readMVar
   )
 import Control.Concurrent.Chan (newChan, writeChan, readChan)
 import qualified Control.Concurrent.MVar as MVar (newEmptyMVar, takeMVar)
@@ -119,6 +121,7 @@ import Control.Distributed.Process.Internal.Types
   , localPidCounter
   , localPidUnique
   , localProcessWithId
+  , localProcesses
   , localConnections
   , forever'
   , MonitorRef(..)
@@ -141,6 +144,7 @@ import Control.Distributed.Process.Internal.Types
   , nodeOf
   , ProcessInfo(..)
   , ProcessInfoNone(..)
+  , NodeStats(..)
   , SendPortId(..)
   , typedChannelWithId
   , RegisterReply(..)
@@ -686,6 +690,8 @@ nodeController = do
           NT.closeEndPoint (localEndPoint node)
             `Exception.finally` throwIO ThreadKilled
         -- ThreadKilled seems to make more sense than fail/error here
+      NCMsg (ProcessIdentifier from) (GetNodeStats nid) ->
+        ncEffectGetNodeStats from nid
       unexpected ->
         error $ "nodeController: unexpected message " ++ show unexpected
 
@@ -983,6 +989,20 @@ ncEffectGetInfo from pid =
                                                  then (k:ks)
                                                  else ks) []
 
+ncEffectGetNodeStats :: ProcessId -> NodeId -> NC ()
+ncEffectGetNodeStats from _nid = do
+  node <- ask
+  ncState <- StateT.get
+  nodeState <- liftIO $ readMVar (localState node)
+  let localProcesses' = nodeState ^. localProcesses
+      stats =
+        NodeStats {
+          nodeStatsRegisteredNames = Map.size $ ncState ^. registeredHere
+          , nodeStatsMonitors = Map.size $ ncState ^. monitors
+          , nodeStatsLinks = Map.size $ ncState ^. links
+          , nodeStatsProcesses = Map.size localProcesses'
+          }
+  postAsMessage from stats
 --------------------------------------------------------------------------------
 -- Auxiliary                                                                  --
 --------------------------------------------------------------------------------
@@ -1035,6 +1055,7 @@ destNid (Died _ _)            = Nothing
 destNid (Kill pid _)          = Just $ processNodeId pid
 destNid (Exit pid _)          = Just $ processNodeId pid
 destNid (GetInfo pid)         = Just $ processNodeId pid
+destNid (GetNodeStats nid)    = Just nid
 destNid (LocalSend pid _)     = Just $ processNodeId pid
 destNid (LocalPortSend cid _) = Just $ processNodeId (sendPortProcessId cid)
 destNid (SigShutdown)       = Nothing

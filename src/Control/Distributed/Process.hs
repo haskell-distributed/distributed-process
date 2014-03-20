@@ -82,6 +82,8 @@ module Control.Distributed.Process
   , getSelfNode
   , ProcessInfo(..)
   , getProcessInfo
+  , NodeStats(..)
+  , getLocalNodeStats
     -- * Monitoring and linking
   , link
   , linkNode
@@ -237,6 +239,8 @@ import Control.Distributed.Process.Internal.Primitives
   , getSelfNode
   , ProcessInfo(..)
   , getProcessInfo
+  , NodeStats(..)
+  , getLocalNodeStats
     -- Monitoring and linking
   , link
   , linkNode
@@ -383,4 +387,3 @@ spawnChannelLocal proc = do
       liftIO $ putMVar mvar sport
       proc rport
     takeMVar mvar
-

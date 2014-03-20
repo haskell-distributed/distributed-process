@@ -58,6 +58,8 @@ module Control.Distributed.Process.Internal.Primitives
   , getSelfNode
   , ProcessInfo(..)
   , getProcessInfo
+  , NodeStats(..)
+  , getLocalNodeStats
     -- * Monitoring and linking
   , link
   , unlink
@@ -179,6 +181,7 @@ import Control.Distributed.Process.Internal.Types
   , ProcessRegistrationException(..)
   , ProcessInfo(..)
   , ProcessInfoNone(..)
+  , NodeStats(..)
   , isEncoded
   , createMessage
   , createUnencodedMessage
@@ -718,6 +721,22 @@ getSelfPid = processId <$> ask
 -- | Get the node ID of our local node
 getSelfNode :: Process NodeId
 getSelfNode = localNodeId . processNode <$> ask
+
+
+getLocalNodeStats :: Process NodeStats
+getLocalNodeStats = do
+  stats <- getSelfNode >>= getNodeStats
+  maybe (die "getLocalNodeStats: the impossible happened!")
+        return
+        stats
+
+getNodeStats :: NodeId -> Process (Maybe NodeStats)
+getNodeStats nid = do
+ -- QUESTION: What should we do when the NodeId is not valid?
+ sendCtrlMsg (Just nid) $ GetNodeStats nid
+ receiveWait [
+     match (\(stats :: NodeStats) -> return $ Just stats)
+   ]
 
 -- | Get information about the specified process
 getProcessInfo :: ProcessId -> Process (Maybe ProcessInfo)
