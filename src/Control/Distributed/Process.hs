@@ -83,6 +83,7 @@ module Control.Distributed.Process
   , ProcessInfo(..)
   , getProcessInfo
   , NodeStats(..)
+  , getNodeStats
   , getLocalNodeStats
     -- * Monitoring and linking
   , link
@@ -240,6 +241,7 @@ import Control.Distributed.Process.Internal.Primitives
   , ProcessInfo(..)
   , getProcessInfo
   , NodeStats(..)
+  , getNodeStats
   , getLocalNodeStats
     -- Monitoring and linking
   , link

@@ -997,7 +997,8 @@ ncEffectGetNodeStats from _nid = do
   let localProcesses' = nodeState ^. localProcesses
       stats =
         NodeStats {
-          nodeStatsRegisteredNames = Map.size $ ncState ^. registeredHere
+            nodeStatsNode = localNodeId node
+          , nodeStatsRegisteredNames = Map.size $ ncState ^. registeredHere
           , nodeStatsMonitors = Map.size $ ncState ^. monitors
           , nodeStatsLinks = Map.size $ ncState ^. links
           , nodeStatsProcesses = Map.size localProcesses'

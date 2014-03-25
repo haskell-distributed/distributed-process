@@ -524,10 +524,11 @@ data RegisterReply = RegisterReply String Bool
   deriving (Show, Typeable)
 
 data NodeStats = NodeStats {
-     nodeStatsRegisteredNames :: Int
-   , nodeStatsMonitors :: Int
-   , nodeStatsLinks :: Int
-   , nodeStatsProcesses :: Int
+     nodeStatsNode            :: NodeId
+   , nodeStatsRegisteredNames :: Int
+   , nodeStatsMonitors        :: Int
+   , nodeStatsLinks           :: Int
+   , nodeStatsProcesses       :: Int
    }
    deriving (Show, Eq, Typeable)
 
@@ -700,8 +701,9 @@ instance Binary ProcessInfo where
            >> put (infoLinks pInfo)
 
 instance Binary NodeStats where
-  get = NodeStats <$> get <*> get <*> get <*> get
-  put nStats = put (nodeStatsRegisteredNames nStats)
+  get = NodeStats <$> get <*> get <*> get <*> get <*> get
+  put nStats =  put (nodeStatsNode nStats)
+             >> put (nodeStatsRegisteredNames nStats)
              >> put (nodeStatsMonitors nStats)
              >> put (nodeStatsLinks nStats)
              >> put (nodeStatsProcesses nStats)
