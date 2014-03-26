@@ -1715,8 +1715,8 @@ childShutdown policy pid st = do
                    Infinity -> receiveWait (matches pid') >>= return . Just
                    NoDelay  -> receiveTimeout 0 (matches pid')
                    Delay t  -> receiveTimeout (asTimeout t) (matches pid')
-      -- we set up an additional monitor here, since child shutdown can occur
-      -- during a restart which was triggered by the /old/ monitor signal
+      -- We require and additional monitor here when child shutdown occurs
+      -- during a restart which was triggered by the /old/ monitor signal.
       let recv' =  if monitored then recv else withMonitor pid' recv
       recv' >>= maybe (childShutdown TerminateImmediately pid' state) return
 
