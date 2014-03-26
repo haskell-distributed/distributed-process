@@ -67,7 +67,8 @@ Library
                      Control.Distributed.Process.Management,
                      Control.Distributed.Process.Node,
                      Control.Distributed.Process.Serializable,
-                     Control.Distributed.Process.UnsafePrimitives
+                     Control.Distributed.Process.UnsafePrimitives,
+                     Control.Distributed.Process.Internal.StrictMVar
   Other-modules:     Control.Distributed.Process.Internal.Primitives,
                      Control.Distributed.Process.Internal.Spawn,
                      Control.Distributed.Process.Internal.Primitives,
@@ -76,7 +77,6 @@ Library
                      Control.Distributed.Process.Internal.Closure.Explicit,
                      Control.Distributed.Process.Internal.Messaging,
                      Control.Distributed.Process.Internal.StrictList,
-                     Control.Distributed.Process.Internal.StrictMVar,
                      Control.Distributed.Process.Internal.WeakTQueue,
                      Control.Distributed.Process.Internal.StrictContainerAccessors,
                      Control.Distributed.Process.Management.Agent,
