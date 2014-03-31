@@ -231,11 +231,10 @@ isInstanceOf t1 t2 = void (unify (skolemize t1) t2)
 -- | @funResultTy t1 t2@ is the type of the result when applying a function
 -- of type @t1@ to an argument of type @t2@
 funResultTy :: TypeRep -> TypeRep -> Either TypeError TypeRep
-funResultTy (splitTyConApp -> (fc, [farg, fres])) x | fc == funTc = do
-  s <- unify (alphaRename "f" farg) (alphaRename "x" x)
-  return (normalize (subst s (alphaRename "f" fres)))
-funResultTy f _ =
-  Left $ show f ++ " is not a function"
+funResultTy t1 t2 = do
+  let anyTy = mkTypVar $ typeOf (undefined :: V0)
+  s <- unify (alphaRename "f" t1) $ mkTyConApp funTc [alphaRename "x" t2, anyTy]
+  return $ normalize $ subst s anyTy
 
 --------------------------------------------------------------------------------
 -- Alpha-renaming and normalization                                           --
