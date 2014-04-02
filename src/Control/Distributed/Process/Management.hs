@@ -534,8 +534,8 @@ mxAgentWithFinalize mxId initState handlers dtor = do
                            , matchSTM (readTChan chan) return]
               InputChan -> [ matchSTM (readTChan chan) return
                            , matchAny return]
-      in getNextInput' matches 0
-
+      in receiveWait matches
+{-
     getNextInput' ms n = do
       mIn <- receiveTimeout n ms
       case mIn of
@@ -545,7 +545,7 @@ mxAgentWithFinalize mxId initState handlers dtor = do
     tryNextInput ms n
       | n > 0 && n < 2000 = getNextInput' ms $ n * 2
       | otherwise         = getNextInput' ms 100
-
+-}
     runAgentFinalizer :: MxAgent s () -> MxAgentState s -> Process ()
     runAgentFinalizer f s = ST.runStateT (unAgent f) s >>= return . fst
 
