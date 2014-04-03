@@ -49,8 +49,8 @@ import Control.Distributed.Process.Serializable (Serializable)
 import Control.Monad.IO.Class (liftIO)
 import Data.Accessor (Accessor, accessor, (^=), (^:))
 import Data.Binary (Binary)
-import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as Map
+import Data.Map (Map)
+import qualified Data.Map as Map
 import Data.Typeable (Typeable)
 
 import GHC.Generics
@@ -181,7 +181,7 @@ startTableCoordinator fork = run Map.empty
                                    , _entries = Map.empty
                                    }
       (pid, _) <- spawnSup $ tableHandler initState
-      return $ (pid, Map.insert mxId pid tblMap)
+      return $ (pid, mxId `seq` pid `seq` Map.insert mxId pid tblMap)
 
     spawnSup proc = do
       us   <- getSelfPid
@@ -204,8 +204,8 @@ tableHandler state = do
   where
     handleTableRequest _  Delete    = return Nothing
     handleTableRequest st Purge     = return $ Just $ (entries ^= Map.empty) $ st
-    handleTableRequest st (Clear k) = return $ Just $ (entries ^: Map.delete k) $ st
-    handleTableRequest st (Set k v) = return $ Just $ (entries ^: Map.insert k v) st
+    handleTableRequest st (Clear k) = return $ Just $ (entries ^: (k `seq` Map.delete k)) $ st
+    handleTableRequest st (Set k v) = return $ Just $ (entries ^: (k `seq` v `seq` Map.insert k v)) st
     handleTableRequest st (Get k c) = getEntry k c st >> return (Just st)
 
 getEntry :: String
