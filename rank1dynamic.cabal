@@ -22,7 +22,7 @@ Source-Repository head
 Library
   Exposed-Modules:     Data.Rank1Dynamic,
                        Data.Rank1Typeable
-  Build-Depends:       base >= 4.4 && < 4.7,
+  Build-Depends:       base >= 4.4 && < 4.8,
                        ghc-prim >= 0.2 && < 0.4,
                        binary >= 0.5 && < 0.8
   HS-Source-Dirs:      src
