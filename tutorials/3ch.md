@@ -37,12 +37,12 @@ whose contents can be decoded to a specific type. Of course, we may _want_
 to process messages in the precise order which they arrived. To achieve
 this, we must defer the type checking that would normally cause a traversal
 of the mailbox and extract the _raw_ message ourselves. This can be achieved
-using `recieve` and `matchAny`, as we will demonstrate later.
+using `receive` and `matchAny`, as we will demonstrate later.
 
 ### Selective Receive
 
 Processes dequeue messages (from their mailbox) using the [`expect`][1]
-and [`recieve`][2] family of primitives. Both take an optional timeout,
+and [`receive`][2] family of primitives. Both take an optional timeout,
 allowing the expression to evaluate to `Nothing` if no matching input
 is found.
 
@@ -81,7 +81,7 @@ removed from the mailbox. The removal of messages from the process' mailbox base
 on type is what makes this program viable - without this "selective receiving",
 the program would block and never complete.
 
-By contrast, the [`recieve`][2] family of primitives take a list of `Match`
+By contrast, the [`receive`][2] family of primitives take a list of `Match`
 objects, each derived from evaluating a [`match`][3] style primitive. This
 subject was covered briefly in the first tutorial. Matching on messages allows
 us to separate the type(s) of messages we can handle from the type that the
