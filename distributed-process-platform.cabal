@@ -70,6 +70,7 @@ library
                    Control.Distributed.Process.Platform.Service.Registry,
                    Control.Distributed.Process.Platform.Service.SystemLog,
                    Control.Distributed.Process.Platform.Supervisor,
+                   Control.Distributed.Process.Platform.Supervisor.Types,
                    Control.Distributed.Process.Platform.Task.Queue.BlockingQueue,
                    Control.Distributed.Process.Platform.Test,
                    Control.Distributed.Process.Platform.Time,
