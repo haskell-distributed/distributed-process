@@ -1,15 +1,23 @@
+{-# LANGUAGE CPP  #-}
+{-# LANGUAGE DeriveDataTypeable  #-}
+{-# LANGUAGE ScopedTypeVariables  #-}
+{-# LANGUAGE RankNTypes  #-}
+{-# LANGUAGE BangPatterns  #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving  #-}
 {-# LANGUAGE RecordWildCards #-}
 
 -- | Local nodes
 --
 module Control.Distributed.Process.Node
   ( LocalNode
+  , LocalNodeState -- opaque, exported for debug introspection via accessors
   , newLocalNode
   , closeLocalNode
   , forkProcess
   , runProcess
   , initRemoteTable
   , localNodeId
+  , localState -- StrictMVar LocalNodeState on LocalNode, exported for debugging
   ) where
 
 -- TODO: Calls to 'sendBinary' and co (by the NC) may stall the node controller.
