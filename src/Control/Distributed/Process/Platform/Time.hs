@@ -198,7 +198,7 @@ timeIntervalToDiffTime ti = microsecondsToNominalDiffTime (fromIntegral $ asTime
 
 -- | given a @NominalDiffTim@@, provide an equivalent @TimeInterval@
 diffTimeToTimeInterval :: NominalDiffTime -> TimeInterval
-diffTimeToTimeInterval dt = microSeconds $ (fromIntegral ((round dt)::Integer) `div` 1000000)
+diffTimeToTimeInterval dt = microSeconds $ (fromIntegral (round (dt * 1000000) :: Integer))
 
 -- | given a @Delay@, provide an equivalent @NominalDiffTim@
 delayToDiffTime :: Delay -> NominalDiffTime
