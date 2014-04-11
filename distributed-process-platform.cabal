@@ -70,7 +70,6 @@ library
                    Control.Distributed.Process.Platform.Service.Registry,
                    Control.Distributed.Process.Platform.Service.SystemLog,
                    Control.Distributed.Process.Platform.Supervisor,
-                   Control.Distributed.Process.Platform.Supervisor.Types,
                    Control.Distributed.Process.Platform.Task.Queue.BlockingQueue,
                    Control.Distributed.Process.Platform.Test,
                    Control.Distributed.Process.Platform.Time,
@@ -89,7 +88,9 @@ library
                    Control.Distributed.Process.Platform.Internal.Queue.PriorityQ
                    Control.Distributed.Process.Platform.Internal.Unsafe,
                    Control.Distributed.Process.Platform.ManagedProcess.Internal.Types,
-                   Control.Distributed.Process.Platform.ManagedProcess.Internal.GenProcess
+                   Control.Distributed.Process.Platform.ManagedProcess.Internal.GenProcess,
+                   Control.Distributed.Process.Platform.Supervisor.Types
+
 
 test-suite TimerTests
   type:            exitcode-stdio-1.0
