@@ -500,7 +500,7 @@ TBC
 
 TBC
 
-[1]: http://www.haskell.org/haskellwiki/Cloud_Haskell
+[1]: http://haskell-distributed.github.io/documentation.html
 [2]: https://github.com/haskell-distributed/distributed-process
 [3]: https://github.com/haskell-distributed/distributed-process-platform
 [4]: http://hackage.haskell.org/package/distributed-static
