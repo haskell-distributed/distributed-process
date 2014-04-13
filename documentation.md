@@ -36,7 +36,7 @@ others experimental.
 * [rank1dynamic][rank1dynamic]: Like `Data.Dynamic` and `Data.Typeable` but supporting polymorphic values
 * [network-transport][network-transport]: Generic `Network.Transport` API
 * [network-transport-tcp][network-transport-tcp]: TCP realisation of `Network.Transport`
-* [network-transport-inmemory][network-transport-inmemory]: In-memory realisation of `Network.Transport` (incomplete) 
+* [network-transport-inmemory][network-transport-inmemory]: In-memory realisation of `Network.Transport` (incomplete)
 * [network-transport-composed][network-transport-composed]: Compose two transports (very preliminary)
 * [distributed-process-simplelocalnet][distributed-process-simplelocalnet]: Simple backend for local networks
 * [distributed-process-azure][distributed-process-azure]: Azure backend for Cloud Haskell (proof of concept)
@@ -50,7 +50,7 @@ backend transports.
 
 Abstracting over the transport layer allows different protocols for
 message passing, including TCP/IP, UDP,
-[MPI](http://en.wikipedia.org/wiki/Message_Passing_Interface), 
+[MPI](http://en.wikipedia.org/wiki/Message_Passing_Interface),
 [CCI](http://www.olcf.ornl.gov/center-projects/common-communication-interface/),
 ZeroMQ, SSH, MVars, Unix pipes, and more. Each of these transports would provide
 its own implementation of the `Network.Transport` and provide a means of creating
@@ -109,7 +109,7 @@ The Cloud Haskell interface and backend, make use of the Transport
 interface provided by the `Network.Transport` module.
 This also serves as an interface for the `Network.Transport.*`
 module, which provides a specific implementation for this transport,
-and may, for example, be based on some external library written in 
+and may, for example, be based on some external library written in
 Haskell or C.
 
 ### Network Transport Abstraction Layer
@@ -166,7 +166,7 @@ For more details about `Network.Transport` please see the [wiki page](/wiki/netw
 
 The *Process Layer* is where Cloud Haskell's support for concurrency and
 distributed programming are exposed to application developers. This layer
-deals explicitly with 
+deals explicitly with
 
 The core of Cloud Haskell's concurrency and distribution support resides in the
 [distributed-process][distributed-process] library. As well as the APIs necessary for starting
@@ -254,10 +254,10 @@ We create channels with a call to `newChan`, and send/receive on them using the
 channelsDemo :: Process ()
 channelsDemo = do
     (sp, rp) <- newChan :: Process (SendPort String, ReceivePort String)
-    
+
     -- send on a channel
     spawnLocal $ sendChan sp "hello!"
-    
+
     -- receive on a channel
     m <- receiveChan rp
     say $ show m
@@ -356,13 +356,13 @@ demoAsync = do
 
   -- we can cancel the task if we want to
   -- cancel hAsync
-  
+
   -- or cancel it and wait until it has exited
   -- cancelWait hAsync
-  
+
   -- we can wait on the task and timeout if it's still busy
   Nothing <- waitTimeout (within 3 Seconds) hAsync
-  
+
   -- or finally, we can block until the task is finished!
   asyncResult <- wait hAsync
   case asyncResult of
@@ -400,11 +400,11 @@ and another for tasks you wish to execute on remote nodes.
 {% highlight haskell %}
 -- | A task to be performed asynchronously.
 data AsyncTask a =
-    AsyncTask 
+    AsyncTask
       {
         asyncTask :: Process a -- ^ the task to be performed
       }
-  | AsyncRemoteTask 
+  | AsyncRemoteTask
       {
         asyncTaskDict :: Static (SerializableDict a)
           -- ^ the serializable dict required to spawn a remote process
