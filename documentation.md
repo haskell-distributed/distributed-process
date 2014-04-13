@@ -42,11 +42,9 @@ others experimental.
 * [distributed-process-azure][distributed-process-azure]: Azure backend for Cloud Haskell (proof of concept)
 
 One of Cloud Haskell's goals is to separate the transport layer from the
-*process layer*, so that the transport backend is entirely independent:
-it is envisaged that this interface might later be used by models
-other than the Cloud Haskell paradigm, and that applications built
-using Cloud Haskell might be easily configured to work with different
-backend transports.
+*process layer*, so that the transport backend is entirely independent. In fact
+other projects can and do reuse the transport layer, even if they don't use or
+have their own process layer (see e.g. [HdpH][hdph]).
 
 Abstracting over the transport layer allows different protocols for
 message passing, including TCP/IP, UDP,
@@ -54,8 +52,7 @@ message passing, including TCP/IP, UDP,
 [CCI](http://www.olcf.ornl.gov/center-projects/common-communication-interface/),
 ZeroMQ, SSH, MVars, Unix pipes, and more. Each of these transports would provide
 its own implementation of the `Network.Transport` and provide a means of creating
-new connections for use within `Control.Distributed.Process`. This separation means
-that transports might be used for other purposes than Cloud Haskell.
+new connections for use within `Control.Distributed.Process`.
 
 The following diagram shows dependencies between the various subsystems,
 in an application using Cloud Haskell, where arrows represent explicit
@@ -512,6 +509,7 @@ TBC
 [network-transport-composed]: https://github.com/haskell-distributed/network-transport-composed
 [distributed-process-simplelocalnet]: http://hackage.haskell.org/package/distributed-process-simplelocalnet
 [distributed-process-azure]: http://hackage.haskell.org/package/distributed-process-azure
+[hdph]: http://hackage.haskell.org/package/hdph
 [haskell11-ch]: http://research.microsoft.com/en-us/um/people/simonpj/papers/parallel/remote.pdf
 [OTP]: http://en.wikipedia.org/wiki/Open_Telecom_Platform
 [remote]: http://hackage.haskell.org/package/remote
