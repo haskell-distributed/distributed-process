@@ -27,6 +27,7 @@ module Control.Distributed.Process.Platform.Internal.Types
   , RegisterSelf(..)
     -- * Interactions
   , whereisRemote
+  , resolveOrDie
   , CancelWait(..)
   , Channel
   , Shutdown(..)
@@ -266,3 +267,11 @@ instance Routable (Message -> Process ()) where
 class (Resolvable a, Routable a) => Addressable a
 instance (Resolvable a, Routable a) => Addressable a
 
+-- TODO: this probably belongs somewhere other than in ..Types.
+-- | resolve the Resolvable or die with specified msg plus details of what didn't resolve
+resolveOrDie  :: (Routable a, Resolvable a) => a -> String -> Process ProcessId
+resolveOrDie resolvable failureMsg = do
+  result <- resolve resolvable
+  case result of
+    Nothing -> die $ failureMsg ++ " " ++ unresolvableMessage resolvable
+    Just pid -> return pid
