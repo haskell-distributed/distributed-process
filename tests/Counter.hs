@@ -30,7 +30,7 @@ import GHC.Generics
 -- Call and Cast request types. Response types are unnecessary as the GenProcess
 -- API uses the Async API, which in turn guarantees that an async handle can
 -- /only/ give back a reply for that *specific* request through the use of an
--- anonymous middle-man (as the sender and reciever in our case).
+-- anonymous middle-man (as the sender and receiver in our case).
 
 data Increment = Increment
   deriving (Typeable, Generic, Eq, Show)
