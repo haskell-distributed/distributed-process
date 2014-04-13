@@ -71,23 +71,23 @@ multicall :: forall a b.(Serializable a, Serializable b)
              => [ProcessId] -> a -> Tag -> Timeout -> Process [Maybe b]
 multicall nodes msg tag time =
   do caller <- getSelfPid
-     reciever <- spawnLocal $
-         do reciever_pid <- getSelfPid
+     receiver <- spawnLocal $
+         do receiver_pid <- getSelfPid
             mon_caller <- monitor caller
             () <- expect
             monitortags <- forM nodes monitor
             forM_ nodes $ \node -> send node (Multicall, node,
-                                              reciever_pid, tag, msg)
-            maybeTimeout time tag reciever_pid
+                                              receiver_pid, tag, msg)
+            maybeTimeout time tag receiver_pid
             results <- recv nodes monitortags mon_caller
             send caller (MulticallResponse,tag,results)
-     mon_reciever <- monitor reciever
-     send reciever ()
+     mon_receiver <- monitor receiver
+     send receiver ()
      receiveWait [
          matchIf (\(MulticallResponse,mtag,_) -> mtag == tag)
                  (\(MulticallResponse,_,val) -> return val),
          matchIf (\(ProcessMonitorNotification ref _pid reason)
-                  -> ref == mon_reciever && reason /= DiedNormal)
+                  -> ref == mon_receiver && reason /= DiedNormal)
                  (\_ -> error "multicall: unexpected termination of worker")
        ]
   where
