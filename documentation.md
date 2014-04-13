@@ -50,7 +50,7 @@ Abstracting over the transport layer allows different protocols for
 message passing, including TCP/IP, UDP,
 [MPI](http://en.wikipedia.org/wiki/Message_Passing_Interface),
 [CCI](http://www.olcf.ornl.gov/center-projects/common-communication-interface/),
-ZeroMQ, SSH, MVars, Unix pipes, and more. Each of these transports would provide
+[ZeroMQ](http://zeromq.org), [SSH](http://openssh.com), MVars, Unix pipes, and more. Each of these transports provides
 its own implementation of the `Network.Transport` and provide a means of creating
 new connections for use within `Control.Distributed.Process`.
 
