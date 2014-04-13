@@ -51,7 +51,7 @@ message passing, including TCP/IP, UDP,
 [MPI](http://en.wikipedia.org/wiki/Message_Passing_Interface),
 [CCI](http://www.olcf.ornl.gov/center-projects/common-communication-interface/),
 [ZeroMQ](http://zeromq.org), [SSH](http://openssh.com), MVars, Unix pipes, and more. Each of these transports provides
-its own implementation of the `Network.Transport` and provide a means of creating
+its own implementation of the `Network.Transport` API and provide a means of creating
 new connections for use within `Control.Distributed.Process`.
 
 The following diagram shows dependencies between the various subsystems,
@@ -91,8 +91,8 @@ In this diagram, the various nodes roughly correspond to specific modules:
     Transport Implementation     : Network.Transport.*
 
 An application is built using the primitives provided by the Cloud
-Haskell layer, provided by `Control.Distributed.Process` module, which
-provides abstractions such as nodes and processes.
+Haskell layer, provided by the `Control.Distributed.Process` module, which
+defines abstractions such as nodes and processes.
 
 The application also depends on a Cloud Haskell Backend, which
 provides functions to allow the initialisation of the transport layer
@@ -102,7 +102,7 @@ It is, of course, possible to create new Cloud Haskell nodes by
 using a Network Transport Backend such as `Network.Transport.TCP`
 directly.
 
-The Cloud Haskell interface and backend, make use of the Transport
+The Cloud Haskell interface and backend make use of the Transport
 interface provided by the `Network.Transport` module.
 This also serves as an interface for the `Network.Transport.*`
 module, which provides a specific implementation for this transport,
@@ -116,7 +116,7 @@ the concurrency and messaging passing capabilities of the *process layer*.
 Cloud Haskell applications are built using the primitives provided by the
 *process layer* (i.e., [distributed-process][distributed-process]), which provides abstractions
 such as nodes and processes. Applications must also depend on a Cloud Haskell
-Backend, which provides functions to allow the initialisation of the transport
+backend, which provides functions to allow the initialisation of the transport
 layer using whatever topology might be appropriate to the application.
 
 `Network.Transport` is a network abstraction layer geared towards specific
@@ -125,7 +125,7 @@ classes of applications, offering the following high level concepts:
 * Nodes in the network are represented by `EndPoint`s. These are heavyweight stateful objects.
 * Each `EndPoint` has an `EndPointAddress`.
 * Connections can be established from one `EndPoint` to another using the `EndPointAddress` of the remote end.
-* The `EndPointAddress` can be serialised and sent over the network, where as `EndPoint`s and connections cannot.
+* The `EndPointAddress` can be serialised and sent over the network, whereas `EndPoint`s and connections cannot.
 * Connections between `EndPoint`s are unidirectional and lightweight.
 * Outgoing messages are sent via a `Connection` object that represents the sending end of the connection.
 * Incoming messages for **all** of the incoming connections on an `EndPoint` are collected via a shared receive queue.
@@ -328,7 +328,7 @@ Haskell concurrency design patterns along the way.
 
 In fact, [distributed-process-platform][distributed-process-platform] does not really consider the
 *task layer* in great detail. We provide an API comparable to remote's
-`Promise` in Control.Distributed.Process.Platform.Async. This API however,
+`Promise` in `Control.Distributed.Process.Platform.Async`. This API however,
 is derived from Simon Marlow's [Control.Concurrent.Async][async] package, and is not
 limited to blocking queries on `Async` handles in the same way. Instead our
 [API][d-p-platform-async] handles both blocking and non-blocking queries, polling
@@ -376,7 +376,7 @@ around `Async` that disallows side effects is relatively simple, and we
 do not consider the presence of side effects a barrier to fault tolerance
 and automated process restarts. Erlang does not forbid *IO* in its processes,
 and yet that doesn't render supervision trees ineffective. They key is to
-provide a rich enough API that statefull processes can recognise whether or
+provide a rich enough API that stateful processes can recognise whether or
 not they need to provide idempotent initialisation routines.
 
 The utility of preventing side effects using the type system is, however, not
