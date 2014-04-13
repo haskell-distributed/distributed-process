@@ -22,7 +22,7 @@ growing number of features for
 * working with several network transport implementations (and more in the pipeline)
 * supporting *static* values (required for remote communication)
 
-There is a recent
+There is a
 [presentation][fun201202-coutts]
 on Cloud Haskell and this reimplementation, which is worth reading in conjunction
 with the documentation and wiki pages on this website..
