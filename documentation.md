@@ -5,13 +5,13 @@ title: Documentation
 
 ### Cloud Haskell Platform
 
-This is the [*Cloud Haskell Platform*][1]. Cloud Haskell is a set of libraries
+This is the [*Cloud Haskell Platform*][cloud-haskell]. Cloud Haskell is a set of libraries
 that bring Erlang-style concurrency and distribution to Haskell programs. This
 project is an implementation of that distributed computing interface, where
 processes communicate with one another through explicit message passing rather
 than shared memory.
 
-Originally described by the joint [Towards Haskell in the Cloud][12] paper,
+Originally described by the joint [Towards Haskell in the Cloud][haskell11-ch] paper,
 Cloud Haskell has be re-written from the ground up and supports a rich and
 growing number of features for
 
@@ -22,40 +22,37 @@ growing number of features for
 * working with several network transport implementations (and more in the pipeline)
 * supporting *static* values (required for remote communication)
 
-There is a recent
-[presentation](http://sneezy.cs.nott.ac.uk/fun/2012-02/coutts-2012-02-28.pdf)
+There is a
+[presentation][fun201202-coutts]
 on Cloud Haskell and this reimplementation, which is worth reading in conjunction
 with the documentation and wiki pages on this website..
 
 Cloud Haskell comprises the following components, some of which are complete,
 others experimental.
 
-* [distributed-process][2]: Base concurrency and distribution support
-* [distributed-process-platform][3]: The Cloud Haskell Platform - APIs
-* [distributed-static][4]: Support for static values
-* [rank1dynamic][5]: Like `Data.Dynamic` and `Data.Typeable` but supporting polymorphic values
-* [network-transport][6]: Generic `Network.Transport` API
-* [network-transport-tcp][7]: TCP realisation of `Network.Transport`
-* [network-transport-inmemory][8]: In-memory realisation of `Network.Transport` (incomplete) 
-* [network-transport-composed][9]: Compose two transports (very preliminary)
-* [distributed-process-simplelocalnet][10]: Simple backend for local networks
-* [distributed-process-azure][11]: Azure backend for Cloud Haskell (proof of concept)
+* [distributed-process][distributed-process]: Base concurrency and distribution support
+* [distributed-process-platform][distributed-process-platform]: The Cloud Haskell Platform - APIs
+* [distributed-static][distributed-static]: Support for static values
+* [rank1dynamic][rank1dynamic]: Like `Data.Dynamic` and `Data.Typeable` but supporting polymorphic values
+* [network-transport][network-transport]: Generic `Network.Transport` API
+* [network-transport-tcp][network-transport-tcp]: TCP realisation of `Network.Transport`
+* [network-transport-inmemory][network-transport-inmemory]: In-memory realisation of `Network.Transport` (incomplete)
+* [network-transport-composed][network-transport-composed]: Compose two transports (very preliminary)
+* [distributed-process-simplelocalnet][distributed-process-simplelocalnet]: Simple backend for local networks
+* [distributed-process-azure][distributed-process-azure]: Azure backend for Cloud Haskell (proof of concept)
 
 One of Cloud Haskell's goals is to separate the transport layer from the
-*process layer*, so that the transport backend is entirely independent:
-it is envisaged that this interface might later be used by models
-other than the Cloud Haskell paradigm, and that applications built
-using Cloud Haskell might be easily configured to work with different
-backend transports.
+*process layer*, so that the transport backend is entirely independent. In fact
+other projects can and do reuse the transport layer, even if they don't use or
+have their own process layer (see e.g. [HdpH][hdph]).
 
 Abstracting over the transport layer allows different protocols for
 message passing, including TCP/IP, UDP,
-[MPI](http://en.wikipedia.org/wiki/Message_Passing_Interface), 
+[MPI](http://en.wikipedia.org/wiki/Message_Passing_Interface),
 [CCI](http://www.olcf.ornl.gov/center-projects/common-communication-interface/),
-ZeroMQ, SSH, MVars, Unix pipes, and more. Each of these transports would provide
-its own implementation of the `Network.Transport` and provide a means of creating
-new connections for use within `Control.Distributed.Process`. This separation means
-that transports might be used for other purposes than Cloud Haskell.
+[ZeroMQ](http://zeromq.org), [SSH](http://openssh.com), MVars, Unix pipes, and more. Each of these transports provides
+its own implementation of the `Network.Transport` API and provide a means of creating
+new connections for use within `Control.Distributed.Process`.
 
 The following diagram shows dependencies between the various subsystems,
 in an application using Cloud Haskell, where arrows represent explicit
@@ -94,8 +91,8 @@ In this diagram, the various nodes roughly correspond to specific modules:
     Transport Implementation     : Network.Transport.*
 
 An application is built using the primitives provided by the Cloud
-Haskell layer, provided by `Control.Distributed.Process` module, which
-provides abstractions such as nodes and processes.
+Haskell layer, provided by the `Control.Distributed.Process` module, which
+defines abstractions such as nodes and processes.
 
 The application also depends on a Cloud Haskell Backend, which
 provides functions to allow the initialisation of the transport layer
@@ -105,21 +102,21 @@ It is, of course, possible to create new Cloud Haskell nodes by
 using a Network Transport Backend such as `Network.Transport.TCP`
 directly.
 
-The Cloud Haskell interface and backend, make use of the Transport
+The Cloud Haskell interface and backend make use of the Transport
 interface provided by the `Network.Transport` module.
 This also serves as an interface for the `Network.Transport.*`
 module, which provides a specific implementation for this transport,
-and may, for example, be based on some external library written in 
+and may, for example, be based on some external library written in
 Haskell or C.
 
 ### Network Transport Abstraction Layer
 
-Cloud Haskell's generic [network-transport][6] API is entirely independent of
+Cloud Haskell's generic [network-transport][network-transport] API is entirely independent of
 the concurrency and messaging passing capabilities of the *process layer*.
 Cloud Haskell applications are built using the primitives provided by the
-*process layer* (i.e., [distributed-process][2]), which provides abstractions
+*process layer* (i.e., [distributed-process][distributed-process]), which provides abstractions
 such as nodes and processes. Applications must also depend on a Cloud Haskell
-Backend, which provides functions to allow the initialisation of the transport
+backend, which provides functions to allow the initialisation of the transport
 layer using whatever topology might be appropriate to the application.
 
 `Network.Transport` is a network abstraction layer geared towards specific
@@ -128,7 +125,7 @@ classes of applications, offering the following high level concepts:
 * Nodes in the network are represented by `EndPoint`s. These are heavyweight stateful objects.
 * Each `EndPoint` has an `EndPointAddress`.
 * Connections can be established from one `EndPoint` to another using the `EndPointAddress` of the remote end.
-* The `EndPointAddress` can be serialised and sent over the network, where as `EndPoint`s and connections cannot.
+* The `EndPointAddress` can be serialised and sent over the network, whereas `EndPoint`s and connections cannot.
 * Connections between `EndPoint`s are unidirectional and lightweight.
 * Outgoing messages are sent via a `Connection` object that represents the sending end of the connection.
 * Incoming messages for **all** of the incoming connections on an `EndPoint` are collected via a shared receive queue.
@@ -160,16 +157,16 @@ of other `Network.Transport` APIs if required, but for the most part this
 is irrelevant and the application will interact with Cloud Haskell through
 the *Process Layer* and *Platform*.
 
-For more details about `Network.Transport` please see the [wiki page][20].
+For more details about `Network.Transport` please see the [wiki page](/wiki/networktransport.html).
 
 ### Concurrency and Distribution
 
 The *Process Layer* is where Cloud Haskell's support for concurrency and
 distributed programming are exposed to application developers. This layer
-deals explicitly with 
+deals explicitly with
 
 The core of Cloud Haskell's concurrency and distribution support resides in the
-[distributed-process][2] library. As well as the APIs necessary for starting
+[distributed-process][distributed-process] library. As well as the APIs necessary for starting
 nodes and forking processes on them, we find all the basic primitives required
 to
 
@@ -215,7 +212,7 @@ runProcess  :: LocalNode -> Process () -> IO ()
 {% endhighlight %}
 
 Once we've spawned some processes, they can communicate with one another
-using the messaging primitives provided by [distributed-processes][2],
+using the messaging primitives provided by [distributed-processes][distributed-processes],
 which are well documented in the haddocks.
 
 ### What is Serializable
@@ -254,10 +251,10 @@ We create channels with a call to `newChan`, and send/receive on them using the
 channelsDemo :: Process ()
 channelsDemo = do
     (sp, rp) <- newChan :: Process (SendPort String, ReceivePort String)
-    
+
     -- send on a channel
     spawnLocal $ sendChan sp "hello!"
-    
+
     -- receive on a channel
     m <- receiveChan rp
     say $ show m
@@ -272,7 +269,7 @@ need to spawn a process and send a bunch a messages to it, then wait for
 replies however; we can’t send a `ReceivePort` since it is not `Serializable`.
 
 `ReceivePort`s can be merged, so we can listen on several simultaneously. In the
-latest version of [distributed-process][2], we can listen for *regular* messages
+latest version of [distributed-process][distributed-process], we can listen for *regular* messages
 and multiple channels at the same time, using `matchChan` in the list of
 allowed matches passed `receiveWait` and `receiveTimeout`.
 
@@ -313,7 +310,7 @@ and decide whether to oblige or not.
 
 ### Rethinking the Task Layer
 
-[Towards Haskell in the Cloud][12] describes a multi-layered architecture, in
+[Towards Haskell in the Cloud][haskell11-ch] describes a multi-layered architecture, in
 which manipulation of concurrent processes and message passing between them
 is managed in the *process layer*, whilst a higher level API described as the
 *task layer* provides additional features such as
@@ -322,19 +319,19 @@ is managed in the *process layer*, whilst a higher level API described as the
 * data centric processing model
 * a promise (or *future*) abstraction, representing the result of a calculation that may or may not have yet completed
 
-The [distributed-process-platform][18] library implements parts of the
+The [distributed-process-platform][distributed-process-platform] library implements parts of the
 *task layer*, but takes a very different approach to that described
-in the original paper and implemented by the [remote][14] package. In particular,
+in the original paper and implemented by the [remote][remote] package. In particular,
 we diverge from the original design and defer to many of the principles
-defined by Erlang's [Open Telecom Platform][13], taking in some well established
+defined by Erlang's [Open Telecom Platform][OTP], taking in some well established
 Haskell concurrency design patterns along the way.
 
-In fact, [distributed-process-platform][18] does not really consider the
+In fact, [distributed-process-platform][distributed-process-platform] does not really consider the
 *task layer* in great detail. We provide an API comparable to remote's
-`Promise` in Control.Distributed.Process.Platform.Async. This API however,
-is derived from Simon Marlow's [Control.Concurrent.Async][19] package, and is not
+`Promise` in `Control.Distributed.Process.Platform.Async`. This API however,
+is derived from Simon Marlow's [Control.Concurrent.Async][async] package, and is not
 limited to blocking queries on `Async` handles in the same way. Instead our
-[API][17] handles both blocking and non-blocking queries, polling
+[API][d-p-platform-async] handles both blocking and non-blocking queries, polling
 and working with lists of `Async` handles. We also eschew throwing exceptions
 to indicate asynchronous task failures, instead handling *task* and connectivity
 failures using monitors. Users of the API need only concern themselves with the
@@ -356,13 +353,13 @@ demoAsync = do
 
   -- we can cancel the task if we want to
   -- cancel hAsync
-  
+
   -- or cancel it and wait until it has exited
   -- cancelWait hAsync
-  
+
   -- we can wait on the task and timeout if it's still busy
   Nothing <- waitTimeout (within 3 Seconds) hAsync
-  
+
   -- or finally, we can block until the task is finished!
   asyncResult <- wait hAsync
   case asyncResult of
@@ -379,7 +376,7 @@ around `Async` that disallows side effects is relatively simple, and we
 do not consider the presence of side effects a barrier to fault tolerance
 and automated process restarts. Erlang does not forbid *IO* in its processes,
 and yet that doesn't render supervision trees ineffective. They key is to
-provide a rich enough API that statefull processes can recognise whether or
+provide a rich enough API that stateful processes can recognise whether or
 not they need to provide idempotent initialisation routines.
 
 The utility of preventing side effects using the type system is, however, not
@@ -391,7 +388,7 @@ Work is also underway to provide abstractions for managing asynchronous tasks
 at a higher level, focussing on workload distribution and load regulation.
 
 The kinds of task that can be performed by the async implementations in
-[distributed-process-platform][3] are limited only by their return type:
+[distributed-process-platform][distributed-process-platform] are limited only by their return type:
 it **must** be `Serializable` - that much should've been obvious by now.
 The type of asynchronous task definitions comes in two flavours, one for
 local nodes which require no remote-table or static serialisation dictionary,
@@ -400,11 +397,11 @@ and another for tasks you wish to execute on remote nodes.
 {% highlight haskell %}
 -- | A task to be performed asynchronously.
 data AsyncTask a =
-    AsyncTask 
+    AsyncTask
       {
         asyncTask :: Process a -- ^ the task to be performed
       }
-  | AsyncRemoteTask 
+  | AsyncRemoteTask
       {
         asyncTaskDict :: Static (SerializableDict a)
           -- ^ the serializable dict required to spawn a remote process
@@ -430,14 +427,14 @@ domain was more *haskell-ish* than working with bare send and receive primitives
 The `Async` sub-package also provides a type safe interface for receiving data,
 although it is limited to running a computation and waiting for its result.
 
-The [Control.Distributed.Processes.Platform.ManagedProcess][21] API provides a
+The [Control.Distributed.Processes.Platform.ManagedProcess][d-p-platform-ManagedProcess] API provides a
 number of different abstractions that can be used to achieve similar benefits
 in your code. It works by introducing a standard protocol between your process
 and the *world outside*, which governs how to handle request/reply processing,
 exit signals, timeouts, sleeping/hibernation with `threadDelay` and even provides
 hooks that terminating processes can use to clean up residual state.
 
-The [API documentation][21] is quite extensive, so here we will simply point
+The [API documentation][d-p-platform-ManagedProcess] is quite extensive, so here we will simply point
 out the obvious differences. A process implemented with `ManagedProcess`
 can present a type safe API to its callers (and the server side code too!),
 although that's not its primary benefit. For a very simplified example:
@@ -489,8 +486,8 @@ API, which looks a lot like `Async` but manages exit signals in a single thread 
 configurable task pools and task supervision strategy part of its API.
 
 More complex examples of the `ManagedProcess` API can be seen in the
-[Managed Processes tutorial][22]. API documentation for HEAD is available
-[here][21].
+[Managed Processes tutorial](tutorials/tutorial3.html). API documentation for HEAD is available
+[here][d-p-platform-ManagedProcess].
 
 ### Supervision Trees
 
@@ -500,25 +497,22 @@ TBC
 
 TBC
 
-[1]: http://www.haskell.org/haskellwiki/Cloud_Haskell
-[2]: https://github.com/haskell-distributed/distributed-process
-[3]: https://github.com/haskell-distributed/distributed-process-platform
-[4]: http://hackage.haskell.org/package/distributed-static
-[5]: http://hackage.haskell.org/package/rank1dynamic
-[6]: http://hackage.haskell.org/package/network-transport
-[7]: http://hackage.haskell.org/package/network-transport-tcp
-[8]: https://github.com/haskell-distributed/network-transport-inmemory
-[9]: https://github.com/haskell-distributed/network-transport-composed
-[10]: http://hackage.haskell.org/package/distributed-process-simplelocalnet
-[11]: http://hackage.haskell.org/package/distributed-process-azure
-[12]: http://research.microsoft.com/en-us/um/people/simonpj/papers/parallel/remote.pdf
-[13]: http://en.wikipedia.org/wiki/Open_Telecom_Platform
-[14]: http://hackage.haskell.org/package/remote
-[15]: http://www.erlang.org/doc/design_principles/sup_princ.html
-[16]: http://www.erlang.org/doc/man/supervisor.html
-[17]: http://hackage.haskell.org/package/distributed-process-platform/Control-Distributed-Process-Platform-Async.html
-[18]: https://github.com/haskell-distributed/distributed-process-platform
-[19]: http://hackage.haskell.org/package/async
-[20]: /wiki/networktransport.html
-[21]: http://hackage.haskell.org/package/distributed-process-platform/Control-Distributed-Process-Platform-ManagedProcess.html
-[22]: /tutorials/tutorial3.html
+[cloud-haskell]: http://haskell-distributed.github.io/documentation.html
+[fun201202-coutts]: http://sneezy.cs.nott.ac.uk/fun/2012-02/coutts-2012-02-28.pdf
+[distributed-process]: https://github.com/haskell-distributed/distributed-process
+[distributed-process-platform]: https://github.com/haskell-distributed/distributed-process-platform
+[distributed-static]: http://hackage.haskell.org/package/distributed-static
+[rank1dynamic]: http://hackage.haskell.org/package/rank1dynamic
+[network-transport]: http://hackage.haskell.org/package/network-transport
+[network-transport-tcp]: http://hackage.haskell.org/package/network-transport-tcp
+[network-transport-inmemory]: https://github.com/haskell-distributed/network-transport-inmemory
+[network-transport-composed]: https://github.com/haskell-distributed/network-transport-composed
+[distributed-process-simplelocalnet]: http://hackage.haskell.org/package/distributed-process-simplelocalnet
+[distributed-process-azure]: http://hackage.haskell.org/package/distributed-process-azure
+[hdph]: http://hackage.haskell.org/package/hdph
+[haskell11-ch]: http://research.microsoft.com/en-us/um/people/simonpj/papers/parallel/remote.pdf
+[OTP]: http://en.wikipedia.org/wiki/Open_Telecom_Platform
+[remote]: http://hackage.haskell.org/package/remote
+[d-p-platform-async]: http://hackage.haskell.org/package/distributed-process-platform/Control-Distributed-Process-Platform-Async.html
+[async]: http://hackage.haskell.org/package/async
+[d-p-platform-ManagedProcess]: http://hackage.haskell.org/package/distributed-process-platform/Control-Distributed-Process-Platform-ManagedProcess.html

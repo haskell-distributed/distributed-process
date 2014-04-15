@@ -35,8 +35,8 @@ transport and (mostly for demonstration purposes) an in-memory
 
 The TCP/IP implementation of Network.Transport should be usable, if not
 completely stable yet. The design of the transport layer may also still change.
-Feedback and suggestions are most welcome. Email [Duncan](mailto:duncan@well-typed.com) or [Edsko](mailto:edsko@well-typed.com) at Well-Typed, find us at #HaskellTransportLayer on
-freenode, or post on the [Parallel Haskell][2] mailing list.
+Feedback and suggestions are most welcome. Email [Duncan](mailto:duncan@well-typed.com) or [Edsko](mailto:edsko@well-typed.com) at Well-Typed, find us at #haskell-distributed on
+Freenode, or post on the [Parallel Haskell][2] mailing list.
 
 You may also submit issues on the [JIRA issue tracker][8].
 
