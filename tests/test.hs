@@ -1,7 +1,11 @@
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 import Data.Rank1Typeable
 import Data.Rank1Dynamic
 
+import Data.Constraint (Dict(..))
 import Test.HUnit hiding (Test)
 import Test.Framework
 import Test.Framework.Providers.HUnit
@@ -10,6 +14,8 @@ import Unsafe.Coerce
 
 main :: IO ()
 main = defaultMain tests
+
+deriving instance Typeable Monad
 
 tests :: [Test]
 tests =
@@ -37,6 +43,18 @@ tests =
       , testCase "CANNOT use a term of type 'forall a. a -> a' as 'forall a. a'" $
           typeOf (undefined :: ANY) `isInstanceOf` typeOf (undefined :: ANY -> ANY)
           @?= Left "Cannot unify Skolem and (->)"
+
+      , testCase "CAN use a term of type 'forall a. a -> m a' as 'Int -> Maybe Int'" $
+          typeOf (undefined :: Int -> Maybe Int)
+            `isInstanceOf`
+               typeOf (undefined :: ANY1 -> ANY ANY1)
+          @?= Right ()
+
+      , testCase "CAN use a term of type 'forall a. Monad a => a -> m a' as 'Int -> Maybe Int'" $
+          typeOf ((\Dict -> return) :: Dict (Monad Maybe) -> Int -> Maybe Int)
+            `isInstanceOf`
+               typeOf ((\Dict -> return) :: Dict (Monad ANY) -> ANY1 -> ANY ANY1)
+          @?= Right ()
       ]
 
   , testGroup "Examples of funResultTy"
@@ -92,6 +110,11 @@ tests =
       , testCase "CANNOT use a term of type 'forall a. a -> a' as 'forall a. a'" $
           do f <- fromDynamic (toDynamic (id :: ANY -> ANY)) ; return $ (f :: Int)
           @?= Left "Cannot unify Int and (->)"
+
+      , testCase "CAN use a term of type 'forall a. Monad a => a -> m a' as 'Int -> Maybe Int'" $
+          do f <- fromDynamic (toDynamic ((\Dict -> return) :: Dict (Monad Maybe) -> Int -> Maybe Int))
+             return $ (f :: Dict (Monad Maybe) -> Int -> Maybe Int) Dict 0
+          @?= Right (Just 0)
       ]
 
   , testGroup "Examples of dynApply"

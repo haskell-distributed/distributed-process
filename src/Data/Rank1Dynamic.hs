@@ -22,6 +22,10 @@
 -- >
 -- > > do f <- fromDynamic (toDynamic (id :: ANY -> ANY)) ; return $ (f :: Int)
 -- > Left "Cannot unify Int and ->"
+-- >
+-- > > do f <- fromDynamic (toDynamic (reifyConstraints return :: Dict (Monad Maybe) -> Int -> Maybe Int))
+-- >      return $ (abstractConstraints (f :: Dict (Monad Maybe) -> Int -> Maybe Int)) 0
+-- > Right (Just 0)
 --
 -- [Examples of dynApply]
 --

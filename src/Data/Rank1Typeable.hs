@@ -32,8 +32,31 @@
 -- > -- We CANNOT use a term of type 'forall a. a -> a' as 'forall a. a'
 -- > > typeOf (undefined :: ANY) `isInstanceOf` typeOf (undefined :: ANY -> ANY)
 -- > Left "Cannot unify Skolem and ->"
+-- >
+-- > -- We CAN use a term of type 'forall a. a -> m a' as 'Int -> Maybe Int'
+-- > > typeOf (undefined :: Int -> Maybe Int)
+-- >     `isInstanceOf` typeOf (undefined :: ANY1 -> ANY ANY1)
+-- > Left "Cannot unify Skolem and ->"
+-- >
+-- > -- We CAN use a term of type 'forall a. Monad a => a -> m a' as 'Int -> Maybe Int'
+-- > -- 'Dict' comes from "Data.Constraint" in the package "constraints".
+-- > > typeOf ((\Dict -> return) :: Dict (Monad Maybe) -> Int -> Maybe Int)
+-- >     `isInstanceOf` typeOf ((\Dict -> return) :: Dict (Monad ANY) -> ANY1 -> ANY ANY1)
+-- > Right ()
 --
 -- (Admittedly, the quality of the type errors could be improved.)
+--
+-- When using @-XPolyKinds@, the type signatures with higher-kinded variables
+-- need to be given as
+--
+-- > (\Dict -> return) `asTypeOf` (undefined :: Dict (Monad ANY) -> ANY1 -> ANY ANY1)
+--
+-- or
+--
+-- > (\Dict -> return) :: Dict (Monad ANY) -> ANY1 -> ANY (ANY1 :: *)
+--
+-- Please, see @tests/test.hs@ for examples of how to write the higher-kinded
+-- cases in ghc versions earlier than 7.6.3.
 --
 -- [Examples of funResultTy]
 --
@@ -56,6 +79,7 @@
 -- > -- Cannot apply function of type (forall a. (a -> a) -> a -> a) to arg of type (Int -> Bool)
 -- > > funResultTy (typeOf (undefined :: (ANY -> ANY) -> (ANY -> ANY))) (typeOf (undefined :: Int -> Bool))
 -- > Left "Cannot unify Int and Bool"
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 module Data.Rank1Typeable
   ( -- * Basic types
     TypeRep
@@ -105,6 +129,7 @@ import Data.Typeable (Typeable, mkTyCon3)
 import Data.Typeable.Internal (listTc, funTc, TyCon(TyCon), tyConName)
 import Data.Binary (Binary(get, put))
 import GHC.Fingerprint.Type (Fingerprint(..))
+import GHC.Exts(Any)
 import qualified Data.Typeable as Typeable
   ( TypeRep
   , typeOf
@@ -173,15 +198,22 @@ mkTyConApp :: TyCon -> [TypeRep] -> TypeRep
 mkTyConApp c ts
   = TypeRep (Typeable.mkTyConApp c (map underlyingTypeRep ts))
 
-isTypVar :: TypeRep -> Maybe Var
-isTypVar (splitTyConApp -> (c, [t])) | c == typVar = Just t
-isTypVar _ = Nothing
+isTypVarApp :: TypeRep -> Maybe (Var, [TypeRep])
+isTypVarApp (splitTyConApp -> (c, (t0:t:ts)))
+    | c == typVar && t0 == typTag = Just (t,ts)
+isTypVarApp _ = Nothing
 
-mkTypVar :: Var -> TypeRep
-mkTypVar x = mkTyConApp typVar [x]
+mkTypVarApp :: Var -> [TypeRep] -> TypeRep
+mkTypVarApp x = mkTyConApp typVar . (typTag :) . (x :)
+
+mkTyApp :: TypeRep -> [TypeRep] -> TypeRep
+mkTyApp (splitTyConApp -> (c, ts)) = mkTyConApp c . (ts++)
 
 typVar :: TyCon
 typVar = let (c, _) = splitTyConApp (typeOf (undefined :: TypVar V0)) in c
+
+typTag :: TypeRep
+typTag = typeOf (undefined :: T)
 
 skolem :: TyCon
 skolem = let (c, _) = splitTyConApp (typeOf (undefined :: Skolem V0)) in c
@@ -190,10 +222,15 @@ skolem = let (c, _) = splitTyConApp (typeOf (undefined :: Skolem V0)) in c
 -- Type variables                                                             --
 --------------------------------------------------------------------------------
 
-data TypVar a deriving Typeable
+-- | Internal tag to distinguish our uses of Any from user's.
+data T        deriving Typeable
+
+type TypVar = Any T
 data Skolem a deriving Typeable
 data Zero     deriving Typeable
 data Succ a   deriving Typeable
+
+deriving instance Typeable Any
 
 type V0 = Zero
 type V1 = Succ V0
@@ -232,7 +269,7 @@ isInstanceOf t1 t2 = void (unify (skolemize t1) t2)
 -- of type @t1@ to an argument of type @t2@
 funResultTy :: TypeRep -> TypeRep -> Either TypeError TypeRep
 funResultTy t1 t2 = do
-  let anyTy = mkTypVar $ typeOf (undefined :: V0)
+  let anyTy = mkTypVarApp (typeOf (undefined :: V0)) []
   s <- unify (alphaRename "f" t1) $ mkTyConApp funTc [alphaRename "x" t2, anyTy]
   return $ normalize $ subst s anyTy
 
@@ -241,20 +278,20 @@ funResultTy t1 t2 = do
 --------------------------------------------------------------------------------
 
 alphaRename :: String -> TypeRep -> TypeRep
-alphaRename prefix (isTypVar -> Just x) =
-  mkTypVar (mkTyConApp (mkTyCon prefix) [x])
+alphaRename prefix (isTypVarApp -> Just (x,ts)) =
+  mkTypVarApp (mkTyConApp (mkTyCon prefix) [x]) (map (alphaRename prefix) ts)
 alphaRename prefix (splitTyConApp -> (c, ts)) =
   mkTyConApp c (map (alphaRename prefix) ts)
 
 tvars :: TypeRep -> [Var]
-tvars (isTypVar -> Just x)       = [x]
+tvars (isTypVarApp -> Just (x, ts)) =  x : concatMap tvars ts
 tvars (splitTyConApp -> (_, ts)) = concatMap tvars ts
 
 normalize :: TypeRep -> TypeRep
 normalize t = subst (zip (tvars t) anys) t
   where
     anys :: [TypeRep]
-    anys = map mkTypVar (iterate succ zero)
+    anys = map (flip mkTypVarApp []) (iterate succ zero)
 
     succ :: TypeRep -> TypeRep
     succ = mkTyConApp succTyCon . (:[])
@@ -280,15 +317,16 @@ type Equation     = (TypeRep, TypeRep)
 type Var          = TypeRep
 
 skolemize :: TypeRep -> TypeRep
-skolemize (isTypVar -> Just x)       = mkTyConApp skolem [x]
-skolemize (splitTyConApp -> (c, ts)) = mkTyConApp c (map skolemize ts)
+skolemize (isTypVarApp -> Just (x, ts)) = mkTyConApp skolem $ x : map skolemize ts
+skolemize (splitTyConApp -> (c, ts))    = mkTyConApp c (map skolemize ts)
 
 occurs :: Var -> TypeRep -> Bool
-occurs x (isTypVar -> Just x')      = x == x'
+occurs x (isTypVarApp -> Just (x', ts)) = x == x' || any (occurs x) ts
 occurs x (splitTyConApp -> (_, ts)) = any (occurs x) ts
 
 subst :: Substitution -> TypeRep -> TypeRep
-subst s (isTypVar -> Just x)       = fromMaybe (mkTypVar x) (lookup x s)
+subst s (isTypVarApp -> Just (x, ts)) =
+     flip mkTyApp (map (subst s) ts) $ fromMaybe (mkTypVarApp x []) (lookup x s)
 subst s (splitTyConApp -> (c, ts)) = mkTyConApp c (map (subst s) ts)
 
 unify :: TypeRep
@@ -303,13 +341,23 @@ unify = \t1 t2 -> go [] [(t1, t2)]
       return acc
     go acc ((t1, t2) : eqs) | t1 == t2 = -- Note: equality check is fast
       go acc eqs
-    go acc ((isTypVar -> Just x, t) : eqs) =
+    go acc ((isTypVarApp -> Just (x, []), t) : eqs) =
       if x `occurs` t
         then Left "Occurs check"
         else go ((x, t) : map (second $ subst [(x, t)]) acc)
                 (map (subst [(x, t)] *** subst [(x, t)]) eqs)
-    go acc ((t, isTypVar -> Just x) : eqs) =
-      go acc ((mkTypVar x, t) : eqs)
+    -- The left-hand side of the equation is a type variable application.
+    -- Decompose the right-hand side of the equation.
+    go acc ((t1@(isTypVarApp -> Just (x, ts)), t2) : eqs) =
+      let (t,ts') = case isTypVarApp t2 of
+                      Just (x', ts'') -> (mkTypVarApp x' [], ts'')
+                      Nothing        -> let (c,ts'') = splitTyConApp t2
+                                         in (mkTyConApp c [], ts'')
+       in if length ts == length ts'
+            then go acc ((mkTypVarApp x [], t) : zip ts ts' ++ eqs)
+            else Left $ "Cannot unify " ++ show t1 ++ " and " ++ show t2
+    go acc ((t, isTypVarApp -> Just (x, ts)) : eqs) =
+      go acc ((mkTypVarApp x ts, t) : eqs)
     go acc ((splitTyConApp -> (c1, ts1), splitTyConApp -> (c2, ts2)) : eqs) =
       if c1 /= c2
         then Left $ "Cannot unify " ++ show c1 ++ " and " ++ show c2
@@ -323,7 +371,11 @@ instance Show TypeRep where
   showsPrec p (splitTyConApp -> (tycon, tys)) =
       case tys of
         [] -> showsPrec p tycon
-        [anyIdx -> Just i] | tycon == typVar -> showString "ANY" . showIdx i
+        (t0 : (anyIdx -> Just i) : ts) | tycon == typVar && t0 == typTag ->
+          if null ts
+            then showString "ANY" . showIdx i
+            else showParen (p > 9) $ showString "ANY" . showIdx i .
+                                     showChar ' ' . showArgs ts
         [x] | tycon == listTc ->
           showChar '[' . shows x . showChar ']'
         [a,r] | tycon == funTc ->
