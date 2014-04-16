@@ -27,6 +27,9 @@
 -- >      return $ (abstractConstraints (f :: Dict (Monad Maybe) -> Int -> Maybe Int)) 0
 -- > Right (Just 0)
 --
+-- Please, see @tests/test.hs@ for examples of how to write the higher-kinded
+-- case in ghc versions earlier than 7.6.3.
+--
 -- [Examples of dynApply]
 --
 -- These examples correspond to the 'Data.Rank1Typeable.funResultTy' examples

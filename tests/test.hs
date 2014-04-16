@@ -1,3 +1,7 @@
+#if !MIN_VERSION_base(4,7,0)
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ExistentialQuantification #-}
+#endif
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
@@ -5,7 +9,11 @@
 import Data.Rank1Typeable
 import Data.Rank1Dynamic
 
+#if MIN_VERSION_base(4,7,0)
 import Data.Constraint (Dict(..))
+#else
+import qualified Data.Typeable as Typeable (Typeable(..),Typeable1(..), mkTyCon3, mkTyConApp)
+#endif
 import Test.HUnit hiding (Test)
 import Test.Framework
 import Test.Framework.Providers.HUnit
@@ -15,7 +23,18 @@ import Unsafe.Coerce
 main :: IO ()
 main = defaultMain tests
 
+#if MIN_VERSION_base(4,7,0)
 deriving instance Typeable Monad
+#else
+data MonadDict m = Monad m => MonadDict
+
+instance Typeable.Typeable1 m => Typeable (MonadDict m) where
+  typeOf _ = Typeable.mkTyConApp (Typeable.mkTyCon3 "main" "Main" "MonadDict")
+               [ Typeable.typeOf1 (undefined :: m a) ]
+
+returnD :: MonadDict m -> a -> m a
+returnD MonadDict = return
+#endif
 
 tests :: [Test]
 tests =
@@ -42,7 +61,11 @@ tests =
 
       , testCase "CANNOT use a term of type 'forall a. a -> a' as 'forall a. a'" $
           typeOf (undefined :: ANY) `isInstanceOf` typeOf (undefined :: ANY -> ANY)
+#if MIN_VERSION_base(4,7,0)
           @?= Left "Cannot unify Skolem and (->)"
+#else
+          @?= Left "Cannot unify Skolem and ->"
+#endif
 
       , testCase "CAN use a term of type 'forall a. a -> m a' as 'Int -> Maybe Int'" $
           typeOf (undefined :: Int -> Maybe Int)
@@ -51,9 +74,15 @@ tests =
           @?= Right ()
 
       , testCase "CAN use a term of type 'forall a. Monad a => a -> m a' as 'Int -> Maybe Int'" $
+#if MIN_VERSION_base(4,7,0)
           typeOf ((\Dict -> return) :: Dict (Monad Maybe) -> Int -> Maybe Int)
             `isInstanceOf`
                typeOf ((\Dict -> return) :: Dict (Monad ANY) -> ANY1 -> ANY ANY1)
+#else
+          typeOf (returnD :: MonadDict Maybe -> Int -> Maybe Int)
+            `isInstanceOf`
+               typeOf (returnD :: MonadDict ANY -> ANY1 -> ANY ANY1)
+#endif
           @?= Right ()
       ]
 
@@ -109,11 +138,20 @@ tests =
 
       , testCase "CANNOT use a term of type 'forall a. a -> a' as 'forall a. a'" $
           do f <- fromDynamic (toDynamic (id :: ANY -> ANY)) ; return $ (f :: Int)
+#if MIN_VERSION_base(4,7,0)
           @?= Left "Cannot unify Int and (->)"
+#else
+          @?= Left "Cannot unify Int and ->"
+#endif
 
       , testCase "CAN use a term of type 'forall a. Monad a => a -> m a' as 'Int -> Maybe Int'" $
+#if MIN_VERSION_base(4,7,0)
           do f <- fromDynamic (toDynamic ((\Dict -> return) :: Dict (Monad Maybe) -> Int -> Maybe Int))
              return $ (f :: Dict (Monad Maybe) -> Int -> Maybe Int) Dict 0
+#else
+          do f <- fromDynamic (toDynamic (returnD :: MonadDict Maybe -> Int -> Maybe Int))
+             return $ ((f :: MonadDict Maybe -> Int -> Maybe Int) MonadDict) 0
+#endif
           @?= Right (Just 0)
       ]
 
