@@ -1246,6 +1246,8 @@ tryRestart :: ProcessId
            -> DiedReason
            -> Process (ProcessAction State)
 tryRestart pid state active' spec reason = do
+  logEntry Log.notice $
+    mkReport "tryRestart" pid (childKey spec) (show reason)
   case state ^. strategy of
     RestartOne _ -> tryRestartChild pid state active' spec reason
     strat        -> do
