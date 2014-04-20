@@ -88,7 +88,9 @@ library
                    Control.Distributed.Process.Platform.Internal.Queue.PriorityQ
                    Control.Distributed.Process.Platform.Internal.Unsafe,
                    Control.Distributed.Process.Platform.ManagedProcess.Internal.Types,
-                   Control.Distributed.Process.Platform.ManagedProcess.Internal.GenProcess
+                   Control.Distributed.Process.Platform.ManagedProcess.Internal.GenProcess,
+                   Control.Distributed.Process.Platform.Supervisor.Types
+
 
 test-suite TimerTests
   type:            exitcode-stdio-1.0
