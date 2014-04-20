@@ -959,8 +959,12 @@ supInit (strategy', shutdown', specs') = do
                   $ emptyState shutdown'
                   )
   -- TODO: should we return Ignore, as per OTP's supervisor, if no child starts?
-  (foldlM initChild initState specs' >>= return . (flip InitOk) Infinity)
-    `catch` \(e :: SomeException) -> return $ InitStop (show e)
+  catch (foldlM initChild initState specs' >>= return . (flip InitOk) Infinity)
+        (\(e :: SomeException) -> do
+          sup <- getSelfPid
+          logEntry Log.error $
+            mkReport "Could not init supervisor " sup "noproc" (show e)
+          return $ InitStop (show e))
   where
     initChild :: State -> ChildSpec -> Process State
     initChild st ch =
