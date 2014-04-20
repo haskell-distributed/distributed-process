@@ -17,10 +17,8 @@ import qualified Control.Exception as Exception (catch)
 import Control.Concurrent.MVar
   ( MVar
   , tryPutMVar
-  , withMVar
   , newMVar
   , takeMVar
-  , putMVar
   )
 import Control.Monad.IO.Class (MonadIO, liftIO)
 
@@ -65,4 +63,3 @@ withLock excl act = do
                       ; return result
                       })
                   (\(e :: SomeException) -> release excl >> throw e)
-
