@@ -1340,7 +1340,13 @@ filterInitFailures :: ProcessId
                    -> Process ()
 filterInitFailures sup pid ex = do
   case ex of
-    ChildInitFailure _ -> liftIO $ throwIO ex
+    ChildInitFailure _ -> do
+      -- This is used as a `catches` handler in multiple places
+      -- and matches first before the other handlers that
+      -- would call logFailure.
+      -- We log here to avoid silent failure in those cases.
+      logEntry Log.error $ mkReport "ChildInitFailure" sup (show pid) (show ex)
+      liftIO $ throwIO ex
     ChildInitIgnore    -> Unsafe.cast sup $ IgnoreChildReq pid
 
 --------------------------------------------------------------------------------
