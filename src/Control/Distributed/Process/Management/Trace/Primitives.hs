@@ -1,3 +1,5 @@
+{-# LANGUAGE FlexibleInstances  #-}
+{-# LANGUAGE TypeSynonymInstances  #-}
 -- | Keeps the tracing API calls separate from the Tracer implementation,
 -- which allows us to avoid a nasty import cycle between tracing and
 -- the messaging primitives that rely on it, and also between the node

@@ -1,3 +1,7 @@
+{-# LANGUAGE DeriveDataTypeable  #-}
+{-# LANGUAGE UndecidableInstances  #-}
+{-# LANGUAGE FlexibleInstances  #-}
+{-# LANGUAGE GADTs  #-}
 module Control.Distributed.Process.Serializable
   ( Serializable
   , encodeFingerprint
