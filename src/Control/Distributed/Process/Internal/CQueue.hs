@@ -1,5 +1,6 @@
+{-# LANGUAGE BangPatterns  #-}
+{-# LANGUAGE MagicHash, UnboxedTuples, PatternGuards, ScopedTypeVariables, RankNTypes #-}
 -- | Concurrent queue for single reader, single writer
-{-# LANGUAGE MagicHash, UnboxedTuples, PatternGuards #-}
 module Control.Distributed.Process.Internal.CQueue
   ( CQueue
   , BlockSpec(..)

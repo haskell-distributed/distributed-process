@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP  #-}
 {- | [Cloud Haskell]
 
 This is an implementation of Cloud Haskell, as described in

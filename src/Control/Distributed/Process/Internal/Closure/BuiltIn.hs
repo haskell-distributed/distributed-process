@@ -1,3 +1,5 @@
+{-# LANGUAGE ScopedTypeVariables  #-}
+{-# LANGUAGE RankNTypes  #-}
 module Control.Distributed.Process.Internal.Closure.BuiltIn
   ( -- * Remote table
     remoteTable
@@ -296,6 +298,3 @@ cpDelay = closureApply . cpDelay'
 
     delayStatic :: Static (ProcessId -> Process () -> Process ())
     delayStatic = staticLabel "$delay"
-
-
-

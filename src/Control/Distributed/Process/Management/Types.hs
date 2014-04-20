@@ -1,3 +1,7 @@
+{-# LANGUAGE DeriveDataTypeable  #-}
+{-# LANGUAGE StandaloneDeriving  #-}
+{-# LANGUAGE ExistentialQuantification  #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving  #-}
 {-# LANGUAGE DeriveGeneric   #-}
 module Control.Distributed.Process.Management.Types
   ( MxAgentId(..)
@@ -145,4 +149,3 @@ data MxAction =
 
 -- | Type of a management agent's event sink.
 type MxSink s = Message -> MxAgent s (Maybe MxAction)
-

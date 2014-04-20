@@ -1,3 +1,4 @@
+{-# LANGUAGE ScopedTypeVariables  #-}
 {-# LANGUAGE RecordWildCards #-}
 
 module Control.Distributed.Process.Management.Agent where
@@ -153,4 +154,3 @@ startDeadLetterQueue sigbus = do
   chan' <- atomically (dupTChan sigbus)
   void $ forkIO $ forever' $ do
     void $ atomically $ readTChan chan'
-
