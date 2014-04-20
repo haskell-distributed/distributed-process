@@ -663,67 +663,70 @@ instance ToChildStart (Closure (Process ())) where
 instance ToChildStart (Closure (SupervisorPid -> Process (ProcessId, Message))) where
   toChildStart = return . CreateHandle
 
-instance ToChildStart (Process ()) where
-  toChildStart proc = do
-    starterPid <- spawnLocal $ do
-      -- note [linking]: the first time we see the supervisor's pid,
-      -- we must link to it, but only once, otherwise we simply waste
-      -- time and resources creating duplicate links
-      (supervisor, _, sendPidPort) <- expectTriple
-      link supervisor
-      spawnIt proc supervisor sendPidPort
-      tcsProcLoop proc
-    return (StarterProcess starterPid)
 
-tcsProcLoop :: Process () -> Process ()
-tcsProcLoop p = forever' $ do
-  (supervisor, _, sendPidPort) <- expectTriple
-  spawnIt p supervisor sendPidPort
-
-spawnIt :: Process ()
-        -> ProcessId
-        -> SendPort ProcessId
-        -> Process ()
-spawnIt proc' supervisor sendPidPort = do
-  supervisedPid <- spawnLocal $ do
-    link supervisor
-    self <- getSelfPid
-    (proc' `catches` [ Handler $ filterInitFailures supervisor self
-                     , Handler $ logFailure supervisor self ])
-      `catchesExit` [(\_ m -> handleMessageIf m (== ExitShutdown)
-                                                (\_ -> return ()))]
-  sendChan sendPidPort supervisedPid
-
-instance (Resolvable a) => ToChildStart (SupervisorPid -> Process a) where
-  toChildStart proc = do
-    starterPid <- spawnLocal $ do
-      -- see note [linking] in the previous instance (above)
-      (supervisor, _, sendPidPort) <- expectTriple
-      link supervisor
-      injectIt proc supervisor sendPidPort >> injectorLoop proc
-    return $ StarterProcess starterPid
-
-injectorLoop :: Resolvable a
-             => (SupervisorPid -> Process a)
-             -> Process ()
-injectorLoop p = forever' $ do
-  (supervisor, _, sendPidPort) <- expectTriple
-  injectIt p supervisor sendPidPort
-
-injectIt :: Resolvable a
-         => (SupervisorPid -> Process a)
-         -> ProcessId
-         -> SendPort ProcessId
-         -> Process ()
-injectIt proc' supervisor sendPidPort = do
-  addr <- proc' supervisor
-  mPid <- resolve addr
-  case mPid of
-    Nothing -> die "UnresolvableAddress"
-    Just p  -> sendChan sendPidPort p
+-- StarterProcess variants of ChildStart
 
 expectTriple :: Process (ProcessId, ChildKey, SendPort ProcessId)
 expectTriple = expect
+
+instance ToChildStart (Process ()) where
+  toChildStart proc = do
+      starterPid <- spawnLocal $ do
+        -- note [linking]: the first time we see the supervisor's pid,
+        -- we must link to it, but only once, otherwise we simply waste
+        -- time and resources creating duplicate links
+        (supervisor, _, sendPidPort) <- expectTriple
+        link supervisor
+        spawnIt proc supervisor sendPidPort
+        tcsProcLoop proc
+      return (StarterProcess starterPid)
+    where
+      tcsProcLoop :: Process () -> Process ()
+      tcsProcLoop p = forever' $ do
+        (supervisor, _, sendPidPort) <- expectTriple
+        spawnIt p supervisor sendPidPort
+
+      spawnIt :: Process ()
+              -> ProcessId
+              -> SendPort ProcessId
+              -> Process ()
+      spawnIt proc' supervisor sendPidPort = do
+        supervisedPid <- spawnLocal $ do
+          link supervisor
+          self <- getSelfPid
+          (proc' `catches` [ Handler $ filterInitFailures supervisor self
+                           , Handler $ logFailure supervisor self ])
+            `catchesExit` [\_ m -> handleMessageIf m (== ExitShutdown)
+                                                    (\_ -> return ())]
+        sendChan sendPidPort supervisedPid
+
+instance (Resolvable a) => ToChildStart (SupervisorPid -> Process a) where
+  toChildStart proc = do
+      starterPid <- spawnLocal $ do
+        -- see note [linking] in the previous instance (above)
+        (supervisor, _, sendPidPort) <- expectTriple
+        link supervisor
+        injectIt proc supervisor sendPidPort >> injectorLoop proc
+      return $ StarterProcess starterPid
+    where
+      injectorLoop :: Resolvable a
+                   => (SupervisorPid -> Process a)
+                   -> Process ()
+      injectorLoop p = forever' $ do
+        (supervisor, _, sendPidPort) <- expectTriple
+        injectIt p supervisor sendPidPort
+
+      injectIt :: Resolvable a
+               => (SupervisorPid -> Process a)
+               -> ProcessId
+               -> SendPort ProcessId
+               -> Process ()
+      injectIt proc' supervisor sendPidPort = do
+        addr <- proc' supervisor
+        mPid <- resolve addr
+        case mPid of
+          Nothing -> die "UnresolvableAddress"
+          Just p  -> sendChan sendPidPort p
 
 -- internal APIs
 
