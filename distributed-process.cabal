@@ -44,7 +44,6 @@ flag prof
 Library
   Build-Depends:     base >= 4.4 && < 5,
                      binary >= 0.5 && < 0.8,
-                     deepseq >= 1.3.0.1 && < 1.4,
                      hashable >= 1.2.0.5 && < 1.3,
                      network-transport >= 0.3 && < 0.4,
                      stm >= 2.4 && < 2.5,
@@ -52,7 +51,6 @@ Library
                      mtl >= 2.0 && < 2.2,
                      data-accessor >= 0.2 && < 0.3,
                      bytestring >= 0.9 && < 0.11,
-                     containers >= 0.4 && < 0.6,
                      old-locale >= 1.0 && < 1.1,
                      time >= 1.2 && < 1.5,
                      random >= 1.0 && < 1.1,
@@ -99,8 +97,17 @@ Library
                      BangPatterns
   ghc-options:       -Wall
   HS-Source-Dirs:    src
+  if impl(ghc <= 7.4.2)
+     Build-Depends:   containers >= 0.4 && < 0.5,
+                      deepseq == 1.3.0.0
+  else
+     Build-Depends:   containers >= 0.4 && < 0.6,
+                      deepseq >= 1.3.0.1 && < 1.4
   if flag(th)
-     Build-Depends:   template-haskell >= 2.6 && < 2.9
+     if impl(ghc <= 7.4.2)
+       Build-Depends: template-haskell >= 2.7 && < 2.8
+     else
+       Build-Depends: template-haskell >= 2.6 && < 2.9
      Exposed-modules: Control.Distributed.Process.Internal.Closure.TH
      CPP-Options:     -DTemplateHaskellSupport
 
