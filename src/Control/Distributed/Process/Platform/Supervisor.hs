@@ -601,7 +601,7 @@ startNewChild addr spec = Unsafe.call addr $ AddChild True spec
 -- 'terminateChild').
 --
 deleteChild :: Addressable a => a -> ChildKey -> Process DeleteChildResult
-deleteChild addr spec = Unsafe.call addr $ DeleteChild spec
+deleteChild sid childKey = Unsafe.call sid $ DeleteChild childKey
 
 -- | Terminate a running child.
 --
