@@ -289,6 +289,7 @@ import Control.Distributed.Process.Internal.Primitives
   , receiveTimeout
   , matchChan
   , matchAny
+  , matchSTM
   , unwrapMessage
   , onException
   , register
@@ -505,8 +506,8 @@ mxAgentWithFinalize mxId initState handlers dtor = do
              -> TChan Message
              -> MxAgentState s
              -> Process ()
-    runAgent eh hs r c s =
-      runAgentWithFinalizer eh hs r c s
+    runAgent eh hs cs c s =
+      runAgentWithFinalizer eh hs cs c s
         `onException` runAgentFinalizer eh s
 
     runAgentWithFinalizer :: MxAgent s ()
@@ -516,56 +517,34 @@ mxAgentWithFinalize mxId initState handlers dtor = do
                           -> MxAgentState s
                           -> Process ()
     runAgentWithFinalizer eh' hs' cs' c' s' = do
-      (msg, selector') <- getNextInput cs' c'
+      msg <- getNextInput cs' c'
       (action, state) <- runPipeline msg s' $ pipeline hs'
       case action of
-        MxAgentReady               -> runAgent eh' hs' selector' c' state
+        MxAgentReady               -> runAgent eh' hs' InputChan c' state
         MxAgentPrioritise priority -> runAgent eh' hs' priority  c' state
         MxAgentDeactivate _        -> runAgentFinalizer eh' state
         MxAgentSkip                -> error "IllegalState"
 --      MxAgentBecome h'           -> runAgent h' c state
 
-    getNextInput sel chan = getNextInput' sel chan (10 :: Int)
+    getNextInput sel chan =
+      let stmRead = atomically . readTChan
+          matches =
+            case sel of
+              Mailbox   -> [ matchAny return
+                           , matchSTM (readTChan chan) return]
+              InputChan -> [ matchSTM (readTChan chan) return
+                           , matchAny return]
+      in getNextInput' matches 0
 
-    -- when reading inputs, we generally want to maintain a degree of
-    -- fairness in choosing between the TChan and our mailbox, but to
-    -- ultimately favour the TChan overall. We do this by flipping
-    -- between the two (using the ChannelSelector) each time we call
-    -- getNextInput - it returns the opposite ChannelSelector to the
-    -- one which succeeded last time it was called.
-    --
-    -- This strategy works well, yet we wish to avoid blocking on one
-    -- input if the other is empty/busy, so we begin by reading both
-    -- sources conditionally - tryReadTChan for the event bus and
-    -- receiveTimeout for the mailbox. If polling (either source) does
-    -- not yield an input, we swap to the other, but we cannot continue
-    -- in this fashion ad infinitum, since that would waste considerable
-    -- system resoures. Instead, we switch ten times, after which (if no
-    -- data were obtained) we block on the event bus, since that is our
-    -- main priority.
-    --
-    -- An agent can of course, choose to override which source should be
-    -- checked first. We consider this a /hint/ rather than a dictat.
-    -- When reading from the mailbox, we perform a non-blocking read.
-    -- We assume that most agents will prefer using mxReceiveChan to its
-    -- mailbox reading counterpart, this we expect the event bus to be
-    -- non-empty or the entire subsystem is likely doing very little work,
-    -- in which case we needn't worry too much about the overheads
-    -- described thus far.
+    getNextInput' ms n = do
+      mIn <- receiveTimeout n ms
+      case mIn of
+        Nothing  -> tryNextInput ms n
+        Just msg -> return msg
 
-    getNextInput' InputChan c' 0 = do
-      m <- liftIO $ atomically $ readTChan c'
-      return (m, Mailbox)
-    getNextInput' InputChan c' n = do
-      inputs <- liftIO $ atomically $ tryReadTChan c'
-      case inputs of
-        Nothing -> getNextInput' Mailbox c' (n - 1)
-        Just m  -> return (m, Mailbox)
-    getNextInput' Mailbox   c' n = do
-      m <- receiveTimeout 0 [ matchAny return ]
-      case m of
-        Nothing  -> getNextInput' InputChan c' (n - 1)
-        Just msg -> return (msg, InputChan)
+    tryNextInput ms n
+      | n > 0 && n < 2000 = getNextInput' ms $ n * 2
+      | otherwise         = getNextInput' ms 100
 
     runAgentFinalizer :: MxAgent s () -> MxAgentState s -> Process ()
     runAgentFinalizer f s = ST.runStateT (unAgent f) s >>= return . fst
