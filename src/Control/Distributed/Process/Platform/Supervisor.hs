@@ -1169,19 +1169,21 @@ doRestartChild _ spec _ state = do -- TODO: use ProcessId and DiedReason to log
       case start' of
         Right (ref, st') -> do
           return $ markActive st' ref spec
-        Left err -> do -- TODO: handle this by policy
+        Left err -> do
           -- All child failures are handled via monitor signals, apart from
           -- BadClosure and UnresolvableAddress from the StarterProcess
           -- variants of ChildStart, which both come back from
           -- doStartChild as (Left err).
           -- Since we cannot recover from that, there's no point in trying
           -- to start this child again (as the closure will never resolve),
-          -- so we remove the child forthwith. We should provide a policy
-          -- for handling this situation though...
+          -- so we remove the child forthwith.
           sup <- getSelfPid
           logEntry Log.error $
             mkReport "Unrecoverable error in child" sup (childKey spec) (show err)
-          return $ ( (active ^: Map.filter (/= chKey))
+          if (isTemporary (childRestart spec))
+             -- TODO: convert this to a meaningful exception type
+             then die $ "Unrecoverable error in child " ++ (childKey spec)
+             else return $ ( (active ^: Map.filter (/= chKey))
                    . (bumpStats Active chType decrement)
                    . (bumpStats Specified chType decrement)
                    $ removeChild spec st
