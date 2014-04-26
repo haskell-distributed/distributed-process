@@ -227,6 +227,8 @@ module Control.Distributed.Process.Platform.Supervisor
   , Child
   , StaticLabel
   , SupervisorPid
+  , ChildPid
+  , StarterPid
   , ToChildStart(..)
   , start
   , run
@@ -392,13 +394,13 @@ class ToChildStart a where
 instance ToChildStart (Closure (Process ())) where
   toChildStart = return . RunClosure
 
-instance ToChildStart (Closure (SupervisorPid -> Process (ProcessId, Message))) where
+instance ToChildStart (Closure (SupervisorPid -> Process (ChildPid, Message))) where
   toChildStart = return . CreateHandle
 
 
 -- StarterProcess variants of ChildStart
 
-expectTriple :: Process (ProcessId, ChildKey, SendPort ProcessId)
+expectTriple :: Process (SupervisorPid, ChildKey, SendPort ChildPid)
 expectTriple = expect
 
 instance ToChildStart (Process ()) where
@@ -419,8 +421,8 @@ instance ToChildStart (Process ()) where
         spawnIt p supervisor sendPidPort
 
       spawnIt :: Process ()
-              -> ProcessId
-              -> SendPort ProcessId
+              -> SupervisorPid
+              -> SendPort ChildPid
               -> Process ()
       spawnIt proc' supervisor sendPidPort = do
         supervisedPid <- spawnLocal $ do
@@ -450,8 +452,8 @@ instance (Resolvable a) => ToChildStart (SupervisorPid -> Process a) where
 
       injectIt :: Resolvable a
                => (SupervisorPid -> Process a)
-               -> ProcessId
-               -> SendPort ProcessId
+               -> SupervisorPid
+               -> SendPort ChildPid
                -> Process ()
       injectIt proc' supervisor sendPidPort = do
         addr <- proc' supervisor
@@ -513,7 +515,7 @@ data TerminateChildReq = TerminateChildReq !ChildKey
 instance Binary TerminateChildReq where
 instance NFData TerminateChildReq where
 
-data IgnoreChildReq = IgnoreChildReq !ProcessId
+data IgnoreChildReq = IgnoreChildReq !ChildPid
   deriving (Typeable, Generic)
 instance Binary IgnoreChildReq where
 instance NFData IgnoreChildReq where
@@ -532,7 +534,7 @@ instance Logger LogSink where
 
 data State = State {
     _specs           :: ChildSpecs
-  , _active          :: Map ProcessId ChildKey
+  , _active          :: Map ChildPid ChildKey
   , _strategy        :: RestartStrategy
   , _restartPeriod   :: NominalDiffTime
   , _restarts        :: [UTCTime]
@@ -550,7 +552,7 @@ data State = State {
 --
 -- > start = spawnLocal . run
 --
-start :: RestartStrategy -> ShutdownMode -> [ChildSpec] -> Process ProcessId
+start :: RestartStrategy -> ShutdownMode -> [ChildSpec] -> Process SupervisorPid
 start rs ss cs = spawnLocal $ run rs ss cs
 
 -- | Run the supplied children using the provided restart strategy.
@@ -690,8 +692,8 @@ initialised state spec (Right ref) = do
   mPid <- resolve ref
   case mPid of
     Nothing  -> die $ (childKey spec) ++ ": InvalidChildRef"
-    Just pid -> do
-      return $ ( (active ^: Map.insert pid chId)
+    Just childPid -> do
+      return $ ( (active ^: Map.insert childPid chId)
                . (specs  ^: (|> (ref, spec)))
                $ bumpStats Active chType (+1) state
                )
@@ -783,13 +785,13 @@ handleAddChild req = getState >>= return . doAddChild req True >>= doReply
 
 handleIgnore :: IgnoreChildReq
                      -> RestrictedProcess State RestrictedAction
-handleIgnore (IgnoreChildReq pid) = do
+handleIgnore (IgnoreChildReq childPid) = do
   {- not only must we take this child out of the `active' field,
      we also delete the child spec if it's restart type is Temporary,
      since restarting Temporary children is dis-allowed -}
   state <- getState
   let (cId, active') =
-        Map.updateLookupWithKey (\_ _ -> Nothing) pid $ state ^. active
+        Map.updateLookupWithKey (\_ _ -> Nothing) childPid $ state ^. active
   case cId of
     Nothing -> Restricted.continue
     Just c  -> do
@@ -892,11 +894,11 @@ handleDelayedRestart state (DelayedRestartReq key reason) =
   case child of
     Nothing ->
       continue state -- a child could've been terminated and removed by now
-    Just ((ChildRestarting pid), spec) -> do
+    Just ((ChildRestarting childPid), spec) -> do
       -- TODO: we ignore the unnecessary .active re-assignments in
       -- tryRestartChild, in order to keep the code simple - it would be good to
       -- clean this up so we don't have to though...
-      tryRestartChild pid state (state ^. active) spec reason
+      tryRestartChild childPid state (state ^. active) spec reason
 -}
 
 handleTerminateChild :: State
@@ -923,16 +925,16 @@ handleGetStats _ = Restricted.reply . (^. stats) =<< getState
 handleMonitorSignal :: State
                     -> ProcessMonitorNotification
                     -> Process (ProcessAction State)
-handleMonitorSignal state (ProcessMonitorNotification _ pid reason) = do
+handleMonitorSignal state (ProcessMonitorNotification _ childPid reason) = do
   let (cId, active') =
-        Map.updateLookupWithKey (\_ _ -> Nothing) pid $ state ^. active
+        Map.updateLookupWithKey (\_ _ -> Nothing) childPid $ state ^. active
   let mSpec =
         case cId of
           Nothing -> Nothing
           Just c  -> fmap snd $ findChild c state
   case mSpec of
     Nothing   -> continue $ (active ^= active') state
-    Just spec -> tryRestart pid state active' spec reason
+    Just spec -> tryRestart childPid state active' spec reason
 
 --------------------------------------------------------------------------------
 -- Child Monitoring                                                           --
@@ -946,17 +948,18 @@ handleShutdown state _                  = terminateChildren state
 -- Child Start/Restart Handling                                               --
 --------------------------------------------------------------------------------
 
-tryRestart :: ProcessId
+tryRestart :: ChildPid
            -> State
-           -> Map ProcessId ChildKey
+           -> Map ChildPid ChildKey
            -> ChildSpec
            -> DiedReason
            -> Process (ProcessAction State)
-tryRestart pid state active' spec reason = do
-  logEntry Log.debug $
-    mkReport "tryRestart" pid (childKey spec) (show reason)
+tryRestart childPid state active' spec reason = do
+  sup <- getSelfPid
+  logEntry Log.debug $ do
+    mkReport "tryRestart" sup (childKey spec) (show reason)
   case state ^. strategy of
-    RestartOne _ -> tryRestartChild pid state active' spec reason
+    RestartOne _ -> tryRestartChild childPid state active' spec reason
     strat        -> do
       case (childRestart spec, isNormal reason) of
         (Intrinsic, True) -> stopWith newState ExitNormal
@@ -1099,17 +1102,17 @@ tryRestartBranch rs sp dr st = -- TODO: use DiedReason for logging...
       -- TODO: report errs
       apply $ foldlM startIt st' tree'
       where
-        asyncTerminate :: Child -> Process (Maybe (ChildKey, ProcessId))
+        asyncTerminate :: Child -> Process (Maybe (ChildKey, ChildPid))
         asyncTerminate (cr, cs) = do
           mPid <- resolve cr
           case mPid of
             Nothing  -> return Nothing
-            Just pid -> do
+            Just childPid -> do
               void $ doTerminateChild cr cs activeState
-              return $ Just (childKey cs, pid)
+              return $ Just (childKey cs, childPid)
 
         collectExits :: ([ExitReason], State)
-                     -> Async (Maybe (ChildKey, ProcessId))
+                     -> Async (Maybe (ChildKey, ChildPid))
                      -> Process ([ExitReason], State)
         collectExits (errs, state) hAsync = do
           -- we perform a blocking wait on each handle, since we'll
@@ -1120,44 +1123,44 @@ tryRestartBranch rs sp dr st = -- TODO: use DiedReason for logging...
             Left err -> return ((err:errs), state)
             Right st -> return (errs, st)
 
-        mergeState :: AsyncResult (Maybe (ChildKey, ProcessId))
+        mergeState :: AsyncResult (Maybe (ChildKey, ChildPid))
                    -> State
                    -> Either ExitReason State
         mergeState (AsyncDone Nothing)           state = Right state
-        mergeState (AsyncDone (Just (key, pid))) state = Right $ mergeIt key pid state
+        mergeState (AsyncDone (Just (key, childPid))) state = Right $ mergeIt key childPid state
         mergeState (AsyncFailed r)               _     = Left $ ExitOther (show r)
         mergeState (AsyncLinkFailed r)           _     = Left $ ExitOther (show r)
         mergeState _                             _     = Left $ ExitOther "IllegalState"
 
-        mergeIt :: ChildKey -> ProcessId -> State -> State
-        mergeIt key pid state =
-          -- TODO: lookup the old ref -> pid and delete from the active map
-          ( (active ^: Map.delete pid)
+        mergeIt :: ChildKey -> ChildPid -> State -> State
+        mergeIt key childPid state =
+          -- TODO: lookup the old ref -> childPid and delete from the active map
+          ( (active ^: Map.delete childPid)
           $ maybe state id (updateChild key (setChildStopped False) state)
           )
     -}
 
-tryRestartChild :: ProcessId
+tryRestartChild :: ChildPid
                 -> State
-                -> Map ProcessId ChildKey
+                -> Map ChildPid ChildKey
                 -> ChildSpec
                 -> DiedReason
                 -> Process (ProcessAction State)
-tryRestartChild pid st active' spec reason
+tryRestartChild childPid st active' spec reason
   | DiedNormal <- reason
   , True       <- isTransient (childRestart spec) = continue childDown
   | True       <- isTemporary (childRestart spec) = continue childRemoved
   | DiedNormal <- reason
   , True       <- isIntrinsic (childRestart spec) = stopWith updateStopped ExitNormal
-  | otherwise     = continue =<< doRestartChild pid spec reason st
+  | otherwise     = continue =<< doRestartChild childPid spec reason st
   where
     childDown     = (active ^= active') $ updateStopped
     childRemoved  = (active ^= active') $ removeChild spec st
     updateStopped = maybe st id $ updateChild chKey (setChildStopped False) st
     chKey         = childKey spec
 
-doRestartChild :: ProcessId -> ChildSpec -> DiedReason -> State -> Process State
-doRestartChild _ spec _ state = do -- TODO: use ProcessId and DiedReason to log
+doRestartChild :: ChildPid -> ChildSpec -> DiedReason -> State -> Process State
+doRestartChild _ spec _ state = do -- TODO: use ChildPid and DiedReason to log
   state' <- addRestart state
   case state' of
     Nothing -> die errorMaxIntensityReached
@@ -1186,7 +1189,7 @@ doRestartChild _ spec _ state = do -- TODO: use ProcessId and DiedReason to log
     chType = childType spec
 
 {-
-doRestartDelay :: ProcessId
+doRestartDelay :: ChildPid
                -> TimeInterval
                -> ChildSpec
                -> DiedReason
@@ -1262,12 +1265,12 @@ tryStartChild ChildSpec{..} =
           Left err  -> logStartFailure $ StartFailureBadClosure err
           Right fn' -> do
             wrapHandle childRegName fn' >>= return . Right
-      StarterProcess restarterPid ->
-          wrapRestarterProcess childRegName restarterPid
+      StarterProcess starterPid ->
+          wrapRestarterProcess childRegName starterPid
   where
     logStartFailure sf = do
       sup <- getSelfPid
-      logEntry Log.error $ mkReport "Child Start Error" sup "noproc" (show sf)
+      logEntry Log.error $ mkReport "Child Start Error" sup childKey (show sf)
       return $ Left sf
 
     wrapClosure :: Maybe RegisteredName
@@ -1275,7 +1278,7 @@ tryStartChild ChildSpec{..} =
                 -> Process ChildRef
     wrapClosure regName proc = do
       supervisor <- getSelfPid
-      pid <- spawnLocal $ do
+      childPid <- spawnLocal $ do
         self <- getSelfPid
         link supervisor -- die if our parent dies
         maybeRegister regName self
@@ -1286,31 +1289,31 @@ tryStartChild ChildSpec{..} =
           `catchesExit` [
             (\_ m -> handleMessageIf m (== ExitShutdown)
                                        (\_ -> return ()))]
-      void $ monitor pid
-      send pid ()
-      return $ ChildRunning pid
+      void $ monitor childPid
+      send childPid ()
+      return $ ChildRunning childPid
 
     wrapHandle :: Maybe RegisteredName
-               -> (SupervisorPid -> Process (ProcessId, Message))
+               -> (SupervisorPid -> Process (ChildPid, Message))
                -> Process ChildRef
     wrapHandle regName proc = do
       super <- getSelfPid
-      (pid, msg) <- proc super
-      maybeRegister regName pid
-      void $ monitor pid
-      return $ ChildRunningExtra pid msg
+      (childPid, msg) <- proc super
+      maybeRegister regName childPid
+      void $ monitor childPid
+      return $ ChildRunningExtra childPid msg
 
     wrapRestarterProcess :: Maybe RegisteredName
-                         -> ProcessId
+                         -> StarterPid
                          -> Process (Either StartFailure ChildRef)
-    wrapRestarterProcess regName restarterPid = do
-      selfPid <- getSelfPid
+    wrapRestarterProcess regName starterPid = do
+      sup <- getSelfPid
       (sendPid, recvPid) <- newChan
-      ref <- monitor restarterPid
-      send restarterPid (selfPid, childKey, sendPid)
+      ref <- monitor starterPid
+      send starterPid (sup, childKey, sendPid)
       ePid <- receiveWait [
                 -- TODO: tighten up this contract to correct for erroneous mail
-                matchChan recvPid (\(pid :: ProcessId) -> return $ Right pid)
+                matchChan recvPid (\(pid :: ChildPid) -> return $ Right pid)
               , matchIf (\(ProcessMonitorNotification mref _ dr) ->
                            mref == ref && dr /= DiedNormal)
                         (\(ProcessMonitorNotification _ _ dr) ->
@@ -1324,7 +1327,7 @@ tryStartChild ChildSpec{..} =
         Left dr -> return $ Left $ StartFailureDied dr
 
 
-    maybeRegister :: Maybe RegisteredName -> ProcessId -> Process ()
+    maybeRegister :: Maybe RegisteredName -> ChildPid -> Process ()
     maybeRegister Nothing                         _     = return ()
     maybeRegister (Just (LocalName n))            pid   = register n pid
     maybeRegister (Just (GlobalName _))           _     = return ()
@@ -1336,20 +1339,20 @@ tryStartChild ChildSpec{..} =
           Left err -> die $ ExitOther (show err)
           Right p  -> p pid
 
-filterInitFailures :: ProcessId
-                   -> ProcessId
+filterInitFailures :: SupervisorPid
+                   -> ChildPid
                    -> ChildInitFailure
                    -> Process ()
-filterInitFailures sup pid ex = do
+filterInitFailures sup childPid ex = do
   case ex of
     ChildInitFailure _ -> do
       -- This is used as a `catches` handler in multiple places
       -- and matches first before the other handlers that
       -- would call logFailure.
       -- We log here to avoid silent failure in those cases.
-      logEntry Log.error $ mkReport "ChildInitFailure" sup (show pid) (show ex)
+      logEntry Log.error $ mkReport "ChildInitFailure" sup (show childPid) (show ex)
       liftIO $ throwIO ex
-    ChildInitIgnore    -> Unsafe.cast sup $ IgnoreChildReq pid
+    ChildInitIgnore    -> Unsafe.cast sup $ IgnoreChildReq childPid
 
 --------------------------------------------------------------------------------
 -- Child Termination/Shutdown                                                 --
@@ -1377,7 +1380,7 @@ terminateChildren state = do
     syncTerminate (cr, cs) state' = doTerminateChild cr cs state'
 
     collectExits :: [DiedReason]
-                 -> [ProcessId]
+                 -> [ChildPid]
                  -> Process [DiedReason]
     collectExits errors []   = return errors
     collectExits errors pids = do
@@ -1402,7 +1405,7 @@ doTerminateChild ref spec state = do
                $ state'
                )
   where
-    shutdownComplete :: State -> ProcessId -> DiedReason -> Process State
+    shutdownComplete :: State -> ChildPid -> DiedReason -> Process State
     shutdownComplete _      _   DiedNormal        = return $ updateStopped
     shutdownComplete state' pid (r :: DiedReason) = do
       logShutdown (state' ^. logger) chKey pid r >> return state'
@@ -1411,31 +1414,31 @@ doTerminateChild ref spec state = do
     updateStopped = maybe state id $ updateChild chKey (setChildStopped False) state
 
 childShutdown :: ChildTerminationPolicy
-              -> ProcessId
+              -> ChildPid
               -> State
               -> Process DiedReason
-childShutdown policy pid st = do
+childShutdown policy childPid st = do
   case policy of
-    (TerminateTimeout t) -> exit pid ExitShutdown >> await pid t st
+    (TerminateTimeout t) -> exit childPid ExitShutdown >> await childPid t st
     -- we ignore DiedReason for brutal kills
     TerminateImmediately -> do
-      kill pid "TerminatedBySupervisor"
-      void $ await pid Infinity st
+      kill childPid "TerminatedBySupervisor"
+      void $ await childPid Infinity st
       return DiedNormal
   where
-    await :: ProcessId -> Delay -> State -> Process DiedReason
-    await pid' delay state = do
-      let monitored = (Map.member pid' $ state ^. active)
+    await :: ChildPid -> Delay -> State -> Process DiedReason
+    await childPid' delay state = do
+      let monitored = (Map.member childPid' $ state ^. active)
       let recv = case delay of
-                   Infinity -> receiveWait (matches pid') >>= return . Just
-                   NoDelay  -> receiveTimeout 0 (matches pid')
-                   Delay t  -> receiveTimeout (asTimeout t) (matches pid')
+                   Infinity -> receiveWait (matches childPid') >>= return . Just
+                   NoDelay  -> receiveTimeout 0 (matches childPid')
+                   Delay t  -> receiveTimeout (asTimeout t) (matches childPid')
       -- We require and additional monitor here when child shutdown occurs
       -- during a restart which was triggered by the /old/ monitor signal.
-      let recv' =  if monitored then recv else withMonitor pid' recv
-      recv' >>= maybe (childShutdown TerminateImmediately pid' state) return
+      let recv' =  if monitored then recv else withMonitor childPid' recv
+      recv' >>= maybe (childShutdown TerminateImmediately childPid' state) return
 
-    matches :: ProcessId -> [Match DiedReason]
+    matches :: ChildPid -> [Match DiedReason]
     matches p = [
           matchIf (\(ProcessMonitorNotification _ p' _) -> p == p')
                   (\(ProcessMonitorNotification _ _ r) -> return r)
@@ -1448,23 +1451,23 @@ childShutdown policy pid st = do
 errorMaxIntensityReached :: ExitReason
 errorMaxIntensityReached = ExitOther "ReachedMaxRestartIntensity"
 
-logShutdown :: LogSink -> ChildKey -> ProcessId -> DiedReason -> Process ()
-logShutdown log' child pid reason = do
-    self <- getSelfPid
-    Log.info log' $ mkReport banner self (show pid) shutdownReason
+logShutdown :: LogSink -> ChildKey -> ChildPid -> DiedReason -> Process ()
+logShutdown log' child childPid reason = do
+    sup <- getSelfPid
+    Log.info log' $ mkReport banner sup (show childPid) shutdownReason
   where
     banner         = "Child Shutdown Complete"
     shutdownReason = (show reason) ++ ", child-key: " ++ child
 
-logFailure :: ProcessId -> ProcessId -> SomeException -> Process ()
-logFailure sup pid ex = do
-  logEntry Log.notice $ mkReport "Detected Child Exit" sup (show pid) (show ex)
+logFailure :: SupervisorPid -> ChildPid -> SomeException -> Process ()
+logFailure sup childPid ex = do
+  logEntry Log.notice $ mkReport "Detected Child Exit" sup (show childPid) (show ex)
   liftIO $ throwIO ex
 
 logEntry :: (LogChan -> LogText -> Process ()) -> String -> Process ()
 logEntry lg = Log.report lg Log.logChannel
 
-mkReport :: String -> ProcessId -> String -> String -> String
+mkReport :: String -> SupervisorPid -> String -> String -> String
 mkReport b s c r = foldl' (\x xs -> xs ++ " " ++ x) "" items
   where
     items :: [String]
@@ -1491,7 +1494,7 @@ setChildStopped ignored child prefix remaining st =
     False -> Just $ (specs ^= prefix >< ((newRef, spec) <| remaining)) st
 
 {-
-setChildRestarting :: ProcessId -> Child -> Prefix -> Suffix -> State -> Maybe State
+setChildRestarting :: ChildPid -> Child -> Prefix -> Suffix -> State -> Maybe State
 setChildRestarting oldPid child prefix remaining st =
   let spec   = snd child
       newRef = ChildRestarting oldPid
@@ -1529,7 +1532,7 @@ removeChild spec state =
 markActive :: State -> ChildRef -> ChildSpec -> State
 markActive state ref spec =
   case ref of
-    ChildRunning (pid :: ProcessId) -> inserted pid
+    ChildRunning (pid :: ChildPid)   -> inserted pid
     ChildRunningExtra pid _         -> inserted pid
     _                               -> error $ "InternalError"
   where
@@ -1561,7 +1564,7 @@ isTransient = (== Transient)
 isIntrinsic :: RestartPolicy -> Bool
 isIntrinsic = (== Intrinsic)
 
-active :: Accessor State (Map ProcessId ChildKey)
+active :: Accessor State (Map ChildPid ChildKey)
 active = accessor _active (\act' st -> st { _active = act' })
 
 strategy :: Accessor State RestartStrategy
