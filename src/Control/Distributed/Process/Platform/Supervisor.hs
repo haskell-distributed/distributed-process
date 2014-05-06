@@ -1149,14 +1149,14 @@ tryRestartChild pid st active' spec reason
   | True       <- isTemporary (childRestart spec) = continue childRemoved
   | DiedNormal <- reason
   , True       <- isIntrinsic (childRestart spec) = stopWith updateStopped ExitNormal
-  | otherwise     = continue =<< doRestartChild pid spec reason st
+  | otherwise     = doRestartChild pid spec reason st
   where
     childDown     = (active ^= active') $ updateStopped
     childRemoved  = (active ^= active') $ removeChild spec st
     updateStopped = maybe st id $ updateChild chKey (setChildStopped False) st
     chKey         = childKey spec
 
-doRestartChild :: ProcessId -> ChildSpec -> DiedReason -> State -> Process State
+doRestartChild :: ProcessId -> ChildSpec -> DiedReason -> State -> Process (ProcessAction State)
 doRestartChild _ spec _ state = do -- TODO: use ProcessId and DiedReason to log
   state' <- addRestart state
   case state' of
@@ -1167,23 +1167,26 @@ doRestartChild _ spec _ state = do -- TODO: use ProcessId and DiedReason to log
     Just st -> do
       start' <- doStartChild spec st
       case start' of
-        Right (ref, st') -> do
-          return $ markActive st' ref spec
+        Right (ref, st') -> continue $ markActive st' ref spec
         Left err -> do
           -- All child failures are handled via monitor signals, apart from
           -- BadClosure and UnresolvableAddress from the StarterProcess
           -- variants of ChildStart, which both come back from
           -- doStartChild as (Left err).
           sup <- getSelfPid
-          logEntry Log.error $
-            mkReport "Unrecoverable error in child" sup (childKey spec) (show err)
           if isTemporary (childRestart spec)
-             then return $ ( (active ^: Map.filter (/= chKey))
+             then do
+               logEntry Log.warning $
+                 mkReport "Error in temporary child" sup (childKey spec) (show err)
+               continue $ ( (active ^: Map.filter (/= chKey))
                    . (bumpStats Active chType decrement)
                    . (bumpStats Specified chType decrement)
-                   $ removeChild spec st
-                   )
-             else die $ "Unrecoverable error in child " ++ (childKey spec)
+                   $ removeChild spec st)
+             else do
+               logEntry Log.error $
+                 mkReport "Unrecoverable error in child. Stopping supervisor"
+                 sup (childKey spec) (show err)
+               stopWith st $ ExitOther $ "Unrecoverable error in child " ++ (childKey spec)
                   -- TODO: convert this to a meaningful exception type
 
   where
