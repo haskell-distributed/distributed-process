@@ -69,7 +69,7 @@ myServer =
       ]
 
       -- what should I do just before stopping?
-    , terminateHandler = myTerminateFunction
+    , shutdownHandler = myShutdownFunction
 
       -- what should I do about messages that cannot be handled?
     , unhandledMessagePolicy = Drop -- Terminate | (DeadLetter ProcessId)
