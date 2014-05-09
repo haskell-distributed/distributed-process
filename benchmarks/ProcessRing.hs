@@ -81,7 +81,7 @@ options =
         (NoArg (\opts -> opts { optUnsafe = True }))
         "use 'unsafeSend' (ignored with -f) - default = False"
     , Option ['p'] ["parallel"]
-        (NoArg (\opts -> opts { optForward = True }))
+        (NoArg (\opts -> opts { optParallel = True }))
         "send in parallel and consume sequentially - default = False"
     ]
 
