@@ -160,6 +160,6 @@ stopLogger = (flip throwTo) ThreadKilled . _tid
 testMain :: (NT.Transport -> IO [Test]) -> IO ()
 testMain builder = do
   Right (transport, _) <- createTransportExposeInternals
-                                    "127.0.0.1" "8080" defaultTCPParameters
+                                    "127.0.0.1" "10501" defaultTCPParameters
   testData <- builder transport
   defaultMain testData
