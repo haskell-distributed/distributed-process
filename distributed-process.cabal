@@ -98,7 +98,7 @@ Library
      if impl(ghc <= 7.4.2)
        Build-Depends: template-haskell >= 2.7 && < 2.8
      else
-       Build-Depends: template-haskell >= 2.6 && < 2.9
+       Build-Depends: template-haskell >= 2.6 && < 2.10
      Exposed-modules: Control.Distributed.Process.Internal.Closure.TH
      CPP-Options:     -DTemplateHaskellSupport
 

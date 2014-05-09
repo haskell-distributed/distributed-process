@@ -2,6 +2,7 @@
 {-# LANGUAGE UndecidableInstances  #-}
 {-# LANGUAGE FlexibleInstances  #-}
 {-# LANGUAGE GADTs  #-}
+{-# LANGUAGE CPP    #-}
 module Control.Distributed.Process.Serializable
   ( Serializable
   , encodeFingerprint
@@ -15,7 +16,13 @@ module Control.Distributed.Process.Serializable
 
 import Data.Binary (Binary)
 import Data.Typeable (Typeable(..))
+
+#if MIN_VERSION_base(4,6,0)
 import Data.Typeable.Internal (TypeRep(TypeRep))
+#else
+import Data.Typeable.Internal (TypeRep(TypeRep), typeOf)
+#endif
+
 import Numeric (showHex)
 import Control.Exception (throw)
 import GHC.Fingerprint.Type (Fingerprint(..))
