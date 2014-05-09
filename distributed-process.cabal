@@ -33,10 +33,6 @@ flag th
   description: Build with Template Haskell support
   default: True
 
-flag benchmarks
-  description: Build benchmarks
-  default: False
-
 flag prof
   description: Compiling with profiling enabled
   default: False
@@ -104,71 +100,61 @@ Library
 
 -- Tests are in distributed-process-test package, for convenience.
 
-Executable distributed-process-throughput
-  if flag(benchmarks)
-    Build-Depends:   base >= 4.4 && < 5,
-                     distributed-process,
-                     network-transport-tcp >= 0.3 && < 0.4,
-                     bytestring >= 0.9 && < 0.11,
-                     binary >= 0.6.3 && < 0.8
-  else
-    buildable: False
-  Main-Is:           benchmarks/Throughput.hs
-  ghc-options:       -Wall
-  Extensions:        BangPatterns
+benchmark distributed-process-throughput
+  Type:            exitcode-stdio-1.0        
+  Build-Depends:   base >= 4.4 && < 5,
+                   distributed-process,
+                   network-transport-tcp >= 0.3 && < 0.4,
+                   bytestring >= 0.9 && < 0.11,
+                   binary >= 0.6.3 && < 0.8
+  Main-Is:         benchmarks/Throughput.hs
+  ghc-options:     -Wall
+  Extensions:      BangPatterns
 
-Executable distributed-process-latency
-  if flag(benchmarks)
-    Build-Depends:   base >= 4.4 && < 5,
-                     distributed-process,
-                     network-transport-tcp >= 0.3 && < 0.4,
-                     bytestring >= 0.9 && < 0.11,
-                     binary >= 0.6.3 && < 0.8
-  else
-    buildable: False
-  Main-Is:           benchmarks/Latency.hs
-  ghc-options:       -Wall
-  Extensions:        BangPatterns
+benchmark distributed-process-latency
+  Type:            exitcode-stdio-1.0
+  Build-Depends:   base >= 4.4 && < 5,
+                   distributed-process,
+                   network-transport-tcp >= 0.3 && < 0.4,
+                   bytestring >= 0.9 && < 0.11,
+                   binary >= 0.6.3 && < 0.8
+  Main-Is:         benchmarks/Latency.hs
+  ghc-options:     -Wall
+  Extensions:      BangPatterns
 
-Executable distributed-process-channels
-  if flag(benchmarks)
-    Build-Depends:   base >= 4.4 && < 5,
-                     distributed-process,
-                     network-transport-tcp >= 0.3 && < 0.4,
-                     bytestring >= 0.9 && < 0.11,
-                     binary >= 0.6.3 && < 0.8
-  else
-    buildable: False
-  Main-Is:           benchmarks/Channels.hs
-  ghc-options:       -Wall
-  Extensions:        BangPatterns
+benchmark distributed-process-channels
+  Type:            exitcode-stdio-1.0
+  Build-Depends:   base >= 4.4 && < 5,
+                   distributed-process,
+                   network-transport-tcp >= 0.3 && < 0.4,
+                   bytestring >= 0.9 && < 0.11,
+                   binary >= 0.6.3 && < 0.8
+  Main-Is:         benchmarks/Channels.hs
+  ghc-options:     -Wall
+  Extensions:      BangPatterns
 
-Executable distributed-process-spawns
-  if flag(benchmarks)
-    Build-Depends:   base >= 4.4 && < 5,
-                     distributed-process,
-                     network-transport-tcp >= 0.3 && < 0.4,
-                     bytestring >= 0.9 && < 0.11,
-                     binary >= 0.6.3 && < 0.8
-  else
-    buildable: False
-  Main-Is:           benchmarks/Spawns.hs
-  ghc-options:       -Wall
-  Extensions:        BangPatterns
+benchmark distributed-process-spawns
+  Type:            exitcode-stdio-1.0
+  Build-Depends:   base >= 4.4 && < 5,
+                   distributed-process,
+                   network-transport-tcp >= 0.3 && < 0.4,
+                   bytestring >= 0.9 && < 0.11,
+                   binary >= 0.6.3 && < 0.8
+  Main-Is:         benchmarks/Spawns.hs
+  ghc-options:     -Wall
+  Extensions:      BangPatterns
 
-Executable distributed-process-ring
-  if flag(benchmarks)
-    Build-Depends:   base >= 4.4 && < 5,
-                     distributed-process,
-                     network-transport-tcp >= 0.3 && < 0.4,
-                     bytestring >= 0.9 && < 0.11,
-                     binary >= 0.6.3 && < 0.8
-  else
-    buildable: False
-  Main-Is:           benchmarks/ProcessRing.hs
+benchmark distributed-process-ring
+  Type:            exitcode-stdio-1.0
+  Build-Depends:   base >= 4.4 && < 5,
+                   distributed-process,
+                   network-transport-tcp >= 0.3 && < 0.4,
+                   bytestring >= 0.9 && < 0.11,
+                   binary >= 0.6.3 && < 0.8
+  Main-Is:         benchmarks/ProcessRing.hs
   if flag(prof)
-    ghc-options:     -Wall -threaded -prof -auto-all -fno-prof-count-entries -rtsopts
+    ghc-options:   -Wall -threaded -prof -auto-all -fno-prof-count-entries -rtsopts
   else
-    ghc-options:     -Wall -threaded -O2 -rtsopts
-  Extensions:        BangPatterns,
-                     ScopedTypeVariables
+    ghc-options:   -Wall -threaded -O2 -rtsopts
+  Extensions:      BangPatterns,
+                   ScopedTypeVariables
