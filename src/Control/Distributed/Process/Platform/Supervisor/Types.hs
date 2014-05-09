@@ -27,6 +27,8 @@ module Control.Distributed.Process.Platform.Supervisor.Types
   , Child
   , StaticLabel
   , SupervisorPid
+  , ChildPid
+  , StarterPid
     -- * Limits and Defaults
   , MaxRestarts(..)
   , maxRestarts
@@ -64,6 +66,10 @@ import Control.Distributed.Process.Platform.Time
 import Control.Distributed.Process.Platform.Internal.Primitives hiding (monitor)
 import Control.Exception (Exception)
 
+-- aliases for api documentation purposes
+type SupervisorPid = ProcessId
+type ChildPid = ProcessId
+type StarterPid = ProcessId
 
 newtype MaxRestarts = MaxR { maxNumberOfRestarts :: Int }
   deriving (Typeable, Generic, Show)
@@ -184,9 +190,9 @@ type ChildKey = String
 
 -- | A reference to a (possibly running) child.
 data ChildRef =
-    ChildRunning !ProcessId    -- ^ a reference to the (currently running) child
-  | ChildRunningExtra !ProcessId !Message -- ^ also a currently running child, with /extra/ child info
-  | ChildRestarting !ProcessId -- ^ a reference to the /old/ (previous) child (now restarting)
+    ChildRunning !ChildPid     -- ^ a reference to the (currently running) child
+  | ChildRunningExtra !ChildPid !Message -- ^ also a currently running child, with /extra/ child info
+  | ChildRestarting !ChildPid  -- ^ a reference to the /old/ (previous) child (now restarting)
   | ChildStopped               -- ^ indicates the child is not currently running
   | ChildStartIgnored          -- ^ a non-temporary child exited with 'ChildInitIgnore'
   deriving (Typeable, Generic, Show)
@@ -250,7 +256,7 @@ instance NFData ChildTerminationPolicy where
 data RegisteredName =
     LocalName          !String
   | GlobalName         !String
-  | CustomRegister     !(Closure (ProcessId -> Process ()))
+  | CustomRegister     !(Closure (ChildPid -> Process ()))
   deriving (Typeable, Generic)
 instance Binary RegisteredName where
 instance NFData RegisteredName where
@@ -262,8 +268,8 @@ instance Show RegisteredName where
 
 data ChildStart =
     RunClosure !(Closure (Process ()))
-  | CreateHandle !(Closure (SupervisorPid -> Process (ProcessId, Message)))
-  | StarterProcess !ProcessId
+  | CreateHandle !(Closure (SupervisorPid -> Process (ChildPid, Message)))
+  | StarterProcess !StarterPid
   deriving (Typeable, Generic, Show)
 instance Binary ChildStart where
 instance NFData ChildStart  where
@@ -327,7 +333,6 @@ instance Binary DeleteChildResult where
 instance NFData DeleteChildResult where
 
 type Child = (ChildRef, ChildSpec)
-type SupervisorPid = ProcessId
 
 -- exported result types of internal APIs
 
