@@ -1370,12 +1370,19 @@ terminateChildren state = do
   case (shutdownStrategy state) of
     ParallelShutdown -> do
       let allChildren = toList $ state ^. specs
-      pids <- forM allChildren $ \ch -> do
+      terminatorPids <- forM allChildren $ \ch -> do
         pid <- spawnLocal $ void $ syncTerminate ch $ (active ^= Map.empty) state
         void $ monitor pid
         return pid
-      void $ collectExits [] pids
-      -- TODO: report errs???
+      terminationErrors <- collectExits [] terminatorPids
+      -- it seems these would also be logged individually in doTerminateChild
+      case terminationErrors of
+        [] -> return ()
+        _ -> do
+          sup <- getSelfPid
+          void $ logEntry Log.error $
+            mkReport "Errors in terminateChildren / ParallelShutdown"
+            sup "n/a" (show terminationErrors)
     SequentialShutdown ord -> do
       let specs'      = state ^. specs
       let allChildren = case ord of
@@ -1386,9 +1393,9 @@ terminateChildren state = do
     syncTerminate :: Child -> State -> Process State
     syncTerminate (cr, cs) state' = doTerminateChild cr cs state'
 
-    collectExits :: [DiedReason]
+    collectExits :: [(ProcessId, DiedReason)]
                  -> [ChildPid]
-                 -> Process [DiedReason]
+                 -> Process [(ProcessId, DiedReason)]
     collectExits errors []   = return errors
     collectExits errors pids = do
       (pid, reason) <- receiveWait [
@@ -1397,8 +1404,8 @@ terminateChildren state = do
         ]
       let remaining = List.delete pid pids
       case reason of
-        DiedNormal -> collectExits errors          remaining
-        _          -> collectExits (reason:errors) remaining
+        DiedNormal -> collectExits errors                 remaining
+        _          -> collectExits ((pid, reason):errors) remaining
 
 doTerminateChild :: ChildRef -> ChildSpec -> State -> Process State
 doTerminateChild ref spec state = do
