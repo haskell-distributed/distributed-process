@@ -58,10 +58,9 @@
 -- data stream will be checked first. No blocking will occur if the chosen
 -- (prioritised) source is devoid of input messages, instead the agent handling
 -- code will revert to switching between the alternatives in /round-robin/ as
--- usual. This switching (and prioritisation) will take place a limited number
--- of times, after which - in order to avoid over-utilising system
--- resources - the agent will revert to blocking on the event bus (and ignoring
--- its mailbox).
+-- usual. If messages exist in one or more channels, they will be consumed as
+-- soon as they're available, priority is effectively a hint about which
+-- channel to consume from, should messages be available in both.
 --
 -- Prioritisation then, is a /hint/ about the preference of data source from
 -- which the next input should be chosen. No guarantee can be made that the
@@ -534,17 +533,7 @@ mxAgentWithFinalize mxId initState handlers dtor = do
                            , matchSTM (readTChan chan) return]
               InputChan -> [ matchSTM (readTChan chan) return
                            , matchAny return]
-      in getNextInput' matches 0
-
-    getNextInput' ms n = do
-      mIn <- receiveTimeout n ms
-      case mIn of
-        Nothing  -> tryNextInput ms n
-        Just msg -> return msg
-
-    tryNextInput ms n
-      | n > 0 && n < 2000 = getNextInput' ms $ n * 2
-      | otherwise         = getNextInput' ms 100
+      in receiveWait matches
 
     runAgentFinalizer :: MxAgent s () -> MxAgentState s -> Process ()
     runAgentFinalizer f s = ST.runStateT (unAgent f) s >>= return . fst
