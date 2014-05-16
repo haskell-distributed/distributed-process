@@ -15,12 +15,13 @@ module Control.Distributed.Process.Serializable
   ) where
 
 import Data.Binary (Binary)
-import Data.Typeable (Typeable(..))
 
-#if MIN_VERSION_base(4,6,0)
-import Data.Typeable.Internal (TypeRep(TypeRep))
-#else
+#if MIN_VERSION_base(4,7,0)
+import Data.Typeable (Typeable)
 import Data.Typeable.Internal (TypeRep(TypeRep), typeOf)
+#else
+import Data.Typeable (Typeable(..))
+import Data.Typeable.Internal (TypeRep(TypeRep))
 #endif
 
 import Numeric (showHex)
