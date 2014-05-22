@@ -18,6 +18,37 @@ we're saying here are just common sense and none of them is hard to follow.
 With this in mind, please try to observe the following guidelines when
 submitting patches.
 
+## Common Repository Format and Git Branches
+
+All Cloud Haskell repositories should conform to a common structure, with the
+exception of website and/or documentation projects. The structure is basically
+that of a cabal library or executable project, with a couple of additional files.
+
+```
+- project-name
+  - project-name.cabal
+  - Makefile
+  - LICENCE
+  - README.md
+  - src/
+  - tests/
+  - benchmarks/
+  - examples/
+  - regressions/
+```
+
+All repositories must use the same git branch structure: 
+
+* ongoing development takes place on the `master` branch
+* the code that goes into a release must be tagged as soon as it is uploaded to hackage
+* each release tag must then get its own release-x.y.z branch, branched from the tagged commit
+* after a release, the *release branch* is not merged back into `master`
+* patches can be submitted via branches off `master`, or from a `release-x.y.z` branch
+* features and bug-fixes that are compatible with `master` can be merged in directly
+* interim bug-fixes we **don't** want included (i.e., bug-fix only releases)
+  * are merged into a new release-x.y.z branch (taken from the prior release branch) instead
+  * these can, but do not have to be, merged into `master`
+
 ### __1. Check to see if your patch is likely to be accepted__
 
 We have a rather full backlog, so your help will be most welcome assisting
@@ -92,8 +123,8 @@ contain multitudinous compiler warnings will take longer to QA.
 Please be aware of whether or not your changes are actually a bugfix or a new
 feature, and branch from the right place accordingly. The general rule is:
 
-* new features must branch off `development`
-* bug fixes must branch off `master` (which is the stable, production branch)
+* new features should branch off `master`
+* bug fixes can branch off `master` or a `release-x.y.z` branch
 
 If you branch from the wrong place then you will be asked to rework your changes
 so try to get this right in the first place. If you're unsure whether a patch
