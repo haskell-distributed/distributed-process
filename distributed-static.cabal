@@ -32,7 +32,7 @@ Source-Repository head
 Library
   Exposed-Modules:     Control.Distributed.Static
   Build-Depends:       base >= 4 && < 5,
-                       rank1dynamic >= 0.1 && < 0.2,
+                       rank1dynamic >= 0.1 && < 0.3,
                        containers >= 0.4 && < 0.6,
                        bytestring >= 0.9 && < 0.11,
                        binary >= 0.5 && < 0.8
