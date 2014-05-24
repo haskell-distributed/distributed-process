@@ -448,10 +448,13 @@ testCloseTwice transport numRepeats = do
       -- Verify expected response from the echo server
       ConnectionOpened cid1 _ _ <- receive endpoint
       ConnectionOpened cid2 _ _ <- receive endpoint
-      ConnectionClosed cid2'    <- receive endpoint ; True <- return $ cid2' == cid2
-      Received cid1' ["ping"]   <- receive endpoint ; True <- return $ cid1' == cid1
-      ConnectionClosed cid1''   <- receive endpoint ; True <- return $ cid1'' == cid1
-
+      -- ordering of the following messages may differ depending of
+      -- implementation
+      ms   <- replicateM 3 $ receive endpoint
+      True <- return $ testStreams ms [ [ ConnectionClosed cid2 ]
+                                      , [ Received cid1 ["ping"]
+                                        , ConnectionClosed cid1 ]
+                                      ]
       return ()
 
     putMVar clientDone ()
@@ -966,3 +969,21 @@ testTransport newTransport = do
     ]
   where
     numPings = 10000 :: Int
+
+
+-- Test that list is a union of stream message, with preserved ordering
+-- within each stream.
+-- Note: this function may not work if different streams contains equal
+-- messages.
+testStreams :: Eq a => [a] -> [[a]] -> Bool
+testStreams []      ys = all null ys
+testStreams (x:xs)  ys =
+    case go [] ys of
+      []  -> False
+      ys' -> testStreams xs ys'
+  where
+    go _ [] = []
+    go c ([]:zss) = go c zss
+    go c (z'@(z:zs):zss)
+        |  x == z    = (zs:c)++zss
+        |  otherwise = go (z':c) zss
