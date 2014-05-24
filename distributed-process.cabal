@@ -1,5 +1,5 @@
 Name:          distributed-process
-Version:       0.4.2
+Version:       0.5.0
 Cabal-Version: >=1.8
 Build-Type:    Simple
 License:       BSD3
@@ -21,7 +21,7 @@ Description:   This is an implementation of Cloud Haskell, as described in
 
                You will probably also want to install a Cloud Haskell backend such
                as distributed-process-simplelocalnet.
-Tested-With:   GHC==7.2.2 GHC==7.4.1 GHC==7.4.2
+Tested-With:   GHC==7.2.2 GHC==7.4.1 GHC==7.4.2 GHC==7.6.2
 Category:      Control
 
 Source-Repository head
