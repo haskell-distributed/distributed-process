@@ -1,3 +1,8 @@
+
+ifneq (,$(BASE_DIR))
+include $(BASE_DIR)/build.mk
+else
+
 # CI build
 
 GHC ?= $(shell which ghc)
@@ -25,3 +30,4 @@ test:
 	$(CABAL) configure --enable-tests
 	$(CABAL) build
 	$(CABAL) test --show-details=always
+endif
