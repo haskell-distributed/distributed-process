@@ -51,8 +51,8 @@ Library
                      time >= 1.2 && < 1.5,
                      random >= 1.0 && < 1.1,
                      ghc-prim >= 0.2 && < 0.4,
-                     distributed-static >= 0.2 && < 0.3,
-                     rank1dynamic >= 0.1 && < 0.2,
+                     distributed-static >= 0.2 && < 0.4,
+                     rank1dynamic >= 0.1 && < 0.3,
                      syb >= 0.3 && < 0.5
   Exposed-modules:   Control.Distributed.Process,
                      Control.Distributed.Process.Closure,
