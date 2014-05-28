@@ -31,7 +31,7 @@
           </div>
         </div>
         <div class="span9">
-          <h4>Version <a href="{{ page.release }}">{{ page.version }}</a></h4>
+          <h4>Version <a href="https://cloud-haskell.atlassian.net/browse/DP/fixforversion/{{ page.release }}">{{ page.version }}</a></h4>
           <h4>Status: {% if page.status contains 'Released' %}
                           <a href="https://hackage.haskell.org/package/{{ page.title }}">{{ page.status }}</a>
                       {% else %}
@@ -41,6 +41,7 @@
           <h4>Due/Released: {{ page.date }}</h4>
           <h4><a href="https://github.com/haskell-distributed/distributed-process/compare/{{ page.commits }}">Code Changes (redirects to github)</a></h4>
           {{ content }}
+          
           <a href="{{ page.feed_url }}"><h5>Issue RSS Feed</h5></a>
         </div>
         <!--
