@@ -206,10 +206,10 @@ import Control.Distributed.Process.Internal.Messaging
   , disconnect
   , sendCtrlMsg
   )
-import Control.Distributed.Process.Management.Types
+import Control.Distributed.Process.Management.Internal.Types
   ( MxEvent(..)
   )
-import Control.Distributed.Process.Management.Trace.Types
+import Control.Distributed.Process.Management.Internal.Trace.Types
   ( traceEvent
   )
 import Control.Distributed.Process.Internal.WeakTQueue

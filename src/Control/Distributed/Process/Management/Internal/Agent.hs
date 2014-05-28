@@ -1,7 +1,7 @@
 {-# LANGUAGE ScopedTypeVariables  #-}
 {-# LANGUAGE RecordWildCards #-}
 
-module Control.Distributed.Process.Management.Agent where
+module Control.Distributed.Process.Management.Internal.Agent where
 
 import Control.Applicative ((<$>))
 import Control.Concurrent (forkIO)
@@ -25,10 +25,10 @@ import Control.Distributed.Process.Internal.CQueue
   ( enqueueSTM
   , CQueue
   )
-import Control.Distributed.Process.Management.Types
+import Control.Distributed.Process.Management.Internal.Types
   ( Fork
   )
-import Control.Distributed.Process.Management.Trace.Tracer
+import Control.Distributed.Process.Management.Internal.Trace.Tracer
   ( traceController
   )
 import Control.Distributed.Process.Internal.Types

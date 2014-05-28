@@ -3,7 +3,7 @@
 {-# LANGUAGE ExistentialQuantification  #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving  #-}
 {-# LANGUAGE DeriveGeneric   #-}
-module Control.Distributed.Process.Management.Types
+module Control.Distributed.Process.Management.Internal.Types
   ( MxAgentId(..)
   , MxTableId(..)
   , MxAgentState(..)

@@ -6,7 +6,7 @@
 {-# LANGUAGE DeriveGeneric  #-}
 
 -- | Tracing/Debugging support - Types
-module Control.Distributed.Process.Management.Trace.Types
+module Control.Distributed.Process.Management.Internal.Trace.Types
   ( SetTrace(..)
   , TraceSubject(..)
   , TraceFlags(..)
@@ -33,10 +33,10 @@ import Control.Distributed.Process.Internal.Types
   , SendPort
   , unsafeCreateUnencodedMessage
   )
-import Control.Distributed.Process.Management.Bus
+import Control.Distributed.Process.Management.Internal.Bus
   ( publishEvent
   )
-import Control.Distributed.Process.Management.Types
+import Control.Distributed.Process.Management.Internal.Types
   ( MxEvent(..)
   )
 import Control.Distributed.Process.Serializable

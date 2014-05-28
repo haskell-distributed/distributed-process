@@ -1,7 +1,7 @@
 {-# LANGUAGE CPP  #-}
 {-# LANGUAGE ScopedTypeVariables  #-}
 -- | Tracing/Debugging support - Trace Implementation
-module Control.Distributed.Process.Management.Trace.Tracer
+module Control.Distributed.Process.Management.Internal.Trace.Tracer
   ( -- * API for the Management Agent
     traceController
     -- * Built in tracers
@@ -33,18 +33,18 @@ import Control.Distributed.Process.Internal.Primitives
   , handleMessage
   , matchUnknown
   )
-import Control.Distributed.Process.Management.Types
+import Control.Distributed.Process.Management.Internal.Types
   ( MxEvent(..)
   , Addressable(..)
   )
-import Control.Distributed.Process.Management.Trace.Types
+import Control.Distributed.Process.Management.Internal.Trace.Types
   ( SetTrace(..)
   , TraceSubject(..)
   , TraceFlags(..)
   , TraceOk(..)
   , defaultTraceFlags
   )
-import Control.Distributed.Process.Management.Trace.Primitives
+import Control.Distributed.Process.Management.Internal.Trace.Primitives
   ( traceOn )
 import Control.Distributed.Process.Internal.Types
   ( LocalNode(..)

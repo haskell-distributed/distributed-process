@@ -4,7 +4,7 @@
 {-# LANGUAGE DeriveGeneric   #-}
 {-# LANGUAGE RecordWildCards #-}
 
-module Control.Distributed.Process.Management.Table
+module Control.Distributed.Process.Management.Internal.Table
   ( MxTableRequest(..)
   , MxTableId(..)
   , mxTableCoordinator
@@ -43,7 +43,7 @@ import Control.Distributed.Process.Internal.Types
   , Message
   , unsafeCreateUnencodedMessage
   )
-import Control.Distributed.Process.Management.Types
+import Control.Distributed.Process.Management.Internal.Types
   ( MxTableId(..)
   , MxAgentId(..)
   , MxAgentStart(..)

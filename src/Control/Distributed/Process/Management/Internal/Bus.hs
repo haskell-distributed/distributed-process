@@ -1,5 +1,5 @@
 -- | Interface to the management event bus.
-module Control.Distributed.Process.Management.Bus
+module Control.Distributed.Process.Management.Internal.Bus
   ( publishEvent
   ) where
 

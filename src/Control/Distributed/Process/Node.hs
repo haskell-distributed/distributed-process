@@ -161,26 +161,26 @@ import Control.Distributed.Process.Internal.Types
   , firstNonReservedProcessId
   , ImplicitReconnect(WithImplicitReconnect)
   )
-import Control.Distributed.Process.Management.Agent
+import Control.Distributed.Process.Management.Internal.Agent
   ( mxAgentController
   )
-import qualified Control.Distributed.Process.Management.Table as Table
+import qualified Control.Distributed.Process.Management.Internal.Table as Table
   ( mxTableCoordinator
   , startTableCoordinator
   )
-import qualified Control.Distributed.Process.Management.Trace.Remote as Trace
+import qualified Control.Distributed.Process.Management.Internal.Trace.Remote as Trace
   ( remoteTable
   )
-import Control.Distributed.Process.Management.Trace.Tracer
+import Control.Distributed.Process.Management.Internal.Trace.Tracer
   ( defaultTracer
   )
-import Control.Distributed.Process.Management.Trace.Types
+import Control.Distributed.Process.Management.Internal.Trace.Types
   ( TraceArg(..)
   , traceEvent
   , traceLogFmt
   , enableTrace
   )
-import Control.Distributed.Process.Management.Types
+import Control.Distributed.Process.Management.Internal.Types
   ( MxEvent(..)
   )
 import Control.Distributed.Process.Serializable (Serializable)

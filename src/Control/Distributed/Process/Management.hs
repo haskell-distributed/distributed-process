@@ -304,9 +304,9 @@ import Control.Distributed.Process.Internal.Types
   , MxEventBus(..)
   , unsafeCreateUnencodedMessage
   )
-import Control.Distributed.Process.Management.Bus (publishEvent)
-import qualified Control.Distributed.Process.Management.Table as Table
-import Control.Distributed.Process.Management.Types
+import Control.Distributed.Process.Management.Internal.Bus (publishEvent)
+import qualified Control.Distributed.Process.Management.Internal.Table as Table
+import Control.Distributed.Process.Management.Internal.Types
   ( MxAgentId(..)
   , MxAgent(..)
   , MxAction(..)
