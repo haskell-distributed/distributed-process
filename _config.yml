@@ -1,4 +1,4 @@
-exclude: [".rvmrc", ".rbenv-version", "README.md", "Rakefile", "static/templates/wikipage.mdt"]
+exclude: [".rvmrc", ".rbenv-version", "README.md", "Rakefile", "static/templates/*"]
 lsi: false
 auto: true
 pygments: true
