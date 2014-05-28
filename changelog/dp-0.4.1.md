@@ -1,10 +1,10 @@
 ---
 layout: changelog
 title: distributed-process-0.4.1
-date: 01-27-2013
+date: 27-01-2013
 status: Released
 version: 0.4.1
-commits: none
+commits: distributed-process-0.4.0.2...distributed-process-0.4.1
 ---
 
 Notes

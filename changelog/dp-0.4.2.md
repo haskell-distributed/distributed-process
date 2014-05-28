@@ -1,12 +1,11 @@
 ---
 layout: changelog
 title: distributed-process-0.4.2
-date: Sun Jan 27 15:12:02 UTC 2013
+date: 27-01-2013
 status: Released
 version: 0.4.2
 commits: distributed-process-0.4.1...v0.4.2
 release: 10006
-feed_url: https://cloud-haskell.atlassian.net/sr/jira.issueviews:searchrequest-rss/temp/SearchRequest.xml?jqlQuery=project+%3D+DP+AND+status+%3D+Closed+AND+fixVersion+%3D+0.4.2&tempMax=1000
 ---
 
 ### Notes

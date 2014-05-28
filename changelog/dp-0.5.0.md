@@ -5,9 +5,7 @@ status: Released
 date: Wen May 28 12:15:02 UTC 2014
 version: 0.5.0
 commits: distributed-process-0.4.2...master
-hackage: https://hackage.haskell.org/package/distributed-process
 release: 10008
-feed_url: https://cloud-haskell.atlassian.net/sr/jira.issueviews:searchrequest-rss/temp/SearchRequest.xml?jqlQuery=project+%3D+DP+AND+status+%3D+Closed+AND+fixVersion+%3D+0.5.0&tempMax=1000
 ---
 
 ### Notes
