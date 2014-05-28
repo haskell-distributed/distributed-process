@@ -13,38 +13,46 @@
     <div class="container">
       <ul class="breadcrumb">
         <li><a href="/">Home</a> <span class="divider">/</span></li>
-        <li><a href="/changelog.html">ChangeLog</a> <span class="divider">/</span></li>
+        <li><a href="/changes.html">Changelog</a> <span class="divider">/</span></li>
+        <li><a href="">{{ page.title }}</a> <spawn class="divider">/</span></li>
       </ul>
     </div>
     <div class="container">
       <div class="row">
-        <div class="span3">
+        <div class="span3 sidebar">
           <div data-spy="affix" data-offset-bottom="290">
             <ul class="nav nav-list sidenav">
-              <li><a href="/changelog.html"><i class="icon-chevron-right"></i> ChangeLog Home</a></li>
-              {% for page in site.pages | sort: 'title' %}
-                  {% if page.url contains '/changelog/' %}
-	             <li>
-		       <a href="{{ page.feed_url }}"><i class="icon-chevron-right"></i> {{ page.title }}</a>
-	               {{ page.output }}
-		     </li>
-                  {% endif %}
-              {% endfor %}
-            </ul>
+            {% for page in site.pages %}
+                {% if page.url contains '/changelog/' %}
+                <li><a href="{{ page.url }}">{{ page.title }}</a></li>
+                {% endif %}
+            {% endfor %}
+           </ul>
           </div>
         </div>
+        <div class="span9">
+          <h4>Version <a href="{{ page.release }}">{{ page.version }}</a></h4>
+          <h4>Status: {% if page.status contains 'Released' %}
+                          <a href="https://hackage.haskell.org/package/{{ page.title }}">{{ page.status }}</a>
+                      {% else %}
+                          Pending Release
+                      {% endif %}
+          </h4>
+          <h4>Due/Released: {{ page.date }}</h4>
+          <h4><a href="https://github.com/haskell-distributed/distributed-process/compare/{{ page.commits }}">Code Changes (redirects to github)</a></h4>
+          {{ content }}
+          <a href="{{ page.feed_url }}"><h5>Issue RSS Feed</h5></a>
+        </div>
+        <!--
+        <div class="span9">
+            <h4>Upgrading</h4>
+            TODO: some generic advice about upgrading??
+        </div>
+        -->
       </div>
     </div>
     {% include footer.html %}
     {% include js.html %}
   </body>
 </html>
-
-<!--
-
-all comments url
-https://cloud-haskell.atlassian.net/sr/jira.issueviews:searchrequest-comments-rss/temp/SearchRequest.xml?jqlQuery=&tempMax=1000
-
---!>
-
 

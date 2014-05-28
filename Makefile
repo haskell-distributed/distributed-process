@@ -13,7 +13,7 @@ all:
 
 ifneq ($(NAME), '')
 $(TEMPLATES):
-	cat ${TEMPLATE_DIR}/$@.md | sed s/@PAGE@/${NAME}/g >> ${ROOT_DIRECTORY}/wiki/${FNAME}.md
+	cat ${TEMPLATE_DIR}/$@.mdt | sed s/@PAGE@/${NAME}/g >> ${ROOT_DIRECTORY}/wiki/${FNAME}.md
 else
 $(TEMPLATES):
 	$(error you need to specify NAME=<name> to run this target)
