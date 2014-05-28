@@ -44,15 +44,15 @@ this API, which is more efficient and flexible.
 * [DP-62](https://cloud-haskell.atlassian.net/browse/DP-62) - Label spawned processes using labelThread
 * [DP-85](https://cloud-haskell.atlassian.net/browse/DP-85) - Relax upper bound on syb in the cabal manifest
 * [DP-78](https://cloud-haskell.atlassian.net/browse/DP-78) - Bump binary version to include 0.7.*
-* [DP-91](https://cloud-haskell.atlassian.net/browse/DP-91) - Move tests to https://github.com/haskell-distributed/distributed-process-tests
 * [DP-92](https://cloud-haskell.atlassian.net/browse/DP-92) - Expose process info
 * [DP-92](https://cloud-haskell.atlassian.net/browse/DP-92) - Expose node statistics
+* [DP-91](https://cloud-haskell.atlassian.net/browse/DP-91) - Move tests to https://github.com/haskell-distributed/distributed-process-tests
 
 #### New Features
 
 * [DP-7](https://cloud-haskell.atlassian.net/browse/DP-7) - Polymorphic expect, see details [here](https://hackage.haskell.org/package/distributed-process-0.5.0/docs/Control-Distributed-Process.html#g:5)
-* [DP-57](https://cloud-haskell.atlassian.net/browse/DP-57) - Expose Message and broaden the scope of polymorphic expect
-* [DP-84](https://cloud-haskell.atlassian.net/browse/DP-84) - Provide an API for working with internal (system) events
+* [DP-57](https://cloud-haskell.atlassian.net/browse/DP-57) - Expose Message type and broaden scope of polymorphic expect
+* [DP-84](https://cloud-haskell.atlassian.net/browse/DP-84) - Management API (for working with internal/system events)
 * [DP-83](https://cloud-haskell.atlassian.net/browse/DP-83) - Report node statistics for monitoring/management
 
 [1]: https://hackage.haskell.org/package/distributed-process-0.5.0/docs/Control-Distributed-Process-UnsafePrimitives.html
