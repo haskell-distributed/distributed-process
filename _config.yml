@@ -3,6 +3,7 @@ lsi: false
 auto: true
 pygments: true
 safe: true
+markdown: kramdown
 
 title: Cloud Haskell
 tagline: Erlang-style concurrency for Haskell
