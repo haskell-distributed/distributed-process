@@ -4,7 +4,6 @@ title: distributed-process-0.4.1
 date: 01-27-2013
 status: Released
 version: 0.4.1
-commits: distributed-process-0.4.0.2...distributed-process-0.4.1
 ---
 
 ### Notes
