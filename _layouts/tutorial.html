@@ -23,7 +23,7 @@
             <ul class="nav nav-list sidenav">
               {% for section in page.sections %}
                 <li>
-                    <a href="#{{ section | downcase | replace: ' ', '_' }}"><i class="icon-chevron-right"></i> {{ section }}</a>
+                    <a href="#{{ section | downcase | replace: ' ', '-' }}"><i class="icon-chevron-right"></i> {{ section }}</a>
                 </li>
               {% endfor %}
            </ul>
