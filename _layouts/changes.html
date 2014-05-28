@@ -21,7 +21,7 @@
         <div class="span3 sidebar">
           <div data-spy="affix" data-offset-bottom="290">
             <ul class="nav nav-list sidenav">
-              {% for page in site.pages %}
+              {% for page in site.pages | sort %}
                   {% if page.url contains '/changelog/' %}
                   <li><a href="{{ page.url }}">{{ page.title }}</a></li>
                   {% endif %}
