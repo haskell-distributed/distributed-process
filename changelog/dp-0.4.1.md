@@ -17,7 +17,7 @@ This is a small feature release containing various enhancements.
 <ul>
 <li><a href="https://github.com/haskell-distributed/distributed-process/commit/a5faffd">Update package boundaries </a></li>
 <li><a href="https://github.com/haskell-distributed/distributed-process/commit/0f03091">depend on binary-0.6 instead of 0.5</a></li>
-<li><a href="https://github.com/haskell-distributed/distributed-process/commit/294e873">Require http-conduit >= 1.8.1</a></li>
+<li><a href="https://github.com/haskell-distributed/distributed-process/commit/294e873">Require http-conduit gt 1.8.1</a></li>
 <li><a href="https://github.com/haskell-distributed/distributed-process/commit/8b95ef1">Implement receiveChanTimeout</a></li>
 <li><a href="https://github.com/haskell-distributed/distributed-process/commit/37b0263">Changed semantics of register/unregister to match Erlang</a></li>
 <li><a href="https://github.com/haskell-distributed/distributed-process/commit/24163c2">Fixed de-registration of remote processes when the process terminates</a></li>
