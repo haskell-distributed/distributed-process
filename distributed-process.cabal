@@ -23,6 +23,7 @@ Description:   This is an implementation of Cloud Haskell, as described in
                as distributed-process-simplelocalnet.
 Tested-With:   GHC==7.2.2 GHC==7.4.1 GHC==7.4.2 GHC==7.6.2
 Category:      Control
+extra-source-files: ChangeLog
 
 Source-Repository head
   Type:     git
