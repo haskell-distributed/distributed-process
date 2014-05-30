@@ -1,0 +1,30 @@
+2014-05-30  Tim Watson  <watson.timothy@gmail.com>  0.4.0.0
+
+* Fix build for GHC 7.4 - thanks mboes!
+* Allow transformers above v5
+* Bump binary version to include 0.7.*
+* Binary instance for 'Reliability' - thanks mboes!
+* Hashable instance for 'EndPointAddress'
+
+2012-11-22  Edsko de Vries  <edsko@well-typed.com>  0.3.0.1
+
+* Relax bounds on Binary
+
+2012-10-03  Edsko de Vries  <edsko@well-typed.com>  0.3.0
+
+* Clarify disconnection
+* Require that 'connect' be "as asynchronous as possible"
+* Added strictness annotations
+
+2012-07-16  Edsko de Vries  <edsko@well-typed.com>  0.2.0.2
+
+* Base 4.6 compatible test suites
+* Relax package constraints for bytestring
+
+2012-07-16  Edsko de Vries  <edsko@well-typed.com>  0.2.0.1
+
+* Hide catch only for base < 4.6
+
+2012-07-07  Edsko de Vries  <edsko@well-typed.com>  0.2.0
+
+* Initial release.
