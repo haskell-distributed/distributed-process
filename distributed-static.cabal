@@ -24,6 +24,7 @@ Copyright:           Well-Typed LLP
 Category:            Control
 Build-Type:          Simple
 Cabal-Version:       >=1.10
+extra-source-files: ChangeLog
 
 Source-Repository head
   Type:     git
