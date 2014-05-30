@@ -11,12 +11,21 @@
 -- [Inter-Process Traffic Management]
 --
 -- The /Execution Framework/ provides tools for load regulation, workload
--- shedding and remote hand-off. TODO: explain what this is all about, once
--- we've figured that out. ;)
+-- shedding and remote hand-off. The currently implementation provides only
+-- a subset of the plumbing required, comprising tools for event management,
+-- mailbox buffering and message routing.
 --
 -----------------------------------------------------------------------------
 
-module Control.Distributed.Process.Platform.Execution where
+module Control.Distributed.Process.Platform.Execution
+  ( -- * Mailbox Buffering
+    module Control.Distributed.Process.Platform.Execution.Mailbox
+    -- * Message Exchanges
+  , module Control.Distributed.Process.Platform.Execution.Exchange
+  ) where
+
+import Control.Distributed.Process.Platform.Execution.Exchange hiding (startSupervised)
+import Control.Distributed.Process.Platform.Execution.Mailbox hiding (startSupervised, post)
 
 {-
 
