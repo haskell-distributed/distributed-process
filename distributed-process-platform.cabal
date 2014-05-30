@@ -57,6 +57,7 @@ library
                    Control.Distributed.Process.Platform.Async.AsyncChan,
                    Control.Distributed.Process.Platform.Async.AsyncSTM,
                    Control.Distributed.Process.Platform.Call,
+                   Control.Distributed.Process.Platform.Execution,
                    Control.Distributed.Process.Platform.Execution.EventManager,
                    Control.Distributed.Process.Platform.Execution.Exchange,
                    Control.Distributed.Process.Platform.Execution.Mailbox,
@@ -66,10 +67,12 @@ library
                    Control.Distributed.Process.Platform.ManagedProcess.Server,
                    Control.Distributed.Process.Platform.ManagedProcess.Server.Priority,
                    Control.Distributed.Process.Platform.ManagedProcess.Server.Restricted,
+                   Control.Distributed.Process.Platform.Service,
                    Control.Distributed.Process.Platform.Service.Monitoring,
                    Control.Distributed.Process.Platform.Service.Registry,
                    Control.Distributed.Process.Platform.Service.SystemLog,
                    Control.Distributed.Process.Platform.Supervisor,
+                   Control.Distributed.Process.Platform.Task,
                    Control.Distributed.Process.Platform.Task.Queue.BlockingQueue,
                    Control.Distributed.Process.Platform.Test,
                    Control.Distributed.Process.Platform.Time,
@@ -240,6 +243,7 @@ test-suite SupervisorTests
                    unordered-containers,
                    hashable,
                    distributed-process >= 0.5.0 && < 0.6,
+                   distributed-process-platform,
                    distributed-static,
                    bytestring,
                    data-accessor,
@@ -259,7 +263,6 @@ test-suite SupervisorTests
                    rematch >= 0.2.0.0,
                    ghc-prim
   hs-source-dirs:
-                   src,
                    tests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind -eventlog
   extensions:      CPP
