@@ -1,6 +1,7 @@
 ---
 layout: changelog
-title: network-transport-0.4.0.0
+code: NT
+project: network-transport
 date: 28-01-2013
 status: Released
 version: 0.4.0.0

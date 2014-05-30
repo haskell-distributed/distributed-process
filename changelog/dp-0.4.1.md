@@ -1,5 +1,7 @@
 ---
 layout: changelog
+code: DP
+project: distributed-process
 title: distributed-process-0.4.1
 date: 27-01-2013
 status: Released

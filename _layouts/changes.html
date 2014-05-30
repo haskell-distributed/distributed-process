@@ -21,11 +21,23 @@
         <div class="span3 sidebar">
           <div data-spy="affix" data-offset-bottom="290">
             <ul class="nav nav-list sidenav">
-              {% for page in site.pages | sort %}
-                  {% if page.url contains '/changelog/' %}
-                  <li><a href="{{ page.url }}">{{ page.title }}</a></li>
-                  {% endif %}
-              {% endfor %}
+                <li>
+                    <h4>Beta 1 (29 May 2014)</h4>
+                    <ul>
+                        <li><a href="/changelog/dpp-0.1.0.html">distributed-process-platform-0.1.0</a></li>
+                        <li><a href="/changelog/dp-0.5.0.html">distributed-process-0.5.0</a></li>
+                        <li><a href="/changelog/nt-0.4.0.0.html">network-transport-0.4.0.0</a></li>
+                        <li><a href="/changelog/ds-0.3.0.0.html">distributed-static-0.3.0.0</a></li>
+                        <li><a href="/changelog/rd-0.2.0.0.html">rank1dynamic-0.2.0.0</a></li>
+                    </ul>
+                </li>
+                <li>
+                    <h4>Preview 1 (27 Jan 2013)</h4>
+                    <ul>
+                        <li><a href="/changelog/dp-0.4.1.html">distributed-process-0.4.1</a></li>
+                        <li><a href="/changelog/dp-0.4.2.html">distributed-process-0.4.2</a></li>
+                    </ul>
+                </li>
            </ul>
           </div>
         </div>

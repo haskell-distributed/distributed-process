@@ -14,7 +14,7 @@
       <ul class="breadcrumb">
         <li><a href="/">Home</a> <span class="divider">/</span></li>
         <li><a href="/changes.html">Changelog</a> <span class="divider">/</span></li>
-        <li><a href="">{{ page.title }}</a> <spawn class="divider">/</span></li>
+        <li><a href="">{{ page.project }}-{{ page.version}}</a> <spawn class="divider">/</span></li>
       </ul>
     </div>
     <div class="container">
@@ -24,22 +24,22 @@
             <ul class="nav nav-list sidenav">
             {% for page in site.pages %}
                 {% if page.url contains '/changelog/' %}
-                <li><a href="{{ page.url }}">{{ page.title }}</a></li>
+                    <li><a href="{{ page.url }}">{{ page.project }}-{{ page.version }}</a></li>
                 {% endif %}
             {% endfor %}
            </ul>
           </div>
         </div>
         <div class="span9">
-          <h4>Version <a href="https://cloud-haskell.atlassian.net/browse/DP/fixforversion/{{ page.release }}">{{ page.version }}</a></h4>
+          <h4>Version <a href="https://cloud-haskell.atlassian.net/browse/{{ page.code }}/fixforversion/{{ page.release }}">{{ page.version }}</a></h4>
           <h4>Status: {% if page.status contains 'Released' %}
-                          <a href="https://hackage.haskell.org/package/{{ page.title }}">{{ page.status }}</a>
+                          <a href="https://hackage.haskell.org/package/{{ page.project }}-{{ page.version }}">{{ page.status }}</a>
                       {% else %}
                           Pending Release
                       {% endif %}
           </h4>
           <h4>Due/Released: {{ page.date }}</h4>
-          <h4><a href="https://github.com/haskell-distributed/distributed-process/compare/{{ page.commits }}">Code Changes (redirects to github)</a></h4>
+          <h4><a href="https://github.com/haskell-distributed/{{ page.project }}/compare/{{ page.commits }}">Code Changes (redirects to github)</a></h4>
           {{ content }}
           
           <a href="https://cloud-haskell.atlassian.net/sr/jira.issueviews:searchrequest-rss/temp/SearchRequest.xml?jqlQuery=project+%3D+DP+AND+status+%3D+Closed+AND+fixVersion+%3D+{{ page.version }}&tempMax=1000"><h5>Issue RSS Feed</h5></a>

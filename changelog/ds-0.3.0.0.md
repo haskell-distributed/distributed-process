@@ -1,5 +1,6 @@
 ---
 layout: changelog
+code: DS
 title: distributed-static-0.3.0.0
 date: 28-01-2013
 status: Released

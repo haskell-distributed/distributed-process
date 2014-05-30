@@ -1,10 +1,11 @@
 ---
 layout: changelog
-title: distributed-process-0.5.0
+code: DP
+project: distributed-process
 status: Released
 date: 28-05-2014
 version: 0.5.0
-commits: distributed-process-0.4.2...master
+commits: distributed-process-0.4.2...v0.5.0
 release: 10008
 ---
 

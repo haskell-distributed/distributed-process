@@ -1,6 +1,7 @@
 ---
 layout: changelog
-title: rank1dynamic-0.4.1
+code: RANKNDYN
+project: rank1dynamic
 date: 28-01-2013
 status: Released
 version: 0.2.0.0

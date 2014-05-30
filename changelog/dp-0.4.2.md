@@ -1,6 +1,7 @@
 ---
 layout: changelog
-title: distributed-process-0.4.2
+code: DP
+project: distributed-process
 date: 27-01-2013
 status: Released
 version: 0.4.2
