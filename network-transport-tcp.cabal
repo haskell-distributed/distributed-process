@@ -13,7 +13,8 @@ Bug-Reports:   https://cloud-haskell.atlassian.net/browse/NTTCP
 Synopsis:      TCP instantiation of Network.Transport
 Description:   TCP instantiation of Network.Transport  
 Tested-With:   GHC==7.0.4 GHC==7.2.2 GHC==7.4.1 GHC==7.4.2
-Category:      Network  
+Category:      Network
+extra-source-files: ChangeLog
 
 Source-Repository head
   Type:     git
