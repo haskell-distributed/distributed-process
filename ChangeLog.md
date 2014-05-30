@@ -1,4 +1,4 @@
-2012-11-22  Tim Watson  <watson.timothy@gmail.com>  0.4.0.0
+2014-05-30  Tim Watson  <watson.timothy@gmail.com>  0.4.0.0
 
 #### Bug Fixes
 
