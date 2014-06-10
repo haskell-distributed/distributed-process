@@ -64,6 +64,7 @@ import Control.Exception
   , SomeException
   , Exception
   , throwTo
+  , uninterruptibleMask
   )
 import qualified Control.Exception as Exception (Handler(..), catches, finally)
 import Control.Concurrent (forkIO, myThreadId)
@@ -357,9 +358,9 @@ forkProcess node proc = modifyMVar (localState node) startProcess
                                  , processThread = tid
                                  , processNode   = node
                                  }
-        tid' <- forkIO $ do
+        tid' <- uninterruptibleMask $ \restore -> forkIO $ do
           reason <- Exception.catches
-            (runLocalProcess lproc proc >> return DiedNormal)
+            (restore $ runLocalProcess lproc proc >> return DiedNormal)
             [ (Exception.Handler (\ex@(ProcessExitException from msg) -> do
                  mMsg <- unwrapMessage msg :: IO (Maybe String)
                  case mMsg of
