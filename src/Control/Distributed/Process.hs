@@ -20,6 +20,7 @@ module Control.Distributed.Process
   , NodeId(..)
   , Process
   , SendPortId
+  , Identifier(..)
   , processNodeId
   , sendPortProcessId
   , liftIO -- Reexported for convenience
@@ -172,6 +173,7 @@ import Control.Distributed.Process.Internal.Types
   , ProcessId(..)
   , Process(..)
   , MonitorRef(..)
+  , Identifier(..)
   , ProcessMonitorNotification(..)
   , NodeMonitorNotification(..)
   , PortMonitorNotification(..)

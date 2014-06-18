@@ -716,7 +716,8 @@ ncEffectMonitor from them mRef = do
     (True, _) ->  -- [Unified: first rule]
       case mRef of
         Just ref -> modify' $ monitorsFor them ^: Set.insert (from, ref)
-        Nothing  -> modify' $ linksFor them ^: Set.insert from
+        Nothing  -> do liftIO $ trace node (MxLinkEstablished from them)
+                       modify' $ linksFor them ^: Set.insert from
     (False, True) -> -- [Unified: second rule]
       notifyDied from them DiedUnknownId mRef
     (False, False) -> -- [Unified: third rule]
@@ -736,7 +737,8 @@ ncEffectMonitor from them mRef = do
 ncEffectUnlink :: ProcessId -> Identifier -> NC ()
 ncEffectUnlink from them = do
   node <- ask
-  when (isLocal node (ProcessIdentifier from)) $
+  when (isLocal node (ProcessIdentifier from)) $ do
+    liftIO $ trace node (MxLinkDisabled from them)
     case them of
       ProcessIdentifier pid ->
         postAsMessage from $ DidUnlinkProcess pid

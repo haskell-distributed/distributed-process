@@ -28,6 +28,7 @@ import Control.Distributed.Process.Internal.Types
   , SendPort
   , DiedReason
   , NodeId
+  , Identifier
   )
 import Control.Monad.IO.Class (MonadIO)
 import qualified Control.Monad.State as ST
@@ -66,6 +67,10 @@ data MxEvent =
     -- ^ fired when a network-transport connection is first established
   | MxDisconnected     ConnectionId EndPointAddress
     -- ^ fired when a network-transport connection is broken/disconnected
+  | MxLinkEstablished  ProcessId    Identifier
+    -- ^ fired when process a links to ident b
+  | MxLinkDisabled     ProcessId    Identifier
+    -- ^ fired when process a removes a link to ident b
   | MxUser             Message
     -- ^ a user defined trace event
   | MxLog              String
