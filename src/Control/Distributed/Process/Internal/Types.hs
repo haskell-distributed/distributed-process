@@ -1,9 +1,9 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveDataTypeable  #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ExistentialQuantification  #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving  #-}
 {-# LANGUAGE GADTs  #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE Rank2Types #-}
@@ -121,6 +121,8 @@ import Control.Applicative
 import Control.Monad.Fix (MonadFix)
 import Control.Monad.Reader (MonadReader(..), ReaderT, runReaderT)
 import Control.Monad.IO.Class (MonadIO(..))
+import Control.Monad.Base (MonadBase(..))
+import Control.Monad.Trans.Control (MonadBaseControl(..))
 import Control.Distributed.Process.Serializable
   ( Fingerprint
   , Serializable
@@ -386,6 +388,18 @@ instance MonadMask Process where
       liftRestore restoreIO = \p2 -> do
         ourLocalProc <- ask
         liftIO $ restoreIO $ runLocalProcess ourLocalProc p2
+
+instance MonadBase IO Process where
+  liftBase = liftIO
+
+instance MonadBaseControl IO Process where
+  newtype StM Process a =
+    StMProcess { unStMProcess :: StM (ReaderT LocalProcess IO) a }
+
+  liftBaseWith f = Process $ liftBaseWith $ \run ->
+      f $ fmap StMProcess . run . unProcess
+
+  restoreM = Process . restoreM . unStMProcess
 
 --------------------------------------------------------------------------------
 -- Typed channels                                                             --
