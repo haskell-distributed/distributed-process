@@ -34,6 +34,7 @@ import qualified Network.Socket as N
   , setSocketOption
   , accept
   , sClose
+  , socketPort
   )
 
 #ifdef USE_MOCK_NETWORK
@@ -45,7 +46,7 @@ import qualified Network.Socket.ByteString as NBS (recv)
 import Control.Concurrent (ThreadId)
 import Control.Monad (forever, when)
 import Control.Exception (SomeException, catch, bracketOnError, throwIO, mask_)
-import Control.Applicative ((<$>))
+import Control.Applicative ((<$>), (<*>))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (length, concat, null)
 import Data.Int (Int32)
@@ -68,13 +69,17 @@ import Data.ByteString.Lazy.Internal (smallChunkSize)
 -- or the server will block. Once a thread has been spawned it will be the
 -- responsibility of the new thread to close the socket when an exception
 -- occurs.
+--
+-- The return value includes the port was bound to. This is not always the same
+-- port as that given in the argument. For example, binding to port 0 actually
+-- binds to a random port, selected by the OS.
 forkServer :: N.HostName               -- ^ Host
            -> N.ServiceName            -- ^ Port
            -> Int                      -- ^ Backlog (maximum number of queued connections)
            -> Bool                     -- ^ Set ReuseAddr option?
            -> (SomeException -> IO ()) -- ^ Termination handler
            -> (N.Socket -> IO ())      -- ^ Request handler
-           -> IO ThreadId
+           -> IO (N.ServiceName, ThreadId)
 forkServer host port backlog reuseAddr terminationHandler requestHandler = do
     -- Resolve the specified address. By specification, getAddrInfo will never
     -- return an empty list (but will throw an exception instead) and will return
@@ -91,10 +96,11 @@ forkServer host port backlog reuseAddr terminationHandler requestHandler = do
       -- /before/ any asynchronous exception occurs. So we mask_, then fork
       -- (the child thread inherits the masked state from the parent), then
       -- unmask only inside the catch.
-      mask_ $ forkIOWithUnmask $ \unmask ->
-        catch (unmask (forever $ acceptRequest sock)) $ \ex -> do
-          tryCloseSocket sock
-          terminationHandler ex
+      (,) <$> fmap show (N.socketPort sock) <*>
+        (mask_ $ forkIOWithUnmask $ \unmask ->
+          catch (unmask (forever $ acceptRequest sock)) $ \ex -> do
+            tryCloseSocket sock
+            terminationHandler ex)
   where
     acceptRequest :: N.Socket -> IO ()
     acceptRequest sock = bracketOnError (N.accept sock)

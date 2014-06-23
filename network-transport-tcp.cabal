@@ -33,7 +33,8 @@ Library
                    network >= 2.3 && < 2.5
   Exposed-modules: Network.Transport.TCP,
                    Network.Transport.TCP.Internal
-  Extensions:      CPP
+  Default-Extensions: CPP
+  Other-Extensions:   RecursiveDo
   ghc-options:     -Wall -fno-warn-unused-do-bind
   HS-Source-Dirs:  src
   If flag(use-mock-network)
@@ -45,7 +46,7 @@ Test-Suite TestTCP
   Type:            exitcode-stdio-1.0
   Main-Is:         TestTCP.hs
   Build-Depends:   base >= 4.3 && < 5,
-                   network-transport-tests >= 0.1.0.1 && < 0.2,
+                   network-transport-tests >= 0.1.0.1 && < 0.3,
                    network >= 2.3 && < 2.5,
                    network-transport >= 0.4.0.0 && < 0.5,
                    network-transport-tcp >= 0.3 && < 0.5

@@ -10,6 +10,10 @@
 -- Applications that use the TCP transport should use
 -- 'Network.Socket.withSocketsDo' in their main function for Windows
 -- compatibility (see "Network.Socket").
+
+{-# LANGUAGE RecursiveDo #-}
+{-# LANGUAGE TupleSections #-}
+
 module Network.Transport.TCP
   ( -- * Main API
     createTransport
@@ -480,20 +484,26 @@ createTransportExposeInternals host port params = do
       { _localEndPoints = Map.empty
       , _nextEndPointId = 0
       }
-    let transport = TCPTransport { transportState  = state
-                                 , transportHost   = host
-                                 , transportPort   = port
-                                 , transportParams = params
-                                 }
-    tryIO $ bracketOnError (forkServer
+    tryIO $ mdo
+       -- We don't know for sure the actual port 'forkServer' binded until it
+       -- completes (see description of 'forkServer'), yet we need the port to
+       -- construct a transport. So we tie a recursive knot.
+       (port', result) <- do
+         let transport = TCPTransport { transportState  = state
+                                      , transportHost   = host
+                                      , transportPort   = port'
+                                      , transportParams = params
+                                      }
+         bracketOnError (forkServer
                              host
                              port
                              (tcpBacklog params)
                              (tcpReuseServerAddr params)
                              (terminationHandler transport)
                              (handleConnectionRequest transport))
-                           killThread
-                           (mkTransport transport)
+                      (\(_port', tid) -> killThread tid)
+                      (\(port'', tid) -> (port'',) <$> mkTransport transport tid)
+       return result
   where
     mkTransport :: TCPTransport
                 -> ThreadId
