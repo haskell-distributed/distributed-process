@@ -36,6 +36,7 @@ import qualified Control.Monad.State as ST
   , StateT
   )
 import Data.Binary
+import Data.Hashable
 import Data.Typeable (Typeable)
 import GHC.Generics
 import Network.Transport
@@ -103,7 +104,12 @@ type Fork = (Process () -> IO ProcessId)
 
 -- | A newtype wrapper for an agent id (which is a string).
 newtype MxAgentId = MxAgentId { agentId :: String }
-  deriving (Typeable, Binary, Eq, Ord)
+  deriving (Typeable, Generic, Eq, Ord)
+instance Binary MxAgentId where
+instance Hashable MxAgentId where
+
+instance Show MxAgentId where
+  show = agentId
 
 data MxTableId =
     MxForAgent !MxAgentId
