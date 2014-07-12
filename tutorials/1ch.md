@@ -147,7 +147,7 @@ not contain a message that can be matched, the evaluating process will be
 blocked until a message arrives which _can_ be matched.
 
 In the _echo server_ above, our first match prints out whatever string it
-receives. If first message in out mailbox is not a `String`, then our second
+receives. If the first message in our mailbox is not a `String`, then our second
 match is evaluated. This, given a tuple `t :: (ProcessId, String)`, will send
 the `String` component back to the sender's `ProcessId`. If neither match
 succeeds, the echo server blocks until another message arrives and
