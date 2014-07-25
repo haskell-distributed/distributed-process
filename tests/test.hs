@@ -1,6 +1,9 @@
 #if !MIN_VERSION_base(4,7,0)
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ExistentialQuantification #-}
+#if !MIN_VERSION_base(4,6,0)
+{-# LANGUAGE KindSignatures #-}
+#endif
 #endif
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE DeriveDataTypeable #-}
@@ -70,7 +73,11 @@ tests =
       , testCase "CAN use a term of type 'forall a. a -> m a' as 'Int -> Maybe Int'" $
           typeOf (undefined :: Int -> Maybe Int)
             `isInstanceOf`
+#if MIN_VERSION_base(4,6,0)
                typeOf (undefined :: ANY1 -> ANY ANY1)
+#else
+               typeOf (undefined :: ANY1 -> ANY (ANY1 :: *))
+#endif
           @?= Right ()
 
       , testCase "CAN use a term of type 'forall a. Monad a => a -> m a' as 'Int -> Maybe Int'" $
@@ -81,7 +88,11 @@ tests =
 #else
           typeOf (returnD :: MonadDict Maybe -> Int -> Maybe Int)
             `isInstanceOf`
+#if MIN_VERSION_base(4,6,0)
                typeOf (returnD :: MonadDict ANY -> ANY1 -> ANY ANY1)
+#else
+               typeOf (returnD :: MonadDict ANY -> ANY1 -> ANY (ANY1 :: *))
+#endif
 #endif
           @?= Right ()
       ]
