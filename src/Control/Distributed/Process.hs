@@ -134,6 +134,7 @@ module Control.Distributed.Process
   , catches
   , try
   , mask
+  , mask_
   , onException
   , bracket
   , bracket_
@@ -278,6 +279,7 @@ import Control.Distributed.Process.Internal.Primitives
   , catches
   , try
   , mask
+  , mask_
   , onException
   , bracket
   , bracket_

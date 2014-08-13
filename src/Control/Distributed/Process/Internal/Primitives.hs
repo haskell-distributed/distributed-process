@@ -94,6 +94,7 @@ module Control.Distributed.Process.Internal.Primitives
   , catches
   , try
   , mask
+  , mask_
   , onException
   , bracket
   , bracket_
@@ -129,7 +130,7 @@ import Control.Monad.Reader (ask)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Applicative ((<$>))
 import Control.Exception (Exception(..), throw, throwIO, SomeException)
-import qualified Control.Exception as Ex (catch, mask, try)
+import qualified Control.Exception as Ex (catch, mask, mask_, try)
 import Control.Distributed.Process.Internal.StrictMVar
   ( StrictMVar
   , modifyMVar
@@ -902,6 +903,12 @@ mask p = do
     liftRestore restoreIO = \p2 -> do
       ourLocalProc <- ask
       liftIO $ restoreIO $ runLocalProcess ourLocalProc p2
+
+-- | Lift 'Control.Exception.mask_'
+mask_ :: Process a -> Process a
+mask_ p = do
+   lproc <- ask
+   liftIO $ Ex.mask_ $ runLocalProcess lproc p
 
 -- | Lift 'Control.Exception.onException'
 onException :: Process a -> Process b -> Process a
