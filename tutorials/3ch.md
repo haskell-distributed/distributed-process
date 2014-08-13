@@ -1,7 +1,7 @@
 ---
 layout: tutorial
 categories: tutorial
-sections: ['Message Ordering', 'Selective Receive', 'Advanced Mailbox Processing', 'Typed Channels', 'Process Lifetime', 'Monitoring And Linking', 'Getting Process Info']
+sections: ['Message Ordering', 'Selective Receive', 'Advanced Mailbox Processing', 'Typed Channels', 'Process Lifetime', 'Monitoring And Linking', 'Getting Process Info','Monad Transformer Stacks' ]
 title: 3. Getting to know Processes
 ---
 
@@ -366,6 +366,171 @@ process. The `ProcessInfo` type it returns contains the local node id and a list
 registered names, monitors and links for the process. The call returns `Nothing` if the
 process in question is not alive.
 
+### Monad Transformer Stacks 
+
+It is not generally necessary, but it may be convenient in your application to use a 
+custom monad transformer stack with the Process monad at the bottom. For example, 
+you may have decided that in various places in your application you will make calls to
+a network database. You may create a data access module, and it will need configuration information available to it in
+order to connect to the database server. A ReaderT can be a nice way to make 
+configuration data available throughout an application without
+schlepping it around by hand. 
+
+This example is a bit contrived and over-simplified but 
+illustrates the concept. Consider the `fetchUser` function below, it runs in the `AppProcess`
+monad which provides the configuration settings required to connect to the database:
+
+{% highlight haskell %}
+
+import Data.ByteString (ByteString)
+import Control.Monad.Reader
+
+-- imagine we have some database library
+import Database.Imaginary as DB
+
+data AppConfig = AppConfig {dbHost :: String, dbUser :: String}
+
+type AppProcess = ReaderT AppConfig Process
+
+data User = User {userEmail :: String}
+
+-- Perform a user lookup using our custom app context
+fetchUser :: String -> AppProcess (Maybe User)
+fetchUser email = do
+  db <- openDB
+  user <- liftIO $ DB.query db email
+  closeDB db
+  return user
+
+openDB :: AppProcess DB.Connection
+openDB = do
+  AppConfig host user <- ask
+  liftIO $ DB.connect host user
+
+closeDB :: DB.Connection -> AppProcess ()
+closeDB db = liftIO (DB.close db)
+  
+{% endhighlight %}
+
+So this would mostly work but it is not complete. What happens if an exception
+is thrown by the `query` function? Your open database handle may not be
+closed. Typically we manage this with the [bracket][brkt] function.
+
+In the base library, [bracket][brkt] is defined in Control.Exception with this signature:
+
+{% highlight haskell %}
+
+bracket :: IO a	       --^ computation to run first ("acquire resource")
+        -> (a -> IO b) --^ computation to run last ("release resource")
+        -> (a -> IO c) --^ computation to run in-between
+	-> IO c	 
+
+{% endhighlight %}
+
+Great! We pass an IO action that acquires a resource; `bracket` passes that
+resource to a function which takes the resource and runs another action.
+We also provide a release function which `bracket` is guaranteed to run 
+even if the primary action raises an exception. 
+
+
+Unfortunately, we cannot directly use `bracket` in our 
+`fetchUser` function: openDB (resource acquisition) runs in the `AppProcess`
+monad. If our functions ran in IO, we could lift the entire bracket computation into
+our monad transformer stack with liftIO; but we cannot do that for the computations
+*passed* to bracket.
+
+It is perfectly possible to write our own bracket; `distributed-process` does this
+for the `Process` monad (which is itself a newtyped ReaderT stack). Here is how that is done:
+
+
+{% highlight haskell %}
+-- | Lift 'Control.Exception.bracket'
+bracket :: Process a -> (a -> Process b) -> (a -> Process c) -> Process c
+bracket before after thing =
+  mask $ \restore -> do
+    a <- before
+    r <- restore (thing a) `onException` after a
+    _ <- after a
+    return r
+
+mask :: ((forall a. Process a -> Process a) -> Process b) -> Process b
+mask p = do
+    lproc <- ask
+    liftIO $ Ex.mask $ \restore ->
+      runLocalProcess lproc (p (liftRestore restore))
+  where
+    liftRestore :: (forall a. IO a -> IO a)
+                -> (forall a. Process a -> Process a)
+    liftRestore restoreIO = \p2 -> do
+      ourLocalProc <- ask
+      liftIO $ restoreIO $ runLocalProcess ourLocalProc p2
+
+-- | Lift 'Control.Exception.onException'
+onException :: Process a -> Process b -> Process a
+onException p what = p `catch` \e -> do _ <- what
+                                        liftIO $ throwIO (e :: SomeException)
+{% endhighlight %}
+
+`distributed-process` needs to do this sort of thing to keep its dependency
+list small, but do we really want to write this for every transformer stack
+we use in our own applications? No! And we do not have to, thanks to 
+the [monad-control][mctrl] and [lifted-base][lbase] libraries.
+
+[monad-control][mctrl] provides several typeclasses and helper functions
+that make it possible to fully generalize the wrapping/unwrapping required
+to keep transformer effects stashed away while actions run in the base monad. Of
+most concern to end users of this library are the typeclass [MonadBase][mb] and [MonadBaseControl][mbc].
+How it works is beyond the scope of this tutorial, but there is an excellent and thorough
+explanation written by Michael Snoyman which is available [here][mctrlt].
+
+[lifted-base][lbase] takes advantage of these typeclasses to provide lifted versions of many functions
+in the Haskell base library. For example, [Control.Exception.Lifted][lexc] has a definition of
+bracket that looks like this:
+
+{% highlight haskell %}
+
+bracket :: MonadBaseControl IO m	 
+        => m a	       --^ computation to run first ("acquire resource")
+        -> (a -> m b)  --^ computation to run last ("release resource")
+        -> (a -> m c)  --^ computation to run in-between
+        -> m c	 
+
+{% endhighlight %}
+
+It is just the same as the version found in base, except it is generalized to work
+with actions in any monad that implements [MonadBaseControl IO][mbc]. [monad-control][mctrl] defines
+instances for the standard transformers, but that instance requires the base monad 
+(in this case, `Process`) to also have an instance of these classes.
+
+To address this the [distributed-process-monad-control][dpmc] package
+provides orphan instances of the `Process` type for both [MonadBase IO][mb] and [MonadBaseControl IO][mbc].
+After importing these, we can rewrite our `fetchUser` function to use the instance of bracket
+provided by [lifted-base][lbase].
+
+{% highlight haskell %}
+
+-- ...
+import Control.Distributed.Process.MonadBaseControl ()
+import Control.Exception.Lifted as Lifted
+
+-- ...
+
+fetchUser :: String -> AppProcess (Maybe User)
+fetchUser email =
+  Lifted.bracket openDB
+                 closeDB
+          	 $ \db -> liftIO $ DB.query db email
+          
+
+{% endhighlight %}
+
+[lifted-base][lbase] also provides conveniences like [MVar][lmvar] and other concurrency primitives that
+operate in [MonadBase IO][mb]. One benefit here is that your code is not sprinkled with
+liftIO; but [MonadBaseControl IO][mbc] also makes things like a lifted [withMVar][lmvar-with] possible - which is
+really just a specialization of [bracket][lbrkt]. You will also find lots of other libraries on hackage which
+use these instances - at present count there are more than 150 [packages using it][reverse].
+
+
 [1]: hackage.haskell.org/package/distributed-process/docs/Control-Distributed-Process.html#v:receiveWait
 [2]: hackage.haskell.org/package/distributed-process/docs/Control-Distributed-Process.html#v:expect
 [3]: http://hackage.haskell.org/package/distributed-process-0.4.2/docs/Control-Distributed-Process.html#v:match
@@ -373,3 +538,15 @@ process in question is not alive.
 [5]: http://hackage.haskell.org/package/distributed-process-0.4.2/docs/Control-Distributed-Process.html#v:exit
 [6]: http://hackage.haskell.org/package/distributed-process-0.4.2/docs/Control-Distributed-Process.html#v:kill
 [7]: http://hackage.haskell.org/package/distributed-process-0.4.2/docs/Control-Distributed-Process.html#v:die
+[brkt]: http://hackage.haskell.org/package/base-4.6.0.1/docs/Control-Exception.html#v:bracket
+[mctrl]: http://hackage.haskell.org/package/monad-control
+[mb]: http://hackage.haskell.org/package/transformers-base-0.4.2/docs/Control-Monad-Base.html#t:MonadBase
+[mbc]: http://hackage.haskell.org/package/monad-control-0.3.3.0/docs/Control-Monad-Trans-Control.html#t:MonadBaseControl
+[lmvar]: http://hackage.haskell.org/package/lifted-base-0.2.2.2/docs/Control-Concurrent-MVar-Lifted.html#t:MVar
+[lmvar-with]: http://hackage.haskell.org/package/lifted-base-0.2.2.2/docs/Control-Concurrent-MVar-Lifted.html#v:withMVar
+[lbrkt]: http://hackage.haskell.org/package/lifted-base-0.2.2.2/docs/Control-Exception-Lifted.html#v:bracket
+[lbase]: http://hackage.haskell.org/package/lifted-base
+[dpmc]: http://hackage.haskell.org/package/distributed-process-monad-control
+[mctrlt]: http://www.yesodweb.com/book/monad-control
+[reverse]: http://packdeps.haskellers.com/reverse/monad-control
+[lexc]: http://hackage.haskell.org/package/lifted-base-0.2.2.2/docs/Control-Exception-Lifted.html
