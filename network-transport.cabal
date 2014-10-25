@@ -82,3 +82,5 @@ Library
                    CPP
   GHC-Options:     -Wall -fno-warn-unused-do-bind
   HS-Source-Dirs:  src
+  if os(win32)
+      extra-libraries: ws2_32

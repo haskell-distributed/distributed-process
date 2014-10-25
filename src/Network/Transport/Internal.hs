@@ -51,10 +51,21 @@ import GHC.IO (unsafeUnmask)
 import System.Timeout (timeout)
 --import Control.Concurrent (myThreadId)
 
+#ifdef mingw32_HOST_OS
+
+foreign import stdcall unsafe "htonl" htonl :: CInt -> CInt
+foreign import stdcall unsafe "ntohl" ntohl :: CInt -> CInt
+foreign import stdcall unsafe "htons" htons :: CShort -> CShort
+foreign import stdcall unsafe "ntohs" ntohs :: CShort -> CShort
+
+#else
+
 foreign import ccall unsafe "htonl" htonl :: CInt -> CInt
 foreign import ccall unsafe "ntohl" ntohl :: CInt -> CInt
 foreign import ccall unsafe "htons" htons :: CShort -> CShort
 foreign import ccall unsafe "ntohs" ntohs :: CShort -> CShort
+
+#endif
 
 -- | Serialize 32-bit to network byte order
 encodeInt32 :: Enum a => a -> ByteString
