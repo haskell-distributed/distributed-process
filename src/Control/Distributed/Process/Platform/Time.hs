@@ -147,7 +147,7 @@ hours = TimeInterval Hours
 {-# INLINE timeToMicros #-}
 timeToMicros :: TimeUnit -> Int -> Int
 timeToMicros Micros  us   = us
-timeToMicros Millis  ms   = ms  * (10 ^ (3 :: Int)) -- (1000µs == 1ms)
+timeToMicros Millis  ms   = ms  * (10 ^ (3 :: Int)) -- (1000Âµs == 1ms)
 timeToMicros Seconds secs = timeToMicros Millis  (secs * milliSecondsPerSecond)
 timeToMicros Minutes mins = timeToMicros Seconds (mins * secondsPerMinute)
 timeToMicros Hours   hrs  = timeToMicros Minutes (hrs  * minutesPerHour)
