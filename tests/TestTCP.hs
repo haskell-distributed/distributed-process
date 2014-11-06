@@ -773,6 +773,20 @@ testInvalidCloseConnection nextPort = do
 
   mapM_ takeMVar [clientDone, serverDone]
 
+testUseRandomPort :: IO ()
+testUseRandomPort = do
+   testDone <- newEmptyMVar
+   forkTry $ do
+     Right transport1 <- createTransport "127.0.0.1" "0" defaultTCPParameters
+     Right ep1        <- newEndPoint transport1
+     Right transport2 <- createTransport "127.0.0.1" "0" defaultTCPParameters
+     Right ep2        <- newEndPoint transport2
+     Right conn1 <- connect ep2 (address ep1) ReliableOrdered defaultConnectHints
+     ConnectionOpened _ _ _ <- receive ep1
+     putMVar testDone ()
+   takeMVar testDone
+
+
 main :: IO ()
 main = do
   portMVar <- newEmptyMVar
@@ -791,6 +805,7 @@ main = do
            , ("Reconnect",              testReconnect nextPort)
            , ("UnidirectionalError",    testUnidirectionalError nextPort)
            , ("InvalidCloseConnection", testInvalidCloseConnection nextPort)
+           , ("Use random port"       , testUseRandomPort)
            ]
   -- Run the generic tests even if the TCP specific tests failed..
   testTransport (either (Left . show) (Right) <$> nextPort >>= \port -> createTransport "127.0.0.1" port defaultTCPParameters)
