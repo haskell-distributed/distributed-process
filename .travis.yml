@@ -9,6 +9,8 @@ before_install:
   - cabal sandbox init
   - for i in `cat REPOS`; do git clone http://github.com/haskell-distributed/$i; done
   - for i in `cat REPOS`; do cabal sandbox add-source $i; done
+  - sudo apt-get update -qq
+  - sudo apt-get install -qq binutils-dev
 
 install:
   # Don't run tests for dependencies.
