@@ -13,3 +13,8 @@ before_install:
 install:
   # Don't run tests for dependencies.
   - cabal install --only-dependencies
+  - cabal install --only-dependencies distributed-process-tests
+
+script:
+  - cabal install
+  - cabal install --enable-tests -j1 distributed-process-tests
