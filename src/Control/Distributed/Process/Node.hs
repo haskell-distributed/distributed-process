@@ -52,7 +52,7 @@ import Data.Foldable (forM_)
 import Data.Maybe (isJust, fromJust, isNothing, catMaybes)
 import Data.Typeable (Typeable)
 import Control.Category ((>>>))
-import Control.Applicative ((<$>))
+import Control.Applicative (Applicative, (<$>))
 import Control.Monad (void, when)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.State.Strict (MonadState, StateT, evalStateT, gets)
@@ -99,7 +99,6 @@ import qualified Network.Transport as NT
   , address
   , closeEndPoint
   , ConnectionId
-  , Connection
   , close
   , EndPointAddress
   , Reliability(ReliableOrdered)
@@ -592,7 +591,13 @@ data NCState = NCState
   }
 
 newtype NC a = NC { unNC :: StateT NCState (ReaderT LocalNode IO) a }
-  deriving (Functor, Monad, MonadIO, MonadState NCState, MonadReader LocalNode)
+  deriving ( Applicative
+           , Functor
+           , Monad
+           , MonadIO
+           , MonadState NCState
+           , MonadReader LocalNode
+           )
 
 initNCState :: NCState
 initNCState = NCState { _links    = Map.empty
