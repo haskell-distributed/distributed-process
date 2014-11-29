@@ -8,6 +8,7 @@ module Control.Distributed.Process.Internal.Closure.BuiltIn
   , sdictUnit
   , sdictProcessId
   , sdictSendPort
+  , sdictClosure
     -- * Some static values
   , sndStatic
     -- * The CP type and associated combinators
@@ -82,6 +83,7 @@ remoteTable =
     . registerStatic "$sdictUnit"       (toDynamic (SerializableDict :: SerializableDict ()))
     . registerStatic "$sdictProcessId"  (toDynamic (SerializableDict :: SerializableDict ProcessId))
     . registerStatic "$sdictSendPort_"  (toDynamic (sdictSendPort_   :: SerializableDict ANY -> SerializableDict (SendPort ANY)))
+    . registerStatic "$sdictClosure"    (toDynamic (SerializableDict :: SerializableDict (Closure ANY)))
     . registerStatic "$returnProcess"   (toDynamic (return           :: ANY -> Process ANY))
     . registerStatic "$seqProcess"      (toDynamic ((>>)             :: Process ANY1 -> Process ANY2 -> Process ANY2))
     . registerStatic "$bindProcess"     (toDynamic ((>>=)            :: Process ANY1 -> (ANY1 -> Process ANY2) -> Process ANY2))
@@ -143,6 +145,10 @@ sdictProcessId = staticLabel "$sdictProcessId"
 sdictSendPort :: Typeable a
               => Static (SerializableDict a) -> Static (SerializableDict (SendPort a))
 sdictSendPort = staticApply (staticLabel "$sdictSendPort_")
+
+-- | Serialization dictionary for 'Closure'.
+sdictClosure :: Typeable a => Static (SerializableDict (Closure a))
+sdictClosure = staticLabel "$sdictClosure"
 
 --------------------------------------------------------------------------------
 -- Static values                                                              --

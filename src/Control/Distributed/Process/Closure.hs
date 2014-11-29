@@ -163,6 +163,7 @@ module Control.Distributed.Process.Closure
   , sdictUnit
   , sdictProcessId
   , sdictSendPort
+  , sdictClosure
     -- * The CP type and associated combinators
   , CP
   , idCP
@@ -203,6 +204,7 @@ import Control.Distributed.Process.Internal.Closure.BuiltIn
   , sdictUnit
   , sdictProcessId
   , sdictSendPort
+  , sdictClosure
     -- The CP type and associated combinators
   , CP
   , idCP
