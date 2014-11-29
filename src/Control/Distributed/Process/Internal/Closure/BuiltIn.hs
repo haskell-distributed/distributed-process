@@ -8,6 +8,7 @@ module Control.Distributed.Process.Internal.Closure.BuiltIn
   , sdictUnit
   , sdictProcessId
   , sdictSendPort
+  , sdictStatic
   , sdictClosure
     -- * Some static values
   , sndStatic
@@ -145,6 +146,10 @@ sdictProcessId = staticLabel "$sdictProcessId"
 sdictSendPort :: Typeable a
               => Static (SerializableDict a) -> Static (SerializableDict (SendPort a))
 sdictSendPort = staticApply (staticLabel "$sdictSendPort_")
+
+-- | Serialization dictionary for 'Static'.
+sdictStatic :: Typeable a => Static (SerializableDict (Static a))
+sdictStatic = staticLabel "$sdictStatic"
 
 -- | Serialization dictionary for 'Closure'.
 sdictClosure :: Typeable a => Static (SerializableDict (Closure a))
