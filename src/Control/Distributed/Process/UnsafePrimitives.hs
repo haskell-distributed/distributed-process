@@ -70,7 +70,7 @@ import Control.Distributed.Process.Internal.Types
   )
 import Control.Distributed.Process.Serializable (Serializable)
 
-import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (ask)
 
 -- | Named send to a process in the local registry (asynchronous)
@@ -118,4 +118,3 @@ sendChan (SendPort cid) msg = do
 -- | Create an unencoded @Message@ for any @Serializable@ type.
 wrapMessage :: Serializable a => a -> Message
 wrapMessage = unsafeCreateUnencodedMessage
-

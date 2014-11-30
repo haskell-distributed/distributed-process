@@ -127,7 +127,7 @@ import System.Locale (defaultTimeLocale)
 import System.Timeout (timeout)
 import Control.Monad (when)
 import Control.Monad.Reader (ask)
-import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.IO.Class (liftIO)
 import Control.Applicative ((<$>))
 import Control.Exception (Exception(..), throw, throwIO, SomeException)
 import qualified Control.Exception as Ex (catch, mask, mask_, try)
@@ -738,10 +738,10 @@ getNodeStats nid = do
     selfNode <- getSelfNode
     if nid == selfNode
       then Right `fmap` getLocalNodeStats -- optimisation
-      else getNodeStatsRemote nid
+      else getNodeStatsRemote
   where
-    getNodeStatsRemote :: NodeId -> Process (Either DiedReason NodeStats)
-    getNodeStatsRemote nid = do
+    getNodeStatsRemote :: Process (Either DiedReason NodeStats)
+    getNodeStatsRemote = do
         sendCtrlMsg (Just nid) $ GetNodeStats nid
         bracket (monitorNode nid) unmonitor $ \mRef ->
             receiveWait [ match (\(stats :: NodeStats) -> return $ Right stats)

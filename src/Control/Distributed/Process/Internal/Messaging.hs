@@ -18,7 +18,7 @@ import Control.Distributed.Process.Serializable ()
 
 import Control.Concurrent.Chan (writeChan)
 import Control.Monad (unless)
-import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (ask)
 import qualified Network.Transport as NT
   ( Connection
@@ -195,4 +195,3 @@ sendCtrlMsg mNid signal = do
                           (NodeIdentifier nid)
                           WithImplicitReconnect
                           msg
-

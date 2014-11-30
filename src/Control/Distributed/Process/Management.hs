@@ -276,8 +276,7 @@ module Control.Distributed.Process.Management
 import Control.Applicative ((<$>))
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TChan
-  ( tryReadTChan
-  , readTChan
+  ( readTChan
   , writeTChan
   , TChan
   )
@@ -285,7 +284,6 @@ import Control.Distributed.Process.Internal.Primitives
   ( newChan
   , nsend
   , receiveWait
-  , receiveTimeout
   , matchChan
   , matchAny
   , matchSTM
@@ -320,9 +318,7 @@ import Control.Distributed.Process.Serializable (Serializable)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (ask)
 import qualified Control.Monad.State as ST
-  ( MonadState
-  , StateT
-  , get
+  ( get
   , modify
   , lift
   , runStateT
@@ -526,8 +522,7 @@ mxAgentWithFinalize mxId initState handlers dtor = do
 --      MxAgentBecome h'           -> runAgent h' c state
 
     getNextInput sel chan =
-      let stmRead = atomically . readTChan
-          matches =
+      let matches =
             case sel of
               Mailbox   -> [ matchAny return
                            , matchSTM (readTChan chan) return]
@@ -554,4 +549,3 @@ mxAgentWithFinalize mxId initState handlers dtor = do
       case pass of
         Nothing     -> runPipeline msg state next
         Just result -> return (result, state')
-
