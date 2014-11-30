@@ -19,15 +19,3 @@ install:
 
 script:
   - ./travis/scripts/script.sh
-
-notifications:
-  email:
-    recipients:
-      - cloud.haskell@gmail.com
-  irc:
-    channels:
-      - "irc.freenode.org#haskell-distributed"
-    use_notice: true
-    template:
-      - "\x0313distributed-process\x03/\x0306%{branch}\x03 \x0314%{commit}\x03 %{build_url} %{message}"
-
