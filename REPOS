@@ -1,4 +1,5 @@
-rank1dynamic
+distributed-process-tests
 distributed-static
 network-transport
 network-transport-tcp
+rank1dynamic
