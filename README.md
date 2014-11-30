@@ -1,4 +1,5 @@
-### distributed-process
+### distributed-process [![travis](https://secure.travis-ci.org/haskell-distributed/distributed-process.png)](http://travis-ci.org/haskell-distributed/distributed-process)
+
 
 This repository is part of Cloud Haskell.
 
