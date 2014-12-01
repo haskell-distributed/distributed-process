@@ -78,6 +78,19 @@
 -- This is checked for /any/ non-empty value. If set, all internal traces are
 -- written to the GHC eventlog.
 --
+-- By default, the built in tracers will ignore all trace events! In order to
+-- enable tracing the incoming 'MxEvent' stream, the @DISTRIBUTED_PROCESS_TRACE_FLAGS@
+-- environment variable accepts the following flags, which enable tracing specific
+-- event types:
+--
+-- p  = trace the spawning of new processes
+-- d  = trace the death of processes
+-- n  = trace registration of names (i.e., named processes)
+-- u  = trace un-registration of names (i.e., named processes)
+-- s  = trace the sending of messages to other processes
+-- r  = trace the receipt of messages from other processes
+-- l  = trace node up/down events
+--
 -- Users of the /simplelocalnet/ Cloud Haskell backend should also note that
 -- because the trace file option only supports trace output from a single node
 -- (so as to avoid interleaving), a file trace configured for the master node
