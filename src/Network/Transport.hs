@@ -32,6 +32,7 @@ import Data.Typeable (Typeable)
 import Data.Binary (Binary(put, get), putWord8, getWord8)
 import Data.Hashable
 import Data.Word (Word64)
+import Data.Data (Data)
 
 --------------------------------------------------------------------------------
 -- Main API                                                                   --
@@ -140,7 +141,7 @@ data MulticastGroup = MulticastGroup {
 
 -- | EndPointAddress of an endpoint.
 newtype EndPointAddress = EndPointAddress { endPointAddressToByteString :: ByteString }
-  deriving (Eq, Ord, Typeable, Hashable)
+  deriving (Eq, Ord, Typeable, Data, Hashable)
 
 instance Binary EndPointAddress where
   put = put . endPointAddressToByteString
