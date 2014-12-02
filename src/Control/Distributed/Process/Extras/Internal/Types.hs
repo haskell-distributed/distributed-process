@@ -8,9 +8,9 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
 
--- | Types used throughout the Platform
+-- | Types used throughout the Extras package
 --
-module Control.Distributed.Process.Platform.Internal.Types
+module Control.Distributed.Process.Extras.Internal.Types
   ( -- * Tagging
     Tag
   , TagPool

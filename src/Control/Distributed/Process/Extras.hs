@@ -1,4 +1,4 @@
-{- | [Cloud Haskell Platform]
+{- | [Cloud Haskell Extras]
 
 [Evaluation Strategies and Support for NFData]
 
@@ -47,7 +47,7 @@ most specific) scope possible. If you wish to trap @exit@ signals, use the
 various flavours of @catchExit@ primitive from distributed-process.
 
 -}
-module Control.Distributed.Process.Platform
+module Control.Distributed.Process.Extras
   (
     -- * Exported Types
     Addressable
@@ -64,7 +64,7 @@ module Control.Distributed.Process.Platform
 
     -- * Primitives overriding those in distributed-process
   , monitor
-  , module Control.Distributed.Process.Platform.UnsafePrimitives
+  , module Control.Distributed.Process.Extras.UnsafePrimitives
 
     -- * Utilities and Extended Primitives
   , spawnSignalled
@@ -91,7 +91,7 @@ module Control.Distributed.Process.Platform
   ) where
 
 import Control.Distributed.Process (RemoteTable)
-import Control.Distributed.Process.Platform.Internal.Types
+import Control.Distributed.Process.Extras.Internal.Types
   ( NFSerializable
   , Recipient(..)
   , ExitReason(..)
@@ -101,17 +101,15 @@ import Control.Distributed.Process.Platform.Internal.Types
   , newTagPool
   , getTag
   )
-import Control.Distributed.Process.Platform.UnsafePrimitives
-import Control.Distributed.Process.Platform.Internal.Primitives hiding (__remoteTable)
-import qualified Control.Distributed.Process.Platform.Internal.Primitives (__remoteTable)
-import qualified Control.Distributed.Process.Platform.Internal.Types      (__remoteTable)
-import qualified Control.Distributed.Process.Platform.Execution.Mailbox (__remoteTable)
+import Control.Distributed.Process.Extras.UnsafePrimitives
+import Control.Distributed.Process.Extras.Internal.Primitives hiding (__remoteTable)
+import qualified Control.Distributed.Process.Extras.Internal.Primitives (__remoteTable)
+import qualified Control.Distributed.Process.Extras.Internal.Types      (__remoteTable)
 
 -- remote table
 
 __remoteTable :: RemoteTable -> RemoteTable
 __remoteTable =
-  Control.Distributed.Process.Platform.Execution.Mailbox.__remoteTable .
-  Control.Distributed.Process.Platform.Internal.Primitives.__remoteTable .
-  Control.Distributed.Process.Platform.Internal.Types.__remoteTable
+  Control.Distributed.Process.Extras.Internal.Primitives.__remoteTable .
+  Control.Distributed.Process.Extras.Internal.Types.__remoteTable
 

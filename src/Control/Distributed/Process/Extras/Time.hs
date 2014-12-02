@@ -3,7 +3,7 @@
 
 -----------------------------------------------------------------------------
 -- |
--- Module      :  Control.Distributed.Process.Platform.Time
+-- Module      :  Control.Distributed.Process.Extras.Time
 -- Copyright   :  (c) Tim Watson, Jeff Epstein, Alan Zimmerman
 -- License     :  BSD3 (see the file LICENSE)
 --
@@ -21,7 +21,7 @@
 -- corrolary to 'timeout' that works with these.
 -----------------------------------------------------------------------------
 
-module Control.Distributed.Process.Platform.Time
+module Control.Distributed.Process.Extras.Time
   ( -- * Time interval handling
     microSeconds
   , milliSeconds
@@ -54,7 +54,7 @@ module Control.Distributed.Process.Platform.Time
 import Control.Concurrent (threadDelay)
 import Control.DeepSeq (NFData)
 import Control.Distributed.Process
-import Control.Distributed.Process.Platform.Internal.Types
+import Control.Distributed.Process.Extras.Internal.Types
 import Control.Monad (void)
 import Data.Binary
 import Data.Ratio ((%))

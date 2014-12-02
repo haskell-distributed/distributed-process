@@ -3,7 +3,7 @@
 {-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE UndecidableInstances       #-}
 
-module Control.Distributed.Process.Platform.Internal.Containers.MultiMap
+module Control.Distributed.Process.Extras.Internal.Containers.MultiMap
   ( MultiMap
   , Insertable
   , empty

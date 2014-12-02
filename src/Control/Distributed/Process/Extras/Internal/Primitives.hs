@@ -8,7 +8,7 @@
 
 -----------------------------------------------------------------------------
 -- |
--- Module      :  Control.Distributed.Process.Platform.Internal.Primitives
+-- Module      :  Control.Distributed.Process.Extras.Internal.Primitives
 -- Copyright   :  (c) Tim Watson 2013, Parallel Scientific (Jeff Epstein) 2012
 -- License     :  BSD3 (see the file LICENSE)
 --
@@ -20,7 +20,7 @@
 -- to the basic Cloud Haskell APIs.
 -----------------------------------------------------------------------------
 
-module Control.Distributed.Process.Platform.Internal.Primitives
+module Control.Distributed.Process.Extras.Internal.Primitives
   ( -- * General Purpose Process Addressing
     Addressable
   , Routable(..)
@@ -60,7 +60,7 @@ import Control.Distributed.Process hiding (monitor)
 import qualified Control.Distributed.Process as P (monitor)
 import Control.Distributed.Process.Closure (seqCP, remotable, mkClosure)
 import Control.Distributed.Process.Serializable (Serializable)
-import Control.Distributed.Process.Platform.Internal.Types
+import Control.Distributed.Process.Extras.Internal.Types
   ( Addressable
   , Linkable(..)
   , Killable(..)

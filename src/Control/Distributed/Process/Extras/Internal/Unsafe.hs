@@ -6,7 +6,7 @@
 -- | If you don't know exactly what this module is for and precisely
 -- how to use the types within, you should move on, quickly!
 --
-module Control.Distributed.Process.Platform.Internal.Unsafe
+module Control.Distributed.Process.Extras.Internal.Unsafe
   ( -- * Copying non-serializable data
     PCopy()
   , pCopy

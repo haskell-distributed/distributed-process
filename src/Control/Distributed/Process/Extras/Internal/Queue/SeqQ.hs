@@ -1,6 +1,6 @@
 -----------------------------------------------------------------------------
 -- |
--- Module      :  Control.Distributed.Process.Platform.Internal.Queue.SeqQ
+-- Module      :  Control.Distributed.Process.Extras.Internal.Queue.SeqQ
 -- Copyright   :  (c) Tim Watson 2012 - 2013
 -- License     :  BSD3 (see the file LICENSE)
 --
@@ -10,7 +10,7 @@
 -- A simple FIFO queue implementation backed by @Data.Sequence@.
 -----------------------------------------------------------------------------
 
-module Control.Distributed.Process.Platform.Internal.Queue.SeqQ
+module Control.Distributed.Process.Extras.Internal.Queue.SeqQ
   ( SeqQ
   , empty
   , isEmpty

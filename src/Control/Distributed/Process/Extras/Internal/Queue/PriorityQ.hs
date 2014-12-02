@@ -1,6 +1,6 @@
 {-# LANGUAGE BangPatterns       #-}
 {-# LANGUAGE StandaloneDeriving #-}
-module Control.Distributed.Process.Platform.Internal.Queue.PriorityQ where
+module Control.Distributed.Process.Extras.Internal.Queue.PriorityQ where
 
 -- NB: we might try this with a skewed binomial heap at some point,
 -- but for now, we'll use this module from the fingertree package

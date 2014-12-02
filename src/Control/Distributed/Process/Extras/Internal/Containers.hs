@@ -1,4 +1,4 @@
-module Control.Distributed.Process.Internal.Containers where
+module Control.Distributed.Process.Extras.Internal.Containers where
 
 class (Eq k, Functor m) => Map m k | m -> k where
   empty         :: m a

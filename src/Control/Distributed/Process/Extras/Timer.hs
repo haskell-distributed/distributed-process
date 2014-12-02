@@ -5,7 +5,7 @@
 
 -----------------------------------------------------------------------------
 -- |
--- Module      :  Control.Distributed.Process.Platform.Timer
+-- Module      :  Control.Distributed.Process.Extras.Timer
 -- Copyright   :  (c) Tim Watson 2012
 -- License     :  BSD3 (see the file LICENSE)
 --
@@ -18,7 +18,7 @@
 -- flushing pending /timers/.
 -----------------------------------------------------------------------------
 
-module Control.Distributed.Process.Platform.Timer
+module Control.Distributed.Process.Extras.Timer
   (
     TimerRef
   , Tick(Tick)
@@ -39,9 +39,9 @@ module Control.Distributed.Process.Platform.Timer
 import Control.DeepSeq (NFData)
 import Control.Distributed.Process hiding (send)
 import Control.Distributed.Process.Serializable
-import Control.Distributed.Process.Platform.UnsafePrimitives (send)
-import Control.Distributed.Process.Platform.Internal.Types (NFSerializable)
-import Control.Distributed.Process.Platform.Time
+import Control.Distributed.Process.Extras.UnsafePrimitives (send)
+import Control.Distributed.Process.Extras.Internal.Types (NFSerializable)
+import Control.Distributed.Process.Extras.Time
 import Data.Binary
 import Data.Typeable (Typeable)
 import Prelude hiding (init)

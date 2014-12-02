@@ -1,6 +1,6 @@
 -----------------------------------------------------------------------------
 -- |
--- Module      :  Control.Distributed.Process.Platform.UnsafePrimitives
+-- Module      :  Control.Distributed.Process.Extras.UnsafePrimitives
 -- Copyright   :  (c) Tim Watson 2013
 -- License     :  BSD3 (see the file LICENSE)
 --
@@ -19,7 +19,7 @@
 -- still have certain risks and potential side effects. Use with caution.
 --
 -----------------------------------------------------------------------------
-module Control.Distributed.Process.Platform.UnsafePrimitives
+module Control.Distributed.Process.Extras.UnsafePrimitives
   ( send
   , nsend
   , sendToAddr
@@ -34,7 +34,7 @@ import Control.Distributed.Process
   , SendPort
   , Message
   )
-import Control.Distributed.Process.Platform.Internal.Types
+import Control.Distributed.Process.Extras.Internal.Types
   ( NFSerializable
   , Addressable
   , Resolvable(..)

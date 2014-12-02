@@ -2,7 +2,7 @@
 
 -----------------------------------------------------------------------------
 -- |
--- Module      :  Control.Distributed.Process.Platform.Call
+-- Module      :  Control.Distributed.Process.Extras.Call
 -- Copyright   :  (c) Parallel Scientific (Jeff Epstein) 2012
 -- License     :  BSD3 (see the file LICENSE)
 --
@@ -19,7 +19,7 @@
 -- and the 'callResponse' family of functions in this module.
 -----------------------------------------------------------------------------
 
-module Control.Distributed.Process.Platform.Call
+module Control.Distributed.Process.Extras.Call
   ( -- client API
     callAt
   , callTimeout
@@ -42,8 +42,8 @@ import Data.Maybe (listToMaybe)
 import Data.Binary (Binary,get,put)
 import Data.Typeable (Typeable)
 
-import Control.Distributed.Process.Platform hiding (monitor, send)
-import Control.Distributed.Process.Platform.Time
+import Control.Distributed.Process.Extras hiding (monitor, send)
+import Control.Distributed.Process.Extras.Time
 
 ----------------------------------------------
 -- * Multicall
