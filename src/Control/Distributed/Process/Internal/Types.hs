@@ -1,8 +1,10 @@
 {-# LANGUAGE DeriveDataTypeable  #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ExistentialQuantification  #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving  #-}
 {-# LANGUAGE GADTs  #-}
-{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- | Types used throughout the Cloud Haskell framework
 --
@@ -109,7 +111,9 @@ import Control.Concurrent.STM.TChan (TChan)
 import qualified Network.Transport as NT (EndPoint, EndPointAddress, Connection)
 import Control.Applicative (Applicative, Alternative, (<$>), (<*>))
 import Control.Monad.Reader (MonadReader(..), ReaderT, runReaderT)
-import Control.Monad.IO.Class (MonadIO)
+import Control.Monad.IO.Class (MonadIO(..))
+import Control.Monad.Base (MonadBase(..))
+import Control.Monad.Trans.Control (MonadBaseControl(..))
 import Control.Distributed.Process.Serializable
   ( Fingerprint
   , Serializable
@@ -291,7 +295,19 @@ data LocalProcessState = LocalProcessState
 newtype Process a = Process {
     unProcess :: ReaderT LocalProcess IO a
   }
-  deriving (Functor, Monad, MonadIO, MonadReader LocalProcess, Typeable, Applicative)
+  deriving (Applicative, Functor, Monad, MonadIO, MonadReader LocalProcess, Typeable)
+
+instance MonadBase IO Process where
+  liftBase = liftIO
+
+instance MonadBaseControl IO Process where
+  newtype StM Process a =
+    StMProcess { unStMProcess :: StM (ReaderT LocalProcess IO) a }
+
+  liftBaseWith f = Process $ liftBaseWith $ \run ->
+      f $ fmap StMProcess . run . unProcess
+
+  restoreM = Process . restoreM . unStMProcess
 
 --------------------------------------------------------------------------------
 -- Typed channels                                                             --
