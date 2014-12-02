@@ -86,6 +86,7 @@ module Control.Distributed.Process.Internal.Types
 import System.Mem.Weak (Weak)
 import Data.Map (Map)
 import Data.Int (Int32)
+import Data.Data (Data)
 import Data.Typeable (Typeable, typeOf)
 import Data.Binary (Binary(put, get), putWord8, getWord8, encode)
 import qualified Data.ByteString as BSS (ByteString, concat, copy)
@@ -133,7 +134,7 @@ import GHC.Generics
 
 -- | Node identifier
 newtype NodeId = NodeId { nodeAddress :: NT.EndPointAddress }
-  deriving (Eq, Ord, Typeable, Generic)
+  deriving (Eq, Ord, Typeable, Data, Generic)
 instance Binary NodeId where
 instance NFData NodeId
 instance Hashable NodeId where
@@ -146,7 +147,7 @@ data LocalProcessId = LocalProcessId
   { lpidUnique  :: {-# UNPACK #-} !Int32
   , lpidCounter :: {-# UNPACK #-} !Int32
   }
-  deriving (Eq, Ord, Typeable, Generic, Show)
+  deriving (Eq, Ord, Typeable, Data, Generic, Show)
 
 instance Hashable LocalProcessId where
 
@@ -157,7 +158,7 @@ data ProcessId = ProcessId
     -- | Node-local identifier for the process
   , processLocalId :: {-# UNPACK #-} !LocalProcessId
   }
-  deriving (Eq, Ord, Typeable, Generic)
+  deriving (Eq, Ord, Typeable, Data, Generic)
 
 instance Binary ProcessId where
 instance NFData ProcessId where
