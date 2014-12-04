@@ -255,11 +255,11 @@ import Data.Rank1Typeable
 data StaticLabel =
     StaticLabel String
   | StaticApply StaticLabel StaticLabel
-  deriving (Typeable, Show)
+  deriving (Eq, Ord, Typeable, Show)
 
 -- | A static value. Static is opaque; see 'staticLabel' and 'staticApply'.
 newtype Static a = Static StaticLabel
-  deriving (Typeable, Show)
+  deriving (Eq, Ord, Typeable, Show)
 
 instance Typeable a => Binary (Static a) where
   put (Static label) = putStaticLabel label >> put (typeOf (undefined :: a))
@@ -342,7 +342,7 @@ unstatic rtable (Static static) = do
 
 -- | A closure is a static value and an encoded environment
 data Closure a = Closure (Static (ByteString -> a)) ByteString
-  deriving (Typeable, Show)
+  deriving (Eq, Ord, Typeable, Show)
 
 instance Typeable a => Binary (Closure a) where
   put (Closure static env) = put static >> put env
