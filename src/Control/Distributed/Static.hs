@@ -255,11 +255,11 @@ import Data.Rank1Typeable
 data StaticLabel =
     StaticLabel String
   | StaticApply StaticLabel StaticLabel
-  deriving (Typeable, Show)
+  deriving (Eq, Typeable, Show)
 
 -- | A static value. Static is opaque; see 'staticLabel' and 'staticApply'.
 newtype Static a = Static StaticLabel
-  deriving (Typeable, Show)
+  deriving (Eq, Typeable, Show)
 
 instance Typeable a => Binary (Static a) where
   put (Static label) = putStaticLabel label >> put (typeOf (undefined :: a))
