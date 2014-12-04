@@ -342,7 +342,7 @@ unstatic rtable (Static static) = do
 
 -- | A closure is a static value and an encoded environment
 data Closure a = Closure (Static (ByteString -> a)) ByteString
-  deriving (Typeable, Show)
+  deriving (Eq, Typeable, Show)
 
 instance Typeable a => Binary (Closure a) where
   put (Closure static env) = put static >> put env
