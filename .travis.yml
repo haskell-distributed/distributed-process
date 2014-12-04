@@ -4,3 +4,8 @@ ghc:
  - 7.8
  - 7.6
  - 7.4
+
+before_install:
+  - cabal sandbox init
+  - for i in `cat REPOS`; do git clone http://github.com/haskell-distributed/$i; done
+  - for i in `cat REPOS`; do cabal sandbox add-source $i; done
