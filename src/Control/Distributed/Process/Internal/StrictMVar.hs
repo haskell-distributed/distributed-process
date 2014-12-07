@@ -1,5 +1,5 @@
 -- | Like Control.Concurrent.MVar.Strict but reduce to HNF, not NF
-{-# LANGUAGE MagicHash, UnboxedTuples #-}
+{-# LANGUAGE CPP, MagicHash, UnboxedTuples #-}
 module Control.Distributed.Process.Internal.StrictMVar
   ( StrictMVar(StrictMVar)
   , newEmptyMVar
@@ -16,7 +16,11 @@ module Control.Distributed.Process.Internal.StrictMVar
 
 import Control.Applicative ((<$>))
 import Control.Monad ((>=>))
+#if MIN_VERSION_base(4,6,0)
 import Control.Exception (evaluate)
+#else
+import Control.Exception (evaluate, mask_, onException)
+#endif
 import qualified Control.Concurrent.MVar as MVar
   ( MVar
   , newEmptyMVar
@@ -27,7 +31,9 @@ import qualified Control.Concurrent.MVar as MVar
   , withMVar
   , modifyMVar_
   , modifyMVar
+#if MIN_VERSION_base(4,6,0)
   , modifyMVarMasked
+#endif
   )
 import GHC.MVar (MVar(MVar))
 import GHC.IO (IO(IO))
@@ -64,7 +70,16 @@ modifyMVar (StrictMVar v) f = MVar.modifyMVar v (f >=> evaluateFst)
     evaluateFst (x, y) = evaluate x >> return (x, y)
 
 modifyMVarMasked :: StrictMVar a -> (a -> IO (a, b)) -> IO b
-modifyMVarMasked (StrictMVar v) f = MVar.modifyMVarMasked v (f >=> evaluateFst)
+modifyMVarMasked (StrictMVar v) f =
+#if MIN_VERSION_base(4,6,0)
+    MVar.modifyMVarMasked v (f >=> evaluateFst)
+#else
+  mask_ $ do
+    a      <- MVar.takeMVar v
+    (a',b) <- (f a >>= evaluate) `onException` MVar.putMVar v a
+    MVar.putMVar v a'
+    return b
+#endif
   where
     evaluateFst :: (a, b) -> IO (a, b)
     evaluateFst (x, y) = evaluate x >> return (x, y)
