@@ -10,6 +10,7 @@ module Control.Distributed.Process.Internal.StrictMVar
   , withMVar
   , modifyMVar_
   , modifyMVar
+  , modifyMVarMasked
   , mkWeakMVar
   ) where
 
@@ -26,6 +27,7 @@ import qualified Control.Concurrent.MVar as MVar
   , withMVar
   , modifyMVar_
   , modifyMVar
+  , modifyMVarMasked
   )
 import GHC.MVar (MVar(MVar))
 import GHC.IO (IO(IO))
@@ -57,6 +59,12 @@ modifyMVar_ (StrictMVar v) f = MVar.modifyMVar_ v (f >=> evaluate)
 
 modifyMVar :: StrictMVar a -> (a -> IO (a, b)) -> IO b
 modifyMVar (StrictMVar v) f = MVar.modifyMVar v (f >=> evaluateFst)
+  where
+    evaluateFst :: (a, b) -> IO (a, b)
+    evaluateFst (x, y) = evaluate x >> return (x, y)
+
+modifyMVarMasked :: StrictMVar a -> (a -> IO (a, b)) -> IO b
+modifyMVarMasked (StrictMVar v) f = MVar.modifyMVarMasked v (f >=> evaluateFst)
   where
     evaluateFst :: (a, b) -> IO (a, b)
     evaluateFst (x, y) = evaluate x >> return (x, y)

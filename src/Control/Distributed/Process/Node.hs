@@ -71,7 +71,7 @@ import Control.Concurrent (forkIO, forkIOWithUnmask, myThreadId)
 import Control.Distributed.Process.Internal.StrictMVar
   ( newMVar
   , withMVar
-  , modifyMVar
+  , modifyMVarMasked
   , modifyMVar_
   , newEmptyMVar
   , putMVar
@@ -332,7 +332,8 @@ runProcess node proc = do
 
 -- | Spawn a new process on a local node
 forkProcess :: LocalNode -> Process () -> IO ProcessId
-forkProcess node proc = modifyMVar (localState node) startProcess
+forkProcess node proc =
+    modifyMVarMasked (localState node) startProcess
   where
     startProcess :: LocalNodeState -> IO (LocalNodeState, ProcessId)
     startProcess st = do
