@@ -1025,11 +1025,9 @@ say string = do
 -- Registry                                                                   --
 --------------------------------------------------------------------------------
 
--- | Register a process with the local registry (asynchronous).
--- This version will wait until a response is gotten from the
--- management process. The name must not already be registered.
--- The process need not be on this node.
--- A bad registration will result in a 'ProcessRegistrationException'
+-- | Register a process with the local registry (synchronous). The name must not
+--  already be registered. The process need not be on this node. A bad
+--  registration will result in a 'ProcessRegistrationException'
 --
 -- The process to be registered does not have to be local itself.
 register :: String -> ProcessId -> Process ()
