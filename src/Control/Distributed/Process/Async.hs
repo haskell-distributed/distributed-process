@@ -1,6 +1,6 @@
 -----------------------------------------------------------------------------
 -- |
--- Module      :  Control.Distributed.Process.Platform.Async
+-- Module      :  Control.Distributed.Process.Async
 -- Copyright   :  (c) Tim Watson 2012
 -- License     :  BSD3 (see the file LICENSE)
 --
@@ -8,12 +8,12 @@
 -- Stability   :  experimental
 -- Portability :  non-portable (requires concurrency)
 --
--- The /async/ APIs provided by distributed-process-platform provide means
--- for spawning asynchronous operations, waiting for their results, cancelling
--- them and various other utilities. The two primary implementation are
--- @AsyncChan@ which provides a handle which is scoped to the calling process,
--- and @AsyncSTM@, whose async mechanism can be used by (i.e., shared across)
--- multiple local processes, though its handles cannot be serialised.
+-- This API provides a means for spawning asynchronous operations, waiting
+-- for their results, cancelling them and various other utilities. The two
+-- primary implementation are @AsyncChan@ which provides a handle which is
+-- scoped to the calling process, and @AsyncSTM@, whose async mechanism can
+-- be used by (i.e., shared across) multiple local processes, though its
+-- handles cannot be serialised.
 --
 -- Both abstractions can run asynchronous operations on remote nodes. The STM
 -- based implementation provides a slightly richer API. The API defined in
@@ -28,13 +28,11 @@
 -- Cloud Haskell primitives), otherwise the 'AsyncResult' will end up being
 -- @AsyncFailed DiedException@ instead of containing the result.
 --
--- See "Control.Distributed.Process.Platform.Async.AsyncSTM",
--- "Control.Distributed.Process.Platform.Async.AsyncChan",
--- "Control.Distributed.Platform.Task",
--- "Control.Distributed.Platform.Task.Execution".
+-- See "Control.Distributed.Process.Async.STM",
+-- "Control.Distributed.Process.Async.Chan".
 -----------------------------------------------------------------------------
 
-module Control.Distributed.Process.Platform.Async
+module Control.Distributed.Process.Async
  ( -- * Exported Types
     Async(..)
   , AsyncRef
@@ -70,7 +68,7 @@ import Control.Distributed.Process.Serializable
   ( Serializable
   , SerializableDict
   )
-import Control.Distributed.Process.Platform.Async.Types
+import Control.Distributed.Process.Async.Internal.Types
   ( Async(..)
   , AsyncRef
   , AsyncTask(..)
