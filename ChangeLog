@@ -1,3 +1,9 @@
+2013-01-27  Tim Watson <watson.timothy@gmail.com>  0.2.2.0
+
+* Bump dependencies
+
+2013-01-27  Tim Watson <watson.timothy@gmail.com>  0.2.1.0
+
 2013-01-27  Tim Watson <watson.timothy@gmail.com>  0.2.0.9
 
 * Shut down the logger process before exiting
