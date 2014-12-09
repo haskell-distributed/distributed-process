@@ -1,9 +1,20 @@
-2014-13-08  Tim Watson  <watson.timothy@gmail.com>  0.5.1
+2014-12-09  Tim Watson  <watson.timothy@gmail.com>  0.5.2
+
+* Fix docstring for `register`
+* Added Data instance to ProcessId, LocalProcessId and NodeId
+* Add static serialiation dictionary for 'Static', for completeness
+* Add Closure static serialization dictionary
+* Replacement for modifyMVarMasked for GHC <= 7.4
+* Document the use of built-in trace flags
+* Make forkProcess exception-safe
+* Make -Wall clean
+
+2014-08-13  Tim Watson  <watson.timothy@gmail.com>  0.5.1
 
 * Fix cabal docs (thanks Markus Barenhoff)
 * Expose lifted version of Control.Exception.mask_ (thanks Alexander Vershilov)
 
-2014-30-05  Tim Watson  <watson.timothy@gmail.com>  0.5.0
+2014-05-30  Tim Watson  <watson.timothy@gmail.com>  0.5.0
 
 * Dependency on STM implicitly changed from 1.3 to 1.4, but was not reflected in the cabal file
 * Race condition in local monitoring when using call
