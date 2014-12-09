@@ -1,3 +1,8 @@
+2014-12-09  Tim Watson  <watson.timothy@gmail.com>  0.4.1.0
+
+* foreigns htonl, ntohl, htons, ntohs are imported from ws2_32 on windows 
+* Created Data instance for EndPointAddress (thanks Andrew Rademacher)
+
 2014-05-30  Tim Watson  <watson.timothy@gmail.com>  0.4.0.0
 
 * Fix build for GHC 7.4 - thanks mboes!
