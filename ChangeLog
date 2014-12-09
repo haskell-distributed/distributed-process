@@ -1,3 +1,7 @@
+2014-12-09  Tim Watson  <watson.timothy@gmail.com>  0.3.1.0
+
+* Eq and Ord instances for Closure and Static
+
 2014-05-30  Tim Watson  <watson.timothy@gmail.com>  0.3.0.0
 
 * Bump binary dependency
