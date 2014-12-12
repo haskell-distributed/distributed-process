@@ -1,14 +1,6 @@
 language: haskell
-script: "make ci"
-notifications:
-  email:
-    recipients:
-      - cloud.haskell@gmail.com
-  irc:
-    channels:
-      - "irc.freenode.org#haskell-distributed"
-    use_notice: true
-branches:
-  only:
-    - master
-    - development
+
+ghc:
+ - 7.8
+ - 7.6
+ - 7.4
