@@ -6,7 +6,7 @@
 {-# LANGUAGE DeriveGeneric             #-}
 
 -- | shared, internal types for the Async package
-module Control.Distributed.Process.Platform.Async.Types
+module Control.Distributed.Process.Async.Internal.Types
  ( -- * Exported types
     Async(..)
   , AsyncRef
@@ -14,8 +14,9 @@ module Control.Distributed.Process.Platform.Async.Types
   , AsyncResult(..)
   ) where
 
+import Control.Concurrent.STM
 import Control.Distributed.Process
-import Control.Distributed.Process.Platform.Time
+import Control.Distributed.Process.Extras (Resolvable(..))
 import Control.Distributed.Process.Serializable
   ( Serializable
   , SerializableDict
@@ -25,17 +26,28 @@ import Data.Typeable (Typeable)
 
 import GHC.Generics
 
--- | An opaque handle that refers to an asynchronous operation.
-data Async a = Async {
-    hPoll        :: Process (AsyncResult a)
-  , hWait        :: Process (AsyncResult a)
-  , hWaitTimeout :: TimeInterval -> Process (Maybe (AsyncResult a))
-  , hCancel      :: Process ()
-  , asyncWorker  :: ProcessId
-  }
-
 -- | A reference to an asynchronous action
 type AsyncRef = ProcessId
+
+-- | An handle for an asynchronous action spawned by 'async'.
+-- Asynchronous operations are run in a separate process, and
+-- operations are provided for waiting for asynchronous actions to
+-- complete and obtaining their results (see e.g. 'wait').
+--
+-- Handles of this type cannot cross remote boundaries, nor are they
+-- @Serializable@.
+data Async a = Async {
+    _asyncWorker  :: AsyncRef
+  , _asyncMonitor :: AsyncRef
+  , _asyncWait    :: STM (AsyncResult a)
+  }
+
+instance Eq (Async a) where
+  Async a b _ == Async c d _  =  a == c && b == d
+
+instance Resolvable (Async a) where
+  resolve :: Async a -> Process (Maybe ProcessId)
+  resolve = return . Just . _asyncWorker
 
 -- | A task to be performed asynchronously.
 data AsyncTask a =

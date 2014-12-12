@@ -9,17 +9,8 @@
 -- Portability :  non-portable (requires concurrency)
 --
 -- This API provides a means for spawning asynchronous operations, waiting
--- for their results, cancelling them and various other utilities. The two
--- primary implementation are @AsyncChan@ which provides a handle which is
--- scoped to the calling process, and @AsyncSTM@, whose async mechanism can
--- be used by (i.e., shared across) multiple local processes, though its
--- handles cannot be serialised.
---
--- Both abstractions can run asynchronous operations on remote nodes. The STM
--- based implementation provides a slightly richer API. The API defined in
--- /this/ module only supports a subset of operations on async handles,
--- and (specifically) does not support mixing handles initialised via
--- different implementations.
+-- for their results, cancelling them and various other utilities.
+-- Asynchronous operations can be executed on remote nodes.
 --
 -- [Asynchronous Operations]
 --
@@ -28,27 +19,23 @@
 -- Cloud Haskell primitives), otherwise the 'AsyncResult' will end up being
 -- @AsyncFailed DiedException@ instead of containing the result.
 --
--- See "Control.Distributed.Process.Async.STM",
--- "Control.Distributed.Process.Async.Chan".
+-- Portions of this file are derived from the @Control.Concurrent.Async@
+-- module, from the @async@ package written by Simon Marlow.
 -----------------------------------------------------------------------------
 
 module Control.Distributed.Process.Async
- ( -- * Exported Types
-    Async(..)
-  , AsyncRef
+  ( -- * Exported types
+    AsyncRef
   , AsyncTask(..)
+  , Async
   , AsyncResult(..)
-  -- * Spawning asynchronous operations
+    -- * Spawning asynchronous operations
   , async
   , asyncLinked
-  , asyncSTM
-  , asyncLinkedSTM
-  , asyncChan
-  , asyncLinkedChan
   , task
   , remoteTask
   , monitorAsync
-  -- * Cancelling asynchronous operations
+    -- * Cancelling asynchronous operations
   , cancel
   , cancelWait
   , cancelWith
@@ -57,74 +44,44 @@ module Control.Distributed.Process.Async
   , poll
   , check
   , wait
+  , waitAny
     -- * Waiting with timeouts
+  , waitAnyTimeout
   , waitTimeout
-  , waitCancelTimeout
   , waitCheckTimeout
+    -- * STM versions
+  , pollSTM
+  , waitTimeoutSTM
+  , waitAnyCancel
+  , waitEither
+  , waitEither_
+  , waitBoth
   ) where
 
+#if ! MIN_VERSION_base(4,6,0)
+import Prelude hiding (catch)
+#endif
+
+import Control.Applicative
+import Control.Concurrent.STM hiding (check)
 import Control.Distributed.Process
 import Control.Distributed.Process.Serializable
-  ( Serializable
-  , SerializableDict
-  )
 import Control.Distributed.Process.Async.Internal.Types
-  ( Async(..)
-  , AsyncRef
-  , AsyncTask(..)
-  , AsyncResult(..)
+import Control.Distributed.Process.Extras
+  ( CancelWait(..)
+  , Channel
+  , Resolvable(..)
   )
-import qualified Control.Distributed.Process.Platform.Async.AsyncSTM as AsyncSTM
-import qualified Control.Distributed.Process.Platform.Async.AsyncChan as AsyncChan
-import Control.Distributed.Process.Platform.Time
+import Control.Distributed.Process.Extras.Time
+  ( asTimeout
+  , TimeInterval
+  )
+import Control.Monad
 import Data.Maybe
   ( fromMaybe
   )
 
---------------------------------------------------------------------------------
--- API                                                                        --
---------------------------------------------------------------------------------
-
--- | Spawn an 'AsyncTask' and return the 'Async' handle to it.
--- See 'asyncSTM'.
-async :: (Serializable a) => Process a -> Process (Async a)
-async t = asyncSTM (AsyncTask t)
-
--- | Spawn an 'AsyncTask' (linked to the calling process) and
--- return the 'Async' handle to it.
--- See 'asyncSTM'.
-asyncLinked :: (Serializable a) => Process a -> Process (Async a)
-asyncLinked p = AsyncSTM.newAsync AsyncSTM.asyncLinked (AsyncTask p)
-
--- | Spawn an 'AsyncTask' and return the 'Async' handle to it.
--- Uses the STM implementation, whose handles can be read by other
--- processes, though they're not @Serializable@.
---
--- See 'Control.Distributed.Process.Platform.Async.AsyncSTM'.
-asyncSTM :: (Serializable a) => AsyncTask a -> Process (Async a)
-asyncSTM = AsyncSTM.newAsync AsyncSTM.async
-
--- | Spawn an 'AsyncTask' (linked to the calling process) and return the
--- 'Async' handle to it. Uses the STM based implementation, whose handles
--- can be read by other processes, though they're not @Serializable@.
---
--- See 'Control.Distributed.Process.Platform.Async.AsyncSTM'.
-asyncLinkedSTM :: (Serializable a) => AsyncTask a -> Process (Async a)
-asyncLinkedSTM = AsyncSTM.newAsync AsyncSTM.asyncLinked
-
--- | Spawn an 'AsyncTask' and return the 'Async' handle to it.
--- Uses a channel based implementation, whose handles can only be read once,
--- and only by the calling process.
---
--- See 'Control.Distributed.Process.Platform.Async.AsyncChan'.
-asyncChan :: (Serializable a) => AsyncTask a -> Process (Async a)
-asyncChan = AsyncChan.newAsync AsyncChan.async
-
--- | Linked version of 'asyncChan'.
---
--- See 'Control.Distributed.Process.Platform.Async.AsyncChan'.
-asyncLinkedChan :: (Serializable a) => AsyncTask a -> Process (Async a)
-asyncLinkedChan = AsyncChan.newAsync AsyncChan.asyncLinked
+import System.Timeout (timeout)
 
 -- | Wraps a regular @Process a@ as an 'AsyncTask'.
 task :: Process a -> AsyncTask a
@@ -139,28 +96,108 @@ remoteTask = AsyncRemoteTask
 
 -- | Given an 'Async' handle, monitor the worker process.
 monitorAsync :: Async a -> Process MonitorRef
-monitorAsync = monitor . asyncWorker
+monitorAsync hAsync = do
+  worker <- resolve hAsync
+  case worker of
+    Nothing -> die "Invalid Async Handle"
+    Just p  -> monitor p
 
--- | Check whether an 'Async' handle has completed yet. The status of the
--- action is encoded in the returned 'AsyncResult'. If the action has not
--- completed, the result will be 'AsyncPending', or one of the other
--- constructors otherwise. This function does not block waiting for the result.
--- Use 'wait' or 'waitTimeout' if you need blocking/waiting semantics.
-{-# INLINE poll #-}
+-- | Spawns an asynchronous action and returns a handle to it,
+-- which can be used to obtain its status and/or result or interact
+-- with it (using the API exposed by this module).
+--
+async :: (Serializable a) => AsyncTask a -> Process (Async a)
+async = asyncDo False
+
+-- | This is a useful variant of 'async' that ensures an @Async@ task is
+-- never left running unintentionally. We ensure that if the caller's process
+-- exits, that the worker is killed.
+--
+-- There is currently a contract for async workers, that they should
+-- exit normally (i.e., they should not call the @exit@ or @kill@ with their own
+-- 'ProcessId' nor use the @terminate@ primitive to cease functining), otherwise
+-- the 'AsyncResult' will end up being @AsyncFailed DiedException@ instead of
+-- containing the desired result.
+--
+asyncLinked :: (Serializable a) => AsyncTask a -> Process (Async a)
+asyncLinked = asyncDo True
+
+-- private API
+asyncDo :: (Serializable a) => Bool -> AsyncTask a -> Process (Async a)
+asyncDo shouldLink (AsyncRemoteTask d n c) =
+  let proc = call d n c in asyncDo shouldLink AsyncTask { asyncTask = proc }
+asyncDo shouldLink (AsyncTask proc) = do
+    root <- getSelfPid
+    result <- liftIO $ newEmptyTMVarIO
+    sigStart <- liftIO $ newEmptyTMVarIO
+    (sp, rp) <- newChan
+
+    -- listener/response proxy
+    insulator <- spawnLocal $ do
+        worker <- spawnLocal $ do
+            liftIO $ atomically $ takeTMVar sigStart
+            r <- proc
+            void $ liftIO $ atomically $ putTMVar result (AsyncDone r)
+
+        sendChan sp worker  -- let the parent process know the worker pid
+
+        wref <- monitor worker
+        rref <- case shouldLink of
+                    True  -> monitor root >>= return . Just
+                    False -> return Nothing
+        finally (pollUntilExit worker result)
+                (unmonitor wref >>
+                    return (maybe (return ()) unmonitor rref))
+
+    workerPid <- receiveChan rp
+    liftIO $ atomically $ putTMVar sigStart ()
+
+    return Async {
+          _asyncWorker  = workerPid
+        , _asyncMonitor = insulator
+        , _asyncWait    = (readTMVar result)
+        }
+
+  where
+    pollUntilExit :: (Serializable a)
+                  => ProcessId
+                  -> TMVar (AsyncResult a)
+                  -> Process ()
+    pollUntilExit wpid result' = do
+      r <- receiveWait [
+          match (\c@(CancelWait) -> kill wpid "cancel" >> return (Left c))
+        , match (\(ProcessMonitorNotification _ pid' r) ->
+                  return (Right (pid', r)))
+        ]
+      case r of
+          Left CancelWait
+            -> liftIO $ atomically $ putTMVar result' AsyncCancelled
+          Right (fpid, d)
+            | fpid == wpid
+              -> case d of
+                     DiedNormal -> return ()
+                     _          -> liftIO $ atomically $ putTMVar result' (AsyncFailed d)
+            | otherwise -> kill wpid "linkFailed"
+
+-- | Check whether an 'Async' has completed yet.
+--
+-- See "Control.Distributed.Process.Platform.Async".
 poll :: (Serializable a) => Async a -> Process (AsyncResult a)
-poll = hPoll
+poll hAsync = do
+  r <- liftIO $ atomically $ pollSTM hAsync
+  return $ fromMaybe (AsyncPending) r
 
 -- | Like 'poll' but returns 'Nothing' if @(poll hAsync) == AsyncPending@.
--- See 'poll'.
+--
+-- See "Control.Distributed.Process.Platform.Async".
 check :: (Serializable a) => Async a -> Process (Maybe (AsyncResult a))
 check hAsync = poll hAsync >>= \r -> case r of
   AsyncPending -> return Nothing
   ar           -> return (Just ar)
 
--- | Wait for an asynchronous operation to complete or timeout. This variant
--- returns the 'AsyncResult' itself, which will be 'AsyncPending' if the
--- result has not been made available, otherwise one of the other constructors.
-{-# INLINE waitCheckTimeout #-}
+-- | Wait for an asynchronous operation to complete or timeout.
+--
+-- See "Control.Distributed.Process.Platform.Async".
 waitCheckTimeout :: (Serializable a) =>
                     TimeInterval -> Async a -> Process (AsyncResult a)
 waitCheckTimeout t hAsync =
@@ -169,86 +206,152 @@ waitCheckTimeout t hAsync =
 -- | Wait for an asynchronous action to complete, and return its
 -- value. The result (which can include failure and/or cancellation) is
 -- encoded by the 'AsyncResult' type.
+--
+-- @wait = liftIO . atomically . waitSTM@
+--
+-- See "Control.Distributed.Process.Platform.Async".
 {-# INLINE wait #-}
 wait :: Async a -> Process (AsyncResult a)
-wait = hWait
+wait = liftIO . atomically . waitSTM
 
--- | Wait for an asynchronous operation to complete or timeout. Returns
--- @Nothing@ if the 'AsyncResult' does not change from @AsyncPending@ within
--- the specified delay, otherwise @Just asyncResult@ is returned. If you want
--- to wait/block on the 'AsyncResult' without the indirection of @Maybe@ then
--- consider using 'wait' or 'waitCheckTimeout' instead.
-{-# INLINE waitTimeout #-}
+-- | Wait for an asynchronous operation to complete or timeout.
+--
+-- See "Control.Distributed.Process.Platform.Async".
 waitTimeout :: (Serializable a) =>
                TimeInterval -> Async a -> Process (Maybe (AsyncResult a))
-waitTimeout = flip hWaitTimeout
+waitTimeout t hAsync = do
+  -- This is not the most efficient thing to do, but it's the most erlang-ish.
+  (sp, rp) <- newChan :: (Serializable a) => Process (Channel (AsyncResult a))
+  pid <- spawnLocal $ wait hAsync >>= sendChan sp
+  receiveChanTimeout (asTimeout t) rp `finally` kill pid "timeout"
 
--- | Wait for an asynchronous operation to complete or timeout. If it times out,
--- then 'cancelWait' the async handle instead.
---
-waitCancelTimeout :: (Serializable a)
-                  => TimeInterval
-                  -> Async a
-                  -> Process (AsyncResult a)
-waitCancelTimeout t hAsync = do
-  r <- waitTimeout t hAsync
-  case r of
-    Nothing -> cancelWait hAsync
-    Just ar -> return ar
+-- | As 'waitTimeout' but uses STM directly, which might be more efficient.
+waitTimeoutSTM :: (Serializable a)
+                 => TimeInterval
+                 -> Async a
+                 -> Process (Maybe (AsyncResult a))
+waitTimeoutSTM t hAsync =
+  let t' = (asTimeout t)
+  in liftIO $ timeout t' $ atomically $ waitSTM hAsync
 
--- | Cancel an asynchronous operation. Cancellation is asynchronous in nature.
--- To wait for cancellation to complete, use 'cancelWait' instead. The notes
--- about the asynchronous nature of 'cancelWait' apply here also.
+-- | Wait for any of the supplied @Async@s to complete. If multiple
+-- 'Async's complete, then the value returned corresponds to the first
+-- completed 'Async' in the list.
 --
--- See 'Control.Distributed.Process'
-{-# INLINE cancel #-}
+-- NB: Unlike @AsyncChan@, 'Async' does not discard its 'AsyncResult' once
+-- read, therefore the semantics of this function are different to the
+-- former. Specifically, if @asyncs = [a1, a2, a3]@ and @(AsyncDone _) = a1@
+-- then the remaining @a2, a3@ will never be returned by 'waitAny'.
+--
+waitAny :: (Serializable a)
+        => [Async a]
+        -> Process (Async a, AsyncResult a)
+waitAny asyncs = do
+  r <- liftIO $ waitAnySTM asyncs
+  return r
+
+-- | Like 'waitAny', but also cancels the other asynchronous
+-- operations as soon as one has completed.
+--
+waitAnyCancel :: (Serializable a)
+              => [Async a] -> Process (Async a, AsyncResult a)
+waitAnyCancel asyncs =
+  waitAny asyncs `finally` mapM_ cancel asyncs
+
+-- | Wait for the first of two @Async@s to finish.
+--
+waitEither :: Async a
+              -> Async b
+              -> Process (Either (AsyncResult a) (AsyncResult b))
+waitEither left right =
+  liftIO $ atomically $
+    (Left  <$> waitSTM left)
+      `orElse`
+    (Right <$> waitSTM right)
+
+-- | Like 'waitEither', but the result is ignored.
+--
+waitEither_ :: Async a -> Async b -> Process ()
+waitEither_ left right =
+  liftIO $ atomically $
+    (void $ waitSTM left)
+      `orElse`
+    (void $ waitSTM right)
+
+-- | Waits for both @Async@s to finish.
+--
+waitBoth :: Async a
+            -> Async b
+            -> Process ((AsyncResult a), (AsyncResult b))
+waitBoth left right =
+  liftIO $ atomically $ do
+    a <- waitSTM left
+           `orElse`
+         (waitSTM right >> retry)
+    b <- waitSTM right
+    return (a,b)
+
+-- | Like 'waitAny' but times out after the specified delay.
+waitAnyTimeout :: (Serializable a)
+               => TimeInterval
+               -> [Async a]
+               -> Process (Maybe (AsyncResult a))
+waitAnyTimeout delay asyncs =
+  let t' = asTimeout delay
+  in liftIO $ timeout t' $ do
+    r <- waitAnySTM asyncs
+    return $ snd r
+
+-- | Cancel an asynchronous operation.
+--
+-- See "Control.Distributed.Process.Platform.Async".
 cancel :: Async a -> Process ()
-cancel = hCancel
+cancel (Async _ g _) = send g CancelWait
 
 -- | Cancel an asynchronous operation and wait for the cancellation to complete.
--- Because of the asynchronous nature of message passing, the instruction to
--- cancel will race with the asynchronous worker, so it is /entirely possible/
--- that the 'AsyncResult' returned will not necessarily be 'AsyncCancelled'. For
--- example, the worker may complete its task after this function is called, but
--- before the cancellation instruction is acted upon.
 --
--- If you wish to stop an asychronous operation /immediately/ (with caveats)
--- then consider using 'cancelWith' or 'cancelKill' instead.
---
-{-# INLINE cancelWait #-}
+-- See "Control.Distributed.Process.Platform.Async".
 cancelWait :: (Serializable a) => Async a -> Process (AsyncResult a)
 cancelWait hAsync = cancel hAsync >> wait hAsync
 
 -- | Cancel an asynchronous operation immediately.
--- This operation is performed by sending an /exit signal/ to the asynchronous
--- worker, which leads to the following semantics:
 --
---     1. If the worker already completed, this function has no effect.
---
---     2. The worker might complete after this call, but before the signal arrives.
---
---     3. The worker might ignore the exit signal using @catchExit@.
---
--- In case of (3), this function has no effect. You should use 'cancel'
--- if you need to guarantee that the asynchronous task is unable to ignore
--- the cancellation instruction.
---
--- You should also consider that when sending exit signals to a process, the
--- definition of 'immediately' is somewhat vague and a scheduler might take
--- time to handle the request, which can lead to situations similar to (1) as
--- listed above, if the scheduler to which the calling process' thread is bound
--- decides to GC whilst another scheduler on which the worker is running is able
--- to continue.
---
--- See 'Control.Distributed.Process.exit'
-{-# INLINE cancelWith #-}
+-- See "Control.Distributed.Process.Platform.Async".
 cancelWith :: (Serializable b) => b -> Async a -> Process ()
-cancelWith reason = (flip exit) reason . asyncWorker
+cancelWith reason hAsync = do
+  worker <- resolve hAsync
+  case worker of
+    Nothing  -> die "Invalid Async Handle"
+    Just ref -> exit ref reason
 
--- | Like 'cancelWith' but sends a @kill@ instruction instead of an exit signal.
+-- | Like 'cancelWith' but sends a @kill@ instruction instead of an exit.
 --
--- See 'Control.Distributed.Process.kill'
-{-# INLINE cancelKill #-}
+-- See 'Control.Distributed.Process.Platform.Async'.
 cancelKill :: String -> Async a -> Process ()
-cancelKill reason = (flip kill) reason . asyncWorker
+cancelKill reason hAsync = do
+  worker <- resolve hAsync
+  case worker of
+    Nothing  -> die "Invalid Async Handle"
+    Just ref -> kill ref reason
 
+--------------------------------------------------------------------------------
+-- STM Specific API                                                           --
+--------------------------------------------------------------------------------
+
+-- | STM version of 'waitAny'.
+waitAnySTM :: [Async a] -> IO (Async a, AsyncResult a)
+waitAnySTM asyncs =
+  atomically $
+    foldr orElse retry $
+      map (\a -> do r <- waitSTM a; return (a, r)) asyncs
+
+-- | A version of 'wait' that can be used inside an STM transaction.
+--
+waitSTM :: Async a -> STM (AsyncResult a)
+waitSTM (Async _ _ w) = w
+
+-- | A version of 'poll' that can be used inside an STM transaction.
+--
+{-# INLINE pollSTM #-}
+pollSTM :: Async a -> STM (Maybe (AsyncResult a))
+pollSTM (Async _ _ w) = (Just <$> w) `orElse` return Nothing
