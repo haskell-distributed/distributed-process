@@ -52,6 +52,7 @@ import Control.Distributed.Static
 import Control.Distributed.Process.Serializable
   ( SerializableDict(..)
   , Serializable
+  , TypeableDict(..)
   )
 import Control.Distributed.Process.Internal.Types
   ( Process
@@ -84,7 +85,8 @@ remoteTable =
     . registerStatic "$sdictUnit"       (toDynamic (SerializableDict :: SerializableDict ()))
     . registerStatic "$sdictProcessId"  (toDynamic (SerializableDict :: SerializableDict ProcessId))
     . registerStatic "$sdictSendPort_"  (toDynamic (sdictSendPort_   :: SerializableDict ANY -> SerializableDict (SendPort ANY)))
-    . registerStatic "$sdictClosure"    (toDynamic (SerializableDict :: SerializableDict (Closure ANY)))
+    . registerStatic "$sdictStatic"     (toDynamic (sdictStatic_     :: TypeableDict ANY -> SerializableDict (Static ANY)))
+    . registerStatic "$sdictClosure"    (toDynamic (sdictClosure_    :: TypeableDict ANY -> SerializableDict (Closure ANY)))
     . registerStatic "$returnProcess"   (toDynamic (return           :: ANY -> Process ANY))
     . registerStatic "$seqProcess"      (toDynamic ((>>)             :: Process ANY1 -> Process ANY2 -> Process ANY2))
     . registerStatic "$bindProcess"     (toDynamic ((>>=)            :: Process ANY1 -> (ANY1 -> Process ANY2) -> Process ANY2))
@@ -104,6 +106,12 @@ remoteTable =
 
     sdictSendPort_ :: forall a. SerializableDict a -> SerializableDict (SendPort a)
     sdictSendPort_ SerializableDict = SerializableDict
+
+    sdictStatic_ :: forall a. TypeableDict a -> SerializableDict (Static a)
+    sdictStatic_ TypeableDict = SerializableDict
+
+    sdictClosure_ :: forall a. TypeableDict a -> SerializableDict (Closure a)
+    sdictClosure_ TypeableDict = SerializableDict
 
     sendDict :: forall a. SerializableDict a -> ProcessId -> a -> Process ()
     sendDict SerializableDict = send
@@ -148,12 +156,12 @@ sdictSendPort :: Typeable a
 sdictSendPort = staticApply (staticLabel "$sdictSendPort_")
 
 -- | Serialization dictionary for 'Static'.
-sdictStatic :: Typeable a => Static (SerializableDict (Static a))
-sdictStatic = staticLabel "$sdictStatic"
+sdictStatic :: Typeable a => Static (TypeableDict a) -> Static (SerializableDict (Static a))
+sdictStatic = staticApply (staticLabel "$sdictStatic")
 
 -- | Serialization dictionary for 'Closure'.
-sdictClosure :: Typeable a => Static (SerializableDict (Closure a))
-sdictClosure = staticLabel "$sdictClosure"
+sdictClosure :: Typeable a => Static (TypeableDict a) -> Static (SerializableDict (Closure a))
+sdictClosure = staticApply (staticLabel "$sdictClosure")
 
 --------------------------------------------------------------------------------
 -- Static values                                                              --
