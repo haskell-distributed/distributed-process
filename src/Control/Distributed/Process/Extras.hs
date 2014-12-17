@@ -51,13 +51,17 @@ module Control.Distributed.Process.Extras
   (
     -- * Exported Types
     Addressable
+  , sendToRecipient
   , Resolvable(..)
   , Routable(..)
   , Linkable(..)
   , Killable(..)
   , NFSerializable
   , Recipient(..)
+  , Shutdown(..)
   , ExitReason(..)
+  , CancelWait(..)
+  , ServerDisconnected(..)
   , Channel
   , Tag
   , TagPool
@@ -93,11 +97,16 @@ module Control.Distributed.Process.Extras
 import Control.Distributed.Process (RemoteTable)
 import Control.Distributed.Process.Extras.Internal.Types
   ( NFSerializable
+  , sendToRecipient
+  , NFSerializable
   , Recipient(..)
+  , Shutdown(..)
   , ExitReason(..)
+  , CancelWait(..)
+  , ServerDisconnected(..)
+  , Channel
   , Tag
   , TagPool
-  , Channel
   , newTagPool
   , getTag
   )
