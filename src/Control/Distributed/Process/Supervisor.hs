@@ -10,7 +10,7 @@
 
 -----------------------------------------------------------------------------
 -- |
--- Module      :  Control.Distributed.Process.Platform.Supervisor
+-- Module      :  Control.Distributed.Process.Supervisor
 -- Copyright   :  (c) Tim Watson 2012 - 2013
 -- License     :  BSD3 (see the file LICENSE)
 --
@@ -211,7 +211,7 @@
 --
 -----------------------------------------------------------------------------
 
-module Control.Distributed.Process.Platform.Supervisor
+module Control.Distributed.Process.Supervisor
   ( -- * Defining and Running a Supervisor
     ChildSpec(..)
   , ChildKey
@@ -273,7 +273,7 @@ module Control.Distributed.Process.Platform.Supervisor
 
 import Control.DeepSeq (NFData)
 
-import Control.Distributed.Process.Platform.Supervisor.Types
+import Control.Distributed.Process.Supervisor.Types
 import Control.Distributed.Process hiding (call)
 import Control.Distributed.Process.Serializable()
 import Control.Distributed.Process.Extras.Internal.Primitives hiding (monitor)
@@ -383,7 +383,7 @@ import GHC.Generics
 --------------------------------------------------------------------------------
 
 -- TODO: ToChildStart belongs with rest of types in
--- Control.Distributed.Process.Platform.Supervisor.Types
+-- Control.Distributed.Process.Supervisor.Types
 
 -- | A type that can be converted to a 'ChildStart'.
 class ToChildStart a where
@@ -461,7 +461,7 @@ instance (Resolvable a) => ToChildStart (SupervisorPid -> Process a) where
           Just p  -> sendChan sendPidPort p
 
 -- internal APIs. The corresponding XxxResult types are in
--- Control.Distributed.Process.Platform.Supervisor.Types
+-- Control.Distributed.Process.Supervisor.Types
 
 data DeleteChild = DeleteChild !ChildKey
   deriving (Typeable, Generic)

@@ -2,7 +2,7 @@
 {-# LANGUAGE DeriveDataTypeable  #-}
 -----------------------------------------------------------------------------
 -- |
--- Module      :  Control.Distributed.Process.Platform.Supervisor.Types
+-- Module      :  Control.Distributed.Process.Supervisor.Types
 -- Copyright   :  (c) Tim Watson 2012
 -- License     :  BSD3 (see the file LICENSE)
 --
@@ -12,7 +12,7 @@
 --
 -----------------------------------------------------------------------------
 
-module Control.Distributed.Process.Platform.Supervisor.Types
+module Control.Distributed.Process.Supervisor.Types
   ( -- * Defining and Running a Supervisor
     ChildSpec(..)
   , ChildKey

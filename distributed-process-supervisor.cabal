@@ -54,9 +54,9 @@ library
   hs-source-dirs:   src
   ghc-options:      -Wall
   exposed-modules:
-                   Control.Distributed.Process.Platform.Supervisor
+                   Control.Distributed.Process.Supervisor
   other-modules:
-                   Control.Distributed.Process.Platform.Supervisor.Types
+                   Control.Distributed.Process.Supervisor.Types
 
 test-suite SupervisorTests
   type:            exitcode-stdio-1.0
