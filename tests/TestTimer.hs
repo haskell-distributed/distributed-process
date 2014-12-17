@@ -12,17 +12,23 @@ import Control.Concurrent.MVar
   )
 import qualified Network.Transport as NT (Transport)
 import Network.Transport.TCP()
-import Control.Distributed.Process.Platform.Time
+import Control.DeepSeq (NFData)
 import Control.Distributed.Process
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable()
-import Control.Distributed.Process.Platform.Timer
+import Control.Distributed.Process.Extras.Time
+import Control.Distributed.Process.Extras.Timer
+import Control.Distributed.Process.Tests.Internal.Utils
 
-import Test.Framework (Test, testGroup)
+import Test.Framework (Test, testGroup, defaultMain)
 import Test.Framework.Providers.HUnit (testCase)
+import Network.Transport.TCP
+import qualified Network.Transport as NT
 
-import Control.Distributed.Process.Platform.Test
-import TestUtils
+import GHC.Generics
+
+-- orphan instance
+instance NFData Ping where
 
 testSendAfter :: TestResult Bool -> Process ()
 testSendAfter result =
@@ -177,6 +183,14 @@ timerTests transport = do
   localNode <- newLocalNode transport initRemoteTable
   let testData = tests localNode
   return testData
+
+-- | Given a @builder@ function, make and run a test suite on a single transport
+testMain :: (NT.Transport -> IO [Test]) -> IO ()
+testMain builder = do
+  Right (transport, _) <- createTransportExposeInternals
+                                     "127.0.0.1" "10501" defaultTCPParameters
+  testData <- builder transport
+  defaultMain testData
 
 main :: IO ()
 main = testMain $ timerTests

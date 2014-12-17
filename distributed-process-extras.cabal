@@ -51,7 +51,6 @@ library
   exposed-modules:
                    Control.Distributed.Process.Extras,
                    Control.Distributed.Process.Extras.Call,
-                   Control.Distributed.Process.Extras.Test,
                    Control.Distributed.Process.Extras.Time,
                    Control.Distributed.Process.Extras.Timer,
                    Control.Distributed.Process.Extras.UnsafePrimitives,
@@ -69,7 +68,9 @@ test-suite InternalQueueTests
   build-depends:
                    base >= 4.4 && < 5,
                    ansi-terminal >= 0.5 && < 0.6,
+                   distributed-process >= 0.5.2 && < 0.6,
                    distributed-process-extras,
+                   distributed-process-tests >= 0.4.1 && < 0.5,
                    HUnit >= 1.2 && < 2,
                    test-framework >= 0.6 && < 0.9,
                    test-framework-hunit,
@@ -82,4 +83,30 @@ test-suite InternalQueueTests
   ghc-options:     -Wall -rtsopts
   extensions:      CPP
   main-is:         TestQueues.hs
+  cpp-options:     -DTESTING
+
+test-suite TimerTests
+  type:            exitcode-stdio-1.0
+  x-uses-tf:       true
+  build-depends:
+                   base >= 4.4 && < 5,
+                   ansi-terminal >= 0.5 && < 0.6,
+                   deepseq >= 1.3.0.1 && < 1.4,
+                   distributed-process >= 0.5.2 && < 0.6,
+                   distributed-process-extras,
+                   distributed-process-tests >= 0.4.1 && < 0.5,
+                   network-transport >= 0.4 && < 0.5,
+                   network-transport-tcp >= 0.4 && < 0.5,
+                   HUnit >= 1.2 && < 2,
+                   test-framework >= 0.6 && < 0.9,
+                   test-framework-hunit,
+                   QuickCheck >= 2.4,
+                   test-framework-quickcheck2,
+                   rematch >= 0.2.0.0,
+                   ghc-prim
+  hs-source-dirs:
+                   tests
+  ghc-options:     -Wall -rtsopts
+  extensions:      CPP
+  main-is:         TestTimer.hs
   cpp-options:     -DTESTING
