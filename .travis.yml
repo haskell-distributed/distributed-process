@@ -1,34 +1,22 @@
 language: haskell
 
-env:
-  matrix:
-    - GHCVER=7.4.2
-    - GHCVER=7.6.1
-    - GHCVER=7.6.2
-    - GHCVER=7.6.3
-  global:
-    - CABALVER=1.18
+ghc:
+ - 7.8
+ - 7.6
+ - 7.4
 
 before_install:
-  - rm -rf travis
-  - git clone http://github.com/haskell-distributed/haskell-distributed-travis travis
-  - source travis/scripts/set_env.sh
-  - ./travis/scripts/before_install.sh
+  - cabal sandbox init
+  - for i in `cat REPOS`; do git clone http://github.com/haskell-distributed/$i; done
+  - for i in `cat REPOS`; do cabal sandbox add-source $i; done
+  - sudo apt-get update -qq
+  - sudo apt-get install -qq binutils-dev
 
 install:
-  - ./travis/scripts/install.sh
+  # Don't run tests for dependencies.
+  - cabal install --only-dependencies
+  - cabal install --only-dependencies distributed-process-tests
 
 script:
-  - ./travis/scripts/script.sh
-
-notifications:
-  email:
-    recipients:
-      - cloud.haskell@gmail.com
-  irc:
-    channels:
-      - "irc.freenode.org#haskell-distributed"
-    use_notice: true
-    template:
-      - "\x0313d-p-platform\x03/\x0306%{branch}\x03 \x0314%{commit}\x03 %{build_url} %{message}"
-
+  - cabal install
+  - cabal install --enable-tests -j1 distributed-process-tests
