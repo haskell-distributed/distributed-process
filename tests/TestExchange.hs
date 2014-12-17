@@ -5,20 +5,16 @@
 
 module Main where
 
-import Control.Distributed.Process
+import Control.Distributed.Process hiding (monitor)
 import Control.Distributed.Process.Node
-import Control.Distributed.Process.Platform
-  ( Resolvable(..)
-  , Channel
-  , spawnSignalled
-  )
-import qualified Control.Distributed.Process.Platform (__remoteTable)
-import Control.Distributed.Process.Platform.Execution.EventManager hiding (start)
-import Control.Distributed.Process.Platform.Execution.Exchange
-import qualified Control.Distributed.Process.Platform.Execution.EventManager as EventManager
+import Control.Distributed.Process.Execution.EventManager hiding (start)
+import qualified Control.Distributed.Process.Extras
+import Control.Distributed.Process.Execution.Exchange
+import Control.Distributed.Process.Extras.Internal.Types
+import Control.Distributed.Process.Extras.Internal.Primitives
+import qualified Control.Distributed.Process.Execution.EventManager as EventManager
   ( start
   )
-import Control.Distributed.Process.Platform.Test
 import Control.Monad (void, forM, forever)
 import Control.Rematch (equalTo)
 
@@ -158,7 +154,7 @@ myHandler sp s m@(_, _, _) = sendChan sp m >> return s
 
 myRemoteTable :: RemoteTable
 myRemoteTable =
-  Control.Distributed.Process.Platform.__remoteTable initRemoteTable
+  Control.Distributed.Process.Extras.__remoteTable initRemoteTable
 
 tests :: NT.Transport  -> IO [Test]
 tests transport = do

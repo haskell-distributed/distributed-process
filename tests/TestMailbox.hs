@@ -4,18 +4,13 @@
 
 module Main where
 
-import Control.Distributed.Process hiding (monitor)
+import Control.Distributed.Process
 import Control.Distributed.Process.Node
-import Control.Distributed.Process.Platform
-  ( Resolvable(..)
-  )
-
-import qualified Control.Distributed.Process.Platform (__remoteTable)
-import Control.Distributed.Process.Platform.Execution.Mailbox
-import Control.Distributed.Process.Platform.Test
-import Control.Distributed.Process.Platform.Time
-import Control.Distributed.Process.Platform.Timer
-import Control.Monad (forM_)
+import qualified Control.Distributed.Process.Extras (__remoteTable)
+import qualified Control.Distributed.Process.Execution.Mailbox (__remoteTable)
+import Control.Distributed.Process.Execution.Mailbox
+import Control.Distributed.Process.Extras.Time
+import Control.Distributed.Process.Extras.Timer
 
 import Control.Rematch (equalTo)
 
@@ -178,7 +173,8 @@ waitForMailboxReady mbox sz = do
 
 myRemoteTable :: RemoteTable
 myRemoteTable =
-  Control.Distributed.Process.Platform.__remoteTable $
+  Control.Distributed.Process.Execution.Mailbox.__remoteTable $
+  Control.Distributed.Process.Extras.__remoteTable $
   MailboxTestFilters.__remoteTable initRemoteTable
 
 tests :: NT.Transport  -> IO [Test]
@@ -192,6 +188,7 @@ tests transport = do
           (delayedAssertion
            "Expected the Queue to offer FIFO ordering"
            localNode True (allBuffersShouldRespectFIFOOrdering Queue))
+	   
         , testCase "Stack Ordering"
           (delayedAssertion
            "Expected the Queue to offer FIFO ordering"
