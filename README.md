@@ -1,4 +1,4 @@
-### distributed-process-platform [![travis](https://secure.travis-ci.org/haskell-distributed/distributed-process-platform.png)](http://travis-ci.org/haskell-distributed/distributed-process-platform)
+### distributed-process-async [![travis](https://secure.travis-ci.org/haskell-distributed/distributed-process-async.png)](http://travis-ci.org/haskell-distributed/distributed-process-async)
 
 
 This repository is part of Cloud Haskell.
@@ -17,4 +17,4 @@ mailing list in the first instance - parallel-haskell@googlegroups.com.
 
 ### License
 
-distributed-process is made available under a BSD-3 license.
+distributed-process-async is made available under a BSD-3 license.
