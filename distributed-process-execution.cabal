@@ -102,6 +102,8 @@ test-suite ExchangeTests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind -eventlog
   extensions:      CPP
   main-is:         TestExchange.hs
+  other-modules:   TestUtils
+
 
 test-suite MailboxTests
   type:            exitcode-stdio-1.0
@@ -140,3 +142,5 @@ test-suite MailboxTests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind -eventlog
   extensions:      CPP
   main-is:         TestMailbox.hs
+  other-modules:   MailboxTestFilters
+                   TestUtils
