@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveDataTypeable        #-}
 {-# LANGUAGE TemplateHaskell           #-}
+{-# LANGUAGE DeriveGeneric             #-}
 
 module TestUtils
   ( TestResult
@@ -31,6 +32,7 @@ module TestUtils
   , mkNode
   , tryRunProcess
   , testMain
+  , stash
   ) where
 
 #if ! MIN_VERSION_base(4,6,0)
@@ -51,16 +53,17 @@ import Control.Concurrent.MVar
   ( MVar
   , newEmptyMVar
   , takeMVar
+  , putMVar
   )
 
 import Control.Distributed.Process
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable()
-import Control.Distributed.Process.Platform
-import Control.Distributed.Process.Platform.Test
-import Control.Distributed.Process.Platform.Time
-import Control.Distributed.Process.Platform.Timer
-import Control.Exception
+import Control.Distributed.Process.Extras.Time
+import Control.Distributed.Process.Extras.Timer
+import Control.Distributed.Process.Extras.Internal.Types
+import Control.Exception (SomeException)
+import qualified Control.Exception as Exception
 import Control.Monad (forever)
 import Control.Monad.STM (atomically)
 import Control.Rematch hiding (match)
@@ -68,9 +71,14 @@ import Control.Rematch.Run
 import Test.HUnit (Assertion, assertFailure)
 import Test.HUnit.Base (assertBool)
 import Test.Framework (Test, defaultMain)
+import Control.DeepSeq
 
 import Network.Transport.TCP
 import qualified Network.Transport as NT
+
+import Data.Binary
+import Data.Typeable
+import GHC.Generics
 
 --expect :: a -> Matcher a -> Process ()
 --expect a m = liftIO $ Rematch.expect a m
@@ -154,7 +162,7 @@ putLogMsg logger msg = liftIO $ atomically $ writeTQueue (msgs logger) msg
 
 -- | Stop the worker thread for the given Logger
 stopLogger :: Logger -> IO ()
-stopLogger = (flip throwTo) ThreadKilled . _tid
+stopLogger = (flip Exception.throwTo) Exception.ThreadKilled . _tid
 
 -- | Given a @builder@ function, make and run a test suite on a single transport
 testMain :: (NT.Transport -> IO [Test]) -> IO ()
@@ -163,3 +171,64 @@ testMain builder = do
                                     "127.0.0.1" "10501" defaultTCPParameters
   testData <- builder transport
   defaultMain testData
+
+-- | Runs a /test process/ around the supplied @proc@, which is executed
+-- whenever the outer process loop receives a 'Go' signal.
+runTestProcess :: Process () -> Process ()
+runTestProcess proc = do
+  ctl <- expect
+  case ctl of
+    Stop -> return ()
+    Go -> proc >> runTestProcess proc
+    Report p -> receiveWait [matchAny (\m -> forward m p)] >> runTestProcess proc
+
+-- | Starts a test process on the local node.
+startTestProcess :: Process () -> Process ProcessId
+startTestProcess proc =
+   spawnLocal $ do
+     getSelfPid >>= register "test-process"
+     runTestProcess proc
+
+-- | Control signals used to manage /test processes/
+data TestProcessControl = Stop | Go | Report ProcessId
+  deriving (Typeable, Generic)
+
+instance Binary TestProcessControl where
+
+-- | A mutable cell containing a test result.
+type TestResult a = MVar a
+
+-- | Stashes a value in our 'TestResult' using @putMVar@
+stash :: TestResult a -> a -> Process ()
+stash mvar x = liftIO $ putMVar mvar x
+
+-- | Tell a /test process/ to stop (i.e., 'terminate')
+testProcessStop :: ProcessId -> Process ()
+testProcessStop pid = send pid Stop
+
+-- | Tell a /test process/ to continue executing
+testProcessGo :: ProcessId -> Process ()
+testProcessGo pid = send pid Go
+
+-- | A simple @Ping@ signal
+data Ping = Ping
+  deriving (Typeable, Generic, Eq, Show)
+
+instance Binary Ping where
+instance NFData Ping where
+
+ping :: ProcessId -> Process ()
+ping pid = send pid Ping
+
+
+tryRunProcess :: LocalNode -> Process () -> IO ()
+tryRunProcess node p = do
+  tid <- liftIO myThreadId
+  runProcess node $ catch p (\e -> liftIO $ Exception.throwTo tid (e::SomeException))
+
+-- | Tell a /test process/ to send a report (message)
+-- back to the calling process
+testProcessReport :: ProcessId -> Process ()
+testProcessReport pid = do
+   self <- getSelfPid
+   send pid $ Report self

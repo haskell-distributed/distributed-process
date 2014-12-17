@@ -18,14 +18,13 @@ import Control.Exception (throwIO)
 import Control.Distributed.Process hiding (call, monitor)
 import Control.Distributed.Process.Closure
 import Control.Distributed.Process.Node
-import Control.Distributed.Process.Platform hiding (__remoteTable, send, sendChan)
--- import Control.Distributed.Process.Platform as Alt (monitor)
-import Control.Distributed.Process.Platform.Test
-import Control.Distributed.Process.Platform.Time
-import Control.Distributed.Process.Platform.Timer
-import Control.Distributed.Process.Platform.Supervisor hiding (start, shutdown)
-import qualified Control.Distributed.Process.Platform.Supervisor as Supervisor
-import Control.Distributed.Process.Platform.ManagedProcess.Client (shutdown)
+import Control.Distributed.Process.Extras.Internal.Types
+import Control.Distributed.Process.Extras.Internal.Primitives
+import Control.Distributed.Process.Extras.Time
+import Control.Distributed.Process.Extras.Timer
+import Control.Distributed.Process.Supervisor hiding (start, shutdown)
+import qualified Control.Distributed.Process.Supervisor as Supervisor
+import Control.Distributed.Process.ManagedProcess.Client (shutdown)
 import Control.Distributed.Process.Serializable()
 
 import Control.Distributed.Static (staticLabel)
@@ -50,7 +49,6 @@ import Test.Framework (Test, testGroup)
 import Test.Framework.Providers.HUnit (testCase)
 import TestUtils hiding (waitForExit)
 import qualified Network.Transport as NT
-
 -- test utilities
 
 expectedExitReason :: ProcessId -> String
