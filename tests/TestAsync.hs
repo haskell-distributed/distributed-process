@@ -168,6 +168,11 @@ testAsyncCancelWith result = do
   AsyncFailed (DiedException _) <- wait p1
   stash result True
 
+testAsyncWaitCancelTimeout :: TestResult (AsyncResult ()) -> Process ()
+testAsyncWaitCancelTimeout result = do
+     p1 <- async $ task $ sleep $ seconds 20
+     waitCancelTimeout (seconds 1) p1 >>= stash result
+
 remotableDecl [
     [d| fib :: (NodeId,Int) -> Process Integer ;
         fib (_,0) = return 0
@@ -238,6 +243,10 @@ tests localNode = [
             (delayedAssertion
              "expected Fibonacci 6 to be evaluated, and value of 8 returned"
              localNode 8 testAsyncRecursive)
+        , testCase "testAsyncWaitCancelTimeout"
+            (delayedAssertion
+             "expected waitCancelTimeout to return a value"
+             localNode AsyncCancelled testAsyncWaitCancelTimeout)
       ]
   ]
 
