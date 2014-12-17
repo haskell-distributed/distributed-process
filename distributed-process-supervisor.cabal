@@ -32,7 +32,7 @@ library
   build-depends:
                    base >= 4.4 && < 5,
                    data-accessor >= 0.2.2.3,
-                   distributed-process >= 0.5.0 && < 0.6,
+                   distributed-process >= 0.5.2 && < 0.6,
                    distributed-process-extras >= 0.1.1 && < 0.2,
                    distributed-process-client-server >= 0.1.1 && < 0.2,
                    binary >= 0.6.3.0 && < 0.8,
@@ -66,7 +66,7 @@ test-suite SupervisorTests
                    containers,
                    unordered-containers,
                    hashable,
-                   distributed-process >= 0.5.0 && < 0.6,
+                   distributed-process >= 0.5.2 && < 0.6,
                    distributed-process-supervisor,
                    distributed-process-extras,
                    distributed-process-client-server,
