@@ -61,11 +61,11 @@ import Control.Distributed.Process.Platform.Execution.Exchange.Internal
   , ExchangeType(..)
   , applyHandlers
   )
-import Control.Distributed.Process.Platform.Internal.Types
+import Control.Distributed.Process.Extras.Internal.Types
   ( Channel
   , ServerDisconnected(..)
   )
-import Control.Distributed.Process.Platform.Internal.Unsafe -- see [note: pcopy]
+import Control.Distributed.Process.Extras.Internal.Unsafe -- see [note: pcopy]
   ( PCopy
   , pCopy
   , pUnwrap
@@ -73,7 +73,7 @@ import Control.Distributed.Process.Platform.Internal.Unsafe -- see [note: pcopy]
   , InputStream(Null)
   , newInputStream
   )
-import Control.Distributed.Process.Platform.Supervisor (SupervisorPid)
+import Control.Distributed.Process.Supervisor (SupervisorPid)
 import Control.Monad (forM_, void)
 import Data.Accessor
   ( Accessor

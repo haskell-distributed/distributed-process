@@ -133,13 +133,13 @@ import Control.Distributed.Process.Closure
   , mkStaticClosure
   )
 import Control.Distributed.Process.Serializable hiding (SerializableDict)
-import Control.Distributed.Process.Platform.Internal.Types
+import Control.Distributed.Process.Extras.Internal.Types
   ( ExitReason(..)
   , Resolvable(..)
   , Routable(..)
   , Linkable(..)
   )
-import Control.Distributed.Process.Platform.ManagedProcess
+import Control.Distributed.Process.ManagedProcess
   ( call
   , sendControlMessage
   , channelControlPort
@@ -156,23 +156,23 @@ import Control.Distributed.Process.Platform.ManagedProcess
   , ControlChannel
   , ControlPort
   )
-import qualified Control.Distributed.Process.Platform.ManagedProcess as MP
+import qualified Control.Distributed.Process.ManagedProcess as MP
   ( chanServe
   )
-import Control.Distributed.Process.Platform.ManagedProcess.Server
+import Control.Distributed.Process.ManagedProcess.Server
   ( stop
   )
-import Control.Distributed.Process.Platform.ManagedProcess.Server.Restricted as Restricted
+import Control.Distributed.Process.ManagedProcess.Server.Restricted as Restricted
   ( getState
   , Result
   , RestrictedProcess
   )
-import qualified Control.Distributed.Process.Platform.ManagedProcess.Server.Restricted as Restricted
+import qualified Control.Distributed.Process.ManagedProcess.Server.Restricted as Restricted
   ( handleCall
   , reply
   )
-import Control.Distributed.Process.Platform.Supervisor (SupervisorPid)
-import Control.Distributed.Process.Platform.Time
+import Control.Distributed.Process.Supervisor (SupervisorPid)
+import Control.Distributed.Process.Extras.Time
 import Control.Exception (SomeException)
 import Data.Accessor
   ( Accessor

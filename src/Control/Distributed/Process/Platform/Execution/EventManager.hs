@@ -58,12 +58,12 @@ import Control.Distributed.Process.Platform.Execution.Exchange
 import qualified Control.Distributed.Process.Platform.Execution.Exchange as Exchange
   ( startSupervised
   )
-import Control.Distributed.Process.Platform.Internal.Primitives
-import Control.Distributed.Process.Platform.Internal.Unsafe
+import Control.Distributed.Process.Extras.Internal.Primitives
+import Control.Distributed.Process.Extras.Internal.Unsafe
   ( InputStream
   , matchInputStream
   )
-import Control.Distributed.Process.Platform.Supervisor (SupervisorPid)
+import Control.Distributed.Process.Supervisor (SupervisorPid)
 import Control.Distributed.Process.Serializable hiding (SerializableDict)
 import Data.Binary
 import Data.Typeable (Typeable)

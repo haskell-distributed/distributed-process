@@ -56,11 +56,11 @@ import Control.Distributed.Process.Platform.Execution.Exchange.Internal
   , postMessage
   , applyHandlers
   )
-import Control.Distributed.Process.Platform.Internal.Primitives
+import Control.Distributed.Process.Extras.Internal.Primitives
   ( deliver
   , Resolvable(..)
   )
-import Control.Distributed.Process.Platform.Supervisor (SupervisorPid)
+import Control.Distributed.Process.Supervisor (SupervisorPid)
 import Data.Binary
 import Data.Foldable (forM_)
 import Data.Hashable

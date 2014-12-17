@@ -39,13 +39,13 @@ import Control.Distributed.Process
   )
 import qualified Control.Distributed.Process as P (Message, link)
 import Control.Distributed.Process.Serializable hiding (SerializableDict)
-import Control.Distributed.Process.Platform.Internal.Types
+import Control.Distributed.Process.Extras.Internal.Types
   ( Resolvable(..)
   )
-import Control.Distributed.Process.Platform.Internal.Primitives
+import Control.Distributed.Process.Extras.Internal.Primitives
   ( Linkable(..)
   )
-import Control.Distributed.Process.Platform.ManagedProcess
+import Control.Distributed.Process.ManagedProcess
   ( channelControlPort
   , handleControlChan
   , handleInfo
@@ -59,14 +59,14 @@ import Control.Distributed.Process.Platform.ManagedProcess
   , ControlChannel
   , ControlPort
   )
-import qualified Control.Distributed.Process.Platform.ManagedProcess as MP
+import qualified Control.Distributed.Process.ManagedProcess as MP
   ( chanServe
   )
-import Control.Distributed.Process.Platform.ManagedProcess.UnsafeClient
+import Control.Distributed.Process.ManagedProcess.UnsafeClient
   ( sendControlMessage
   )
-import Control.Distributed.Process.Platform.Supervisor (SupervisorPid)
-import Control.Distributed.Process.Platform.Time (Delay(Infinity))
+import Control.Distributed.Process.Supervisor (SupervisorPid)
+import Control.Distributed.Process.Extras.Time (Delay(Infinity))
 import Data.Binary
 import Data.Typeable (Typeable)
 import GHC.Generics
