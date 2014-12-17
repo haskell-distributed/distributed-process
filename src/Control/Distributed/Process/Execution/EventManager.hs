@@ -9,7 +9,7 @@
 
 -----------------------------------------------------------------------------
 -- |
--- Module      :  Control.Distributed.Process.Platform.Execution.EventManager
+-- Module      :  Control.Distributed.Process.Execution.EventManager
 -- Copyright   :  (c) Well-Typed / Tim Watson
 -- License     :  BSD3 (see the file LICENSE)
 --
@@ -31,11 +31,11 @@
 -- event/message and performing an action in the @Process@ monad that evaluates
 -- to a new state.
 --
--- See "Control.Distributed.Process.Platform.Execution.Exchange".
+-- See "Control.Distributed.Process.Execution.Exchange".
 --
 -----------------------------------------------------------------------------
 
-module Control.Distributed.Process.Platform.Execution.EventManager
+module Control.Distributed.Process.Execution.EventManager
   ( EventManager
   , start
   , startSupervised
@@ -47,7 +47,7 @@ module Control.Distributed.Process.Platform.Execution.EventManager
 
 import Control.Distributed.Process hiding (Message, link)
 import qualified Control.Distributed.Process as P (Message)
-import Control.Distributed.Process.Platform.Execution.Exchange
+import Control.Distributed.Process.Execution.Exchange
   ( Exchange
   , Message(..)
   , post
@@ -55,7 +55,7 @@ import Control.Distributed.Process.Platform.Execution.Exchange
   , broadcastExchangeT
   , broadcastClient
   )
-import qualified Control.Distributed.Process.Platform.Execution.Exchange as Exchange
+import qualified Control.Distributed.Process.Execution.Exchange as Exchange
   ( startSupervised
   )
 import Control.Distributed.Process.Extras.Internal.Primitives

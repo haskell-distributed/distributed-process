@@ -12,7 +12,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 
 -- | An exchange type that broadcasts all incomings 'Post' messages.
-module Control.Distributed.Process.Platform.Execution.Exchange.Broadcast
+module Control.Distributed.Process.Execution.Exchange.Broadcast
   (
     broadcastExchange
   , broadcastExchangeT
@@ -53,7 +53,7 @@ import Control.Distributed.Process
   )
 import qualified Control.Distributed.Process as P
 import Control.Distributed.Process.Serializable()
-import Control.Distributed.Process.Platform.Execution.Exchange.Internal
+import Control.Distributed.Process.Execution.Exchange.Internal
   ( startExchange
   , configureExchange
   , Message(..)
@@ -73,7 +73,6 @@ import Control.Distributed.Process.Extras.Internal.Unsafe -- see [note: pcopy]
   , InputStream(Null)
   , newInputStream
   )
-import Control.Distributed.Process.Supervisor (SupervisorPid)
 import Control.Monad (forM_, void)
 import Data.Accessor
   ( Accessor

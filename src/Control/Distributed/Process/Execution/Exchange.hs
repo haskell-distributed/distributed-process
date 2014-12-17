@@ -1,6 +1,6 @@
 -----------------------------------------------------------------------------
 -- |
--- Module      :  Control.Distributed.Process.Platform.Execution.Exchange
+-- Module      :  Control.Distributed.Process.Execution.Exchange
 -- Copyright   :  (c) Tim Watson 2012 - 2014
 -- License     :  BSD3 (see the file LICENSE)
 --
@@ -67,7 +67,7 @@
 --
 -----------------------------------------------------------------------------
 
-module Control.Distributed.Process.Platform.Execution.Exchange
+module Control.Distributed.Process.Execution.Exchange
   ( -- * Fundamental API
     Exchange()
   , Message(..)
@@ -110,14 +110,14 @@ module Control.Distributed.Process.Platform.Execution.Exchange
   , applyHandlers
   ) where
 
-import Control.Distributed.Process.Platform.Execution.Exchange.Broadcast
+import Control.Distributed.Process.Execution.Exchange.Broadcast
   ( broadcastExchange
   , broadcastExchangeT
   , broadcastClient
   , bindToBroadcaster
   , BroadcastExchange
   )
-import Control.Distributed.Process.Platform.Execution.Exchange.Internal
+import Control.Distributed.Process.Execution.Exchange.Internal
   ( Exchange()
   , Message(..)
   , ExchangeType(..)
@@ -131,7 +131,7 @@ import Control.Distributed.Process.Platform.Execution.Exchange.Internal
   , createMessage
   , applyHandlers
   )
-import Control.Distributed.Process.Platform.Execution.Exchange.Router
+import Control.Distributed.Process.Execution.Exchange.Router
   ( HeaderName
   , Binding(..)
   , Bindable

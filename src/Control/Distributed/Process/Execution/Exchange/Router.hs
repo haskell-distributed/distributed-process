@@ -12,7 +12,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 
 -- | A simple API for /routing/, using a custom exchange type.
-module Control.Distributed.Process.Platform.Execution.Exchange.Router
+module Control.Distributed.Process.Execution.Exchange.Router
   ( -- * Types
     HeaderName
   , Binding(..)
@@ -45,7 +45,7 @@ import Control.Distributed.Process
   )
 import qualified Control.Distributed.Process as P
 import Control.Distributed.Process.Serializable (Serializable)
-import Control.Distributed.Process.Platform.Execution.Exchange.Internal
+import Control.Distributed.Process.Execution.Exchange.Internal
   ( startExchange
   , startSupervised
   , configureExchange

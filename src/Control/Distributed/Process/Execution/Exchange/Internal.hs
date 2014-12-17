@@ -12,7 +12,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 
 -- | Internal Exchange Implementation
-module Control.Distributed.Process.Platform.Execution.Exchange.Internal
+module Control.Distributed.Process.Execution.Exchange.Internal
   ( Exchange(..)
   , Message(..)
   , ExchangeType(..)

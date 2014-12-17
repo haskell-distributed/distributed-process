@@ -1,6 +1,6 @@
 -----------------------------------------------------------------------------
 -- |
--- Module      :  Control.Distributed.Process.Platform.Execution
+-- Module      :  Control.Distributed.Process.Execution
 -- Copyright   :  (c) Tim Watson 2013 - 2014
 -- License     :  BSD3 (see the file LICENSE)
 --
@@ -17,15 +17,15 @@
 --
 -----------------------------------------------------------------------------
 
-module Control.Distributed.Process.Platform.Execution
+module Control.Distributed.Process.Execution
   ( -- * Mailbox Buffering
-    module Control.Distributed.Process.Platform.Execution.Mailbox
+    module Control.Distributed.Process.Execution.Mailbox
     -- * Message Exchanges
-  , module Control.Distributed.Process.Platform.Execution.Exchange
+  , module Control.Distributed.Process.Execution.Exchange
   ) where
 
-import Control.Distributed.Process.Platform.Execution.Exchange hiding (startSupervised)
-import Control.Distributed.Process.Platform.Execution.Mailbox hiding (startSupervised, post)
+import Control.Distributed.Process.Execution.Exchange hiding (startSupervised)
+import Control.Distributed.Process.Execution.Mailbox hiding (startSupervised, post)
 
 {-
 

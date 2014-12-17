@@ -46,7 +46,7 @@ library
                    stm >= 2.4 && < 2.5,
                    time > 1.4 && < 1.5,
                    transformers
-  if impl(ghc <= 7.5) 
+  if impl(ghc <= 7.5)
     Build-Depends:   template-haskell == 2.7.0.0,
                      derive == 2.5.5,
                      uniplate == 1.6.12,
@@ -55,14 +55,14 @@ library
   hs-source-dirs:   src
   ghc-options:      -Wall
   exposed-modules:
-                   Control.Distributed.Process.Platform.Execution,
-                   Control.Distributed.Process.Platform.Execution.EventManager,
-                   Control.Distributed.Process.Platform.Execution.Exchange,
-                   Control.Distributed.Process.Platform.Execution.Mailbox
+                   Control.Distributed.Process.Execution,
+                   Control.Distributed.Process.Execution.EventManager,
+                   Control.Distributed.Process.Execution.Exchange,
+                   Control.Distributed.Process.Execution.Mailbox
   other-modules:
-                   Control.Distributed.Process.Platform.Execution.Exchange.Broadcast,
-                   Control.Distributed.Process.Platform.Execution.Exchange.Internal,
-                   Control.Distributed.Process.Platform.Execution.Exchange.Router
+                   Control.Distributed.Process.Execution.Exchange.Broadcast,
+                   Control.Distributed.Process.Execution.Exchange.Internal,
+                   Control.Distributed.Process.Execution.Exchange.Router
 
 
 test-suite ExchangeTests

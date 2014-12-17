@@ -11,7 +11,7 @@
 
 -----------------------------------------------------------------------------
 -- |
--- Module      :  Control.Distributed.Process.Platform.Execution.Mailbox
+-- Module      :  Control.Distributed.Process.Execution.Mailbox
 -- Copyright   :  (c) Tim Watson 2012 - 2013
 -- License     :  BSD3 (see the file LICENSE)
 --
@@ -89,7 +89,7 @@
 -- application.
 --
 -----------------------------------------------------------------------------
-module Control.Distributed.Process.Platform.Execution.Mailbox
+module Control.Distributed.Process.Execution.Mailbox
   (
     -- * Creating, Starting, Configuring and Running a Mailbox
     Mailbox()
@@ -436,7 +436,7 @@ startMailbox = doStartMailbox Nothing
 -- Example:
 -- > childSpec = toChildStart $ startSupervised pid bufferType mboxLimit
 --
--- See "Control.Distributed.Process.Platform.Supervisor"
+-- See "Control.Distributed.Process.Supervisor"
 --
 startSupervised :: ProcessId
                 -> BufferType
@@ -452,7 +452,7 @@ startSupervised p b l s = do
 -- Example:
 -- > childSpec = toChildStart $ startSupervisedMailbox pid bufferType mboxLimit
 --
--- See "Control.Distributed.Process.Platform.Supervisor"
+-- See "Control.Distributed.Process.Supervisor"
 --
 startSupervisedMailbox :: ProcessId
                        -> BufferType
