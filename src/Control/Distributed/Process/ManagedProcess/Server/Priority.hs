@@ -2,7 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE PatternGuards              #-}
 
-module Control.Distributed.Process.Platform.ManagedProcess.Server.Priority
+module Control.Distributed.Process.ManagedProcess.Server.Priority
   ( prioritiseCall
   , prioritiseCall_
   , prioritiseCast
@@ -14,7 +14,7 @@ module Control.Distributed.Process.Platform.ManagedProcess.Server.Priority
 
 import Control.Distributed.Process hiding (call, Message)
 import qualified Control.Distributed.Process as P (Message)
-import Control.Distributed.Process.Platform.ManagedProcess.Internal.Types
+import Control.Distributed.Process.ManagedProcess.Internal.Types
 import Control.Distributed.Process.Serializable
 import Prelude hiding (init)
 

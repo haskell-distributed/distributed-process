@@ -3,7 +3,7 @@
 
 -----------------------------------------------------------------------------
 -- |
--- Module      :  Control.Distributed.Process.Platform.ManagedProcess.Server
+-- Module      :  Control.Distributed.Process.ManagedProcess.Server
 -- Copyright   :  (c) Tim Watson 2012 - 2013
 -- License     :  BSD3 (see the file LICENSE)
 --
@@ -14,7 +14,7 @@
 -- The Server Portion of the /Managed Process/ API.
 -----------------------------------------------------------------------------
 
-module Control.Distributed.Process.Platform.ManagedProcess.Server
+module Control.Distributed.Process.ManagedProcess.Server
   ( -- * Server actions
     condition
   , state
@@ -69,12 +69,12 @@ module Control.Distributed.Process.Platform.ManagedProcess.Server
 import Control.Distributed.Process hiding (call, Message)
 import qualified Control.Distributed.Process as P (Message)
 import Control.Distributed.Process.Serializable
-import Control.Distributed.Process.Platform.ManagedProcess.Internal.Types
-import Control.Distributed.Process.Platform.Internal.Types
+import Control.Distributed.Process.ManagedProcess.Internal.Types
+import Control.Distributed.Process.Extras
   ( ExitReason(..)
   , Routable(..)
   )
-import Control.Distributed.Process.Platform.Time
+import Control.Distributed.Process.Extras.Time
 import Prelude hiding (init)
 
 --------------------------------------------------------------------------------

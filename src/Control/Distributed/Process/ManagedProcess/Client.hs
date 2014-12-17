@@ -3,7 +3,7 @@
 
 -----------------------------------------------------------------------------
 -- |
--- Module      :  Control.Distributed.Process.Platform.ManagedProcess.Client
+-- Module      :  Control.Distributed.Process.ManagedProcess.Client
 -- Copyright   :  (c) Tim Watson 2012 - 2013
 -- License     :  BSD3 (see the file LICENSE)
 --
@@ -14,7 +14,7 @@
 -- The Client Portion of the /Managed Process/ API.
 -----------------------------------------------------------------------------
 
-module Control.Distributed.Process.Platform.ManagedProcess.Client
+module Control.Distributed.Process.ManagedProcess.Client
   ( -- * API for client interactions with the process
     sendControlMessage
   , shutdown
@@ -32,15 +32,11 @@ module Control.Distributed.Process.Platform.ManagedProcess.Client
 
 import Control.Distributed.Process hiding (call)
 import Control.Distributed.Process.Serializable
-import Control.Distributed.Process.Platform.Async hiding (check)
-import Control.Distributed.Process.Platform.ManagedProcess.Internal.Types
-import qualified Control.Distributed.Process.Platform.ManagedProcess.Internal.Types as T
-import Control.Distributed.Process.Platform.Internal.Primitives hiding (monitor)
-import Control.Distributed.Process.Platform.Internal.Types
-  ( ExitReason(..)
-  , Shutdown(..)
-  )
-import Control.Distributed.Process.Platform.Time
+import Control.Distributed.Process.Async hiding (check)
+import Control.Distributed.Process.ManagedProcess.Internal.Types
+import qualified Control.Distributed.Process.ManagedProcess.Internal.Types as T
+import Control.Distributed.Process.Extras hiding (monitor, sendChan)
+import Control.Distributed.Process.Extras.Time
 import Data.Maybe (fromJust)
 
 import Prelude hiding (init)
@@ -126,11 +122,9 @@ flushPendingCalls d proc = do
 
 -- | Invokes 'call' /out of band/, and returns an /async handle/.
 --
--- See "Control.Distributed.Process.Platform.Async".
---
 callAsync :: forall s a b . (Addressable s, Serializable a, Serializable b)
           => s -> a -> Process (Async b)
-callAsync server msg = async $ call server msg
+callAsync server msg = async $ task $ call server msg
 
 -- | Sends a /cast/ message to the server identified by @server@. The server
 -- will not send a response. Like Cloud Haskell's 'send' primitive, cast is

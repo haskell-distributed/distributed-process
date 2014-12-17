@@ -8,7 +8,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 -- | Types used throughout the ManagedProcess framework
-module Control.Distributed.Process.Platform.ManagedProcess.Internal.Types
+module Control.Distributed.Process.ManagedProcess.Internal.Types
   ( -- * Exported data types
     InitResult(..)
   , Condition(..)
@@ -52,16 +52,18 @@ module Control.Distributed.Process.Platform.ManagedProcess.Internal.Types
 import Control.Distributed.Process hiding (Message)
 import qualified Control.Distributed.Process as P (Message)
 import Control.Distributed.Process.Serializable
-import Control.Distributed.Process.Platform.Internal.Types
+import Control.Distributed.Process.Extras
   ( Recipient(..)
   , ExitReason(..)
   , Addressable
   , Resolvable(..)
   , Routable(..)
   , NFSerializable
-  , resolveOrDie
   )
-import Control.Distributed.Process.Platform.Time
+import Control.Distributed.Process.Extras.Internal.Types
+  ( resolveOrDie
+  )
+import Control.Distributed.Process.Extras.Time
 import Control.DeepSeq (NFData)
 import Data.Binary hiding (decode)
 import Data.Typeable (Typeable)

@@ -18,19 +18,19 @@ module SafeCounter
   ) where
 
 import Control.Distributed.Process hiding (call, say)
-import Control.Distributed.Process.Platform
-import Control.Distributed.Process.Platform.Async
-import Control.Distributed.Process.Platform.ManagedProcess
+import Control.Distributed.Process.Extras
+import Control.Distributed.Process.Async
+import Control.Distributed.Process.ManagedProcess
   ( ProcessDefinition(..)
   , InitHandler
   , InitResult(..)
   , defaultProcess
   , condition
   )
-import qualified Control.Distributed.Process.Platform.ManagedProcess as ManagedProcess (serve)
-import Control.Distributed.Process.Platform.ManagedProcess.Client
-import Control.Distributed.Process.Platform.ManagedProcess.Server.Restricted
-import Control.Distributed.Process.Platform.Time
+import qualified Control.Distributed.Process.ManagedProcess as ManagedProcess (serve)
+import Control.Distributed.Process.ManagedProcess.Client
+import Control.Distributed.Process.ManagedProcess.Server.Restricted
+import Control.Distributed.Process.Extras.Time
 import Control.Distributed.Process.Serializable
 import Data.Binary
 import Data.Typeable (Typeable)

@@ -4,7 +4,7 @@
 {-# LANGUAGE PatternGuards              #-}
 
 -- | This is the @Process@ implementation of a /managed process/
-module Control.Distributed.Process.Platform.ManagedProcess.Internal.GenProcess
+module Control.Distributed.Process.ManagedProcess.Internal.GenProcess
   (recvLoop, precvLoop) where
 
 import Control.Applicative ((<$>))
@@ -12,23 +12,23 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.STM hiding (check)
 import Control.Distributed.Process hiding (call, Message)
 import qualified Control.Distributed.Process as P (Message)
-import Control.Distributed.Process.Platform.ManagedProcess.Server
-import Control.Distributed.Process.Platform.ManagedProcess.Internal.Types
-import Control.Distributed.Process.Platform.Internal.Queue.PriorityQ
+import Control.Distributed.Process.ManagedProcess.Server
+import Control.Distributed.Process.ManagedProcess.Internal.Types
+import Control.Distributed.Process.Extras.Internal.Queue.PriorityQ
   ( PriorityQ
   , enqueue
   , dequeue
   )
-import qualified Control.Distributed.Process.Platform.Internal.Queue.PriorityQ as PriorityQ
+import qualified Control.Distributed.Process.Extras.Internal.Queue.PriorityQ as PriorityQ
   ( empty
   )
-import Control.Distributed.Process.Platform.Internal.Types
+import Control.Distributed.Process.Extras
   ( ExitReason(..)
   , Shutdown(..)
   )
-import qualified Control.Distributed.Process.Platform.Service.SystemLog as Log
-import Control.Distributed.Process.Platform.Time
-import Control.Distributed.Process.Platform.Timer
+import qualified Control.Distributed.Process.Extras.SystemLog as Log
+import Control.Distributed.Process.Extras.Time
+import Control.Distributed.Process.Extras.Timer
   ( cancelTimer
   , runAfter
   , TimerRef

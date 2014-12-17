@@ -12,12 +12,12 @@ import Control.Exception (SomeException)
 import Control.DeepSeq (NFData)
 import Control.Distributed.Process hiding (call, send)
 import Control.Distributed.Process.Node
-import Control.Distributed.Process.Platform hiding (__remoteTable)
-import Control.Distributed.Process.Platform.Async
-import Control.Distributed.Process.Platform.ManagedProcess
-import Control.Distributed.Process.Platform.Test
-import Control.Distributed.Process.Platform.Time
-import Control.Distributed.Process.Platform.Timer
+import Control.Distributed.Process.Extras hiding (__remoteTable)
+import Control.Distributed.Process.Async
+import Control.Distributed.Process.ManagedProcess
+import Control.Distributed.Process.Tests.Internal.Utils
+import Control.Distributed.Process.Extras.Time
+import Control.Distributed.Process.Extras.Timer
 import Control.Distributed.Process.Serializable()
 
 import Data.Binary

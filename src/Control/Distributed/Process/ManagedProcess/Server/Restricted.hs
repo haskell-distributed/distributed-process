@@ -5,7 +5,7 @@
 
 -----------------------------------------------------------------------------
 -- |
--- Module      :  Control.Distributed.Process.Platform.ManagedProcess.Server.Restricted
+-- Module      :  Control.Distributed.Process.ManagedProcess.Server.Restricted
 -- Copyright   :  (c) Tim Watson 2012 - 2013
 -- License     :  BSD3 (see the file LICENSE)
 --
@@ -30,7 +30,7 @@
 --
 -----------------------------------------------------------------------------
 
-module Control.Distributed.Process.Platform.ManagedProcess.Server.Restricted
+module Control.Distributed.Process.ManagedProcess.Server.Restricted
   ( -- * Exported Types
     RestrictedProcess
   , Result(..)
@@ -62,11 +62,11 @@ module Control.Distributed.Process.Platform.ManagedProcess.Server.Restricted
 import Control.Applicative (Applicative)
 import Control.Distributed.Process hiding (call, say)
 import qualified Control.Distributed.Process as P (say)
-import Control.Distributed.Process.Platform.Internal.Types
+import Control.Distributed.Process.Extras
   (ExitReason(..))
-import Control.Distributed.Process.Platform.ManagedProcess.Internal.Types
-import qualified Control.Distributed.Process.Platform.ManagedProcess.Server as Server
-import Control.Distributed.Process.Platform.Time
+import Control.Distributed.Process.ManagedProcess.Internal.Types
+import qualified Control.Distributed.Process.ManagedProcess.Server as Server
+import Control.Distributed.Process.Extras.Time
 import Control.Distributed.Process.Serializable
 import Prelude hiding (init)
 
@@ -177,7 +177,7 @@ stop r = return $ RestrictedStop r
 -- Wrapping handler expressions in Dispatcher and DeferredDispatcher          --
 --------------------------------------------------------------------------------
 
--- | A version of "Control.Distributed.Process.Platform.ManagedProcess.Server.handleCall"
+-- | A version of "Control.Distributed.Process.ManagedProcess.Server.handleCall"
 -- that takes a handler which executes in 'RestrictedProcess'.
 --
 handleCall :: forall s a b . (Serializable a, Serializable b)
@@ -185,7 +185,7 @@ handleCall :: forall s a b . (Serializable a, Serializable b)
            -> Dispatcher s
 handleCall = handleCallIf $ Server.state (const True)
 
--- | A version of "Control.Distributed.Process.Platform.ManagedProcess.Server.handleCallIf"
+-- | A version of "Control.Distributed.Process.ManagedProcess.Server.handleCallIf"
 -- that takes a handler which executes in 'RestrictedProcess'.
 --
 handleCallIf :: forall s a b . (Serializable a, Serializable b)
@@ -194,7 +194,7 @@ handleCallIf :: forall s a b . (Serializable a, Serializable b)
              -> Dispatcher s
 handleCallIf cond h = Server.handleCallIf cond (wrapCall h)
 
--- | A version of "Control.Distributed.Process.Platform.ManagedProcess.Server.handleCast"
+-- | A version of "Control.Distributed.Process.ManagedProcess.Server.handleCast"
 -- that takes a handler which executes in 'RestrictedProcess'.
 --
 handleCast :: forall s a . (Serializable a)
@@ -202,7 +202,7 @@ handleCast :: forall s a . (Serializable a)
            -> Dispatcher s
 handleCast = handleCastIf (Server.state (const True))
 
--- | A version of "Control.Distributed.Process.Platform.ManagedProcess.Server.handleCastIf"
+-- | A version of "Control.Distributed.Process.ManagedProcess.Server.handleCastIf"
 -- that takes a handler which executes in 'RestrictedProcess'.
 --
 handleCastIf :: forall s a . (Serializable a)
@@ -212,7 +212,7 @@ handleCastIf :: forall s a . (Serializable a)
                 -> Dispatcher s
 handleCastIf cond h = Server.handleCastIf cond (wrapHandler h)
 
--- | A version of "Control.Distributed.Process.Platform.ManagedProcess.Server.handleInfo"
+-- | A version of "Control.Distributed.Process.ManagedProcess.Server.handleInfo"
 -- that takes a handler which executes in 'RestrictedProcess'.
 --
 handleInfo :: forall s a. (Serializable a)

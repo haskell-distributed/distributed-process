@@ -9,10 +9,10 @@ import Control.Concurrent.MVar
 import Control.Exception (SomeException)
 import Control.Distributed.Process hiding (call)
 import Control.Distributed.Process.Node
-import Control.Distributed.Process.Platform hiding (__remoteTable, monitor, send, nsend)
-import Control.Distributed.Process.Platform.ManagedProcess
-import Control.Distributed.Process.Platform.Test
-import Control.Distributed.Process.Platform.Time
+import Control.Distributed.Process.Extras hiding (__remoteTable, monitor, send, nsend)
+import Control.Distributed.Process.ManagedProcess
+import Control.Distributed.Process.Tests.Internal.Utils
+import Control.Distributed.Process.Extras.Time
 import Control.Distributed.Process.Serializable()
 
 import MathsDemo

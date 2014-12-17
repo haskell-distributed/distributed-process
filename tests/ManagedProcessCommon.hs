@@ -4,13 +4,13 @@ module ManagedProcessCommon where
 
 import Control.Concurrent.MVar (MVar)
 import Control.Distributed.Process hiding (call, send)
-import Control.Distributed.Process.Platform hiding (monitor)
-import Control.Distributed.Process.Platform.Async
-import Control.Distributed.Process.Platform.ManagedProcess
-import qualified Control.Distributed.Process.Platform.ManagedProcess.UnsafeClient as Unsafe
-import Control.Distributed.Process.Platform.Test
-import Control.Distributed.Process.Platform.Time
-import Control.Distributed.Process.Platform.Timer
+import Control.Distributed.Process.Extras hiding (monitor)
+import Control.Distributed.Process.Tests.Internal.Utils
+import Control.Distributed.Process.Extras.Time
+import Control.Distributed.Process.Extras.Timer
+import Control.Distributed.Process.Async
+import Control.Distributed.Process.ManagedProcess
+import qualified Control.Distributed.Process.ManagedProcess.UnsafeClient as Unsafe
 import Control.Distributed.Process.Serializable()
 
 #if ! MIN_VERSION_base(4,6,0)

@@ -6,7 +6,7 @@
 
 -----------------------------------------------------------------------------
 -- |
--- Module      :  Control.Distributed.Process.Platform.ManagedProcess
+-- Module      :  Control.Distributed.Process.ManagedProcess
 -- Copyright   :  (c) Tim Watson 2012
 -- License     :  BSD3 (see the file LICENSE)
 --
@@ -21,7 +21,7 @@
 -- gen_server API - <http://www.erlang.org/doc/man/gen_server.html>.
 --
 -- In particular, a /managed process/ will interoperate cleanly with the
--- "Control.Distributed.Process.Platform.Supervisor" API.
+-- supervisor API in distributed-process-supervision.
 --
 -- [API Overview]
 --
@@ -145,7 +145,7 @@
 -- which provides a StateT based monad for building referentially transparent
 -- callbacks.
 --
--- See "Control.Distributed.Process.Platform.ManagedProcess.Server.Restricted" for
+-- See "Control.Distributed.Process.ManagedProcess.Server.Restricted" for
 -- details and API documentation.
 --
 -- [Handling Errors]
@@ -165,7 +165,7 @@
 --                           return (Left (show e))))
 -- @
 --
--- The caveats mentioned in "Control.Distributed.Process.Platform" about
+-- The caveats mentioned in "Control.Distributed.Process.Extras" about
 -- exit signal handling obviously apply here as well.
 --
 -- [Structured Exit Handling]
@@ -324,7 +324,7 @@
 --
 -----------------------------------------------------------------------------
 
-module Control.Distributed.Process.Platform.ManagedProcess
+module Control.Distributed.Process.ManagedProcess
   ( -- * Starting/Running server processes
     InitResult(..)
   , InitHandler
@@ -334,7 +334,7 @@ module Control.Distributed.Process.Platform.ManagedProcess
   , runProcess
   , prioritised
     -- * Client interactions
-  , module Control.Distributed.Process.Platform.ManagedProcess.Client
+  , module Control.Distributed.Process.ManagedProcess.Client
     -- * Defining server processes
   , ProcessDefinition(..)
   , PrioritisedProcessDefinition(..)
@@ -387,7 +387,7 @@ module Control.Distributed.Process.Platform.ManagedProcess
   , handleControlChan
   , handleControlChan_
     -- * Prioritised mailboxes
-  , module Control.Distributed.Process.Platform.ManagedProcess.Server.Priority
+  , module Control.Distributed.Process.ManagedProcess.Server.Priority
     -- * Constructing handler results
   , condition
   , state
@@ -411,13 +411,13 @@ module Control.Distributed.Process.Platform.ManagedProcess
   ) where
 
 import Control.Distributed.Process hiding (call, Message)
-import Control.Distributed.Process.Platform.ManagedProcess.Client
-import Control.Distributed.Process.Platform.ManagedProcess.Server
-import Control.Distributed.Process.Platform.ManagedProcess.Server.Priority
-import Control.Distributed.Process.Platform.ManagedProcess.Internal.GenProcess
-import Control.Distributed.Process.Platform.ManagedProcess.Internal.Types
-import Control.Distributed.Process.Platform.Internal.Types (ExitReason(..))
-import Control.Distributed.Process.Platform.Time
+import Control.Distributed.Process.ManagedProcess.Client
+import Control.Distributed.Process.ManagedProcess.Server
+import Control.Distributed.Process.ManagedProcess.Server.Priority
+import Control.Distributed.Process.ManagedProcess.Internal.GenProcess
+import Control.Distributed.Process.ManagedProcess.Internal.Types
+import Control.Distributed.Process.Extras (ExitReason(..))
+import Control.Distributed.Process.Extras.Time
 import Control.Distributed.Process.Serializable
 import Prelude hiding (init)
 

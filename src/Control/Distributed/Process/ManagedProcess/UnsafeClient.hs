@@ -3,7 +3,7 @@
 
 -----------------------------------------------------------------------------
 -- |
--- Module      :  Control.Distributed.Process.Platform.ManagedProcess.UnsafeClient
+-- Module      :  Control.Distributed.Process.ManagedProcess.UnsafeClient
 -- Copyright   :  (c) Tim Watson 2012 - 2013
 -- License     :  BSD3 (see the file LICENSE)
 --
@@ -13,7 +13,7 @@
 --
 -- Unsafe variant of the /Managed Process Client API/. This module implements
 -- the client portion of a Managed Process using the unsafe variants of cloud
--- haskell's messaging primitives. It relies on the Platform implementation of
+-- haskell's messaging primitives. It relies on the -extras implementation of
 -- @UnsafePrimitives@, which forces evaluation for types that provide an
 -- @NFData@ instance. Direct use of the underlying unsafe primitives (from
 -- the distributed-process library) without @NFData@ instances is unsupported.
@@ -24,8 +24,8 @@
 -- the unsafe primitives documentation carefully and make sure you know what
 -- you're doing. You have been warned.
 --
--- See "Control.Distributed.Process.Platform".
--- See "Control.Distributed.Process.Platform.UnsafePrimitives".
+-- See "Control.Distributed.Process.Extras".
+-- See "Control.Distributed.Process.Extras.UnsafePrimitives".
 -- See "Control.Distributed.Process.UnsafePrimitives".
 -----------------------------------------------------------------------------
 
@@ -34,7 +34,7 @@
 -- that the correct implementation gets used depending on whether or not we're
 -- passing NFData or just Binary instances...
 
-module Control.Distributed.Process.Platform.ManagedProcess.UnsafeClient
+module Control.Distributed.Process.ManagedProcess.UnsafeClient
   ( -- * Unsafe variants of the Client API
     sendControlMessage
   , shutdown
@@ -62,28 +62,27 @@ import Control.Distributed.Process
   , receiveTimeout
   , unsafeSendChan
   )
-import Control.Distributed.Process.Platform.Async
+import Control.Distributed.Process.Async
   ( Async
   , async
+  , task
   )
-import Control.Distributed.Process.Platform.Internal.Primitives
+import Control.Distributed.Process.Extras
   ( awaitResponse
-  )
-import Control.Distributed.Process.Platform.Internal.Types
-  ( Addressable
+  , Addressable
   , Routable(..)
   , NFSerializable
   , ExitReason
   , Shutdown(..)
   )
-import Control.Distributed.Process.Platform.ManagedProcess.Internal.Types
+import Control.Distributed.Process.ManagedProcess.Internal.Types
   ( Message(CastMessage, ChanMessage)
   , CallResponse(..)
   , ControlPort(..)
   , unsafeInitCall
   , waitResponse
   )
-import Control.Distributed.Process.Platform.Time
+import Control.Distributed.Process.Extras.Time
   ( TimeInterval
   , asTimeout
   )
@@ -150,7 +149,7 @@ flushPendingCalls d proc = do
 --
 callAsync :: forall s a b . (Addressable s, NFSerializable a, NFSerializable b)
           => s -> a -> Process (Async b)
-callAsync server msg = async $ call server msg
+callAsync server msg = async $ task $ call server msg
 
 -- | Sends a /cast/ message to the server identified by @server@ - uses /unsafe primitives/.
 --

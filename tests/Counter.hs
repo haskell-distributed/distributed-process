@@ -14,10 +14,10 @@ module Counter
   ) where
 
 import Control.Distributed.Process hiding (call)
-import Control.Distributed.Process.Platform
-import Control.Distributed.Process.Platform.Async
-import Control.Distributed.Process.Platform.ManagedProcess
-import Control.Distributed.Process.Platform.Time
+import Control.Distributed.Process.Async
+import Control.Distributed.Process.Extras
+import Control.Distributed.Process.Extras.Time
+import Control.Distributed.Process.ManagedProcess
 import Data.Binary
 import Data.Typeable (Typeable)
 
