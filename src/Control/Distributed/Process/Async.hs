@@ -48,6 +48,7 @@ module Control.Distributed.Process.Async
     -- * Waiting with timeouts
   , waitAnyTimeout
   , waitTimeout
+  , waitCancelTimeout
   , waitCheckTimeout
     -- * STM versions
   , pollSTM
@@ -230,7 +231,7 @@ waitTimeout t hAsync = do
 --
 waitCancelTimeout :: (Serializable a)
                   => TimeInterval
-                  -> AsyncSTM a
+                  -> Async a
                   -> Process (AsyncResult a)
 waitCancelTimeout t hAsync = do
   r <- waitTimeout t hAsync
