@@ -276,11 +276,11 @@ import Control.DeepSeq (NFData)
 import Control.Distributed.Process.Platform.Supervisor.Types
 import Control.Distributed.Process hiding (call)
 import Control.Distributed.Process.Serializable()
-import Control.Distributed.Process.Platform.Internal.Primitives hiding (monitor)
-import Control.Distributed.Process.Platform.Internal.Types
+import Control.Distributed.Process.Extras.Internal.Primitives hiding (monitor)
+import Control.Distributed.Process.Extras.Internal.Types
   ( ExitReason(..)
   )
-import Control.Distributed.Process.Platform.ManagedProcess
+import Control.Distributed.Process.ManagedProcess
   ( handleCall
   , handleInfo
   , reply
@@ -300,43 +300,41 @@ import Control.Distributed.Process.Platform.ManagedProcess
   , DispatchPriority
   , UnhandledMessagePolicy(Drop)
   )
-import qualified Control.Distributed.Process.Platform.ManagedProcess.UnsafeClient as Unsafe
+import qualified Control.Distributed.Process.ManagedProcess.UnsafeClient as Unsafe
   ( call
   , cast
   )
-import qualified Control.Distributed.Process.Platform.ManagedProcess as MP
+import qualified Control.Distributed.Process.ManagedProcess as MP
   ( pserve
   )
-import Control.Distributed.Process.Platform.ManagedProcess.Server.Priority
+import Control.Distributed.Process.ManagedProcess.Server.Priority
   ( prioritiseCast_
   , prioritiseCall_
   , prioritiseInfo_
   , setPriority
   )
-import Control.Distributed.Process.Platform.ManagedProcess.Server.Restricted
+import Control.Distributed.Process.ManagedProcess.Server.Restricted
   ( RestrictedProcess
   , Result
   , RestrictedAction
   , getState
   , putState
   )
-import qualified Control.Distributed.Process.Platform.ManagedProcess.Server.Restricted as Restricted
+import qualified Control.Distributed.Process.ManagedProcess.Server.Restricted as Restricted
   ( handleCallIf
   , handleCall
   , handleCast
   , reply
   , continue
   )
--- import Control.Distributed.Process.Platform.ManagedProcess.Server.Unsafe
--- import Control.Distributed.Process.Platform.ManagedProcess.Server
-import Control.Distributed.Process.Platform.Service.SystemLog
+import Control.Distributed.Process.Extras.SystemLog
   ( LogClient
   , LogChan
   , LogText
   , Logger(..)
   )
-import qualified Control.Distributed.Process.Platform.Service.SystemLog as Log
-import Control.Distributed.Process.Platform.Time
+import qualified Control.Distributed.Process.Extras.SystemLog as Log
+import Control.Distributed.Process.Extras.Time
 import Control.Exception (SomeException, throwIO)
 
 import Control.Monad.Error

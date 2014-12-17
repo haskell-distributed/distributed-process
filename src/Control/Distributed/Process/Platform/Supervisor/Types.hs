@@ -62,8 +62,8 @@ import Data.Binary
 import Control.DeepSeq (NFData)
 import Control.Distributed.Process hiding (call)
 import Control.Distributed.Process.Serializable()
-import Control.Distributed.Process.Platform.Time
-import Control.Distributed.Process.Platform.Internal.Primitives hiding (monitor)
+import Control.Distributed.Process.Extras.Time
+import Control.Distributed.Process.Extras.Internal.Primitives hiding (monitor)
 import Control.Exception (Exception)
 
 -- aliases for api documentation purposes
