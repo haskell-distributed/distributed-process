@@ -3,3 +3,5 @@ distributed-static
 network-transport
 network-transport-tcp
 distributed-process
+distributed-process-extras
+distributed-process-async
