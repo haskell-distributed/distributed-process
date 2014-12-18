@@ -62,7 +62,7 @@ test-suite AsyncTests
   x-uses-tf:       true
   build-depends:
                    base >= 4.4 && < 5,
-                   ansi-terminal >= 0.5 && < 0.6,
+                   ansi-terminal >= 0.5 && < 0.7,
                    distributed-process >= 0.5.2 && < 0.6,
                    distributed-process-extras >= 0.1.1 && < 0.2,
                    distributed-process-async,
