@@ -41,7 +41,7 @@ library
                    stm >= 2.4 && < 2.5,
                    time > 1.4 && < 1.5,
                    transformers
-  if impl(ghc <= 7.5) 
+  if impl(ghc <= 7.5)
     Build-Depends:   template-haskell == 2.7.0.0,
                      derive == 2.5.5,
                      uniplate == 1.6.12,
@@ -69,7 +69,7 @@ test-suite InternalQueueTests
   x-uses-tf:       true
   build-depends:
                    base >= 4.4 && < 5,
-                   ansi-terminal >= 0.5 && < 0.6,
+                   ansi-terminal >= 0.5 && < 0.7,
                    distributed-process >= 0.5.2 && < 0.6,
                    distributed-process-extras,
                    distributed-process-tests >= 0.4.1 && < 0.5,
@@ -92,7 +92,7 @@ test-suite PrimitivesTests
   x-uses-tf:       true
   build-depends:
                    base >= 4.4 && < 5,
-                   ansi-terminal >= 0.5 && < 0.6,
+                   ansi-terminal >= 0.5 && < 0.7,
                    distributed-process >= 0.5.2 && < 0.6,
                    distributed-process-extras,
                    distributed-process-tests >= 0.4.1 && < 0.5,
@@ -102,7 +102,7 @@ test-suite PrimitivesTests
                    network-transport-tcp >= 0.4 && < 0.5,
                    binary >= 0.6.3.0 && < 0.8,
                    deepseq >= 1.3.0.1 && < 1.4,
-                   network >= 2.3 && < 2.6,
+                   network >= 2.3 && < 2.7,
                    HUnit >= 1.2 && < 2,
                    stm >= 2.3 && < 2.5,
                    test-framework >= 0.6 && < 0.9,
@@ -120,7 +120,7 @@ test-suite TimerTests
   x-uses-tf:       true
   build-depends:
                    base >= 4.4 && < 5,
-                   ansi-terminal >= 0.5 && < 0.6,
+                   ansi-terminal >= 0.5 && < 0.7,
                    deepseq >= 1.3.0.1 && < 1.4,
                    distributed-process >= 0.5.2 && < 0.6,
                    distributed-process-extras,
@@ -146,7 +146,7 @@ test-suite LoggerTests
 --  x-uses-tf:       true
   build-depends:
                    base >= 4.4 && < 5,
-                   ansi-terminal >= 0.5 && < 0.6,
+                   ansi-terminal >= 0.5 && < 0.7,
                    containers,
                    hashable,
                    unordered-containers >= 0.2.3.0 && < 0.3,
@@ -162,7 +162,7 @@ test-suite LoggerTests
                    mtl,
                    network-transport-tcp >= 0.4 && < 0.5,
                    binary >= 0.6.3.0 && < 0.8,
-                   network >= 2.3 && < 2.6,
+                   network >= 2.3 && < 2.7,
                    HUnit >= 1.2 && < 2,
                    stm >= 2.3 && < 2.5,
                    time > 1.4 && < 1.5,
