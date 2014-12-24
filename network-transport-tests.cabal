@@ -1,5 +1,5 @@
 name:                network-transport-tests
-version:             0.2.1.0
+version:             0.2.2.0
 synopsis:            Unit tests for Network.Transport implementations
 -- description:
 homepage:            http://haskell-distributed.github.com
