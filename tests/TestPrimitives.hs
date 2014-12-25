@@ -12,7 +12,7 @@ import Control.Distributed.Process.Serializable()
 import Control.Distributed.Process.Extras hiding (__remoteTable, monitor, send)
 import qualified Control.Distributed.Process.Extras (__remoteTable)
 import Control.Distributed.Process.Extras.Call
--- import Control.Distributed.Process.Extras.Service.Monitoring
+import Control.Distributed.Process.Extras.Monitoring
 import Control.Distributed.Process.Extras.Time
 import Control.Monad (void)
 import Control.Rematch hiding (match)
@@ -88,6 +88,56 @@ testLinkingWithAbnormalExits result = do
     (Just _)               -> stash result $ Just False
     Nothing                -> stash result Nothing
 
+testMonitorNodeDeath :: NT.Transport -> TestResult () -> Process ()
+testMonitorNodeDeath transport result = do
+    void $ nodeMonitor >> monitorNodes   -- start node monitoring
+
+    nid1 <- getSelfNode
+    nid2 <- liftIO $ newEmptyMVar
+    nid3 <- liftIO $ newEmptyMVar
+
+    node2 <- liftIO $ newLocalNode transport initRemoteTable
+    node3 <- liftIO $ newLocalNode transport initRemoteTable
+
+    -- sending to (nodeId, "ignored") is a short cut to force a connection
+    liftIO $ tryForkProcess node2 $ ensureNodeRunning nid2 (nid1, "ignored")
+    liftIO $ tryForkProcess node3 $ ensureNodeRunning nid3 (nid1, "ignored")
+
+    NodeUp _ <- expect
+    NodeUp _ <- expect
+
+    void $ liftIO $ closeLocalNode node2
+    void $ liftIO $ closeLocalNode node3
+
+    NodeDown n1 <- expect
+    NodeDown n2 <- expect
+
+    mn1 <- liftIO $ takeMVar nid2
+    mn2 <- liftIO $ takeMVar nid3
+
+    [mn1, mn2] `shouldContain` n1
+    [mn1, mn2] `shouldContain` n2
+
+    nid4 <- liftIO $ newEmptyMVar
+    node4 <- liftIO $ newLocalNode transport initRemoteTable
+    void $ liftIO $ runProcess node4 $ do
+      us <- getSelfNode
+      liftIO $ putMVar nid4 us
+      monitorNode nid1 >> return ()
+
+    mn3 <- liftIO $ takeMVar nid4
+    NodeUp n3 <- expect
+    mn3 `shouldBe` (equalTo n3)
+
+    liftIO $ closeLocalNode node4
+    stash result ()
+
+    where
+      ensureNodeRunning mvar nid = do
+        us <- getSelfNode
+        liftIO $ putMVar mvar us
+        sendTo nid "connected"
+
 myRemoteTable :: RemoteTable
 myRemoteTable = Control.Distributed.Process.Extras.__remoteTable initRemoteTable
 
@@ -145,6 +195,12 @@ tests transport localNode = [
       ],
     testGroup "Call/RPC" [
         testCase "multicallTest" (multicallTest transport)
+      ],
+    testGroup "Node Monitoring" [
+        testCase "Death Notifications"
+          (delayedAssertion
+           "subscribers should both have received NodeDown twice"
+           localNode () (testMonitorNodeDeath transport))
       ]
   ]
 
