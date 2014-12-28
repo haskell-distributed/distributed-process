@@ -8,7 +8,7 @@ Homepage:            http://haskell-distributed.github.com
 License:             BSD3
 License-File:        LICENSE
 Author:              Edsko de Vries
-Maintainer:          watson.timothy@gmail.com
+Maintainer:          facundo.dominguez@tweag.io
 Bug-Reports:         https://cloud-haskell.atlassian.net/browse/RANKNDYN
 Copyright:           Well-Typed LLP
 Category:            Data
