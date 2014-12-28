@@ -18,7 +18,7 @@ Homepage:            http://haskell-distributed.github.com
 License:             BSD3
 License-File:        LICENSE
 Author:              Edsko de Vries
-Maintainer:          edsko@well-typed.com, watson.timothy@gmail.com
+Maintainer:          edsko@well-typed.com, facundo.dominguez@tweag.io
 Bug-Reports:         https://cloud-haskell.atlassian.net/browse/DS
 Copyright:           Well-Typed LLP
 Category:            Control
