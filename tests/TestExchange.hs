@@ -15,6 +15,7 @@ import Control.Distributed.Process.Extras.Internal.Primitives
 import qualified Control.Distributed.Process.Execution.EventManager as EventManager
   ( start
   )
+import Control.Distributed.Process.Tests.Internal.Utils
 import Control.Monad (void, forM, forever)
 import Control.Rematch (equalTo)
 
@@ -23,10 +24,10 @@ import Prelude hiding (catch, drop)
 #else
 import Prelude hiding (drop)
 #endif
+import Network.Transport.TCP
 import qualified Network.Transport as NT
-import Test.Framework as TF (testGroup, Test)
+import Test.Framework as TF (defaultMain, testGroup, Test)
 import Test.Framework.Providers.HUnit
-import TestUtils
 
 testKeyBasedRouting :: TestResult Bool -> Process ()
 testKeyBasedRouting result = do
@@ -184,3 +185,10 @@ tests transport = do
 main :: IO ()
 main = testMain $ tests
 
+-- | Given a @builder@ function, make and run a test suite on a single transport
+testMain :: (NT.Transport -> IO [Test]) -> IO ()
+testMain builder = do
+  Right (transport, _) <- createTransportExposeInternals
+                                    "127.0.0.1" "10501" defaultTCPParameters
+  testData <- builder transport
+  defaultMain testData

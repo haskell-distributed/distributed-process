@@ -7,10 +7,11 @@ module Main where
 import Control.Distributed.Process
 import Control.Distributed.Process.Node
 import qualified Control.Distributed.Process.Extras (__remoteTable)
-import qualified Control.Distributed.Process.Execution.Mailbox (__remoteTable)
 import Control.Distributed.Process.Execution.Mailbox
 import Control.Distributed.Process.Extras.Time
 import Control.Distributed.Process.Extras.Timer
+import Control.Distributed.Process.Tests.Internal.Utils
+
 
 import Control.Rematch (equalTo)
 
@@ -22,12 +23,13 @@ import Prelude hiding (drop)
 
 import Data.Maybe (catMaybes)
 
-import Test.Framework as TF (testGroup, Test)
+import Test.Framework as TF (defaultMain, testGroup, Test)
 import Test.Framework.Providers.HUnit
-import TestUtils
+
 import qualified MailboxTestFilters (__remoteTable)
 import MailboxTestFilters (myFilter, intFilter)
 
+import Network.Transport.TCP
 import qualified Network.Transport as NT
 
 -- TODO: This whole test suite would be much better off using QuickCheck.
@@ -254,3 +256,10 @@ tests transport = do
 main :: IO ()
 main = testMain $ tests
 
+-- | Given a @builder@ function, make and run a test suite on a single transport
+testMain :: (NT.Transport -> IO [Test]) -> IO ()
+testMain builder = do
+  Right (transport, _) <- createTransportExposeInternals
+                                    "127.0.0.1" "10501" defaultTCPParameters
+  testData <- builder transport
+  defaultMain testData
