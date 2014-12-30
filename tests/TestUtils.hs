@@ -9,7 +9,6 @@ module TestUtils
 
 import Control.Concurrent.MVar
   ( MVar
-  , newEmptyMVar
   , takeMVar
   )
 
@@ -19,7 +18,6 @@ import Control.Distributed.Process.Extras
 import Control.Distributed.Process.Extras.Time
 import Control.Distributed.Process.Extras.Timer
 import Test.HUnit (Assertion, assertFailure)
-import Test.HUnit.Base (assertBool)
 import Test.Framework (Test, defaultMain)
 
 import Network.Transport.TCP
