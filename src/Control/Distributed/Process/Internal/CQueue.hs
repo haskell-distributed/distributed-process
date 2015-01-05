@@ -101,7 +101,7 @@ dequeue :: forall m a.
         -> BlockSpec         -- ^ Blocking behaviour
         -> [MatchOn m a]     -- ^ List of matches
         -> IO (Maybe a)      -- ^ 'Nothing' only on timeout
-dequeue (CQueue arrived incoming) blockSpec matchons =
+dequeue (CQueue arrived incoming) blockSpec matchons = mask_ $
   case blockSpec of
     Timeout n -> timeout n $ fmap fromJust run
     _other    ->
@@ -115,7 +115,7 @@ dequeue (CQueue arrived incoming) blockSpec matchons =
   where
     chunks = chunkMatches matchons
 
-    run = mask_ $ do
+    run = do
            arr <- takeMVar arrived
            let grabNew xs = do
                  r <- atomically $ tryReadTChan incoming
