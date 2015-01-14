@@ -295,15 +295,16 @@ cpEnableTraceRemote =
 -- | @delay them p@ is a process that waits for a signal (a message of type @()@)
 -- from 'them' (origin is not verified) before proceeding as @p@. In order to
 -- avoid waiting forever, @delay them p@ monitors 'them'. If it receives a
--- monitor message instead it simply terminates.
+-- monitor message instead, it proceeds as @p@ too.
 delay :: ProcessId -> Process () -> Process ()
 delay them p = do
   ref <- monitor them
   let sameRef (ProcessMonitorNotification ref' _ _) = ref == ref'
   receiveWait [
-      match           $ \() -> unmonitor ref >> p
+      match           $ \() -> unmonitor ref
     , matchIf sameRef $ \_  -> return ()
     ]
+  p
 
 -- | 'CP' version of 'delay'
 cpDelay :: ProcessId -> Closure (Process ()) -> Closure (Process ())
