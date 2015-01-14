@@ -688,6 +688,8 @@ nodeController = do
         ncEffectWhereIs from label
       NCMsg _ (NamedSend label msg') ->
         ncEffectNamedSend label msg'
+      NCMsg _ (UnreliableSend lpid msg') ->
+        ncEffectLocalSend node (ProcessId (localNodeId node) lpid) msg'
       NCMsg _ (LocalSend to msg') ->
         ncEffectLocalSend node to msg'
       NCMsg _ (LocalPortSend to msg') ->
@@ -1062,6 +1064,7 @@ destNid (Spawn _ _)           = Nothing
 destNid (Register _ _ _ _)    = Nothing
 destNid (WhereIs _)           = Nothing
 destNid (NamedSend _ _)       = Nothing
+destNid (UnreliableSend _ _)  = Nothing
 -- We don't need to forward 'Died' signals; if monitoring/linking is setup,
 -- then when a local process dies the monitoring/linking machinery will take
 -- care of notifying remote nodes
