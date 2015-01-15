@@ -6,6 +6,11 @@ ghc:
  - 7.4
 
 before_install:
+  - cabal update
+  - cabal install Cabal
+  - cabal install cabal-install
+  - export PATH=~/.cabal/bin:$PATH
+  - cabal --version
   - cabal sandbox init
   - for i in `cat REPOS`; do git clone http://github.com/haskell-distributed/$i; done
   - for i in `cat REPOS`; do cabal sandbox add-source $i; done
@@ -14,9 +19,9 @@ before_install:
 
 install:
   # Don't run tests for dependencies.
-  - cabal install --only-dependencies
-  - cabal install --only-dependencies distributed-process-tests
+  - cabal install --only-dependencies --allow-newer=random
+  - cabal install --only-dependencies distributed-process-tests --allow-newer=random
 
 script:
   - cabal install
-  - cabal install --enable-tests -j1 distributed-process-tests
+  - cabal install --enable-tests -j1 distributed-process-tests --allow-newer=random
