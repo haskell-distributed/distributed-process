@@ -16,46 +16,42 @@ module Control.Distributed.Process.Internal.CQueue
 import Prelude hiding (length, reverse)
 import Control.Concurrent.STM
   ( atomically
+  , check
   , STM
   , TChan
   , TVar
   , modifyTVar'
+  , writeTVar
   , tryReadTChan
   , newTChan
   , newTVarIO
   , writeTChan
   , readTChan
+  , readTVar
   , readTVarIO
   , orElse
   , retry
+  , registerDelay
   )
 import Control.Applicative ((<$>), (<*>))
-import Control.Exception (mask_, onException)
-import System.Timeout (timeout)
-import Control.Distributed.Process.Internal.StrictMVar
-  ( StrictMVar(StrictMVar)
-  , newMVar
-  , takeMVar
-  , putMVar
-  )
+import Control.Monad (when)
 import Control.Distributed.Process.Internal.StrictList
   ( StrictList(..)
   , append
   )
-import Data.Maybe (fromJust)
-import Data.Foldable (traverse_)
-import GHC.MVar (MVar(MVar))
+import Data.Maybe (isJust)
 import GHC.IO (IO(IO))
 import GHC.Prim (mkWeak#)
+import GHC.Conc (TVar(TVar))
 import GHC.Weak (Weak(Weak))
 
 -- We use a TCHan rather than a Chan so that we have a non-blocking read
-data CQueue a = CQueue (StrictMVar (StrictList a)) -- Arrived
-                       (TChan a)                   -- Incoming
-                       (TVar Int)                 -- Queue size
+data CQueue a = CQueue (TVar (StrictList a)) -- Arrived
+                       (TChan a)             -- Incoming
+                       (TVar Int)            -- Queue size
 
 newCQueue :: IO (CQueue a)
-newCQueue = CQueue <$> newMVar Nil <*> atomically newTChan <*> newTVarIO 0
+newCQueue = CQueue <$> newTVarIO Nil <*> atomically newTChan <*> newTVarIO 0
 
 -- | Enqueue an element
 --
@@ -109,38 +105,56 @@ dequeue :: forall m a.
            CQueue m          -- ^ Queue
         -> BlockSpec         -- ^ Blocking behaviour
         -> [MatchOn m a]     -- ^ List of matches
-        -> IO (Maybe a)      -- ^ 'Nothing' only on timeout
-dequeue (CQueue arrived incoming size) blockSpec matchons = mask_ $ checkDecrement $
+        -> IO (Maybe a)      -- ^ Nothing' only on timeout
+dequeue (CQueue arrived incoming size) blockSpec matchons =
   case blockSpec of
-    Timeout n -> timeout n $ fmap fromJust run
+    Timeout n -> registerDelay n >>= run
     _other    ->
        case chunks of
          [Right ports] -> -- channels only, this is easy:
            case blockSpec of
-             NonBlocking -> atomically $ waitChans ports (return Nothing)
-             _           -> atomically $ waitChans ports retry
+             NonBlocking -> atomically $ decrementJust $ waitChans ports (return Nothing)
+             _           -> atomically $ decrementJust $ waitChans ports retry
                               -- no onException needed
-         _other -> run
+         _other -> newTVarIO False >>= run
   where
-    checkDecrement f = do
-       mx <- f
-       mask_ $ traverse_ (const $ atomically $ modifyTVar' size pred) mx
-       return mx
-
     chunks = chunkMatches matchons
 
-    run = do
-           arr <- takeMVar arrived
-           let grabNew xs = do
-                 r <- atomically $ tryReadTChan incoming
-                 case r of
-                   Nothing -> return xs
-                   Just x  -> grabNew (Snoc xs x)
-           arr' <- grabNew arr
-           goCheck chunks arr'
+    decrementJust f = do
+      mx <- f
+      when (isJust mx) (modifyTVar' size pred)
+      return mx
 
     waitChans ports on_block =
         foldr orElse on_block (map (fmap Just) ports)
+
+    run :: TVar Bool -> IO (Maybe a)
+    run tm = do
+        -- We need to wait on both ports and mailbox, here we want
+        -- to break a transaction into multiple ones in order to
+        -- reduce number of retries. Transaction are split into
+        -- parts that are safe to use in concurrent enviroment in
+        -- presence of asynchonous exceptions.
+         
+        -- 1st transaction read consume all values from the input 
+        -- stream. Having this transaction guarantees that all the
+        -- rest computation will not be rolled back if a new value
+        -- will enter the chan.
+        let loop = do
+              r <- tryReadTChan incoming
+              case r of
+                Nothing -> return ()
+                Just x  -> do modifyTVar' arrived (flip Snoc x)
+                              loop
+        atomically $ loop
+
+        -- 2nd transaction, find matched values in arrived, and
+	-- match new values.
+        atomically $ do
+           mr <- goCheck chunks =<< readTVar arrived
+           decrementJust $ maybe ((const Nothing <$> (readTVar tm >>= check))
+                                     `orElse` goWait)
+                                 (return . Just) mr
 
     --
     -- First check the MatchChunks against the messages already in the
@@ -149,14 +163,14 @@ dequeue (CQueue arrived incoming size) blockSpec matchons = mask_ $ checkDecreme
     --
     goCheck :: MatchChunks m a
             -> StrictList m  -- messages to check, in this order
-            -> IO (Maybe a)
+            -> STM (Maybe a)
 
-    goCheck [] old = goWait old
+    goCheck [] _ = return Nothing 
 
     goCheck (Right ports : rest) old = do
-      r <- atomically $ waitChans ports (return Nothing) -- does not block
+      r <- waitChans ports (return Nothing) -- does not block
       case r of
-        Just _  -> returnOld old r
+        Just _  -> return r
         Nothing -> goCheck rest old
 
     goCheck (Left matches : rest) old = do
@@ -166,7 +180,7 @@ dequeue (CQueue arrived incoming size) blockSpec matchons = mask_ $ checkDecreme
            -- of passing around restore and setting up exception handlers is
            -- high.  So just don't use expensive matchIfs!
       case checkArrived matches old of
-        (old', Just r)  -> returnOld old' (Just r)
+        (old', Just r)  -> writeTVar arrived old' >> return (Just r)
         (old', Nothing) -> goCheck rest old'
           -- use the result list, which is now left-biased
 
@@ -181,10 +195,10 @@ dequeue (CQueue arrived incoming size) blockSpec matchons = mask_ $ checkDecreme
     mkSTM (Right ports : rest)
       = foldr orElse (mkSTM rest) (map (fmap Right) ports)
 
-    waitIncoming :: IO (Maybe (Either m a))
+    waitIncoming :: STM (Maybe (Either m a))
     waitIncoming = case blockSpec of
-      NonBlocking -> atomically $ fmap Just stm `orElse` return Nothing
-      _           -> atomically $ fmap Just stm
+      NonBlocking -> fmap Just stm `orElse` return Nothing
+      _           -> fmap Just stm
      where
       stm = mkSTM chunks
 
@@ -195,11 +209,12 @@ dequeue (CQueue arrived incoming size) blockSpec matchons = mask_ $ checkDecreme
     -- Contents of 'arrived' from now on is (old ++ new), and
     -- messages that arrive are snocced onto new.
     --
-    goWait old = do
-      r <- waitIncoming `onException` putMVar arrived old
+    goWait :: STM (Maybe a)
+    goWait = do
+      r <- waitIncoming
       case r of
         --  Nothing => non-blocking and no message
-        Nothing -> returnOld old Nothing
+        Nothing -> return Nothing
         Just e  -> case e of
           --
           -- Left => message arrived in the process mailbox.  We now have to
@@ -208,11 +223,11 @@ dequeue (CQueue arrived incoming size) blockSpec matchons = mask_ $ checkDecreme
           -- second chunk is a channel match and there *is* a message in the
           -- channel.  In that case the channel wins.
           --
-          Left m -> goCheck1 chunks m old
+          Left m -> goCheck1 chunks m
           --
           -- Right => message arrived on a channel first
           --
-          Right a -> returnOld old (Just a)
+          Right a -> return (Just a)
 
     --
     -- A message arrived in the process inbox; check the MatchChunks for
@@ -220,25 +235,20 @@ dequeue (CQueue arrived incoming size) blockSpec matchons = mask_ $ checkDecreme
     --
     goCheck1 :: MatchChunks m a
              -> m               -- single message to check
-             -> StrictList m    -- old messages we have already checked
-             -> IO (Maybe a)
+             -> STM (Maybe a)
 
-    goCheck1 [] m old = goWait (Snoc old m)
+    goCheck1 [] m = modifyTVar' arrived (flip Snoc m) >> goWait
 
-    goCheck1 (Right ports : rest) m old = do
-      r <- atomically $ waitChans ports (return Nothing) -- does not block
+    goCheck1 (Right ports : rest) m = do
+      r <- waitChans ports (return Nothing) -- does not block
       case r of
-        Nothing -> goCheck1 rest m old
-        Just _  -> returnOld (Snoc old m) r
+        Nothing -> goCheck1 rest m
+        Just _  -> modifyTVar' arrived (flip Snoc m) >> return r
 
-    goCheck1 (Left matches : rest) m old = do
+    goCheck1 (Left matches : rest) m = do
       case checkMatches matches m of
-        Nothing -> goCheck1 rest m old
-        Just p  -> returnOld old (Just p)
-
-    -- a common pattern for putting back the arrived queue at the end
-    returnOld :: StrictList m -> Maybe a -> IO (Maybe a)
-    returnOld old r = do putMVar arrived old; return r
+        Nothing -> goCheck1 rest m
+        Just p  -> return (Just p)
 
     -- as a side-effect, this left-biases the list
     checkArrived :: [m -> Maybe a] -> StrictList m -> (StrictList m, Maybe a)
@@ -259,7 +269,7 @@ dequeue (CQueue arrived incoming size) blockSpec matchons = mask_ $ checkDecreme
 
 -- | Weak reference to a CQueue
 mkWeakCQueue :: CQueue a -> IO () -> IO (Weak (CQueue a))
-mkWeakCQueue m@(CQueue (StrictMVar (MVar m#)) _ _) f = IO $ \s ->
+mkWeakCQueue m@(CQueue (TVar m#) _ _) f = IO $ \s ->
   case mkWeak# m# m f s of (# s1, w #) -> (# s1, Weak w #)
 
 queueSize :: CQueue a -> IO Int
