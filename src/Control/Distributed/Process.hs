@@ -149,6 +149,7 @@ module Control.Distributed.Process
     -- * Local versions of 'spawn'
   , spawnLocal
   , spawnChannelLocal
+  , callLocal
     -- * Reconnecting
   , reconnect
   , reconnectPort
@@ -302,6 +303,7 @@ import Control.Distributed.Process.Internal.Spawn
   , spawnSupervised
   , call
   )
+import Control.Exception (SomeException, throwIO)
 
 -- INTERNAL NOTES
 --
@@ -392,3 +394,20 @@ spawnChannelLocal proc = do
       liftIO $ putMVar mvar sport
       proc rport
     takeMVar mvar
+
+-- | Local version of 'call'. Running a process in this way isolates it from
+-- messages sent to the caller process, and also allows silently dropping late
+-- or duplicate messages sent to the isolated process after it exits.
+-- Silently dropping messages may not always be the best approach.
+callLocal ::
+     Process a  -- ^ Process to run
+  -> Process a  -- ^ Value returned
+callLocal proc = do
+  mv <- liftIO newEmptyMVar
+  self <- getSelfPid
+  _ <- spawnLocal $ do
+     link self
+     try proc >>= liftIO . putMVar mv
+  liftIO $ takeMVar mv >>=
+     either (throwIO :: SomeException -> IO a) return
+
