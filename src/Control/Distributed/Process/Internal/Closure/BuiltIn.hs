@@ -28,7 +28,7 @@ module Control.Distributed.Process.Internal.Closure.BuiltIn
   , cpExpect
   , cpNewChan
     -- * Support for some CH operations
-  , cpDelay
+  , cpDelayed
   , cpEnableTraceRemote
   ) where
 
@@ -307,8 +307,8 @@ delay them p = do
   p
 
 -- | 'CP' version of 'delay'
-cpDelay :: ProcessId -> Closure (Process ()) -> Closure (Process ())
-cpDelay = closureApply . cpDelay'
+cpDelayed :: ProcessId -> Closure (Process ()) -> Closure (Process ())
+cpDelayed = closureApply . cpDelay'
   where
     cpDelay' :: ProcessId -> Closure (Process () -> Process ())
     cpDelay' pid = closure decoder (encode pid)

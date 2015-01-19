@@ -37,7 +37,6 @@ import Control.Distributed.Process.Internal.Closure.BuiltIn
   , cpLink
   , cpSend
   , cpNewChan
-  , cpDelay
   , cpDelayed
   , returnCP
   , sdictUnit
@@ -68,7 +67,7 @@ spawn :: NodeId -> Closure (Process ()) -> Process ProcessId
 spawn nid proc = do
   us   <- getSelfPid
   mRef <- monitorNode nid
-  sRef <- spawnAsync nid (cpDelay us proc)
+  sRef <- spawnAsync nid (cpDelayed us proc)
   receiveWait [
       matchIf (\(DidSpawn ref _) -> ref == sRef) $ \(DidSpawn _ pid) -> do
         unmonitor mRef
