@@ -43,7 +43,6 @@ import Control.Distributed.Process.Internal.StrictList
   , append
   )
 import Data.Maybe (fromJust)
-import Data.Foldable (traverse_)
 import GHC.MVar (MVar(MVar))
 import GHC.IO (IO(IO))
 import GHC.Prim (mkWeak#)
@@ -110,7 +109,7 @@ dequeue :: forall m a.
         -> BlockSpec         -- ^ Blocking behaviour
         -> [MatchOn m a]     -- ^ List of matches
         -> IO (Maybe a)      -- ^ 'Nothing' only on timeout
-dequeue (CQueue arrived incoming size) blockSpec matchons = mask_ $ checkDecrement $
+dequeue (CQueue arrived incoming size) blockSpec matchons = mask_ $ decrementJust $
   case blockSpec of
     Timeout n -> timeout n $ fmap fromJust run
     _other    ->
@@ -122,9 +121,14 @@ dequeue (CQueue arrived incoming size) blockSpec matchons = mask_ $ checkDecreme
                               -- no onException needed
          _other -> run
   where
-    checkDecrement f = do
+    -- Decrement counter is smth is returned from the queue,
+    -- this is safe to use as method is called under a mask
+    -- and there is no 'unmasked' operation inside
+    decrementJust f = do
        mx <- f
-       mask_ $ traverse_ (const $ atomically $ modifyTVar' size pred) mx
+       case mx of
+         Just{} -> atomically $ modifyTVar' size pred
+         Nothing -> return ()
        return mx
 
     chunks = chunkMatches matchons
