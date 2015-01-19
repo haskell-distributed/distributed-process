@@ -23,7 +23,7 @@ import Control.Concurrent.STM
   , modifyTVar'
   , writeTVar
   , tryReadTChan
-  , newTChan
+  , newTChanIO
   , newTVarIO
   , writeTChan
   , readTChan
@@ -34,7 +34,7 @@ import Control.Concurrent.STM
   , registerDelay
   )
 import Control.Applicative ((<$>), (<*>))
-import Control.Monad (when)
+import Control.Monad (when, join)
 import Control.Distributed.Process.Internal.StrictList
   ( StrictList(..)
   , append
@@ -51,7 +51,7 @@ data CQueue a = CQueue (TVar (StrictList a)) -- Arrived
                        (TVar Int)            -- Queue size
 
 newCQueue :: IO (CQueue a)
-newCQueue = CQueue <$> newTVarIO Nil <*> atomically newTChan <*> newTVarIO 0
+newCQueue = CQueue <$> newTVarIO Nil <*> newTChanIO <*> newTVarIO 0
 
 -- | Enqueue an element
 --
@@ -105,7 +105,7 @@ dequeue :: forall m a.
            CQueue m          -- ^ Queue
         -> BlockSpec         -- ^ Blocking behaviour
         -> [MatchOn m a]     -- ^ List of matches
-        -> IO (Maybe a)      -- ^ Nothing' only on timeout
+        -> IO (Maybe a)      -- ^ 'Nothing' only on timeout
 dequeue (CQueue arrived incoming size) blockSpec matchons =
   case blockSpec of
     Timeout n -> registerDelay n >>= run
@@ -140,13 +140,15 @@ dequeue (CQueue arrived incoming size) blockSpec matchons =
         -- stream. Having this transaction guarantees that all the
         -- rest computation will not be rolled back if a new value
         -- will enter the chan.
-        let loop = do
-              r <- tryReadTChan incoming
-              case r of
-                Nothing -> return ()
-                Just x  -> do modifyTVar' arrived (flip Snoc x)
-                              loop
-        atomically $ loop
+	let loop :: IO (IO ())
+            loop = atomically $ do
+                     r <- tryReadTChan incoming
+                     case r of
+                       Nothing -> return (return ())
+                       Just x  -> do modifyTVar' arrived (flip Snoc x)
+                                     return (join loop)
+
+        join loop
 
         -- 2nd transaction, find matched values in arrived, and
 	-- match new values.
