@@ -28,7 +28,7 @@ module Control.Distributed.Process.Internal.Closure.BuiltIn
   , cpExpect
   , cpNewChan
     -- * Support for some CH operations
-  , cpDelay
+  , cpDelayed
   , cpEnableTraceRemote
   ) where
 
@@ -295,19 +295,20 @@ cpEnableTraceRemote =
 -- | @delay them p@ is a process that waits for a signal (a message of type @()@)
 -- from 'them' (origin is not verified) before proceeding as @p@. In order to
 -- avoid waiting forever, @delay them p@ monitors 'them'. If it receives a
--- monitor message instead it simply terminates.
+-- monitor message instead, it proceeds as @p@ too.
 delay :: ProcessId -> Process () -> Process ()
 delay them p = do
   ref <- monitor them
   let sameRef (ProcessMonitorNotification ref' _ _) = ref == ref'
   receiveWait [
-      match           $ \() -> unmonitor ref >> p
+      match           $ \() -> unmonitor ref
     , matchIf sameRef $ \_  -> return ()
     ]
+  p
 
 -- | 'CP' version of 'delay'
-cpDelay :: ProcessId -> Closure (Process ()) -> Closure (Process ())
-cpDelay = closureApply . cpDelay'
+cpDelayed :: ProcessId -> Closure (Process ()) -> Closure (Process ())
+cpDelayed = closureApply . cpDelay'
   where
     cpDelay' :: ProcessId -> Closure (Process () -> Process ())
     cpDelay' pid = closure decoder (encode pid)
