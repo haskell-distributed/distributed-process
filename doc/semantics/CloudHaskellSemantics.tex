@@ -1,0 +1,706 @@
+\documentclass{article}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath, amssymb, stmaryrd}
+\usepackage{mathpazo, times}
+\usepackage{float}
+\usepackage{listings}
+
+\newcommand{\sLam}[2]{\lambda {#1} \cdot {#2}}
+\newcommand{\sApp}[2]{{#1} {#2}}
+\newcommand{\sBind}[2]{{#1} \mathrel{\texttt{>}\!\!\texttt{>}\!\texttt{=}} {#2}}
+\newcommand{\sReturn}{\mathtt{return}}
+\newcommand{\sThrow}[1]{\mathtt{throw} \; {#1}}
+\newcommand{\sCatch}[2]{\mathtt{catch} \; {#1} \; {#2}}
+
+\newcommand{\sExpect}{\mathtt{expect}}
+\newcommand{\sSend}{\mathtt{send}}
+\newcommand{\sSpawn}{\mathtt{spawn}}
+\newcommand{\sLink}{\mathtt{link}}
+\newcommand{\sReconnect}{\mathtt{reconnect}}
+\newcommand{\sNewChan}{\mathtt{newChan}}
+\newcommand{\sSendChan}{\mathtt{sendChan}}
+\newcommand{\sReceiveChan}{\mathtt{receiveChan}}
+\newcommand{\sMonitor}{\mathtt{monitor}}
+
+\DeclareMathOperator{\sNodeOf}{node}
+\DeclareMathOperator{\sProcessOf}{process}
+
+\newcommand{\sSpawned}{\mathtt{spawned}}
+
+\newcommand{\sExtend}[1]{\mathrel{\triangleright_{#1}}}
+
+\newcommand{\sPar}{\mathrel{\parallel}}
+\newcommand{\sProc}[2]{{#1}_{#2}}
+
+\newcommand{\sNid}{\ensuremath{\mathit{nid}}}
+\newcommand{\sPid}{\ensuremath{\mathit{pid}}}
+\newcommand{\sCid}{\ensuremath{\mathit{cid}}}
+
+\newcommand{\sId}{\ensuremath{\mathit{id}}}
+\newcommand{\sRef}{\ensuremath{\mathit{ref}}}
+
+\newcommand{\sLinks}{\ensuremath{\mathit{links}}}
+\newcommand{\sNode}[3]{\left[{#1} ; {#2}\right]_{#3}} 
+\newcommand{\sSystem}[4]{\left\langle #1 ; #2 ; #3 ; #4 \right\rangle}
+\newcommand{\sNodes}{\mathcal{N}}
+\newcommand{\sQueue}{\mathcal{Q}}
+\newcommand{\sProcesses}{\mathcal{P}}
+\newcommand{\sBlacklist}{\mathcal{B}}
+\newcommand{\sMonitors}{\mathcal{M}}
+
+\newcommand{\sJust}[1]{\mathtt{Just} \; {#1}}
+\newcommand{\sNothing}{\mathtt{Nothing}}
+
+\newcommand{\sCtxt}[1]{\mathbb{#1}}
+
+\newcommand{\sSenders}{\mathit{senders}}
+
+\newcommand{\OR}{\mathrel{|}}
+\newcommand{\where}{\mathrel{|}}
+
+\floatstyle{boxed}
+\restylefloat{figure}
+
+\lstset{basicstyle=\ttfamily\small}
+
+\begin{document}
+
+\title{Cloud Haskell Semantics (DRAFT)}
+\author{Well-Typed LLP}
+\date{\today}
+
+\maketitle
+
+\section{Introduction}
+
+Cloud Haskell brings Erlang-style concurrency to Haskell in the form of a
+library.\footnote{\texttt{http://hackage.haskell.org/package/distributed-process}}
+The original publication \cite{cloudhaskell} is a good introduction to Cloud
+Haskell, and is accompanied by an ever-growing number of resouces, collected on
+the Haskell
+Wiki.\footnote{\texttt{http://www.haskell.org/haskellwiki/Cloud\_Haskell}} The
+current document augments the original publication about Cloud Haskell by
+giving a precise semantics to the Cloud Haskell primitives. It is meant as a
+reference, not an introduction.
+
+The original Cloud Haskell paper stipulates that messages are ``asynchronous,
+reliable, and buffered'', but does not describe how this can be achieved.
+Understanding ``reliable'' to mean ``reliable ordered'' (or ``TCP-like''), 
+the reliability of message delivery comes from the reliability of the
+underlying network protocol---up to a point. 
+
+The problem is that the underlying network protocol is connection-oriented, but
+Cloud Haskell is not. Intuitively, when $P$ sends a message to $Q$, we open a
+reliable-ordered connection from $P$ to $Q$. Reliability of message delivery
+now follows from reliability of the network protocol, until $P$ somehow gets
+disconnected from $Q$. If $P$ now sends another message to $Q$, the
+implementation cannot simply reconnect: after all, some messages that were sent
+on the first connection might not have been delivered. This means that $P$
+might send $m_1, m_2, m_3$ to $Q$, but $Q$ will receive $m_1,
+m_3$.\footnote{Indeed, message passing in Erlang is ordered but unreliable for
+the same reason \cite{erlang}.}
+
+One (non-)solution is for $P$ to buffer all messages it sends to $Q$, and
+remove messages from this buffer only when $Q$ acknowledges that it received
+them. On a reconnect $P$ must ask which message $Q$ last received, and
+retransmit the rest. This means that when $P$ gets disconnected from $Q$, it
+must infinitely buffer all messages sent to $Q$ (until a connection is
+reestablished). However, infinite buffering is too strong a requirement;
+moreover, this is unsatisfactory because it means implementing a reliable
+protocol on top of the underlying reliable network protocol. We would like a
+different solution.
+
+Instead, Cloud Haskell does \emph{not} attempt to reconnect automatically, but
+provides a $\sReconnect$ primitive which gives programmers the option of
+reconnecting manually. This is an explicit acknowledgement from the programmer
+that message loss might occur, and forces them to consider how such loss might
+be dealt with. 
+
+The semantics we present is based on \cite{unified}, which we will refer to the
+as the ``Unified'' semantics. However, we will present the semantics in a more
+``Haskell'' style following the semantics for STM \cite{stm}. It differs from
+the Unified semantics in that
+%
+\begin{enumerate}
+\item We introduce an explicit notion of \textit{reconnecting} (with potential
+message loss)
+\item We simplify the semantics: we ``flatten'' sets of nodes of processes as
+sets of processes (but assume a mapping from process identifiers to node
+identifiers), do not have per-process mailboxes (but only the system queue or
+``ether'') and do not have an explicit concept of node controllers
+\end{enumerate}
+%
+Our semantics differs from the STM semantics in that we pretend that the Cloud
+Haskell \texttt{Process} monad is the top-level monad, and do not consider the
+\texttt{IO} monad at all.  Current imprecisions with respect to the ``real''
+Cloud Haskell are
+%
+\begin{enumerate}
+\item We ignore the issue of serializability, other than to say that the
+semantics will get stuck when trying to send a non-serializable payload;
+consequently, we do not formalize $\mathtt{static}$
+\item We do not formalize all Cloud Haskell primitives (merging of ports,
+``advanced messaging'', and others)
+\item Some of the concepts that we do formalize are lower-level concepts; for
+instance, the primitive $\sSpawn$ that we formalize is asynchronous (following
+the Unified semantics); a synchronous construct can be derived.
+\end{enumerate}
+
+\section{Preliminaries}
+
+Cloud Haskell Processes run on \emph{nodes}. Processes communicate by sending
+messages to each other (directly or using typed channels). Processes can also
+send messages to nodes (for instance, a request to spawn or monitor a process).
+
+We assume disjoint countable sets $\mathtt{NodeId}$, $\mathtt{ProcessId}$, and
+$\mathtt{ChannelId}$, changed over by \sNid, \sPid{} and \sCid{} respectively,
+and representing process identifiers, node identifiers, and (typed) channel
+identifiers. We assume the existence of total functions
+%
+\begin{equation*}
+\begin{array}{r@{\;:\;}l}
+\sNodeOf    & (\mathtt{ProcessId} \uplus \mathtt{ChannelId}) \rightarrow \mathtt{NodeId} \\
+\sProcessOf & \mathtt{ChannelId} \rightarrow \mathtt{ProcessId} 
+\end{array}
+\end{equation*}
+%
+and define 
+$$\mathtt{Identifier} = \mathtt{NodeId} \uplus \mathtt{ProcessId} \uplus \mathtt{ChannelId}$$ 
+and let $\sId$ range over $\mathtt{Identifier}$.
+
+We represent a process as a pair $\sProc{M}{\sPid}$ of a term $M$ and a process
+ID $\sPid$. We will denote a set of processes as
+%
+  $$\sProc{M}{\sPid} \sPar \cdots \sPar \sProc{N}{\sPid'}$$
+%
+A \emph{system} 
+  $\sSystem{\sProcesses}{\sQueue}{\sBlacklist}{\sMonitors}$ 
+is a tuple containing a set $\sProcesses$ of processes, a \emph{system
+queue} $\sQueue$, a \emph{blacklist} $\sBlacklist$, and a set of monitors
+$\sMonitors$.
+The set of monitors $\sMonitors$ is a set of tuples 
+  $(\sId_\mathit{to}, \sPid_\mathit{fr}, \sNid, \sRef)$ 
+which records that node \sNid{} knows that process $\sPid_\mathit{fr}$ is
+monitoring $\sId_\mathit{to}$ ($\sRef$ is the monitor reference).  The system
+queue is a set of triples $(\sId_\mathit{to}, \sId_\mathit{fr},
+\mathit{message})$ of messages that have been sent but not yet processed. The
+blacklist records disconnections and is represented as a of pairs
+$(\sId_\mathit{to}, \sId_\mathit{fr})$. 
+
+\section{Semantics}
+
+We follow the STM semantics as closely as possible. The language is the same
+except for the primitives considered, and we use the same concept of evaluation
+contexts:
+
+\begin{equation*}
+\begin{array}{llll}
+\text{value} & V & ::= & \sId \OR
+                         \sLam{x}{M} \OR 
+                         \sReturn \; M \OR
+                         \sBind{M}{N} \OR 
+                         \sThrow{M} \OR \sCatch{M}{N} \OR \\
+                     &&& \sExpect \OR
+                         \sSend \; \sPid \; M \OR
+                         \sSpawn \; \sNid \; M \OR 
+                         \sMonitor \; \sId 
+\\
+\text{term}  & M, N & ::= & x \OR
+                            V \OR
+                            \sApp{M}{N} \OR
+                            \cdots \\
+\\                            
+\text{Evaluation} & \sCtxt{E} & ::= & [] \OR \sBind{\sCtxt{E}}{M} \OR \sCatch{\sCtxt{E}}{M} \\
+\text{context} & \sCtxt{P}_\sPid  & ::= & \sCtxt{E}[]_\sPid \sPar \sProcesses
+\end{array}
+\end{equation*}
+%
+Indeed, the ``administrative'' transitions are identical
+(Figure~\ref{fig:administrative}).
+
+\begin{figure}
+\small
+\begin{equation*}
+\frac{
+  \llbracket M \rrbracket = V \qquad
+  M \neq V
+}{
+  M \rightarrow V
+} \textsc{Eval}
+\qquad
+\frac{
+  M \rightarrow N
+}{
+  \sSystem{\sCtxt{P}[M]_\sPid}
+          {\sQueue}
+          {\sBlacklist}
+          {\sMonitors}
+\rightarrow
+  \sSystem{\sCtxt{P}[N]_\sPid}
+          {\sQueue}
+          {\sBlacklist}
+          {\sMonitors}
+} \textsc{Admin}
+\end{equation*}
+%
+\begin{equation*}
+\begin{array}{r@{\;\rightarrow\;}ll@{\hspace{2em}}r@{\;\rightarrow\;}ll}
+\sBind{\sReturn \; N}{M} & M \; N & \textsc{Bind} & \sCatch{(\sReturn \; M)}{N} & \sReturn \; M & \textsc{Catch}_1 \\
+\sBind{\sThrow{N}}{M} & \sThrow{N} & \textsc{Throw} & \sCatch{(\sThrow M)}{N} & N \; M & \textsc{Catch}_2 \\
+\end{array}
+\end{equation*}
+%
+\caption{\label{fig:administrative}Administrative Transitions}
+\end{figure}
+
+\subsection{Disconnect and Reconnect}
+
+Figure~\ref{fig:disconnect} gives the semantics for disconnecting and
+reconnecting.  Rule \textsc{Disconnect} models random network disconnect
+between nodes $\sNid_1$ and $\sNid_2$.  We assume that entire \emph{nodes} get
+disconnected from each other, not individual processes. \emph{Reconnecting}
+however is on a per connection basis (\textsc{Recon-Ex}).  Connections to and
+from node controllers can be implicitly reconnected ($\textsc{Recon-Im}_1$ and
+$\textsc{Recon-Im}_2$).
+
+\begin{figure}
+\small
+\begin{equation*}
+\frac{
+  \sNid_1 \neq \sNid_2
+}{
+  \sSystem{\sProcesses}{\sQueue}{\sBlacklist}{\sMonitors}
+\rightarrow
+  \sSystem{\sProcesses}{\sQueue}{\sBlacklist \cup (\overline{\sNid_1} \times \overline{\sNid_2})}{\sMonitors}
+} \textsc{Disconnect}
+\end{equation*}
+%
+\begin{equation*}
+\frac{
+}{
+  \sSystem{\sCtxt{P}[ \sReconnect \; \sId_\mathit{to} ]_{\sPid_\mathit{fr}}}
+          {\sQueue}
+          {\sBlacklist}
+          {\sMonitors}
+\rightarrow
+  \sSystem{\sCtxt{P}[ \sReturn \; () ]_\sPid}
+          {\sQueue}
+          {\sBlacklist \backslash (\sId_\mathit{to}, \sPid_\mathit{fr})}
+          {\sMonitors}
+} \textsc{Recon-Ex}
+\end{equation*}
+%
+\begin{equation*}
+\frac{
+}{
+  \sSystem{\sProcesses}{\sQueue}{\sBlacklist, (\sNid_\mathit{to}, \sId_\mathit{fr})}{\sMonitors}
+\rightarrow
+  \sSystem{\sProcesses}{\sQueue}{\sBlacklist}{\sMonitors}
+} \textsc{Recon-Im}_1
+\qquad
+\frac{
+}{
+  \sSystem{\sProcesses}{\sQueue}{\sBlacklist, (\sId_\mathit{to}, \sNid_\mathit{fr})}{\sMonitors}
+\rightarrow
+  \sSystem{\sProcesses}{\sQueue}{\sBlacklist}{\sMonitors}
+} \textsc{Recon-Im}_2
+\end{equation*}
+%
+where
+%
+\begin{equation*}
+\overline{\sNid} \subset \mathtt{Identifier} 
+  = \{ \sNid \} \cup 
+    \{ \sPid \where \sNodeOf(\sPid) = \sNid \} \cup
+    \{ \sCid \where \sNodeOf(\sCid) = \sNid \} 
+\end{equation*}
+\caption{\label{fig:disconnect}Disconnect and Reconnect}
+\end{figure}
+
+\subsection{Communication}
+
+The semantics for the basic primitives are listed in Figure~\ref{fig:basic}.
+Once a connection has been blacklisted, no further messages can be sent across
+that connection (until an explicit or implicit reconnect).
+
+Message passing is ordered but only for a given sender and receiver; no
+ordering guarantees exist between messages sent by different processes. For
+that reason rules \textsc{Expect}, \textsc{ReceiveChan} and \textsc{Spawn-Exec}
+choose the \emph{first} message of a \emph{randomly chosen} sender. 
+
+Since the semantics is not type-driven, we represent typed channels simply as
+an identifier with an annotation whether it is the send-end ($\sCid^s$) or the
+receive end ($\sCid^r$) of the channel (rules \textsc{NewChan},
+\textsc{SendChan} and \textsc{ReceiveChan}).
+
+Spawning finally is asynchronous. When process $P$ spawns process $Q$ on node
+$\sNid$ (rule \textsc{Spawn-Async}) a message is sent to node $\sNid$ (which
+may, of course, never arrive). When the remote node receives the message and
+actually spawns $Q$ (rule \textsc{Spawn-Exec}) it sends a message back to $P$
+with $Q$'s process ID. In Cloud Haskell this primitive is called
+\texttt{spawnAsync}, and the Cloud Haskell \texttt{spawn} primitive is defined
+in terms of \texttt{spawnAsync} (we do not consider the synchronous version in
+this document).
+
+\begin{figure}
+\small
+\begin{equation*}
+\frac{
+}{
+  \sSystem{\sCtxt{P}[ \sSend \; \sPid_\mathit{to} \; M ]_{\sPid_\mathit{fr}}}
+          {\sQueue}
+          {\sBlacklist}
+          {\sMonitors}
+\rightarrow 
+  \sSystem{\sCtxt{P}[ \sReturn \; () ]_{\sPid_\mathit{fr}}}
+          {\sQueue \sExtend{\sBlacklist} (\sPid_\mathit{to}, \sPid_\mathit{fr}, M)}
+          {\sBlacklist}
+          {\sMonitors}
+} \textsc{Send}
+\end{equation*}
+%
+\begin{equation*}
+\frac{
+  \sId_{\mathit{fr}} \notin \sSenders(\sQueue)
+}{
+  \sSystem{\sCtxt{P}[ \sExpect ]_{\sPid_\mathit{to}}}
+          {\sQueue, (\sPid_\mathit{to}, \sId_\mathit{fr}, M), \sQueue'}
+          {\sBlacklist}
+          {\sMonitors}
+\rightarrow
+  \sSystem{\sCtxt{P}[ \sReturn \; M ]_{\sPid_\mathit{to}}}
+          {\sQueue, \sQueue'}
+          {\sBlacklist}
+          {\sMonitors}
+} \textsc{Expect}
+\end{equation*}
+%
+\begin{equation*}
+\frac{
+  \sCid \text{ fresh}
+\qquad
+  \sProcessOf(\sCid) = \sPid
+}{
+  \sSystem{\sCtxt{P}[\sNewChan]_\sPid}
+          {\sQueue}
+          {\sBlacklist}
+          {\sMonitors}
+\rightarrow
+  \sSystem{\sCtxt{P}[\sReturn \; (\sCid^s, \sCid^r)]_\sPid}
+          {\sQueue}
+          {\sBlacklist}
+          {\sMonitors}
+} \textsc{NewChan}
+\end{equation*}
+
+\begin{equation*}
+\frac{
+}{
+  \sSystem{\sCtxt{P}[ \sSendChan \; \sCid_\mathit{to}^s \; M ]_{\sPid_\mathit{fr}}}
+          {\sQueue}
+          {\sBlacklist}
+          {\sMonitors}
+\rightarrow 
+  \sSystem{\sCtxt{P}[ \sReturn \; () ]_{\sPid_\mathit{fr}}}
+          {\sQueue \sExtend{\sBlacklist} (\sCid_\mathit{to}, \sPid_\mathit{fr}, M)}
+          {\sBlacklist}
+          {\sMonitors}
+} \textsc{SendChan}
+\end{equation*}
+
+\begin{equation*}
+\frac{
+  \sPid_{\mathit{fr}} \notin \sSenders(\sQueue)
+}{
+  \sSystem{\sCtxt{P}[ \sReceiveChan \; \sCid_\mathit{to}^r ]_{\sPid}}
+          {\sQueue, (\sCid_\mathit{to}, \sPid_\mathit{fr}, M), \sQueue'}
+          {\sBlacklist}
+          {\sMonitors}
+\rightarrow
+  \sSystem{\sCtxt{P}[ \sReturn \; M ]_{\sPid}}
+          {\sQueue, \sQueue'}
+          {\sBlacklist}
+          {\sMonitors}
+} \textsc{ReceiveChan}
+\end{equation*}
+%
+\begin{equation*}
+\frac{
+  \sRef \text{ fresh} 
+}{
+  \sSystem{\sCtxt{P}[ \sSpawn \; \sNid \; M ]_\sPid}
+          {\sQueue}
+          {\sBlacklist}
+          {\sMonitors}
+\rightarrow          
+  \sSystem{\sCtxt{P}[ \sReturn \; \sRef ]_\sPid}
+          {\sQueue \sExtend{\sBlacklist} (\sNid, \sPid, \sSpawn \; \sRef \; M)}
+          {\sBlacklist}
+          {\sMonitors}
+} \textsc{Spawn-Async}
+\end{equation*}
+%
+\begin{equation*}
+\frac{
+  \sPid \notin \sSenders(\sQueue)
+\qquad
+  \sPid' \text{ fresh} 
+\qquad
+  \sNodeOf(\sPid') = \sNid
+}{
+  \sSystem{\sProcesses}
+          {\sQueue, (\sNid, \sPid, \sSpawn \; \sRef \; M), \sQueue'}
+          {\sBlacklist}
+          {\sMonitors}
+\rightarrow
+  \sSystem{\sProcesses \sPar M_{\sPid'}}
+          {\sQueue, \sQueue' \sExtend{\sBlacklist} (\sPid, \sNid, \sSpawned \; \sRef \; \sPid')}
+          {\sBlacklist}
+          {\sMonitors}
+} \textsc{Spawn-Exec}
+\end{equation*}
+%
+where
+%
+\begin{equation*}
+\begin{array}{l@{\;=\;}l@{\hspace{3em}}l}
+  \sQueue \sExtend{\sBlacklist} (\sId_\mathit{to}, \sId_\mathit{fr}, M) 
+& 
+  \sQueue,  (\sId_\mathit{to}, \sId_\mathit{fr}, M)
+&
+  \text{if } (\sId_\mathit{to}, \sId_\mathit{fr}) \notin \sBlacklist
+\\
+  \sQueue \sExtend{\sBlacklist} (\sId_\mathit{to}, \sId_\mathit{fr}, M) 
+& 
+  \sQueue
+&
+  \text{otherwise}
+\end{array}
+\end{equation*}
+%
+$(\sExtend{\sBlacklist})$ is only defined for serializable payloads.
+\caption{\label{fig:basic}Basic Primitives}
+\end{figure}
+
+\subsection{Monitoring}
+
+When process $P$ on node $\sNid_P$ wants to monitor process $Q$ on node
+$\sNid_Q$ \emph{both} nodes must be notified. The local node it notified
+immediately, and a message is sent to to the remote node (rules
+\textsc{Mon-Loc} and \textsc{Mon-Rem}). As with all messages, the
+message to the remote node might be lost. When $P$ is disconnected from $Q$ it
+is the responsibility of $P$'s local node $\sNid_P$ to notify $P$
+(\textsc{Mon-Dis}); when $Q$ terminates (\textsc{Mon-Ret}) or crashes
+(\textsc{Mon-Throw}) it is the responsibility of the remote node $\sNid_Q$ to
+notify $P$. 
+
+\begin{figure}
+\small
+\begin{equation*}
+\frac{
+  \sNid_\mathit{fr} = \sNodeOf(\sPid_\mathit{fr}) 
+\qquad
+  \sNid_\mathit{to} = \sNodeOf(\sId_\mathit{to})
+\qquad
+  \sRef \text{ fresh}
+}{
+\sSystem{\sCtxt{P}[ \sMonitor \; \sId_\mathit{to} ]_{\sPid_\mathit{fr}}}
+          {\sQueue}
+          {\sBlacklist}
+          {\sMonitors}
+\rightarrow
+  \sSystem{\sCtxt{P}[ \sReturn \; \sRef ]_{\sPid_\mathit{fr}}}
+          {\sQueue \sExtend{\sBlacklist} (\sNid_\mathit{to}, \sPid_\mathit{fr}, \sMonitor \; \sRef \; \sId_\mathit{to})}
+          {\sBlacklist}
+          {\sMonitors, (\sId_\mathit{to}, \sPid_\mathit{fr}, \sNid_\mathit{fr}, \sRef)}
+} \textsc{Mon-Loc}
+\end{equation*}
+%
+\begin{equation*}
+\frac{
+  \sPid_\mathit{fr} \notin \sSenders(\sQueue)
+}{
+  \sSystem{\sProcesses}
+          {\sQueue, (\sNid_\mathit{to}, \sPid_\mathit{fr}, \sMonitor \; \sRef \; \sId_\mathit{to}), \sQueue'}
+          {\sBlacklist}
+          {\sMonitors}
+\rightarrow          
+  \sSystem{\sProcesses}
+          {\sQueue, \sQueue'}
+          {\sBlacklist}
+          {\sMonitors, (\sId_\mathit{to}, \sPid_\mathit{fr}, \sNid_\mathit{to}, \sRef)}
+} \textsc{Mon-Rem}
+\end{equation*}
+%
+\begin{equation*}
+\frac{
+  \sNid_\mathit{fr} = \sNodeOf(\sPid_\mathit{fr})
+\qquad
+  (\sId_\mathit{to}, \sPid_\mathit{fr}) \in \sBlacklist
+}{
+  \sSystem{\sProcesses}
+          {\sQueue}
+          {\sBlacklist}
+          {\sMonitors, (\sId_\mathit{to}, \sPid_\mathit{fr}, \sNid_\mathit{fr}, \sRef)}
+\rightarrow          
+  \sSystem{\sProcesses}
+          {\sQueue, (\sPid_\mathit{fr}, \sId_\mathit{to}, \mathtt{discon} \; \sRef)}
+          {\sBlacklist}
+          {\sMonitors}
+} \textsc{Mon-Dis}
+\end{equation*}
+%
+\begin{equation*}
+\frac{
+  \sNodeOf(\sPid) = \sNid
+}{
+  \sSystem{{(\sReturn \; ())}_\sPid \sPar \sProcesses}
+          {\sQueue}
+          {\sBlacklist}
+          {\sMonitors, (\sPid, \sPid', \sNid, \sRef)}
+\rightarrow
+  \sSystem{{(\sReturn \; ())}_\sPid \sPar \sProcesses}
+          {\sQueue \sExtend{\sBlacklist} (\sPid', \sNid, \mathtt{died} \; \sRef)}
+          {\sBlacklist}
+          {\sMonitors}
+} \textsc{Mon-Ret}
+\end{equation*}
+%
+\begin{equation*}
+\frac{
+  \sNodeOf(\sPid) = \sNid
+}{
+  \sSystem{{(\sThrow{M})}_\sPid \sPar \sProcesses}
+          {\sQueue}
+          {\sBlacklist}
+          {\sMonitors, (\sPid, \sPid', \sNid, \sRef)}
+\rightarrow
+  \sSystem{{(\sThrow{M})}_\sPid \sPar \sProcesses}
+          {\sQueue \sExtend{\sBlacklist} (\sPid', \sNid, \mathtt{exc} \; \sRef \; M)}
+          {\sBlacklist}
+          {\sMonitors}
+} \textsc{Mon-Throw}
+\end{equation*}
+%
+\begin{equation*}
+\frac{
+  \sNodeOf(\sPid) = \sNid
+\qquad  
+  \sPid \notin \sProcesses
+}{
+  \sSystem{\sProcesses}
+          {\sQueue}
+          {\sBlacklist}
+          {\sMonitors, (\sPid, \sPid', \sNid, \sRef)}
+\rightarrow
+  \sSystem{\sProcesses}
+          {\sQueue \sExtend{\sBlacklist} (\sPid', \sNid, \mathtt{unknown} \; \sRef)}
+          {\sBlacklist}
+          {\sMonitors}
+} \textsc{Mon-Unknown}
+\end{equation*}
+%
+\caption{Monitoring}
+\end{figure}
+
+\subsection{Process Termination}
+
+The rules for normal and abnormal process termination are defined in
+Figure~\ref{fig:termination}. When a process crashes it dies
+silently, unless monitors are setup.  
+
+\begin{figure}
+\small
+%
+\begin{equation*}
+\frac{
+  \sNodeOf(\sPid) = \sNid
+\qquad
+  \nexists \; \sPid', \sRef \cdot (\sPid', \sPid, \sNid, \sRef) \in \sMonitors 
+}{
+  \sSystem{{(\sReturn \; ())}_\sPid \sPar \sProcesses}
+          {\sQueue}
+          {\sBlacklist}
+          {\sMonitors}
+\rightarrow          
+  \sSystem{\sProcesses}
+          {\sQueue}
+          {\sBlacklist}
+          {\sMonitors}
+} \textsc{TermRet}
+\end{equation*}
+%
+\begin{equation*}
+\frac{
+  \sNodeOf(\sPid) = \sNid
+\qquad
+  \nexists \; \sPid', \sRef \cdot (\sPid', \sPid, \sNid, \sRef) \in \sMonitors 
+}{
+  \sSystem{{(\sThrow{M})}_\sPid \sPar \sProcesses}
+          {\sQueue}
+          {\sBlacklist}
+          {\sMonitors}
+\rightarrow          
+  \sSystem{\sProcesses}
+          {\sQueue}
+          {\sBlacklist}
+          {\sMonitors}
+} \textsc{TermThrow}
+\end{equation*}
+%
+\caption{\label{fig:termination}Process Termination}
+\end{figure}
+
+\section{Open Issues}
+
+\subsection{Ordering of Monitor/Link Notifications}
+
+The semantics as described above, like the original Unified semantics, does not
+guarantee that messages send from process $P$ to process $Q$ (\textsc{Send})
+are ordered with respect to the link or monitor notification sent when process
+$P$ terminates normally or abnormally (\textsc{Mon-Ret}, \textsc{Mon-Throw}). This means that if process $P$ does
+
+\begin{lstlisting}
+receiveWait [
+    match $ \(Reply reply) -> ...
+  , match $ \(ProcessMonitorNotification ..) -> ...
+  ]
+\end{lstlisting}
+
+and process $Q$ does
+
+\begin{lstlisting}
+send pidA (Reply reply)
+// terminate or indeed throw an exception
+\end{lstlisting}
+
+then the semantics does not guarantee that the reply from process $Q$ will
+arrive at process $P$ before the monitor notification; hence, this results in
+an (artificial) race condition in process $P$.
+
+One possible solution is to regard such a link notification as a message from
+process $Q$ to process $P$, which should be ordered along with the other
+messages.
+
+\subsection{Ordering and Typed Channels}
+
+The situation is more tricky still than sketched above because we of typed
+channels. The semantics does not provide ordering guarantees between messages
+sent directly to the process and messages sent on typed channels. That means
+that even if we consider a link or monitor notification as a message sent to
+the process, to be ordered with other messages sent to that process, it is
+still unordered with respect to messages sent on typed channels. This means
+that we have similar race conditions\footnote{Even ignoring the fact that we
+currently don't even provide a way to wait for a message on a typed channel
+\emph{or} a direct message.} 
+
+A possible solution is to insist that \emph{all} messages from process $P$ to
+process $Q$ are ordered, no matter how they are sent. From a implementation
+point of view, this would entail the use of a single ordered network connection
+for all messages from $P$ to $Q$, rather than using an ordered connection per
+typed channel plus one for direct messages.
+
+\bibliographystyle{apalike}
+\bibliography{references}
+
+\end{document}
