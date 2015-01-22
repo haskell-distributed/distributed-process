@@ -538,7 +538,7 @@ defaultTCPParameters = TCPParameters {
     tcpBacklog         = N.sOMAXCONN
   , tcpReuseServerAddr = True
   , tcpReuseClientAddr = True
-  , tcpNoDelay         = True
+  , tcpNoDelay         = False
   }
 
 --------------------------------------------------------------------------------
