@@ -255,11 +255,15 @@ send them msg = do
 unsafeSend :: Serializable a => ProcessId -> a -> Process ()
 unsafeSend = Unsafe.send
 
--- | Send a message without any reliability or ordering guarantees.
+-- | Send a message unreliably.
 --
 -- Unlike 'send', this function is insensitive to 'reconnect'. It will
 -- try to send the message regardless of the history of connection failures
 -- between the nodes.
+--
+-- Message passing with 'usend' is ordered for a given sender and receiver
+-- if the messages arrive at all.
+--
 usend :: Serializable a => ProcessId -> a -> Process ()
 usend them msg = do
     here <- getSelfNode
