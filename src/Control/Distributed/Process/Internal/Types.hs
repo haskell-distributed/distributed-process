@@ -108,6 +108,7 @@ import Control.Concurrent.STM (STM)
 import Control.Concurrent.STM.TChan (TChan)
 import qualified Network.Transport as NT (EndPoint, EndPointAddress, Connection)
 import Control.Applicative (Applicative, Alternative, (<$>), (<*>))
+import Control.Monad.Fix (MonadFix)
 import Control.Monad.Reader (MonadReader(..), ReaderT, runReaderT)
 import Control.Monad.IO.Class (MonadIO)
 import Control.Distributed.Process.Serializable
@@ -291,7 +292,7 @@ data LocalProcessState = LocalProcessState
 newtype Process a = Process {
     unProcess :: ReaderT LocalProcess IO a
   }
-  deriving (Functor, Monad, MonadIO, MonadReader LocalProcess, Typeable, Applicative)
+  deriving (Functor, Monad, MonadIO, MonadReader LocalProcess, Typeable, Applicative, MonadFix)
 
 --------------------------------------------------------------------------------
 -- Typed channels                                                             --
@@ -762,4 +763,3 @@ typedChannelWithId cid = typedChannels >>> DAC.mapMaybe cid
 {-# INLINE forever' #-}
 forever' :: Monad m => m a -> m b
 forever' a = let a' = a >> a' in a'
-
