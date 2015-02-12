@@ -295,7 +295,12 @@ startServiceProcesses node = do
   tableCoordinatorPid <- fork $ Table.startTableCoordinator fork
   runProcess node $ register Table.mxTableCoordinator tableCoordinatorPid
   logger <- forkProcess node loop
-  runProcess node $ register "logger" logger
+  runProcess node $ do
+    register "logger" logger
+    -- The trace.logger is used for tracing to the console to avoid feedback
+    -- loops during tracing if the user reregisters the "logger" with a custom
+    -- process which uses 'send' or other primitives which are traced.
+    register "trace.logger" logger
  where
    fork = forkProcess node
 

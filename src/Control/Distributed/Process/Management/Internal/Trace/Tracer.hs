@@ -146,7 +146,7 @@ systemLoggerTracer = do
       emptyPid <- return $ (nullProcessId (localNodeId node))
       traceMsg <- return $ NCMsg {
                              ctrlMsgSender = ProcessIdentifier (emptyPid)
-                           , ctrlMsgSignal = (NamedSend "logger"
+                           , ctrlMsgSignal = (NamedSend "trace.logger"
                                                  (createUnencodedMessage msg))
                            }
       liftIO $ writeChan (localCtrlChan node) traceMsg
