@@ -12,6 +12,7 @@
 module Control.Distributed.Process.Internal.Primitives
   ( -- * Basic messaging
     send
+  , usend
   , expect
     -- * Channels
   , newChan
@@ -253,6 +254,24 @@ send them msg = do
 -- delivered.
 unsafeSend :: Serializable a => ProcessId -> a -> Process ()
 unsafeSend = Unsafe.send
+
+-- | Send a message unreliably.
+--
+-- Unlike 'send', this function is insensitive to 'reconnect'. It will
+-- try to send the message regardless of the history of connection failures
+-- between the nodes.
+--
+-- Message passing with 'usend' is ordered for a given sender and receiver
+-- if the messages arrive at all.
+--
+usend :: Serializable a => ProcessId -> a -> Process ()
+usend them msg = do
+    here <- getSelfNode
+    let there = processNodeId them
+    if here == there
+      then sendLocal them msg
+      else sendCtrlMsg (Just there) $ UnreliableSend (processLocalId them)
+                                                     (createMessage msg)
 
 -- | Wait for a message of a specific type
 expect :: forall a. Serializable a => Process a

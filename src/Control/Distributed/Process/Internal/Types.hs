@@ -572,6 +572,7 @@ data ProcessSignal =
   | WhereIs !String
   | Register !String !NodeId !(Maybe ProcessId) !Bool -- Use 'Nothing' to unregister, use True to force reregister
   | NamedSend !String !Message
+  | UnreliableSend !LocalProcessId !Message
   | LocalSend !ProcessId !Message
   | LocalPortSend !SendPortId !Message
   | Kill !ProcessId !String
@@ -627,6 +628,7 @@ instance Binary ProcessSignal where
   put (Exit pid reason)       = putWord8 10 >> put pid >> put (messageToPayload reason)
   put (LocalSend to' msg)      = putWord8 11 >> put to' >> put (messageToPayload msg)
   put (LocalPortSend sid msg) = putWord8 12 >> put sid >> put (messageToPayload msg)
+  put (UnreliableSend lpid msg) = putWord8 13 >> put lpid >> put (messageToPayload msg)
   put (GetInfo about)         = putWord8 30 >> put about
   put (SigShutdown)         = putWord8 31
   put (GetNodeStats nid)         = putWord8 32 >> put nid
@@ -646,6 +648,7 @@ instance Binary ProcessSignal where
       10 -> Exit <$> get <*> (payloadToMessage <$> get)
       11 -> LocalSend <$> get <*> (payloadToMessage <$> get)
       12 -> LocalPortSend <$> get <*> (payloadToMessage <$> get)
+      13 -> UnreliableSend <$> get <*> (payloadToMessage <$> get)
       30 -> GetInfo <$> get
       31 -> return SigShutdown
       32 -> GetNodeStats <$> get

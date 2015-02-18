@@ -25,6 +25,7 @@ module Control.Distributed.Process
   , liftIO -- Reexported for convenience
     -- * Basic messaging
   , send
+  , usend
   , expect
   , expectTimeout
     -- * Channels
@@ -196,6 +197,7 @@ import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Internal.Primitives
   ( -- Basic messaging
     send
+  , usend
   , expect
     -- Channels
   , newChan
