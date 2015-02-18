@@ -121,6 +121,7 @@ import Prelude hiding (catch)
 #endif
 
 import Data.Binary (decode)
+import Data.Foldable (traverse_)
 import Data.Time.Clock (getCurrentTime)
 import Data.Time.Format (formatTime)
 import System.Locale (defaultTimeLocale)
@@ -1110,8 +1111,7 @@ whereisRemoteAsync nid label =
 
 -- | Named send to a process in the local registry (asynchronous)
 nsend :: Serializable a => String -> a -> Process ()
-nsend label msg =
-  sendCtrlMsg Nothing (NamedSend label (createUnencodedMessage msg))
+nsend label msg = traverse_ (`send` msg) =<< whereis label
 
 -- | Named send to a process in the local registry (asynchronous).
 -- This function makes /no/ attempt to serialize and (in the case when the
