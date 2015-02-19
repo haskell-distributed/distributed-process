@@ -10,6 +10,7 @@ module Control.Distributed.Process.Internal.CQueue
   , enqueueSTM
   , dequeue
   , mkWeakCQueue
+  , queueSize 
   ) where
 
 import Prelude hiding (length, reverse)
@@ -17,10 +18,14 @@ import Control.Concurrent.STM
   ( atomically
   , STM
   , TChan
+  , TVar
+  , modifyTVar'
   , tryReadTChan
   , newTChan
+  , newTVarIO
   , writeTChan
   , readTChan
+  , readTVarIO
   , orElse
   , retry
   )
@@ -46,19 +51,22 @@ import GHC.Weak (Weak(Weak))
 -- We use a TCHan rather than a Chan so that we have a non-blocking read
 data CQueue a = CQueue (StrictMVar (StrictList a)) -- Arrived
                        (TChan a)                   -- Incoming
+                       (TVar Int)                 -- Queue size
 
 newCQueue :: IO (CQueue a)
-newCQueue = CQueue <$> newMVar Nil <*> atomically newTChan
+newCQueue = CQueue <$> newMVar Nil <*> atomically newTChan <*> newTVarIO 0
 
 -- | Enqueue an element
 --
 -- Enqueue is strict.
 enqueue :: CQueue a -> a -> IO ()
-enqueue (CQueue _arrived incoming) !a = atomically $ writeTChan incoming a
+enqueue c !a = atomically (enqueueSTM c a)
 
 -- | Variant of enqueue for use in the STM monad.
 enqueueSTM :: CQueue a -> a -> STM ()
-enqueueSTM (CQueue _arrived incoming) !a = writeTChan incoming a
+enqueueSTM (CQueue _arrived incoming size) !a = do
+   writeTChan incoming a
+   modifyTVar' size succ
 
 data BlockSpec =
     NonBlocking
@@ -101,7 +109,7 @@ dequeue :: forall m a.
         -> BlockSpec         -- ^ Blocking behaviour
         -> [MatchOn m a]     -- ^ List of matches
         -> IO (Maybe a)      -- ^ 'Nothing' only on timeout
-dequeue (CQueue arrived incoming) blockSpec matchons = mask_ $
+dequeue (CQueue arrived incoming size) blockSpec matchons = mask_ $ decrementJust $
   case blockSpec of
     Timeout n -> timeout n $ fmap fromJust run
     _other    ->
@@ -113,6 +121,16 @@ dequeue (CQueue arrived incoming) blockSpec matchons = mask_ $
                               -- no onException needed
          _other -> run
   where
+    -- Decrement counter is smth is returned from the queue,
+    -- this is safe to use as method is called under a mask
+    -- and there is no 'unmasked' operation inside
+    decrementJust f = do
+       mx <- f
+       case mx of
+         Just{} -> atomically $ modifyTVar' size pred
+         Nothing -> return ()
+       return mx
+
     chunks = chunkMatches matchons
 
     run = do
@@ -245,5 +263,8 @@ dequeue (CQueue arrived incoming) blockSpec matchons = mask_ $
 
 -- | Weak reference to a CQueue
 mkWeakCQueue :: CQueue a -> IO () -> IO (Weak (CQueue a))
-mkWeakCQueue m@(CQueue (StrictMVar (MVar m#)) _) f = IO $ \s ->
+mkWeakCQueue m@(CQueue (StrictMVar (MVar m#)) _ _) f = IO $ \s ->
   case mkWeak# m# m f s of (# s1, w #) -> (# s1, Weak w #)
+
+queueSize :: CQueue a -> IO Int
+queueSize (CQueue _ _ size) = readTVarIO size
