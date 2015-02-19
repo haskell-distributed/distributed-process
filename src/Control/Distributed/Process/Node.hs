@@ -88,6 +88,7 @@ import Control.Distributed.Process.Internal.CQueue
   , enqueue
   , newCQueue
   , mkWeakCQueue
+  , queueSize
   )
 import qualified Network.Transport as NT
   ( Transport
@@ -974,10 +975,11 @@ ncEffectGetInfo from pid =
   case mProc of
     Nothing   -> dispatch (isLocal node (ProcessIdentifier from))
                           from node (ProcessInfoNone DiedUnknownId)
-    Just _    -> do
+    Just proc    -> do
       itsLinks    <- gets (^. linksFor    them)
       itsMons     <- gets (^. monitorsFor them)
       registered  <- gets (^. registeredHere)
+      size        <- liftIO $ queueSize $ processQueue $ proc
 
       let reg = registeredNames registered
       dispatch (isLocal node (ProcessIdentifier from))
@@ -986,8 +988,7 @@ ncEffectGetInfo from pid =
                ProcessInfo {
                    infoNode               = (processNodeId pid)
                  , infoRegisteredNames    = reg
-                   -- we cannot populate this field
-                 , infoMessageQueueLength = Nothing
+                 , infoMessageQueueLength = size
                  , infoMonitors       = Set.toList itsMons
                  , infoLinks          = Set.toList itsLinks
                  }
