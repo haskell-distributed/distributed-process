@@ -38,6 +38,8 @@ import Control.Distributed.Process.Internal.Closure.BuiltIn
   , cpSend
   , cpNewChan
   , cpDelayed
+  , returnCP
+  , sdictUnit
   )
 import Control.Distributed.Process.Internal.Primitives
   ( -- Basic messaging
@@ -109,12 +111,14 @@ call :: Serializable a
         -> Process a
 call dict nid proc = do
   us <- getSelfPid
-  (pid, mRef) <- spawnMonitor nid (proc `bindCP` cpSend dict us)
-  -- We are guaranteed to receive the reply before the monitor notification
-  -- (if a reply is sent at all)
-  -- NOTE: This might not be true if we switch to unreliable delivery.
+  (pid, mRef) <- spawnMonitor nid (proc `bindCP`
+                                   cpSend dict us `seqCP`
+                                   -- Delay so the process does not terminate
+                                   -- before the response arrives.
+                                   cpDelayed us (returnCP sdictUnit ())
+                                  )
   mResult <- receiveWait
-    [ match (return . Right)
+    [ match $ \a -> send pid () >> return (Right a)
     , matchIf (\(ProcessMonitorNotification ref _ _) -> ref == mRef)
               (\(ProcessMonitorNotification _ _ reason) -> return (Left reason))
     ]
