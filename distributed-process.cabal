@@ -71,6 +71,7 @@ Library
                      Control.Distributed.Process.Internal.WeakTQueue,
                      Control.Distributed.Process.Management,
                      Control.Distributed.Process.Node,
+                     Control.Distributed.Process.Node.RegistryAgent
                      Control.Distributed.Process.Serializable,
                      Control.Distributed.Process.UnsafePrimitives
                      Control.Distributed.Process.Management.Internal.Agent,

@@ -68,6 +68,7 @@ import Control.Exception
   )
 import qualified Control.Exception as Exception (Handler(..), catches, finally)
 import Control.Concurrent (forkIO, forkIOWithUnmask, myThreadId)
+import Control.Distributed.Process.Node.RegistryAgent (registryMonitorAgent)
 import Control.Distributed.Process.Internal.StrictMVar
   ( newMVar
   , withMVar
@@ -298,6 +299,7 @@ startServiceProcesses node = do
   runProcess node $ register Table.mxTableCoordinator tableCoordinatorPid
   logger <- forkProcess node loop
   runProcess node $ register "logger" logger
+  runProcess node $ void $ registryMonitorAgent
  where
    fork = forkProcess node
 
