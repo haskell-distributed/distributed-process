@@ -23,7 +23,7 @@ import Control.Distributed.Process.Management
 import Control.Distributed.Process.Internal.Types
 import Control.Distributed.Process.Internal.Primitives
 import Control.Monad (when)
-import Data.Foldable
+import Data.Foldable (forM_)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 
@@ -35,13 +35,12 @@ registryMonitorAgent = do
     mxAgent registryMonitorAgentId initState
         [ mxSink $ \(ProcessMonitorNotification mr pid _) -> do
             hm <- mxGetLocal
-            traverse_ (\(label, mref) -> when (mr == mref) $ do
+            forM_ (pid `Map.lookup` hm) $ \(label, mref) -> when (mr == mref) $ do
                liftMX $ do
                   mynid <- getSelfNode
                   sendCtrlMsg Nothing (Unmonitor mref)
                   sendCtrlMsg Nothing (Register label mynid Nothing False)
                mxSetLocal $! pid `Map.delete` hm
-               ) (pid `Map.lookup` hm)
             mxReady
         , mxSink $ \ev ->
             let act = case ev of
@@ -54,10 +53,9 @@ registryMonitorAgent = do
                             Just _  -> return ()
                     MxUnRegistered pid _ -> do
                         hm <- mxGetLocal
-                        traverse_ (\(_,mref) -> do
+                        forM_ (pid `Map.lookup` hm) $ \(_,mref) -> do
                            liftMX $ sendCtrlMsg Nothing (Unmonitor mref)
                            mxSetLocal $! pid `Map.delete` hm
-                           ) (pid `Map.lookup` hm)
                     _ -> return ()
             in act >> mxReady
           -- remove async answers from mailbox
