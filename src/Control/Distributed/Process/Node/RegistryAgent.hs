@@ -38,7 +38,6 @@ registryMonitorAgent = do
             forM_ (pid `Map.lookup` hm) $ \(label, mref) -> when (mr == mref) $ do
                liftMX $ do
                   mynid <- getSelfNode
-                  sendCtrlMsg Nothing (Unmonitor mref)
                   sendCtrlMsg Nothing (Register label mynid Nothing False)
                mxSetLocal $! pid `Map.delete` hm
             mxReady
