@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 -----------------------------------------------------------------------------
 ---- |
 ---- Module      :  Control.Distributed.Process.Node.RegistryAgent
@@ -22,7 +23,6 @@ module Control.Distributed.Process.Node.RegistryAgent
 import Control.Distributed.Process.Management
 import Control.Distributed.Process.Internal.Types
 import Control.Distributed.Process.Internal.Primitives
-import Control.Monad (when)
 import Data.Foldable (forM_)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -33,28 +33,26 @@ registryMonitorAgentId = MxAgentId "service.registry.monitoring"
 registryMonitorAgent :: Process ProcessId
 registryMonitorAgent = do
     mxAgent registryMonitorAgentId initState
-        [ mxSink $ \(ProcessMonitorNotification mr pid _) -> do
-            hm <- mxGetLocal
-            forM_ (pid `Map.lookup` hm) $ \(label, mref) -> when (mr == mref) $ do
-               liftMX $ do
-                  mynid <- getSelfNode
-                  sendCtrlMsg Nothing (Register label mynid Nothing False)
-               mxSetLocal $! pid `Map.delete` hm
+        [ mxSink $ \(ProcessMonitorNotification _ pid _) -> do
+            mxUpdateLocal (Map.delete pid)
             mxReady
         , mxSink $ \ev ->
             let act = case ev of
-                    MxRegistered pid label -> do
+                    MxRegistered pid _ -> do
                         hm <- mxGetLocal
                         case pid `Map.lookup` hm of
                             Nothing -> do
-                                mon <- liftMX (monitor pid)
-                                mxUpdateLocal (Map.insert pid (label,mon))
+                                mon <- liftMX $ monitor pid
+                                mxUpdateLocal (Map.insert pid (mon, 1))
                             Just _  -> return ()
                     MxUnRegistered pid _ -> do
                         hm <- mxGetLocal
-                        forM_ (pid `Map.lookup` hm) $ \(_,mref) -> do
-                           liftMX $ sendCtrlMsg Nothing (Unmonitor mref)
-                           mxSetLocal $! pid `Map.delete` hm
+                        forM_ (pid `Map.lookup` hm) $ \(mref, i) ->
+                           let !i' = succ i  
+                           in if i' == 0
+                              then do liftMX $ unmonitorAsync mref
+                                      mxSetLocal $! pid `Map.delete` hm
+                              else mxSetLocal $ Map.insert pid (mref,i') hm
                     _ -> return ()
             in act >> mxReady
           -- remove async answers from mailbox
@@ -62,5 +60,5 @@ registryMonitorAgent = do
         , mxSink $ \DidUnmonitor{} -> mxReady
         ]
     where
-        initState :: Map ProcessId (String,MonitorRef)
+        initState :: Map ProcessId (MonitorRef,Int)
         initState = Map.empty
