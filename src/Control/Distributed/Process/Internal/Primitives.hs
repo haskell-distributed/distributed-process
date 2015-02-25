@@ -71,6 +71,7 @@ module Control.Distributed.Process.Internal.Primitives
   , unlink
   , monitor
   , unmonitor
+  , unmonitorAsync
   , withMonitor
     -- * Logging
   , say
