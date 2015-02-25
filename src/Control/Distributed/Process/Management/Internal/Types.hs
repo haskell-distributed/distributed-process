@@ -30,6 +30,7 @@ import Control.Distributed.Process.Internal.Types
   , NodeId
   )
 import Control.Monad.IO.Class (MonadIO)
+import Control.Monad.Fix (MonadFix)
 import qualified Control.Monad.State as ST
   ( MonadState
   , StateT
@@ -123,6 +124,7 @@ newtype MxAgent s a =
   } deriving ( Functor
              , Monad
              , MonadIO
+             , MonadFix
              , ST.MonadState (MxAgentState s)
              , Typeable
              , Applicative

@@ -68,6 +68,7 @@ import Control.Exception
   )
 import qualified Control.Exception as Exception (Handler(..), catches, finally)
 import Control.Concurrent (forkIO, forkIOWithUnmask, killThread, myThreadId)
+import Control.Distributed.Process.Node.RegistryAgent (registryMonitorAgent)
 import Control.Distributed.Process.Internal.StrictMVar
   ( newMVar
   , withMVar
@@ -306,6 +307,7 @@ startServiceProcesses node = do
     -- loops during tracing if the user reregisters the "logger" with a custom
     -- process which uses 'send' or other primitives which are traced.
     register "trace.logger" logger
+    void $ registryMonitorAgent
  where
    fork = forkProcess node
 
