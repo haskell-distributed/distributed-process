@@ -757,11 +757,11 @@ getNodeStats nid = do
     selfNode <- getSelfNode
     if nid == selfNode
       then Right `fmap` getLocalNodeStats -- optimisation
-      else getNodeStatsRemote
+      else getNodeStatsRemote selfNode
   where
-    getNodeStatsRemote :: Process (Either DiedReason NodeStats)
-    getNodeStatsRemote = do
-        sendCtrlMsg (Just nid) $ GetNodeStats nid
+    getNodeStatsRemote :: NodeId -> Process (Either DiedReason NodeStats)
+    getNodeStatsRemote selfNode = do
+        sendCtrlMsg (Just nid) $ GetNodeStats selfNode
         bracket (monitorNode nid) unmonitor $ \mRef ->
             receiveWait [ match (\(stats :: NodeStats) -> return $ Right stats)
                         , matchIf (\(NodeMonitorNotification ref _ _) -> ref == mRef)
