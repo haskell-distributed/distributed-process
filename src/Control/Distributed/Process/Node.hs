@@ -1127,7 +1127,9 @@ postMessage pid msg = do
 throwException :: Exception e => ProcessId -> e -> NC ()
 throwException pid e = do
   node <- ask
-  liftIO $ withLocalProc node pid $ \p -> throwTo (processThread p) e
+  -- throwTo blocks until the exception is received by the target thread.
+  -- We fork a helper thread to avoid blocking the node controller.
+  liftIO $ withLocalProc node pid $ \p -> void $ forkIO $ throwTo (processThread p) e
 
 withLocalProc :: LocalNode -> ProcessId -> (LocalProcess -> IO ()) -> IO ()
 withLocalProc node pid p =
