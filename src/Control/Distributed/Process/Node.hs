@@ -53,7 +53,7 @@ import Data.Maybe (isJust, fromJust, isNothing, catMaybes)
 import Data.Typeable (Typeable)
 import Control.Category ((>>>))
 import Control.Applicative (Applicative, (<$>))
-import Control.Monad (void, when)
+import Control.Monad (void, when, join, replicateM_)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.State.Strict (MonadState, StateT, evalStateT, gets)
 import qualified Control.Monad.State.Strict as StateT (get, put)
@@ -73,6 +73,7 @@ import Control.Distributed.Process.Internal.StrictMVar
   , withMVar
   , modifyMVarMasked
   , modifyMVar_
+  , modifyMVar
   , newEmptyMVar
   , putMVar
   , takeMVar
@@ -198,6 +199,8 @@ import Control.Distributed.Process.Internal.Primitives
   , sendChan
   , catch
   , unwrapMessage
+  , monitor
+  , exit
   )
 import Control.Distributed.Process.Internal.Types (SendPort, Tracer(..))
 import qualified Control.Distributed.Process.Internal.Closure.BuiltIn as BuiltIn (remoteTable)
@@ -319,11 +322,38 @@ startServiceProcesses node = do
 
 -- | Force-close a local node
 --
--- TODO: for now we just close the associated endpoint
+-- This function first try to brutally kill all processes, this
+-- process is not guaranteed to continue. So this is application
+-- responsibility to either close all it's processes before dying
+-- or being able to gracefully shutdown.
 closeLocalNode :: LocalNode -> IO ()
-closeLocalNode node =
-  -- TODO: close all our processes, surely!?
-  NT.closeEndPoint (localEndPoint node)
+closeLocalNode node = join $ terminateProcesses
+  where
+    terminateProcesses :: IO (IO ())
+    terminateProcesses = do
+      st <- modifyMVar (localState node) (\st -> return (st, st))
+      let mxACPid = case localEventBus node of
+                      MxEventBus pid _ _ _ -> pid
+                      MxEventBusInitialising -> error "terminateLocalProcesses: The given node is not initialized."
+          pids = filter (/=mxACPid) $ map processId $ Map.elems (st ^. localProcesses)
+      if pids == []
+        then do runProcess node $ do
+                  -- Trying to kill the management agent controller prevents other processes
+                  -- from terminating.
+                  mapM_ monitor pids
+                  mapM_ (flip exit "closing node") pids
+                  replicateM_ (length pids) $ receiveWait
+                    [ match $ \(ProcessMonitorNotification _ _ _) -> return () ]
+                return (join terminateProcesses)
+        else return stopNC
+
+    stopNC =
+       writeChan (localCtrlChan node) NCMsg
+            { ctrlMsgSender = NodeIdentifier (localNodeId node)
+            , ctrlMsgSignal = SigShutdown
+            }
+
+    
 
 -- | Run a process on a local node and wait for it to finish
 runProcess :: LocalNode -> Process () -> IO ()
