@@ -542,7 +542,7 @@ data NodeStats = NodeStats {
 data ProcessInfo = ProcessInfo {
     infoNode               :: NodeId
   , infoRegisteredNames    :: [String]
-  , infoMessageQueueLength :: Maybe Int
+  , infoMessageQueueLength :: Int
   , infoMonitors           :: [(ProcessId, MonitorRef)]
   , infoLinks              :: [ProcessId]
   } deriving (Show, Eq, Typeable)
