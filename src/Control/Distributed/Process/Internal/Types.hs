@@ -20,9 +20,12 @@ module Control.Distributed.Process.Internal.Types
   , nullProcessId
     -- * Local nodes and processes
   , LocalNode(..)
+  , LocalNodeState(..)
+  , ValidLocalNodeState(..)
+  , withValidLocalState
+  , modifyValidLocalState_
   , Tracer(..)
   , MxEventBus(..)
-  , LocalNodeState(..)
   , LocalProcess(..)
   , LocalProcessState(..)
   , Process(..)
@@ -101,7 +104,7 @@ import qualified Data.ByteString.Lazy.Internal as BSL (ByteString(..))
 import Data.Accessor (Accessor, accessor)
 import Control.Category ((>>>))
 import Control.DeepSeq (NFData(..))
-import Control.Exception (Exception)
+import Control.Exception (Exception, throwIO)
 import Control.Concurrent (ThreadId)
 import Control.Concurrent.Chan (Chan)
 import Control.Concurrent.STM (STM)
@@ -121,7 +124,11 @@ import Control.Distributed.Process.Serializable
   , showFingerprint
   )
 import Control.Distributed.Process.Internal.CQueue (CQueue)
-import Control.Distributed.Process.Internal.StrictMVar (StrictMVar)
+import Control.Distributed.Process.Internal.StrictMVar
+  ( StrictMVar
+  , withMVar
+  , modifyMVar_
+  )
 import Control.Distributed.Process.Internal.WeakTQueue (TQueue)
 import Control.Distributed.Static (RemoteTable, Closure)
 import qualified Control.Distributed.Process.Internal.StrictContainerAccessors as DAC (mapMaybe)
@@ -253,7 +260,11 @@ data ImplicitReconnect = WithImplicitReconnect | NoImplicitReconnect
   deriving (Eq, Show)
 
 -- | Local node state
-data LocalNodeState = LocalNodeState
+data LocalNodeState =
+    LocalNodeValid {-# UNPACK #-} !ValidLocalNodeState
+  | LocalNodeClosed
+
+data ValidLocalNodeState = ValidLocalNodeState
   { -- | Processes running on this node
     _localProcesses   :: !(Map LocalProcessId LocalProcess)
     -- | Counter to assign PIDs
@@ -265,6 +276,24 @@ data LocalNodeState = LocalNodeState
   , _localConnections :: !(Map (Identifier, Identifier)
                                (NT.Connection, ImplicitReconnect))
   }
+
+-- | Wrapper around 'withMVar' that checks that the local node is still in
+-- a valid state.
+withValidLocalState :: StrictMVar LocalNodeState
+                    -> (ValidLocalNodeState -> IO r)
+                    -> IO r
+withValidLocalState mv f = withMVar mv $ \st -> case st of
+    LocalNodeValid vst -> f vst
+    LocalNodeClosed -> throwIO $ userError "LocalNode closed"
+
+-- | Wrapper around 'modifyMVar_' that checks that the local node is still in
+-- a valid state.
+modifyValidLocalState_ :: StrictMVar LocalNodeState
+                       -> (ValidLocalNodeState -> IO ValidLocalNodeState)
+                       -> IO ()
+modifyValidLocalState_ mv f = modifyMVar_ mv $ \st -> case st of
+    LocalNodeValid vst -> LocalNodeValid <$> f vst
+    LocalNodeClosed -> throwIO $ userError "LocalNode closed"
 
 -- | Processes running on our local node
 data LocalProcess = LocalProcess
@@ -725,22 +754,22 @@ instance Binary ProcessInfoNone where
 -- Accessors                                                                  --
 --------------------------------------------------------------------------------
 
-localProcesses :: Accessor LocalNodeState (Map LocalProcessId LocalProcess)
+localProcesses :: Accessor ValidLocalNodeState (Map LocalProcessId LocalProcess)
 localProcesses = accessor _localProcesses (\procs st -> st { _localProcesses = procs })
 
-localPidCounter :: Accessor LocalNodeState Int32
+localPidCounter :: Accessor ValidLocalNodeState Int32
 localPidCounter = accessor _localPidCounter (\ctr st -> st { _localPidCounter = ctr })
 
-localPidUnique :: Accessor LocalNodeState Int32
+localPidUnique :: Accessor ValidLocalNodeState Int32
 localPidUnique = accessor _localPidUnique (\unq st -> st { _localPidUnique = unq })
 
-localConnections :: Accessor LocalNodeState (Map (Identifier, Identifier) (NT.Connection, ImplicitReconnect))
+localConnections :: Accessor ValidLocalNodeState (Map (Identifier, Identifier) (NT.Connection, ImplicitReconnect))
 localConnections = accessor _localConnections (\conns st -> st { _localConnections = conns })
 
-localProcessWithId :: LocalProcessId -> Accessor LocalNodeState (Maybe LocalProcess)
+localProcessWithId :: LocalProcessId -> Accessor ValidLocalNodeState (Maybe LocalProcess)
 localProcessWithId lpid = localProcesses >>> DAC.mapMaybe lpid
 
-localConnectionBetween :: Identifier -> Identifier -> Accessor LocalNodeState (Maybe (NT.Connection, ImplicitReconnect))
+localConnectionBetween :: Identifier -> Identifier -> Accessor ValidLocalNodeState (Maybe (NT.Connection, ImplicitReconnect))
 localConnectionBetween from' to' = localConnections >>> DAC.mapMaybe (from', to')
 
 monitorCounter :: Accessor LocalProcessState Int32
