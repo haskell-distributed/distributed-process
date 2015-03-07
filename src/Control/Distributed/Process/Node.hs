@@ -73,7 +73,6 @@ import Control.Distributed.Process.Internal.StrictMVar
   , withMVar
   , modifyMVarMasked
   , modifyMVar_
-  , modifyMVar
   , newEmptyMVar
   , putMVar
   , takeMVar
@@ -200,7 +199,7 @@ import Control.Distributed.Process.Internal.Primitives
   , catch
   , unwrapMessage
   , monitor
-  , exit
+  , kill
   )
 import Control.Distributed.Process.Internal.Types (SendPort, Tracer(..))
 import qualified Control.Distributed.Process.Internal.Closure.BuiltIn as BuiltIn (remoteTable)
@@ -258,12 +257,6 @@ createBareLocalNode endPoint rtable = do
                                       (stopNC node)
 
     return tracedNode
-  where
-    stopNC node =
-       writeChan (localCtrlChan node) NCMsg
-            { ctrlMsgSender = NodeIdentifier (localNodeId node)
-            , ctrlMsgSignal = SigShutdown
-            }
 
 startMxAgent :: LocalNode -> IO LocalNode
 startMxAgent node = do
@@ -331,27 +324,29 @@ closeLocalNode node = join $ terminateProcesses
   where
     terminateProcesses :: IO (IO ())
     terminateProcesses = do
-      st <- modifyMVar (localState node) (\st -> return (st, st))
+      st <- readMVar (localState node)
       let mxACPid = case localEventBus node of
                       MxEventBus pid _ _ _ -> pid
-                      MxEventBusInitialising -> error "terminateLocalProcesses: The given node is not initialized."
+                      MxEventBusInitialising -> error "closeLocalNode: The given node is not initialized."
           pids = filter (/=mxACPid) $ map processId $ Map.elems (st ^. localProcesses)
       if pids == []
         then do runProcess node $ do
                   -- Trying to kill the management agent controller prevents other processes
                   -- from terminating.
                   mapM_ monitor pids
-                  mapM_ (flip exit "closing node") pids
+                  mapM_ (flip kill "closing node") pids
                   replicateM_ (length pids) $ receiveWait
                     [ match $ \(ProcessMonitorNotification _ _ _) -> return () ]
                 return (join terminateProcesses)
-        else return stopNC
+        else return $ stopNC node
 
-    stopNC =
-       writeChan (localCtrlChan node) NCMsg
-            { ctrlMsgSender = NodeIdentifier (localNodeId node)
-            , ctrlMsgSignal = SigShutdown
-            }
+-- | Send stop signal to node controller
+stopNC :: LocalNode -> IO ()
+stopNC node =
+  writeChan (localCtrlChan node) NCMsg
+     { ctrlMsgSender = NodeIdentifier (localNodeId node)
+     , ctrlMsgSignal = SigShutdown
+     }
 
     
 
