@@ -67,7 +67,7 @@ import Control.Exception
   , uninterruptibleMask_
   )
 import qualified Control.Exception as Exception (Handler(..), catches, finally)
-import Control.Concurrent (forkIO, forkIOWithUnmask, myThreadId)
+import Control.Concurrent (forkIO, forkIOWithUnmask, killThread, myThreadId)
 import Control.Distributed.Process.Internal.StrictMVar
   ( newMVar
   , withMVar
@@ -320,13 +320,17 @@ startServiceProcesses node = do
            sendChan ch ()
        ]
 
--- | Force-close a local node
---
--- TODO: for now we just close the associated endpoint
+-- | Force-close a local node, killing all processes on that node.
 closeLocalNode :: LocalNode -> IO ()
 closeLocalNode node = do
+  withValidLocalState (localState node) $ \vst ->
+    forM_ (vst ^. localProcesses) $ \lproc ->
+      -- Semantics of 'throwTo' guarantee that target thread will get delivered
+      -- an exception. Therefore, target thread will be killed eventually and
+      -- that's as good as we can do. No need to wait for thread to actually
+      -- finish dying.
+      killThread (processThread lproc)
   modifyMVar_ (localState node) $ const $ return LocalNodeClosed
-  -- TODO: close all our processes, surely!?
   NT.closeEndPoint (localEndPoint node)
 
 -- | Run a process on a local node and wait for it to finish
