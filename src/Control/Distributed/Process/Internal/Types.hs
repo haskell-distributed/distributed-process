@@ -279,21 +279,21 @@ data ValidLocalNodeState = ValidLocalNodeState
 
 -- | Wrapper around 'withMVar' that checks that the local node is still in
 -- a valid state.
-withValidLocalState :: StrictMVar LocalNodeState
+withValidLocalState :: LocalNode
                     -> (ValidLocalNodeState -> IO r)
                     -> IO r
-withValidLocalState mv f = withMVar mv $ \st -> case st of
+withValidLocalState node f = withMVar (localState node) $ \st -> case st of
     LocalNodeValid vst -> f vst
-    LocalNodeClosed -> throwIO $ userError "LocalNode closed"
+    LocalNodeClosed -> throwIO $ userError $ "Node closed " ++ show (localNodeId node)
 
 -- | Wrapper around 'modifyMVar_' that checks that the local node is still in
 -- a valid state.
-modifyValidLocalState_ :: StrictMVar LocalNodeState
+modifyValidLocalState_ :: LocalNode
                        -> (ValidLocalNodeState -> IO ValidLocalNodeState)
                        -> IO ()
-modifyValidLocalState_ mv f = modifyMVar_ mv $ \st -> case st of
+modifyValidLocalState_ node f = modifyMVar_ (localState node) $ \st -> case st of
     LocalNodeValid vst -> LocalNodeValid <$> f vst
-    LocalNodeClosed -> throwIO $ userError "LocalNode closed"
+    LocalNodeClosed -> throwIO $ userError $ "Node closed " ++ show (localNodeId node)
 
 -- | Processes running on our local node
 data LocalProcess = LocalProcess

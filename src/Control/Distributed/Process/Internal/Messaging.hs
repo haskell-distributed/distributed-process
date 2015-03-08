@@ -114,7 +114,7 @@ setupConnBetween node from to implicitReconnect = do
           Left _ ->
             return Nothing
           Right () -> do
-            modifyValidLocalState_ (localState node) $
+            modifyValidLocalState_ node $
               return . (localConnectionBetween from to ^= Just (conn, implicitReconnect))
             return $ Just conn
       Left _ ->
@@ -126,7 +126,7 @@ connBetween :: LocalNode
             -> ImplicitReconnect
             -> IO (Maybe NT.Connection)
 connBetween node from to implicitReconnect = do
-    mConn <- withValidLocalState (localState node) $
+    mConn <- withValidLocalState node $
       return . (^. localConnectionBetween from to)
     case mConn of
       Just (conn, _) ->
@@ -136,7 +136,7 @@ connBetween node from to implicitReconnect = do
 
 disconnect :: LocalNode -> Identifier -> Identifier -> IO ()
 disconnect node from to =
-  modifyValidLocalState_ (localState node) $ \vst ->
+  modifyValidLocalState_ node $ \vst ->
     case vst ^. localConnectionBetween from to of
       Nothing ->
         return vst
@@ -146,7 +146,7 @@ disconnect node from to =
 
 closeImplicitReconnections :: LocalNode -> Identifier -> IO ()
 closeImplicitReconnections node to =
-  modifyValidLocalState_ (localState node) $ \vst -> do
+  modifyValidLocalState_ node $ \vst -> do
     let shouldClose (_, to') (_, WithImplicitReconnect) = to `impliesDeathOf` to'
         shouldClose _ _ = False
     let (affected, unaffected) =

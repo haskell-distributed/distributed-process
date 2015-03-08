@@ -383,7 +383,7 @@ forkProcess node proc =
                 (return . DiedException . (show :: SomeException -> String)))]
 
           -- [Unified: Table 4, rules termination and exiting]
-          modifyValidLocalState_ (localState node) (cleanupProcess pid)
+          modifyValidLocalState_ node (cleanupProcess pid)
           writeChan (localCtrlChan node) NCMsg
             { ctrlMsgSender = ProcessIdentifier pid
             , ctrlMsgSignal = Died (ProcessIdentifier pid) reason
@@ -510,7 +510,7 @@ handleIncomingMessages node = go initConnectionState
               case decode (BSL.fromChunks payload) of
                 ProcessIdentifier pid -> do
                   let lpid = processLocalId pid
-                  mProc <- withValidLocalState state $ return . (^. localProcessWithId lpid)
+                  mProc <- withValidLocalState node $ return . (^. localProcessWithId lpid)
                   case mProc of
                     Just proc ->
                       go (incomingAt cid ^= Just (src, ToProc pid (processWeakQ proc)) $ st)
@@ -519,7 +519,7 @@ handleIncomingMessages node = go initConnectionState
                 SendPortIdentifier chId -> do
                   let lcid = sendPortLocalId chId
                       lpid = processLocalId (sendPortProcessId chId)
-                  mProc <- withValidLocalState state $ return . (^. localProcessWithId lpid)
+                  mProc <- withValidLocalState node $ return . (^. localProcessWithId lpid)
                   case mProc of
                     Just proc -> do
                       mChannel <- withMVar (processState proc) $ return . (^. typedChannelWithId lcid)
@@ -980,7 +980,7 @@ ncEffectGetInfo from pid =
       them = (ProcessIdentifier pid)
   in do
   node <- ask
-  mProc <- liftIO $ withValidLocalState (localState node)
+  mProc <- liftIO $ withValidLocalState node
                   $ return . (^. localProcessWithId lpid)
   case mProc of
     Nothing   -> dispatch (isLocal node (ProcessIdentifier from))
@@ -1024,7 +1024,7 @@ ncEffectGetNodeStats :: ProcessId -> NodeId -> NC ()
 ncEffectGetNodeStats from _nid = do
   node <- ask
   ncState <- StateT.get
-  nodeState <- liftIO $ withValidLocalState (localState node) return
+  nodeState <- liftIO $ withValidLocalState node return
   let stats =
         NodeStats {
             nodeStatsNode = localNodeId node
@@ -1107,7 +1107,7 @@ unClosure closure = do
 isValidLocalIdentifier :: Identifier -> NC Bool
 isValidLocalIdentifier ident = do
   node <- ask
-  liftIO . withValidLocalState (localState node) $ \nSt ->
+  liftIO . withValidLocalState node $ \nSt ->
     case ident of
       NodeIdentifier nid ->
         return $ nid == localNodeId node
@@ -1145,7 +1145,7 @@ withLocalProc node pid p =
   -- By [Unified: table 6, rule missing_process] messages to dead processes
   -- can silently be dropped
   let lpid = processLocalId pid in do
-  withValidLocalState (localState node) $ \vst ->
+  withValidLocalState node $ \vst ->
     forM_ (vst ^. localProcessWithId lpid) p
 
 --------------------------------------------------------------------------------
