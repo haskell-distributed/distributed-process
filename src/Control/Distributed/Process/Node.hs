@@ -333,6 +333,8 @@ closeLocalNode node = do
         killThread (processThread lproc)
       return LocalNodeClosed
     LocalNodeClosed -> return LocalNodeClosed
+  -- This call will have the effect of shutting down the NC as well (see
+  -- 'createBareLocalNode').
   NT.closeEndPoint (localEndPoint node)
 
 -- | Run a process on a local node and wait for it to finish
