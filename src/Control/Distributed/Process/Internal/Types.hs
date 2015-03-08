@@ -293,7 +293,7 @@ modifyValidLocalState_ :: LocalNode
                        -> IO ()
 modifyValidLocalState_ node f = modifyMVar_ (localState node) $ \st -> case st of
     LocalNodeValid vst -> LocalNodeValid <$> f vst
-    LocalNodeClosed -> throwIO $ userError $ "Node closed " ++ show (localNodeId node)
+    LocalNodeClosed -> return LocalNodeClosed
 
 -- | Processes running on our local node
 data LocalProcess = LocalProcess

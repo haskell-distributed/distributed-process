@@ -414,7 +414,7 @@ forkProcess node proc =
                  $ vst
                  , pid
                  )
-    startProcess LocalNodeClosed = throwIO $ userError "LocalNode closed"
+    startProcess LocalNodeClosed = throwIO $ userError $ "Node closed " ++ show (localNodeId node)
 
     cleanupProcess :: ProcessId -> ValidLocalNodeState -> IO ValidLocalNodeState
     cleanupProcess pid vst = do
