@@ -323,14 +323,16 @@ startServiceProcesses node = do
 -- | Force-close a local node, killing all processes on that node.
 closeLocalNode :: LocalNode -> IO ()
 closeLocalNode node = do
-  modifyMVar_ (localState node) $ const $ return LocalNodeClosed
-  withValidLocalState (localState node) $ \vst ->
-    forM_ (vst ^. localProcesses) $ \lproc ->
-      -- Semantics of 'throwTo' guarantee that target thread will get delivered
-      -- an exception. Therefore, target thread will be killed eventually and
-      -- that's as good as we can do. No need to wait for thread to actually
-      -- finish dying.
-      killThread (processThread lproc)
+  modifyMVar_ (localState node) $ \st -> case st of
+    LocalNodeValid vst -> do
+      forM_ (vst ^. localProcesses) $ \lproc ->
+        -- Semantics of 'throwTo' guarantee that target thread will get
+        -- delivered an exception. Therefore, target thread will be killed
+        -- eventually and that's as good as we can do. No need to wait for
+        -- thread to actually finish dying.
+        killThread (processThread lproc)
+      return LocalNodeClosed
+    LocalNodeClosed -> return LocalNodeClosed
   NT.closeEndPoint (localEndPoint node)
 
 -- | Run a process on a local node and wait for it to finish
