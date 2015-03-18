@@ -26,6 +26,7 @@ module Network.Transport
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (copy)
 import qualified Data.ByteString.Char8 as BSC (unpack)
+import Control.DeepSeq (NFData(rnf))
 import Control.Exception (Exception)
 import Control.Applicative ((<$>))
 import Data.Typeable (Typeable)
@@ -149,6 +150,8 @@ instance Binary EndPointAddress where
 
 instance Show EndPointAddress where
   show = BSC.unpack . endPointAddressToByteString
+
+instance NFData EndPointAddress where rnf x = x `seq` ()
 
 -- | EndPointAddress of a multicast group.
 newtype MulticastAddress = MulticastAddress { multicastAddressToByteString :: ByteString }
