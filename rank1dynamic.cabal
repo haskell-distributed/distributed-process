@@ -28,14 +28,8 @@ Library
                        binary >= 0.5 && < 0.8
   HS-Source-Dirs:      src
   GHC-Options:         -Wall
-  Extensions:          ConstraintKinds,
-                       EmptyDataDecls,
-                       ExistentialQuantification,
+  Extensions:          EmptyDataDecls,
                        DeriveDataTypeable,
-                       KindSignatures,
-                       PolyKinds,
-                       RankNTypes,
-                       StandaloneDeriving,
                        ViewPatterns,
                        CPP
 
@@ -47,8 +41,5 @@ Test-Suite TestRank1Dynamic
                      rank1dynamic,
                      test-framework >= 0.6 && < 0.9,
                      test-framework-hunit >= 0.2.0 && < 0.4
-  if impl(ghc >= 7.8)
-    Build-Depends:   constraints >= 0.4 && < 0.5
   ghc-options:       -Wall -Werror
-  Extensions:        CPP
   HS-Source-Dirs:    tests
