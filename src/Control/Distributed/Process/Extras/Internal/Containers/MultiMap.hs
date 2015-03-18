@@ -23,6 +23,7 @@ import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as Map
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
+import Data.Foldable (Foldable(foldr))
 import Prelude hiding (lookup, filter, pred)
 
 -- | Class of things that can be inserted in a map or
