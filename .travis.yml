@@ -1,5 +1,21 @@
 language: haskell
-script: "make ci"
+
+ghc:
+ - 7.8
+ - 7.6
+ - 7.4
+
+before_install:
+  - cabal update
+  - cabal install Cabal
+  - cabal install cabal-install
+  - export PATH=~/.cabal/bin:$PATH
+  - cabal sandbox init
+  - cabal install --dependencies-only
+
+script:
+  - cabal install --enable-tests --run-tests
+
 notifications:
   email:
     recipients:
