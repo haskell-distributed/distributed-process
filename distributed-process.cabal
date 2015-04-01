@@ -38,6 +38,13 @@ flag prof
   description: Compiling with profiling enabled
   default: False
 
+
+flag old-locale
+ description: If false then depend on time >= 1.5.
+              .
+              If true then depend on time < 1.5 together with old-locale.
+ default: False
+
 Library
   Build-Depends:     base >= 4.4 && < 5,
                      binary >= 0.6.3 && < 0.8,
@@ -48,8 +55,6 @@ Library
                      mtl >= 2.0 && < 2.3,
                      data-accessor >= 0.2 && < 0.3,
                      bytestring >= 0.9 && < 0.11,
-                     old-locale >= 1.0 && < 1.1,
-                     time >= 1.2 && < 1.5,
                      random >= 1.0 && < 1.2,
                      ghc-prim >= 0.2 && < 0.4,
                      distributed-static >= 0.2 && < 0.4,
@@ -90,6 +95,10 @@ Library
   else
      Build-Depends:   containers >= 0.4 && < 0.6,
                       deepseq >= 1.3.0.1 && < 1.4
+  if flag(old-locale)
+     Build-Depends:   time < 1.5, old-locale >= 1.0 && <1.1
+  else
+     Build-Depends:   time >= 1.5
   if flag(th)
      if impl(ghc <= 7.4.2)
        Build-Depends: template-haskell >= 2.7 && < 2.8

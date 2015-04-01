@@ -123,7 +123,11 @@ import Prelude hiding (catch)
 import Data.Binary (decode)
 import Data.Time.Clock (getCurrentTime)
 import Data.Time.Format (formatTime)
+#if MIN_VERSION_time(1,5,0)
+import Data.Time.Format (defaultTimeLocale)
+#else
 import System.Locale (defaultTimeLocale)
+#endif
 import System.Timeout (timeout)
 import Control.Monad (when)
 import Control.Monad.Reader (ask)
