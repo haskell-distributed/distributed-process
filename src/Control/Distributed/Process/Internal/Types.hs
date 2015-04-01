@@ -3,6 +3,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving  #-}
 {-# LANGUAGE GADTs  #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE CPP #-}
 
 -- | Types used throughout the Cloud Haskell framework
 --
@@ -136,7 +137,7 @@ import GHC.Generics
 newtype NodeId = NodeId { nodeAddress :: NT.EndPointAddress }
   deriving (Eq, Ord, Typeable, Data, Generic)
 instance Binary NodeId where
-instance NFData NodeId
+instance NFData NodeId where rnf (NodeId a) = rnf a `seq` ()
 instance Hashable NodeId where
 instance Show NodeId where
   show (NodeId addr) = "nid://" ++ show addr
@@ -161,7 +162,7 @@ data ProcessId = ProcessId
   deriving (Eq, Ord, Typeable, Data, Generic)
 
 instance Binary ProcessId where
-instance NFData ProcessId where
+instance NFData ProcessId where rnf (ProcessId n _) = rnf n `seq` ()
 instance Hashable ProcessId where
 
 instance Show ProcessId where
@@ -176,6 +177,10 @@ data Identifier =
   deriving (Eq, Ord, Generic)
 
 instance Hashable Identifier where
+instance NFData Identifier where
+  rnf (NodeIdentifier n) = rnf n `seq` ()
+  rnf (ProcessIdentifier n) = rnf n `seq` ()
+  rnf n@SendPortIdentifier{} = n `seq` ()
 
 instance Show Identifier where
   show (NodeIdentifier nid)     = show nid
@@ -316,6 +321,9 @@ instance Show SendPortId where
   show (SendPortId (ProcessId (NodeId addr) (LocalProcessId _ plid)) clid)
     = "cid://" ++ show addr ++ ":" ++ show plid ++ ":" ++ show clid
 
+instance NFData SendPortId where
+  rnf (SendPortId p _) = rnf p `seq` ()
+
 data TypedChannel = forall a. Serializable a => TypedChannel (Weak (TQueue a))
 
 -- | The send send of a typed channel (serializable)
@@ -327,7 +335,7 @@ newtype SendPort a = SendPort {
 
 instance (Serializable a) => Binary (SendPort a) where
 instance (Hashable a) => Hashable (SendPort a) where
-instance (NFData a) => NFData (SendPort a) where
+instance (NFData a) => NFData (SendPort a) where rnf (SendPort x) = x `seq` ()
 
 -- | The receive end of a typed channel (not serializable)
 --
@@ -364,6 +372,14 @@ data Message =
   , messagePayload     :: !a
   }
   deriving (Typeable)
+
+instance NFData Message where
+#if MIN_VERSION_bytestring(0,10,0)
+  rnf (EncodedMessage _ e) = rnf e `seq` ()
+#else
+  rnf (EncodedMessage _ e) = BSL.length e `seq` ()
+#endif
+  rnf (UnencodedMessage _ a) = a `seq` ()   -- forced to WHNF only
 
 instance Show Message where
   show (EncodedMessage fp enc) = show enc ++ " :: " ++ showFingerprint fp []
@@ -428,7 +444,10 @@ data MonitorRef = MonitorRef
   , monitorRefCounter :: !Int32
   }
   deriving (Eq, Ord, Show, Typeable, Generic)
-instance Hashable MonitorRef where
+instance Hashable MonitorRef
+
+instance NFData MonitorRef where
+  rnf (MonitorRef i _) = rnf i `seq` ()
 
 -- | Message sent by process monitors
 data ProcessMonitorNotification =
@@ -495,6 +514,10 @@ data DiedReason =
     -- | Invalid (process/node/channel) identifier
   | DiedUnknownId
   deriving (Show, Eq)
+
+instance NFData DiedReason where
+  rnf (DiedException s) = rnf s `seq` ()
+  rnf x = x `seq` ()
 
 -- | (Asynchronous) reply from unmonitor
 newtype DidUnmonitor = DidUnmonitor MonitorRef
@@ -673,9 +696,6 @@ instance Binary DidSpawn where
 instance Binary SendPortId where
   put cid = put (sendPortProcessId cid) >> put (sendPortLocalId cid)
   get = SendPortId <$> get <*> get
-
-instance NFData SendPortId where
-  rnf cid = (sendPortProcessId cid) `seq` (sendPortLocalId cid) `seq` ()
 
 instance Binary Identifier where
   put (ProcessIdentifier pid)  = putWord8 0 >> put pid
