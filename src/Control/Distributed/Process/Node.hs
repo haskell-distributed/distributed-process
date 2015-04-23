@@ -83,6 +83,12 @@ import Control.Distributed.Process.Internal.StrictMVar
   , putMVar
   , takeMVar
   )
+import Control.Distributed.Process.Internal.ThreadPool
+  ( newThreadPool
+  , submitTask
+  , lookupWorker
+  , ThreadPool
+  )
 import Control.Concurrent.Chan (newChan, writeChan, readChan)
 import qualified Control.Concurrent.MVar as MVar (newEmptyMVar, takeMVar)
 import Control.Concurrent.STM
@@ -245,12 +251,14 @@ createBareLocalNode endPoint rtable = do
       , _localConnections = Map.empty
       }
     ctrlChan <- newChan
+    sendPool <- newThreadPool
     let node = LocalNode { localNodeId   = NodeId $ NT.address endPoint
                          , localEndPoint = endPoint
                          , localState    = state
                          , localCtrlChan = ctrlChan
                          , localEventBus = MxEventBusInitialising
                          , remoteTable   = rtable
+                         , localSendPool = sendPool
                          }
     tracedNode <- startMxAgent node
 
@@ -574,6 +582,8 @@ handleIncomingMessages node = go initConnectionState
             , ctrlMsgSignal = Died nid DiedDisconnect
             }
           let notLost k = not (k `Set.member` (st ^. incomingFrom theirAddr))
+          liftIO $ lookupWorker (localSendPool node) (NodeId theirAddr)
+                     >>= maybe (return ()) killThread
           closeImplicitReconnections node nid
           go ( (incomingFrom theirAddr ^= Set.empty)
              . (incoming ^: Map.filterWithKey (const . notLost))
@@ -628,6 +638,12 @@ data NCState = NCState
   , _registeredOnNodes :: !(Map ProcessId [(NodeId,Int)])
   }
 
+submitSendPool :: LocalNode -> NodeId -> IO () -> IO ()
+submitSendPool node nid task = submitTask (localSendPool node) fork nid task
+  where
+    fork io =
+      forkIO $ io `Exception.catch` \(NodeClosedException _) -> return ()
+
 newtype NC a = NC { unNC :: StateT NCState (ReaderT LocalNode IO) a }
   deriving ( Applicative
            , Functor
@@ -638,11 +654,12 @@ newtype NC a = NC { unNC :: StateT NCState (ReaderT LocalNode IO) a }
            )
 
 initNCState :: NCState
-initNCState = NCState { _links    = Map.empty
-                      , _monitors = Map.empty
-                      , _registeredHere = Map.empty
-                      , _registeredOnNodes = Map.empty
-                      }
+initNCState = NCState
+  { _links    = Map.empty
+  , _monitors = Map.empty
+  , _registeredHere = Map.empty
+  , _registeredOnNodes = Map.empty
+  }
 
 -- | Thrown in response to the user invoking 'kill' (see Primitives.hs). This
 -- type is deliberately not exported so it cannot be caught explicitly.
@@ -663,7 +680,7 @@ ncSendToProcessAndTrace shouldTrace pid msg = do
     node <- ask
     if processNodeId pid == localNodeId node
       then ncEffectLocalSendAndTrace shouldTrace node pid msg
-      else liftIO $ sendBinary node
+      else liftIO $ submitSendPool node (processNodeId pid) $ sendBinary node
              (NodeIdentifier $ localNodeId node)
              (NodeIdentifier $ processNodeId pid)
              WithImplicitReconnect
@@ -676,7 +693,7 @@ ncSendToNode to msg = do
     node <- ask
     liftIO $ if to == localNodeId node
       then writeChan (localCtrlChan node) $! msg
-      else sendBinary node
+      else submitSendPool node to $ sendBinary node
              (NodeIdentifier $ localNodeId node)
              (NodeIdentifier to)
              WithImplicitReconnect
