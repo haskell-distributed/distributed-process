@@ -68,6 +68,7 @@ Library
                      Control.Distributed.Process.Internal.StrictContainerAccessors,
                      Control.Distributed.Process.Internal.StrictList,
                      Control.Distributed.Process.Internal.StrictMVar,
+                     Control.Distributed.Process.Internal.ThreadPool,
                      Control.Distributed.Process.Internal.Types,
                      Control.Distributed.Process.Internal.WeakTQueue,
                      Control.Distributed.Process.Management,
