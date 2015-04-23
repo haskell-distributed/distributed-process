@@ -130,6 +130,7 @@ import Control.Distributed.Process.Internal.StrictMVar
   , withMVar
   , modifyMVar_
   )
+import Control.Distributed.Process.Internal.ThreadPool
 import Control.Distributed.Process.Internal.WeakTQueue (TQueue)
 import Control.Distributed.Static (RemoteTable, Closure)
 import qualified Control.Distributed.Process.Internal.StrictContainerAccessors as DAC (mapMaybe)
@@ -259,6 +260,8 @@ data LocalNode = LocalNode
     -- | Runtime lookup table for supporting closures
     -- TODO: this should be part of the CH state, not the local endpoint state
   , remoteTable     :: !RemoteTable
+    -- The pool of threads and queues to send messages
+  , localSendPool :: ThreadPool NodeId ThreadId
   }
 
 data ImplicitReconnect = WithImplicitReconnect | NoImplicitReconnect
