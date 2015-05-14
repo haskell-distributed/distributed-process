@@ -590,23 +590,24 @@ testReconnect nextPort = do
       -- Accept the connection
       Right 0  <- tryIO $ (recvInt32 sock :: IO Int)
       Right _  <- tryIO $ recvWithLength sock
-      Right () <- tryIO $ sendMany sock [encodeInt32 ConnectionRequestAccepted]
 
       -- The first time we close the socket before accepting the logical connection
       count <- modifyMVar counter $ \i -> return (i + 1, i)
 
       when (count > 0) $ do
+        Right () <- tryIO $ sendMany sock [encodeInt32 ConnectionRequestAccepted]
         -- Client requests a logical connection
-        Right CreatedNewConnection <- tryIO $ toEnum <$> (recvInt32 sock :: IO Int)
-        connId <- recvInt32 sock :: IO LightweightConnectionId
-        return ()
-
         when (count > 1) $ do
-          -- Client sends a message
-          Right connId' <- tryIO $ (recvInt32 sock :: IO LightweightConnectionId)
-          True <- return $ connId == connId'
-          Right ["ping"] <- tryIO $ recvWithLength sock
-          putMVar serverDone ()
+          Right CreatedNewConnection <- tryIO $ toEnum <$> (recvInt32 sock :: IO Int)
+          connId <- recvInt32 sock :: IO LightweightConnectionId
+          return ()
+
+          when (count > 2) $ do
+            -- Client sends a message
+            Right connId' <- tryIO $ (recvInt32 sock :: IO LightweightConnectionId)
+            True <- return $ connId == connId'
+            Right ["ping"] <- tryIO $ recvWithLength sock
+            putMVar serverDone ()
 
       Right () <- tryIO $ N.sClose sock
       return ()
@@ -633,6 +634,17 @@ testReconnect nextPort = do
       Just (Left (TransportError ConnectFailed _)) -> return ()
       Just (Left err) -> throwIO err
       Just (Right _) -> throwIO $ userError "testConnect: unexpected connect success"
+
+    resultConnect <- timeout 500000 $ connect endpoint theirAddr ReliableOrdered defaultConnectHints
+    case resultConnect of
+      Nothing -> return ()
+      Just (Left (TransportError ConnectFailed _)) -> return ()
+      Just (Left err) -> throwIO err
+      Just (Right c) -> do
+        ev <- send c ["foo"]
+        case ev of
+          Left _ -> return ()
+          Right _ -> throwIO $ userError "testConnect: unexpected send success"
 
     -- The third attempt succeeds
     Right conn1 <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
