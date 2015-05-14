@@ -101,7 +101,7 @@ import Control.Concurrent.MVar
   )
 import Control.Category ((>>>))
 import Control.Applicative ((<$>))
-import Control.Monad (when, unless, join)
+import Control.Monad (when, unless, join, mplus)
 import Control.Exception
   ( IOException
   , SomeException
@@ -454,6 +454,12 @@ data TCPParameters = TCPParameters {
   , tcpNoDelay :: Bool
     -- | Value of TCP_USER_TIMEOUT in milliseconds
   , tcpUserTimeout :: Maybe Int
+    -- | A connect timeout for all 'connect' calls of the transport
+    -- in microseconds
+    --
+    -- This can be overriden for each connect call with
+    -- 'ConnectHints'.'connectTimeout'.
+  , transportConnectTimeout :: Maybe Int
   }
 
 -- | Internal functionality we expose for unit testing
@@ -542,6 +548,7 @@ defaultTCPParameters = TCPParameters {
   , tcpReuseClientAddr = True
   , tcpNoDelay         = False
   , tcpUserTimeout     = Nothing
+  , transportConnectTimeout = Nothing
   }
 
 --------------------------------------------------------------------------------
@@ -1103,7 +1110,8 @@ setupRemoteEndPoint params (ourEndPoint, theirEndPoint) hints = do
                                (tcpReuseClientAddr params)
                                (tcpNoDelay params)
                                (tcpUserTimeout params)
-                               (connectTimeout hints)
+                               (connectTimeout hints
+                                 `mplus` transportConnectTimeout params)
     didAccept <- case result of
       Right (sock, ConnectionRequestAccepted) -> do
         sendLock <- newMVar ()
