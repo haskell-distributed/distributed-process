@@ -75,7 +75,7 @@ import qualified Network.Socket as N
   , SocketType(Stream)
   , defaultProtocol
   , setSocketOption
-  , SocketOption(ReuseAddr, NoDelay)
+  , SocketOption(ReuseAddr, NoDelay, UserTimeout)
   , connect
   , sOMAXCONN
   , AddrInfo
@@ -452,6 +452,8 @@ data TCPParameters = TCPParameters {
     -- | Should we set TCP_NODELAY on connection sockets?
     -- Defaults to True.
   , tcpNoDelay :: Bool
+    -- | Value of TCP_USER_TIMEOUT in milliseconds
+  , tcpUserTimeout :: Maybe Int
   }
 
 -- | Internal functionality we expose for unit testing
@@ -539,6 +541,7 @@ defaultTCPParameters = TCPParameters {
   , tcpReuseServerAddr = True
   , tcpReuseClientAddr = True
   , tcpNoDelay         = False
+  , tcpUserTimeout     = Nothing
   }
 
 --------------------------------------------------------------------------------
@@ -738,6 +741,8 @@ handleConnectionRequest :: TCPTransport -> N.Socket -> IO ()
 handleConnectionRequest transport sock = handle handleException $ do
     when (tcpNoDelay $ transportParams transport) $
       N.setSocketOption sock N.NoDelay 1
+    forM_ (tcpUserTimeout $ transportParams transport) $
+      N.setSocketOption sock N.UserTimeout
     ourEndPointId <- recvInt32 sock
     theirAddress  <- EndPointAddress . BS.concat <$> recvWithLength sock
     let ourAddress = encodeEndPointAddress (transportHost transport)
@@ -1097,6 +1102,7 @@ setupRemoteEndPoint params (ourEndPoint, theirEndPoint) hints = do
                                theirAddress
                                (tcpReuseClientAddr params)
                                (tcpNoDelay params)
+                               (tcpUserTimeout params)
                                (connectTimeout hints)
     didAccept <- case result of
       Right (sock, ConnectionRequestAccepted) -> do
@@ -1483,10 +1489,12 @@ socketToEndPoint :: EndPointAddress -- ^ Our address
                  -> EndPointAddress -- ^ Their address
                  -> Bool            -- ^ Use SO_REUSEADDR?
                  -> Bool            -- ^ Use TCP_NODELAY
+                 -> Maybe Int       -- ^ Maybe TCP_USER_TIMEOUT
                  -> Maybe Int       -- ^ Timeout for connect
                  -> IO (Either (TransportError ConnectErrorCode)
                                (N.Socket, ConnectionRequestResponse))
-socketToEndPoint (EndPointAddress ourAddress) theirAddress reuseAddr noDelay timeout =
+socketToEndPoint (EndPointAddress ourAddress) theirAddress reuseAddr noDelay
+                 mUserTimeout timeout =
   try $ do
     (host, port, theirEndPointId) <- case decodeEndPointAddress theirAddress of
       Nothing  -> throwIO (failed . userError $ "Could not parse")
@@ -1498,6 +1506,8 @@ socketToEndPoint (EndPointAddress ourAddress) theirAddress reuseAddr noDelay tim
         mapIOException failed $ N.setSocketOption sock N.ReuseAddr 1
       when noDelay $
         mapIOException failed $ N.setSocketOption sock N.NoDelay 1
+      forM_ mUserTimeout $
+        mapIOException failed . N.setSocketOption sock N.UserTimeout
       mapIOException invalidAddress $
         timeoutMaybe timeout timeoutError $
           N.connect sock (N.addrAddress addr)
