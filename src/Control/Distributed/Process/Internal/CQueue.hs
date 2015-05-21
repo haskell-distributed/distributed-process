@@ -10,7 +10,7 @@ module Control.Distributed.Process.Internal.CQueue
   , enqueueSTM
   , dequeue
   , mkWeakCQueue
-  , queueSize 
+  , queueSize
   ) where
 
 import Prelude hiding (length, reverse)
@@ -43,6 +43,7 @@ import Control.Distributed.Process.Internal.StrictList
   , append
   )
 import Data.Maybe (fromJust)
+import Data.Traversable (traverse)
 import GHC.MVar (MVar(MVar))
 import GHC.IO (IO(IO))
 import GHC.Prim (mkWeak#)
@@ -124,12 +125,9 @@ dequeue (CQueue arrived incoming size) blockSpec matchons = mask_ $ decrementJus
     -- Decrement counter is smth is returned from the queue,
     -- this is safe to use as method is called under a mask
     -- and there is no 'unmasked' operation inside
-    decrementJust f = do
-       mx <- f
-       case mx of
-         Just{} -> atomically $ modifyTVar' size pred
-         Nothing -> return ()
-       return mx
+    decrementJust f =
+       traverse (either return (\x -> decrement >> return x)) =<< f
+    decrement = atomically $ modifyTVar' size pred
 
     chunks = chunkMatches matchons
 
@@ -144,7 +142,7 @@ dequeue (CQueue arrived incoming size) blockSpec matchons = mask_ $ decrementJus
            goCheck chunks arr'
 
     waitChans ports on_block =
-        foldr orElse on_block (map (fmap Just) ports)
+        foldr orElse on_block (map (fmap (Just . Left)) ports)
 
     --
     -- First check the MatchChunks against the messages already in the
@@ -153,7 +151,7 @@ dequeue (CQueue arrived incoming size) blockSpec matchons = mask_ $ decrementJus
     --
     goCheck :: MatchChunks m a
             -> StrictList m  -- messages to check, in this order
-            -> IO (Maybe a)
+            -> IO (Maybe (Either a a))
 
     goCheck [] old = goWait old
 
@@ -170,7 +168,7 @@ dequeue (CQueue arrived incoming size) blockSpec matchons = mask_ $ decrementJus
            -- of passing around restore and setting up exception handlers is
            -- high.  So just don't use expensive matchIfs!
       case checkArrived matches old of
-        (old', Just r)  -> returnOld old' (Just r)
+        (old', Just r)  -> returnOld old' (Just (Right r))
         (old', Nothing) -> goCheck rest old'
           -- use the result list, which is now left-biased
 
@@ -199,6 +197,7 @@ dequeue (CQueue arrived incoming size) blockSpec matchons = mask_ $ decrementJus
     -- Contents of 'arrived' from now on is (old ++ new), and
     -- messages that arrive are snocced onto new.
     --
+    goWait :: StrictList m -> IO (Maybe (Either a a))
     goWait old = do
       r <- waitIncoming `onException` putMVar arrived old
       case r of
@@ -216,7 +215,7 @@ dequeue (CQueue arrived incoming size) blockSpec matchons = mask_ $ decrementJus
           --
           -- Right => message arrived on a channel first
           --
-          Right a -> returnOld old (Just a)
+          Right a -> returnOld old (Just (Left a))
 
     --
     -- A message arrived in the process inbox; check the MatchChunks for
@@ -225,7 +224,7 @@ dequeue (CQueue arrived incoming size) blockSpec matchons = mask_ $ decrementJus
     goCheck1 :: MatchChunks m a
              -> m               -- single message to check
              -> StrictList m    -- old messages we have already checked
-             -> IO (Maybe a)
+             -> IO (Maybe (Either a a))
 
     goCheck1 [] m old = goWait (Snoc old m)
 
@@ -238,10 +237,10 @@ dequeue (CQueue arrived incoming size) blockSpec matchons = mask_ $ decrementJus
     goCheck1 (Left matches : rest) m old = do
       case checkMatches matches m of
         Nothing -> goCheck1 rest m old
-        Just p  -> returnOld old (Just p)
+        Just p  -> returnOld old (Just (Right p))
 
     -- a common pattern for putting back the arrived queue at the end
-    returnOld :: StrictList m -> Maybe a -> IO (Maybe a)
+    returnOld :: StrictList m -> Maybe (Either a a) -> IO (Maybe (Either a a))
     returnOld old r = do putMVar arrived old; return r
 
     -- as a side-effect, this left-biases the list
