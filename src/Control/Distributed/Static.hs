@@ -241,7 +241,7 @@ import Data.Map (Map)
 import qualified Data.Map as Map (lookup, empty, insert)
 import Control.Applicative ((<$>), (<*>))
 import Control.Arrow as Arrow ((***), app)
-import Control.DeepSeq (NFData(rnf))
+import Control.DeepSeq (NFData(rnf), force)
 import Data.Rank1Dynamic (Dynamic, toDynamic, fromDynamic, dynApply)
 import Data.Rank1Typeable
   ( Typeable
@@ -259,7 +259,7 @@ import Data.Rank1Typeable
 
 data StaticLabel =
     StaticLabel String
-  | StaticApply StaticLabel StaticLabel
+  | StaticApply !StaticLabel !StaticLabel
   deriving (Eq, Ord, Typeable, Show)
 
 instance NFData StaticLabel where
@@ -302,7 +302,7 @@ getStaticLabel = do
 -- It is the responsibility of the client code to make sure the corresponding
 -- entry in the 'RemoteTable' has the appropriate type.
 staticLabel :: String -> Static a
-staticLabel = Static . StaticLabel
+staticLabel = Static . StaticLabel . force
 
 -- | Apply two static values
 staticApply :: Static (a -> b) -> Static a -> Static b
@@ -353,7 +353,7 @@ unstatic rtable (Static static) = do
 --------------------------------------------------------------------------------
 
 -- | A closure is a static value and an encoded environment
-data Closure a = Closure (Static (ByteString -> a)) ByteString
+data Closure a = Closure !(Static (ByteString -> a)) !ByteString
   deriving (Eq, Ord, Typeable, Show)
 
 instance Typeable a => Binary (Closure a) where
