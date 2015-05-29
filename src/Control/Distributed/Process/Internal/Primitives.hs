@@ -1038,7 +1038,14 @@ say :: String -> Process ()
 say string = do
   now <- liftIO getCurrentTime
   us  <- getSelfPid
-  nsend "logger" (formatTime defaultTimeLocale "%c" now, us, string)
+  -- workaround because nsend currently doesn't work for remote nodes.
+  nd  <- getSelfNode
+  mlg  <- whereis "logger"
+  case mlg of
+    Nothing -> return ()
+    Just lg
+      | nd == processNodeId lg -> nsend "logger" (formatTime defaultTimeLocale "%c" now, us, string)
+      | otherwise -> nsendRemote (processNodeId lg) "logger" (formatTime defaultTimeLocale "%c" now, us, string)
 
 --------------------------------------------------------------------------------
 -- Registry                                                                   --
