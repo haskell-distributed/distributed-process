@@ -157,10 +157,11 @@ import Control.Distributed.Process.Internal.Types
   , RegisterReply(..)
   , WhereIsReply(..)
   , payloadToMessage
+  , messageToPayload
   , createUnencodedMessage
   , runLocalProcess
   , firstNonReservedProcessId
-  , ImplicitReconnect(WithImplicitReconnect)
+  , ImplicitReconnect(WithImplicitReconnect,NoImplicitReconnect)
   )
 import Control.Distributed.Process.Management.Internal.Agent
   ( mxAgentController
@@ -188,6 +189,7 @@ import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Internal.Messaging
   ( sendBinary
   , sendMessage
+  , sendPayload
   , closeImplicitReconnections
   , impliesDeathOf
   )
@@ -692,8 +694,8 @@ nodeController = do
         ncEffectRegister from label atnode pid force
       NCMsg (ProcessIdentifier from) (WhereIs label) ->
         ncEffectWhereIs from label
-      NCMsg _ (NamedSend label msg') ->
-        ncEffectNamedSend label msg'
+      NCMsg (ProcessIdentifier from) (NamedSend label msg') ->
+        ncEffectNamedSend from label msg'
       NCMsg _ (UnreliableSend lpid msg') ->
         ncEffectLocalSend node (ProcessId (localNodeId node) lpid) msg'
       NCMsg _ (LocalSend to msg') ->
@@ -912,11 +914,17 @@ ncEffectWhereIs from label = do
                        (WhereIsReply label mPid)
 
 -- [Unified: Table 14]
-ncEffectNamedSend :: String -> Message -> NC ()
-ncEffectNamedSend label msg = do
+ncEffectNamedSend :: ProcessId -> String -> Message -> NC ()
+ncEffectNamedSend from label msg = do
   mPid <- gets (^. registeredHereFor label)
+  node <- ask
   -- If mPid is Nothing, we just ignore the named send (as per Table 14)
-  forM_ mPid $ \pid -> postMessage pid msg
+  forM_ mPid $ \pid ->
+    liftIO $ sendPayload node
+                         (ProcessIdentifier from)
+                         (ProcessIdentifier pid)
+                         NoImplicitReconnect
+                         (messageToPayload msg)
 
 -- [Issue #DP-20]
 ncEffectLocalSend :: LocalNode -> ProcessId -> Message -> NC ()
