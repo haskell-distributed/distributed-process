@@ -31,7 +31,7 @@ import Control.DeepSeq (NFData(rnf))
 import Control.Exception (Exception)
 import Control.Applicative ((<$>))
 import Data.Typeable (Typeable)
-import Data.Binary (Binary(..), putWord8, getWord8)
+import Data.Binary (Binary(..))
 import Data.Hashable
 import Data.Word (Word64)
 import Data.Data (Data)
@@ -112,20 +112,9 @@ data Reliability =
     ReliableOrdered
   | ReliableUnordered
   | Unreliable
-  deriving (Show, Eq, Typeable)
+  deriving (Show, Eq, Typeable, Generic)
 
-instance Binary Reliability where
-  put ReliableOrdered   = putWord8 0
-  put ReliableUnordered = putWord8 1
-  put Unreliable        = putWord8 2
-  get = do
-    header <- getWord8
-    case header of
-      0 -> return ReliableOrdered
-      1 -> return ReliableUnordered
-      2 -> return Unreliable
-      _ -> fail "Reliability.get: invalid"
-
+instance Binary Reliability
 -- | Multicast group.
 data MulticastGroup = MulticastGroup {
     -- | EndPointAddress of the multicast group.
