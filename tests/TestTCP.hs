@@ -179,7 +179,7 @@ testEarlyDisconnect nextPort = do
         N.sClose sock
 
       -- Connect to the server
-      Right (sock, ConnectionRequestAccepted) <- readMVar serverAddr >>= \addr -> socketToEndPoint ourAddress addr True False Nothing
+      Right (sock, ConnectionRequestAccepted) <- readMVar serverAddr >>= \addr -> socketToEndPoint ourAddress addr True False Nothing Nothing
 
       -- Open a new connection
       sendMany sock [encodeInt32 CreatedNewConnection, encodeInt32 (10003 :: Int)]
@@ -287,7 +287,7 @@ testEarlyCloseSocket nextPort = do
         N.sClose sock
 
       -- Connect to the server
-      Right (sock, ConnectionRequestAccepted) <- readMVar serverAddr >>= \addr -> socketToEndPoint ourAddress addr True False Nothing
+      Right (sock, ConnectionRequestAccepted) <- readMVar serverAddr >>= \addr -> socketToEndPoint ourAddress addr True False Nothing Nothing
 
       -- Open a new connection
       sendMany sock [encodeInt32 CreatedNewConnection, encodeInt32 (10003 :: Int)]
@@ -376,7 +376,7 @@ testIgnoreCloseSocket nextPort = do
     theirAddress <- readMVar serverAddr
 
     -- Connect to the server
-    Right (sock, ConnectionRequestAccepted) <- socketToEndPoint ourAddress theirAddress True False Nothing
+    Right (sock, ConnectionRequestAccepted) <- socketToEndPoint ourAddress theirAddress True False Nothing Nothing
     putMVar connectionEstablished ()
 
     -- Server connects to us, and then closes the connection
@@ -453,7 +453,7 @@ testBlockAfterCloseSocket nextPort = do
     theirAddress <- readMVar serverAddr
 
     -- Connect to the server
-    Right (sock, ConnectionRequestAccepted) <- socketToEndPoint ourAddress theirAddress True False Nothing
+    Right (sock, ConnectionRequestAccepted) <- socketToEndPoint ourAddress theirAddress True False Nothing Nothing
     putMVar connectionEstablished ()
 
     -- Server connects to us, and then closes the connection
@@ -511,7 +511,7 @@ testUnnecessaryConnect nextPort numThreads = do
       forkTry $ do
         -- It is possible that the remote endpoint just rejects the request by closing the socket
         -- immediately (depending on far the remote endpoint got with the initialization)
-        response <- readMVar serverAddr >>= \addr -> socketToEndPoint ourAddress addr True False Nothing
+        response <- readMVar serverAddr >>= \addr -> socketToEndPoint ourAddress addr True False Nothing Nothing
         case response of
           Right (_, ConnectionRequestAccepted) ->
             -- We don't close this socket because we want to keep this connection open
