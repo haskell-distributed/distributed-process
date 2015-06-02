@@ -87,7 +87,14 @@ import Network.Transport.TCP.Mock.Socket.ByteString (sendMany)
 import Network.Socket.ByteString (sendMany)
 #endif
 
-import Control.Concurrent (forkIO, ThreadId, killThread, myThreadId)
+import Control.Concurrent
+  ( forkIO
+  , ThreadId
+  , killThread
+  , myThreadId
+  , threadDelay
+  , throwTo
+  )
 import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
 import Control.Concurrent.MVar
   ( MVar
@@ -111,6 +118,7 @@ import Control.Exception
   , throwIO
   , try
   , bracketOnError
+  , bracket
   , fromException
   , finally
   , catch
@@ -774,7 +782,7 @@ handleConnectionRequest transport sock = handle handleException $ do
       mEndPoint <- handle ((>> return Nothing) . handleException) $ do
         resetIfBroken ourEndPoint theirAddress
         (theirEndPoint, isNew) <-
-          findRemoteEndPoint ourEndPoint theirAddress RequestedByThem
+          findRemoteEndPoint ourEndPoint theirAddress RequestedByThem Nothing
 
         if not isNew
           then do
@@ -1058,17 +1066,25 @@ createConnectionTo :: TCPParameters
                     -> EndPointAddress
                     -> ConnectHints
                     -> IO (RemoteEndPoint, LightweightConnectionId)
-createConnectionTo params ourEndPoint theirAddress hints = go
+createConnectionTo params ourEndPoint theirAddress hints = do
+    -- @timer@ is an IO action that completes when the timeout expires.
+    timer <- case connectTimeout hints `mplus` transportConnectTimeout params of
+              Just t -> do
+                mv <- newEmptyMVar
+                _ <- forkIO $ threadDelay t >> putMVar mv ()
+                return $ Just $ readMVar mv
+              _      -> return Nothing
+    go timer
   where
-    go = do
+    go timer = do
       (theirEndPoint, isNew) <- mapIOException connectFailed $
-        findRemoteEndPoint ourEndPoint theirAddress RequestedByUs
+        findRemoteEndPoint ourEndPoint theirAddress RequestedByUs timer
 
       if isNew
         then do
-          forkIO . handle absorbAllExceptions $
+          handle absorbAllExceptions $
             setupRemoteEndPoint params (ourEndPoint, theirEndPoint) hints
-          go
+          go timer
         else do
           -- 'findRemoteEndPoint' will have increased 'remoteOutgoing'
           mapIOException connectFailed $ do
@@ -1145,7 +1161,8 @@ setupRemoteEndPoint params (ourEndPoint, theirEndPoint) hints = do
         resolveInit (ourEndPoint, theirEndPoint) (RemoteEndPointInvalid err)
         return False
 
-    when didAccept $ handleIncomingMessages (ourEndPoint, theirEndPoint)
+    when didAccept $ void $ forkIO $
+      handleIncomingMessages (ourEndPoint, theirEndPoint)
   where
     ourAddress      = localAddress ourEndPoint
     theirAddress    = remoteAddress theirEndPoint
@@ -1345,13 +1362,15 @@ removeLocalEndPoint transport ourEndPoint =
       return TransportClosed
 
 -- | Find a remote endpoint. If the remote endpoint does not yet exist we
--- create it in Init state. Returns if the endpoint was new.
+-- create it in Init state. Returns if the endpoint was new, or 'Nothing' if
+-- it times out.
 findRemoteEndPoint
   :: LocalEndPoint
   -> EndPointAddress
   -> RequestedBy
+  -> Maybe (IO ())           -- ^ an action which completes when the time is up
   -> IO (RemoteEndPoint, Bool)
-findRemoteEndPoint ourEndPoint theirAddress findOrigin = go
+findRemoteEndPoint ourEndPoint theirAddress findOrigin mtimer = go
   where
     go = do
       (theirEndPoint, isNew) <- modifyMVar ourState $ \st -> case st of
@@ -1404,14 +1423,14 @@ findRemoteEndPoint ourEndPoint theirAddress findOrigin = go
             RemoteEndPointInit resolved crossed initOrigin ->
               case (findOrigin, initOrigin) of
                 (RequestedByUs, RequestedByUs) ->
-                  readMVar resolved >> go
+                  readMVarTimeout mtimer resolved >> go
                 (RequestedByUs, RequestedByThem) ->
-                  readMVar resolved >> go
+                  readMVarTimeout mtimer resolved >> go
                 (RequestedByThem, RequestedByUs) ->
                   if ourAddress > theirAddress
                     then do
                       -- Wait for the Crossed message
-                      readMVar crossed
+                      readMVarTimeout mtimer crossed
                       return (theirEndPoint, True)
                     else
                       return (theirEndPoint, False)
@@ -1424,7 +1443,7 @@ findRemoteEndPoint ourEndPoint theirAddress findOrigin = go
               -- maintain enough history to be able to tell the difference).
               return (theirEndPoint, False)
             RemoteEndPointClosing resolved _ ->
-              readMVar resolved >> go
+              readMVarTimeout mtimer resolved >> go
             RemoteEndPointClosed ->
               go
             RemoteEndPointFailed err ->
@@ -1432,6 +1451,14 @@ findRemoteEndPoint ourEndPoint theirAddress findOrigin = go
 
     ourState   = localState ourEndPoint
     ourAddress = localAddress ourEndPoint
+
+    -- | Like 'readMVar' but it throws an exception if the timer expires.
+    readMVarTimeout Nothing mv = readMVar mv
+    readMVarTimeout (Just timer) mv = do
+      let connectTimedout = TransportError ConnectTimeout "Timed out"
+      tid <- myThreadId
+      bracket (forkIO $ timer >> throwTo tid connectTimedout) killThread $
+        const $ readMVar mv
 
 -- | Send a payload over a heavyweight connection (thread safe)
 sendOn :: ValidRemoteEndPointState -> [ByteString] -> IO ()
@@ -1526,12 +1553,13 @@ socketToEndPoint (EndPointAddress ourAddress) theirAddress reuseAddr noDelay
         mapIOException failed $ N.setSocketOption sock N.NoDelay 1
       forM_ mUserTimeout $
         mapIOException failed . N.setSocketOption sock N.UserTimeout
-      mapIOException invalidAddress $
-        timeoutMaybe timeout timeoutError $
+      response <- timeoutMaybe timeout timeoutError $ do
+        mapIOException invalidAddress $
           N.connect sock (N.addrAddress addr)
-      response <- mapIOException failed $ do
-        sendMany sock (encodeInt32 theirEndPointId : prependLength [ourAddress])
-        recvInt32 sock
+        mapIOException failed $ do
+          sendMany sock
+                   (encodeInt32 theirEndPointId : prependLength [ourAddress])
+          recvInt32 sock
       case tryToEnum response of
         Nothing -> throwIO (failed . userError $ "Unexpected response")
         Just r  -> return (sock, r)
