@@ -101,7 +101,7 @@ import Control.Concurrent.MVar
   )
 import Control.Category ((>>>))
 import Control.Applicative ((<$>))
-import Control.Monad (when, unless, join, mplus)
+import Control.Monad (when, unless, join, mplus, (<=<))
 import Control.Exception
   ( IOException
   , SomeException
@@ -112,9 +112,12 @@ import Control.Exception
   , try
   , bracketOnError
   , fromException
+  , finally
   , catch
+  , bracket
+  , mask_
   )
-import Data.IORef (IORef, newIORef, writeIORef, readIORef)
+import Data.IORef (IORef, newIORef, writeIORef, readIORef, writeIORef)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (concat)
 import qualified Data.ByteString.Char8 as BSC (pack, unpack)
@@ -132,6 +135,7 @@ import qualified Data.Set as Set
   )
 import Data.Map (Map)
 import qualified Data.Map as Map (empty)
+import Data.Traversable (traverse)
 import Data.Accessor (Accessor, accessor, (^.), (^=), (^:))
 import qualified Data.Accessor.Container as DAC (mapMaybe)
 import Data.Foldable (forM_, mapM_)
@@ -617,26 +621,25 @@ apiConnect params ourEndPoint theirAddress _reliability hints =
 -- | Close a connection
 apiClose :: EndPointPair -> LightweightConnectionId -> IORef Bool -> IO ()
 apiClose (ourEndPoint, theirEndPoint) connId connAlive =
-  void . tryIO . asyncWhenCancelled return $ do
-    mAct <- modifyMVar (remoteState theirEndPoint) $ \st -> case st of
-      RemoteEndPointValid vst -> do
-        alive <- readIORef connAlive
-        if alive
-          then do
-            writeIORef connAlive False
-            act <- schedule theirEndPoint $
-              sendOn vst [encodeInt32 CloseConnection, encodeInt32 connId]
-            return ( RemoteEndPointValid
-                   . (remoteOutgoing ^: (\x -> x - 1))
-                   $ vst
-                   , Just act
-                   )
-          else
-            return (RemoteEndPointValid vst, Nothing)
-      _ ->
-        return (st, Nothing)
-    forM_ mAct $ runScheduledAction (ourEndPoint, theirEndPoint)
-    closeIfUnused (ourEndPoint, theirEndPoint)
+  void . tryIO . asyncWhenCancelled return $ finally
+    (withScheduledAction ourEndPoint $ \sched -> do
+      modifyMVar_ (remoteState theirEndPoint) $ \st -> case st of
+        RemoteEndPointValid vst -> do
+          alive <- readIORef connAlive
+          if alive
+            then do
+              writeIORef connAlive False
+              sched theirEndPoint $
+                sendOn vst [encodeInt32 CloseConnection, encodeInt32 connId]
+              return ( RemoteEndPointValid
+                     . (remoteOutgoing ^: (\x -> x - 1))
+                     $ vst
+                     )
+            else
+              return (RemoteEndPointValid vst)
+        _ ->
+          return st)
+    (closeIfUnused (ourEndPoint, theirEndPoint))
 
 
 -- | Send data across a connection
@@ -647,8 +650,8 @@ apiSend :: EndPointPair             -- ^ Local and remote endpoint
         -> IO (Either (TransportError SendErrorCode) ())
 apiSend (ourEndPoint, theirEndPoint) connId connAlive payload =
     -- We don't need the overhead of asyncWhenCancelled here
-    try . mapIOException sendFailed $ do
-      act <- withMVar (remoteState theirEndPoint) $ \st -> case st of
+    try . mapIOException sendFailed $ withScheduledAction ourEndPoint $ \sched -> do
+      withMVar (remoteState theirEndPoint) $ \st -> case st of
         RemoteEndPointInvalid _ ->
           relyViolation (ourEndPoint, theirEndPoint) "apiSend"
         RemoteEndPointInit _ _ _ ->
@@ -656,7 +659,7 @@ apiSend (ourEndPoint, theirEndPoint) connId connAlive payload =
         RemoteEndPointValid vst -> do
           alive <- readIORef connAlive
           if alive
-            then schedule theirEndPoint $
+            then sched theirEndPoint $
               sendOn vst (encodeInt32 connId : prependLength payload)
             else throwIO $ TransportError SendClosed "Connection closed"
         RemoteEndPointClosing _ _ -> do
@@ -674,7 +677,6 @@ apiSend (ourEndPoint, theirEndPoint) connId connAlive payload =
           if alive
             then throwIO $ TransportError SendFailed (show err)
             else throwIO $ TransportError SendClosed "Connection closed"
-      runScheduledAction (ourEndPoint, theirEndPoint) act
   where
     sendFailed = TransportError SendFailed . show
 
@@ -700,33 +702,32 @@ apiCloseEndPoint transport evs ourEndPoint =
   where
     -- Close the remote socket and return the set of all incoming connections
     tryCloseRemoteSocket :: RemoteEndPoint -> IO ()
-    tryCloseRemoteSocket theirEndPoint = do
+    tryCloseRemoteSocket theirEndPoint = withScheduledAction ourEndPoint $ \sched -> do
       -- We make an attempt to close the connection nicely
       -- (by sending a CloseSocket first)
       let closed = RemoteEndPointFailed . userError $ "apiCloseEndPoint"
-      mAct <- modifyMVar (remoteState theirEndPoint) $ \st ->
+      modifyMVar_ (remoteState theirEndPoint) $ \st ->
         case st of
           RemoteEndPointInvalid _ ->
-            return (st, Nothing)
+            return st
           RemoteEndPointInit resolved _ _ -> do
             putMVar resolved ()
-            return (closed, Nothing)
+            return closed
           RemoteEndPointValid vst -> do
-            act <- schedule theirEndPoint $ do
+            sched theirEndPoint $ do
               tryIO $ sendOn vst [ encodeInt32 CloseSocket
                                  , encodeInt32 (vst ^. remoteMaxIncoming)
                                  ]
               tryCloseSocket (remoteSocket vst)
-            return (closed, Just act)
+            return closed
           RemoteEndPointClosing resolved vst -> do
             putMVar resolved ()
-            act <- schedule theirEndPoint $ tryCloseSocket (remoteSocket vst)
-            return (closed, Just act)
+            sched theirEndPoint $ tryCloseSocket (remoteSocket vst)
+            return closed
           RemoteEndPointClosed ->
-            return (st, Nothing)
+            return st
           RemoteEndPointFailed err ->
-            return (RemoteEndPointFailed err, Nothing)
-      forM_ mAct $ runScheduledAction (ourEndPoint, theirEndPoint)
+            return (RemoteEndPointFailed err)
 
 
 --------------------------------------------------------------------------------
@@ -1485,6 +1486,15 @@ runScheduledAction (ourEndPoint, theirEndPoint) mvar = do
           err      = TransportError code (show ex)
       writeChan (localChannel ourEndPoint) $ ErrorEvent err
       return (RemoteEndPointFailed ex)
+
+-- | Use 'schedule' action 'runScheduled' action in a safe way, it's assumed that
+-- callback is used only once, otherwise guarantees of runScheduledAction are not
+-- respected.
+withScheduledAction :: LocalEndPoint -> ((RemoteEndPoint -> IO a -> IO ()) -> IO ()) -> IO ()
+withScheduledAction ourEndPoint f =
+  bracket (newIORef Nothing)
+          (traverse (\(tp, a) -> runScheduledAction (ourEndPoint, tp) a) <=< readIORef)
+          (\ref -> f (\rp g -> mask_ $ schedule rp g >>= \x -> writeIORef ref (Just (rp,x)) ))
 
 --------------------------------------------------------------------------------
 -- "Stateless" (MVar free) functions                                          --
