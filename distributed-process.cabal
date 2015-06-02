@@ -38,6 +38,13 @@ flag prof
   description: Compiling with profiling enabled
   default: False
 
+
+flag old-locale
+ description: If false then depend on time >= 1.5.
+              .
+              If true then depend on time < 1.5 together with old-locale.
+ default: False
+
 Library
   Build-Depends:     base >= 4.4 && < 5,
                      binary >= 0.6.3 && < 0.8,
@@ -45,15 +52,13 @@ Library
                      network-transport >= 0.4.1.0 && < 0.5,
                      stm >= 2.4 && < 2.5,
                      transformers >= 0.2 && < 0.5,
-                     mtl >= 2.0 && < 2.3,
+                     mtl >= 2.0 && < 2.4,
                      data-accessor >= 0.2 && < 0.3,
                      bytestring >= 0.9 && < 0.11,
-                     old-locale >= 1.0 && < 1.1,
-                     time >= 1.2 && < 1.5,
                      random >= 1.0 && < 1.2,
-                     ghc-prim >= 0.2 && < 0.4,
+                     ghc-prim >= 0.2 && < 0.5,
                      distributed-static >= 0.2 && < 0.4,
-                     rank1dynamic >= 0.1 && < 0.3,
+                     rank1dynamic >= 0.1 && < 0.4,
                      syb >= 0.3 && < 0.5
   Exposed-modules:   Control.Distributed.Process,
                      Control.Distributed.Process.Closure,
@@ -89,12 +94,16 @@ Library
                       deepseq == 1.3.0.0
   else
      Build-Depends:   containers >= 0.4 && < 0.6,
-                      deepseq >= 1.3.0.1 && < 1.4
+                      deepseq >= 1.3.0.1 && < 1.6
+  if flag(old-locale)
+     Build-Depends:   time < 1.5, old-locale >= 1.0 && <1.1
+  else
+     Build-Depends:   time >= 1.5
   if flag(th)
      if impl(ghc <= 7.4.2)
        Build-Depends: template-haskell >= 2.7 && < 2.8
      else
-       Build-Depends: template-haskell >= 2.6 && < 2.10
+       Build-Depends: template-haskell >= 2.6 && < 2.11
      Exposed-modules: Control.Distributed.Process.Internal.Closure.TH
      CPP-Options:     -DTemplateHaskellSupport
 

@@ -73,7 +73,11 @@ sizeOfFingerprint = sizeOf (undefined :: Fingerprint)
 
 -- | The fingerprint of the typeRep of the argument
 fingerprint :: Typeable a => a -> Fingerprint
+#if MIN_VERSION_base(4,8,0)
+fingerprint a = let TypeRep fp _ _ _ = typeOf a in fp
+#else
 fingerprint a = let TypeRep fp _ _ = typeOf a in fp
+#endif
 
 -- | Show fingerprint (for debugging purposes)
 showFingerprint :: Fingerprint -> ShowS
