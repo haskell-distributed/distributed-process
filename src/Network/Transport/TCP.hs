@@ -1222,7 +1222,8 @@ connectToSelf ourEndPoint = do
         LocalEndPointValid _ -> do
           alive <- readIORef connAlive
           if alive
-            then writeChan ourChan (Received connId msg)
+            then seq (foldr seq () msg)
+                   writeChan ourChan (Received connId msg)
             else throwIO $ TransportError SendClosed "Connection closed"
         LocalEndPointClosed ->
           throwIO $ TransportError SendFailed "Endpoint closed"
