@@ -45,6 +45,6 @@ mkNode port = do
 testMain :: (NT.Transport -> IO [Test]) -> IO ()
 testMain builder = do
   Right (transport, _) <- createTransportExposeInternals
-                                    "127.0.0.1" "10501" defaultTCPParameters
+                                    "127.0.0.1" "0" defaultTCPParameters
   testData <- builder transport
   defaultMain testData
