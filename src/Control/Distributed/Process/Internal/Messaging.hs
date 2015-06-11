@@ -177,7 +177,11 @@ _ `impliesDeathOf` _ =
   False
 
 
--- Send a control message
+-- Send a control message. Evaluates the message to HNF before sending it.
+--
+-- The message shouldn't produce more errors when further evaluated. If
+-- evaluation threw errors the node controller or the receiver would crash when
+-- inspecting it.
 sendCtrlMsg :: Maybe NodeId  -- ^ Nothing for the local node
             -> ProcessSignal -- ^ Message to send
             -> Process ()
@@ -188,7 +192,7 @@ sendCtrlMsg mNid signal = do
                   }
   case mNid of
     Nothing -> do
-      liftIO $ writeChan (localCtrlChan (processNode proc)) msg
+      liftIO $ writeChan (localCtrlChan (processNode proc)) $! msg
     Just nid ->
       liftIO $ sendBinary (processNode proc)
                           (ProcessIdentifier (processId proc))
