@@ -1,6 +1,7 @@
 language: haskell
 
 ghc:
+ - 7.10
  - 7.8
  - 7.6
  - 7.4
@@ -19,9 +20,8 @@ before_install:
 
 install:
   # Don't run tests for dependencies.
-  - cabal install --only-dependencies --allow-newer=random
-  - cabal install --only-dependencies distributed-process-tests --allow-newer=random
+  - cabal install --only-dependencies
 
 script:
   - cabal install
-  - cabal install --enable-tests -j1 distributed-process-tests --allow-newer=random
+  - cabal install --enable-tests -j1 distributed-process-tests --run-tests
