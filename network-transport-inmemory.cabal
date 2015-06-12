@@ -12,7 +12,7 @@ Homepage:      http://haskell-distributed.github.com
 Bug-Reports:   https://cloud-haskell.atlassian.net/browse/NTINMEM
 Synopsis:      In-memory instantiation of Network.Transport
 Description:   In-memory instantiation of Network.Transport  
-Tested-With:   GHC==7.0.4 GHC==7.2.2 GHC==7.4.1 GHC==7.4.2
+Tested-With:   GHC==7.0.4 GHC==7.2.2 GHC==7.4.1 GHC==7.4.2 GHC==7.10
 Category:      Network  
 
 Source-Repository head
@@ -32,8 +32,8 @@ Library
 Test-Suite TestMulticastInMemory 
   Type:            exitcode-stdio-1.0
   Build-Depends:   base >= 4.3 && < 5,
-                   network-transport-inmemory >= 0.3 && < 0.4,
-                   network-transport-tests >= 0.1 && < 0.2
+                   network-transport-inmemory,
+                   network-transport-tests >= 0.1 && < 0.3
   Main-Is:         TestMulticastInMemory.hs
   ghc-options:     -Wall -fno-warn-unused-do-bind
   HS-Source-Dirs:  tests
@@ -41,8 +41,8 @@ Test-Suite TestMulticastInMemory
 Test-Suite TestInMemory 
   Type:            exitcode-stdio-1.0
   Build-Depends:   base >= 4.3 && < 5,
-                   network-transport-inmemory >= 0.3 && < 0.4,
-                   network-transport-tests >= 0.1 && < 0.2
+                   network-transport-inmemory,
+                   network-transport-tests >= 0.1 && < 0.3
   Main-Is:         TestInMemory.hs
   ghc-options:     -Wall -fno-warn-unused-do-bind
   HS-Source-Dirs:  tests
