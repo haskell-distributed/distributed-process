@@ -127,6 +127,7 @@ data LogLevel =
   deriving (Typeable, Generic, Eq,
             Read, Show, Ord, Enum)
 instance Binary LogLevel where
+instance NFData LogLevel where
 
 data SetLevel = SetLevel !LogLevel
   deriving (Typeable, Generic)

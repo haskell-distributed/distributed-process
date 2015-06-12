@@ -138,6 +138,7 @@ data Recipient =
 --  | GlobalReg String
   deriving (Typeable, Generic, Show, Eq)
 instance Binary Recipient where
+instance NFData Recipient where
 
 -- useful exit reasons
 
