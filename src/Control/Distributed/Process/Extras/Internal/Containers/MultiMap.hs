@@ -16,13 +16,13 @@ module Control.Distributed.Process.Extras.Internal.Containers.MultiMap
   ) where
 
 import qualified Data.Foldable as Foldable
+import Data.Foldable (Foldable)
 
 import Data.Hashable
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as Map
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
-import Data.Foldable (Foldable(..))
 import Prelude hiding (lookup, filter, pred)
 
 -- | Class of things that can be inserted in a map or
@@ -92,4 +92,3 @@ toList M{..} = Map.foldlWithKey' explode [] hmap
   where
     explode xs k vs = Set.foldl' (\ys v -> ((k, v):ys)) xs vs
 {-# INLINE toList #-}
-
