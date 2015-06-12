@@ -14,12 +14,12 @@ Bug-Reports:    http://github.com/haskell-distributed/distributed-process-superv
 synopsis:       Supervisors for The Cloud Haskell Application Platform
 description:    A part of the Cloud Haskell framework
 
-		This package implements a process which supervises a set of other processes, referred to as its children.
-		These child processes can be either workers (i.e., processes that do something useful in your application)
-		or other supervisors. In this way, supervisors may be used to build a hierarchical process structure
-		called a supervision tree, which provides a convenient structure for building fault tolerant software.
+                This package implements a process which supervises a set of other processes, referred to as its children.
+                These child processes can be either workers (i.e., processes that do something useful in your application)
+                or other supervisors. In this way, supervisors may be used to build a hierarchical process structure
+                called a supervision tree, which provides a convenient structure for building fault tolerant software.
 
-		For detailed information see "Control.Distributed.Process.Supervisor"
+                For detailed information see "Control.Distributed.Process.Supervisor"
 category:       Control
 tested-with:    GHC == 7.4.2 GHC == 7.6.2
 data-dir:       ""
@@ -45,7 +45,7 @@ library
                    stm >= 2.4 && < 2.5,
                    time > 1.4 && < 1.6,
                    transformers
-  if impl(ghc <= 7.5) 
+  if impl(ghc <= 7.5)
     Build-Depends:   template-haskell == 2.7.0.0,
                      derive == 2.5.5,
                      uniplate == 1.6.12,
@@ -78,11 +78,11 @@ test-suite SupervisorTests
                    mtl,
                    network-transport-tcp >= 0.4 && < 0.5,
                    binary >= 0.6.3.0 && < 0.8,
-                   deepseq >= 1.3.0.1 && < 1.4,
+                   deepseq >= 1.3.0.1 && < 1.5,
                    network >= 2.3 && < 2.7,
                    HUnit >= 1.2 && < 2,
                    stm >= 2.3 && < 2.5,
-                   time > 1.4 && < 1.5,
+                   time > 1.4 && < 1.6,
                    test-framework >= 0.6 && < 0.9,
                    test-framework-hunit,
                    transformers,
@@ -94,4 +94,3 @@ test-suite SupervisorTests
   extensions:      CPP
   main-is:         TestSupervisor.hs
   other-modules:   TestUtils
-
