@@ -83,7 +83,7 @@ test-suite ExchangeTests
                    data-accessor,
                    fingertree < 0.2,
                    network-transport >= 0.4 && < 0.5,
-                   deepseq >= 1.3.0.1 && < 1.4,
+                   deepseq >= 1.3.0.1 && < 1.5,
                    mtl,
                    network-transport-tcp >= 0.4 && < 0.5,
                    binary >= 0.6.3.0 && < 0.8,
