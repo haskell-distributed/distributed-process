@@ -1,12 +1,12 @@
 Name:          distributed-process
-Version:       0.5.3
+Version:       0.5.5
 Cabal-Version: >=1.8
 Build-Type:    Simple
 License:       BSD3
 License-File:  LICENSE
 Copyright:     Well-Typed LLP, Tweag I/O Limited
 Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
-Maintainer:    watson.timothy@gmail.com, edsko@well-typed.com, duncan@well-typed.com
+Maintainer:    Facundo Domínguez <facundo.dominguez@tweag.io>
 Stability:     experimental
 Homepage:      http://haskell-distributed.github.com/
 Bug-Reports:   https://github.com/haskell-distributed/distributed-process/issues
@@ -21,7 +21,7 @@ Description:   This is an implementation of Cloud Haskell, as described in
 
                You will probably also want to install a Cloud Haskell backend such
                as distributed-process-simplelocalnet.
-Tested-With:   GHC==7.2.2 GHC==7.4.1 GHC==7.4.2 GHC==7.6.2
+Tested-With:   GHC==7.4.2 GHC==7.6.3 GHC==7.8.4 GHC==7.10.1
 Category:      Control
 extra-source-files: ChangeLog
 

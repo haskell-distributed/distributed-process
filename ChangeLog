@@ -1,3 +1,9 @@
+2015-06-15 Facundo Domínguez <facundo.dominguez@tweag.io> 0.5.5
+
+* Fix dependencies.
+* Add compatibility with GHC-7.10.
+* Fix various race conditions (DP-99, DP-103).
+
 2014-12-09  Tim Watson  <watson.timothy@gmail.com>  0.5.2
 
 * Fix docstring for `register`
