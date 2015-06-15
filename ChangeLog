@@ -1,0 +1,15 @@
+2015-06-15 Facundo Domínguez <facundo.dominguez@tweag.io> 0.2.1
+
+* Use random port in tests.
+* Add compatibility with ghc-7.10.
+* Fix dependency bounds.
+* Add missing NFData instances.
+
+# HEAD
+
+* Added initial GenServer module
+* Added Timer Module
+* Moved time functions into Time.hs
+* Added Async API
+* Added GenProcess API (subsumes lower level GenServer API)
+

@@ -1,5 +1,5 @@
 name:           distributed-process-extras
-version:        0.2.0
+version:        0.2.1
 cabal-version:  >=1.8
 build-type:     Simple
 license:        BSD3
@@ -7,7 +7,7 @@ license-file:   LICENCE
 stability:      experimental
 Copyright:      Tim Watson 2012 - 2013
 Author:         Tim Watson
-Maintainer:     watson.timothy@gmail.com
+Maintainer:     Facundo Domínguez <facundo.dominguez@tweag.io>
 Stability:      experimental
 Homepage:       http://github.com/haskell-distributed/distributed-process-extras
 Bug-Reports:    https://cloud-haskell.atlassian.net
@@ -17,6 +17,7 @@ description:    Supporting library, providing common types and utilities used by
 category:       Control
 tested-with:    GHC == 7.4.2 GHC == 7.6.2
 data-dir:       ""
+extra-source-files: ChangeLog
 
 source-repository head
   type:      git
