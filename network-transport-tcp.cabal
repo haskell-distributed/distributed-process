@@ -4,7 +4,7 @@ Cabal-Version: >=1.10
 Build-Type:    Simple
 License:       BSD3 
 License-file:  LICENSE
-Copyright:     Well-Typed LLP
+Copyright:     Well-Typed LLP, Tweag I/O Limited
 Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
 Maintainer:    edsko@well-typed.com, duncan@well-typed.com, watson.timothy@gmail.com
 Stability:     experimental
