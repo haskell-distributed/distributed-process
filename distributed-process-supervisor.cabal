@@ -1,5 +1,5 @@
 name:           distributed-process-supervisor
-version:        0.1.2
+version:        0.1.3
 cabal-version:  >=1.8
 build-type:     Simple
 license:        BSD3
@@ -7,7 +7,7 @@ license-file:   LICENCE
 stability:      experimental
 Copyright:      Tim Watson 2012 - 2013
 Author:         Tim Watson
-Maintainer:     watson.timothy@gmail.com
+Maintainer:     Facundo Domínguez <facundo.dominguez@tweag.io>
 Stability:      experimental
 Homepage:       http://github.com/haskell-distributed/distributed-process-supervisor
 Bug-Reports:    http://github.com/haskell-distributed/distributed-process-supervisor/issues
@@ -23,6 +23,7 @@ description:    A part of the Cloud Haskell framework
 category:       Control
 tested-with:    GHC == 7.4.2 GHC == 7.6.2
 data-dir:       ""
+extra-source-files: ChangeLog
 
 source-repository head
   type:      git
