@@ -1,3 +1,7 @@
+2015-06-15  Facundo Domínguez  <facundo.dominguez@tweag.io>  0.2.1.0
+
+* Loosen upper bound of ghc-prim.
+
 2014-05-30  Tim Watson  <watson.timothy@gmail.com>  0.2.0.0
 
 * Fix funResultTy so @funResultTy ANY _ = ANY@
