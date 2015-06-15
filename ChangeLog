@@ -1,0 +1,14 @@
+2015-06-15 Facundo Domínguez <facundo.dominguez@tweag.io> 0.1.2
+
+* Add compatibility with ghc-7.10.
+* Fix dependency bounds.
+* Reuse test modules from distributed-proces-tests.
+
+# HEAD
+
+* Added initial GenServer module
+* Added Timer Module
+* Moved time functions into Time.hs
+* Added Async API
+* Added GenProcess API (subsumes lower level GenServer API)
+
