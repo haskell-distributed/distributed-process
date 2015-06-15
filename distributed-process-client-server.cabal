@@ -1,5 +1,5 @@
 name:           distributed-process-client-server
-version:        0.1.2
+version:        0.1.3
 cabal-version:  >=1.8
 build-type:     Simple
 license:        BSD3
@@ -7,7 +7,7 @@ license-file:   LICENCE
 stability:      experimental
 Copyright:      Tim Watson 2012 - 2013
 Author:         Tim Watson
-Maintainer:     watson.timothy@gmail.com
+Maintainer:     Facundo Domínguez <facundo.dominguez@tweag.io>
 Stability:      experimental
 Homepage:       http://github.com/haskell-distributed/distributed-process-client-server
 Bug-Reports:    http://github.com/haskell-distributed/distributed-process-client-server/issues
