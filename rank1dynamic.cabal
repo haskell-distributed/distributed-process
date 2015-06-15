@@ -10,7 +10,7 @@ License-File:        LICENSE
 Author:              Edsko de Vries
 Maintainer:          facundo.dominguez@tweag.io
 Bug-Reports:         https://cloud-haskell.atlassian.net/browse/RANKNDYN
-Copyright:           Well-Typed LLP
+Copyright:           Well-Typed LLP, Tweag I/O Limited
 Category:            Data
 Build-Type:          Simple
 Cabal-Version:       >=1.8
