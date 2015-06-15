@@ -12,7 +12,14 @@ import Prelude hiding
   )
 import Control.Concurrent (forkIO, killThread, yield)
 import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar, readMVar, tryTakeMVar, modifyMVar_, newMVar)
-import Control.Exception (evaluate, throw, throwIO, bracket)
+import Control.Exception
+  ( evaluate
+  , throw
+  , throwIO
+  , bracket
+  , catch
+  , ErrorCall(..)
+  )
 import Control.Monad (replicateM, replicateM_, when, guard, forM_, unless)
 import Control.Monad.Error ()
 import Control.Applicative ((<$>))
@@ -391,6 +398,21 @@ testParallelConnects transport numPings = do
     putMVar done ()
 
   takeMVar done
+
+-- | Test that sending an error to self gives an error in the sender
+testSelfSend :: Transport -> IO ()
+testSelfSend transport = do
+    Right endpoint <- newEndPoint transport
+
+    Right conn <- connect endpoint (address endpoint) ReliableOrdered
+                          defaultConnectHints
+
+    do send conn [ error "bang!" ]
+       error "testSelfSend: send didn't fail"
+     `catch` (\(ErrorCall "bang!") -> return ())
+
+    close conn
+    closeEndPoint endpoint
 
 -- | Test that sending on a closed connection gives an error
 testSendAfterClose :: Transport -> Int -> IO ()
@@ -954,6 +976,7 @@ testTransport newTransport = do
     , ("CloseOneDirection",     testCloseOneDirection transport numPings)
     , ("CloseReopen",           testCloseReopen transport numPings)
     , ("ParallelConnects",      testParallelConnects transport numPings)
+    , ("SelfSend",              testSelfSend transport)
     , ("SendAfterClose",        testSendAfterClose transport 100)
     , ("Crossing",              testCrossing transport 10)
     , ("CloseTwice",            testCloseTwice transport 100)
