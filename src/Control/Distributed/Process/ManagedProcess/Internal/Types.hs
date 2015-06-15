@@ -64,7 +64,7 @@ import Control.Distributed.Process.Extras.Internal.Types
   ( resolveOrDie
   )
 import Control.Distributed.Process.Extras.Time
-import Control.DeepSeq (NFData)
+import Control.DeepSeq (NFData(..))
 import Data.Binary hiding (decode)
 import Data.Typeable (Typeable)
 
@@ -81,7 +81,7 @@ type CallId = MonitorRef
 newtype CallRef a = CallRef { unCaller :: (Recipient, CallId) }
   deriving (Eq, Show, Typeable, Generic)
 instance Serializable a => Binary (CallRef a) where
-instance NFData a => NFData (CallRef a) where
+instance NFData a => NFData (CallRef a) where rnf (CallRef x) = rnf x `seq` ()
 
 makeRef :: forall a . (Serializable a) => Recipient -> CallId -> CallRef a
 makeRef r c = CallRef (r, c)
@@ -101,6 +101,9 @@ data Message a b =
 
 instance (Serializable a, Serializable b) => Binary (Message a b) where
 instance (NFSerializable a, NFSerializable b) => NFData (Message a b) where
+  rnf (CastMessage a) = rnf a `seq` ()
+  rnf (CallMessage a b) = rnf a `seq` rnf b `seq` ()
+  rnf (ChanMessage a b) = rnf a `seq` rnf b `seq` ()
 deriving instance (Eq a, Eq b) => Eq (Message a b)
 deriving instance (Show a, Show b) => Show (Message a b)
 
@@ -108,7 +111,8 @@ data CallResponse a = CallResponse a CallId
   deriving (Typeable, Generic)
 
 instance Serializable a => Binary (CallResponse a)
-instance NFSerializable a => NFData (CallResponse a)
+instance NFSerializable a => NFData (CallResponse a) where
+  rnf (CallResponse a c) = rnf a `seq` rnf c `seq` ()
 deriving instance Eq a => Eq (CallResponse a)
 deriving instance Show a => Show (CallResponse a)
 
