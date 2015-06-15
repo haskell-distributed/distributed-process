@@ -1,12 +1,12 @@
 Name:          distributed-process-simplelocalnet
-Version:       0.2.2.0
+Version:       0.2.3.0
 Cabal-Version: >=1.8
 Build-Type:    Simple
 License:       BSD3 
 License-File:  LICENSE
 Copyright:     Well-Typed LLP
 Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
-Maintainer:    watson.timothy@gmail.com, edsko@well-typed.com, duncan@well-typed.com
+Maintainer:    Facundo Domínguez <facundo.dominguez@tweag.io>
 Stability:     experimental
 Homepage:      http://haskell-distributed.github.com
 Bug-Reports:   https://cloud-haskell.atlassian.net/browse/DPSLN
@@ -17,6 +17,7 @@ Description:   Simple backend based on the TCP transport which offers node
                without imposing any structure on your application.
 Tested-With:   GHC==7.2.2 GHC==7.4.1 GHC==7.4.2
 Category:      Control 
+extra-source-files: ChangeLog
 
 Source-Repository head
   Type:     git
