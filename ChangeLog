@@ -1,3 +1,8 @@
+2015-06-15  Facundo Domínguez  <facundo.dominguez@tweag.io>  0.3.2.0
+
+* Loosen rank1dynamic bounds.
+* Add NFData instances.
+
 2014-12-09  Tim Watson  <watson.timothy@gmail.com>  0.3.1.0
 
 * Eq and Ord instances for Closure and Static

@@ -1,5 +1,5 @@
 Name:                distributed-static
-Version:             0.3.1.0
+Version:             0.3.2.0
 Synopsis:            Compositional, type-safe, polymorphic static values and closures 
 Description:         /Towards Haskell in the Cloud/ (Epstein et al, Haskell
                      Symposium 2011) introduces the concept of /static/ values:
@@ -18,7 +18,7 @@ Homepage:            http://haskell-distributed.github.com
 License:             BSD3
 License-File:        LICENSE
 Author:              Edsko de Vries
-Maintainer:          edsko@well-typed.com, facundo.dominguez@tweag.io
+Maintainer:          Facundo Domínguez <facundo.dominguez@tweag.io>
 Bug-Reports:         https://cloud-haskell.atlassian.net/browse/DS
 Copyright:           Well-Typed LLP
 Category:            Control
