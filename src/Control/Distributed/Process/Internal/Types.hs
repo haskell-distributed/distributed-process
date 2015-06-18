@@ -380,7 +380,8 @@ instance NFData Message where
 #else
   rnf (EncodedMessage _ e) = BSL.length e `seq` ()
 #endif
-  rnf (UnencodedMessage _ a) = a `seq` ()   -- forced to WHNF only
+  rnf (UnencodedMessage _ a) = e `seq` ()
+    where e = BSL.length (encode a)
 
 instance Show Message where
   show (EncodedMessage fp enc) = show enc ++ " :: " ++ showFingerprint fp []
