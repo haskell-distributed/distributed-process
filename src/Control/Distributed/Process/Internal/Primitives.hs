@@ -986,7 +986,10 @@ expectTimeout n = receiveTimeout n [match return]
 spawnAsync :: NodeId -> Closure (Process ()) -> Process SpawnRef
 spawnAsync nid proc = do
   spawnRef <- getSpawnRef
-  sendCtrlMsg (Just nid) $ Spawn proc spawnRef
+  node     <- getSelfNode
+  if nid == node
+    then sendCtrlMsg Nothing $ Spawn proc spawnRef
+    else sendCtrlMsg (Just nid) $ Spawn proc spawnRef
   return spawnRef
 
 -- | Monitor a node (asynchronous)
