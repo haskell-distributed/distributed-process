@@ -5,6 +5,7 @@
 {-# LANGUAGE BangPatterns  #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving  #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE MagicHash #-}
 
 -- | Local nodes
 --
@@ -65,6 +66,8 @@ import Control.Exception
   , Exception
   , throwTo
   , uninterruptibleMask_
+  , getMaskingState
+  , MaskingState(..)
   )
 import qualified Control.Exception as Exception (Handler(..), catches, finally)
 import Control.Concurrent (forkIO, forkIOWithUnmask, myThreadId)
@@ -209,7 +212,17 @@ import qualified Control.Distributed.Process.Internal.StrictContainerAccessors a
   ( mapMaybe
   , mapDefault
   )
+import GHC.IO (IO(..), unsafeUnmask)
+import GHC.Base ( maskAsyncExceptions# )
+
 import Unsafe.Coerce
+
+-- Remove these when this is fixed:
+-- https://ghc.haskell.org/trac/ghc/ticket/10149
+block :: IO a -> IO a
+block (IO io) = IO $ maskAsyncExceptions# io
+unblock :: IO a -> IO a
+unblock = unsafeUnmask
 
 --------------------------------------------------------------------------------
 -- Initialization                                                             --
@@ -340,11 +353,14 @@ runProcess node proc = do
 
 -- | Spawn a new process on a local node
 forkProcess :: LocalNode -> Process () -> IO ProcessId
-forkProcess node proc =
-    modifyMVarMasked (localState node) startProcess
+forkProcess node proc = do
+    ms <- getMaskingState
+    modifyMVarMasked (localState node) (startProcess ms)
   where
-    startProcess :: LocalNodeState -> IO (LocalNodeState, ProcessId)
-    startProcess st = do
+    startProcess :: MaskingState
+                 -> LocalNodeState
+                 -> IO (LocalNodeState, ProcessId)
+    startProcess ms st = do
       let lpid  = LocalProcessId { lpidCounter = st ^. localPidCounter
                                  , lpidUnique  = st ^. localPidUnique
                                  }
@@ -366,7 +382,13 @@ forkProcess node proc =
                                  , processThread = tid
                                  , processNode   = node
                                  }
-        tid' <- uninterruptibleMask_ $ forkIOWithUnmask $ \unmask -> do
+        -- Rewrite this code when this is fixed:
+        -- https://ghc.haskell.org/trac/ghc/ticket/10149
+        let unmask = case ms of
+              Unmasked              -> unblock
+              MaskedInterruptible   -> block
+              MaskedUninterruptible -> id
+        tid' <- uninterruptibleMask_ $ forkIO $ do
           reason <- Exception.catches
             (unmask $ runLocalProcess lproc proc >> return DiedNormal)
             [ (Exception.Handler (\ex@(ProcessExitException from msg) -> do
