@@ -163,7 +163,12 @@ import Prelude hiding (catch)
 import Control.Monad.IO.Class (liftIO)
 import Control.Applicative ((<$>))
 import Control.Monad.Reader (ask)
-import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar)
+import Control.Concurrent.MVar
+  ( MVar
+  , newEmptyMVar
+  , takeMVar
+  , putMVar
+  )
 import Control.Distributed.Static
   ( Closure
   , closure
@@ -305,7 +310,7 @@ import Control.Distributed.Process.Internal.Spawn
   , spawnSupervised
   , call
   )
-import Control.Exception (SomeException, throwIO)
+import Control.Exception (SomeException, throw)
 
 -- INTERNAL NOTES
 --
@@ -401,15 +406,10 @@ spawnChannelLocal proc = do
 -- messages sent to the caller process, and also allows silently dropping late
 -- or duplicate messages sent to the isolated process after it exits.
 -- Silently dropping messages may not always be the best approach.
-callLocal ::
-     Process a  -- ^ Process to run
-  -> Process a  -- ^ Value returned
-callLocal proc = do
-  mv <- liftIO newEmptyMVar
-  self <- getSelfPid
-  _ <- spawnLocal $ do
-     link self
-     try proc >>= liftIO . putMVar mv
-  liftIO $ takeMVar mv >>=
-     either (throwIO :: SomeException -> IO a) return
-
+callLocal :: Process a -> Process a
+callLocal proc = mask $ \release -> do
+    mv    <- liftIO newEmptyMVar :: Process (MVar (Either SomeException a))
+    child <- spawnLocal $ try (release proc) >>= liftIO . putMVar mv
+    rs <- liftIO (takeMVar mv) `onException`
+            (kill child "exception in parent process" >> liftIO (takeMVar mv))
+    either throw return rs
