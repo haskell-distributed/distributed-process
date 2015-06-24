@@ -2,7 +2,7 @@ Name:          network-transport-inmemory
 Version:       0.4.0
 Cabal-Version: >=1.8
 Build-Type:    Simple
-License:       BSD3 
+License:       BSD3
 License-file:  LICENSE
 Copyright:     Well-Typed LLP
 Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
@@ -11,9 +11,9 @@ Stability:     experimental
 Homepage:      http://haskell-distributed.github.com
 Bug-Reports:   https://cloud-haskell.atlassian.net/browse/NTINMEM
 Synopsis:      In-memory instantiation of Network.Transport
-Description:   In-memory instantiation of Network.Transport  
+Description:   In-memory instantiation of Network.Transport
 Tested-With:   GHC==7.0.4 GHC==7.2.2 GHC==7.4.1 GHC==7.4.2 GHC==7.10
-Category:      Network  
+Category:      Network
 
 Source-Repository head
   Type:     git
@@ -24,25 +24,28 @@ Library
                    network-transport >= 0.4.0.0 && < 0.5,
                    data-accessor >= 0.2 && < 0.3,
                    bytestring >= 0.9 && < 0.11,
-                   containers >= 0.4 && < 0.6
+                   containers >= 0.4 && < 0.6,
+                   stm >= 2.0 && < 3.0
   Exposed-modules: Network.Transport.Chan
-  ghc-options:     -Wall -fno-warn-unused-do-bind
+  ghc-options:     -Wall
   HS-Source-Dirs:  src
 
-Test-Suite TestMulticastInMemory 
+Test-Suite TestMulticastInMemory
   Type:            exitcode-stdio-1.0
   Build-Depends:   base >= 4.3 && < 5,
                    network-transport-inmemory,
+                   network-transport,
                    network-transport-tests >= 0.1 && < 0.3
   Main-Is:         TestMulticastInMemory.hs
   ghc-options:     -Wall -fno-warn-unused-do-bind
   HS-Source-Dirs:  tests
 
-Test-Suite TestInMemory 
+Test-Suite TestInMemory
   Type:            exitcode-stdio-1.0
   Build-Depends:   base >= 4.3 && < 5,
                    network-transport-inmemory,
-                   network-transport-tests >= 0.1 && < 0.3
+                   network-transport-tests >= 0.1 && < 0.3,
+                   network-transport
   Main-Is:         TestInMemory.hs
   ghc-options:     -Wall -fno-warn-unused-do-bind
   HS-Source-Dirs:  tests
