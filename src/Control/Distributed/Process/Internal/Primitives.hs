@@ -1,6 +1,7 @@
 {-# LANGUAGE CPP  #-}
 {-# LANGUAGE RankNTypes  #-}
 {-# LANGUAGE DeriveDataTypeable  #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE ScopedTypeVariables  #-}
 {-# LANGUAGE ExistentialQuantification  #-}
 {-# LANGUAGE BangPatterns #-}
@@ -374,6 +375,7 @@ mergePortsRR = \ps -> do
 
 -- | Opaque type used in 'receiveWait' and 'receiveTimeout'
 newtype Match b = Match { unMatch :: MatchOn Message (Process b) }
+                  deriving (Functor)
 
 -- | Test the matches in order against each message in the queue
 receiveWait :: [Match b] -> Process b
