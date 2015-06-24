@@ -12,6 +12,7 @@ import Control.Concurrent.STM
 import Control.Exception (handle, throw)
 import Data.Map (Map)
 import Data.Maybe (fromMaybe, fromJust)
+import Data.Monoid
 import Data.Foldable
 import Data.Traversable
 import qualified Data.Map as Map
@@ -22,7 +23,7 @@ import qualified Data.ByteString.Char8 as BSC (pack)
 import Data.Accessor (Accessor, accessor, (^.), (^=), (^:))
 import qualified Data.Accessor.Container as DAC (mapMaybe)
 import Data.Typeable (Typeable)
-import Prelude
+import Prelude hiding (foldr)
 
 data TransportState
   = TransportValid {-# UNPACK #-} !ValidTransportState
