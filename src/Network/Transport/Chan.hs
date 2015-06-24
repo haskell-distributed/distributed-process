@@ -12,6 +12,7 @@ import Control.Concurrent.STM
 import Control.Exception (handle, throw)
 import Data.Map (Map)
 import Data.Maybe (fromMaybe, fromJust)
+import Data.Monoid
 import Data.Foldable
 import Data.Traversable
 import qualified Data.Map as Map
@@ -22,7 +23,7 @@ import qualified Data.ByteString.Char8 as BSC (pack)
 import Data.Accessor (Accessor, accessor, (^.), (^=), (^:))
 import qualified Data.Accessor.Container as DAC (mapMaybe)
 import Data.Typeable (Typeable)
-import Prelude
+import Prelude hiding (foldr)
 
 data TransportState
   = TransportValid {-# UNPACK #-} !ValidTransportState
@@ -121,9 +122,15 @@ apiNewEndPoint state = handle (return . Left) $ atomically $ do
     , address       = addr
     , connect       = apiConnect addr state
     , closeEndPoint = apiCloseEndPoint state addr
-    , newMulticastGroup     = apiNewMulticastGroup state addr
-    , resolveMulticastGroup = apiResolveMulticastGroup state addr
+    , newMulticastGroup     = return $ Left $ newMulticastGroupError
+    , resolveMulticastGroup = return . Left . const resolveMulticastGroupError
     }
+  where
+    -- see [Multicast] section
+    newMulticastGroupError =
+      TransportError NewMulticastGroupUnsupported "Multicast not supported"
+    resolveMulticastGroupError =
+      TransportError ResolveMulticastGroupUnsupported "Multicast not supported"
 
 apiCloseEndPoint :: TVar TransportState -> EndPointAddress -> IO ()
 apiCloseEndPoint state addr = atomically $ whenValidTransportState state $ \vst ->
@@ -272,11 +279,16 @@ apiClose chan state lconn = do
                 . (connections ^: Map.delete (theirAddress, localConnectionId lconn))
       _ -> return ()
 
+-- [Multicast]
+-- Currently multicast implementation doesn't pass it's tests, so it
+-- disabled. Here we have old code that could be improved, see GitHub ISSUE 5
+-- https://github.com/haskell-distributed/network-transport-inmemory/issues/5
+
 -- | Create a new multicast group
-apiNewMulticastGroup :: TVar TransportState
+_apiNewMulticastGroup :: TVar TransportState
                      -> EndPointAddress
                      -> IO (Either (TransportError NewMulticastGroupErrorCode) MulticastGroup)
-apiNewMulticastGroup state ourAddress = handle (return . Left) $ do
+_apiNewMulticastGroup state ourAddress = handle (return . Left) $ do
   group <- newTVarIO Set.empty
   groupAddr <- atomically $
     withValidTransportState state NewMulticastGroupFailed $ \vst -> do
@@ -324,11 +336,11 @@ createMulticastGroup state ourAddress groupAddress group = MulticastGroup
     }
 
 -- | Resolve a multicast group
-apiResolveMulticastGroup :: TVar TransportState
+_apiResolveMulticastGroup :: TVar TransportState
                          -> EndPointAddress
                          -> MulticastAddress
                          -> IO (Either (TransportError ResolveMulticastGroupErrorCode) MulticastGroup)
-apiResolveMulticastGroup state ourAddress groupAddress = handle (return . Left) $ atomically $
+_apiResolveMulticastGroup state ourAddress groupAddress = handle (return . Left) $ atomically $
     withValidTransportState state ResolveMulticastGroupFailed $ \vst -> do
       lep <- maybe (throwSTM $ TransportError ResolveMulticastGroupFailed "Endpoint closed")
                    return

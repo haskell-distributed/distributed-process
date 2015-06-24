@@ -39,6 +39,7 @@ Test-Suite TestMulticastInMemory
   Main-Is:         TestMulticastInMemory.hs
   ghc-options:     -Wall -fno-warn-unused-do-bind
   HS-Source-Dirs:  tests
+  Buildable:       False
 
 Test-Suite TestInMemory
   Type:            exitcode-stdio-1.0
