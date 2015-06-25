@@ -2,7 +2,7 @@ module Main where
 
 import Network.Transport.Tests
 import Network.Transport.Tests.Auxiliary (runTests)
-import Network.Transport.Chan
+import Network.Transport.InMemory
 import Network.Transport
 import Control.Applicative ((<$>))
 import Control.Concurrent

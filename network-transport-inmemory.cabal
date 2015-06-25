@@ -1,5 +1,5 @@
 Name:          network-transport-inmemory
-Version:       0.4.0
+Version:       0.5.0
 Cabal-Version: >=1.8
 Build-Type:    Simple
 License:       BSD3
@@ -26,7 +26,7 @@ Library
                    bytestring >= 0.9 && < 0.11,
                    containers >= 0.4 && < 0.6,
                    stm >= 2.0 && < 3.0
-  Exposed-modules: Network.Transport.Chan
+  Exposed-modules: Network.Transport.InMemory
   ghc-options:     -Wall
   HS-Source-Dirs:  src
 

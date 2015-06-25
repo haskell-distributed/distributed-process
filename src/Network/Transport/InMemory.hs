@@ -2,7 +2,7 @@
 {-# OPTIONS_GHC -fno-warn-deprecations #-}
 
 -- | In-memory implementation of the Transport API.
-module Network.Transport.Chan (createTransport) where
+module Network.Transport.InMemory (createTransport) where
 
 import Control.Applicative
 import Network.Transport
