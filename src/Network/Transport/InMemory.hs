@@ -2,7 +2,12 @@
 {-# OPTIONS_GHC -fno-warn-deprecations #-}
 
 -- | In-memory implementation of the Transport API.
-module Network.Transport.InMemory (createTransport) where
+module Network.Transport.InMemory
+  ( createTransport
+  , createTransportExposeInternals
+  -- * Debug
+  , breakConnection
+  ) where
 
 import Control.Applicative
 import Network.Transport
@@ -62,17 +67,26 @@ data LocalConnectionState
   | LocalConnectionClosed
   | LocalConnectionFailed
 
+newtype TransportInternals = TransportInternals (TVar TransportState)
+
 -- | Create a new Transport.
 --
 -- Only a single transport should be created per Haskell process
 -- (threads can, and should, create their own endpoints though).
 createTransport :: IO Transport
-createTransport = do
+createTransport = fst <$> createTransportExposeInternals
+
+-- | Create a new Transport exposing internal state.
+--
+-- This state can be used for with internal or debug functions, e.g.
+-- 'breakConnection'.
+createTransportExposeInternals :: IO (Transport, TransportInternals)
+createTransportExposeInternals = do
   state <- newTVarIO $ TransportValid $ ValidTransportState
     { _localEndPoints = Map.empty
     , _nextLocalEndPointId = 0
     }
-  return Transport
+  return (Transport
     { newEndPoint    = apiNewEndPoint state
     , closeTransport = do
         -- transactions are splitted into smaller ones intentionally
@@ -87,7 +101,7 @@ createTransport = do
                 return (lvst ^. connections)
               forM_ cons $ \con -> atomically $
                 writeTVar (localConnectionState con) LocalConnectionClosed
-    }
+    }, TransportInternals state)
 
 -- | Create a new end point.
 apiNewEndPoint :: TVar TransportState
@@ -151,6 +165,19 @@ apiCloseEndPoint state addr = atomically $ whenValidTransportState state $ \vst 
           writeTChan (localEndPointChannel lep) EndPointClosed
           writeTVar  (localEndPointState lep)    LocalEndPointClosed
       writeTVar state (TransportValid $ (localEndPoints ^: Map.delete addr) vst)
+
+-- | Function that simulate failing connection between two endpoints,
+-- after calling this function both endpoints will receive ConnectionEventLost
+-- message, and all @LocalConnectionValid@ connections will
+-- be put into @LocalConnectionFailed@ state.
+breakConnection :: TransportInternals
+                -> EndPointAddress
+                -> EndPointAddress
+                -> String                   -- ^ Error message
+                -> IO ()
+breakConnection (TransportInternals state) from to message =
+  atomically $ apiBreakConnection state from to message
+
 
 -- | Tear down functions that should be called in case if conncetion fails.
 apiBreakConnection :: TVar TransportState
