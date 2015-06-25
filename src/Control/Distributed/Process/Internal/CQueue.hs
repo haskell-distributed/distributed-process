@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE BangPatterns  #-}
 {-# LANGUAGE MagicHash, UnboxedTuples, PatternGuards, ScopedTypeVariables, RankNTypes #-}
 -- | Concurrent queue for single reader, single writer
@@ -77,6 +78,7 @@ data BlockSpec =
 data MatchOn m a
  = MatchMsg  (m -> Maybe a)
  | MatchChan (STM a)
+ deriving (Functor)
 
 type MatchChunks m a = [Either [m -> Maybe a] [STM a]]
 
