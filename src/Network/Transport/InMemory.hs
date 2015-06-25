@@ -5,7 +5,8 @@
 module Network.Transport.InMemory
   ( createTransport
   , createTransportExposeInternals
-  -- * Debug
+  -- * For testing purposes
+  , TransportInternals(..)
   , breakConnection
   ) where
 
@@ -78,8 +79,8 @@ createTransport = fst <$> createTransportExposeInternals
 
 -- | Create a new Transport exposing internal state.
 --
--- This state can be used for with internal or debug functions, e.g.
--- 'breakConnection'.
+-- Useful for testing and/or debugging purposes.
+-- Should not be used in production. No guarantee as to the stability of the internals API.
 createTransportExposeInternals :: IO (Transport, TransportInternals)
 createTransportExposeInternals = do
   state <- newTVarIO $ TransportValid $ ValidTransportState
