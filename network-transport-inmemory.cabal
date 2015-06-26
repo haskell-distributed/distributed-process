@@ -4,16 +4,26 @@ Cabal-Version: >=1.8
 Build-Type:    Simple
 License:       BSD3
 License-file:  LICENSE
-Copyright:     Well-Typed LLP
+Copyright:     Well-Typed LLP, Tweag I/O Limited
 Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
 Maintainer:    edsko@well-typed.com, duncan@well-typed.com, watson.timothy@gmail.com
 Stability:     experimental
 Homepage:      http://haskell-distributed.github.com
-Bug-Reports:   https://cloud-haskell.atlassian.net/browse/NTINMEM
+Bug-Reports:   https://github.com/haskell-distributed/network-transport-inmemory/issues
 Synopsis:      In-memory instantiation of Network.Transport
-Description:   In-memory instantiation of Network.Transport
-Tested-With:   GHC==7.0.4 GHC==7.2.2 GHC==7.4.1 GHC==7.4.2 GHC==7.10
+Description:   Network transport inmemory is a transport that could be used for local
+               communication in the same address space (i.e. one process). N-t-inmemory
+               is based on STM primitives. Such transport could be used either for
+               debug test purposes, or for local communication that require full
+               network-transport semantics.
+
+               NB: network-tranpsport-inmemory does not support cross transport
+               communication, all endpoints that want to comminicate should be
+               created using same transport.
+
+Tested-With:   GHC==7.4.1 GHC==7.4.2 GHC==7.8.3 GHC==7.10
 Category:      Network
+extra-source-files: ChangeLog
 
 Source-Repository head
   Type:     git

@@ -1,0 +1,5 @@
+0.5 
+* Complete reimplementation based on STM primitives
+* Rename Network.Transport.Chan to Network.Transport.InMemory
+* Disabled multicast support until it will be properly implemented
+* Expose internals

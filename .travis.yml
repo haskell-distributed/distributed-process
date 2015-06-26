@@ -1,14 +1,23 @@
 language: haskell
 script: "make ci"
-notifications:
-  email:
-    recipients:
-      - cloud.haskell@gmail.com
-  irc:
-    channels:
-      - "irc.freenode.org#haskell-distributed"
-    use_notice: true
-branches:
-  only:
-    - master
-    - development
+
+ghc:
+  - "7.10"
+  - "7.8"
+  - "7.6"
+  - "7.4"
+
+before_install:
+  - cabal update
+  - cabal install cabal-install
+  - cabal sandbox init
+  - export PATH=~/.cabal/bin:$PATH
+  - for i in `cat REPOS`; do git clone http://github.com/haskell-distributed/$i ; done
+  - for i in `cat REPOS`; do cabal sandbox add-source $i ; done
+
+install:
+  - cabal install --only-dependencies --enable-tests
+
+script:
+  - cabal configure --enable-tests
+  - cabal test --show-details=always
