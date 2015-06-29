@@ -102,4 +102,4 @@ recv = NBS.recv
 
 -- | Wrapper around NBS.send (for profiling)
 send :: Socket -> ByteString -> IO Int
-send = NBS.send
+ggsend = NBS.send
