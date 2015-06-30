@@ -1,14 +1,14 @@
 ### network-transport-inmemory [![travis](https://secure.travis-ci.org/haskell-distributed/network-transport-inmemory.png?branch=master,development)](http://travis-ci.org/haskell-distributed/network-transport-inmemory)
 
-Network transport inmemory is a transport that could be used for local
-communication in the same address space (i.e. one process). N-t-inmemory
-is based on `STM` primitives. Such transport could be used either for
-debug test purposes, or for local communication that require full
-network-transport semantics.
+network-transport-inmemory is a transport that could be used for local
+communication in the same address space (i.e. one process).
 
-*NB*: network-tranpsport-inmemory does not support cross transport
-communication, all endpoints that want to comminicate should be
-created using same transport.
+It could be used either for testing purposes or for local communication that
+requires the network-transport semantics.
+
+*NB*: network-transport-inmemory does not support cross-transport
+communication. All endpoints that want to communicate should be created using
+the same transport.
 
 
 This repository is part of Cloud Haskell.
