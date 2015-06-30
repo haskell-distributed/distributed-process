@@ -5,7 +5,7 @@ Build-Type:    Simple
 License:       BSD3
 License-file:  LICENSE
 Copyright:     Well-Typed LLP, Tweag I/O Limited
-Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
+Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries, Alexander Vershilov
 Maintainer:    Facundo Domínguez <facundo.dominguez@tweag.io>
 Stability:     experimental
 Homepage:      http://haskell-distributed.github.com
@@ -15,7 +15,7 @@ Description:   This is a transport implementation that could be used for local
                communication in the same address space (i.e. one process).
                .
                It could be used either for testing purposes or for local
-			   communication that require the network-transport semantics.
+               communication that require the network-transport semantics.
                .
                NB: network-tranpsport-inmemory does not support cross-transport
                communication. All endpoints that want to comminicate should be
