@@ -1,14 +1,13 @@
 language: haskell
 
 ghc:
- - 7.10
- - 7.8
- - 7.6
- - 7.4
+ - "7.10"
+ - "7.8"
+ - "7.6"
+ - "7.4"
 
 before_install:
   - cabal update
-  - cabal install Cabal
   - cabal install cabal-install
   - export PATH=~/.cabal/bin:$PATH
   - cabal --version
@@ -23,5 +22,5 @@ install:
   - cabal install --only-dependencies
 
 script:
-  - cabal install
-  - cabal install --enable-tests -j1 distributed-process-tests --run-tests
+  - cabal configure --enable-tests
+  - cabal test --show-output=always
