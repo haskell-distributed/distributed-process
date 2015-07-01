@@ -1,9 +1,6 @@
 # network-transport
 [![travis](https://secure.travis-ci.org/haskell-distributed/network-transport.png)](http://travis-ci.org/haskell-distributed/network-transport)
-[![Release](https://img.shields.io/hackage/v/network-transport.svg)](http://hackage.haskell.org/package/network-transport)
-
-azure-service-api is made available under a BSD-3 license.
-This repository is part of Cloud Haskell.
+[![Release](https://img.shields.io/hackage/v/network-transport.svg)](https://hackage.haskell.org/package/network-transport)
 
 See http://haskell-distributed.github.com for documentation, user guides,
 tutorials and assistance.
