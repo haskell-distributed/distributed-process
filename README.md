@@ -1,9 +1,6 @@
 # distribributed-process-extras
 [![travis](https://secure.travis-ci.org/haskell-distributed/distributed-process-extras.png)](http://travis-ci.org/haskell-distributed/distributed-process-extras)
-![Release](https://img.shields.io/hackage/v/distributed-process-extras.svg)
-
-azure-service-api is made available under a BSD-3 license.
-This repository is part of Cloud Haskell.
+[![Release](https://img.shields.io/hackage/v/distributed-process-extras.svg)](https://hackage.haskell.org/package/distributed-process-extras)
 
 See http://haskell-distributed.github.com for documentation, user guides,
 tutorials and assistance.
