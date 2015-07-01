@@ -1,9 +1,6 @@
 # distribributed-process-supervisor
 [![travis](https://secure.travis-ci.org/haskell-distributed/distributed-process-supervisor.png)](http://travis-ci.org/haskell-distributed/distributed-process-supervisor)
-[![Release](https://img.shields.io/hackage/v/distributed-process-supervisor.svg)](http://hackage.haskell.org/package/distributed-process-supervisor)
-
-azure-service-api is made available under a BSD-3 license.
-This repository is part of Cloud Haskell.
+[![Release](https://img.shields.io/hackage/v/distributed-process-supervisor.svg)](https://hackage.haskell.org/package/distributed-process-supervisor)
 
 See http://haskell-distributed.github.com for documentation, user guides,
 tutorials and assistance.
