@@ -1,6 +1,6 @@
 # distributed-process
 [![travis](https://secure.travis-ci.org/haskell-distributed/distributed-process.png)](http://travis-ci.org/haskell-distributed/distributed-process)
-![Release](https://img.shields.io/hackage/v/distributed-process.svg)
+[![Release](https://img.shields.io/hackage/v/distributed-process.svg)](https://hackage.haskell.org/package/distributed-process)
 
 This repository is part of Cloud Haskell.
 
@@ -9,11 +9,8 @@ tutorials and assistance.
 
 ## Getting Help / Raising Issues
 
-Please visit our [bug tracker](../../issues) to submit issues.
-
-If you'd like to talk to a human, please contact us at the distributed-haskell
-mailing list in the first instance - distributed-haskell@googlegroups.com.
+Please visit the [bug tracker](https://github.com/haskell-distributed/distributed-process/issues) to submit issues. You can contact the distributed-haskell@googlegroups.com mailing list for help and comments.
 
 ## License
 
-distributed-process is made available under a 3-clause BSD-style license.
+This package is made available under a 3-clause BSD-style license.
