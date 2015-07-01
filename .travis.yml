@@ -23,4 +23,4 @@ install:
 
 script:
   - cabal configure --enable-tests
-  - cabal test --show-output=always
+  - cabal test --show-details=always
