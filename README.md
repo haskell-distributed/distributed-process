@@ -9,7 +9,7 @@ tutorials and assistance.
 
 ## Getting Help / Raising Issues
 
-Please visit our [bug tracker](issues) to submit issues.
+Please visit our [bug tracker](../../issues) to submit issues.
 
 If you'd like to talk to a human, please contact us at the distributed-haskell
 mailing list in the first instance - distributed-haskell@googlegroups.com.
