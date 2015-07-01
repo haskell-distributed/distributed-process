@@ -1,9 +1,6 @@
 # distribributed-static
 [![travis](https://secure.travis-ci.org/haskell-distributed/distributed-static.png)](http://travis-ci.org/haskell-distributed/distributed-static)
-[![Release](https://img.shields.io/hackage/v/distributed-static.svg)](http://hackage.haskell.org/package/distributed-static)
-
-azure-service-api is made available under a BSD-3 license.
-This repository is part of Cloud Haskell.
+[![Release](https://img.shields.io/hackage/v/distributed-static.svg)](https://hackage.haskell.org/package/distributed-static)
 
 See http://haskell-distributed.github.com for documentation, user guides,
 tutorials and assistance.
