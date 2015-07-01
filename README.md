@@ -1,20 +1,17 @@
-### distributed-process-client-server [![travis](https://secure.travis-ci.org/haskell-distributed/distributed-process-client-server.png)](http://travis-ci.org/haskell-distributed/distributed-process-client-server)
+# distribributed-process-client-server
+[![travis](https://secure.travis-ci.org/haskell-distributed/distributed-process-client-server.png)](http://travis-ci.org/haskell-distributed/distributed-process-async)
+![Release](https://img.shields.io/hackage/v/distributed-process-client-server.svg)
 
-
+azure-service-api is made available under a BSD-3 license.
 This repository is part of Cloud Haskell.
 
 See http://haskell-distributed.github.com for documentation, user guides,
 tutorials and assistance.
 
-### Getting Help / Raising Issues
+## Getting Help / Raising Issues
 
-Please visit our [bug tracker](http://cloud-haskell.atlassian.net) to submit
-issues. Anyone can browse, although you'll need to provide an email address
-and create an account in order to submit new issues.
+Please visit the [bug tracker](https://github.com/haskell-distributed/distributed-process-client-server/issues) to submit issues. You can contact the distributed-haskell@googlegroups.com mailing list for help and comments.
 
-If you'd like to talk to a human, please contact us at the parallel-haskell
-mailing list in the first instance - parallel-haskell@googlegroups.com.
+## License
 
-### License
-
-distributed-process is made available under a BSD-3 license.
+This package is made available under a 3-clause BSD-style license.
