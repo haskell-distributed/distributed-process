@@ -2,9 +2,6 @@
 [![travis](https://secure.travis-ci.org/haskell-distributed/rank1dynamic.png)](http://travis-ci.org/haskell-distributed/rank1dynamic)
 [![Release](https://img.shields.io/hackage/v/rank1dynamic.svg)](http://hackage.haskell.org/package/rank1dynamic)
 
-azure-service-api is made available under a BSD-3 license.
-This repository is part of Cloud Haskell.
-
 See http://haskell-distributed.github.com for documentation, user guides,
 tutorials and assistance.
 
