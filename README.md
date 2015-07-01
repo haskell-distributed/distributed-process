@@ -8,9 +8,7 @@ tutorials and assistance.
 
 ### Getting Help / Raising Issues
 
-Please visit our [bug tracker](http://cloud-haskell.atlassian.net) to submit
-issues. Anyone can browse, although you'll need to provide an email address
-and create an account in order to submit new issues.
+Please visit our [bug tracker](issues) to submit issues.
 
 If you'd like to talk to a human, please contact us at the distributed-haskell
 mailing list in the first instance - distributed-haskell@googlegroups.com.
