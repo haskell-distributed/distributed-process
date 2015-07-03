@@ -196,8 +196,10 @@ apiBreakConnection state us them msg
         whenValidLocalEndPointState lep $ \lepvst -> do
           let (cl, other) = Map.partitionWithKey (\(addr,_) _ -> addr == b)
                                                  (lepvst ^.connections)
-          forM_ cl $ \c -> writeTVar (localConnectionState c)
-                                     LocalConnectionFailed
+          forM_ cl $ \c -> modifyTVar (localConnectionState c)
+                                      (\x -> case x of
+                                               LocalConnectionValid -> LocalConnectionFailed
+                                               _ -> x)
           writeTChan (localEndPointChannel lep)
                      (ErrorEvent (TransportError (EventConnectionLost b) msg))
           writeTVar (localEndPointState lep)
