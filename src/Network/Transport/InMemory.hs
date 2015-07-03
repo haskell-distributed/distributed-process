@@ -248,7 +248,6 @@ apiConnect ourAddress state theirAddress _reliability _hints = do
         , close = apiClose chan state lconn
         }
 
-
 -- | Send a message over a connection
 apiSend :: TChan Event
         -> TVar TransportState
