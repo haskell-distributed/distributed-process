@@ -2,4 +2,5 @@ distributed-process-tests
 distributed-static
 network-transport
 network-transport-tcp
+network-transport-inmemory
 rank1dynamic

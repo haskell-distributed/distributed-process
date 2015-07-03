@@ -20,7 +20,7 @@ before_install:
 install:
   # Don't run tests for dependencies.
   - cabal install --only-dependencies
+  - cabal install
 
 script:
-  - cabal configure --enable-tests
-  - cabal test --show-details=always
+  - cabal install distributed-process-tests --enable-tests -ftcp-test --run-tests
