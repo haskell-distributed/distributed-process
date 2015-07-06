@@ -74,7 +74,7 @@ sendPayload node from to implicitReconnect payload = do
   unless didSend $ do
     writeChan (localCtrlChan node) NCMsg
       { ctrlMsgSender = to
-      , ctrlMsgSignal = Died to DiedDisconnect
+      , ctrlMsgSignal = Died (NodeIdentifier $ nodeOf to) DiedDisconnect
       }
 
 sendBinary :: Binary a
