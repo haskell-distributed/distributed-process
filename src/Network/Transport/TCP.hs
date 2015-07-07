@@ -76,6 +76,7 @@ import qualified Network.Socket as N
   , defaultProtocol
   , setSocketOption
   , SocketOption(ReuseAddr, NoDelay, UserTimeout)
+  , isSupportedSocketOption
   , connect
   , sOMAXCONN
   , AddrInfo
@@ -130,6 +131,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (concat)
 import qualified Data.ByteString.Char8 as BSC (pack, unpack)
 import Data.Bits (shiftL, (.|.))
+import Data.Maybe (isJust)
 import Data.Word (Word32)
 import Data.Set (Set)
 import qualified Data.Set as Set
@@ -508,6 +510,12 @@ createTransportExposeInternals host port params = do
       , _nextEndPointId = 0
       }
     tryIO $ mdo
+       when ( isJust (tcpUserTimeout params) &&
+              not (N.isSupportedSocketOption N.UserTimeout)
+            ) $
+         throwIO $ userError $ "Network.Transport.TCP.createTransport: " ++
+                               "the parameter tcpUserTimeout is unsupported " ++
+                               "in this system."
        -- We don't know for sure the actual port 'forkServer' binded until it
        -- completes (see description of 'forkServer'), yet we need the port to
        -- construct a transport. So we tie a recursive knot.
