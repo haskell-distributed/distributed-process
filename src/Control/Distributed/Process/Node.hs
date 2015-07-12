@@ -866,17 +866,18 @@ ncEffectRegister from label atnode mPid reregistration = do
               return $ (isNothing currentVal /= reregistration) &&
                 (not (isLocal node (ProcessIdentifier thepid) ) || isvalidlocal )
   if isLocal node (NodeIdentifier atnode)
-     then do when (isOk) $
+     then do when isOk $
                do modify' $ registeredHereFor label ^= mPid
                   updateRemote node currentVal mPid
                   case mPid of
                     (Just p) -> liftIO $ trace node (MxRegistered p label)
                     Nothing  -> liftIO $ trace node (MxUnRegistered (fromJust currentVal) label)
+             newVal <- gets (^. registeredHereFor label)
              liftIO $ sendMessage node
                        (NodeIdentifier (localNodeId node))
                        (ProcessIdentifier from)
                        WithImplicitReconnect
-                       (RegisterReply label isOk)
+                       (RegisterReply label isOk newVal)
      else let operation =
                  case reregistration of
                     True -> flip decList

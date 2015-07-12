@@ -512,9 +512,11 @@ data PortLinkException =
 
 -- | Exception thrown when a process attempts to register
 -- a process under an already-registered name or to
--- unregister a name that hasn't been registered
+-- unregister a name that hasn't been registered. Returns
+-- the name and the identifier of the process that owns it,
+-- if any.
 data ProcessRegistrationException =
-    ProcessRegistrationException !String
+    ProcessRegistrationException !String !(Maybe ProcessId)
   deriving (Typeable, Show)
 
 -- | Internal exception thrown indirectly by 'exit'
@@ -579,7 +581,7 @@ data WhereIsReply = WhereIsReply String (Maybe ProcessId)
   deriving (Show, Typeable)
 
 -- | (Asynchronous) reply from 'register' and 'unregister'
-data RegisterReply = RegisterReply String Bool
+data RegisterReply = RegisterReply String Bool (Maybe ProcessId)
   deriving (Show, Typeable)
 
 data NodeStats = NodeStats {
@@ -748,8 +750,8 @@ instance Binary WhereIsReply where
   get = WhereIsReply <$> get <*> get
 
 instance Binary RegisterReply where
-  put (RegisterReply label ok) = put label >> put ok
-  get = RegisterReply <$> get <*> get
+  put (RegisterReply label ok owner) = put label >> put ok >> put owner
+  get = RegisterReply <$> get <*> get <*> get
 
 instance Binary ProcessInfo where
   get = ProcessInfo <$> get <*> get <*> get <*> get <*> get

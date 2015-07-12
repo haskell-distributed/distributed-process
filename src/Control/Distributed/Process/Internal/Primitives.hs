@@ -1070,9 +1070,10 @@ registerImpl :: Bool -> String -> ProcessId -> Process ()
 registerImpl force label pid = do
   mynid <- getSelfNode
   sendCtrlMsg Nothing (Register label mynid (Just pid) force)
-  receiveWait [ matchIf (\(RegisterReply label' _) -> label == label')
-                        (\(RegisterReply _ ok) -> handleRegistrationReply label ok)
-              ]
+  receiveWait
+    [ matchIf (\(RegisterReply label' _ _) -> label == label')
+              (\(RegisterReply _ ok owner) -> handleRegistrationReply label ok owner)
+    ]
 
 -- | Register a process with a remote registry (asynchronous).
 --
@@ -1095,16 +1096,17 @@ unregister :: String -> Process ()
 unregister label = do
   mynid <- getSelfNode
   sendCtrlMsg Nothing (Register label mynid Nothing False)
-  receiveWait [ matchIf (\(RegisterReply label' _) -> label == label')
-                        (\(RegisterReply _ ok) -> handleRegistrationReply label ok)
-              ]
+  receiveWait
+    [ matchIf (\(RegisterReply label' _ _) -> label == label')
+              (\(RegisterReply _ ok owner) -> handleRegistrationReply label ok owner)
+    ]
 
 -- | Deal with the result from an attempted registration or unregistration
 -- by throwing an exception if necessary
-handleRegistrationReply :: String -> Bool -> Process ()
-handleRegistrationReply label ok =
+handleRegistrationReply :: String -> Bool -> Maybe ProcessId -> Process ()
+handleRegistrationReply label ok owner =
   when (not ok) $
-     liftIO $ throwIO $ ProcessRegistrationException label
+     liftIO $ throwIO $ ProcessRegistrationException label owner
 
 -- | Remove a process from a remote registry (asynchronous).
 --
