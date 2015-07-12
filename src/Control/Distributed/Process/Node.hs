@@ -77,6 +77,12 @@ import Control.Distributed.Process.Internal.StrictMVar
   , putMVar
   , takeMVar
   )
+import Control.Distributed.Process.Internal.ThreadPool
+  ( newThreadPool
+  , submitTask
+  , lookupWorker
+  , ThreadPool
+  )
 import Control.Concurrent.Chan (newChan, writeChan, readChan)
 import qualified Control.Concurrent.MVar as MVar (newEmptyMVar, takeMVar)
 import Control.Concurrent.STM
@@ -242,12 +248,14 @@ createBareLocalNode endPoint rtable = do
       , _localConnections = Map.empty
       }
     ctrlChan <- newChan
+    sendPool <- newThreadPool
     let node = LocalNode { localNodeId   = NodeId $ NT.address endPoint
                          , localEndPoint = endPoint
                          , localState    = state
                          , localCtrlChan = ctrlChan
                          , localEventBus = MxEventBusInitialising
                          , remoteTable   = rtable
+                         , localSendPool = sendPool
                          }
     tracedNode <- startMxAgent node
 
@@ -560,6 +568,8 @@ handleIncomingMessages node = go initConnectionState
             , ctrlMsgSignal = Died nid DiedDisconnect
             }
           let notLost k = not (k `Set.member` (st ^. incomingFrom theirAddr))
+          liftIO $ lookupWorker (localSendPool node) (NodeId theirAddr)
+                     >>= maybe (return ()) killThread
           closeImplicitReconnections node nid
           go ( (incomingFrom theirAddr ^= Set.empty)
              . (incoming ^: Map.filterWithKey (const . notLost))
@@ -614,6 +624,9 @@ data NCState = NCState
   , _registeredOnNodes :: !(Map ProcessId [(NodeId,Int)])
   }
 
+submitSendPool :: LocalNode -> NodeId -> IO () -> IO ()
+submitSendPool node nid task = submitTask (localSendPool node) forkIO nid task
+
 newtype NC a = NC { unNC :: StateT NCState (ReaderT LocalNode IO) a }
   deriving ( Applicative
            , Functor
@@ -624,11 +637,12 @@ newtype NC a = NC { unNC :: StateT NCState (ReaderT LocalNode IO) a }
            )
 
 initNCState :: NCState
-initNCState = NCState { _links    = Map.empty
-                      , _monitors = Map.empty
-                      , _registeredHere = Map.empty
-                      , _registeredOnNodes = Map.empty
-                      }
+initNCState = NCState
+  { _links    = Map.empty
+  , _monitors = Map.empty
+  , _registeredHere = Map.empty
+  , _registeredOnNodes = Map.empty
+  }
 
 -- | Thrown in response to the user invoking 'kill' (see Primitives.hs). This
 -- type is deliberately not exported so it cannot be caught explicitly.
@@ -683,7 +697,7 @@ nodeController = do
     -- [Unified: Table 7, rule nc_forward]
     case destNid (ctrlMsgSignal msg) of
       Just nid' | nid' /= localNodeId node ->
-        liftIO $ sendBinary node
+        liftIO $ submitSendPool node nid' $ sendBinary node
                             (ctrlMsgSender msg)
                             (NodeIdentifier nid')
                             WithImplicitReconnect
@@ -754,7 +768,7 @@ ncEffectMonitor from them mRef = do
       -- TODO: this is the right sender according to the Unified semantics,
       -- but perhaps having 'them' as the sender would make more sense
       -- (see also: notifyDied)
-      liftIO $ sendBinary node
+      liftIO $ submitSendPool node (processNodeId from) $ sendBinary node
                           (NodeIdentifier $ localNodeId node)
                           (NodeIdentifier $ processNodeId from)
                           WithImplicitReconnect
@@ -823,7 +837,7 @@ ncEffectDied ident reason = do
   modify' $ registeredOnNodes ^= (Map.fromList (catMaybes remaining))
     where
        forwardNameDeath node nid =
-                   liftIO $ sendBinary node
+         liftIO $ submitSendPool node nid $ sendBinary node
                              (NodeIdentifier $ localNodeId node)
                              (NodeIdentifier $ nid)
                              WithImplicitReconnect
@@ -844,7 +858,7 @@ ncEffectSpawn pid cProc ref = do
                Right p  -> p
   node <- ask
   pid' <- liftIO $ forkProcess node proc
-  liftIO $ sendMessage node
+  liftIO $ submitSendPool node (processNodeId pid) $ sendMessage node
                        (NodeIdentifier (localNodeId node))
                        (ProcessIdentifier pid)
                        WithImplicitReconnect
@@ -872,7 +886,8 @@ ncEffectRegister from label atnode mPid reregistration = do
                   case mPid of
                     (Just p) -> liftIO $ trace node (MxRegistered p label)
                     Nothing  -> liftIO $ trace node (MxUnRegistered (fromJust currentVal) label)
-             liftIO $ sendMessage node
+             liftIO $ submitSendPool node (processNodeId from) $
+                     sendMessage node
                        (NodeIdentifier (localNodeId node))
                        (ProcessIdentifier from)
                        WithImplicitReconnect
@@ -906,7 +921,7 @@ ncEffectRegister from label atnode mPid reregistration = do
             decList (x:xs) tag = x:decList xs tag
             forward node to reg =
               when (not $ isLocal node (NodeIdentifier to)) $
-                    liftIO $ sendBinary node
+                liftIO $ submitSendPool node to $ sendBinary node
                                         (ProcessIdentifier from)
                                         (NodeIdentifier to)
                                         WithImplicitReconnect
@@ -921,7 +936,7 @@ ncEffectWhereIs :: ProcessId -> String -> NC ()
 ncEffectWhereIs from label = do
   node <- ask
   mPid <- gets (^. registeredHereFor label)
-  liftIO $ sendMessage node
+  liftIO $ submitSendPool node (processNodeId from) $ sendMessage node
                        (NodeIdentifier (localNodeId node))
                        (ProcessIdentifier from)
                        WithImplicitReconnect
@@ -1022,7 +1037,7 @@ ncEffectGetInfo from pid =
                  -> NC ()
         dispatch True  dest _    pInfo = postAsMessage dest $ pInfo
         dispatch False dest node pInfo = do
-            liftIO $ sendMessage node
+          liftIO $ submitSendPool node (processNodeId dest) $ sendMessage node
                                  (NodeIdentifier (localNodeId node))
                                  (ProcessIdentifier dest)
                                  WithImplicitReconnect
@@ -1073,7 +1088,7 @@ notifyDied dest src reason mRef = do
       throwException dest $ PortLinkException pid reason
     (False, _, _) ->
       -- The change in sender comes from [Unified: Table 10]
-      liftIO $ sendBinary node
+      liftIO $ submitSendPool node (processNodeId dest) $ sendBinary node
                           (NodeIdentifier $ localNodeId node)
                           (NodeIdentifier $ processNodeId dest)
                           WithImplicitReconnect
