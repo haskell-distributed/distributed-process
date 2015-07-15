@@ -15,7 +15,9 @@ import qualified Data.ByteString.Lazy as BSL (toChunks)
 import qualified Data.ByteString as BSS (ByteString)
 import Control.Distributed.Process.Serializable ()
 
+import Control.Concurrent (forkIO)
 import Control.Concurrent.Chan (writeChan)
+import Control.Exception (mask_)
 import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (ask)
@@ -30,6 +32,7 @@ import qualified Network.Transport as NT
 import Control.Distributed.Process.Internal.Types
   ( LocalNode(localState, localEndPoint, localCtrlChan)
   , withValidLocalState
+  , modifyValidLocalState
   , modifyValidLocalState_
   , Identifier
   , localConnections
@@ -51,6 +54,7 @@ import Control.Distributed.Process.Internal.Types
   , Identifier(NodeIdentifier, ProcessIdentifier, SendPortIdentifier)
   )
 import Control.Distributed.Process.Serializable (Serializable)
+import Data.Foldable (forM_)
 
 --------------------------------------------------------------------------------
 -- Message sending                                                            --
@@ -135,24 +139,28 @@ connBetween node from to implicitReconnect = do
         setupConnBetween node from to implicitReconnect
 
 disconnect :: LocalNode -> Identifier -> Identifier -> IO ()
-disconnect node from to =
-  modifyValidLocalState_ node $ \vst ->
+disconnect node from to = mask_ $ do
+  mio <- modifyValidLocalState node $ \vst ->
     case vst ^. localConnectionBetween from to of
       Nothing ->
-        return vst
+        return (vst, return ())
       Just (conn, _) -> do
-        NT.close conn
-        return $ localConnectionBetween from to ^= Nothing $ vst
+        return ( localConnectionBetween from to ^= Nothing $ vst
+               , NT.close conn
+               )
+  forM_ mio forkIO
 
 closeImplicitReconnections :: LocalNode -> Identifier -> IO ()
-closeImplicitReconnections node to =
-  modifyValidLocalState_ node $ \vst -> do
+closeImplicitReconnections node to = mask_ $ do
+  mconns <- modifyValidLocalState node $ \vst -> do
     let shouldClose (_, to') (_, WithImplicitReconnect) = to `impliesDeathOf` to'
         shouldClose _ _ = False
     let (affected, unaffected) =
           Map.partitionWithKey shouldClose (vst ^. localConnections)
-    mapM_ (NT.close . fst) (Map.elems affected)
-    return $ localConnections ^= unaffected $ vst
+    return ( localConnections ^= unaffected $ vst
+           , map fst $ Map.elems affected
+           )
+  forM_ mconns $ forkIO . mapM_ NT.close
 
 -- | @a `impliesDeathOf` b@ is true if the death of @a@ (for instance, a node)
 -- implies the death of @b@ (for instance, a process on that node)

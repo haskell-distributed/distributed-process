@@ -24,6 +24,7 @@ module Control.Distributed.Process.Internal.Types
   , LocalNodeState(..)
   , ValidLocalNodeState(..)
   , withValidLocalState
+  , modifyValidLocalState
   , modifyValidLocalState_
   , Tracer(..)
   , MxEventBus(..)
@@ -128,6 +129,7 @@ import Control.Distributed.Process.Internal.CQueue (CQueue)
 import Control.Distributed.Process.Internal.StrictMVar
   ( StrictMVar
   , withMVar
+  , modifyMVar
   , modifyMVar_
   )
 import Control.Distributed.Process.Internal.WeakTQueue (TQueue)
@@ -290,6 +292,16 @@ withValidLocalState :: LocalNode
 withValidLocalState node f = withMVar (localState node) $ \st -> case st of
     LocalNodeValid vst -> f vst
     LocalNodeClosed -> throwIO $ userError $ "Node closed " ++ show (localNodeId node)
+
+-- | Wrapper around 'modifyMVar' that checks that the local node is still in
+-- a valid state.
+modifyValidLocalState :: LocalNode
+                      -> (ValidLocalNodeState -> IO (ValidLocalNodeState, a))
+                      -> IO (Maybe a)
+modifyValidLocalState node f = modifyMVar (localState node) $ \st -> case st of
+    LocalNodeValid vst -> do (vst', a) <- f vst
+                             return (LocalNodeValid vst', Just a)
+    LocalNodeClosed -> return (LocalNodeClosed, Nothing)
 
 -- | Wrapper around 'modifyMVar_' that checks that the local node is still in
 -- a valid state.

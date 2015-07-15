@@ -99,6 +99,7 @@ import qualified Network.Transport as NT
   , TransportError(..)
   , address
   , closeEndPoint
+  , Connection
   , ConnectionId
   , close
   , EndPointAddress
@@ -120,7 +121,7 @@ import Control.Distributed.Process.Internal.Types
   , LocalNodeState(..)
   , ValidLocalNodeState(..)
   , withValidLocalState
-  , modifyValidLocalState_
+  , modifyValidLocalState
   , LocalProcess(..)
   , LocalProcessState(..)
   , Process(..)
@@ -389,7 +390,12 @@ forkProcess node proc =
                 (return . DiedException . (show :: SomeException -> String)))]
 
           -- [Unified: Table 4, rules termination and exiting]
-          modifyValidLocalState_ node (cleanupProcess pid)
+          mconns <- modifyValidLocalState node (cleanupProcess pid)
+          -- XXX: Revisit after agreeing on the bigger picture for the semantics
+          -- of transport operations.
+          -- https://github.com/haskell-distributed/distributed-process/issues/204
+          forM_ mconns $ forkIO . mapM_ NT.close
+
           writeChan (localCtrlChan node) NCMsg
             { ctrlMsgSender = ProcessIdentifier pid
             , ctrlMsgSignal = Died (ProcessIdentifier pid) reason
@@ -420,14 +426,17 @@ forkProcess node proc =
                  )
     startProcess LocalNodeClosed = throwIO $ userError $ "Node closed " ++ show (localNodeId node)
 
-    cleanupProcess :: ProcessId -> ValidLocalNodeState -> IO ValidLocalNodeState
+    cleanupProcess :: ProcessId
+                   -> ValidLocalNodeState
+                   -> IO (ValidLocalNodeState, [NT.Connection])
     cleanupProcess pid vst = do
       let pid' = ProcessIdentifier pid
       let (affected, unaffected) = Map.partitionWithKey (\(fr, _to) !_v -> impliesDeathOf pid' fr) (vst ^. localConnections)
-      mapM_ (NT.close . fst) (Map.elems affected)
-      return $ (localProcessWithId (processLocalId pid) ^= Nothing)
-             . (localConnections ^= unaffected)
-             $ vst
+      return ( (localProcessWithId (processLocalId pid) ^= Nothing)
+               . (localConnections ^= unaffected)
+               $ vst
+             , map fst $ Map.elems affected
+             )
 
 -- note [tracer/forkProcess races]
 --
