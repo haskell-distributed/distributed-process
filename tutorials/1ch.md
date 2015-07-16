@@ -95,8 +95,8 @@ will not block the caller, even if the caller is sending messages to itself!
 
 Receiving works the opposite way, blocking the caller until a message
 matching the expected type arrives in our (conceptual) mailbox. If multiple
-messages of that type are present in the mailbox, they're be returned in FIFO
-order, if not, the caller is blocked until a message arrives that can be
+messages of that type are present in the mailbox, they'll be returned in FIFO
+order. If not, the caller is blocked until a message arrives that can be
 decoded to the correct type.
 
 Let's spawn two processes on the same node and have them talk to each other.
@@ -184,13 +184,13 @@ In distributed-process if `f : T1 -> T2` then
   $(mkClosure 'f) :: T1 -> Closure T2
 {% endhighlight %}
 
-That is, the first argument to the function we pass to mkClosure will act
+That is, the first argument to the function we pass to `mkClosure` will act
 as the closure environment for that process. If you want multiple values
 in the closure environment, you must "tuple them up".
 
 We need to configure our remote table (see the documentation for more details)
 and the easiest way to do this, is to let the library generate the relevant
-code for us. For example (taken from the distributed-process-platform test suites):
+code for us. For example:
 
 {% highlight haskell %}
 sampleTask :: (TimeInterval, String) -> Process String
