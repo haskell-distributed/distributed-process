@@ -18,7 +18,7 @@ import Control.Distributed.Process.Serializable ()
 import Control.Concurrent (forkIO)
 import Control.Concurrent.Chan (writeChan)
 import Control.Exception (mask_)
-import Control.Monad (unless)
+import Control.Monad (unless, void)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (ask)
 import qualified Network.Transport as NT
@@ -30,7 +30,7 @@ import qualified Network.Transport as NT
   , close
   )
 import Control.Distributed.Process.Internal.Types
-  ( LocalNode(localState, localEndPoint, localCtrlChan)
+  ( LocalNode(localEndPoint, localCtrlChan)
   , withValidLocalState
   , modifyValidLocalState
   , modifyValidLocalState_
@@ -146,9 +146,9 @@ disconnect node from to = mask_ $ do
         return (vst, return ())
       Just (conn, _) -> do
         return ( localConnectionBetween from to ^= Nothing $ vst
-               , NT.close conn
+               , void $ forkIO $ NT.close conn
                )
-  forM_ mio forkIO
+  forM_ mio id
 
 closeImplicitReconnections :: LocalNode -> Identifier -> IO ()
 closeImplicitReconnections node to = mask_ $ do
