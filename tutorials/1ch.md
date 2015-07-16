@@ -26,9 +26,9 @@ and [GitHub](https://github.com).
 
 Starting a new Cloud Haskell project using `stack` is as easy as
 
-```
+{% highlight shell %}
 $ stack new
-```
+{% endhighlight %}
 
 in a fresh new directory. This will populate the directory with
 a number of files, chiefly `stack.yaml` and `*.cabal` metadata files
