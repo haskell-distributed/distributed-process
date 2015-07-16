@@ -9,23 +9,32 @@ title: 1. Getting Started
 
 -----
 
-In order to go through this tutorial, you will need a Haskell development
-environment and we recommend installing the latest version of the
-[Haskell Platform](http://www.haskell.org/platform/) if you've not done
-so already.
+In order to go through this tutorial, you will need a working Haskell
+environment. If you don't already have one follow the instructions
+[here](https://www.haskell.org/downloads) to install the compiler and
+then
+[go here](https://github.com/commercialhaskell/stack/wiki/Downloads)
+to install `stack`, a popular build tool for Haskell projects.
 
-Once you're up and running, you'll want to get hold of the distributed-process
-library and a choice of network transport backend. This guide will use
-the network-transport-tcp backend, but other backends may be available
-on github.
+Once you're up and running, you'll want to get hold of the
+`distributed-process` library and a choice of network transport
+backend. This guide will use the `network-transport-tcp` backend, but
+other backends are available on [Hackage](https://hackage.haskell.org)
+and [GitHub](https://github.com).
 
-### Installing from source
+### Setting up the project
 
-If you're installing from source, the simplest method is to checkout the
-[Umbrella Project](https://github.com/haskell-distributed/cloud-haskell) and
-run `make` to obtain the complete set of source repositories for building
-Cloud Haskell. The additional makefiles bundled with the umbrella assume
-that you have a recent version of cabal (with support for sandboxes) installed.
+Starting a new Cloud Haskell project using `stack` is as easy as
+
+```
+$ stack new
+```
+
+in a fresh new directory. This will populate the directory with
+a number of files, chiefly `stack.yaml` and `*.cabal` metadata files
+for the project. You'll want to add `distributed-process` and
+`network-transport-tcp` to the `build-depends` stanza of the
+executable section.
 
 ### Creating a node
 
@@ -37,7 +46,7 @@ from other nodes. We will look at inter-node communication later, for now
 it will suffice to pass the default remote table, which defines the built-in
 types that Cloud Haskell needs at a minimum in order to run.
 
-We start with our imports:
+In `app/Main.hs`, we start with our imports:
 
 {% highlight haskell %}
 import Network.Transport.TCP (createTransport, defaultTCPParameters)
