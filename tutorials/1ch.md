@@ -1,7 +1,7 @@
 ---
 layout: tutorial
 categories: tutorial
-sections: ['Getting Started', 'Installing from source', 'Creating a node', 'Sending messages', 'Spawning Remote Processes']
+sections: ['Getting Started', 'Creating a node', 'Sending messages', 'Spawning Remote Processes']
 title: 1. Getting Started
 ---
 
@@ -119,7 +119,7 @@ main = do
   Right t <- createTransport "127.0.0.1" "10501" defaultTCPParameters
   node <- newLocalNode t initRemoteTable
   forkProcess node $ do
-    -- Spawn another worker on the local node 
+    -- Spawn another worker on the local node
     echoPid <- spawnLocal $ forever $ do
       -- Test our matches in order against each message in the queue
       receiveWait [match logMessage, match replyBack]
@@ -165,7 +165,7 @@ tries again.
 ### Serializable Data
 
 Processes may send any datum whose type implements the `Serializable` typeclass,
-which is done indirectly by deriving `Binary` and `Typeable`. Implementations are 
+which is done indirectly by deriving `Binary` and `Typeable`. Implementations are
 provided for most of Cloud Haskell's primitives and various common data types.
 
 ### Spawning Remote Processes
