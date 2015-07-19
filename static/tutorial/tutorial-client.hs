@@ -1,11 +1,12 @@
 import Network.Transport
 import Network.Transport.TCP (createTransport, defaultTCPParameters)
+import Network.Socket.Internal (withSocketsDo)
 import System.Environment
 import Control.Monad
 import Data.ByteString.Char8
 
 main :: IO ()
-main = do
+main = withSocketsDo $ do
   [host, port, serverAddr] <- getArgs
   Right transport <- createTransport host port defaultTCPParameters
   Right endpoint  <- newEndPoint transport
