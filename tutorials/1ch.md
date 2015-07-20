@@ -26,7 +26,7 @@ and [GitHub](https://github.com).
 
 Starting a new Cloud Haskell project using `stack` is as easy as
 
-{% highlight shell %}
+{% highlight bash %}
 $ stack new
 {% endhighlight %}
 

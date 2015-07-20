@@ -1,7 +1,6 @@
 exclude: [".rvmrc", ".rbenv-version", "README.md", "Rakefile", "static/templates/*"]
 lsi: false
-auto: true
-pygments: true
+highlighter: pygments
 safe: true
 markdown: kramdown
 
