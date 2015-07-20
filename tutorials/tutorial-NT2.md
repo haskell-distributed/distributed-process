@@ -75,7 +75,7 @@ import Data.ByteString.Char8
 import Control.Monad
 {% endhighlight %}
 
-The client will consist of a single main function. [withSocketsDo](http://hackage.haskell.org/package/network-2.6.2.1/docs/Network-Socket-Internal.html#v:withSocketsDo) is needed for Windows platform.
+The client will consist of a single main function. [withSocketsDo](http://hackage.haskell.org/package/network-2.6.2.1/docs/Network-Socket-Internal.html#v:withSocketsDo) may be needed for Windows platform with old versions of network library. For compatibility with older versions on Windows, it is good practice to always call withSocketsDo (it's very cheap).
 
 {% highlight haskell %}
 main :: IO ()
