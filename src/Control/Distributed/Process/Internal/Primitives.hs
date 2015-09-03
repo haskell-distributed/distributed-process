@@ -47,6 +47,7 @@ module Control.Distributed.Process.Internal.Primitives
   , handleMessage_
   , handleMessageIf_
   , forward
+  , uforward
   , delegate
   , relay
   , proxy
@@ -473,6 +474,26 @@ forward msg them = do
   liftIO $ traceEvent (localEventBus node)
                       (MxSent them us msg)
 
+-- | Forward a raw 'Message' to the given 'ProcessId'.
+--
+-- Unlike 'forward', this function is insensitive to 'reconnect'. It will
+-- try to send the message regardless of the history of connection failures
+-- between the nodes.
+uforward :: Message -> ProcessId -> Process ()
+uforward msg them = do
+  proc <- ask
+  let node     = processNode proc
+      us       = processId proc
+      nid      = localNodeId node
+      destNode = (processNodeId them) in do
+  case destNode == nid of
+    True  -> sendCtrlMsg Nothing (LocalSend them msg)
+    False -> sendCtrlMsg (Just destNode) $ UnreliableSend (processLocalId them)
+                                                          msg
+  -- We do not fire the trace event until after the sending is complete;
+  -- In the remote case, 'sendCtrlMsg' can block in the networking stack.
+  liftIO $ traceEvent (localEventBus node)
+                      (MxSent them us msg)
 
 -- | Wrap a 'Serializable' value in a 'Message'. Note that 'Message's are
 -- 'Serializable' - like the datum they contain - but also note, deserialising
