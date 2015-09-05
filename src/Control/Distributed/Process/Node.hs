@@ -597,7 +597,6 @@ handleIncomingMessages node = go initConnectionState
          $ st
          )
 
-    state    = localState node
     endpoint = localEndPoint node
     ctrlChan = localCtrlChan node
 
