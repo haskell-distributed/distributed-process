@@ -4,6 +4,10 @@ To run the benchmarks, select a value for the ring size (sz) and
 the number of times to send a message around the ring
 
 -}
+
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+
 import Control.Monad
 import Control.Distributed.Process hiding (catch)
 import Control.Distributed.Process.Node
@@ -110,4 +114,3 @@ main = do
   node <- newLocalNode transport initRemoteTable
   catch (void $ runProcess node $ initialProcess opt)
         (\(e :: SomeException) -> putStrLn $ "ERROR: " ++ (show e))
-

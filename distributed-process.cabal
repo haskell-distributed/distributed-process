@@ -86,7 +86,6 @@ Library
                      Control.Distributed.Process.Management.Internal.Trace.Remote,
                      Control.Distributed.Process.Management.Internal.Trace.Types,
                      Control.Distributed.Process.Management.Internal.Trace.Tracer
-  -- Extensions:     -- we use explicit per-file LANGUAGE pragmas
   ghc-options:       -Wall
   HS-Source-Dirs:    src
   if impl(ghc <= 7.4.2)
@@ -118,7 +117,6 @@ benchmark distributed-process-throughput
                    binary >= 0.6.3 && < 0.8
   Main-Is:         benchmarks/Throughput.hs
   ghc-options:     -Wall
-  Extensions:      BangPatterns
 
 benchmark distributed-process-latency
   Type:            exitcode-stdio-1.0
@@ -129,7 +127,6 @@ benchmark distributed-process-latency
                    binary >= 0.6.3 && < 0.8
   Main-Is:         benchmarks/Latency.hs
   ghc-options:     -Wall
-  Extensions:      BangPatterns
 
 benchmark distributed-process-channels
   Type:            exitcode-stdio-1.0
@@ -140,7 +137,6 @@ benchmark distributed-process-channels
                    binary >= 0.6.3 && < 0.8
   Main-Is:         benchmarks/Channels.hs
   ghc-options:     -Wall
-  Extensions:      BangPatterns
 
 benchmark distributed-process-spawns
   Type:            exitcode-stdio-1.0
@@ -151,7 +147,6 @@ benchmark distributed-process-spawns
                    binary >= 0.6.3 && < 0.8
   Main-Is:         benchmarks/Spawns.hs
   ghc-options:     -Wall
-  Extensions:      BangPatterns
 
 benchmark distributed-process-ring
   Type:            exitcode-stdio-1.0
