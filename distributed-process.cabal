@@ -104,7 +104,7 @@ Library
 -- Tests are in distributed-process-test package, for convenience.
 
 benchmark distributed-process-throughput
-  Type:            exitcode-stdio-1.0        
+  Type:            exitcode-stdio-1.0
   Build-Depends:   base >= 4.4 && < 5,
                    distributed-process,
                    network-transport-tcp >= 0.3 && < 0.5,
