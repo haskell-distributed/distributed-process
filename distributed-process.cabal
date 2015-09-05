@@ -34,11 +34,6 @@ flag th
   description: Build with Template Haskell support
   default: True
 
-flag prof
-  description: Compiling with profiling enabled
-  default: False
-
-
 flag old-locale
  description: If false then depend on time >= 1.5.
               .
@@ -156,9 +151,4 @@ benchmark distributed-process-ring
                    bytestring >= 0.9 && < 0.11,
                    binary >= 0.6.3 && < 0.8
   Main-Is:         benchmarks/ProcessRing.hs
-  if flag(prof)
-    ghc-options:   -Wall -threaded -prof -auto-all -fno-prof-count-entries -rtsopts
-  else
-    ghc-options:   -Wall -threaded -O2 -rtsopts
-  Extensions:      BangPatterns,
-                   ScopedTypeVariables
+  ghc-options:     -Wall -threaded -O2 -rtsopts
