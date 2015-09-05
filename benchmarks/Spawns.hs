@@ -1,3 +1,5 @@
+{-# LANGUAGE BangPatterns #-}
+
 -- | Like Throughput, but send every ping from a different process
 -- (i.e., require a lightweight connection per ping)
 import System.Environment

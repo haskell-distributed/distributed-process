@@ -1,4 +1,6 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+
 import System.Environment
 import Control.Monad
 import Control.Applicative
