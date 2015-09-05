@@ -731,9 +731,9 @@ apiCloseEndPoint transport evs ourEndPoint =
             return closed
           RemoteEndPointValid vst -> do
             sched theirEndPoint $ do
-              tryIO $ sendOn vst [ encodeInt32 CloseSocket
-                                 , encodeInt32 (vst ^. remoteMaxIncoming)
-                                 ]
+              void $ tryIO $ sendOn vst [ encodeInt32 CloseSocket
+                                        , encodeInt32 (vst ^. remoteMaxIncoming)
+                                        ]
               tryCloseSocket (remoteSocket vst)
             return closed
           RemoteEndPointClosing resolved vst -> do
@@ -794,7 +794,7 @@ handleConnectionRequest transport sock = handle handleException $ do
 
         if not isNew
           then do
-            tryIO $ sendMany sock [encodeInt32 ConnectionRequestCrossed]
+            void $ tryIO $ sendMany sock [encodeInt32 ConnectionRequestCrossed]
             tryCloseSocket sock
             return Nothing
           else do
@@ -976,9 +976,9 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
                 removeRemoteEndPoint (ourEndPoint, theirEndPoint)
                 -- Attempt to reply (but don't insist)
                 act <- schedule theirEndPoint $ do
-                  tryIO $ sendOn vst' [ encodeInt32 CloseSocket
-                                      , encodeInt32 (vst ^. remoteMaxIncoming)
-                                      ]
+                  void $ tryIO $ sendOn vst' [ encodeInt32 CloseSocket
+                                             , encodeInt32 (vst ^. remoteMaxIncoming)
+                                             ]
                   tryCloseSocket sock
                 return (RemoteEndPointClosed, Just act)
           RemoteEndPointClosing resolved vst ->  do
