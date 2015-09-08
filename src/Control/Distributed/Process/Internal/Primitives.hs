@@ -176,7 +176,9 @@ import Control.Distributed.Process.Internal.Types
   , MonitorRef(..)
   , SpawnRef(..)
   , ProcessSignal(..)
+  , ProcessMonitorNotification(..)
   , NodeMonitorNotification(..)
+  , PortMonitorNotification(..)
   , monitorCounter
   , spawnCounter
   , SendPort(..)
@@ -917,9 +919,17 @@ unlinkPort sport = do
 unmonitor :: MonitorRef -> Process ()
 unmonitor ref = do
   unmonitorAsync ref
-  receiveWait [ matchIf (\(DidUnmonitor ref') -> ref' == ref)
-                        (\_ -> return ())
-              ]
+  receiveWait [ matchIf isDidUnmonitor ignore ]
+  receiveAllNow [ matchIf isProcessMonitorNotification ignore,
+                  matchIf isNodeMonitorNotification ignore,
+                  matchIf isPortMonitorNotification ignore
+                ]
+  return ()
+    where ignore _ = return ()
+          isDidUnmonitor (DidUnmonitor ref') = ref' == ref
+          isProcessMonitorNotification (ProcessMonitorNotification ref' _ _) = ref' == ref
+          isNodeMonitorNotification (NodeMonitorNotification ref' _ _) = ref' == ref
+          isPortMonitorNotification (PortMonitorNotification ref' _ _) = ref' == ref
 
 --------------------------------------------------------------------------------
 -- Exception handling                                                         --
@@ -1002,6 +1012,25 @@ catchesHandler handlers e = foldr tryHandler (throw e) handlers
 -- | Like 'expect' but with a timeout
 expectTimeout :: forall a. Serializable a => Int -> Process (Maybe a)
 expectTimeout n = receiveTimeout n [match return]
+
+-- | Synonim of 'receiveTimeout' 0.
+--
+-- Immediatelly take a matched message from the message queue.
+receiveNow :: [Match b] -> Process (Maybe b)
+receiveNow = receiveTimeout 0
+
+-- | Immediatelly take all matched messages from the message queue.
+--
+-- All messages (if any) are unpacked from Maybe since an empty list
+-- is equal to 'Nothing' here.
+receiveAllNow :: [Match b] -> Process ([b])
+receiveAllNow ms = do
+    msg <- receiveNow ms
+    case msg of
+      Nothing -> return []
+      Just x -> do
+        xs <- receiveAllNow ms
+        return (x:xs)
 
 -- | Asynchronous version of 'spawn'
 --
