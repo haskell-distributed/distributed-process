@@ -52,11 +52,8 @@ All repositories must use the same git branch structure:
 ### __1. Check to see if your patch is likely to be accepted__
 
 We have a rather full backlog, so your help will be most welcome assisting
-us in clearing that. You can view the exiting open issues on the
-[jira issue tracker](https://cloud-haskell.atlassian.net/issues/?filter=10001).
-
-If you wish to submit a new issue there, you cannot do so without logging in
-creating an account (by providing your email address) and logging in.
+us in clearing that. You can view the exiting open issues on
+[github](https://github.com/haskell-distributed).
 
 It is also helpful to work out which component or sub-system should be
 changed. You may wish to email the maintainers to discuss this first.

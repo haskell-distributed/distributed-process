@@ -38,7 +38,7 @@ completely stable yet. The design of the transport layer may also still change.
 Feedback and suggestions are most welcome. Email [Duncan](mailto:duncan@well-typed.com) or [Edsko](mailto:edsko@well-typed.com) at Well-Typed, find us at #haskell-distributed on
 Freenode, or post on the [Parallel Haskell][2] mailing list.
 
-You may also submit issues on the [JIRA issue tracker][8].
+You may also submit issues on [github][8].
 
 ### Hello World
 
@@ -383,10 +383,9 @@ send to it, we don't allocate any unneeded resources).
 
 [1]: http://www.olcf.ornl.gov/center-projects/common-communication-interface/
 [2]: https://groups.google.com/forum/?fromgroups#!forum/parallel-haskell
-[3]: http://cloud-haskell.atlassian.net
 [4]: /tutorials/2.nt_tutorial.html
 [5]: /wiki/newtransports.html
 [6]: /wiki/newdesign.html
 [7]: /wiki/protocols.html
-[8]: https://cloud-haskell.atlassian.net/issues/?filter=10002
+[8]: https://github.com/haskell-distributed
 [9]: http://lists.freebsd.org/pipermail/freebsd-hackers/2009-March/028006.html "2 uni-directional TCP connection good?"
