@@ -416,8 +416,23 @@ spawnChannelLocal proc = do
 -- Silently dropping messages may not always be the best approach.
 callLocal :: Process a -> Process a
 callLocal proc = Catch.mask $ \release -> do
-    mv    <- liftIO newEmptyMVar :: Process (MVar (Either Catch.SomeException a))
-    child <- spawnLocal $ Catch.try (release proc) >>= liftIO . putMVar mv
-    rs <- liftIO (takeMVar mv) `Catch.onException`
-            (kill child "exception in parent process" >> liftIO (takeMVar mv))
+    mv <- liftIO newEmptyMVar :: Process (MVar (Either Catch.SomeException a))
+    child <- spawnLocal $ Catch.mask_ $
+               Catch.try (release proc) >>= liftIO . putMVar mv
+    ref <- monitor child
+    rs <- liftIO (takeMVar mv)
+          `Catch.onException`
+            (do kill child "exception in parent process"
+                waitFor ref
+            )
     either Catch.throwM return rs
+  where
+    -- TODO: when processes spawned with spawnLocal inherit the masking state of
+    -- the parent, this can be simplified to simply reading the MVar.
+    --
+    -- At the time of this writing, the spawned process is unmasked and can be
+    -- killed before the MVar is filled.
+    waitFor ref = receiveWait
+      [ matchIf (\(ProcessMonitorNotification ref' _ _) -> ref == ref')
+                (\_ -> return ())
+      ]
