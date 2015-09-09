@@ -415,7 +415,21 @@ spawnChannelLocal proc = do
 callLocal :: Process a -> Process a
 callLocal proc = mask $ \release -> do
     mv    <- liftIO newEmptyMVar :: Process (MVar (Either SomeException a))
-    child <- spawnLocal $ try (release proc) >>= liftIO . putMVar mv
-    rs <- liftIO (takeMVar mv) `onException`
-            (kill child "exception in parent process" >> liftIO (takeMVar mv))
+    child <- spawnLocal $ mask_ $ try (release proc) >>= liftIO . putMVar mv
+    ref <- monitor child
+    rs <- liftIO (takeMVar mv)
+          `onException`
+            (do kill child "exception in parent process"
+                waitFor ref
+            )
     either throw return rs
+  where
+    -- TODO: when processes spawned with spawnLocal inherit the masking state of
+    -- the parent, this can be simplified to simply reading the MVar.
+    --
+    -- At the time of this writing, the spawned process is unmasked and can be
+    -- killed before the MVar is filled.
+    waitFor ref = receiveWait
+      [ matchIf (\(ProcessMonitorNotification ref' _ _) -> ref == ref')
+                (\_ -> return ())
+      ]
