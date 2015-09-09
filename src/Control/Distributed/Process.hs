@@ -162,6 +162,7 @@ module Control.Distributed.Process
 import Control.Monad.IO.Class (liftIO)
 import Control.Applicative
 import Control.Monad.Reader (ask)
+import Control.Concurrent (killThread)
 import Control.Concurrent.MVar
   ( MVar
   , newEmptyMVar
@@ -196,6 +197,7 @@ import Control.Distributed.Process.Internal.Types
   , RegisterReply(..)
   , LocalProcess(processNode)
   , Message
+  , localProcessWithId
   )
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Internal.Primitives
@@ -303,6 +305,10 @@ import Control.Distributed.Process.Internal.Primitives
   , reconnectPort
   )
 import Control.Distributed.Process.Node (forkProcess)
+import Control.Distributed.Process.Internal.Types
+  ( processThread
+  , withValidLocalState
+  )
 import Control.Distributed.Process.Internal.Spawn
   ( -- Spawning Processes/Channels
     spawn
@@ -319,6 +325,11 @@ import Prelude
 #else
 import Prelude hiding (catch)
 #endif
+import Control.Distributed.Process.Internal.StrictMVar (readMVar)
+import qualified Control.Exception as Exception (onException)
+import Data.Accessor ((^.))
+import Data.Foldable (forM_)
+
 
 -- INTERNAL NOTES
 --
@@ -416,8 +427,20 @@ spawnChannelLocal proc = do
 -- Silently dropping messages may not always be the best approach.
 callLocal :: Process a -> Process a
 callLocal proc = Catch.mask $ \release -> do
-    mv    <- liftIO newEmptyMVar :: Process (MVar (Either Catch.SomeException a))
+    mv <- liftIO newEmptyMVar :: Process (MVar (Either Catch.SomeException a))
     child <- spawnLocal $ Catch.try (release proc) >>= liftIO . putMVar mv
-    rs <- liftIO (takeMVar mv) `Catch.onException`
-            (kill child "exception in parent process" >> liftIO (takeMVar mv))
-    either Catch.throwM return rs
+    lproc <- ask
+    liftIO $ do
+      rs <- Exception.onException (takeMVar mv) $ Catch.uninterruptibleMask_ $
+            -- Exceptions need to be prevented from interrupting the clean up or
+            -- the original exception which caused entering the handler could be
+            -- forgotten. For instance, this could have a problematic effect
+            -- when the original exception was meant to kill the thread and the
+            -- second exception doesn't (like the exception thrown by
+            -- 'System.Timeout.timeout').
+            do mchildThreadId <- withValidLocalState (processNode lproc) $
+                 \vst -> return $ fmap processThread $
+                           vst ^. localProcessWithId (processLocalId child)
+               forM_ mchildThreadId killThread
+               takeMVar mv
+      either Catch.throwM return rs
