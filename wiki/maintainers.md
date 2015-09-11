@@ -24,10 +24,10 @@ up though.
 
 #### Community
 
-We keep in touch through the [parallel-haskell google group][7], and once you've
+We keep in touch through the [parallel-haskell mailing list][5], and once you've
 joined the group, by posting to the mailing list address: parallel-haskell@googlegroups.com.
 This is a group for **all** things related to concurrent and parallel Haskell. There is
-also a maintainer/developer centric [cloud-haskell-developers google group][9], which is
+also a maintainer/developer centric [cloud-haskell-developers mailing list][6], which is
 more for in-depth questions about contributing to or maintaining Cloud Haskell.
 
 You might also find some of us hanging out at #haskell-distributed on
@@ -40,15 +40,14 @@ will be used to make announcements (of new releases, etc) on a regular basis.
 
 ### Bug/Issue Tracking and Continuous Integration
 
-Our bug tracker is a hosted/on-demand Jira, for which a free open source
-project license was kindly donated by [Atlassian][6]. You can browse all
-issues without logging in, however to report new issues/bugs you will
-need to provide an email address and create an account.
+We report issues for each project in [github][1].
+You can browse all issues without logging in, however to report new issues/bugs
+you will need to provide an email address and create an account.
 
 If you have any difficulties doing so, please post an email to the
-[parallel-haskell mailing list][7] at parallel-haskell@googlegroups.com.
+[parallel-haskell mailing list][5] at parallel-haskell@googlegroups.com.
 
-We currently use [travis-ci][11] for continuous integration. We do however,
+We currently use [travis-ci][7] for continuous integration. We do however,
 have an open source license for Atlassian Bamboo, which we will be migrating
 to over time - this process is quite involved so we don't have a picture of
 the timescales yet.
@@ -112,15 +111,6 @@ message.
 
 Once we migrate to Bamboo, this may change.
 
-#### Changing Jira bugs/issues via commit messages
-
-You can make complex changes to one or more Jira issues with a single commit message.
-As with skipping CI builds, please **do not** put this messy text into the first line
-of your commit messages.
-
-Details of the format/syntax required to do this can be found on
-[this Jira documentation page](https://confluence.atlassian.com/display/AOD/Processing+JIRA+issues+with+commit+messages)
-
 ----
 
 #### Follow the <a href="/wiki/contributing.html">Contributing guidelines</a>
@@ -171,9 +161,8 @@ Since moving to individual git repositories, the tagging scheme is now
 a branch named `release-x.y.z` and push both the newly created tag(s) and the
 branch(es).
 
-Once the release is out, you should go to [JIRA](https://cloud-haskell.atlassian.net)
-and close all the tickets for the release. Jira has a nice 'bulk change' feature
-that makes this very easy.
+Once the release is out, you should go to [github](https://github.com/haskell-distributed)
+and close all the tickets for the release.
 
 After that, it's time to tweet about the release, post to the parallel-haskell
 mailing list, blog etc. Spread the word.
@@ -182,10 +171,6 @@ mailing list, blog etc. Spread the word.
 [2]: https://github.com/haskell-distributed/haskell-distributed.github.com
 [3]: http://hackage.haskell.org
 [4]: http://git-scm.com/book/en/Git-Basics-Tagging
-[5]: https://cloud-haskell.atlassian.net/secure/Dashboard.jspa
-[6]: http://atlassian.com/
-[7]: https://groups.google.com/forum/?fromgroups=#!forum/parallel-haskell
-[8]: /team.html
-[9]: https://groups.google.com/forum/?fromgroups#!forum/cloud-haskell-developers
-[10]: http://en.wikipedia.org/wiki/Greenwich_Mean_Time
-[11]: https://travis-ci.org/
+[5]: https://groups.google.com/forum/?fromgroups=#!forum/parallel-haskell
+[6]: https://groups.google.com/forum/?fromgroups#!forum/cloud-haskell-developers
+[7]: https://travis-ci.org/
