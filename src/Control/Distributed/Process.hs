@@ -417,22 +417,14 @@ spawnChannelLocal proc = do
 callLocal :: Process a -> Process a
 callLocal proc = Catch.mask $ \release -> do
     mv <- liftIO newEmptyMVar :: Process (MVar (Either Catch.SomeException a))
+    (spInit, rpInit) <- newChan -- TODO: Remove when spawnLocal inherits the
+                                -- masking state.
     child <- spawnLocal $ Catch.mask_ $
-               Catch.try (release proc) >>= liftIO . putMVar mv
-    ref <- monitor child
+               Catch.try (sendChan spInit () >> release proc)
+                 >>= liftIO . putMVar mv
     rs <- liftIO (takeMVar mv)
           `Catch.onException`
-            (do kill child "exception in parent process"
-                waitFor ref
-            )
+            do receiveChan rpInit
+               kill child "exception in parent process"
+               liftIO (takeMVar mv)
     either Catch.throwM return rs
-  where
-    -- TODO: when processes spawned with spawnLocal inherit the masking state of
-    -- the parent, this can be simplified to simply reading the MVar.
-    --
-    -- At the time of this writing, the spawned process is unmasked and can be
-    -- killed before the MVar is filled.
-    waitFor ref = receiveWait
-      [ matchIf (\(ProcessMonitorNotification ref' _ _) -> ref == ref')
-                (\_ -> return ())
-      ]
