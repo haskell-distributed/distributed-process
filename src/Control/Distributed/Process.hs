@@ -199,6 +199,7 @@ import Control.Distributed.Process.Internal.Types
   , WhereIsReply(..)
   , RegisterReply(..)
   , LocalProcess(processNode)
+  , runLocalProcess
   , Message
   )
 import Control.Distributed.Process.Serializable (Serializable)
@@ -316,7 +317,7 @@ import Control.Distributed.Process.Internal.Spawn
   , spawnSupervised
   , call
   )
-import Control.Exception (SomeException, throw)
+import Control.Exception (SomeException, throw, uninterruptibleMask_)
 
 -- INTERNAL NOTES
 --
@@ -421,7 +422,15 @@ callLocal proc = mask $ \release -> do
                try (sendChan spInit () >> release proc) >>= liftIO . putMVar mv
     rs <- liftIO (takeMVar mv)
           `onException`
-            do receiveChan rpInit
-               kill child "exception in parent process"
-               liftIO (takeMVar mv)
+            -- Exceptions need to be prevented from interrupting the clean up or
+            -- the original exception which caused entering the handler could be
+            -- forgotten. For instance, this could have a problematic effect
+            -- when the original exception was meant to kill the thread and the
+            -- second exception doesn't (like the exception thrown by
+            -- 'System.Timeout.timeout').
+            do lproc <- ask
+               liftIO $ uninterruptibleMask_ $ runLocalProcess lproc $ do
+                 receiveChan rpInit
+                 kill child "exception in parent process"
+                 liftIO (takeMVar mv)
     either throw return rs
