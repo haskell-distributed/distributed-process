@@ -1,5 +1,5 @@
 name:           distributed-process-execution
-version:        0.1.2
+version:        0.1.2.1
 cabal-version:  >=1.8
 build-type:     Simple
 license:        BSD3
@@ -24,10 +24,6 @@ extra-source-files: ChangeLog
 source-repository head
   type:      git
   location:  https://github.com/haskell-distributed/distributed-process-execution
-
-flag perf
-  description: Build with profiling enabled
-  default: False
 
 library
   build-depends:
