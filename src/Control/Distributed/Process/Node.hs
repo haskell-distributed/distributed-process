@@ -326,16 +326,20 @@ startServiceProcesses node = do
 -- | Force-close a local node, killing all processes on that node.
 closeLocalNode :: LocalNode -> IO ()
 closeLocalNode node = do
-  modifyMVar_ (localState node) $ \st -> case st of
+  -- Kill processes after refilling the mvar. Otherwise, there is potential for
+  -- deadlock as a dying process tries to get the mvar while masking exceptions
+  -- uninterruptibly.
+  join $ modifyMVar (localState node) $ \st -> case st of
     LocalNodeValid vst -> do
-      forM_ (vst ^. localProcesses) $ \lproc ->
-        -- Semantics of 'throwTo' guarantee that target thread will get
-        -- delivered an exception. Therefore, target thread will be killed
-        -- eventually and that's as good as we can do. No need to wait for
-        -- thread to actually finish dying.
-        killThread (processThread lproc)
-      return LocalNodeClosed
-    LocalNodeClosed -> return LocalNodeClosed
+      return ( LocalNodeClosed
+             , forM_ (vst ^. localProcesses) $ \lproc ->
+                 -- Semantics of 'throwTo' guarantee that target thread will get
+                 -- delivered an exception. Therefore, target thread will be
+                 -- killed eventually and that's as good as we can do. No need
+                 -- to wait for thread to actually finish dying.
+                 killThread (processThread lproc)
+             )
+    LocalNodeClosed -> return (LocalNodeClosed, return ())
   -- This call will have the effect of shutting down the NC as well (see
   -- 'createBareLocalNode').
   NT.closeEndPoint (localEndPoint node)
