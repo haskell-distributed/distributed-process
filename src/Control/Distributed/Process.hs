@@ -162,6 +162,7 @@ module Control.Distributed.Process
 import Control.Monad.IO.Class (liftIO)
 import Control.Applicative
 import Control.Monad.Reader (ask)
+import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar
   ( MVar
   , newEmptyMVar
@@ -304,6 +305,12 @@ import Control.Distributed.Process.Internal.Primitives
   , reconnectPort
   )
 import Control.Distributed.Process.Node (forkProcess)
+import Control.Distributed.Process.Internal.Types
+  ( processThread
+  , localState
+  , LocalNodeState(..)
+  , withValidLocalState
+  )
 import Control.Distributed.Process.Internal.Spawn
   ( -- Spawning Processes/Channels
     spawn
@@ -320,6 +327,9 @@ import Prelude
 #else
 import Prelude hiding (catch)
 #endif
+import Control.Distributed.Process.Internal.StrictMVar (readMVar)
+import Control.Exception (throwTo, throwIO)
+import Control.Monad (forM_)
 
 
 -- INTERNAL NOTES
@@ -432,9 +442,43 @@ callLocal proc = Catch.mask $ \release -> do
             -- when the original exception was meant to kill the thread and the
             -- second exception doesn't (like the exception thrown by
             -- 'System.Timeout.timeout').
-            do lproc <- ask
-               liftIO $ Catch.uninterruptibleMask_ $ runLocalProcess lproc $ do
-                 receiveChan rpInit
-                 kill child "exception in parent process"
-                 liftIO (takeMVar mv)
+            --
+            -- Using 'uninterruptibleMask_' would be problematic as there is no
+            -- way to be sure the node isn't closing when the cleanup executes.
+            -- Successfully running the cleanup is necessary to ensure
+            -- termination. If exceptions are masked uninterruptibly,
+            -- 'receiveChan' might block indefinitely and 'kill' might have no
+            -- effect.
+            --
+            do (exs0, _) <- collectExceptions [] $
+                 whenNotClosed $ receiveChan rpInit
+               (exs1, _) <- collectExceptions exs0 $
+                 whenNotClosed $ kill child "callLocal was interrupted"
+               (exs, mr) <- collectExceptions exs1 $
+                 whenNotClosed $ liftIO (takeMVar mv)
+               -- Forward exceptions asynchronously.
+               lproc <- ask
+               liftIO $ forkIO $ forM_ (reverse exs) $
+                 throwTo (processThread lproc)
+               here <- getSelfNode
+               liftIO $
+                 maybe (throwIO $ userError $ "Node closed " ++ show here)
+                       return mr
     either Catch.throwM return rs
+  where
+    -- Retries a given action until it succeeds.
+    collectExceptions :: [Catch.SomeException]
+                      -> Process a
+                      -> Process ([Catch.SomeException], a)
+    collectExceptions exs p =
+      Catch.try p >>=
+        either (\e -> collectExceptions (e : exs) p) (return . (,) exs)
+
+    -- Runs the given closure if the node is not closed.
+    whenNotClosed :: Process a -> Process (Maybe a)
+    whenNotClosed p = do
+      lproc <- ask
+      st <- liftIO $ readMVar (localState $ processNode lproc)
+      case st of
+        LocalNodeValid _ -> fmap Just p
+        LocalNodeClosed  -> return Nothing
