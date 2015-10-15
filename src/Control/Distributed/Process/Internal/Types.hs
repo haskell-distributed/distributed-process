@@ -23,6 +23,7 @@ module Control.Distributed.Process.Internal.Types
   , LocalNode(..)
   , LocalNodeState(..)
   , ValidLocalNodeState(..)
+  , NodeClosedException(..)
   , withValidLocalState
   , modifyValidLocalState
   , modifyValidLocalState_
@@ -284,6 +285,12 @@ data ValidLocalNodeState = ValidLocalNodeState
                                (NT.Connection, ImplicitReconnect))
   }
 
+-- | Thrown by some primitives when they notice the node has been closed.
+data NodeClosedException = NodeClosedException NodeId
+  deriving Show
+
+instance Exception NodeClosedException
+
 -- | Wrapper around 'withMVar' that checks that the local node is still in
 -- a valid state.
 withValidLocalState :: LocalNode
@@ -291,7 +298,7 @@ withValidLocalState :: LocalNode
                     -> IO r
 withValidLocalState node f = withMVar (localState node) $ \st -> case st of
     LocalNodeValid vst -> f vst
-    LocalNodeClosed -> throwIO $ userError $ "Node closed " ++ show (localNodeId node)
+    LocalNodeClosed -> throwIO $ NodeClosedException (localNodeId node)
 
 -- | Wrapper around 'modifyMVar' that checks that the local node is still in
 -- a valid state.

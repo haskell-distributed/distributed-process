@@ -66,7 +66,12 @@ import Control.Exception
   , throwTo
   , uninterruptibleMask_
   )
-import qualified Control.Exception as Exception (Handler(..), catches, finally)
+import qualified Control.Exception as Exception
+  ( Handler(..)
+  , catch
+  , catches
+  , finally
+  )
 import Control.Concurrent (forkIO, forkIOWithUnmask, killThread, myThreadId)
 import Control.Distributed.Process.Internal.StrictMVar
   ( newMVar
@@ -135,6 +140,7 @@ import Control.Distributed.Process.Internal.Types
   , localConnections
   , forever'
   , MonitorRef(..)
+  , NodeClosedException(..)
   , ProcessMonitorNotification(..)
   , NodeMonitorNotification(..)
   , PortMonitorNotification(..)
@@ -428,7 +434,8 @@ forkProcess node proc =
                  $ vst
                  , pid
                  )
-    startProcess LocalNodeClosed = throwIO $ userError $ "Node closed " ++ show (localNodeId node)
+    startProcess LocalNodeClosed =
+      throwIO $ NodeClosedException $ localNodeId node
 
     cleanupProcess :: ProcessId
                    -> ValidLocalNodeState
@@ -487,6 +494,7 @@ incomingFrom addr = aux >>> DAC.mapDefault Set.empty addr
 
 handleIncomingMessages :: LocalNode -> IO ()
 handleIncomingMessages node = go initConnectionState
+   `Exception.catch` \(NodeClosedException _) -> return ()
   where
     go :: ConnectionState -> IO ()
     go !st = do
@@ -609,8 +617,9 @@ handleIncomingMessages node = go initConnectionState
 --------------------------------------------------------------------------------
 
 runNodeController :: LocalNode -> IO ()
-runNodeController =
-  runReaderT (evalStateT (unNC nodeController) initNCState)
+runNodeController node =
+  runReaderT (evalStateT (unNC nodeController) initNCState) node
+   `Exception.catch` \(NodeClosedException _) -> return ()
 
 --------------------------------------------------------------------------------
 -- Internal data types                                                        --
