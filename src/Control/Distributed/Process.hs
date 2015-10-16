@@ -166,7 +166,7 @@ import Prelude hiding (catch)
 import Control.Monad.IO.Class (liftIO)
 import Control.Applicative ((<$>))
 import Control.Monad.Reader (ask)
-import Control.Concurrent (forkIO)
+import Control.Concurrent (killThread)
 import Control.Concurrent.MVar
   ( MVar
   , newEmptyMVar
@@ -200,8 +200,8 @@ import Control.Distributed.Process.Internal.Types
   , WhereIsReply(..)
   , RegisterReply(..)
   , LocalProcess(processNode)
-  , runLocalProcess
   , Message
+  , localProcessWithId
   )
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Internal.Primitives
@@ -311,8 +311,6 @@ import Control.Distributed.Process.Internal.Primitives
 import Control.Distributed.Process.Node (forkProcess)
 import Control.Distributed.Process.Internal.Types
   ( processThread
-  , localState
-  , LocalNodeState(..)
   , withValidLocalState
   )
 import Control.Distributed.Process.Internal.Spawn
@@ -324,9 +322,10 @@ import Control.Distributed.Process.Internal.Spawn
   , spawnSupervised
   , call
   )
-import Control.Distributed.Process.Internal.StrictMVar (readMVar)
-import Control.Exception (SomeException, throw, throwTo, throwIO)
+import Control.Exception (SomeException, throwIO, uninterruptibleMask_)
+import qualified Control.Exception as Exception (onException)
 import Control.Monad (forM_)
+import Data.Accessor ((^.))
 
 
 -- INTERNAL NOTES
@@ -426,54 +425,19 @@ spawnChannelLocal proc = do
 callLocal :: Process a -> Process a
 callLocal proc = mask $ \release -> do
     mv    <- liftIO newEmptyMVar :: Process (MVar (Either SomeException a))
-    (spInit, rpInit) <- newChan -- TODO: Remove when spawnLocal inherits the
-                                -- masking state.
-    child <- spawnLocal $ mask_ $
-               try (sendChan spInit () >> release proc) >>= liftIO . putMVar mv
-    rs <- liftIO (takeMVar mv)
-          `onException`
+    child <- spawnLocal $ try (release proc) >>= liftIO . putMVar mv
+    lproc <- ask
+    liftIO $ do
+      rs <- Exception.onException (takeMVar mv) $ uninterruptibleMask_ $
             -- Exceptions need to be prevented from interrupting the clean up or
             -- the original exception which caused entering the handler could be
             -- forgotten. For instance, this could have a problematic effect
             -- when the original exception was meant to kill the thread and the
             -- second exception doesn't (like the exception thrown by
             -- 'System.Timeout.timeout').
-            --
-            -- Using 'uninterruptibleMask_' would be problematic as there is no
-            -- way to be sure the node isn't closing when the cleanup executes.
-            -- Successfully running the cleanup is necessary to ensure
-            -- termination. If exceptions are masked uninterruptibly,
-            -- 'receiveChan' might block indefinitely and 'kill' might have no
-            -- effect.
-            --
-            do (exs0, _) <- collectExceptions [] $
-                 whenNotClosed $ receiveChan rpInit
-               (exs1, _) <- collectExceptions exs0 $
-                 whenNotClosed $ kill child "callLocal was interrupted"
-               (exs, mr) <- collectExceptions exs1 $
-                 whenNotClosed $ liftIO (takeMVar mv)
-               -- Forward exceptions asynchronously.
-               lproc <- ask
-               liftIO $ forkIO $ forM_ (reverse exs) $
-                 throwTo (processThread lproc)
-               here <- getSelfNode
-               liftIO $
-                 maybe (throwIO $ userError $ "Node closed " ++ show here)
-                       return mr
-    either throw return rs
-  where
-    -- Retries a given action until it succeeds.
-    collectExceptions :: [SomeException]
-                      -> Process a
-                      -> Process ([SomeException], a)
-    collectExceptions exs p =
-      try p >>= either (\e -> collectExceptions (e : exs) p) (return . (,) exs)
-
-    -- Runs the given closure if the node is not closed.
-    whenNotClosed :: Process a -> Process (Maybe a)
-    whenNotClosed p = do
-      lproc <- ask
-      st <- liftIO $ readMVar (localState $ processNode lproc)
-      case st of
-        LocalNodeValid _ -> fmap Just p
-        LocalNodeClosed  -> return Nothing
+            do mchildThreadId <- withValidLocalState (processNode lproc) $
+                 \vst -> return $ fmap processThread $
+                           vst ^. localProcessWithId (processLocalId child)
+               forM_ mchildThreadId killThread
+               takeMVar mv
+      either throwIO return rs
