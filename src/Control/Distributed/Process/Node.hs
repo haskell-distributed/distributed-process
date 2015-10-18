@@ -29,6 +29,7 @@ import System.IO (fixIO, hPutStrLn, stderr)
 import System.Mem.Weak (Weak, deRefWeak)
 import qualified Data.ByteString.Lazy as BSL (fromChunks)
 import Data.Binary (decode)
+import Data.Function (fix)
 import Data.Map (Map)
 import qualified Data.Map as Map
   ( empty
@@ -74,8 +75,16 @@ import qualified Control.Exception as Exception
   , catch
   , catches
   , finally
+  , bracket
+  , mask_
   )
-import Control.Concurrent (forkIO, forkIOWithUnmask, killThread, myThreadId)
+import Control.Concurrent
+  ( forkIO
+  , forkIOWithUnmask
+  , killThread
+  , myThreadId
+  , ThreadId
+  )
 import Control.Distributed.Process.Internal.StrictMVar
   ( newMVar
   , withMVar
@@ -93,7 +102,11 @@ import Control.Distributed.Process.Internal.ThreadPool
   , ThreadPool
   )
 import Control.Concurrent.Chan (newChan, writeChan, readChan)
-import qualified Control.Concurrent.MVar as MVar (newEmptyMVar, takeMVar)
+import qualified Control.Concurrent.MVar as MVar
+  ( newEmptyMVar
+  , takeMVar
+  , putMVar
+  )
 import Control.Concurrent.STM
   ( atomically
   )
@@ -230,6 +243,7 @@ import qualified Control.Distributed.Process.Internal.StrictContainerAccessors a
 import GHC.IO (IO(..), unsafeUnmask)
 import GHC.Base ( maskAsyncExceptions# )
 
+import System.Timeout
 import Unsafe.Coerce
 
 -- Remove these when this is fixed:
@@ -521,24 +535,78 @@ incomingFrom addr = aux >>> DAC.mapDefault Set.empty addr
   where
     aux = accessor _incomingFrom (\fr st -> st { _incomingFrom = fr })
 
+-- | And 'EventMonitor' monitors the handling of events reporting when an event
+-- is not handled promptly. It monitors events which are handled in sequence.
+data EventMonitor a = EventMonitor
+    { -- | Notifies that an event was received. Takes the event as argument.
+      eventMonitorGotEvent :: a -> IO ()
+      -- | Notifies that the last received event was handled.
+      --
+      -- Might be called even when there is no event, in which case it will have
+      -- no effect.
+    , eventMonitorHandledEvent :: IO ()
+      -- | Stops the event monitor.
+    , eventMonitorStop :: IO ()
+    }
+
+-- | `eventMon <- monitorThread t action`
+--
+-- Creates an event monitor that executes `action` when an event hasn't been
+-- handled withing `t` microseconds. `action` takes as argument the event that
+-- wasn't handled timely.
+--
+monitorThread :: Int -> (a -> IO ()) -> IO (EventMonitor a)
+monitorThread tmicrosecs action = do
+    mv <- MVar.newEmptyMVar
+    tid <- forkIO $ forever' $ do
+      -- loop until some event is reported
+      ev <- fix $ \loop -> MVar.takeMVar mv >>= maybe loop return
+      -- wait until the event is handled
+      Exception.mask_ (timeout tmicrosecs $ MVar.takeMVar mv) >>=
+        maybe (do action ev -- report the unhandled event
+                  -- wait for the slow event handler
+                  void $ MVar.takeMVar mv
+              )
+              (const $ return ())
+    return EventMonitor
+      { eventMonitorGotEvent     = MVar.putMVar mv . Just
+      , eventMonitorHandledEvent = MVar.putMVar mv Nothing
+      , eventMonitorStop         = killThread tid
+      }
+
 handleIncomingMessages :: LocalNode -> IO ()
-handleIncomingMessages node = go initConnectionState
-   `Exception.catch` \(NodeClosedException _) -> return ()
+handleIncomingMessages node =
+    Exception.bracket
+      (monitorThread 1000000 $ \ev ->
+         hPutStrLn stderr $
+           "handleIncomingMessages blocked" ++ show (localNodeId node) ++
+           " on " ++ show ev
+      )
+      eventMonitorStop $ \eventMon ->
+      (go eventMon initConnectionState
+        `Exception.catch` \(NodeClosedException _) -> return ()
+       ) `Exception.catch` \e -> do
+         hPutStrLn stderr $
+           "handleIncomingMessages failed: " ++
+           show (localNodeId node, e :: SomeException)
+         throwIO e
   where
-    go :: ConnectionState -> IO ()
-    go !st = do
+    go :: EventMonitor NT.Event -> ConnectionState -> IO ()
+    go eventMon !st = do
+      eventMonitorHandledEvent eventMon
       event <- NT.receive endpoint
+      eventMonitorGotEvent eventMon event
       case event of
         NT.ConnectionOpened cid rel theirAddr ->
           if rel == NT.ReliableOrdered
             then
               trace node (MxConnected cid theirAddr)
-              >> go (
+              >> go eventMon (
                       (incomingAt cid ^= Just (theirAddr, Uninit))
                     . (incomingFrom theirAddr ^: Set.insert cid)
                     $ st
                     )
-            else invalidRequest cid st
+            else invalidRequest eventMon cid st
         NT.Received cid payload ->
           case st ^. incomingAt cid of
             Just (_, ToProc pid weakQueue) -> do
@@ -549,7 +617,7 @@ handleIncomingMessages node = go initConnectionState
                 let msg = payloadToMessage payload
                 enqueue queue msg -- 'enqueue' is strict
                 trace node (MxReceived pid msg)
-              go st
+              go eventMon st
             Just (_, ToChan (TypedChannel chan')) -> do
               mChan <- deRefWeak chan'
               -- If mChan is Nothing, the process has given up the read end of
@@ -557,11 +625,11 @@ handleIncomingMessages node = go initConnectionState
               forM_ mChan $ \chan -> atomically $
                 -- We make sure the message is fully decoded when it is enqueued
                 writeTQueue chan $! decode (BSL.fromChunks payload)
-              go st
+              go eventMon st
             Just (_, ToNode) -> do
               let ctrlMsg = decode . BSL.fromChunks $ payload
               writeChan ctrlChan $! ctrlMsg
-              go st
+              go eventMon st
             Just (src, Uninit) ->
               case decode (BSL.fromChunks payload) of
                 ProcessIdentifier pid -> do
@@ -569,9 +637,9 @@ handleIncomingMessages node = go initConnectionState
                   mProc <- withValidLocalState node $ return . (^. localProcessWithId lpid)
                   case mProc of
                     Just proc ->
-                      go (incomingAt cid ^= Just (src, ToProc pid (processWeakQ proc)) $ st)
+                      go eventMon (incomingAt cid ^= Just (src, ToProc pid (processWeakQ proc)) $ st)
                     Nothing ->
-                      invalidRequest cid st
+                      invalidRequest eventMon cid st
                 SendPortIdentifier chId -> do
                   let lcid = sendPortLocalId chId
                       lpid = processLocalId (sendPortProcessId chId)
@@ -581,24 +649,25 @@ handleIncomingMessages node = go initConnectionState
                       mChannel <- withMVar (processState proc) $ return . (^. typedChannelWithId lcid)
                       case mChannel of
                         Just channel ->
-                          go (incomingAt cid ^= Just (src, ToChan channel) $ st)
+                          go eventMon
+                             (incomingAt cid ^= Just (src, ToChan channel) $ st)
                         Nothing ->
-                          invalidRequest cid st
+                          invalidRequest eventMon cid st
                     Nothing ->
-                      invalidRequest cid st
+                      invalidRequest eventMon cid st
                 NodeIdentifier nid ->
                   if nid == localNodeId node
-                    then go (incomingAt cid ^= Just (src, ToNode) $ st)
-                    else invalidRequest cid st
+                    then go eventMon (incomingAt cid ^= Just (src, ToNode) $ st)
+                    else invalidRequest eventMon cid st
             Nothing ->
-              invalidRequest cid st
+              invalidRequest eventMon cid st
         NT.ConnectionClosed cid ->
           case st ^. incomingAt cid of
             Nothing ->
-              invalidRequest cid st
+              invalidRequest eventMon cid st
             Just (src, _) -> do
               trace node (MxDisconnected cid src)
-              go ( (incomingAt cid ^= Nothing)
+              go eventMon ( (incomingAt cid ^= Nothing)
                  . (incomingFrom src ^: Set.delete cid)
                  $ st
                  )
@@ -613,7 +682,7 @@ handleIncomingMessages node = go initConnectionState
           liftIO $ lookupWorker (localSendPool node) (NodeId theirAddr)
                      >>= maybe (return ()) killThread
           closeImplicitReconnections node nid
-          go ( (incomingFrom theirAddr ^= Set.empty)
+          go eventMon ( (incomingFrom theirAddr ^= Set.empty)
              . (incoming ^: Map.filterWithKey (const . notLost))
              $ st
              )
@@ -628,15 +697,17 @@ handleIncomingMessages node = go initConnectionState
           -- and we just give up
           fail "Cloud Haskell fatal error: received unexpected multicast"
 
-    invalidRequest :: NT.ConnectionId -> ConnectionState -> IO ()
-    invalidRequest cid st = do
+    invalidRequest :: EventMonitor NT.Event
+                   -> NT.ConnectionId
+                   -> ConnectionState -> IO ()
+    invalidRequest eventMon cid st = do
       -- TODO: We should treat this as a fatal error on the part of the remote
       -- node. That is, we should report the remote node as having died, and we
       -- should close incoming connections (this requires a Transport layer
       -- extension).
       traceEventFmtIO node "" [(TraceStr " [network] invalid request: "),
                                (Trace cid)]
-      go ( incomingAt cid ^= Nothing
+      go eventMon ( incomingAt cid ^= Nothing
          $ st
          )
 
@@ -648,9 +719,21 @@ handleIncomingMessages node = go initConnectionState
 --------------------------------------------------------------------------------
 
 runNodeController :: LocalNode -> IO ()
-runNodeController node =
-  runReaderT (evalStateT (unNC nodeController) initNCState) node
-   `Exception.catch` \(NodeClosedException _) -> return ()
+runNodeController node = do
+    Exception.bracket
+      (monitorThread 1000000 $ \ev ->
+         hPutStrLn stderr $
+           "nodeController blocked" ++ show (localNodeId node) ++
+           " on " ++ show ev
+      )
+      eventMonitorStop $ \eventMon ->
+      (runReaderT (evalStateT (unNC (nodeController eventMon)) initNCState) node
+         `Exception.catch` \(NodeClosedException _) -> return ()
+       ) `Exception.catch` \e -> do
+         hPutStrLn stderr $
+           "nodeController failed: " ++
+           show (localNodeId node, e :: SomeException)
+         throwIO e
 
 --------------------------------------------------------------------------------
 -- Internal data types                                                        --
@@ -757,11 +840,13 @@ withLocalTracer node act = act (localEventBus node)
 --------------------------------------------------------------------------------
 
 -- [Unified: Table 7]
-nodeController :: NC ()
-nodeController = do
+nodeController :: EventMonitor NCMsg -> NC ()
+nodeController eventMon = do
   node <- ask
   forever' $ do
+    liftIO $ eventMonitorHandledEvent eventMon
     msg  <- liftIO $ readChan (localCtrlChan node)
+    liftIO $ eventMonitorGotEvent eventMon msg
 
     -- [Unified: Table 7, rule nc_forward]
     case destNid (ctrlMsgSignal msg) of
