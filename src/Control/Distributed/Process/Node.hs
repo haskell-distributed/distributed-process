@@ -53,7 +53,7 @@ import Data.Maybe (isJust, fromJust, isNothing, catMaybes)
 import Data.Typeable (Typeable)
 import Control.Category ((>>>))
 import Control.Applicative (Applicative, (<$>))
-import Control.Monad (void, when)
+import Control.Monad (void, when, join)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.State.Strict (MonadState, StateT, evalStateT, gets)
 import qualified Control.Monad.State.Strict as StateT (get, put)
@@ -78,6 +78,7 @@ import Control.Distributed.Process.Internal.StrictMVar
   , withMVar
   , modifyMVarMasked
   , modifyMVar_
+  , modifyMVar
   , newEmptyMVar
   , putMVar
   , takeMVar
