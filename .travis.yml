@@ -23,10 +23,10 @@ before_install:
   - sed -i 's/^jobs:/-- jobs:/' $HOME/.cabal/config
   - cabal sandbox init
   - cabal sandbox add-source .
-  - cabal sandbox add-source distributed-process-tests
+  - cabal sandbox add-source distributed-process-tests/
 
 install:
-  - cabal install --only-dependencies --jobs=2
+  - cabal install --only-dependencies distributed-process-tests/
 
 script:
-  - cabal install --run-tests
+  - cabal install --run-tests distributed-process-tests/
