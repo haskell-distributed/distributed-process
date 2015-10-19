@@ -13,8 +13,6 @@ matrix:
     - env: CABALVER=1.22 GHCVER=7.10.2
       addons: {apt: {packages: [cabal-install-1.22,ghc-7.10.2],sources: [hvr-ghc]}}
 
-addons: {apt: {packages: [binutils-dev]}}
-
 before_install:
   - export PATH=/opt/ghc/$GHCVER/bin:/opt/cabal/$CABALVER/bin:~/.cabal/bin:$PATH
   - ghc --version
