@@ -18,6 +18,9 @@ before_install:
   - ghc --version
   - cabal --version
   - cabal update
+  # workaround for https://ghc.haskell.org/trac/ghc/ticket/9221
+  # taken from https://github.com/hvr/multi-ghc-travis/blob/0fa68f78c2b1b059f904c9abc85510a3bb4f57e2/README.md
+  - sed -i 's/^jobs:/-- jobs:/' $HOME/.cabal/config
   - cabal sandbox init
   - for i in `cat REPOS`; do git clone http://github.com/haskell-distributed/$i; done
   - for i in `cat REPOS`; do cabal sandbox add-source $i; done
