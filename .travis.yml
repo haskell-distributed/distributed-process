@@ -22,12 +22,11 @@ before_install:
   # taken from https://github.com/hvr/multi-ghc-travis/blob/0fa68f78c2b1b059f904c9abc85510a3bb4f57e2/README.md
   - sed -i 's/^jobs:/-- jobs:/' $HOME/.cabal/config
   - cabal sandbox init
-  - for i in `cat REPOS`; do git clone http://github.com/haskell-distributed/$i; done
-  - for i in `cat REPOS`; do cabal sandbox add-source $i; done
+  - cabal sandbox add-source .
+  - cabal sandbox add-source distributed-process-tests
 
 install:
   - cabal install --only-dependencies --jobs=2
 
 script:
-  - cabal configure
-  - cabal build --jobs=2
+  - cabal install --run-tests
