@@ -1,0 +1,9 @@
+resolver: nightly-2015-10-09
+packages:
+- '.'
+- distributed-process-tests/
+extra-deps:
+- distributed-static-0.3.2.0
+- network-transport-inmemory-0.5.0
+- rank1dynamic-0.3.1.0
+- rematch-0.2.0.0
