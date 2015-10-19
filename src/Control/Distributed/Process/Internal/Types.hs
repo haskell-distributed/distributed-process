@@ -287,7 +287,7 @@ data ValidLocalNodeState = ValidLocalNodeState
 
 -- | Thrown by some primitives when they notice the node has been closed.
 data NodeClosedException = NodeClosedException NodeId
-  deriving Show
+  deriving (Show, Typeable)
 
 instance Exception NodeClosedException
 
