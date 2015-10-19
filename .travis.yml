@@ -1,24 +1,30 @@
-language: haskell
+language: c
 
-ghc:
- - "7.10"
- - "7.8"
- - "7.6"
- - "7.4"
+sudo: false
+
+matrix:
+  include:
+    - env: CABALVER=1.22 GHCVER=7.4.1
+      addons: {apt: {packages: [cabal-install-1.22,ghc-7.4.1], sources: [hvr-ghc]}}
+    - env: CABALVER=1.22 GHCVER=7.6.3
+      addons: {apt: {packages: [cabal-install-1.22,ghc-7.6.3], sources: [hvr-ghc]}}
+    - env: CABALVER=1.22 GHCVER=7.8.4
+      addons: {apt: {packages: [cabal-install-1.22,ghc-7.8.4], sources: [hvr-ghc]}}
+    - env: CABALVER=1.22 GHCVER=7.10.2
+      addons: {apt: {packages: [cabal-install-1.22,ghc-7.10.2],sources: [hvr-ghc]}}
+
+addons: {apt: {packages: [binutils-dev]}}
 
 before_install:
-  - cabal update
-  - cabal install cabal-install
-  - export PATH=~/.cabal/bin:$PATH
+  - export PATH=/opt/ghc/$GHCVER/bin:/opt/cabal/$CABALVER/bin:~/.cabal/bin:$PATH
+  - ghc --version
   - cabal --version
+  - cabal update
   - cabal sandbox init
   - for i in `cat REPOS`; do git clone http://github.com/haskell-distributed/$i; done
   - for i in `cat REPOS`; do cabal sandbox add-source $i; done
-  - sudo apt-get update -qq
-  - sudo apt-get install -qq binutils-dev
 
 install:
-  # Don't run tests for dependencies.
   - cabal install --only-dependencies
 
 script:
