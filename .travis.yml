@@ -26,8 +26,8 @@ before_install:
   - for i in `cat REPOS`; do cabal sandbox add-source $i; done
 
 install:
-  - cabal install --only-dependencies
+  - cabal install --only-dependencies --jobs=2
 
 script:
   - cabal configure
-  - cabal build
+  - cabal build --jobs=2
