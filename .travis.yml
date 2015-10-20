@@ -21,12 +21,18 @@ before_install:
   # workaround for https://ghc.haskell.org/trac/ghc/ticket/9221
   # taken from https://github.com/hvr/multi-ghc-travis/blob/0fa68f78c2b1b059f904c9abc85510a3bb4f57e2/README.md
   - sed -i 's/^jobs:/-- jobs:/' $HOME/.cabal/config
-  - cabal sandbox init
-  - cabal sandbox add-source .
-  - cabal sandbox add-source distributed-process-tests/
 
 install:
-  - cabal install --only-dependencies distributed-process-tests/
+  - cabal install --jobs=2 --enable-tests --only-dependencies . distributed-process-tests/
 
 script:
-  - cabal install --run-tests distributed-process-tests/
+  - cabal install --jobs=2
+  - cd distributed-process-tests/
+  - cabal configure --enable-tests
+  - cabal build --jobs=2
+  # skip intermittent tests Reconnect and SpawnReconnect
+  - dist/build/TestCHInMemory/TestCHInMemory --plain -t '!Flaky'
+  - dist/build/TestClosure/TestClosure --plain -t '!SpawnReconnect'
+  - dist/build/TestStats/TestStats --plain
+  - dist/build/TestMx/TestMx --plain
+  - dist/build/TestTracing/TestTracing --plain

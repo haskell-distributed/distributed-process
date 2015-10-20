@@ -1513,9 +1513,7 @@ tests testtrans = return [
       , testCase "Timeout0"            (testTimeout0            testtrans)
       , testCase "SendToTerminated"    (testSendToTerminated    testtrans)
       , testCase "TypedChannnels"      (testTypedChannels       testtrans)
-      , testCase "MergeChannels"       (testMergeChannels       testtrans)
       , testCase "Terminate"           (testTerminate           testtrans)
-      , testCase "Registry"            (testRegistry            testtrans)
       , testCase "RegistryRemoteProcess" (testRegistryRemoteProcess      testtrans)
       , testCase "RemoteRegistry"      (testRemoteRegistry      testtrans)
       , testCase "RemoteRegistryRemoteProcess" (testRemoteRegistryRemoteProcess      testtrans)
@@ -1556,8 +1554,7 @@ tests testtrans = return [
       -- The "missing" combinations in the list below don't make much sense, as
       -- we cannot guarantee that the monitor reply or link exception will not
       -- happen before the unmonitor or unlink
-      testCase "MonitorUnreachable"           (testMonitorUnreachable         testtrans True  False)
-    , testCase "MonitorNormalTermination"     (testMonitorNormalTermination   testtrans True  False)
+      testCase "MonitorNormalTermination"     (testMonitorNormalTermination   testtrans True  False)
     , testCase "MonitorAbnormalTermination"   (testMonitorAbnormalTermination testtrans True  False)
     , testCase "MonitorLocalDeadProcess"      (testMonitorLocalDeadProcess    testtrans True  False)
     , testCase "MonitorRemoteDeadProcess"     (testMonitorRemoteDeadProcess   testtrans True  False)
@@ -1579,7 +1576,14 @@ tests testtrans = return [
     , testCase "MonitorLiveNode"              (testMonitorLiveNode            testtrans)
     , testCase "MonitorChannel"               (testMonitorChannel             testtrans)
       -- Reconnect
-    , testCase "Reconnect"                    (testReconnect                  testtrans)
+    ]
+
+      -- Tests that fail occasionally and should be revised
+    , testGroup "Flaky" [
+      testCase "Reconnect"          (testReconnect           testtrans)
+    , testCase "Registry"           (testRegistry            testtrans)
+    , testCase "MergeChannels"      (testMergeChannels       testtrans)
+    , testCase "MonitorUnreachable" (testMonitorUnreachable testtrans True False)
     ]
   ]
 
