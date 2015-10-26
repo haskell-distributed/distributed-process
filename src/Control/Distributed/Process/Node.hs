@@ -205,11 +205,10 @@ import Control.Distributed.Process.Internal.Messaging
   )
 import Control.Distributed.Process.Internal.Primitives
   ( register
-  , finally
   , receiveWait
   , match
   , sendChan
-  , catch
+  , try
   , unwrapMessage
   )
 import Control.Distributed.Process.Internal.Types (SendPort, Tracer(..))
@@ -355,11 +354,10 @@ closeLocalNode node = do
 runProcess :: LocalNode -> Process () -> IO ()
 runProcess node proc = do
   done <- newEmptyMVar
-  tid <- myThreadId
-  void $ forkProcess node $ do
-    catch (proc `finally` liftIO (putMVar done ()))
-          (\(ex :: SomeException) -> liftIO $ throwTo tid ex)
-  takeMVar done
+  -- TODO; When forkProcess inherits the masking state, protect the forked
+  -- thread against async exceptions that could occur before 'try' is evaluated.
+  void $ forkProcess node $ try proc >>= liftIO . putMVar done
+  takeMVar done >>= either (throwIO :: SomeException -> IO a) return
 
 -- | Spawn a new process on a local node
 forkProcess :: LocalNode -> Process () -> IO ProcessId
