@@ -359,9 +359,11 @@ newtype Process a = Process {
 instance MonadBase IO Process where
   liftBase = liftIO
 
+newtype StMProcess a = StMProcess { unStMProcess :: StM (ReaderT LocalProcess IO) a }
+
+
 instance MonadBaseControl IO Process where
-  newtype StM Process a =
-    StMProcess { unStMProcess :: StM (ReaderT LocalProcess IO) a }
+  type StM Process a = StMProcess a
 
   liftBaseWith f = Process $ liftBaseWith $ \run ->
       f $ fmap StMProcess . run . unProcess
