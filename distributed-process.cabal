@@ -57,7 +57,7 @@ Library
                      syb >= 0.3 && < 0.7,
                      exceptions >= 0.5,
                      transformers-base >= 0.3 && < 0.5,
-                     monad-control >= 0.3 && < 0.4
+                     monad-control >= 0.4
   Exposed-modules:   Control.Distributed.Process,
                      Control.Distributed.Process.Closure,
                      Control.Distributed.Process.Debug,
