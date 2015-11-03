@@ -1,3 +1,5 @@
+0.5.1
+* Fixed bug in cleanup procedure.
 0.5 
 * Complete reimplementation based on STM primitives.
 * Rename Network.Transport.Chan to Network.Transport.InMemory.
