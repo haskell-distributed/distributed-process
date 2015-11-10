@@ -137,9 +137,8 @@ import System.Timeout (timeout)
 import Control.Monad (when)
 import Control.Monad.Reader (ask)
 import Control.Monad.IO.Class (liftIO)
+import Control.Monad.Catch hiding (Handler, catches)
 import Control.Applicative ((<$>))
-import Control.Exception (Exception(..), throw, throwIO, SomeException)
-import qualified Control.Exception as Ex (catch, mask, mask_, try)
 import Control.Distributed.Process.Internal.StrictMVar
   ( StrictMVar
   , modifyMVar
@@ -699,7 +698,7 @@ instance Exception ProcessTerminationException
 
 -- | Terminate immediately (throws a ProcessTerminationException)
 terminate :: Process a
-terminate = liftIO $ throwIO ProcessTerminationException
+terminate = throwM ProcessTerminationException
 
 -- [Issue #110]
 -- | Die immediately - throws a 'ProcessExitException' with the given @reason@.
@@ -709,7 +708,7 @@ die reason = do
 -- could be decoded by a handler passed to 'catchExit', re-thrown or even
 -- passed to another process via the tracing mechanism.
   pid <- getSelfPid
-  liftIO $ throwIO (ProcessExitException pid (createMessage reason))
+  throwM (ProcessExitException pid (createMessage reason))
 
 -- | Forceful request to kill a process. Where 'exit' provides an exception
 -- that can be caught and handled, 'kill' throws an unexposed exception type
@@ -747,7 +746,7 @@ catchExit act exitHandler = catch act handleExit
     handleExit ex@(ProcessExitException from msg) =
         if messageFingerprint msg == fingerprint (undefined :: a)
           then exitHandler from decoded
-          else liftIO $ throwIO ex
+          else throwM ex
      where
        decoded :: a
        -- Make sure the value is fully decoded so that we don't hang to
@@ -771,7 +770,7 @@ catchesExit act handlers = catch act ((flip handleExit) handlers)
     handleExit :: ProcessExitException
                -> [(ProcessId -> Message -> Process (Maybe b))]
                -> Process b
-    handleExit ex [] = liftIO $ throwIO ex
+    handleExit ex [] = throwM ex
     handleExit ex@(ProcessExitException from msg) (h:hs) = do
       r <- h from msg
       case r of
@@ -934,71 +933,19 @@ unmonitor ref = do
 -- Exception handling                                                         --
 --------------------------------------------------------------------------------
 
--- | Lift 'Control.Exception.catch'
-catch :: Exception e => Process a -> (e -> Process a) -> Process a
-catch p h = do
-  lproc <- ask
-  liftIO $ Ex.catch (runLocalProcess lproc p) (runLocalProcess lproc . h)
-
--- | Lift 'Control.Exception.try'
-try :: Exception e => Process a -> Process (Either e a)
-try p = do
-  lproc <- ask
-  liftIO $ Ex.try (runLocalProcess lproc p)
-
--- | Lift 'Control.Exception.mask'
-mask :: ((forall a. Process a -> Process a) -> Process b) -> Process b
-mask p = do
-    lproc <- ask
-    liftIO $ Ex.mask $ \restore ->
-      runLocalProcess lproc (p (liftRestore restore))
-  where
-    liftRestore :: (forall a. IO a -> IO a)
-                -> (forall a. Process a -> Process a)
-    liftRestore restoreIO = \p2 -> do
-      ourLocalProc <- ask
-      liftIO $ restoreIO $ runLocalProcess ourLocalProc p2
-
--- | Lift 'Control.Exception.mask_'
-mask_ :: Process a -> Process a
-mask_ p = do
-   lproc <- ask
-   liftIO $ Ex.mask_ $ runLocalProcess lproc p
-
--- | Lift 'Control.Exception.onException'
-onException :: Process a -> Process b -> Process a
-onException p what = p `catch` \e -> do _ <- what
-                                        liftIO $ throwIO (e :: SomeException)
-
--- | Lift 'Control.Exception.bracket'
-bracket :: Process a -> (a -> Process b) -> (a -> Process c) -> Process c
-bracket before after thing =
-  mask $ \restore -> do
-    a <- before
-    r <- restore (thing a) `onException` after a
-    _ <- after a
-    return r
-
--- | Lift 'Control.Exception.bracket_'
-bracket_ :: Process a -> Process b -> Process c -> Process c
-bracket_ before after thing = bracket before (const after) (const thing)
-
--- | Lift 'Control.Exception.finally'
-finally :: Process a -> Process b -> Process a
-finally a sequel = bracket_ (return ()) sequel a
-
 -- | You need this when using 'catches'
 data Handler a = forall e . Exception e => Handler (e -> Process a)
 
 instance Functor Handler where
     fmap f (Handler h) = Handler (fmap f . h)
 
+
 -- | Lift 'Control.Exception.catches'
 catches :: Process a -> [Handler a] -> Process a
 catches proc handlers = proc `catch` catchesHandler handlers
 
 catchesHandler :: [Handler a] -> SomeException -> Process a
-catchesHandler handlers e = foldr tryHandler (throw e) handlers
+catchesHandler handlers e = foldr tryHandler (throwM e) handlers
     where tryHandler (Handler handler) res
               = case fromException e of
                 Just e' -> handler e'
@@ -1138,7 +1085,7 @@ unregister label = do
 handleRegistrationReply :: String -> Bool -> Maybe ProcessId -> Process ()
 handleRegistrationReply label ok owner =
   when (not ok) $
-     liftIO $ throwIO $ ProcessRegistrationException label owner
+     throwM $ ProcessRegistrationException label owner
 
 -- | Remove a process from a remote registry (asynchronous).
 --
