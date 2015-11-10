@@ -4,6 +4,9 @@
 {-# LANGUAGE GADTs  #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE Rank2Types #-}
 
 -- | Types used throughout the Cloud Haskell framework
 --
@@ -112,11 +115,12 @@ import Control.Concurrent (ThreadId)
 import Control.Concurrent.Chan (Chan)
 import Control.Concurrent.STM (STM)
 import Control.Concurrent.STM.TChan (TChan)
+import Control.Monad.Catch (MonadThrow(..), MonadCatch(..), MonadMask(..))
 import qualified Network.Transport as NT (EndPoint, EndPointAddress, Connection)
-import Control.Applicative (Applicative, Alternative, (<$>), (<*>))
+import Control.Applicative
 import Control.Monad.Fix (MonadFix)
 import Control.Monad.Reader (MonadReader(..), ReaderT, runReaderT)
-import Control.Monad.IO.Class (MonadIO)
+import Control.Monad.IO.Class (MonadIO(..))
 import Control.Distributed.Process.Serializable
   ( Fingerprint
   , Serializable
@@ -139,6 +143,7 @@ import qualified Control.Distributed.Process.Internal.StrictContainerAccessors a
 
 import Data.Hashable
 import GHC.Generics
+import Prelude
 
 --------------------------------------------------------------------------------
 -- Node and process identifiers                                               --
@@ -345,7 +350,42 @@ data LocalProcessState = LocalProcessState
 newtype Process a = Process {
     unProcess :: ReaderT LocalProcess IO a
   }
-  deriving (Functor, Monad, MonadIO, MonadReader LocalProcess, Typeable, Applicative, MonadFix)
+  deriving ( Applicative
+           , Functor
+           , Monad
+           , MonadFix
+           , MonadIO
+           , MonadReader LocalProcess
+           , Typeable
+           )
+
+instance MonadThrow Process where
+  throwM = liftIO . throwIO
+instance MonadCatch Process where
+  catch p h = do
+    lproc <- ask
+    liftIO $ catch (runLocalProcess lproc p) (runLocalProcess lproc . h)
+instance MonadMask Process where
+  mask p = do
+      lproc <- ask
+      liftIO $ mask $ \restore ->
+        runLocalProcess lproc (p (liftRestore restore))
+    where
+      liftRestore :: (forall a. IO a -> IO a)
+                  -> (forall a. Process a -> Process a)
+      liftRestore restoreIO = \p2 -> do
+        ourLocalProc <- ask
+        liftIO $ restoreIO $ runLocalProcess ourLocalProc p2
+  uninterruptibleMask p = do
+      lproc <- ask
+      liftIO $ uninterruptibleMask $ \restore ->
+        runLocalProcess lproc (p (liftRestore restore))
+    where
+      liftRestore :: (forall a. IO a -> IO a)
+                  -> (forall a. Process a -> Process a)
+      liftRestore restoreIO = \p2 -> do
+        ourLocalProc <- ask
+        liftIO $ restoreIO $ runLocalProcess ourLocalProc p2
 
 --------------------------------------------------------------------------------
 -- Typed channels                                                             --
