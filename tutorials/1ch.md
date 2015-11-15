@@ -269,8 +269,8 @@ main = do
   node <- newLocalNode transport myRemoteTable
   runProcess node $ do
     us <- getSelfNode
-    _ <- spawnLocal $ sampleTask (1 :: Int, "locally")
-    pid <- spawn us $ $(mkClosure 'sampleTask) (1 :: Int, "remotely")
+    _ <- spawnLocal $ sampleTask (1 :: Int, "using spawnLocal")
+    pid <- spawn us $ $(mkClosure 'sampleTask) (1 :: Int, "using spawn")
     liftIO $ threadDelay 2000000
 {% endhighlight %}
 
