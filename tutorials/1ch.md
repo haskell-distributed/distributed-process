@@ -141,13 +141,15 @@ main = do
 {% endhighlight %}
 
 Note that we've used `receiveWait` this time around to get a message.
-`receiveWait` and similarly named functions can be used with the [`Match`][5]
-data type to provide a range of advanced message processing capabilities. The
-`match` primitive allows you to construct a "potential message handler" and
-have it evaluated against received (or incoming) messages. Think of a list of
-`Match`es as the distributed equivalent of a pattern match. As with `expect`,
-if the mailbox does not contain a message that can be matched, the evaluating
-process will be blocked until a message arrives which _can_ be matched.
+`receiveWait` and similarly named functions can be used with the
+[`Match` data type][5] to provide a range of advanced message
+processing capabilities. The `match` primitive allows you to construct
+a "potential message handler" and have it evaluated against received
+(or incoming) messages. Think of a list of `Match`es as the
+distributed equivalent of a pattern match. As with `expect`, if the
+mailbox does not contain a message that can be matched, the evaluating
+process will be blocked until a message arrives which _can_ be
+matched.
 
 In the _echo server_ above, our first match prints out whatever string it
 receives. If the first message in our mailbox is not a `String`, then our
