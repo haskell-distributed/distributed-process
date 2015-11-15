@@ -90,15 +90,15 @@ Note that we haven't deadlocked our own thread by sending to and receiving
 from its mailbox in this fashion. Sending messages is a completely
 asynchronous operation - even if the recipient doesn't exist, no error will be
 raised and evaluating `send` will not block the caller, even if the caller is
-sending messages to itself!
+sending messages to itself.
 
-Receiving works the opposite way, blocking the caller until a message
-matching the expected type arrives in our (conceptual) mailbox. If multiple
-messages of that type are present in the mailbox, they'll be returned in FIFO
-order. If not, the caller is blocked until a message arrives that can be
-decoded to the correct type.
+Each process also has a *mailbox* associated with it. Messages sent to
+a process are queued in this mailbox. A process can pop a message out of its
+mailbox using `expect` or the `receive*` family of functions. If no message of
+the expected type is in the mailbox currently, the process will block until
+there is. Messages in the mailbox are ordered by time of arrival.
 
-Let's spawn two processes on the same node and have them talk to each other.
+Let's spawn two processes on the same node and have them talk to each other:
 
 {% highlight haskell %}
 import Control.Concurrent (threadDelay)
@@ -140,83 +140,135 @@ main = do
       Just s -> say $ "got " ++ s ++ " back!"
 {% endhighlight %}
 
-Note that we've used the `receive` class of functions this time around.
-These can be used with the [`Match`][5] data type to provide a range of
-advanced message processing capabilities. The `match` primitive allows you
-to construct a "potential message handler" and have it evaluated
-against received (or incoming) messages. As with `expect`, if the mailbox does
-not contain a message that can be matched, the evaluating process will be
-blocked until a message arrives which _can_ be matched.
+Note that we've used `receiveWait` this time around to get a message.
+`receiveWait` and similarly named functions can be used with the [`Match`][5]
+data type to provide a range of advanced message processing capabilities. The
+`match` primitive allows you to construct a "potential message handler" and
+have it evaluated against received (or incoming) messages. Think of a list of
+`Match`es as the distributed equivalent of a pattern match. As with `expect`,
+if the mailbox does not contain a message that can be matched, the evaluating
+process will be blocked until a message arrives which _can_ be matched.
 
 In the _echo server_ above, our first match prints out whatever string it
-receives. If the first message in our mailbox is not a `String`, then our second
-match is evaluated. This, given a tuple `t :: (ProcessId, String)`, will send
-the `String` component back to the sender's `ProcessId`. If neither match
-succeeds, the echo server blocks until another message arrives and
-tries again.
+receives. If the first message in our mailbox is not a `String`, then our
+second match is evaluated. Thus, given a tuple `t :: (ProcessId, String)`, it
+will send the `String` component back to the sender's `ProcessId`. If neither
+match succeeds, the echo server blocks until another message arrives and tries
+again.
 
 ### Serializable Data
 
-Processes may send any datum whose type implements the `Serializable` typeclass,
-which is done indirectly by deriving `Binary` and `Typeable`. Implementations are
-provided for most of Cloud Haskell's primitives and various common data types.
+Processes may send any datum whose type implements the `Serializable`
+typeclass, defined as:
+
+{% highlight haskell %}
+class (Binary a, Typeable) => Serializable a
+instance (Binary a, Typeable a) => Serializable a
+{% endhighlight %}
+
+That is, any type that is `Binary` and `Typeable` is `Serializable`. This is
+the case for most of Cloud Haskell's primitive types as well as many standard
+data types.
 
 ### Spawning Remote Processes
 
-In order to spawn processes on a remote node without additional compiler
-infrastructure, we make use of "static values": values that are known at
-compile time. Closures in functional programming arise when we partially
-apply a function. In Cloud Haskell, a closure is a code pointer, together
-with requisite runtime data structures representing the value of any free
-variables of the function. A remote spawn therefore, takes a closure around
-an action running in the `Process` monad: `Closure (Process ())`.
+We saw above that the behaviour of processes is determined by an action in the
+`Process` monad. However, actions in the `Process` monad, no more serializable
+than actions in the `IO` monad. If we can't serialize actions, then how can we
+spawn processes on remote nodes?
 
-In distributed-process if `f : T1 -> T2` then
+The solution is to consider only *static* actions and compositions thereof.
+A static action is always defined using a closed expression (intuitively, an
+expression that could in principle be evaluated at compile-time since it does
+not depend on any runtime arguments). The type of static actions in Cloud
+Haskell is `Closure (Process a)`. More generally, a value of type `Closure b`
+is a value that was constructed explicitly as the composition of symbolic
+pointers and serializable values. Values of type `Closure b` are serializable,
+even if values of type `b` might not. For instance, while we can't in general
+send actions of type `Process ()`, we can construct a value of type `Closure
+(Process ())` instead, containing a symbolic name for the action, and send
+that instead. So long as the remote end understands the same meaning for the
+symbolic name, this works just as well. A remote spawn then, takes a static
+action and sends that across the wire to the remote node.
+
+Static actions are not easy to construct by hand, but fortunately Cloud
+Haskell provides a little bit of Template Haskell to help. If `f :: T1 -> T2`
+then
 
 {% highlight haskell %}
   $(mkClosure 'f) :: T1 -> Closure T2
 {% endhighlight %}
 
-That is, the first argument to the function we pass to `mkClosure` will act
-as the closure environment for that process. If you want multiple values
-in the closure environment, you must "tuple them up".
+You can turn any top-level unary function into a `Closure` using `mkClosure`.
+For curried functions, you'll need to uncurry them first (i.e. "tuple up" the
+arguments). However, to ensure that the remote side can adequately interpret
+the resulting `Closure`, you'll need to add a mapping in a so-called *remote
+table* associating the symbolic name of a function to its value. Processes can
+only be successfully spawned on remote nodes of all these remote nodes have
+the same remote table as the local one.
 
 We need to configure our remote table (see the documentation for more details)
 and the easiest way to do this, is to let the library generate the relevant
 code for us. For example:
 
 {% highlight haskell %}
-sampleTask :: (TimeInterval, String) -> Process String
-sampleTask (t, s) = sleep t >> return s
+sampleTask :: (TimeInterval, String) -> Process ()
+sampleTask (t, s) = sleep t >> say s
 
-$(remotable ['sampleTask])
+remotable ['sampleTask]
 {% endhighlight %}
 
-We can now create a closure environment for `sampleTask` like so:
+The last line is a top-level Template Haskell splice. At the call site for
+`spawn`, we can construct a `Closure` corresponding to an application of
+`sampleTask` like so:
 
 {% highlight haskell %}
 ($(mkClosure 'sampleTask) (seconds 2, "foobar"))
 {% endhighlight %}
 
-The call to `remotable` generates a remote table and a definition
-`__remoteTable :: RemoteTable -> RemoteTable` in our module for us.
-We compose this with other remote tables in order to come up with a
-final, merged remote table for use in our program:
+The call to `remotable` implicitly generates a remote table by inserting
+a top-level definition `__remoteTable :: RemoteTable -> RemoteTable` in our
+module for us. We compose this with other remote tables in order to come up
+with a final, merged remote table for all modules in our program:
 
 {% highlight haskell %}
+{-# LANGUAGE TemplateHaskell #-}
+
+import Control.Concurrent (threadDelay)
+import Control.Monad (forever)
+import Control.Distributed.Process
+import Control.Distributed.Process.Closure
+import Control.Distributed.Process.Node
+import Network.Transport.TCP (createTransport, defaultTCPParameters)
+
+sampleTask :: (Int, String) -> Process ()
+sampleTask (t, s) = liftIO (threadDelay (t * 1000000)) >> say s
+
+remotable ['sampleTask]
+
 myRemoteTable :: RemoteTable
 myRemoteTable = Main.__remoteTable initRemoteTable
 
 main :: IO ()
 main = do
- localNode <- newLocalNode transport myRemoteTable
- -- etc
+  Right transport <- createTransport "127.0.0.1" "10501" defaultTCPParameters
+  node <- newLocalNode transport myRemoteTable
+  runProcess node $ do
+    us <- getSelfNode
+    _ <- spawnLocal $ sampleTask (1 :: Int, "locally")
+    pid <- spawn us $ $(mkClosure 'sampleTask) (1 :: Int, "remotely")
+    liftIO $ threadDelay 2000000
 {% endhighlight %}
 
-Note that we're not limited to sending `Closure`s - it is possible to send data
-without having static values, and assuming the receiving code is able to decode
-this data and operate on it, we can easily put together a simple AST that maps
-to operations we wish to execute remotely.
+In the above example, we spawn `sampleTask` on node `us` in two
+different ways:
+
+* using `spawn`, which expects some node identifier to spawn a process
+  on along for the action of the process.
+* using `spawnLocal`, a specialization of `spawn` to the case when the
+  node identifier actually refers to the local node (i.e. `us`). In
+  this special case, no serialization is necessary, so passing an
+  action directly rather than a `Closure` works just fine.
 
 ------
 
