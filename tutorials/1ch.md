@@ -219,8 +219,9 @@ table* associating the symbolic name of a function to its value. Processes can
 only be successfully spawned on remote nodes of all these remote nodes have
 the same remote table as the local one.
 
-We need to configure our remote table (see the documentation for more details)
-and the easiest way to do this, is to let the library generate the relevant
+We need to configure our remote table (see the [API documentation][2]
+for `Control.Distributed.Process.Closure` for more details) and the
+easiest way to do this, is to let the library generate the relevant
 code for us. For example:
 
 {% highlight haskell %}
