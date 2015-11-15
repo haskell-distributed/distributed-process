@@ -219,10 +219,9 @@ table* associating the symbolic name of a function to its value. Processes can
 only be successfully spawned on remote nodes of all these remote nodes have
 the same remote table as the local one.
 
-We need to configure our remote table (see the [API documentation][2]
-for `Control.Distributed.Process.Closure` for more details) and the
-easiest way to do this, is to let the library generate the relevant
-code for us. For example:
+We need to configure our remote table (see the [API reference][6] for
+more details) and the easiest way to do this, is to let the library
+generate the relevant code for us. For example:
 
 {% highlight haskell %}
 sampleTask :: (TimeInterval, String) -> Process ()
@@ -290,3 +289,4 @@ different ways:
 [3]: /static/doc/distributed-process-platform/Control-Distributed-Process-Platform-Async.html
 [4]: /static/doc/distributed-process-platform/Control-Distributed-Process-Platform-ManagedProcess.htmlv:callAsync
 [5]: http://hackage.haskell.org/packages/archive/distributed-process/latest/doc/html/Control-Distributed-Process-Internal-Primitives.html#t:Match
+[6]: http://hackage.haskell.org/packages/archive/distributed-process/latest/doc/html/Control-Distributed-Process-Closure.html
