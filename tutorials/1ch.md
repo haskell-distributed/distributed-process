@@ -69,15 +69,15 @@ And now we have a running node.
 
 ### Sending messages
 
-We start a new process by evaluating `forkProcess`, which takes a node,
-a `Process` action - because our concurrent code will run in the `Process`
-monad - and returns an address for the process in the form of a `ProcessId`.
-The process id can be used to send messages to the running process - here we
-will send one to ourselves!
+We start a new process by evaluating `runProcess`, which takes a node and
+a `Process` action to run, because our concurrent code will run in the
+`Process` monad. Each process has an identifier associated to it. The process
+id can be used to send messages to the running process - here we will send one
+to ourselves!
 
 {% highlight haskell %}
 -- in main
-  _ <- forkProcess node $ do
+  _ <- runProcess node $ do
     -- get our own process id
     self <- getSelfPid
     send self "hello"
@@ -86,12 +86,11 @@ will send one to ourselves!
   return ()
 {% endhighlight %}
 
-Lightweight processes are implemented as `forkIO` threads. In general we will
-try to forget about this implementation detail, but let's note that we
-haven't deadlocked our own thread by sending to and receiving from its mailbox
-in this fashion. Sending messages is a completely asynchronous operation - even
-if the recipient doesn't exist, no error will be raised and evaluating `send`
-will not block the caller, even if the caller is sending messages to itself!
+Note that we haven't deadlocked our own thread by sending to and receiving
+from its mailbox in this fashion. Sending messages is a completely
+asynchronous operation - even if the recipient doesn't exist, no error will be
+raised and evaluating `send` will not block the caller, even if the caller is
+sending messages to itself!
 
 Receiving works the opposite way, blocking the caller until a message
 matching the expected type arrives in our (conceptual) mailbox. If multiple
@@ -118,7 +117,7 @@ main :: IO ()
 main = do
   Right t <- createTransport "127.0.0.1" "10501" defaultTCPParameters
   node <- newLocalNode t initRemoteTable
-  forkProcess node $ do
+  runProcess node $ do
     -- Spawn another worker on the local node
     echoPid <- spawnLocal $ forever $ do
       -- Test our matches in order against each message in the queue
@@ -138,13 +137,7 @@ main = do
     case m of
       -- Die immediately - throws a ProcessExitException with the given reason.
       Nothing  -> die "nothing came back!"
-      (Just s) -> say $ "got " ++ s ++ " back!"
-    return ()
-
-  -- A 1 second wait. Otherwise the main thread can terminate before
-  -- our messages reach the logging process or get flushed to stdio
-  liftIO $ threadDelay (1*1000000)
-  return ()
+      Just s -> say $ "got " ++ s ++ " back!"
 {% endhighlight %}
 
 Note that we've used the `receive` class of functions this time around.
