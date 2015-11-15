@@ -168,7 +168,19 @@ instance (Binary a, Typeable a) => Serializable a
 
 That is, any type that is `Binary` and `Typeable` is `Serializable`. This is
 the case for most of Cloud Haskell's primitive types as well as many standard
-data types.
+data types. For custom data types, the `Typeable` instance is always
+given by the compiler, and the `Binary` instance can be auto-generated
+too in most cases, e.g.:
+
+{% highlight haskell %}
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveGeneric #-}
+
+data T = T Int Char deriving (Generic, Typeable)
+
+instance Binary T
+{% endhighlight %}
+
 
 ### Spawning Remote Processes
 
