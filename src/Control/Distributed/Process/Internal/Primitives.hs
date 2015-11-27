@@ -1173,8 +1173,10 @@ unsafeNSend = Unsafe.nsend
 
 -- | Named send to a process in a remote registry (asynchronous)
 nsendRemote :: Serializable a => NodeId -> String -> a -> Process ()
-nsendRemote nid label msg =
-  sendCtrlMsg (Just nid) (NamedSend label (createMessage msg))
+nsendRemote nid label msg = do
+  here <- getSelfNode
+  if here == nid then nsend label msg
+    else sendCtrlMsg (Just nid) (NamedSend label (createMessage msg))
 
 --------------------------------------------------------------------------------
 -- Closures                                                                   --
