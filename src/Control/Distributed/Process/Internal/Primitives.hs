@@ -26,6 +26,7 @@ module Control.Distributed.Process.Internal.Primitives
   , unsafeUSend
   , unsafeSendChan
   , unsafeNSend
+  , unsafeNSendRemote
     -- * Advanced messaging
   , Match
   , receiveWait
@@ -1183,6 +1184,13 @@ unsafeNSend = Unsafe.nsend
 nsendRemote :: Serializable a => NodeId -> String -> a -> Process ()
 nsendRemote nid label msg =
   sendCtrlMsg (Just nid) (NamedSend label (createMessage msg))
+
+-- | Named send to a process in a remote registry (asynchronous)
+-- This function makes /no/ attempt to serialize and (in the case when the
+-- destination process resides on the same local node) therefore ensure that
+-- the payload is fully evaluated before it is delivered.
+unsafeNSendRemote :: Serializable a => NodeId -> String -> a -> Process ()
+unsafeNSendRemote = Unsafe.nsendRemote
 
 --------------------------------------------------------------------------------
 -- Closures                                                                   --

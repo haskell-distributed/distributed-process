@@ -45,6 +45,7 @@ module Control.Distributed.Process.UnsafePrimitives
     send
   , sendChan
   , nsend
+  , nsendRemote
   , usend
   , wrapMessage
   ) where
@@ -57,6 +58,7 @@ import Control.Distributed.Process.Internal.Messaging
 
 import Control.Distributed.Process.Internal.Types
   ( ProcessId(..)
+  , NodeId(..)
   , LocalNode(..)
   , LocalProcess(..)
   , Process(..)
@@ -79,6 +81,14 @@ import Control.Monad.Reader (ask)
 nsend :: Serializable a => String -> a -> Process ()
 nsend label msg =
   sendCtrlMsg Nothing (NamedSend label (unsafeCreateUnencodedMessage msg))
+
+-- | Named send to a process in a remote registry (asynchronous)
+nsendRemote :: Serializable a => NodeId -> String -> a -> Process ()
+nsendRemote nid label msg = do
+  proc <- ask
+  if localNodeId (processNode proc) == nid
+    then nsend label msg
+    else sendCtrlMsg (Just nid) (NamedSend label (createMessage msg))
 
 -- | Send a message
 send :: Serializable a => ProcessId -> a -> Process ()

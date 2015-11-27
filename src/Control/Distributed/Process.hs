@@ -43,6 +43,7 @@ module Control.Distributed.Process
   , unsafeUSend
   , unsafeSendChan
   , unsafeNSend
+  , unsafeNSendRemote
   , unsafeWrapMessage
     -- * Advanced messaging
   , Match
@@ -216,6 +217,7 @@ import Control.Distributed.Process.Internal.Primitives
   , unsafeUSend
   , unsafeSendChan
   , unsafeNSend
+  , unsafeNSendRemote
     -- Advanced messaging
   , Match
   , receiveWait
