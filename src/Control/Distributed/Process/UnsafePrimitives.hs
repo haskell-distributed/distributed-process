@@ -45,6 +45,7 @@ module Control.Distributed.Process.UnsafePrimitives
     send
   , sendChan
   , nsend
+  , usend
   , wrapMessage
   ) where
 
@@ -65,6 +66,7 @@ import Control.Distributed.Process.Internal.Types
   , ImplicitReconnect(..)
   , SendPortId(..)
   , Message
+  , createMessage
   , sendPortProcessId
   , unsafeCreateUnencodedMessage
   )
@@ -95,6 +97,25 @@ send them msg = do
     unsafeSendLocal :: (Serializable a) => ProcessId -> a -> Process ()
     unsafeSendLocal pid msg' =
       sendCtrlMsg Nothing $ LocalSend pid (unsafeCreateUnencodedMessage msg')
+
+-- | Send a message unreliably.
+--
+-- Unlike 'send', this function is insensitive to 'reconnect'. It will
+-- try to send the message regardless of the history of connection failures
+-- between the nodes.
+--
+-- Message passing with 'usend' is ordered for a given sender and receiver
+-- if the messages arrive at all.
+--
+usend :: Serializable a => ProcessId -> a -> Process ()
+usend them msg = do
+    proc <- ask
+    let there = processNodeId them
+    if localNodeId (processNode proc) == there
+      then sendCtrlMsg Nothing $
+             LocalSend them (unsafeCreateUnencodedMessage msg)
+      else sendCtrlMsg (Just there) $ UnreliableSend (processLocalId them)
+                                                     (createMessage msg)
 
 -- | Send a message on a typed channel
 sendChan :: Serializable a => SendPort a -> a -> Process ()

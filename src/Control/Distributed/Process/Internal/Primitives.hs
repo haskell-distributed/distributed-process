@@ -23,6 +23,7 @@ module Control.Distributed.Process.Internal.Primitives
   , mergePortsRR
     -- * Unsafe messaging variants
   , unsafeSend
+  , unsafeUSend
   , unsafeSendChan
   , unsafeNSend
     -- * Advanced messaging
@@ -278,6 +279,13 @@ usend them msg = do
       then sendLocal them msg
       else sendCtrlMsg (Just there) $ UnreliableSend (processLocalId them)
                                                      (createMessage msg)
+
+-- | /Unsafe/ variant of 'usend'. This function makes /no/ attempt to serialize
+-- the message when the destination process resides on the same local
+-- node. Therefore, a local receiver would need to be prepared to cope with any
+-- errors resulting from evaluation of the message.
+unsafeUSend :: Serializable a => ProcessId -> a -> Process ()
+unsafeUSend = Unsafe.usend
 
 -- | Wait for a message of a specific type
 expect :: forall a. Serializable a => Process a
