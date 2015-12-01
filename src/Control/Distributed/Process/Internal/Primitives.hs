@@ -1103,8 +1103,10 @@ registerImpl force label pid = do
 --
 -- See comments in 'whereisRemoteAsync'
 registerRemoteAsync :: NodeId -> String -> ProcessId -> Process ()
-registerRemoteAsync nid label pid =
-  sendCtrlMsg (Just nid) (Register label nid (Just pid) False)
+registerRemoteAsync nid label pid = do
+    here <- getSelfNode
+    sendCtrlMsg (if nid == here then Nothing else Just nid)
+                (Register label nid (Just pid) False)
 
 reregisterRemoteAsync :: NodeId -> String -> ProcessId -> Process ()
 reregisterRemoteAsync nid label pid =
@@ -1156,8 +1158,9 @@ whereis label = do
 -- use 'monitorNode' and take appropriate action when you receive a
 -- 'NodeMonitorNotification').
 whereisRemoteAsync :: NodeId -> String -> Process ()
-whereisRemoteAsync nid label =
-  sendCtrlMsg (Just nid) (WhereIs label)
+whereisRemoteAsync nid label = do
+    here <- getSelfNode
+    sendCtrlMsg (if nid == here then Nothing else Just nid) (WhereIs label)
 
 -- | Named send to a process in the local registry (asynchronous)
 nsend :: Serializable a => String -> a -> Process ()
