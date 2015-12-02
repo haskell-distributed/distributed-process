@@ -45,6 +45,8 @@ module Control.Distributed.Process.UnsafePrimitives
     send
   , sendChan
   , nsend
+  , nsendRemote
+  , usend
   , wrapMessage
   ) where
 
@@ -56,6 +58,7 @@ import Control.Distributed.Process.Internal.Messaging
 
 import Control.Distributed.Process.Internal.Types
   ( ProcessId(..)
+  , NodeId(..)
   , LocalNode(..)
   , LocalProcess(..)
   , Process(..)
@@ -65,6 +68,7 @@ import Control.Distributed.Process.Internal.Types
   , ImplicitReconnect(..)
   , SendPortId(..)
   , Message
+  , createMessage
   , sendPortProcessId
   , unsafeCreateUnencodedMessage
   )
@@ -77,6 +81,14 @@ import Control.Monad.Reader (ask)
 nsend :: Serializable a => String -> a -> Process ()
 nsend label msg =
   sendCtrlMsg Nothing (NamedSend label (unsafeCreateUnencodedMessage msg))
+
+-- | Named send to a process in a remote registry (asynchronous)
+nsendRemote :: Serializable a => NodeId -> String -> a -> Process ()
+nsendRemote nid label msg = do
+  proc <- ask
+  if localNodeId (processNode proc) == nid
+    then nsend label msg
+    else sendCtrlMsg (Just nid) (NamedSend label (createMessage msg))
 
 -- | Send a message
 send :: Serializable a => ProcessId -> a -> Process ()
@@ -95,6 +107,25 @@ send them msg = do
     unsafeSendLocal :: (Serializable a) => ProcessId -> a -> Process ()
     unsafeSendLocal pid msg' =
       sendCtrlMsg Nothing $ LocalSend pid (unsafeCreateUnencodedMessage msg')
+
+-- | Send a message unreliably.
+--
+-- Unlike 'send', this function is insensitive to 'reconnect'. It will
+-- try to send the message regardless of the history of connection failures
+-- between the nodes.
+--
+-- Message passing with 'usend' is ordered for a given sender and receiver
+-- if the messages arrive at all.
+--
+usend :: Serializable a => ProcessId -> a -> Process ()
+usend them msg = do
+    proc <- ask
+    let there = processNodeId them
+    if localNodeId (processNode proc) == there
+      then sendCtrlMsg Nothing $
+             LocalSend them (unsafeCreateUnencodedMessage msg)
+      else sendCtrlMsg (Just there) $ UnreliableSend (processLocalId them)
+                                                     (createMessage msg)
 
 -- | Send a message on a typed channel
 sendChan :: Serializable a => SendPort a -> a -> Process ()

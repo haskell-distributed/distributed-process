@@ -40,8 +40,10 @@ module Control.Distributed.Process
   , mergePortsRR
     -- * Unsafe messaging variants
   , unsafeSend
+  , unsafeUSend
   , unsafeSendChan
   , unsafeNSend
+  , unsafeNSendRemote
   , unsafeWrapMessage
     -- * Advanced messaging
   , Match
@@ -212,8 +214,10 @@ import Control.Distributed.Process.Internal.Primitives
   , mergePortsBiased
   , mergePortsRR
   , unsafeSend
+  , unsafeUSend
   , unsafeSendChan
   , unsafeNSend
+  , unsafeNSendRemote
     -- Advanced messaging
   , Match
   , receiveWait
