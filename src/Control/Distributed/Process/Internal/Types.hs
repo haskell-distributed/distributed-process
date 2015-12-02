@@ -377,6 +377,16 @@ instance MonadMask Process where
       liftRestore restoreIO = \p2 -> do
         ourLocalProc <- ask
         liftIO $ restoreIO $ runLocalProcess ourLocalProc p2
+  uninterruptibleMask p = do
+      lproc <- ask
+      liftIO $ uninterruptibleMask $ \restore ->
+        runLocalProcess lproc (p (liftRestore restore))
+    where
+      liftRestore :: (forall a. IO a -> IO a)
+                  -> (forall a. Process a -> Process a)
+      liftRestore restoreIO = \p2 -> do
+        ourLocalProc <- ask
+        liftIO $ restoreIO $ runLocalProcess ourLocalProc p2
 
 
 
