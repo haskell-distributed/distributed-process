@@ -1112,8 +1112,10 @@ registerImpl force label pid = do
 --
 -- See comments in 'whereisRemoteAsync'
 registerRemoteAsync :: NodeId -> String -> ProcessId -> Process ()
-registerRemoteAsync nid label pid =
-  sendCtrlMsg (Just nid) (Register label nid (Just pid) False)
+registerRemoteAsync nid label pid = do
+    here <- getSelfNode
+    sendCtrlMsg (if nid == here then Nothing else Just nid)
+                (Register label nid (Just pid) False)
 
 reregisterRemoteAsync :: NodeId -> String -> ProcessId -> Process ()
 reregisterRemoteAsync nid label pid =
@@ -1165,8 +1167,9 @@ whereis label = do
 -- use 'monitorNode' and take appropriate action when you receive a
 -- 'NodeMonitorNotification').
 whereisRemoteAsync :: NodeId -> String -> Process ()
-whereisRemoteAsync nid label =
-  sendCtrlMsg (Just nid) (WhereIs label)
+whereisRemoteAsync nid label = do
+    here <- getSelfNode
+    sendCtrlMsg (if nid == here then Nothing else Just nid) (WhereIs label)
 
 -- | Named send to a process in the local registry (asynchronous)
 nsend :: Serializable a => String -> a -> Process ()
@@ -1182,8 +1185,10 @@ unsafeNSend = Unsafe.nsend
 
 -- | Named send to a process in a remote registry (asynchronous)
 nsendRemote :: Serializable a => NodeId -> String -> a -> Process ()
-nsendRemote nid label msg =
-  sendCtrlMsg (Just nid) (NamedSend label (createMessage msg))
+nsendRemote nid label msg = do
+  here <- getSelfNode
+  if here == nid then nsend label msg
+    else sendCtrlMsg (Just nid) (NamedSend label (createMessage msg))
 
 -- | Named send to a process in a remote registry (asynchronous)
 -- This function makes /no/ attempt to serialize and (in the case when the
