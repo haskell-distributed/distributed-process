@@ -530,6 +530,8 @@ liftIO; but [MonadBaseControl IO][mbc] also makes things like a lifted [withMVar
 really just a specialization of [bracket][lbrkt]. You will also find lots of other libraries on hackage which
 use these instances - at present count there are more than 150 [packages using it][reverse].
 
+One note of caution: This instance can enable use of functions such as `forkIO` (or, `fork` from lifted-base[lbase]) which compromise invariants in the `Process` monad and can lead to confusing and subtle issues. Always use the Cloud Haskell functions such as spawnLocal instead.
+
 
 [1]: hackage.haskell.org/package/distributed-process/docs/Control-Distributed-Process.html#v:receiveWait
 [2]: hackage.haskell.org/package/distributed-process/docs/Control-Distributed-Process.html#v:expect
