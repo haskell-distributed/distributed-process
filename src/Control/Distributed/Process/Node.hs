@@ -765,8 +765,7 @@ nodeController = do
       NCMsg _ SigShutdown ->
         liftIO $ do
           NT.closeEndPoint (localEndPoint node)
-            `Exception.finally` throwIO ThreadKilled
-        -- ThreadKilled seems to make more sense than fail/error here
+            `Exception.finally` throwIO (NodeClosedException $ localNodeId node)
       NCMsg (ProcessIdentifier from) (GetNodeStats nid) ->
         ncEffectGetNodeStats from nid
       unexpected ->
