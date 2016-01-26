@@ -1,3 +1,9 @@
+2016-02-18  Facundo Domínguez  <facundo.dominguez@tweag.io>  0.3.4.0
+
+* Support static pointers.
+* Update .travis.yml to drop ghc-7.4 and test ghc-7.10.
+* Make Closure and Static strict data types.
+
 2015-06-15  Facundo Domínguez  <facundo.dominguez@tweag.io>  0.3.2.0
 
 * Loosen rank1dynamic bounds.
