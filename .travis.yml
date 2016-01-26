@@ -1,14 +1,27 @@
-language: haskell
+language: c
 
-ghc:
- - 7.8
- - 7.6
- - 7.4
+sudo: false
+
+matrix:
+  include:
+    - env: CABALVER=1.22 GHCVER=7.6.3
+      addons: {apt: {packages: [cabal-install-1.22,ghc-7.6.3], sources: [hvr-ghc]}}
+    - env: CABALVER=1.22 GHCVER=7.8.4
+      addons: {apt: {packages: [cabal-install-1.22,ghc-7.8.4], sources: [hvr-ghc]}}
+    - env: CABALVER=1.22 GHCVER=7.10.3
+      addons: {apt: {packages: [cabal-install-1.22,ghc-7.10.3],sources: [hvr-ghc]}}
 
 before_install:
-  - cabal sandbox init
-  - for i in `cat REPOS`; do git clone http://github.com/haskell-distributed/$i; done
-  - for i in `cat REPOS`; do cabal sandbox add-source $i; done
+  - export PATH=/opt/ghc/$GHCVER/bin:/opt/cabal/$CABALVER/bin:~/.cabal/bin:$PATH
+  - ghc --version
+  - cabal --version
+  - cabal update
+  # workaround for https://ghc.haskell.org/trac/ghc/ticket/9221
+  # taken from https://github.com/hvr/multi-ghc-travis/blob/0fa68f78c2b1b059f904c9abc85510a3bb4f57e2/README.md
+  - sed -i 's/^jobs:/-- jobs:/' $HOME/.cabal/config
 
 install:
-  - cabal install --enable-tests --only-dependencies
+  - cabal install --only-dependencies --enable-tests
+
+script:
+  - cabal test
