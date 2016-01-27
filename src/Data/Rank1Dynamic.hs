@@ -81,7 +81,7 @@ module Data.Rank1Dynamic
   , unsafeToDynamic
   ) where
 
-import qualified GHC.Prim as GHC (Any)
+import qualified GHC.Exts as GHC (Any)
 import Data.Rank1Typeable
   ( Typeable
   , TypeRep

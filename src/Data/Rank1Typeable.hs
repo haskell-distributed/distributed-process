@@ -101,16 +101,33 @@ import Control.Monad (void)
 import Control.Applicative ((<$>))
 import Data.List (intersperse, isPrefixOf)
 import Data.Maybe (fromMaybe)
-import Data.Typeable (Typeable, mkTyCon3)
-import Data.Typeable.Internal (listTc, funTc, TyCon(TyCon), tyConName)
+import Data.Typeable
+  ( Typeable
+  , TyCon
+  , mkTyCon3
+  , tyConPackage
+  , tyConModule
+  , tyConName
+  )
+#if MIN_VERSION_base(4,9,0)
+import Data.Typeable.Internal (tcList, tcFun)
+#else
+import Data.Typeable.Internal (listTc, funTc)
+#endif
 import Data.Binary (Binary(get, put))
-import GHC.Fingerprint.Type (Fingerprint(..))
 import qualified Data.Typeable as Typeable
   ( TypeRep
   , typeOf
   , splitTyConApp
   , mkTyConApp
   )
+
+
+#if !MIN_VERSION_base(4,9,0)
+tcList, tcFun :: TyCon
+tcList = listTc
+tcFun = funTc
+#endif
 
 --------------------------------------------------------------------------------
 -- The basic type                                                             --
@@ -137,21 +154,17 @@ instance Eq TypeRep where
 
 -- Binary instance for 'TypeRep', avoiding orphan instances
 instance Binary TypeRep where
-  put (splitTyConApp -> (TyCon (Fingerprint hi lo) package modul name, ts)) = do
-    put hi
-    put lo
-    put package
-    put modul
-    put name
+  put (splitTyConApp -> (tc, ts)) = do
+    put $ tyConPackage tc
+    put $ tyConModule tc
+    put $ tyConName tc
     put ts
   get = do
-    hi      <- get
-    lo      <- get
     package <- get
     modul   <- get
     name    <- get
     ts      <- get
-    return $ mkTyConApp (TyCon (Fingerprint hi lo) package modul name) ts
+    return $ mkTyConApp (mkTyCon3 package modul name) ts
 
 -- | The type representation of any 'Typeable' term
 typeOf :: Typeable a => a -> TypeRep
@@ -233,7 +246,7 @@ isInstanceOf t1 t2 = void (unify (skolemize t1) t2)
 funResultTy :: TypeRep -> TypeRep -> Either TypeError TypeRep
 funResultTy t1 t2 = do
   let anyTy = mkTypVar $ typeOf (undefined :: V0)
-  s <- unify (alphaRename "f" t1) $ mkTyConApp funTc [alphaRename "x" t2, anyTy]
+  s <- unify (alphaRename "f" t1) $ mkTyConApp tcFun [alphaRename "x" t2, anyTy]
   return $ normalize $ subst s anyTy
 
 --------------------------------------------------------------------------------
@@ -324,9 +337,9 @@ instance Show TypeRep where
       case tys of
         [] -> showsPrec p tycon
         [anyIdx -> Just i] | tycon == typVar -> showString "ANY" . showIdx i
-        [x] | tycon == listTc ->
+        [x] | tycon == tcList ->
           showChar '[' . shows x . showChar ']'
-        [a,r] | tycon == funTc ->
+        [a,r] | tycon == tcFun ->
           showParen (p > 8) $ showsPrec 9 a
                             . showString " -> "
                             . showsPrec 8 r
