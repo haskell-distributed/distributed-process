@@ -1,3 +1,14 @@
+2016-01-28  Facundo Domínguez <facundo.dominguez@tweag.io> 0.4.3.0
+
+* Derive Binary instances for missing types.
+* Use auto-derive for Reliability as Binary instance.
+* Stop testing with ghc-7.4 and build with ghc-7.10.
+
+2015-06-15  Facundo Domínguez <facundo.dominguez@tweag.io> 0.4.2.0
+
+* Add NFData instance for EndPointAddress.
+* Relax dependency bounds.
+
 2014-12-09  Tim Watson  <watson.timothy@gmail.com>  0.4.1.0
 
 * foreigns htonl, ntohl, htons, ntohs are imported from ws2_32 on windows 
