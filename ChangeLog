@@ -1,3 +1,22 @@
+2016-02-17 FacundoDominguez <facundo.dominguez@tweag.io> 0.5.0
+
+* Add TCP_KEEPALIVE support for sockets.
+* Run nearly all tests on non hardcoded ports.
+* Remove obsolete top-level Makefile.
+* Yield an error when tcpUserTimeout is set in unsupported systems.
+* Fix for NTTCP-10. Have apiConnect respect timeouts.
+* Make schedule - runScheduled pair exception safe.
+* Allow to specify a default timeout for all connect calls.
+* Allow to set TCP_USER_TIMEOUT on tcp connections.
+* Implement configuration parameter to set TCP_NODELAY.
+* Fix for NTTCP-9 / #23. Handle network failures when connection requests cross.
+
+2015-06-15 FacundoDominguez <facundo.dominguez@tweag.io> 0.4.2
+
+* Update dependencies.
+* Fixes in test-suite.
+* Bug fixes DP-109, NTTCP-11.
+
 2014-12-09  Tim Watson  <watson.timothy@gmail.com>  0.4.1
 
 * Update dependencies

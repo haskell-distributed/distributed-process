@@ -1,5 +1,5 @@
 Name:          network-transport-tcp
-Version:       0.4.1
+Version:       0.5.0
 Cabal-Version: >=1.10
 Build-Type:    Simple
 License:       BSD3 
@@ -50,7 +50,7 @@ Test-Suite TestTCP
                    network-transport-tests >= 0.2.1.0 && < 0.3,
                    network >= 2.3 && < 2.7,
                    network-transport >= 0.4.1.0 && < 0.5,
-                   network-transport-tcp >= 0.3 && < 0.5
+                   network-transport-tcp
   ghc-options:     -threaded -rtsopts -with-rtsopts=-N
   HS-Source-Dirs:  tests
   default-extensions:      CPP,
