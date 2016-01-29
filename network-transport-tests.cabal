@@ -6,7 +6,7 @@ homepage:            http://haskell-distributed.github.com
 license:             BSD3
 license-file:        LICENSE
 author:              Edsko de Vries
-maintainer:          edsko@well-typed.com, watson.timothy@gmail.com
+maintainer:          Facundo Domínguez <facundo.dominguez@tweag.io>
 copyright:           Well-Typed LLP
 category:            Network
 build-type:          Simple
