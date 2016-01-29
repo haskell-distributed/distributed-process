@@ -66,7 +66,7 @@ Test-Suite TestCHInMemory
                      network-transport-inmemory >= 0.5,
                      test-framework >= 0.6 && < 0.9
   Extensions:        CPP
-  ghc-options:       -Wall -threaded -debug -eventlog -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
+  ghc-options:       -Wall -threaded -eventlog -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   HS-Source-Dirs:    tests
 
 Test-Suite TestCHInTCP
@@ -83,7 +83,7 @@ Test-Suite TestCHInTCP
   else
     Buildable:       False
   Extensions:        CPP
-  ghc-options:       -Wall -threaded -debug -eventlog -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
+  ghc-options:       -Wall -threaded -eventlog -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   HS-Source-Dirs:    tests
 
 
@@ -112,7 +112,7 @@ Test-Suite TestStats
                      network-transport-inmemory >= 0.5,
                      test-framework >= 0.6 && < 0.9
   Extensions:        CPP
-  ghc-options:       -Wall -debug -eventlog -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
+  ghc-options:       -Wall -eventlog -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   HS-Source-Dirs:    tests
 
 
@@ -127,7 +127,7 @@ Test-Suite TestMx
                      network-transport-inmemory >= 0.5,
                      test-framework >= 0.6 && < 0.9
   Extensions:        CPP
-  ghc-options:       -Wall -debug -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
+  ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   HS-Source-Dirs:    tests
 
 Test-Suite TestTracing
@@ -141,5 +141,5 @@ Test-Suite TestTracing
                      network-transport-inmemory >= 0.5,
                      test-framework >= 0.6 && < 0.9
   Extensions:        CPP
-  ghc-options:       -Wall -debug -eventlog -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
+  ghc-options:       -Wall -eventlog -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   HS-Source-Dirs:    tests
