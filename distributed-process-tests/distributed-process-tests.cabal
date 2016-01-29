@@ -35,6 +35,7 @@ library
                      network >= 2.5 && < 2.7,
                      random >= 1.0 && < 1.2,
                      rematch >= 0.1.2.1,
+                     setenv >= 0.1.1.3,
                      test-framework >= 0.6 && < 0.9,
                      test-framework-hunit >= 0.2.0 && < 0.4,
                      stm

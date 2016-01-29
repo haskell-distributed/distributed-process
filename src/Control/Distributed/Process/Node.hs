@@ -662,10 +662,13 @@ instance Show ProcessKillException where
     "killed-by=" ++ show pid ++ ",reason=" ++ reason
 
 ncSendToProcess :: ProcessId -> Message -> NC ()
-ncSendToProcess pid msg = do
+ncSendToProcess = ncSendToProcessAndTrace True
+
+ncSendToProcessAndTrace :: Bool -> ProcessId -> Message -> NC ()
+ncSendToProcessAndTrace shouldTrace pid msg = do
     node <- ask
     if processNodeId pid == localNodeId node
-      then ncEffectLocalSend node pid msg
+      then ncEffectLocalSendAndTrace shouldTrace node pid msg
       else liftIO $ sendBinary node
              (NodeIdentifier $ localNodeId node)
              (NodeIdentifier $ processNodeId pid)
@@ -946,14 +949,20 @@ ncEffectNamedSend :: String -> Message -> NC ()
 ncEffectNamedSend label msg = do
   mPid <- gets (^. registeredHereFor label)
   -- If mPid is Nothing, we just ignore the named send (as per Table 14)
-  forM_ mPid (`ncSendToProcess` msg)
+  forM_ mPid $ \to ->
+    -- If this is a trace message we don't trace it to avoid entering a loop
+    -- where trace messages produce more trace messages.
+    ncSendToProcessAndTrace (label /= "trace.logger") to msg
 
 -- [Issue #DP-20]
 ncEffectLocalSend :: LocalNode -> ProcessId -> Message -> NC ()
-ncEffectLocalSend node to msg =
+ncEffectLocalSend = ncEffectLocalSendAndTrace True
+
+ncEffectLocalSendAndTrace :: Bool -> LocalNode -> ProcessId -> Message -> NC ()
+ncEffectLocalSendAndTrace shouldTrace node to msg =
   liftIO $ withLocalProc node to $ \p -> do
     enqueue (processQueue p) msg
-    trace node (MxReceived to msg)
+    when shouldTrace $ trace node (MxReceived to msg)
 
 -- [Issue #DP-20]
 ncEffectLocalPortSend :: SendPortId -> Message -> NC ()
