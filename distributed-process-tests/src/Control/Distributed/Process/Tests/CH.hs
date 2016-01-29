@@ -1421,6 +1421,25 @@ testUnsafeNSend TestTransport{..} = do
 
   takeMVar clientDone
 
+testUnsafeNSendRemote :: TestTransport -> Assertion
+testUnsafeNSendRemote TestTransport{..} = do
+  clientDone <- newEmptyMVar
+
+  localNode1 <- newLocalNode testTransport initRemoteTable
+  localNode2 <- newLocalNode testTransport initRemoteTable
+
+  _ <- forkProcess localNode1 $ do
+    getSelfPid >>= register "foobar"
+    liftIO $ putMVar clientDone ()
+    () <- expect
+    liftIO $ putMVar clientDone ()
+
+  takeMVar clientDone
+  void $ runProcess localNode2 $ do
+    unsafeNSendRemote (localNodeId localNode1) "foobar" ()
+
+  takeMVar clientDone
+
 testUnsafeSendChan :: TestTransport -> Assertion
 testUnsafeSendChan TestTransport{..} = do
   serverAddr <- newEmptyMVar
@@ -1561,6 +1580,7 @@ tests testtrans = return [
       , testCase "TestUnsafeSend"      (testUnsafeSend          testtrans)
       , testCase "TestUnsafeUSend"     (testUnsafeUSend         testtrans)
       , testCase "TestUnsafeNSend"     (testUnsafeNSend         testtrans)
+      , testCase "TestUnsafeNSendRemote" (testUnsafeNSendRemote testtrans)
       , testCase "TestUnsafeSendChan"  (testUnsafeSendChan      testtrans)
       -- usend
       , testCase "USend"               (testUSend usend         testtrans 50)
