@@ -1,3 +1,37 @@
+2016-02-18 Facundo Domínguez <facundo.dominguez@tweag.io> 0.6.0
+
+* Have nsendRemote skip the transport for local communication.
+* Unsafe primitives for usend and nsendRemote.
+* Stop using the transport for local communication.
+* Skip the transport for whereisRemoteAsync and registerRemoteAsync.
+* Have nsendRemote skip the transport for local communication.
+* Have runProcess forward exceptions.
+* Reimport distributed-process-tests. d-p and d-p-test now can be kept in
+sync.
+* Add a stack.yaml file for building tests and d-p all at once conveniently.
+* Implement unreliable forward (uforward).
+* Add Functor instance for Match data type
+* Have `spawnAsync` not use the transport in the local case.
+* Fix monitor race in 'call'.
+* Add compatibility with ghc-7.10: support new typeable, loosen deps, write
+proper NFData instances, support new TH.
+* Kill processes on a local node upon closeLocalNode.
+* Fix getNodeStats function, see DP-97
+* Return size of the queue in ProcessInfo.
+* Implement unreliable send (usend).
+* Implement MonadFix instance for Process.
+* Introduce callLocal primitive.
+* Prevent message loss due to timeouts in CQueue.
+* More informative ProcessRegistrationException. Now includes the identifier
+of the process that owns the name, if any.
+* Avoid message loop between threads when tracing received messages.
+
+2015-06-15 Facundo Domínguez <facundo.dominguez@tweag.io> 0.5.5
+
+* Fix dependencies.
+* Add compatibility with GHC-7.10.
+* Fix various race conditions (DP-99, DP-103).
+
 2014-12-09  Tim Watson  <watson.timothy@gmail.com>  0.5.2
 
 * Fix docstring for `register`
