@@ -1385,6 +1385,26 @@ testUnsafeSend TestTransport{..} = do
 
   takeMVar clientDone
 
+testUnsafeUSend :: TestTransport -> Assertion
+testUnsafeUSend TestTransport{..} = do
+  serverAddr <- newEmptyMVar
+  clientDone <- newEmptyMVar
+
+  localNode <- newLocalNode testTransport initRemoteTable
+  void $ forkProcess localNode $ do
+    self <- getSelfPid
+    liftIO $ putMVar serverAddr self
+    clientAddr <- expect
+    unsafeUSend clientAddr ()
+
+  void $ forkProcess localNode $ do
+    serverPid <- liftIO $ takeMVar serverAddr
+    getSelfPid >>= unsafeUSend serverPid
+    () <- expect
+    liftIO $ putMVar clientDone ()
+
+  takeMVar clientDone
+
 testUnsafeNSend :: TestTransport -> Assertion
 testUnsafeNSend TestTransport{..} = do
   clientDone <- newEmptyMVar
@@ -1539,6 +1559,7 @@ tests testtrans = return [
       , testCase "TextCallLocal"       (testCallLocal           testtrans)
       -- Unsafe Primitives
       , testCase "TestUnsafeSend"      (testUnsafeSend          testtrans)
+      , testCase "TestUnsafeUSend"     (testUnsafeUSend         testtrans)
       , testCase "TestUnsafeNSend"     (testUnsafeNSend         testtrans)
       , testCase "TestUnsafeSendChan"  (testUnsafeSendChan      testtrans)
       -- usend
