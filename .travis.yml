@@ -21,15 +21,16 @@ before_install:
   - sed -i 's/^jobs:/-- jobs:/' $HOME/.cabal/config
 
 install:
-  - cabal install --jobs=2 --enable-tests --only-dependencies . distributed-process-tests/
+  - cabal install --jobs=2 --enable-tests --only-dependencies -ftcp . distributed-process-tests/
 
 script:
   - cabal install --jobs=2
   - cd distributed-process-tests/
-  - cabal configure --enable-tests
+  - cabal configure -ftcp --enable-tests
   - cabal build --jobs=2
   # skip intermittent tests Reconnect and SpawnReconnect
   - dist/build/TestCHInMemory/TestCHInMemory --plain -t '!Flaky'
+  - dist/build/TestCHInTCP/TestCHInTCP --plain -t '!Flaky'
   - dist/build/TestClosure/TestClosure --plain -t '!SpawnReconnect'
   - dist/build/TestStats/TestStats --plain
   - dist/build/TestMx/TestMx --plain
