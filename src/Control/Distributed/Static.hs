@@ -197,11 +197,18 @@
 -- >     sdictSendPort :: forall a. SerializableDict a -> SerializableDict (SendPort a)
 -- >     sdictSendPort SerializableDict = SerializableDict
 {-# LANGUAGE CPP #-}
+#if __GLASGOW_HASKELL__ >= 710
+{-# LANGUAGE StaticPointers #-}
+#endif
 module Control.Distributed.Static
   ( -- * Static values
     Static
   , staticLabel
   , staticApply
+#if __GLASGOW_HASKELL__ >= 710
+  , staticPtr
+  , staticApplyPtr
+#endif
     -- * Derived static combinators
   , staticCompose
   , staticSplit
@@ -251,20 +258,62 @@ import Data.Rank1Typeable
   , ANY3
   , ANY4
   , isInstanceOf
+#if __GLASGOW_HASKELL__ >= 710
+  , TypeRep
+#endif
   )
+
+-- Imports necessary to support StaticPtr
+#if __GLASGOW_HASKELL__ >= 710
+import qualified GHC.Exts as GHC (Any)
+import GHC.StaticPtr
+import GHC.Fingerprint.Type (Fingerprint(..))
+import System.IO.Unsafe (unsafePerformIO)
+import Data.Rank1Dynamic (unsafeToDynamic)
+import Unsafe.Coerce (unsafeCoerce)
+#endif
 
 --------------------------------------------------------------------------------
 -- Introducing static values                                                  --
 --------------------------------------------------------------------------------
 
+#if __GLASGOW_HASKELL__ >= 710
+-- | Static dynamic values
+--
+-- In the new proposal for static, the SPT contains these 'TypeRep's.
+-- In the current implemnentation however they do not, so we need to carry
+-- them ourselves. This is the TypeRep of @a@, /NOT/ of @StaticPtr a@.
+data SDynamic = SDynamic TypeRep (StaticPtr GHC.Any)
+  deriving (Typeable)
+
+instance Show SDynamic where
+  show (SDynamic typ ptr) =
+    "<<static " ++ spInfoName (staticPtrInfo ptr) ++ " :: " ++ show typ ++ ">>"
+
+instance Eq SDynamic where
+  SDynamic _ ptr1 == SDynamic _ ptr2 =
+    staticKey ptr1 == staticKey ptr2
+
+instance Ord SDynamic where
+  SDynamic _ ptr1 `compare` SDynamic _ ptr2 =
+    staticKey ptr1 `compare` staticKey ptr2
+#endif
+
 data StaticLabel =
     StaticLabel String
   | StaticApply !StaticLabel !StaticLabel
+#if __GLASGOW_HASKELL__ >= 710
+  | StaticPtr SDynamic
+#endif
   deriving (Eq, Ord, Typeable, Show)
 
 instance NFData StaticLabel where
   rnf (StaticLabel s) = rnf s
   rnf (StaticApply a b) = rnf a `seq` rnf b
+  -- There are no NFData instances for TypeRep or for StaticPtr :/
+#if __GLASGOW_HASKELL__ >= 710
+  rnf (StaticPtr (SDynamic _a _b)) = ()
+#endif
 
 -- | A static value. Static is opaque; see 'staticLabel' and 'staticApply'.
 newtype Static a = Static StaticLabel
@@ -288,6 +337,11 @@ putStaticLabel (StaticLabel string) =
   putWord8 0 >> put string
 putStaticLabel (StaticApply label1 label2) =
   putWord8 1 >> putStaticLabel label1 >> putStaticLabel label2
+#if __GLASGOW_HASKELL__ >= 710
+putStaticLabel (StaticPtr (SDynamic typ ptr)) =
+  let Fingerprint hi lo = staticKey ptr
+  in putWord8 2 >> put typ >> put hi >> put lo
+#endif
 
 getStaticLabel :: Get StaticLabel
 getStaticLabel = do
@@ -295,7 +349,23 @@ getStaticLabel = do
   case header of
     0 -> StaticLabel <$> get
     1 -> StaticApply <$> getStaticLabel <*> getStaticLabel
+#if __GLASGOW_HASKELL__ >= 710
+    2 -> do typ <- get
+            hi  <- get
+            lo  <- get
+            let key = Fingerprint hi lo
+            case unsaferLookupStaticPtr key of
+              Nothing  -> fail "StaticLabel.get: invalid pointer"
+              Just ptr -> return $ StaticPtr (SDynamic typ ptr)
+#endif
     _ -> fail "StaticLabel.get: invalid"
+
+#if __GLASGOW_HASKELL__ >= 710
+-- | We need to be able to lookup keys outside of the IO monad so that we
+-- can provide a 'Get' instance.
+unsaferLookupStaticPtr :: StaticKey -> Maybe (StaticPtr a)
+unsaferLookupStaticPtr = unsafePerformIO . unsafeLookupStaticPtr
+#endif
 
 -- | Create a primitive static value.
 --
@@ -307,6 +377,22 @@ staticLabel = Static . StaticLabel . force
 -- | Apply two static values
 staticApply :: Static (a -> b) -> Static a -> Static b
 staticApply (Static f) (Static x) = Static (StaticApply f x)
+
+#if __GLASGOW_HASKELL__ >= 710
+-- | Construct a static value from a static pointer
+--
+-- Since 0.3.4.0.
+staticPtr :: forall a. Typeable a => StaticPtr a -> Static a
+staticPtr x = Static . StaticPtr
+            $ SDynamic (typeOf (undefined :: a)) (unsafeCoerce x)
+
+-- | Apply a static pointer to a static value
+--
+-- Since 0.3.4.0.
+staticApplyPtr :: (Typeable a, Typeable b)
+               => StaticPtr (a -> b) -> Static a -> Static b
+staticApplyPtr = staticApply . staticPtr
+#endif
 
 --------------------------------------------------------------------------------
 -- Eliminating static values                                                  --
@@ -341,11 +427,15 @@ resolveStaticLabel rtable (StaticApply label1 label2) = do
   f <- resolveStaticLabel rtable label1
   x <- resolveStaticLabel rtable label2
   f `dynApply` x
+#if __GLASGOW_HASKELL__ >= 710
+resolveStaticLabel _ (StaticPtr (SDynamic typ ptr)) =
+  return $ unsafeToDynamic typ (deRefStaticPtr ptr)
+#endif
 
 -- | Resolve a static value
 unstatic :: Typeable a => RemoteTable -> Static a -> Either String a
-unstatic rtable (Static static) = do
-  dyn <- resolveStaticLabel rtable static
+unstatic rtable (Static label) = do
+  dyn <- resolveStaticLabel rtable label
   fromDynamic dyn
 
 --------------------------------------------------------------------------------
@@ -357,7 +447,7 @@ data Closure a = Closure !(Static (ByteString -> a)) !ByteString
   deriving (Eq, Ord, Typeable, Show)
 
 instance Typeable a => Binary (Closure a) where
-  put (Closure static env) = put static >> put env
+  put (Closure dec env) = put dec >> put env
   get = Closure <$> get <*> get
 
 #if MIN_VERSION_bytestring(0,10,0)
@@ -373,13 +463,13 @@ closure = Closure
 
 -- | Resolve a closure
 unclosure :: Typeable a => RemoteTable -> Closure a -> Either String a
-unclosure rtable (Closure static env) = do
-  f <- unstatic rtable static
+unclosure rtable (Closure dec env) = do
+  f <- unstatic rtable dec
   return (f env)
 
 -- | Convert a static value into a closure.
 staticClosure :: Typeable a => Static a -> Closure a
-staticClosure static = closure (staticConst static) empty
+staticClosure dec = closure (staticConst dec) empty
 
 --------------------------------------------------------------------------------
 -- Predefined static values                                                   --
