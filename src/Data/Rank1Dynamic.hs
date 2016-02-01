@@ -78,6 +78,7 @@ module Data.Rank1Dynamic
   , TypeError
   , dynTypeRep
   , dynApply
+  , unsafeToDynamic
   ) where
 
 import qualified GHC.Prim as GHC (Any)
@@ -100,6 +101,15 @@ instance Show Dynamic where
 -- | Introduce a dynamic value
 toDynamic :: Typeable a => a -> Dynamic
 toDynamic x = Dynamic (typeOf x) (unsafeCoerce x)
+
+-- | Construct a dynamic value with a user-supplied type rep
+--
+-- This function is unsafe because we have no way of verifying that the
+-- provided type representation matches the value.
+--
+-- Since 0.3.2.0.
+unsafeToDynamic :: TypeRep -> a -> Dynamic
+unsafeToDynamic typ x = Dynamic typ (unsafeCoerce x)
 
 -- | Eliminate a dynamic value
 fromDynamic :: Typeable a => Dynamic -> Either TypeError a
