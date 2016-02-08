@@ -83,13 +83,13 @@
 -- environment variable accepts the following flags, which enable tracing specific
 -- event types:
 --
--- p  = trace the spawning of new processes
--- d  = trace the death of processes
--- n  = trace registration of names (i.e., named processes)
--- u  = trace un-registration of names (i.e., named processes)
--- s  = trace the sending of messages to other processes
--- r  = trace the receipt of messages from other processes
--- l  = trace node up/down events
+--  * @p@ = trace the spawning of new processes
+--  * @d@ = trace the death of processes
+--  * @n@ = trace registration of names (i.e., named processes)
+--  * @u@ = trace un-registration of names (i.e., named processes)
+--  * @s@ = trace the sending of messages to other processes
+--  * @r@ = trace the receipt of messages from other processes
+--  * @l@ = trace node up/down events
 --
 -- Users of the /simplelocalnet/ Cloud Haskell backend should also note that
 -- because the trace file option only supports trace output from a single node
