@@ -149,6 +149,8 @@ import Data.Traversable (traverse)
 import Data.Accessor (Accessor, accessor, (^.), (^=), (^:))
 import qualified Data.Accessor.Container as DAC (mapMaybe)
 import Data.Foldable (forM_, mapM_)
+import qualified System.Timeout (timeout)
+
 
 -- $design
 --
@@ -186,13 +188,17 @@ import Data.Foldable (forM_, mapM_)
 -- finds that it had already sent a connection request to /A/. In this case /B/
 -- will accept the connection request from /A/ if /A/s endpoint address is
 -- smaller (lexicographically) than /B/s, and reject it otherwise. If it rejects
--- it, it sends a 'ConnectionRequestCrossed' message to /A/. (The
+-- it, it sends a 'ConnectionRequestCrossed' message to /A/. The
 -- lexicographical ordering is an arbitrary but convenient way to break the
--- tie.)
+-- tie. If a connection exists between /A/ and /B/ when /B/ rejects the request,
+-- /B/ will probe the connection to make sure it is healthy. If /A/ does not
+-- answer timely to the probe, /B/ will discard the connection.
 --
 -- When it receives a 'ConnectionRequestCrossed' message the /A/ thread that
 -- initiated the request just needs to wait until the /A/ thread that is dealing
--- with /B/'s connection request completes.
+-- with /B/'s connection request completes, unless there is a network failure.
+-- If there is a network failure, the initiator thread would timeout and return
+-- an error.
 --
 -- [Disconnecting]
 --
@@ -411,6 +417,9 @@ data ValidRemoteEndPointState = ValidRemoteEndPointState
   , _remoteMaxIncoming   :: !LightweightConnectionId
   , _remoteNextConnOutId :: !LightweightConnectionId
   ,  remoteSocket        :: !N.Socket
+     -- | When the connection is being probed, yields an IO action that can be
+     -- used to release any resources dedicated to the probing.
+  ,  remoteProbing       :: Maybe (IO ())
   ,  remoteSendLock      :: !(MVar ())
   }
 
@@ -440,6 +449,10 @@ data ControlHeader =
   | CloseConnection
     -- | Request to close the connection (see module description)
   | CloseSocket
+    -- | Message sent to probe a socket
+  | ProbeSocket
+    -- | Acknowledgement of the ProbeSocket message
+  | ProbeSocketAck
   deriving (Enum, Bounded, Show)
 
 -- | Response sent by /B/ to /A/ when /A/ tries to connect
@@ -737,9 +750,13 @@ apiCloseEndPoint transport evs ourEndPoint =
               void $ tryIO $ sendOn vst [ encodeInt32 CloseSocket
                                         , encodeInt32 (vst ^. remoteMaxIncoming)
                                         ]
+              -- Release probing resources if probing.
+              forM_ (remoteProbing vst) id
               tryCloseSocket (remoteSocket vst)
             return closed
           RemoteEndPointClosing resolved vst -> do
+            -- Release probing resources if probing.
+            forM_ (remoteProbing vst) id
             putMVar resolved ()
             sched theirEndPoint $ tryCloseSocket (remoteSocket vst)
             return closed
@@ -800,12 +817,14 @@ handleConnectionRequest transport sock = handle handleException $ do
         if not isNew
           then do
             void $ tryIO $ sendMany sock [encodeInt32 ConnectionRequestCrossed]
+            probeIfValid theirEndPoint
             tryCloseSocket sock
             return Nothing
           else do
             sendLock <- newMVar ()
             let vst = ValidRemoteEndPointState
                         {  remoteSocket        = sock
+                        ,  remoteProbing       = Nothing
                         ,  remoteSendLock      = sendLock
                         , _remoteOutgoing      = 0
                         , _remoteIncoming      = Set.empty
@@ -829,6 +848,34 @@ handleConnectionRequest transport sock = handle handleException $ do
 
     rethrowIfAsync :: Maybe AsyncException -> IO ()
     rethrowIfAsync = mapM_ throwIO
+
+    probeIfValid :: RemoteEndPoint -> IO ()
+    probeIfValid theirEndPoint = modifyMVar_ (remoteState theirEndPoint) $
+      \st -> case st of
+        RemoteEndPointValid
+          vst@(ValidRemoteEndPointState { remoteProbing = Nothing }) -> do
+            tid <- forkIO $ do
+              -- send probe
+              let params = transportParams transport
+              void $ tryIO $ System.Timeout.timeout
+                  (maybe (-1) id $ transportConnectTimeout params) $ do
+                sendMany (remoteSocket vst) [encodeInt32 ProbeSocket]
+                threadDelay maxBound
+              -- Discard the connection if this thread is not killed (i.e. the
+              -- probe ack does not arrive on time).
+              --
+              -- The thread handling incoming messages will detect the socket is
+              -- closed and will report the failure upwards.
+              tryCloseSocket (remoteSocket vst)
+              -- Waiting the probe ack and closing the socket is only needed in
+              -- platforms where TCP_USER_TIMEOUT is not available or when the
+              -- user does not set it. Otherwise the ack would be handled at the
+              -- TCP level and the the thread handling incoming messages would
+              -- get the error.
+
+            return $ RemoteEndPointValid
+              vst { remoteProbing = Just (killThread tid) }
+        _                       -> return st
 
 -- | Handle requests from a remote endpoint.
 --
@@ -882,6 +929,12 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
             Just CloseSocket -> do
               didClose <- recvInt32 sock >>= closeSocket sock
               unless didClose $ go sock
+            Just ProbeSocket -> do
+              forkIO $ sendMany sock [encodeInt32 ProbeSocketAck]
+              go sock
+            Just ProbeSocketAck -> do
+              stopProbing
+              go sock
             Nothing ->
               throwIO $ userError "Invalid control request"
 
@@ -978,6 +1031,8 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
               then
                 return (RemoteEndPointValid vst', Nothing)
               else do
+                -- Release probing resources if probing.
+                forM_ (remoteProbing vst) id
                 removeRemoteEndPoint (ourEndPoint, theirEndPoint)
                 -- Attempt to reply (but don't insist)
                 act <- schedule theirEndPoint $ do
@@ -998,6 +1053,8 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
               then do
                 return (RemoteEndPointClosing resolved vst, Nothing)
               else do
+                -- Release probing resources if probing.
+                forM_ (remoteProbing vst) id
                 removeRemoteEndPoint (ourEndPoint, theirEndPoint)
                 act <- schedule theirEndPoint $ tryCloseSocket sock
                 putMVar resolved ()
@@ -1020,6 +1077,15 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
     readMessage sock lcid =
       recvWithLength sock >>= writeChan ourChannel . Received (connId lcid)
 
+    -- Stop probing a connection as a result of receiving a probe ack.
+    stopProbing :: IO ()
+    stopProbing = modifyMVar_ theirState $ \st -> case st of
+      RemoteEndPointValid
+        vst@(ValidRemoteEndPointState { remoteProbing = Just stop }) -> do
+          stop
+          return $ RemoteEndPointValid vst { remoteProbing = Nothing }
+      _ -> return st
+
     -- Arguments
     ourChannel  = localChannel ourEndPoint
     theirState  = remoteState theirEndPoint
@@ -1037,11 +1103,15 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
           RemoteEndPointInit _ _ _ ->
             relyViolation (ourEndPoint, theirEndPoint)
               "handleIncomingMessages:prematureExit"
-          RemoteEndPointValid _ -> do
+          RemoteEndPointValid vst -> do
+            -- Release probing resources if probing.
+            forM_ (remoteProbing vst) id
             let code = EventConnectionLost (remoteAddress theirEndPoint)
             writeChan ourChannel . ErrorEvent $ TransportError code (show err)
             return (RemoteEndPointFailed err)
-          RemoteEndPointClosing resolved _ -> do
+          RemoteEndPointClosing resolved vst -> do
+            -- Release probing resources if probing.
+            forM_ (remoteProbing vst) id
             putMVar resolved ()
             return (RemoteEndPointFailed err)
           RemoteEndPointClosed ->
@@ -1081,23 +1151,38 @@ createConnectionTo :: TCPParameters
                     -> IO (RemoteEndPoint, LightweightConnectionId)
 createConnectionTo params ourEndPoint theirAddress hints = do
     -- @timer@ is an IO action that completes when the timeout expires.
-    timer <- case connectTimeout hints `mplus` transportConnectTimeout params of
+    timer <- case connTimeout of
               Just t -> do
                 mv <- newEmptyMVar
                 _ <- forkIO $ threadDelay t >> putMVar mv ()
                 return $ Just $ readMVar mv
               _      -> return Nothing
-    go timer
-  where
-    go timer = do
-      (theirEndPoint, isNew) <- mapIOException connectFailed $
-        findRemoteEndPoint ourEndPoint theirAddress RequestedByUs timer
+    go timer Nothing
 
+  where
+
+    connTimeout = connectTimeout hints `mplus` transportConnectTimeout params
+
+    -- The second argument indicates the response obtained to the last
+    -- connection request and the remote endpoint that was used.
+    go timer mr = do
+      (theirEndPoint, isNew) <- mapIOException connectFailed
+        (findRemoteEndPoint ourEndPoint theirAddress RequestedByUs timer)
+       `finally` case mr of
+         Just (theirEndPoint, ConnectionRequestCrossed) ->
+           modifyMVar_ (remoteState theirEndPoint) $
+             \rst -> case rst of
+               RemoteEndPointInit resolved _ _ -> do
+                 putMVar resolved ()
+                 removeRemoteEndPoint (ourEndPoint, theirEndPoint)
+                 return RemoteEndPointClosed
+               _ -> return rst
+         _ -> return ()
       if isNew
         then do
-          handle absorbAllExceptions $
-            setupRemoteEndPoint params (ourEndPoint, theirEndPoint) hints
-          go timer
+          mr' <- handle (absorbAllExceptions Nothing) $
+            setupRemoteEndPoint params (ourEndPoint, theirEndPoint) connTimeout
+          go timer (fmap ((,) theirEndPoint) mr')
         else do
           -- 'findRemoteEndPoint' will have increased 'remoteOutgoing'
           mapIOException connectFailed $ do
@@ -1128,26 +1213,27 @@ createConnectionTo params ourEndPoint theirAddress hints = do
     connectFailed :: IOException -> TransportError ConnectErrorCode
     connectFailed = TransportError ConnectFailed . show
 
-    absorbAllExceptions :: SomeException -> IO ()
-    absorbAllExceptions _ex =
-      return ()
+    absorbAllExceptions :: a -> SomeException -> IO a
+    absorbAllExceptions a _ex =
+      return a
 
 -- | Set up a remote endpoint
-setupRemoteEndPoint :: TCPParameters -> EndPointPair -> ConnectHints -> IO ()
-setupRemoteEndPoint params (ourEndPoint, theirEndPoint) hints = do
+setupRemoteEndPoint :: TCPParameters -> EndPointPair -> Maybe Int
+                    -> IO (Maybe ConnectionRequestResponse)
+setupRemoteEndPoint params (ourEndPoint, theirEndPoint) connTimeout = do
     result <- socketToEndPoint ourAddress
                                theirAddress
                                (tcpReuseClientAddr params)
                                (tcpNoDelay params)
                                (tcpKeepAlive params)
                                (tcpUserTimeout params)
-                               (connectTimeout hints
-                                 `mplus` transportConnectTimeout params)
+                               connTimeout
     didAccept <- case result of
       Right (sock, ConnectionRequestAccepted) -> do
         sendLock <- newMVar ()
         let vst = ValidRemoteEndPointState
                     {  remoteSocket        = sock
+                    ,  remoteProbing       = Nothing
                     ,  remoteSendLock      = sendLock
                     , _remoteOutgoing      = 0
                     , _remoteIncoming      = Set.empty
@@ -1177,6 +1263,7 @@ setupRemoteEndPoint params (ourEndPoint, theirEndPoint) hints = do
 
     when didAccept $ void $ forkIO $
       handleIncomingMessages (ourEndPoint, theirEndPoint)
+    return $ either (const Nothing) (Just . snd) result
   where
     ourAddress      = localAddress ourEndPoint
     theirAddress    = remoteAddress theirEndPoint
@@ -1523,6 +1610,8 @@ runScheduledAction (ourEndPoint, theirEndPoint) mvar = do
                       -> ValidRemoteEndPointState
                       -> IO RemoteState
     handleIOException ex vst = do
+      -- Release probing resources if probing.
+      forM_ (remoteProbing vst) id
       tryCloseSocket (remoteSocket vst)
       let code     = EventConnectionLost (remoteAddress theirEndPoint)
           err      = TransportError code (show ex)
