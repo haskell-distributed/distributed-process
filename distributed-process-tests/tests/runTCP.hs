@@ -16,9 +16,12 @@ import Test.Framework (defaultMainWithArgs)
 
 import Control.Concurrent (threadDelay)
 import System.Environment (getArgs)
+import System.IO
 
 main :: IO ()
 main = do
+    hSetBuffering stdout LineBuffering
+    hSetBuffering stderr LineBuffering
     Right (transport, internals) <-
       createTransportExposeInternals "127.0.0.1" "8080"
         defaultTCPParameters { transportConnectTimeout = Just 3000000 }
