@@ -1,3 +1,7 @@
+2016-02-16  Facundo Domínguez <facundo.dominguezy@tweag.io>  0.2.3
+
+* Update dependency bounds.
+
 # HEAD
 
 * Added initial GenServer module
