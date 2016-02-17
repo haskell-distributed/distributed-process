@@ -595,7 +595,12 @@ testCloseSelf newTransport = do
   -- Close the transport; now the second should no longer work
   closeTransport transport
   Left (TransportError SendFailed _) <- send conn3 ["ping"]
-  Left (TransportError ConnectFailed _) <- connect endpoint2 (address endpoint2) ReliableOrdered defaultConnectHints
+  Left r <- connect endpoint2 (address endpoint2) ReliableOrdered defaultConnectHints
+  case r of
+    TransportError ConnectFailed _ -> return ()
+    _ -> do putStrLn $ "Actual: " ++ show r
+            TransportError ConnectFailed _ <- return r
+            return ()
 
   return ()
 
