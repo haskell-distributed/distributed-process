@@ -1,18 +1,18 @@
 Name:          network-transport-tcp
-Version:       0.5.0
+Version:       0.5.1
 Cabal-Version: >=1.10
 Build-Type:    Simple
-License:       BSD3 
+License:       BSD3
 License-file:  LICENSE
 Copyright:     Well-Typed LLP, Tweag I/O Limited
 Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
-Maintainer:    edsko@well-typed.com, duncan@well-typed.com, watson.timothy@gmail.com
+maintainer:    Facundo Domínguez <facundo.dominguez@tweag.io>
 Stability:     experimental
 Homepage:      http://haskell-distributed.github.com
 Bug-Reports:   https://cloud-haskell.atlassian.net/browse/NTTCP
 Synopsis:      TCP instantiation of Network.Transport
-Description:   TCP instantiation of Network.Transport  
-Tested-With:   GHC==7.0.4 GHC==7.2.2 GHC==7.4.1 GHC==7.4.2 GHC==7.6.2
+Description:   TCP instantiation of Network.Transport
+Tested-With:   GHC==7.6.3 GHC==7.8.4 GHC==7.10.3
 Category:      Network
 extra-source-files: ChangeLog
 
