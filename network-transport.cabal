@@ -1,16 +1,16 @@
 Name:          network-transport
-Version:       0.4.3.0
+Version:       0.4.3.1
 Cabal-Version: >=1.6
 Build-Type:    Simple
-License:       BSD3 
+License:       BSD3
 License-File:  LICENSE
 Copyright:     Well-Typed LLP
 Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
-Maintainer:    edsko@well-typed.com, duncan@well-typed.com, watson.timothy@gmail.com
+Maintainer:    Facundo Domínguez <facundo.dominguez@tweag.io>
 Stability:     experimental
 Homepage:      http://haskell-distributed.github.com
 Bug-Reports:   https://cloud-haskell.atlassian.net/browse/NT
-Synopsis:      Network abstraction layer 
+Synopsis:      Network abstraction layer
 Description:   "Network.Transport" is a Network Abstraction Layer which provides
                the following high-level concepts:
                .
@@ -35,12 +35,12 @@ Description:   "Network.Transport" is a Network Abstraction Layer which provides
                .
                  * In addition to incoming messages, 'EndPoint's are notified of
                    other 'Event's such as new connections or broken connections.
-               . 
+               .
                This design was heavily influenced by the design of the Common
                Communication Interface
                (<http://www.olcf.ornl.gov/center-projects/common-communication-interface>).
                Important design goals are:
-               .     
+               .
                * Connections should be lightweight: it should be no problem to
                  create thousands of connections between endpoints.
                .
@@ -50,12 +50,12 @@ Description:   "Network.Transport" is a Network Abstraction Layer which provides
                * Error handling is "abstract": errors that originate from
                  implementation specific problems (such as "no more sockets" in
                  the TCP implementation) get mapped to generic errors
-                 ("insufficient resources") at the Transport level.  
+                 ("insufficient resources") at the Transport level.
                .
                This package provides the generic interface only; you will
                probably also want to install at least one transport
                implementation (network-transport-*).
-Tested-With:   GHC==7.0.4 GHC==7.2.2 GHC==7.4.1 GHC==7.4.2
+Tested-With:   GHC==7.6.3 GHC==7.8.4 GHC==7.10.3
 Category:      Network
 extra-source-files: ChangeLog
 
