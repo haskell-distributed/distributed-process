@@ -408,6 +408,7 @@ testTimeout TestTransport{..} = do
 -- | Test zero timeout
 testTimeout0 :: TestTransport -> Assertion
 testTimeout0 TestTransport{..} = do
+  putStrLn "point 0"
   serverAddr <- newEmptyMVar
   clientDone <- newEmptyMVar
   messagesSent <- newEmptyMVar
@@ -419,22 +420,33 @@ testTimeout0 TestTransport{..} = do
       -- Variation on the venerable ping server which uses a zero timeout
       -- Since we wait for all messages to be sent before doing this receive,
       -- we should nevertheless find the right message immediately
-      Just partner <- receiveTimeout 0 [match (\(Pong partner) -> return partner)]
+      r <- receiveTimeout 0 [match (\(Pong partner) -> return partner)]
+      liftIO $ putStrLn $ "received: " ++ show r
+      Just partner <- return r
       self <- getSelfPid
       send partner (Ping self)
     putMVar serverAddr addr
+    putStrLn "point 1"
 
   forkIO $ do
+    putStrLn "point 2"
     localNode <- newLocalNode testTransport initRemoteTable
+    putStrLn "point 3"
     server <- readMVar serverAddr
+    putStrLn "point 4"
     runProcess localNode $ do
+      liftIO $ putStrLn "point 5"
       pid <- getSelfPid
       -- Send a bunch of messages. A large number of messages that the server
       -- is not interested in, and then a single message that it wants
       replicateM_ 10000 $ send server "Irrelevant message"
+      liftIO $ putStrLn "point 6"
       send server (Pong pid)
+      liftIO $ putStrLn "point 7"
       liftIO $ putMVar messagesSent ()
+      liftIO $ putStrLn "point 8"
       Ping _ <- expect
+      liftIO $ putStrLn "point 9"
       liftIO $ putMVar clientDone ()
 
   takeMVar clientDone
