@@ -6,7 +6,7 @@ description:   Tests and test suite for Cloud Haskell libraries.
 license:       BSD3
 license-file:  LICENSE
 Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
-Maintainer:    watson.timothy@gmail.com, edsko@well-typed.com, duncan@well-typed.com
+Maintainer:    Facundo Domínguez <facundo.dominguez@tweag.io>
 copyright:     Well-Typed LLP
 category:      Control, Cloud Haskell
 build-type:    Simple
