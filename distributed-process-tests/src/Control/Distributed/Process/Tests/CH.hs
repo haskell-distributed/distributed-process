@@ -9,6 +9,7 @@ import Network.Transport.Test (TestTransport(..))
 import Data.Binary (Binary(..))
 import Data.Typeable (Typeable)
 import Data.Foldable (forM_)
+import Data.Function (fix)
 import Data.IORef
   ( readIORef
   , writeIORef
@@ -410,16 +411,14 @@ testTimeout0 :: TestTransport -> Assertion
 testTimeout0 TestTransport{..} = do
   serverAddr <- newEmptyMVar
   clientDone <- newEmptyMVar
-  messagesSent <- newEmptyMVar
 
   forkIO $ do
     localNode <- newLocalNode testTransport initRemoteTable
     addr <- forkProcess localNode $ do
-      liftIO $ readMVar messagesSent >> threadDelay 1000000
       -- Variation on the venerable ping server which uses a zero timeout
-      -- Since we wait for all messages to be sent before doing this receive,
-      -- we should nevertheless find the right message immediately
-      Just partner <- receiveTimeout 0 [match (\(Pong partner) -> return partner)]
+      partner <- fix $ \loop ->
+        receiveTimeout 0 [match (\(Pong partner) -> return partner)]
+          >>= maybe (liftIO (threadDelay 100000) >> loop) return
       self <- getSelfPid
       send partner (Ping self)
     putMVar serverAddr addr
@@ -433,7 +432,6 @@ testTimeout0 TestTransport{..} = do
       -- is not interested in, and then a single message that it wants
       replicateM_ 10000 $ send server "Irrelevant message"
       send server (Pong pid)
-      liftIO $ putMVar messagesSent ()
       Ping _ <- expect
       liftIO $ putMVar clientDone ()
 
