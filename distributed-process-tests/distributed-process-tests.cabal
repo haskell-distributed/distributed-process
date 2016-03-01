@@ -1,7 +1,7 @@
 name:          distributed-process-tests
 version:       0.4.4
 synopsis:      Tests and test support tools for distributed-process.
-homepage:      http://github.com/haskell-distributed/distributed-process-tests
+homepage:      http://github.com/haskell-distributed/distributed-process/tree/master/distributed-process-tests
 description:   Tests and test suite for Cloud Haskell libraries.
 license:       BSD3
 license-file:  LICENSE
