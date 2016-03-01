@@ -75,8 +75,8 @@ Library
   Exposed-Modules: Network.Transport,
                    Network.Transport.Util
                    Network.Transport.Internal
-  Extensions:      ForeignFunctionInterface, 
-                   RankNTypes, 
+  Extensions:      ForeignFunctionInterface,
+                   RankNTypes,
                    ScopedTypeVariables,
                    DeriveDataTypeable,
                    GeneralizedNewtypeDeriving,
