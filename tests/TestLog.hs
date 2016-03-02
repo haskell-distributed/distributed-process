@@ -59,7 +59,7 @@ testLoggingProcess = do
   where
     writeLog chan = liftIO . atomically . writeTChan chan
 
-testLogLevels :: (Log.Logger logger, ToLog tL)
+testLogLevels :: (Log.Logger logger, NFSerializable tL, ToLog tL)
               => MVar ()
               -> TChan String
               -> logger
@@ -126,7 +126,7 @@ tests transport = do
       testCase l (delayedAssertion ("Expected up to " ++ l)
                   ln True $ testLogLevels lck chan ch' Debug lvl rdr)
 
-    simpleShowToLog = (LogText . show)
+    simpleShowToLog = show
     messageToLog    = unsafeWrapMessage . show
     messageRaw      = unsafeWrapMessage
 

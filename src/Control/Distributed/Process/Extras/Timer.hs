@@ -36,7 +36,7 @@ module Control.Distributed.Process.Extras.Timer
   , flushTimer
   ) where
 
-import Control.DeepSeq (NFData)
+import Control.DeepSeq (NFData(..))
 import Control.Distributed.Process hiding (send)
 import Control.Distributed.Process.Serializable
 import Control.Distributed.Process.Extras.UnsafePrimitives (send)
@@ -56,12 +56,16 @@ data TimerConfig = Reset | Cancel
     deriving (Typeable, Generic, Eq, Show)
 instance Binary TimerConfig where
 instance NFData TimerConfig where
+  rnf tc = tc `seq` ()
+instance NFSerializable TimerConfig
 
 -- | represents a 'tick' event that timers can generate
 data Tick = Tick
     deriving (Typeable, Generic, Eq, Show)
 instance Binary Tick where
 instance NFData Tick where
+  rnf t = t `seq` ()
+instance NFSerializable Tick
 
 data SleepingPill = SleepingPill
     deriving (Typeable, Generic, Eq, Show)
