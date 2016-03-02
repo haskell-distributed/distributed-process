@@ -134,7 +134,7 @@ import Data.Time.Format (defaultTimeLocale)
 import System.Locale (defaultTimeLocale)
 #endif
 import System.Timeout (timeout)
-import Control.Monad (when)
+import Control.Monad (when, void)
 import Control.Monad.Reader (ask)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Catch
@@ -184,6 +184,7 @@ import Control.Distributed.Process.Internal.Types
   , SpawnRef(..)
   , ProcessSignal(..)
   , NodeMonitorNotification(..)
+  , ProcessMonitorNotification(..)
   , monitorCounter
   , spawnCounter
   , SendPort(..)
@@ -928,12 +929,21 @@ unlinkPort sport = do
 -- | Remove a monitor
 --
 -- This has the same synchronous/asynchronous nature as 'unlink'.
+--
+-- ProcessMonitorNotification messages for the given MonitorRef are removed from
+-- the mailbox.
 unmonitor :: MonitorRef -> Process ()
 unmonitor ref = do
   unmonitorAsync ref
   receiveWait [ matchIf (\(DidUnmonitor ref') -> ref' == ref)
                         (\_ -> return ())
               ]
+  -- Discard the notification if any. With the current NC implementation at most
+  -- one notification is in the mailbox for any given ref.
+  void $ receiveTimeout 0
+    [ matchIf (\(ProcessMonitorNotification ref' _ _) -> ref' == ref)
+              (const $ return ())
+    ]
 
 --------------------------------------------------------------------------------
 -- Exception handling                                                         --
