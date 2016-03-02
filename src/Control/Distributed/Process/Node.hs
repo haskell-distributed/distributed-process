@@ -177,10 +177,6 @@ import Control.Distributed.Process.Internal.Types
 import Control.Distributed.Process.Management.Internal.Agent
   ( mxAgentController
   )
-import qualified Control.Distributed.Process.Management.Internal.Table as Table
-  ( mxTableCoordinator
-  , startTableCoordinator
-  )
 import qualified Control.Distributed.Process.Management.Internal.Trace.Remote as Trace
   ( remoteTable
   )
@@ -304,8 +300,6 @@ startServiceProcesses node = do
   -- before /that/ process has started - this is a totally harmless race
   -- however, so we deliberably ignore it
   startDefaultTracer node
-  tableCoordinatorPid <- fork $ Table.startTableCoordinator fork
-  runProcess node $ register Table.mxTableCoordinator tableCoordinatorPid
   logger <- forkProcess node loop
   runProcess node $ do
     register "logger" logger

@@ -83,28 +83,8 @@
 -- system information. Agents maintain their own internal state privately (via a
 -- state transformer - see 'mxGetLocal' et al), however it is possible for
 -- agents to share additional data with each other (and the outside world)
--- using /data tables/.
---
--- Each agent is assigned its own data table, which acts as a shared map, where
--- the keys are @String@s and the values are @Serializable@ datum of whatever
--- type the agent or its clients stores.
---
--- Because an agent's /data table/ stores its values in raw 'Message' format,
--- it works effectively as an /un-typed dictionary/, into which data of varying
--- types can be fed and later retrieved. The upside of this is that different
--- keys can be mapped to various types without any additional work on the part
--- of the developer. The downside is that the code reading these values must
--- know in advance what type(s) to expect, and the API provides no additional
--- support for handling that.
---
--- Publishing is accomplished using the 'mxPublish' and 'mxSet' APIs, whilst
--- querying and deletion are handled by 'mxGet', 'mxClear', 'mxPurgeTable' and
--- 'mxDropTable' respectively.
---
--- When a management agent terminates, their tables are left in memory despite
--- termination, such that an agent may resume its role (by restarting) or have
--- its 'MxAgentId' taken over by another subsequent agent, leaving the data
--- originally captured in place.
+-- using whatever mechanism the user wishes, e.g., acidstate, or shared memory
+-- primitives.
 --
 -- [Defining Agents]
 --
@@ -194,10 +174,6 @@
 -- the event bus /and/ their own mailboxes, plus searching through the set of
 -- event sinks (for each agent) to determine the right handler for the event.
 --
--- Each management agent requires not only its own @Process@ (in which the agent
--- code is run), but also a peer process that provides its /data table/. These
--- data tables also have to be coordinated and manaaged on each agent's behalf.
---
 -- [Architecture Overview]
 --
 -- The architecture of the management event bus is internal and subject to
@@ -264,13 +240,6 @@ module Control.Distributed.Process.Management
   , mxGetLocal
   , mxUpdateLocal
   , liftMX
-    -- * Mx Data API
-  , mxPublish
-  , mxSet
-  , mxGet
-  , mxClear
-  , mxPurgeTable
-  , mxDropTable
   ) where
 
 import Control.Applicative ((<$>))
@@ -281,10 +250,7 @@ import Control.Concurrent.STM.TChan
   , TChan
   )
 import Control.Distributed.Process.Internal.Primitives
-  ( newChan
-  , nsend
-  , receiveWait
-  , matchChan
+  ( receiveWait
   , matchAny
   , matchSTM
   , unwrapMessage
@@ -303,14 +269,12 @@ import Control.Distributed.Process.Internal.Types
   , unsafeCreateUnencodedMessage
   )
 import Control.Distributed.Process.Management.Internal.Bus (publishEvent)
-import qualified Control.Distributed.Process.Management.Internal.Table as Table
 import Control.Distributed.Process.Management.Internal.Types
   ( MxAgentId(..)
   , MxAgent(..)
   , MxAction(..)
   , ChannelSelector(..)
   , MxAgentState(..)
-  , MxAgentStart(..)
   , MxSink
   , MxEvent(..)
   )
@@ -333,42 +297,6 @@ mxNotify :: (Serializable a) => a -> Process ()
 mxNotify msg = do
   bus <- localEventBus . processNode <$> ask
   liftIO $ publishEvent bus $ unsafeCreateUnencodedMessage msg
-
--- | Publish an arbitrary @Message@ as a property in the management database.
---
--- For publishing @Serializable@ data, use 'mxSet' instead.
---
-mxPublish :: MxAgentId -> String -> Message -> Process ()
-mxPublish a k v = Table.set k v (Table.MxForAgent a)
-
--- | Sets an arbitrary @Serializable@ datum against a key in the management
--- database. Note that /no attempt is made to force the argument/, therefore
--- it is very important that you do not pass unevaluated thunks that might
--- crash some other, arbitrary process (or management agent!) that obtains
--- and attempts to force the value later on.
---
-mxSet :: Serializable a => MxAgentId -> String -> a -> Process ()
-mxSet mxId key msg = do
-  Table.set key (unsafeCreateUnencodedMessage msg) (Table.MxForAgent mxId)
-
--- | Fetches a property from the management database for the given key.
--- If the property is not set, or does not match the expected type when
--- typechecked (at runtime), returns @Nothing@.
-mxGet :: Serializable a => MxAgentId -> String -> Process (Maybe a)
-mxGet = Table.fetch . Table.MxForAgent
-
--- | Clears a property from the management database using the given key.
--- If the key does not exist in the database, this is a noop.
-mxClear :: MxAgentId -> String -> Process ()
-mxClear mxId key = Table.clear key (Table.MxForAgent mxId)
-
--- | Purges a table in the management database of all its stored properties.
-mxPurgeTable :: MxAgentId -> Process ()
-mxPurgeTable = Table.purge . Table.MxForAgent
-
--- | Deletes a table from the management database.
-mxDropTable :: MxAgentId -> Process ()
-mxDropTable = Table.delete . Table.MxForAgent
 
 --------------------------------------------------------------------------------
 -- API for writing user defined management extensions (i.e., agents)          --
@@ -489,10 +417,7 @@ mxAgentWithFinalize mxId initState handlers dtor = do
         return pid
   where
     start (sendTChan, recvTChan) = do
-      (sp, rp) <- newChan
-      nsend Table.mxTableCoordinator (MxAgentStart sp mxId)
-      tablePid <- receiveWait [ matchChan rp (\(p :: ProcessId) -> return p) ]
-      let nState = MxAgentState mxId sendTChan tablePid initState
+      let nState = MxAgentState mxId sendTChan initState
       runAgent dtor handlers InputChan recvTChan nState
 
     runAgent :: MxAgent s ()

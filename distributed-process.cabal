@@ -76,7 +76,6 @@ Library
                      Control.Distributed.Process.UnsafePrimitives
                      Control.Distributed.Process.Management.Internal.Agent,
                      Control.Distributed.Process.Management.Internal.Bus,
-                     Control.Distributed.Process.Management.Internal.Table,
                      Control.Distributed.Process.Management.Internal.Types,
                      Control.Distributed.Process.Management.Internal.Trace.Primitives,
                      Control.Distributed.Process.Management.Internal.Trace.Remote,
