@@ -159,12 +159,8 @@ module Control.Distributed.Process
   , reconnectPort
   ) where
 
-#if ! MIN_VERSION_base(4,6,0)
-import Prelude hiding (catch)
-#endif
-
 import Control.Monad.IO.Class (liftIO)
-import Control.Applicative ((<$>))
+import Control.Applicative
 import Control.Monad.Reader (ask)
 import Control.Concurrent.MVar
   ( MVar
@@ -316,7 +312,13 @@ import Control.Distributed.Process.Internal.Spawn
   , spawnSupervised
   , call
   )
-import Control.Exception (SomeException, throw)
+import qualified Control.Monad.Catch as Catch
+
+#if MIN_VERSION_base(4,6,0)
+import Prelude
+#else
+import Prelude hiding (catch)
+#endif
 
 -- INTERNAL NOTES
 --
@@ -413,9 +415,9 @@ spawnChannelLocal proc = do
 -- or duplicate messages sent to the isolated process after it exits.
 -- Silently dropping messages may not always be the best approach.
 callLocal :: Process a -> Process a
-callLocal proc = mask $ \release -> do
-    mv    <- liftIO newEmptyMVar :: Process (MVar (Either SomeException a))
-    child <- spawnLocal $ try (release proc) >>= liftIO . putMVar mv
-    rs <- liftIO (takeMVar mv) `onException`
+callLocal proc = Catch.mask $ \release -> do
+    mv    <- liftIO newEmptyMVar :: Process (MVar (Either Catch.SomeException a))
+    child <- spawnLocal $ Catch.try (release proc) >>= liftIO . putMVar mv
+    rs <- liftIO (takeMVar mv) `Catch.onException`
             (kill child "exception in parent process" >> liftIO (takeMVar mv))
-    either throw return rs
+    either Catch.throwM return rs

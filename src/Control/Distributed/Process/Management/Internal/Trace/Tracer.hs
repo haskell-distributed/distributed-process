@@ -11,7 +11,7 @@ module Control.Distributed.Process.Management.Internal.Trace.Tracer
   , eventLogTracer
   ) where
 
-import Control.Applicative ((<$>))
+import Control.Applicative
 import Control.Concurrent.Chan (writeChan)
 import Control.Concurrent.MVar
   ( MVar
@@ -21,9 +21,7 @@ import Control.Distributed.Process.Internal.CQueue
   ( CQueue
   )
 import Control.Distributed.Process.Internal.Primitives
-  ( catch
-  , finally
-  , die
+  ( die
   , receiveWait
   , forward
   , sendChan
@@ -63,6 +61,10 @@ import Control.Distributed.Process.Internal.Types
 
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (ask)
+import Control.Monad.Catch
+  ( catch
+  , finally
+  )
 
 import Data.Set (Set)
 import qualified Data.Set as Set
@@ -73,6 +75,7 @@ import Data.Maybe (fromMaybe)
 import Data.Time.Clock (getCurrentTime)
 import Data.Time.Format (formatTime)
 import Debug.Trace (traceEventIO)
+import Prelude
 
 #if ! MIN_VERSION_base(4,6,0)
 import Prelude hiding (catch)
