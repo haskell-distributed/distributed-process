@@ -5,12 +5,10 @@
 {-# LANGUAGE DeriveGeneric   #-}
 module Control.Distributed.Process.Management.Internal.Types
   ( MxAgentId(..)
-  , MxTableId(..)
   , MxAgentState(..)
   , MxAgent(..)
   , MxAction(..)
   , ChannelSelector(..)
-  , MxAgentStart(..)
   , Fork
   , MxSink
   , MxEvent(..)
@@ -100,17 +98,10 @@ type Fork = (Process () -> IO ProcessId)
 newtype MxAgentId = MxAgentId { agentId :: String }
   deriving (Typeable, Binary, Eq, Ord)
 
-data MxTableId =
-    MxForAgent !MxAgentId
-  | MxForPid   !ProcessId
-  deriving (Typeable, Generic)
-instance Binary MxTableId where
-
 data MxAgentState s = MxAgentState
                       {
                         mxAgentId     :: !MxAgentId
                       , mxBus         :: !(TChan Message)
-                      , mxSharedTable :: !ProcessId
                       , mxLocalState  :: !s
                       }
 
@@ -127,14 +118,6 @@ newtype MxAgent s a =
              , Typeable
              , Applicative
              )
-
-data MxAgentStart = MxAgentStart
-                    {
-                      mxAgentTableChan :: SendPort ProcessId
-                    , mxAgentIdStart   :: MxAgentId
-                    }
-  deriving (Typeable, Generic)
-instance Binary MxAgentStart where
 
 data ChannelSelector = InputChan | Mailbox
 
