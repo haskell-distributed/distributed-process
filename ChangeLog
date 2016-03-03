@@ -1,3 +1,7 @@
+2016-03-03 Facundo Domínguez <facundo.dominguez@tweag.io> 0.6.1
+
+* Implement MonadCatch, MonadThrow, MonadMask for Process.
+
 2016-02-18 Facundo Domínguez <facundo.dominguez@tweag.io> 0.6.0
 
 * Have nsendRemote skip the transport for local communication.
