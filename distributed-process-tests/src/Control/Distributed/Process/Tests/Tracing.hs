@@ -19,6 +19,7 @@ import Control.Distributed.Process.Node
 import Control.Distributed.Process.Debug
 import Control.Distributed.Process.Management
   ( MxEvent(..)
+  , Destination(..)
   )
 import qualified Control.Exception as IO (bracket)
 import Data.List (isPrefixOf, isSuffixOf)
@@ -124,10 +125,11 @@ testTraceSending result = do
     withTracer
       (\ev ->
         case ev of
-          (MxSent to from msg) -> do
-            (Just s) <- unwrapMessage msg :: Process (Maybe String)
-            stash res (to == pid && from == self && s == "hello there")
-            stash res (to == pid && from == self)
+          MxSent{..} -> do
+            let to = procId whereTo
+            (Just s) <- unwrapMessage message :: Process (Maybe String)
+            stash res (to == pid && whichProcess == self && s == "hello there")
+            stash res (to == pid && whichProcess == self)
           _ ->
             return ()) $ do
         send pid "hello there"

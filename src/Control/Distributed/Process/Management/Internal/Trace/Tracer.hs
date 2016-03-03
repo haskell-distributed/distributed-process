@@ -154,7 +154,7 @@ systemLoggerTracer = do
       traceMsg <- return $ NCMsg {
                              ctrlMsgSender = ProcessIdentifier (emptyPid)
                            , ctrlMsgSignal = (NamedSend "trace.logger"
-                                                 (createUnencodedMessage msg))
+                                             (createUnencodedMessage msg))
                            }
       liftIO $ writeChan (localCtrlChan node) traceMsg
 
@@ -332,6 +332,10 @@ traceEv ev msg (Just (TraceProcs pids)) st = do
 traceEv ev msg (Just (TraceNames names)) st = do
   -- if we have recorded regnames for p, then we forward the trace iif
   -- there are overlapping trace targets
+
+  -- NB: this will now be broken for instances of Destination that cannot be resolved
+  --     need to re-examine this branch of the tracing code to understand what the
+  --     impact of that will actually be...
   node <- processNode <$> ask
   let p = case resolveToPid ev of
             Nothing  -> (nullProcessId (localNodeId node))

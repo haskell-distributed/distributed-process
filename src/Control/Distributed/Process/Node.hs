@@ -943,7 +943,7 @@ ncEffectNamedSend :: String -> Message -> NC ()
 ncEffectNamedSend label msg = do
   mPid <- gets (^. registeredHereFor label)
   -- If mPid is Nothing, we just ignore the named send (as per Table 14)
-  forM_ mPid $ \to ->
+  forM_ mPid $ \to -> do
     -- If this is a trace message we don't trace it to avoid entering a loop
     -- where trace messages produce more trace messages.
     ncSendToProcessAndTrace (label /= "trace.logger") to msg
