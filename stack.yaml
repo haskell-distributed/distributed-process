@@ -2,19 +2,13 @@ resolver: nightly-2016-03-02
 packages:
 - .
 - location:
-    git: https://github.com/haskell-distributed/distributed-static.git
-    commit: HEAD
-- location:
-    git: https://github.com/haskell-distributed/rank1dynamic.git
-    commit: HEAD
-- location:
-    git: https://github.com/haskell-distributed/distributed-process.git
-    commit: HEAD
-- location:
     git: https://github.com/haskell-distributed/distributed-process-systest.git
-    commit: HEAD
+    commit: 6b8749fd38141425e6b677d5a5137b3fe09cc127
 
 extra-deps:
-- network-transport-tcp-0.4.2
+- rank1dynamic-0.3.2.0
+- distributed-static-0.3.4.0
+- distributed-process-0.6.1
+- network-transport-tcp-0.4.3.1
 - rematch-0.2.0.0
 
