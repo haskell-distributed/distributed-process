@@ -47,8 +47,8 @@ prop_fifo_enqueue a b c =
       Just (a', q2) = FIFO.dequeue q1
       Just (b', q3) = FIFO.dequeue q2
       Just (c', q4) = FIFO.dequeue q3
-      Nothing       = FIFO.dequeue q4
-  in q4 `seq` [a',b',c'] == [a,b,c]  -- why seq here? to shut the compiler up.
+      d             = FIFO.dequeue q4
+  in (d == Nothing) && (q4 `seq` [a',b',c'] == [a,b,c])  -- why seq here? to shut the compiler up.
 
 prop_enqueue_empty :: String -> Bool
 prop_enqueue_empty s =

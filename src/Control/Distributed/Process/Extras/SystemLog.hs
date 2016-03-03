@@ -69,7 +69,7 @@ module Control.Distributed.Process.Extras.SystemLog
   ) where
 
 import Control.DeepSeq (NFData(..))
-import Control.Distributed.Process
+import Control.Distributed.Process hiding (catch)
 import Control.Distributed.Process.Management
   ( MxEvent(MxConnected, MxDisconnected, MxLog, MxUser)
   , MxAgentId(..)
@@ -89,6 +89,7 @@ import Control.Distributed.Process.Extras
   )
 import Control.Distributed.Process.Serializable
 import Control.Exception (SomeException)
+import Control.Monad.Catch (catch)
 import Data.Accessor
   ( Accessor
   , accessor

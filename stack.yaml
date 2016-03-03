@@ -10,6 +10,9 @@ packages:
 - location:
     git: https://github.com/haskell-distributed/distributed-process.git
     commit: HEAD
+- location:
+    git: https://github.com/haskell-distributed/distributed-process-systest.git
+    commit: HEAD
 
 extra-deps:
 - network-transport-tcp-0.4.2
