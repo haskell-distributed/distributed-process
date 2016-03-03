@@ -39,6 +39,7 @@ library
                    time > 1.4 && < 1.6,
                    transformers >= 0.2 && < 0.5
   extensions:      CPP
+  other-extensions: ExistentialQuantification
   ghc-options:      -Wall
   HS-Source-Dirs:    src
   exposed-modules:

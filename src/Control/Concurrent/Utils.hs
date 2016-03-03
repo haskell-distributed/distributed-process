@@ -1,65 +1,42 @@
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE ScopedTypeVariables   #-}
-
+{-# LANGUAGE ExistentialQuantification #-}
 module Control.Concurrent.Utils
   ( Lock()
-  , Exclusive(..)
-  , Synchronised(..)
+  , mkExclusiveLock
+  , mkQLock
   , withLock
   ) where
 
-import Control.Distributed.Process
-  ( Process
-  )
-import qualified Control.Distributed.Process as Process (catch)
-import Control.Exception (SomeException, throw)
-import qualified Control.Exception as Exception (catch)
+import Control.Monad.Catch (MonadMask)
+import qualified Control.Monad.Catch as Catch
 import Control.Concurrent.MVar
-  ( MVar
-  , tryPutMVar
-  , newMVar
+  ( newMVar
   , takeMVar
+  , putMVar
   )
+import Control.Concurrent.QSem
 import Control.Monad.IO.Class (MonadIO, liftIO)
 
-newtype Lock = Lock { mvar :: MVar () }
+-- | Opaque lock.
+data Lock = forall l . Lock l (l -> IO ()) (l -> IO ())
 
-class Exclusive a where
-  new          :: IO a
-  acquire      :: (MonadIO m) => a -> m ()
-  release      :: (MonadIO m) => a -> m ()
+-- | Take a lock.
+acquire :: MonadIO m => Lock -> m ()
+acquire (Lock l acq _) = liftIO $ acq l
 
-instance Exclusive Lock where
-  new       = return . Lock =<< newMVar ()
-  acquire   = liftIO . takeMVar . mvar
-  release l = liftIO (tryPutMVar (mvar l) ()) >> return ()
+-- | Release lock.
+release :: MonadIO m => Lock -> m ()
+release (Lock l _ rel) = liftIO $ rel l
 
-class Synchronised e m where
-  synchronised :: (Exclusive e, Monad m) => e -> m b -> m b
+-- | Create exclusive lock. Only one process could take such lock.
+mkExclusiveLock :: IO Lock
+mkExclusiveLock = Lock <$> newMVar () <*> pure takeMVar <*> pure (flip putMVar ())
 
-  synchronized :: (Exclusive e, Monad m) => e -> m b -> m b
-  synchronized = synchronised
+-- | Create quantity lock. A fixed number of processes can take this lock simultaniously.
+mkQLock :: Int -> IO Lock
+mkQLock n = Lock <$> newQSem n <*> pure waitQSem <*> pure signalQSem
 
-instance Synchronised Lock IO where
-  synchronised = withLock
-
-instance Synchronised Lock Process where
-  synchronised = withLockP
-
-withLockP :: (Exclusive e) => e -> Process a -> Process a
-withLockP excl act = do
-  Process.catch (do { liftIO $ acquire excl
-                    ; result <- act
-                    ; liftIO $ release excl
-                    ; return result
-                    })
-                (\(e :: SomeException) -> (liftIO $ release excl) >> throw e)
-
-withLock :: (Exclusive e) => e -> IO a -> IO a
-withLock excl act = do
-  Exception.catch (do { acquire excl
-                      ; result <- act
-                      ; release excl
-                      ; return result
-                      })
-                  (\(e :: SomeException) -> release excl >> throw e)
+-- | Run action under a held lock.
+withLock :: (MonadMask m, MonadIO m) => Lock -> m a -> m a
+withLock excl =
+  Catch.bracket_  (acquire excl)
+                  (release excl)
