@@ -1,9 +1,6 @@
 language: c
 
 sudo: false
-cache:
-  directories:
-  - $HOME/.stack/
 
 matrix:
   include:
@@ -17,13 +14,14 @@ before_install:
   - export PATH=~/.local/bin:$PATH
   - travis_retry curl -L https://www.stackage.org/stack/linux-x86_64 | tar -xzO --wildcards '*/stack' > ~/.local/bin/stack
   - chmod a+x ~/.local/bin/stack
+  - export PATH=/opt/ghc/$GHCVER/bin:/opt/cabal/$CABALVER/bin:$PATH
 
 install:
-  - stack -j 2 setup --no-terminal
-  - stack -j 2 build --only-snapshot --no-terminal
+  - stack -j 2 setup --no-terminal --system-ghc --skip-ghc-check
+  - stack -j 2 build --no-terminal --system-ghc
 
 script:
-  - stack -j 2 test --no-terminal
+  - stack -j 2 test --no-terminal --system-ghc
 
 notifications:
   slack:
