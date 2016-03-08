@@ -340,7 +340,7 @@ handleCallFromIf cond handler
 -- reply to the @SendPort@.
 --
 handleRpcChan :: forall s a b . (Serializable a, Serializable b)
-              => (SendPort b -> CastHandler s a)
+              => (SendPort b -> ActionHandler s a)
               -> Dispatcher s
 handleRpcChan = handleRpcChanIf $ input (const True)
 
@@ -349,7 +349,7 @@ handleRpcChan = handleRpcChanIf $ input (const True)
 --
 handleRpcChanIf :: forall s a b . (Serializable a, Serializable b)
                 => Condition s a
-                -> (SendPort b -> CastHandler s a)
+                -> (SendPort b -> ActionHandler s a)
                 -> Dispatcher s
 handleRpcChanIf c h
   = DispatchIf {
@@ -357,7 +357,7 @@ handleRpcChanIf c h
     , dispatchIf = checkRpc c
     }
   where doHandle :: (Serializable a, Serializable b)
-                 => (SendPort b -> CastHandler s a)
+                 => (SendPort b -> ActionHandler s a)
                  -> s
                  -> Message a b
                  -> Process (ProcessAction s)
@@ -412,7 +412,7 @@ handleCastIf cond h
 --
 handleControlChan :: forall s a . (Serializable a)
     => ControlChannel a -- ^ the receiving end of the control channel
-    -> CastHandler s a
+    -> ActionHandler s a
        -- ^ an action yielding function over the process state and input message
     -> Dispatcher s
 handleControlChan chan h
@@ -463,14 +463,14 @@ action :: forall s a . (Serializable a)
           -- ^ a function from the input message to a /stateless action/, cf 'continue_'
     -> Dispatcher s
 action h = handleDispatch perform
-  where perform :: CastHandler s a
+  where perform :: ActionHandler s a
         perform s a = let f = h a in f s
 
 -- | Constructs a handler for both /call/ and /cast/ messages.
 -- @handleDispatch = handleDispatchIf (const True)@
 --
 handleDispatch :: forall s a . (Serializable a)
-               => CastHandler s a
+               => ActionHandler s a
                -> Dispatcher s
 handleDispatch = handleDispatchIf $ input (const True)
 
@@ -481,14 +481,14 @@ handleDispatch = handleDispatchIf $ input (const True)
 --
 handleDispatchIf :: forall s a . (Serializable a)
                  => Condition s a
-                 -> CastHandler s a
+                 -> ActionHandler s a
                  -> Dispatcher s
 handleDispatchIf cond handler = DispatchIf {
       dispatch = doHandle handler
     , dispatchIf = check cond
     }
   where doHandle :: (Serializable a)
-                 => CastHandler s a
+                 => ActionHandler s a
                  -> s
                  -> Message a ()
                  -> Process (ProcessAction s)
@@ -502,12 +502,12 @@ handleDispatchIf cond handler = DispatchIf {
 -- sent using the 'cast' or 'call' APIs) from an ordinary function in the
 -- 'Process' monad.
 handleInfo :: forall s a. (Serializable a)
-           => CastHandler s a
+           => ActionHandler s a
            -> DeferredDispatcher s
 handleInfo h = DeferredDispatcher { dispatchInfo = doHandleInfo h }
   where
     doHandleInfo :: forall s2 a2. (Serializable a2)
-                             => (s2 -> a2 -> Process (ProcessAction s2))
+                             => ActionHandler s2 a2
                              -> s2
                              -> P.Message
                              -> Process (Maybe (ProcessAction s2))
@@ -515,7 +515,7 @@ handleInfo h = DeferredDispatcher { dispatchInfo = doHandleInfo h }
 
 -- | Handle completely /raw/ input messages.
 --
-handleRaw :: forall s. (s -> P.Message -> Process (ProcessAction s))
+handleRaw :: forall s. ActionHandler s P.Message
           -> DeferredDispatcher s
 handleRaw h = DeferredDispatcher { dispatchInfo = doHandle h }
   where
@@ -524,30 +524,30 @@ handleRaw h = DeferredDispatcher { dispatchInfo = doHandle h }
 -- | Creates an /exit handler/ scoped to the execution of any and all the
 -- registered call, cast and info handlers for the process.
 handleExit :: forall s a. (Serializable a)
-           => (s -> ProcessId -> a -> Process (ProcessAction s))
+           => (ProcessId -> ActionHandler s a)
            -> ExitSignalDispatcher s
 handleExit h = ExitSignalDispatcher { dispatchExit = doHandleExit h }
   where
-    doHandleExit :: (s -> ProcessId -> a -> Process (ProcessAction s))
+    doHandleExit :: (ProcessId -> ActionHandler s a)
                  -> s
                  -> ProcessId
                  -> P.Message
                  -> Process (Maybe (ProcessAction s))
-    doHandleExit h' s p msg = handleMessage msg (h' s p)
+    doHandleExit h' s p msg = handleMessage msg (h' p s)
 
 handleExitIf :: forall s a . (Serializable a)
              => (s -> a -> Bool)
-             -> (s -> ProcessId -> a -> Process (ProcessAction s))
+             -> (ProcessId -> ActionHandler s a)
              -> ExitSignalDispatcher s
 handleExitIf c h = ExitSignalDispatcher { dispatchExit = doHandleExit c h }
   where
     doHandleExit :: (s -> a -> Bool)
-                 -> (s -> ProcessId -> a -> Process (ProcessAction s))
+                 -> (ProcessId -> ActionHandler s a)
                  -> s
                  -> ProcessId
                  -> P.Message
                  -> Process (Maybe (ProcessAction s))
-    doHandleExit c' h' s p msg = handleMessageIf msg (c' s) (h' s p)
+    doHandleExit c' h' s p msg = handleMessageIf msg (c' s) (h' p s)
 
 -- handling 'reply-to' in the main process loop is awkward at best,
 -- so we handle it here instead and return the 'action' to the loop

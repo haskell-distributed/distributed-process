@@ -224,7 +224,7 @@ handleInfo h = Server.handleInfo (wrapHandler h)
 handleExit :: forall s a. (Serializable a)
            => (a -> RestrictedProcess s RestrictedAction)
            -> ExitSignalDispatcher s
-handleExit h = Server.handleExit $ \s _ a -> (wrapHandler h) s a
+handleExit h = Server.handleExit $ \_ s a -> (wrapHandler h) s a
 
 handleTimeout :: forall s . (Delay -> RestrictedProcess s RestrictedAction)
                          -> TimeoutHandler s
@@ -242,9 +242,7 @@ handleTimeout h = \s d -> do
 
 wrapHandler :: forall s a . (Serializable a)
             => (a -> RestrictedProcess s RestrictedAction)
-            -> s
-            -> a
-            -> Process (ProcessAction s)
+            -> ActionHandler s a
 wrapHandler h s a = do
   (r, s') <- runRestricted s (h a)
   case r of
@@ -255,9 +253,7 @@ wrapHandler h s a = do
 
 wrapCall :: forall s a b . (Serializable a, Serializable b)
             => (a -> RestrictedProcess s (Result b))
-            -> s
-            -> a
-            -> Process (ProcessReply b s)
+            -> CallHandler s a b
 wrapCall h s a = do
   (r, s') <- runRestricted s (h a)
   case r of

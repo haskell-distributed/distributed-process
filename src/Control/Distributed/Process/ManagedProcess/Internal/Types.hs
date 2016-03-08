@@ -14,6 +14,8 @@ module Control.Distributed.Process.ManagedProcess.Internal.Types
   , Condition(..)
   , ProcessAction(..)
   , ProcessReply(..)
+  , ActionHandler
+  , ReplyHandler
   , CallHandler
   , CastHandler
   , DeferredCallHandler
@@ -155,27 +157,33 @@ data Condition s m =
   | State     (s -> Bool)       -- ^ predicated on the process state only
   | Input     (m -> Bool)       -- ^ predicated on the input message only
 
+-- | An expression used to handle a message.
+type ActionHandler s a = s -> a -> Process (ProcessAction s)
+
+-- | An expression used to handle a message and providing a reply.
+type ReplyHandler s a b = s -> a -> Process (ProcessReply b s)
+
 -- | An expression used to handle a /call/ message.
-type CallHandler s a b = s -> a -> Process (ProcessReply b s)
+type CallHandler s a b = ReplyHandler s a b
 
 -- | An expression used to handle a /call/ message where the reply is deferred
 -- via the 'CallRef'.
-type DeferredCallHandler s a b = s -> CallRef b -> a -> Process (ProcessReply b s)
+type DeferredCallHandler s a b = CallRef b -> CallHandler s a b
 
 -- | An expression used to handle a /call/ message in a stateless process.
-type StatelessCallHandler a b = a -> CallRef b -> Process (ProcessReply b ())
+type StatelessCallHandler a b = DeferredCallHandler () a b
 
 -- | An expression used to handle a /cast/ message.
-type CastHandler s a = s -> a -> Process (ProcessAction s)
+type CastHandler s a = ActionHandler s a
 
 -- | An expression used to handle an /info/ message.
-type InfoHandler s a = s -> a -> Process (ProcessAction s)
+type InfoHandler s a = ActionHandler s a
 
 -- | An expression used to handle a /channel/ message.
-type ChannelHandler s a b = s -> SendPort b -> a -> Process (ProcessAction s)
+type ChannelHandler s a b = SendPort b -> ActionHandler s a
 
 -- | An expression used to handle a /channel/ message in a stateless process.
-type StatelessChannelHandler a b = SendPort b -> a -> Process (ProcessAction ())
+type StatelessChannelHandler a b = ChannelHandler () a b
 
 -- | An expression used to initialise a process with its state.
 type InitHandler a s = a -> Process (InitResult s)
@@ -184,7 +192,7 @@ type InitHandler a s = a -> Process (InitResult s)
 type ShutdownHandler s = s -> ExitReason -> Process ()
 
 -- | An expression used to handle process timeouts.
-type TimeoutHandler s = s -> Delay -> Process (ProcessAction s)
+type TimeoutHandler s = ActionHandler s Delay
 
 -- dispatching to implementation callbacks
 
