@@ -248,7 +248,7 @@ handleCallIf_ cond handler
 -- > handleCall = handleCallIf (const True)
 --
 handleCall :: (Serializable a, Serializable b)
-           => (s -> a -> Process (ProcessReply b s))
+           => CallHandler s a b
            -> Dispatcher s
 handleCall = handleCallIf $ state (const True)
 
@@ -260,7 +260,7 @@ handleCall = handleCallIf $ state (const True)
 --
 handleCallIf :: forall s a b . (Serializable a, Serializable b)
     => Condition s a -- ^ predicate that must be satisfied for the handler to run
-    -> (s -> a -> Process (ProcessReply b s))
+    -> CallHandler s a b
         -- ^ a reply yielding function over the process state and input message
     -> Dispatcher s
 handleCallIf cond handler
@@ -269,7 +269,7 @@ handleCallIf cond handler
     , dispatchIf = checkCall cond
     }
   where doHandle :: (Serializable a, Serializable b)
-                 => (s -> a -> Process (ProcessReply b s))
+                 => CallHandler s a b
                  -> s
                  -> Message a b
                  -> Process (ProcessAction s)
@@ -309,7 +309,7 @@ handleCallFromIf_ c h =
 -- worker (or stash it away itself) and return 'noReply'.
 --
 handleCallFrom :: forall s a b . (Serializable a, Serializable b)
-           => (CallRef b -> s -> a -> Process (ProcessReply b s))
+           => (CallRef b -> CallHandler s a b)
            -> Dispatcher s
 handleCallFrom = handleCallFromIf $ state (const True)
 
@@ -318,7 +318,7 @@ handleCallFrom = handleCallFromIf $ state (const True)
 --
 handleCallFromIf :: forall s a b . (Serializable a, Serializable b)
     => Condition s a -- ^ predicate that must be satisfied for the handler to run
-    -> (CallRef b -> s -> a -> Process (ProcessReply b s))
+    -> (CallRef b -> CallHandler s a b)
         -- ^ a reply yielding function over the process state, sender and input message
     -> Dispatcher s
 handleCallFromIf cond handler
@@ -327,7 +327,7 @@ handleCallFromIf cond handler
     , dispatchIf = checkCall cond
     }
   where doHandle :: (Serializable a, Serializable b)
-                 => (CallRef b -> s -> a -> Process (ProcessReply b s))
+                 => (CallRef b -> CallHandler s a b)
                  -> s
                  -> Message a b
                  -> Process (ProcessAction s)
@@ -340,7 +340,7 @@ handleCallFromIf cond handler
 -- reply to the @SendPort@.
 --
 handleRpcChan :: forall s a b . (Serializable a, Serializable b)
-              => (SendPort b -> s -> a -> Process (ProcessAction s))
+              => (SendPort b -> CastHandler s a)
               -> Dispatcher s
 handleRpcChan = handleRpcChanIf $ input (const True)
 
@@ -349,7 +349,7 @@ handleRpcChan = handleRpcChanIf $ input (const True)
 --
 handleRpcChanIf :: forall s a b . (Serializable a, Serializable b)
                 => Condition s a
-                -> (SendPort b -> s -> a -> Process (ProcessAction s))
+                -> (SendPort b -> CastHandler s a)
                 -> Dispatcher s
 handleRpcChanIf c h
   = DispatchIf {
@@ -357,7 +357,7 @@ handleRpcChanIf c h
     , dispatchIf = checkRpc c
     }
   where doHandle :: (Serializable a, Serializable b)
-                 => (SendPort b -> s -> a -> Process (ProcessAction s))
+                 => (SendPort b -> CastHandler s a)
                  -> s
                  -> Message a b
                  -> Process (ProcessAction s)
@@ -384,7 +384,7 @@ handleRpcChanIf_ c h = handleRpcChanIf c (\sp () -> h sp)
 -- > handleCast = handleCastIf (const True)
 --
 handleCast :: (Serializable a)
-           => (s -> a -> Process (ProcessAction s))
+           => CastHandler s a
            -> Dispatcher s
 handleCast = handleCastIf $ input (const True)
 
@@ -395,7 +395,7 @@ handleCast = handleCastIf $ input (const True)
 --
 handleCastIf :: forall s a . (Serializable a)
     => Condition s a -- ^ predicate that must be satisfied for the handler to run
-    -> (s -> a -> Process (ProcessAction s))
+    -> CastHandler s a
        -- ^ an action yielding function over the process state and input message
     -> Dispatcher s
 handleCastIf cond h
@@ -412,7 +412,7 @@ handleCastIf cond h
 --
 handleControlChan :: forall s a . (Serializable a)
     => ControlChannel a -- ^ the receiving end of the control channel
-    -> (s -> a -> Process (ProcessAction s))
+    -> CastHandler s a
        -- ^ an action yielding function over the process state and input message
     -> Dispatcher s
 handleControlChan chan h
@@ -463,14 +463,14 @@ action :: forall s a . (Serializable a)
           -- ^ a function from the input message to a /stateless action/, cf 'continue_'
     -> Dispatcher s
 action h = handleDispatch perform
-  where perform :: (s -> a -> Process (ProcessAction s))
+  where perform :: CastHandler s a
         perform s a = let f = h a in f s
 
 -- | Constructs a handler for both /call/ and /cast/ messages.
 -- @handleDispatch = handleDispatchIf (const True)@
 --
 handleDispatch :: forall s a . (Serializable a)
-               => (s -> a -> Process (ProcessAction s))
+               => CastHandler s a
                -> Dispatcher s
 handleDispatch = handleDispatchIf $ input (const True)
 
@@ -481,14 +481,14 @@ handleDispatch = handleDispatchIf $ input (const True)
 --
 handleDispatchIf :: forall s a . (Serializable a)
                  => Condition s a
-                 -> (s -> a -> Process (ProcessAction s))
+                 -> CastHandler s a
                  -> Dispatcher s
 handleDispatchIf cond handler = DispatchIf {
       dispatch = doHandle handler
     , dispatchIf = check cond
     }
   where doHandle :: (Serializable a)
-                 => (s -> a -> Process (ProcessAction s))
+                 => CastHandler s a
                  -> s
                  -> Message a ()
                  -> Process (ProcessAction s)
@@ -502,7 +502,7 @@ handleDispatchIf cond handler = DispatchIf {
 -- sent using the 'cast' or 'call' APIs) from an ordinary function in the
 -- 'Process' monad.
 handleInfo :: forall s a. (Serializable a)
-           => (s -> a -> Process (ProcessAction s))
+           => CastHandler s a
            -> DeferredDispatcher s
 handleInfo h = DeferredDispatcher { dispatchInfo = doHandleInfo h }
   where
