@@ -309,7 +309,7 @@ handleCallFromIf_ c h =
 -- worker (or stash it away itself) and return 'noReply'.
 --
 handleCallFrom :: forall s a b . (Serializable a, Serializable b)
-           => (s -> CallRef b -> a -> Process (ProcessReply b s))
+           => (CallRef b -> s -> a -> Process (ProcessReply b s))
            -> Dispatcher s
 handleCallFrom = handleCallFromIf $ state (const True)
 
@@ -318,7 +318,7 @@ handleCallFrom = handleCallFromIf $ state (const True)
 --
 handleCallFromIf :: forall s a b . (Serializable a, Serializable b)
     => Condition s a -- ^ predicate that must be satisfied for the handler to run
-    -> (s -> CallRef b -> a -> Process (ProcessReply b s))
+    -> (CallRef b -> s -> a -> Process (ProcessReply b s))
         -- ^ a reply yielding function over the process state, sender and input message
     -> Dispatcher s
 handleCallFromIf cond handler
@@ -327,11 +327,11 @@ handleCallFromIf cond handler
     , dispatchIf = checkCall cond
     }
   where doHandle :: (Serializable a, Serializable b)
-                 => (s -> CallRef b -> a -> Process (ProcessReply b s))
+                 => (CallRef b -> s -> a -> Process (ProcessReply b s))
                  -> s
                  -> Message a b
                  -> Process (ProcessAction s)
-        doHandle h s (CallMessage p c) = (h s c p) >>= mkReply c
+        doHandle h s (CallMessage p c) = (h c s p) >>= mkReply c
         doHandle _ _ _ = die "CALL_HANDLER_TYPE_MISMATCH" -- note [Message type]
 
 -- | Creates a handler for a /typed channel/ RPC style interaction. The
@@ -340,7 +340,7 @@ handleCallFromIf cond handler
 -- reply to the @SendPort@.
 --
 handleRpcChan :: forall s a b . (Serializable a, Serializable b)
-              => (s -> SendPort b -> a -> Process (ProcessAction s))
+              => (SendPort b -> s -> a -> Process (ProcessAction s))
               -> Dispatcher s
 handleRpcChan = handleRpcChanIf $ input (const True)
 
@@ -349,7 +349,7 @@ handleRpcChan = handleRpcChanIf $ input (const True)
 --
 handleRpcChanIf :: forall s a b . (Serializable a, Serializable b)
                 => Condition s a
-                -> (s -> SendPort b -> a -> Process (ProcessAction s))
+                -> (SendPort b -> s -> a -> Process (ProcessAction s))
                 -> Dispatcher s
 handleRpcChanIf c h
   = DispatchIf {
@@ -357,11 +357,11 @@ handleRpcChanIf c h
     , dispatchIf = checkRpc c
     }
   where doHandle :: (Serializable a, Serializable b)
-                 => (s -> SendPort b -> a -> Process (ProcessAction s))
+                 => (SendPort b -> s -> a -> Process (ProcessAction s))
                  -> s
                  -> Message a b
                  -> Process (ProcessAction s)
-        doHandle h' s (ChanMessage p c') = h' s c' p
+        doHandle h' s (ChanMessage p c') = h' c' s p
         doHandle _  _ _ = die "RPC_HANDLER_TYPE_MISMATCH" -- node [Message type]
 
 -- | A variant of 'handleRpcChan' that ignores the state argument.
@@ -369,7 +369,7 @@ handleRpcChanIf c h
 handleRpcChan_ :: forall a b . (Serializable a, Serializable b)
                   => (SendPort b -> a -> Process (ProcessAction ()))
                   -> Dispatcher ()
-handleRpcChan_ h = handleRpcChan (\() -> h)
+handleRpcChan_ h = handleRpcChan (\sp () -> h sp)
 
 -- | A variant of 'handleRpcChanIf' that ignores the state argument.
 --
@@ -377,7 +377,7 @@ handleRpcChanIf_ :: forall a b . (Serializable a, Serializable b)
                  => Condition () a
                  -> (SendPort b -> a -> Process (ProcessAction ()))
                  -> Dispatcher ()
-handleRpcChanIf_ c h = handleRpcChanIf c (\() -> h)
+handleRpcChanIf_ c h = handleRpcChanIf c (\sp () -> h sp)
 
 -- | Constructs a 'cast' handler from an ordinary function in the 'Process'
 -- monad.
@@ -424,28 +424,28 @@ handleControlChan chan h
 --
 handleControlChan_ :: forall s a. (Serializable a)
            => ControlChannel a
-           -> (a -> (s -> Process (ProcessAction s)))
+           -> (a -> Process (ProcessAction s))
            -> Dispatcher s
 handleControlChan_ chan h
   = DispatchCC { channel    = snd $ unControl chan
-               , dispatch   = (\s ((CastMessage p) :: Message a ()) -> h p $ s)
+               , dispatch   = (\_ ((CastMessage p) :: Message a ()) -> h p)
                }
 
 -- | Version of 'handleCast' that ignores the server state.
 --
 handleCast_ :: (Serializable a)
-            => (a -> (s -> Process (ProcessAction s))) -> Dispatcher s
+            => (a -> Process (ProcessAction s)) -> Dispatcher s
 handleCast_ = handleCastIf_ $ input (const True)
 
 -- | Version of 'handleCastIf' that ignores the server state.
 --
 handleCastIf_ :: forall s a . (Serializable a)
     => Condition s a -- ^ predicate that must be satisfied for the handler to run
-    -> (a -> (s -> Process (ProcessAction s)))
+    -> (a -> Process (ProcessAction s))
         -- ^ a function from the input message to a /stateless action/, cf 'continue_'
     -> Dispatcher s
 handleCastIf_ cond h
-  = DispatchIf { dispatch   = (\s ((CastMessage p) :: Message a ()) -> h p $ s)
+  = DispatchIf { dispatch   = (\_ ((CastMessage p) :: Message a ()) -> h p)
                , dispatchIf = checkCast cond
                }
 
