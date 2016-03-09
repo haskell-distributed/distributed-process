@@ -1,22 +1,29 @@
-language: haskell
+language: c
 
-ghc:
- - 7.8
- - 7.6
- - 7.4
+sudo: false
+
+matrix:
+  include:
+    - env: CABALVER=1.22 GHCVER=7.8.4
+      addons: {apt: {packages: [cabal-install-1.22,ghc-7.8.4], sources: [hvr-ghc]}}
+    - env: CABALVER=1.22 GHCVER=7.10.3
+      addons: {apt: {packages: [cabal-install-1.22,ghc-7.10.3],sources: [hvr-ghc]}}
 
 before_install:
-  - cabal sandbox init
-  - for i in `cat REPOS`; do git clone http://github.com/haskell-distributed/$i; done
-  - for i in `cat REPOS`; do cabal sandbox add-source $i; done
-  - sudo apt-get update -qq
-  - sudo apt-get install -qq binutils-dev
+  - mkdir -p ~/.local/bin
+  - export PATH=~/.local/bin:$PATH
+  - travis_retry curl -L https://www.stackage.org/stack/linux-x86_64 | tar -xzO --wildcards '*/stack' > ~/.local/bin/stack
+  - chmod a+x ~/.local/bin/stack
+  - export PATH=/opt/ghc/$GHCVER/bin:/opt/cabal/$CABALVER/bin:$PATH
 
 install:
-  # Don't run tests for dependencies.
-  - cabal install --only-dependencies
-  - cabal install --only-dependencies distributed-process-tests
+  - stack -j 2 setup --no-terminal --no-install-ghc --skip-ghc-check
+  - stack -j 2 build --only-snapshot --no-terminal --system-ghc --skip-ghc-check
 
 script:
-  - cabal install
-  - cabal install --enable-tests -j1 distributed-process-tests
+  - stack -j 2 test --no-terminal --system-ghc
+
+notifications:
+  slack:
+    secure: g0NP1tkOe3+kI6O0Q1mgT/jPaLjxQ31J26MWouicu2F1Y3p73qTvv/QsOkafRMZDn07HlzgviCP25r7Ytg32pUAFvOh4U4MT2MpO0jUVVGPi4ZiwB+W5AH+HlDtJSickeSZ0AjXZSaGv8nQNegWkeaLQgLBIzrTHU8s0Y9K+whQ=
+
