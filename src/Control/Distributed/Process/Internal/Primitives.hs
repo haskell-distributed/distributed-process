@@ -293,14 +293,14 @@ usend them msg = do
   if nodeId == destNodeId
     then sendLocal them msg
     else do -- see note [trace MxSent]
-            let evBus = localEventBus node
-            let msg   = createUnencodedMessage msg
+            let evBus  = localEventBus node
+            let msg'   = createMessage msg
             liftIO $ traceEvent evBus $ MxSent { whichProcess = us
                                                , whereTo      = ProcId them
-                                               , message      = msg
+                                               , message      = msg'
                                                }
             sendCtrlMsg (Just destNodeId) $ UnreliableSend (processLocalId them)
-                                                           (createMessage msg)
+                                                           msg'
 
 -- | /Unsafe/ variant of 'usend'. This function makes /no/ attempt to serialize
 -- the message when the destination process resides on the same local
