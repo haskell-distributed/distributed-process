@@ -13,7 +13,7 @@ import Control.Distributed.Process.Node
 import Control.Distributed.Process.Extras hiding (__remoteTable)
 import qualified Control.Distributed.Process.Extras.SystemLog as Log (Logger, error)
 import Control.Distributed.Process.Extras.SystemLog hiding (Logger, error)
-import Control.Distributed.Process.Tests.Internal.Utils
+import Control.Distributed.Process.SysTest.Utils
 import Control.Distributed.Process.Extras.Time
 import Control.Distributed.Process.Extras.Timer
 import Control.Monad (void)

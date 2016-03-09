@@ -1,5 +1,6 @@
 # distribributed-process-extras
 [![travis](https://secure.travis-ci.org/haskell-distributed/distributed-process-extras.png)](http://travis-ci.org/haskell-distributed/distributed-process-extras)
+[![Coverage Status](https://coveralls.io/repos/github/haskell-distributed/distributed-process-extras/badge.svg?branch=master)](https://coveralls.io/github/haskell-distributed/distributed-process-extras?branch=master)
 [![Release](https://img.shields.io/hackage/v/distributed-process-extras.svg)](https://hackage.haskell.org/package/distributed-process-extras)
 
 See http://haskell-distributed.github.com for documentation, user guides,

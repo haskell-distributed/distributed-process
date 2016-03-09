@@ -27,7 +27,7 @@ import Test.Framework (Test, testGroup, defaultMain)
 import Test.Framework.Providers.HUnit (testCase)
 import Network.Transport.TCP
 import qualified Network.Transport as NT
-import Control.Distributed.Process.Tests.Internal.Utils
+import Control.Distributed.Process.SysTest.Utils
 
 testLinkingWithNormalExits :: TestResult DiedReason -> Process ()
 testLinkingWithNormalExits result = do
