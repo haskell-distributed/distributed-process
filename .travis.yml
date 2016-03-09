@@ -17,11 +17,11 @@ before_install:
   - export PATH=/opt/ghc/$GHCVER/bin:/opt/cabal/$CABALVER/bin:$PATH
 
 install:
-  - stack -j 2 setup --no-terminal --no-install-ghc --skip-ghc-check --verbose
-  - stack -j 2 build --only-snapshot --no-terminal --system-ghc --skip-ghc-check --verbose
+  - stack -j 2 setup --no-terminal --no-install-ghc --skip-ghc-check
+  - stack -j 2 build --only-snapshot --no-terminal --system-ghc --skip-ghc-check
 
 script:
-  - stack -j 2 test --no-terminal --system-ghc --verbose
+  - stack -j 2 test --no-terminal --system-ghc
 
 notifications:
   slack:
