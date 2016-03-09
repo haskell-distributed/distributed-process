@@ -16,6 +16,7 @@ import Control.DeepSeq (NFData)
 import Control.Distributed.Process
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable()
+import Control.Distributed.Process.Extras (NFSerializable)
 import Control.Distributed.Process.Extras.Time
 import Control.Distributed.Process.Extras.Timer
 import Control.Distributed.Process.SysTest.Utils
@@ -29,6 +30,7 @@ import GHC.Generics
 
 -- orphan instance
 instance NFData Ping where
+instance NFSerializable Ping
 
 testSendAfter :: TestResult Bool -> Process ()
 testSendAfter result =
@@ -63,8 +65,8 @@ testCancelTimer result = do
   let delay = milliSeconds 50
   pid <- periodically delay noop
   ref <- monitor pid
-
-  sleep $ seconds 1
+  _ <- getProcessInfo pid
+  
   cancelTimer pid
 
   _ <- receiveWait [

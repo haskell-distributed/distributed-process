@@ -51,7 +51,6 @@ module Control.Distributed.Process.Extras
   (
     -- * Exported Types
     Addressable
-  , sendToRecipient
   , Resolvable(..)
   , Routable(..)
   , Linkable(..)
@@ -97,8 +96,6 @@ module Control.Distributed.Process.Extras
 import Control.Distributed.Process (RemoteTable)
 import Control.Distributed.Process.Extras.Internal.Types
   ( NFSerializable
-  , sendToRecipient
-  , NFSerializable
   , Recipient(..)
   , Shutdown(..)
   , ExitReason(..)

@@ -4,8 +4,6 @@
 {-# LANGUAGE PatternGuards        #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances    #-}
-{-# LANGUAGE OverlappingInstances #-}
-{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 -----------------------------------------------------------------------------
@@ -44,7 +42,7 @@ module Control.Distributed.Process.Extras.SystemLog
   , LogFormat
   , LogClient
   , LogChan
-  , LogText(..)
+  , LogText
   , ToLog(..)
   , Logger(..)
     -- * Mx Agent Configuration / Startup
@@ -86,6 +84,8 @@ import Control.Distributed.Process.Management
 import Control.Distributed.Process.Extras
   ( Resolvable(..)
   , Routable(..)
+  , Addressable
+  , NFSerializable
   )
 import Control.Distributed.Process.Serializable
 import Control.Exception (SomeException)
@@ -157,25 +157,27 @@ instance NFData LogMessage where rnf x = x `seq` ()
 
 type LogFormat = String -> Process String
 
-type LogChan = ()
+type LogChanT = ()
+
+newtype LogChan = LogChan LogChanT
 instance Routable LogChan where
   sendTo       _ = mxNotify
   unsafeSendTo _ = mxNotify
 
-data LogText = LogText { txt :: !String }
+type LogText = String
+instance NFSerializable LogText
 
 newtype LogClient = LogClient { agent :: ProcessId }
 instance Resolvable LogClient where
   resolve = return . Just . agent
+instance Routable LogClient
 
 class ToLog m where
-  toLog :: m -> Process (LogLevel -> LogMessage)
+  toLog :: (Serializable m) => m -> Process (LogLevel -> LogMessage)
+  toLog = return . LogData . unsafeWrapMessage
 
 instance ToLog LogText where
-  toLog = return . LogMessage . txt
-
-instance (Serializable a) => ToLog a where
-  toLog = return . LogData . unsafeWrapMessage
+  toLog = return . LogMessage
 
 instance ToLog Message where
   toLog = return . LogData
@@ -196,46 +198,46 @@ mxLogId :: MxAgentId
 mxLogId = MxAgentId logProcessName
 
 logChannel :: LogChan
-logChannel = ()
+logChannel = LogChan ()
 
 report :: (Logger l)
        => (l -> LogText -> Process ())
        -> l
        -> String
        -> Process ()
-report f l = f l . LogText
+report f l = f l 
 
 client :: Process (Maybe LogClient)
 client = resolve logProcessName >>= return . maybe Nothing (Just . LogClient)
 
-debug :: (Logger l, ToLog m) => l -> m -> Process ()
+debug :: (Logger l, Serializable m, ToLog m) => l -> m -> Process ()
 debug l m = sendLog l m Debug
 
-info :: (Logger l, ToLog m) => l -> m -> Process ()
+info :: (Logger l, Serializable m, ToLog m) => l -> m -> Process ()
 info l m = sendLog l m Info
 
-notice :: (Logger l, ToLog m) => l -> m -> Process ()
+notice :: (Logger l, Serializable m, ToLog m) => l -> m -> Process ()
 notice l m = sendLog l m Notice
 
-warning :: (Logger l, ToLog m) => l -> m -> Process ()
+warning :: (Logger l, Serializable m, ToLog m) => l -> m -> Process ()
 warning l m = sendLog l m Warning
 
-error :: (Logger l, ToLog m) => l -> m -> Process ()
+error :: (Logger l, Serializable m, ToLog m) => l -> m -> Process ()
 error l m = sendLog l m Error
 
-critical :: (Logger l, ToLog m) => l -> m -> Process ()
+critical :: (Logger l, Serializable m, ToLog m) => l -> m -> Process ()
 critical l m = sendLog l m Critical
 
-alert :: (Logger l, ToLog m) => l -> m -> Process ()
+alert :: (Logger l, Serializable m, ToLog m) => l -> m -> Process ()
 alert l m = sendLog l m Alert
 
-emergency :: (Logger l, ToLog m) => l -> m -> Process ()
+emergency :: (Logger l, Serializable m, ToLog m) => l -> m -> Process ()
 emergency l m = sendLog l m Emergency
 
-sendLog :: (Logger l, ToLog m) => l -> m -> LogLevel -> Process ()
+sendLog :: (Logger l, Serializable m, ToLog m) => l -> m -> LogLevel -> Process ()
 sendLog a m lv = toLog m >>= \m' -> logMessage a $ m' lv
 
-addFormatter :: (Routable r)
+addFormatter :: (Addressable r)
              => r
              -> Closure (Message -> Process (Maybe String))
              -> Process ()
