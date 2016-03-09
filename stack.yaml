@@ -11,4 +11,5 @@ extra-deps:
 - distributed-process-0.6.1
 - network-transport-tcp-0.5.1
 - rematch-0.2.0.0
+- distributed-process-0.6.1
 
