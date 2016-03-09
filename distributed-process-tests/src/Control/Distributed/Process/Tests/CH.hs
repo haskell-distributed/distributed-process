@@ -24,11 +24,12 @@ import Control.Concurrent.MVar
   , readMVar
   )
 import Control.Monad (replicateM_, replicateM, forever, void, unless, join)
+import Control.Monad.Catch
 import Control.Exception (SomeException, throwIO, ErrorCall(..))
 import qualified Control.Exception as Ex (catch)
 import Control.Applicative ((<$>), (<*>), pure, (<|>))
 import qualified Network.Transport as NT (closeEndPoint, EndPointAddress)
-import Control.Distributed.Process
+import Control.Distributed.Process hiding (catch, try, mask, onException, finally, catches, Handler)
 import Control.Distributed.Process.Internal.Types
   ( NodeId(nodeAddress)
   , LocalNode(localEndPoint)
@@ -903,6 +904,7 @@ testUSend usendPrim TestTransport{..} numMessages = do
       liftIO (threadDelay 30000)
 
   takeMVar usendTestOk
+  
 
 -- | Test 'matchAny'. This repeats the 'testMath' but with a proxy server
 -- in between
