@@ -4,34 +4,71 @@ sudo: false
 
 matrix:
   include:
-    - env: CABALVER=1.22 GHCVER=7.6.3
-      addons: {apt: {packages: [cabal-install-1.22,ghc-7.6.3], sources: [hvr-ghc]}}
-    - env: CABALVER=1.22 GHCVER=7.8.4
-      addons: {apt: {packages: [cabal-install-1.22,ghc-7.8.4], sources: [hvr-ghc]}}
-    - env: CABALVER=1.22 GHCVER=7.10.3
-      addons: {apt: {packages: [cabal-install-1.22,ghc-7.10.3],sources: [hvr-ghc]}}
+  - env: CABAL_INSTALL_VER=1.22 GHCVER=7.6.3 BUILD=cabal
+    addons: {apt: {packages: [cabal-install-1.22,ghc-7.6.3], sources: [hvr-ghc]}}
+
+  - env: ARGS="--stack-yaml stack-ghc-7.8.4.yaml" BUILD=stack CABALVER=1.18.1.5
+    addons: {apt: {packages: [libgmp-dev]}}
+
+  - env: ARGS= BUILD=stack CABALVER=1.22.5.0
+    addons: {apt: {packages: [libgmp-dev]}}
+
+cache:
+  directories:
+  - $HOME/.stack
+  - $HOME/.cabal/packages
 
 before_install:
-  - export PATH=/opt/ghc/$GHCVER/bin:/opt/cabal/$CABALVER/bin:~/.cabal/bin:$PATH
-  - ghc --version
-  - cabal --version
-  - cabal update
-  # workaround for https://ghc.haskell.org/trac/ghc/ticket/9221
-  # taken from https://github.com/hvr/multi-ghc-travis/blob/0fa68f78c2b1b059f904c9abc85510a3bb4f57e2/README.md
-  - sed -i 's/^jobs:/-- jobs:/' $HOME/.cabal/config
+# cabal case:
+# workaround for https://ghc.haskell.org/trac/ghc/ticket/9221
+# taken from https://github.com/hvr/multi-ghc-travis/blob/0fa68f78c2b1b059f904c9abc85510a3bb4f57e2/README.md
+- case "$BUILD" in
+    stack)
+      export PATH=$HOME/.local/bin:$HOME/.cabal/bin:$PATH;
+      mkdir -p ~/.local/bin;
+      travis_retry curl -L https://www.stackage.org/stack/linux-x86_64 | tar xz --wildcards --strip-components=1 -C ~/.local/bin '*/stack';
+      stack --version
+      ;;
+    cabal)
+      export PATH=$HOME/.local/bin:/opt/ghc/$GHCVER/bin:/opt/cabal/$CABAL_INSTALL_VER/bin:$HOME/.cabal/bin:$PATH;
+      ghc --version;
+      cabal --version;
+      travis_retry cabal update;
+      sed -i 's/^jobs:/-- jobs:/' $HOME/.cabal/config
+      ;;
+  esac
 
 install:
-  - cabal install --jobs=2 --enable-tests --only-dependencies -ftcp . distributed-process-tests/
+- case "$BUILD" in
+    stack)
+      stack $ARGS setup --no-terminal;
+      stack $ARGS build --no-terminal --only-snapshot --test
+      ;;
+    cabal)
+      cabal install --jobs=2 --enable-tests --only-dependencies -ftcp . distributed-process-tests/
+      ;;
+  esac
 
 script:
-  - cabal install --jobs=2
-  - cd distributed-process-tests/
-  - cabal configure -ftcp --enable-tests
-  - cabal build --jobs=2
-  # skip intermittent tests Reconnect and SpawnReconnect
-  - dist/build/TestCHInMemory/TestCHInMemory --plain -t '!Flaky'
-  - dist/build/TestCHInTCP/TestCHInTCP --plain -t '!Flaky'
-  - dist/build/TestClosure/TestClosure --plain -t '!SpawnReconnect'
-  - dist/build/TestStats/TestStats --plain
-  - dist/build/TestMx/TestMx --plain
-  - dist/build/TestTracing/TestTracing --plain
+- case "$BUILD" in
+    stack)
+      stack $ARGS --no-terminal build --test --no-run-tests;
+      cd distributed-process-tests;
+      export BUILD_DIR=.stack-work/dist/x86_64-linux/Cabal-$CABALVER/build
+      ;;
+    cabal)
+      cabal install --enable-tests;
+      cabal install --jobs=2;
+      cd distributed-process-tests/;
+      cabal configure -ftcp --enable-tests;
+      cabal build --jobs=2;
+      export BUILD_DIR=dist/build
+      ;;
+   esac
+  # skip intermittent tests
+- $BUILD_DIR/TestCHInMemory/TestCHInMemory --plain -t '!Flaky'
+- $BUILD_DIR/TestCHInTCP/TestCHInTCP --plain -t '!Flaky'
+- $BUILD_DIR/TestClosure/TestClosure --plain -t '!SpawnReconnect'
+- $BUILD_DIR/TestStats/TestStats --plain
+- $BUILD_DIR/TestMx/TestMx --plain
+- $BUILD_DIR/TestTracing/TestTracing --plain
