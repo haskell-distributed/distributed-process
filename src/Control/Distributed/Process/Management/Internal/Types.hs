@@ -64,7 +64,7 @@ instance NFData Destination where
 -- they will be delivered to the trace controller.
 --
 data MxEvent =
-    MxSpawned          ProcessId
+    MxSpawned          { whichProcess :: ProcessId }
     -- ^ fired whenever a local process is spawned
   | MxRegistered       { whichProcess :: ProcessId
                        , whichName    :: String
