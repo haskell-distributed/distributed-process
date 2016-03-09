@@ -65,7 +65,7 @@ import Prelude hiding (catch)
 
 import Control.Applicative
 import Control.Concurrent.STM hiding (check)
-import Control.Distributed.Process
+import Control.Distributed.Process hiding (catch)
 import Control.Distributed.Process.Serializable
 import Control.Distributed.Process.Async.Internal.Types
 import Control.Distributed.Process.Extras

@@ -1,0 +1,15 @@
+resolver: nightly-2016-03-02
+packages:
+- .
+- location:
+    git: https://github.com/haskell-distributed/distributed-process-systest.git
+    commit: HEAD
+
+extra-deps:
+- distributed-static-0.3.2.0
+- distributed-process-0.6.1
+- distributed-process-extras-0.2.1.2
+- network-transport-tcp-0.5.1
+- rank1dynamic-0.3.1.0
+- rematch-0.2.0.0
+
