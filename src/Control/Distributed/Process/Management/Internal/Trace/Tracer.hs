@@ -142,25 +142,32 @@ nullTracer =
 
 systemLoggerTracer :: Process ()
 systemLoggerTracer = do
-  node <- processNode <$> ask
-  let tr = sendTraceLog node
-  forever' $ receiveWait [ matchAny (\m -> handleMessage m tr) ]
+  proc <- ask
+  let pid  = processId proc
+      node = processNode proc
+  forever' $ receiveWait [ matchAny (\m -> handleMessage m (sendTraceLog pid node)) ]
   where
-    sendTraceLog :: LocalNode -> MxEvent -> Process ()
-    sendTraceLog node ev = do
-      now <- liftIO $ getCurrentTime
-      msg <- return $ (formatTime defaultTimeLocale "%c" now, buildTxt ev)
-      emptyPid <- return $ (nullProcessId (localNodeId node))
-      traceMsg <- return $ NCMsg {
-                             ctrlMsgSender = ProcessIdentifier (emptyPid)
-                           , ctrlMsgSignal = (NamedSend "trace.logger"
-                                             (createUnencodedMessage msg))
-                           }
-      liftIO $ writeChan (localCtrlChan node) traceMsg
+    sendTraceLog :: ProcessId -> LocalNode -> MxEvent -> Process ()
+    sendTraceLog pid' node' ev
+      -- because process is the trace client, the trace coordinator cannot
+      -- filter out messages pertaining to the trace.logger, so we do so here
+      | fromMaybe (nullPid node')
+                  (resolveToPid ev) == pid' = return ()
+      | otherwise                           = do
+          now <- liftIO $ getCurrentTime
+          msg <- return $ (formatTime defaultTimeLocale "%c" now, buildTxt ev)
+          emptyPid <- return $ nullPid node'
+          traceMsg <- return $ NCMsg { ctrlMsgSender = ProcessIdentifier (emptyPid)
+                                     , ctrlMsgSignal = (NamedSend "trace.logger"
+                                                        (createUnencodedMessage msg))
+                                     }
+          liftIO $ writeChan (localCtrlChan node') traceMsg
 
     buildTxt :: MxEvent -> String
     buildTxt (MxLog msg) = msg
     buildTxt ev          = show ev
+
+    nullPid node'' = nullProcessId (localNodeId node'')
 
 eventLogTracer :: Process ()
 eventLogTracer =
@@ -235,6 +242,8 @@ traceController mv = do
                   sendOk confResp >> applyTraceFlags flags' st)
         , match (\chGetFlags -> sendChan chGetFlags (flags st) >> return st)
         , match (\chGetCurrent -> sendChan chGetCurrent (client st) >> return st)
+          -- we do not forward messages to the client that pertain to itself
+          
           -- we dequeue incoming events even if we don't process them
         , matchAny (\ev ->
             handleMessage ev (handleTrace st ev) >>= return . fromMaybe st)
