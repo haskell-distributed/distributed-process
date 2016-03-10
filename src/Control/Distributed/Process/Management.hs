@@ -273,7 +273,7 @@ module Control.Distributed.Process.Management
   , mxDropTable
   ) where
 
-import Control.Applicative ((<$>))
+import Control.Applicative
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TChan
   ( readTChan
@@ -288,7 +288,6 @@ import Control.Distributed.Process.Internal.Primitives
   , matchAny
   , matchSTM
   , unwrapMessage
-  , onException
   , register
   , whereis
   , die
@@ -317,12 +316,14 @@ import Control.Distributed.Process.Management.Internal.Types
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (ask)
+import Control.Monad.Catch (onException)
 import qualified Control.Monad.State as ST
   ( get
   , modify
   , lift
   , runStateT
   )
+import Prelude
 
 -- | Publishes an arbitrary @Serializable@ message to the management event bus.
 -- Note that /no attempt is made to force the argument/, therefore it is very

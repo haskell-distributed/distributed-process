@@ -20,10 +20,6 @@ module Control.Distributed.Process.Node
 
 -- TODO: Calls to 'sendBinary' and co (by the NC) may stall the node controller.
 
-#if ! MIN_VERSION_base(4,6,0)
-import Prelude hiding (catch)
-#endif
-
 import System.IO (fixIO, hPutStrLn, stderr)
 import System.Mem.Weak (Weak, deRefWeak)
 import qualified Data.ByteString.Lazy as BSL (fromChunks)
@@ -52,7 +48,7 @@ import Data.Foldable (forM_)
 import Data.Maybe (isJust, fromJust, isNothing, catMaybes)
 import Data.Typeable (Typeable)
 import Control.Category ((>>>))
-import Control.Applicative (Applicative, (<$>))
+import Control.Applicative
 import Control.Monad (void, when, join)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.State.Strict (MonadState, StateT, evalStateT, gets)
@@ -60,7 +56,6 @@ import qualified Control.Monad.State.Strict as StateT (get, put)
 import Control.Monad.Reader (MonadReader, ReaderT, runReaderT, ask)
 import Control.Exception
   ( throwIO
-  , AsyncException(ThreadKilled)
   , SomeException
   , Exception
   , throwTo
@@ -72,12 +67,11 @@ import qualified Control.Exception as Exception
   , catches
   , finally
   )
-import Control.Concurrent (forkIO, forkIOWithUnmask, killThread, myThreadId)
+import Control.Concurrent (forkIO, forkIOWithUnmask, killThread)
 import Control.Distributed.Process.Internal.StrictMVar
   ( newMVar
   , withMVar
   , modifyMVarMasked
-  , modifyMVar_
   , modifyMVar
   , newEmptyMVar
   , putMVar
@@ -167,12 +161,11 @@ import Control.Distributed.Process.Internal.Types
   , RegisterReply(..)
   , WhereIsReply(..)
   , payloadToMessage
-  , messageToPayload
   , createUnencodedMessage
   , unsafeCreateUnencodedMessage
   , runLocalProcess
   , firstNonReservedProcessId
-  , ImplicitReconnect(WithImplicitReconnect,NoImplicitReconnect)
+  , ImplicitReconnect(WithImplicitReconnect)
   )
 import Control.Distributed.Process.Management.Internal.Agent
   ( mxAgentController
@@ -199,7 +192,6 @@ import Control.Distributed.Process.Management.Internal.Types
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Internal.Messaging
   ( sendBinary
-  , sendPayload
   , closeImplicitReconnections
   , impliesDeathOf
   )
@@ -208,7 +200,6 @@ import Control.Distributed.Process.Internal.Primitives
   , receiveWait
   , match
   , sendChan
-  , try
   , unwrapMessage
   )
 import Control.Distributed.Process.Internal.Types (SendPort, Tracer(..))
@@ -218,7 +209,9 @@ import qualified Control.Distributed.Process.Internal.StrictContainerAccessors a
   ( mapMaybe
   , mapDefault
   )
+import Control.Monad.Catch (try)
 import Unsafe.Coerce
+import Prelude
 
 --------------------------------------------------------------------------------
 -- Initialization                                                             --
@@ -314,8 +307,6 @@ startServiceProcesses node = do
     -- process which uses 'send' or other primitives which are traced.
     register "trace.logger" logger
  where
-   fork = forkProcess node
-
    loop = do
      receiveWait
        [ match $ \((time, pid, string) ::(String, ProcessId, String)) -> do

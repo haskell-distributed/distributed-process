@@ -28,7 +28,7 @@ module Control.Distributed.Process.Management.Internal.Trace.Primitives
   , withRegisteredTracer
   ) where
 
-import Control.Applicative ((<$>))
+import Control.Applicative
 import Control.Distributed.Process.Internal.Primitives
   ( whereis
   , newChan
@@ -67,6 +67,7 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (ask)
 
 import qualified Data.Set as Set (fromList)
+import Prelude
 
 --------------------------------------------------------------------------------
 -- Main API                                                                   --
