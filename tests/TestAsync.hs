@@ -66,22 +66,19 @@ testAsyncCancelWait result = do
         Just ar -> stash result (Just ar)
 
 testAsyncWaitTimeout :: TestResult (Maybe (AsyncResult ())) -> Process ()
-testAsyncWaitTimeout result =
-    let delay = seconds 1
-    in do
+testAsyncWaitTimeout result = do
     hAsync <- async $ task $ sleep $ seconds 20
-    waitTimeout delay hAsync >>= stash result
+    waitTimeout 1000000 hAsync >>= stash result
     cancelWait hAsync >> return ()
 
 testAsyncWaitTimeoutCompletes :: TestResult (Maybe (AsyncResult Int))
                                  -> Process ()
 testAsyncWaitTimeoutCompletes result = do
-    let delay = seconds 1 in do
     hAsync <- async $ task $ do
         i <- expect
         return i
 
-    r <- waitTimeout delay hAsync
+    r <- waitTimeout 1000000 hAsync
     case r of
         Nothing -> sendTo hAsync (10 :: Int)
                     >> wait hAsync >>= stash result . Just
@@ -114,7 +111,7 @@ testAsyncLinked result = do
     -- pick up on the exit signal and set the result accordingly. trying to match
     -- on 'DiedException String' is pointless though, as the *string* is highly
     -- context dependent.
-    r <- waitTimeout (within 3 Seconds) hAsync
+    r <- waitTimeout 3000000 hAsync
     case r of
         Nothing -> stash result True
         Just _  -> stash result False
@@ -141,7 +138,7 @@ testAsyncWaitAnyTimeout result = do
   p1 <- asyncLinked $ task $ expect >>= return
   p2 <- asyncLinked $ task $ expect >>= return
   p3 <- asyncLinked $ task $ expect >>= return
-  waitAnyTimeout (seconds 1) [p1, p2, p3] >>= stash result
+  waitAnyTimeout 1000000 [p1, p2, p3] >>= stash result
 
 testAsyncCancelWith :: TestResult Bool -> Process ()
 testAsyncCancelWith result = do
@@ -153,7 +150,7 @@ testAsyncCancelWith result = do
 testAsyncWaitCancelTimeout :: TestResult (AsyncResult ()) -> Process ()
 testAsyncWaitCancelTimeout result = do
      p1 <- async $ task $ sleep $ seconds 20
-     waitCancelTimeout (seconds 1) p1 >>= stash result
+     waitCancelTimeout 1000000 p1 >>= stash result
 
 remotableDecl [
     [d| fib :: (NodeId,Int) -> Process Integer ;

@@ -72,10 +72,6 @@ import Control.Distributed.Process.Extras
   , Channel
   , Resolvable(..)
   )
-import Control.Distributed.Process.Extras.Time
-  ( asTimeout
-  , TimeInterval
-  )
 import Control.Monad
 import Data.Maybe
   ( fromMaybe
@@ -199,7 +195,7 @@ check hAsync = poll hAsync >>= \r -> case r of
 --
 -- See "Control.Distributed.Process.Platform.Async".
 waitCheckTimeout :: (Serializable a) =>
-                    TimeInterval -> Async a -> Process (AsyncResult a)
+                    Int -> Async a -> Process (AsyncResult a)
 waitCheckTimeout t hAsync =
   waitTimeout t hAsync >>= return . fromMaybe (AsyncPending)
 
@@ -216,15 +212,15 @@ wait = liftIO . atomically . waitSTM
 
 -- | Wait for an asynchronous operation to complete or timeout.
 waitTimeout :: (Serializable a) =>
-               TimeInterval -> Async a -> Process (Maybe (AsyncResult a))
+               Int -> Async a -> Process (Maybe (AsyncResult a))
 waitTimeout t hAsync =
-    liftIO $ timeout (asTimeout t) $ atomically $ waitSTM hAsync
+    liftIO $ timeout t $ atomically $ waitSTM hAsync
 
 -- | Wait for an asynchronous operation to complete or timeout.
 -- If it times out, then 'cancelWait' the async handle.
 --
 waitCancelTimeout :: (Serializable a)
-                  => TimeInterval
+                  => Int
                   -> Async a
                   -> Process (AsyncResult a)
 waitCancelTimeout t hAsync = do
@@ -292,12 +288,11 @@ waitBoth left right =
 
 -- | Like 'waitAny' but times out after the specified delay.
 waitAnyTimeout :: (Serializable a)
-               => TimeInterval
+               => Int
                -> [Async a]
                -> Process (Maybe (AsyncResult a))
 waitAnyTimeout delay asyncs =
-  let t' = asTimeout delay
-  in liftIO $ timeout t' $ do
+  liftIO $ timeout delay $ do
     r <- waitAnySTM asyncs
     return $ snd r
 
