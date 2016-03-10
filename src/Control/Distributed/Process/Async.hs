@@ -68,9 +68,7 @@ import Control.Distributed.Process
 import Control.Distributed.Process.Serializable
 import Control.Distributed.Process.Async.Internal.Types
 import Control.Distributed.Process.Extras
-  ( CancelWait(..)
-  , Channel
-  , Resolvable(..)
+  ( Resolvable(..)
   )
 import Control.Monad
 import Data.Maybe

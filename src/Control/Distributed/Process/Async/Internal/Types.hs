@@ -12,6 +12,7 @@ module Control.Distributed.Process.Async.Internal.Types
   , AsyncRef
   , AsyncTask(..)
   , AsyncResult(..)
+  , CancelWait(..)
   ) where
 
 import Control.Concurrent.STM
@@ -78,3 +79,7 @@ instance Serializable a => Binary (AsyncResult a) where
 deriving instance Eq a => Eq (AsyncResult a)
 deriving instance Show a => Show (AsyncResult a)
 
+-- | A message to cancel Async operations
+data CancelWait = CancelWait
+    deriving (Typeable, Generic)
+instance Binary CancelWait
