@@ -102,7 +102,7 @@ module Control.Distributed.Process
   , monitorPort
   , unmonitor
   , withMonitor
-  , withMonitorRef
+  , withMonitor_
   , MonitorRef -- opaque
   , ProcessLinkException(..)
   , NodeLinkException(..)
@@ -270,7 +270,7 @@ import Control.Distributed.Process.Internal.Primitives
   , monitorPort
   , unmonitor
   , withMonitor
-  , withMonitorRef
+  , withMonitor_
     -- Logging
   , say
     -- Registry
