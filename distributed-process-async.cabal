@@ -63,7 +63,6 @@ test-suite AsyncTests
                    base >= 4.4 && < 5,
                    ansi-terminal >= 0.5 && < 0.7,
                    distributed-process >= 0.5.3 && < 0.7,
-                   distributed-process-extras >= 0.2.0 && < 0.3,
                    distributed-process-async,
                    distributed-process-tests >= 0.4.1 && < 0.5,
                    network >= 2.5 && < 2.7,
