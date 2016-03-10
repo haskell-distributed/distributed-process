@@ -52,7 +52,6 @@ module Control.Distributed.Process.Async
   , waitCheckTimeout
     -- * STM versions
   , pollSTM
-  , waitTimeoutSTM
   , waitAnyCancel
   , waitEither
   , waitEither_
@@ -216,15 +215,10 @@ wait :: Async a -> Process (AsyncResult a)
 wait = liftIO . atomically . waitSTM
 
 -- | Wait for an asynchronous operation to complete or timeout.
---
--- See "Control.Distributed.Process.Platform.Async".
 waitTimeout :: (Serializable a) =>
                TimeInterval -> Async a -> Process (Maybe (AsyncResult a))
-waitTimeout t hAsync = do
-  -- This is not the most efficient thing to do, but it's the most erlang-ish.
-  (sp, rp) <- newChan :: (Serializable a) => Process (Channel (AsyncResult a))
-  pid <- spawnLocal $ wait hAsync >>= sendChan sp
-  receiveChanTimeout (asTimeout t) rp `finally` kill pid "timeout"
+waitTimeout t hAsync =
+    liftIO $ timeout (asTimeout t) $ atomically $ waitSTM hAsync
 
 -- | Wait for an asynchronous operation to complete or timeout.
 -- If it times out, then 'cancelWait' the async handle.
@@ -238,15 +232,6 @@ waitCancelTimeout t hAsync = do
   case r of
     Nothing -> cancelWait hAsync
     Just ar -> return ar
-
--- | As 'waitTimeout' but uses STM directly, which might be more efficient.
-waitTimeoutSTM :: (Serializable a)
-                 => TimeInterval
-                 -> Async a
-                 -> Process (Maybe (AsyncResult a))
-waitTimeoutSTM t hAsync =
-  let t' = (asTimeout t)
-  in liftIO $ timeout t' $ atomically $ waitSTM hAsync
 
 -- | Wait for any of the supplied @Async@s to complete. If multiple
 -- 'Async's complete, then the value returned corresponds to the first

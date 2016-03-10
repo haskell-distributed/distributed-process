@@ -15,7 +15,6 @@ import Control.Distributed.Process.Extras (Routable(..), Resolvable(..))
 import Control.Distributed.Process.Tests.Internal.Utils
 import Control.Distributed.Process.Extras.Time
 import Control.Distributed.Process.Extras.Timer
-import Control.Distributed.Process.Tests.Internal.Utils (delayedAssertion)
 import Data.Binary()
 import Data.Typeable()
 import Network.Transport.TCP
@@ -74,32 +73,15 @@ testAsyncWaitTimeout result =
     waitTimeout delay hAsync >>= stash result
     cancelWait hAsync >> return ()
 
-testAsyncWaitTimeoutCompletes :: TestResult (Maybe (AsyncResult ()))
-                              -> Process ()
-testAsyncWaitTimeoutCompletes result =
-    let delay = seconds 1
-    in do
-    hAsync <- async $ task $ sleep $ seconds 20
-    waitTimeout delay hAsync >>= stash result
-    cancelWait hAsync >> return ()
-
-testAsyncWaitTimeoutSTM :: TestResult (Maybe (AsyncResult ())) -> Process ()
-testAsyncWaitTimeoutSTM result =
-    let delay = seconds 1
-    in do
-    hAsync <- async $ task $ sleep $ seconds 20
-    waitTimeoutSTM delay hAsync >>= stash result
-
-testAsyncWaitTimeoutCompletesSTM :: TestResult (Maybe (AsyncResult Int))
+testAsyncWaitTimeoutCompletes :: TestResult (Maybe (AsyncResult Int))
                                  -> Process ()
-testAsyncWaitTimeoutCompletesSTM result =
+testAsyncWaitTimeoutCompletes result = do
     let delay = seconds 1 in do
-
     hAsync <- async $ task $ do
         i <- expect
         return i
 
-    r <- waitTimeoutSTM delay hAsync
+    r <- waitTimeout delay hAsync
     case r of
         Nothing -> sendTo hAsync (10 :: Int)
                     >> wait hAsync >>= stash result . Just
@@ -132,7 +114,7 @@ testAsyncLinked result = do
     -- pick up on the exit signal and set the result accordingly. trying to match
     -- on 'DiedException String' is pointless though, as the *string* is highly
     -- context dependent.
-    r <- waitTimeoutSTM (within 3 Seconds) hAsync
+    r <- waitTimeout (within 3 Seconds) hAsync
     case r of
         Nothing -> stash result True
         Just _  -> stash result False
@@ -209,18 +191,10 @@ tests localNode = [
             (delayedAssertion
              "expected waitTimeout to return Nothing when it times out"
              localNode (Nothing) testAsyncWaitTimeout)
-        , testCase "testAsyncWaitTimeoutSTM"
-            (delayedAssertion
-             "expected waitTimeoutSTM to return Nothing when it times out"
-             localNode (Nothing) testAsyncWaitTimeoutSTM)
         , testCase "testAsyncWaitTimeoutCompletes"
             (delayedAssertion
              "expected waitTimeout to return a value"
-             localNode Nothing testAsyncWaitTimeoutCompletes)
-        , testCase "testAsyncWaitTimeoutCompletesSTM"
-            (delayedAssertion
-             "expected waitTimeout to return a value"
-             localNode (Just (AsyncDone 10)) testAsyncWaitTimeoutCompletesSTM)
+             localNode (Just (AsyncDone 10)) testAsyncWaitTimeoutCompletes)
         , testCase "testAsyncLinked"
             (delayedAssertion
              "expected linked process to die with originator"
