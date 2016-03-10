@@ -12,11 +12,11 @@ module Control.Distributed.Process.Async.Internal.Types
   , AsyncRef
   , AsyncTask(..)
   , AsyncResult(..)
+  , CancelWait(..)
   ) where
 
 import Control.Concurrent.STM
 import Control.Distributed.Process
-import Control.Distributed.Process.Extras (Resolvable(..))
 import Control.Distributed.Process.Serializable
   ( Serializable
   , SerializableDict
@@ -44,10 +44,6 @@ data Async a = Async {
 
 instance Eq (Async a) where
   Async a b _ == Async c d _  =  a == c && b == d
-
-instance Resolvable (Async a) where
-  resolve :: Async a -> Process (Maybe ProcessId)
-  resolve = return . Just . _asyncWorker
 
 -- | A task to be performed asynchronously.
 data AsyncTask a =
@@ -78,3 +74,7 @@ instance Serializable a => Binary (AsyncResult a) where
 deriving instance Eq a => Eq (AsyncResult a)
 deriving instance Show a => Show (AsyncResult a)
 
+-- | A message to cancel Async operations
+data CancelWait = CancelWait
+    deriving (Typeable, Generic)
+instance Binary CancelWait

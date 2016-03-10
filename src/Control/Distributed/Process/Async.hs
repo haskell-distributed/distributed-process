@@ -35,6 +35,7 @@ module Control.Distributed.Process.Async
   , task
   , remoteTask
   , monitorAsync
+  , asyncWorker
     -- * Cancelling asynchronous operations
   , cancel
   , cancelWait
@@ -52,7 +53,6 @@ module Control.Distributed.Process.Async
   , waitCheckTimeout
     -- * STM versions
   , pollSTM
-  , waitTimeoutSTM
   , waitAnyCancel
   , waitEither
   , waitEither_
@@ -68,15 +68,6 @@ import Control.Concurrent.STM hiding (check)
 import Control.Distributed.Process
 import Control.Distributed.Process.Serializable
 import Control.Distributed.Process.Async.Internal.Types
-import Control.Distributed.Process.Extras
-  ( CancelWait(..)
-  , Channel
-  , Resolvable(..)
-  )
-import Control.Distributed.Process.Extras.Time
-  ( asTimeout
-  , TimeInterval
-  )
 import Control.Monad
 import Data.Maybe
   ( fromMaybe
@@ -97,11 +88,7 @@ remoteTask = AsyncRemoteTask
 
 -- | Given an 'Async' handle, monitor the worker process.
 monitorAsync :: Async a -> Process MonitorRef
-monitorAsync hAsync = do
-  worker <- resolve hAsync
-  case worker of
-    Nothing -> die "Invalid Async Handle"
-    Just p  -> monitor p
+monitorAsync = monitor . _asyncWorker
 
 -- | Spawns an asynchronous action and returns a handle to it,
 -- which can be used to obtain its status and/or result or interact
@@ -109,6 +96,10 @@ monitorAsync hAsync = do
 --
 async :: (Serializable a) => AsyncTask a -> Process (Async a)
 async = asyncDo False
+
+-- | Provides the pid of the worker process performing the async operation.
+asyncWorker :: Async a -> ProcessId
+asyncWorker = _asyncWorker
 
 -- | This is a useful variant of 'async' that ensures an @Async@ task is
 -- never left running unintentionally. We ensure that if the caller's process
@@ -126,11 +117,11 @@ asyncLinked = asyncDo True
 -- private API
 asyncDo :: (Serializable a) => Bool -> AsyncTask a -> Process (Async a)
 asyncDo shouldLink (AsyncRemoteTask d n c) =
-  let proc = call d n c in asyncDo shouldLink AsyncTask { asyncTask = proc }
+    asyncDo shouldLink $ AsyncTask $ call d n c
 asyncDo shouldLink (AsyncTask proc) = do
     root <- getSelfPid
-    result <- liftIO $ newEmptyTMVarIO
-    sigStart <- liftIO $ newEmptyTMVarIO
+    result <- liftIO newEmptyTMVarIO
+    sigStart <- liftIO newEmptyTMVarIO
     (sp, rp) <- newChan
 
     -- listener/response proxy
@@ -174,33 +165,35 @@ asyncDo shouldLink (AsyncTask proc) = do
           Left CancelWait
             -> liftIO $ atomically $ putTMVar result' AsyncCancelled
           Right (fpid, d)
-            | fpid == wpid
-              -> case d of
-                     DiedNormal -> return ()
-                     _          -> liftIO $ atomically $ putTMVar result' (AsyncFailed d)
-            | otherwise -> kill wpid "linkFailed"
+            | fpid == wpid -> case d of
+                DiedNormal -> return ()
+                _          -> liftIO $ atomically $ void $
+                                tryPutTMVar result' (AsyncFailed d)
+            | otherwise -> do
+                kill wpid "linkFailed"
+                receiveWait
+                  [ matchIf (\(ProcessMonitorNotification _ pid' _) ->
+                             pid' == wpid
+                            ) $ \_ -> return ()
+                  ]
+                liftIO $ atomically $ void $
+                  tryPutTMVar result' (AsyncLinkFailed d)
 
 -- | Check whether an 'Async' has completed yet.
---
--- See "Control.Distributed.Process.Platform.Async".
 poll :: (Serializable a) => Async a -> Process (AsyncResult a)
 poll hAsync = do
   r <- liftIO $ atomically $ pollSTM hAsync
   return $ fromMaybe (AsyncPending) r
 
 -- | Like 'poll' but returns 'Nothing' if @(poll hAsync) == AsyncPending@.
---
--- See "Control.Distributed.Process.Platform.Async".
 check :: (Serializable a) => Async a -> Process (Maybe (AsyncResult a))
 check hAsync = poll hAsync >>= \r -> case r of
   AsyncPending -> return Nothing
   ar           -> return (Just ar)
 
 -- | Wait for an asynchronous operation to complete or timeout.
---
--- See "Control.Distributed.Process.Platform.Async".
 waitCheckTimeout :: (Serializable a) =>
-                    TimeInterval -> Async a -> Process (AsyncResult a)
+                    Int -> Async a -> Process (AsyncResult a)
 waitCheckTimeout t hAsync =
   waitTimeout t hAsync >>= return . fromMaybe (AsyncPending)
 
@@ -210,27 +203,21 @@ waitCheckTimeout t hAsync =
 --
 -- @wait = liftIO . atomically . waitSTM@
 --
--- See "Control.Distributed.Process.Platform.Async".
 {-# INLINE wait #-}
 wait :: Async a -> Process (AsyncResult a)
 wait = liftIO . atomically . waitSTM
 
 -- | Wait for an asynchronous operation to complete or timeout.
---
--- See "Control.Distributed.Process.Platform.Async".
 waitTimeout :: (Serializable a) =>
-               TimeInterval -> Async a -> Process (Maybe (AsyncResult a))
-waitTimeout t hAsync = do
-  -- This is not the most efficient thing to do, but it's the most erlang-ish.
-  (sp, rp) <- newChan :: (Serializable a) => Process (Channel (AsyncResult a))
-  pid <- spawnLocal $ wait hAsync >>= sendChan sp
-  receiveChanTimeout (asTimeout t) rp `finally` kill pid "timeout"
+               Int -> Async a -> Process (Maybe (AsyncResult a))
+waitTimeout t hAsync =
+    liftIO $ timeout t $ atomically $ waitSTM hAsync
 
 -- | Wait for an asynchronous operation to complete or timeout.
 -- If it times out, then 'cancelWait' the async handle.
 --
 waitCancelTimeout :: (Serializable a)
-                  => TimeInterval
+                  => Int
                   -> Async a
                   -> Process (AsyncResult a)
 waitCancelTimeout t hAsync = do
@@ -238,15 +225,6 @@ waitCancelTimeout t hAsync = do
   case r of
     Nothing -> cancelWait hAsync
     Just ar -> return ar
-
--- | As 'waitTimeout' but uses STM directly, which might be more efficient.
-waitTimeoutSTM :: (Serializable a)
-                 => TimeInterval
-                 -> Async a
-                 -> Process (Maybe (AsyncResult a))
-waitTimeoutSTM t hAsync =
-  let t' = (asTimeout t)
-  in liftIO $ timeout t' $ atomically $ waitSTM hAsync
 
 -- | Wait for any of the supplied @Async@s to complete. If multiple
 -- 'Async's complete, then the value returned corresponds to the first
@@ -307,46 +285,29 @@ waitBoth left right =
 
 -- | Like 'waitAny' but times out after the specified delay.
 waitAnyTimeout :: (Serializable a)
-               => TimeInterval
+               => Int
                -> [Async a]
                -> Process (Maybe (AsyncResult a))
 waitAnyTimeout delay asyncs =
-  let t' = asTimeout delay
-  in liftIO $ timeout t' $ do
+  liftIO $ timeout delay $ do
     r <- waitAnySTM asyncs
     return $ snd r
 
 -- | Cancel an asynchronous operation.
---
--- See "Control.Distributed.Process.Platform.Async".
 cancel :: Async a -> Process ()
 cancel (Async _ g _) = send g CancelWait
 
 -- | Cancel an asynchronous operation and wait for the cancellation to complete.
---
--- See "Control.Distributed.Process.Platform.Async".
 cancelWait :: (Serializable a) => Async a -> Process (AsyncResult a)
 cancelWait hAsync = cancel hAsync >> wait hAsync
 
 -- | Cancel an asynchronous operation immediately.
---
--- See "Control.Distributed.Process.Platform.Async".
 cancelWith :: (Serializable b) => b -> Async a -> Process ()
-cancelWith reason hAsync = do
-  worker <- resolve hAsync
-  case worker of
-    Nothing  -> die "Invalid Async Handle"
-    Just ref -> exit ref reason
+cancelWith reason hAsync = exit (_asyncWorker hAsync) reason
 
 -- | Like 'cancelWith' but sends a @kill@ instruction instead of an exit.
---
--- See 'Control.Distributed.Process.Platform.Async'.
 cancelKill :: String -> Async a -> Process ()
-cancelKill reason hAsync = do
-  worker <- resolve hAsync
-  case worker of
-    Nothing  -> die "Invalid Async Handle"
-    Just ref -> kill ref reason
+cancelKill reason hAsync = kill (_asyncWorker hAsync) reason
 
 --------------------------------------------------------------------------------
 -- STM Specific API                                                           --

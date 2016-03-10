@@ -11,11 +11,7 @@ import Control.Distributed.Process.Closure
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable()
 import Control.Distributed.Process.Async
-import Control.Distributed.Process.Extras (Routable(..), Resolvable(..))
 import Control.Distributed.Process.Tests.Internal.Utils
-import Control.Distributed.Process.Extras.Time
-import Control.Distributed.Process.Extras.Timer
-import Control.Distributed.Process.Tests.Internal.Utils (delayedAssertion)
 import Data.Binary()
 import Data.Typeable()
 import Network.Transport.TCP
@@ -35,95 +31,61 @@ testAsyncPoll result = do
     ar <- poll hAsync
     case ar of
       AsyncPending ->
-        sendTo hAsync "go" >> wait hAsync >>= stash result
+        send (asyncWorker hAsync) "go" >> wait hAsync >>= stash result
       _ -> stash result ar >> return ()
 
+-- Tests that an async action can be canceled.
 testAsyncCancel :: TestResult (AsyncResult ()) -> Process ()
 testAsyncCancel result = do
-    hAsync <- async $ task $ runTestProcess $ say "running" >> return ()
-    sleep $ milliSeconds 100
+    hAsync <- async $ task (expect :: Process ())
 
-    p <- poll hAsync -- nasty kind of assertion: use assertEquals?
+    p <- poll hAsync
     case p of
         AsyncPending -> cancel hAsync >> wait hAsync >>= stash result
         _            -> say (show p) >> stash result p
 
+-- Tests that cancelWait completes when the worker dies.
 testAsyncCancelWait :: TestResult (Maybe (AsyncResult ())) -> Process ()
 testAsyncCancelWait result = do
-    testPid <- getSelfPid
-    p <- spawnLocal $ do
-      hAsync <- async $ task $ runTestProcess $ sleep $ seconds 60
-      sleep $ milliSeconds 100
+    hAsync <- async $ task (expect :: Process ())
 
-      send testPid "running"
+    AsyncPending <- poll hAsync
+    cancelWait hAsync >>= stash result . Just
 
-      AsyncPending <- poll hAsync
-      cancelWait hAsync >>= send testPid
-
-    "running" <- expect
-    d <- expectTimeout (asTimeout $ seconds 5)
-    case d of
-        Nothing -> kill p "timed out" >> stash result Nothing
-        Just ar -> stash result (Just ar)
-
+-- Tests that waitTimeout completes when the timeout expires.
 testAsyncWaitTimeout :: TestResult (Maybe (AsyncResult ())) -> Process ()
-testAsyncWaitTimeout result =
-    let delay = seconds 1
-    in do
-    hAsync <- async $ task $ sleep $ seconds 20
-    waitTimeout delay hAsync >>= stash result
+testAsyncWaitTimeout result = do
+    hAsync <- async $ task (expect :: Process ())
+    waitTimeout 100000 hAsync >>= stash result
     cancelWait hAsync >> return ()
 
+-- Tests that an async action can be awaited to completion even with a timeout.
 testAsyncWaitTimeoutCompletes :: TestResult (Maybe (AsyncResult ()))
-                              -> Process ()
-testAsyncWaitTimeoutCompletes result =
-    let delay = seconds 1
-    in do
-    hAsync <- async $ task $ sleep $ seconds 20
-    waitTimeout delay hAsync >>= stash result
-    cancelWait hAsync >> return ()
-
-testAsyncWaitTimeoutSTM :: TestResult (Maybe (AsyncResult ())) -> Process ()
-testAsyncWaitTimeoutSTM result =
-    let delay = seconds 1
-    in do
-    hAsync <- async $ task $ sleep $ seconds 20
-    waitTimeoutSTM delay hAsync >>= stash result
-
-testAsyncWaitTimeoutCompletesSTM :: TestResult (Maybe (AsyncResult Int))
                                  -> Process ()
-testAsyncWaitTimeoutCompletesSTM result =
-    let delay = seconds 1 in do
-
-    hAsync <- async $ task $ do
-        i <- expect
-        return i
-
-    r <- waitTimeoutSTM delay hAsync
+testAsyncWaitTimeoutCompletes result = do
+    hAsync <- async $ task (expect :: Process ())
+    r <- waitTimeout 100000 hAsync
     case r of
-        Nothing -> sendTo hAsync (10 :: Int)
+        Nothing -> send (asyncWorker hAsync) ()
                     >> wait hAsync >>= stash result . Just
         Just _  -> cancelWait hAsync >> stash result Nothing
 
+-- Tests that a linked async action dies when the parent dies.
 testAsyncLinked :: TestResult Bool -> Process ()
 testAsyncLinked result = do
-    mv :: MVar (Async ()) <- liftIO $ newEmptyMVar
+    mv :: MVar (Async ()) <- liftIO newEmptyMVar
     pid <- spawnLocal $ do
         -- NB: async == asyncLinked for AsyncChan
-        h <- asyncLinked $ task $ do
-            "waiting" <- expect
-            return ()
+        h <- asyncLinked $ task (expect :: Process ())
         stash mv h
-        "sleeping" <- expect
-        return ()
+        expect
 
     hAsync <- liftIO $ takeMVar mv
 
-    Just worker <- resolve hAsync
-    mref <- monitor worker
+    mref <- monitorAsync hAsync
     exit pid "stop"
 
-    _ <- receiveTimeout (after 5 Seconds) [
+    _ <- receiveWait [
               matchIf (\(ProcessMonitorNotification mref' _ _) -> mref == mref')
                       (\_ -> return ())
             ]
@@ -132,35 +94,43 @@ testAsyncLinked result = do
     -- pick up on the exit signal and set the result accordingly. trying to match
     -- on 'DiedException String' is pointless though, as the *string* is highly
     -- context dependent.
-    r <- waitTimeoutSTM (within 3 Seconds) hAsync
+    r <- wait hAsync
     case r of
-        Nothing -> stash result True
-        Just _  -> stash result False
+      AsyncLinkFailed _ -> stash result True
+      _                 -> stash result False
 
+-- Tests that waitAny returns when any of the actions complete.
 testAsyncWaitAny :: TestResult [AsyncResult String] -> Process ()
 testAsyncWaitAny result = do
-  p1 <- async $ task $ expect >>= return
-  p2 <- async $ task $ expect >>= return
-  p3 <- async $ task $ expect >>= return
-  sendTo p3 "c"
+  p1 <- async $ task expect
+  p2 <- async $ task expect
+  p3 <- async $ task expect
+  send (asyncWorker p3) "c"
   r1 <- waitAny [p1, p2, p3]
 
-  sendTo p1 "a"
-  sendTo p2 "b"
-  sleep $ seconds 1
+  send (asyncWorker p1) "a"
+  send (asyncWorker p2) "b"
+  ref1 <- monitorAsync p1
+  ref2 <- monitorAsync p2
+  receiveWait
+    [ matchIf (\(ProcessMonitorNotification ref _ _) -> elem ref [ref1, ref2])
+              $ \_ -> return ()
+    ]
 
   r2 <- waitAny [p2, p3]
   r3 <- waitAny [p1, p2, p3]
 
   stash result $ map snd [r1, r2, r3]
 
+-- Tests that waitAnyTimeout returns when the timeout expires.
 testAsyncWaitAnyTimeout :: TestResult (Maybe (AsyncResult String)) -> Process ()
 testAsyncWaitAnyTimeout result = do
-  p1 <- asyncLinked $ task $ expect >>= return
-  p2 <- asyncLinked $ task $ expect >>= return
-  p3 <- asyncLinked $ task $ expect >>= return
-  waitAnyTimeout (seconds 1) [p1, p2, p3] >>= stash result
+  p1 <- asyncLinked $ task expect
+  p2 <- asyncLinked $ task expect
+  p3 <- asyncLinked $ task expect
+  waitAnyTimeout 100000 [p1, p2, p3] >>= stash result
 
+-- Tests that cancelWith terminates the worker with the given reason.
 testAsyncCancelWith :: TestResult Bool -> Process ()
 testAsyncCancelWith result = do
   p1 <- async $ task $ do { s :: String <- expect; return s }
@@ -168,10 +138,11 @@ testAsyncCancelWith result = do
   AsyncFailed (DiedException _) <- wait p1
   stash result True
 
+-- Tests that waitCancelTimeout returns when the timeout expires.
 testAsyncWaitCancelTimeout :: TestResult (AsyncResult ()) -> Process ()
 testAsyncWaitCancelTimeout result = do
-     p1 <- async $ task $ sleep $ seconds 20
-     waitCancelTimeout (seconds 1) p1 >>= stash result
+     p1 <- async $ task expect
+     waitCancelTimeout 1000000 p1 >>= stash result
 
 remotableDecl [
     [d| fib :: (NodeId,Int) -> Process Integer ;
@@ -185,9 +156,11 @@ remotableDecl [
           return $ y + z
       |]
   ]
+
+-- Tests that wait returns when remote actions complete.
 testAsyncRecursive :: TestResult Integer -> Process ()
 testAsyncRecursive result = do
-    myNode <- processNodeId <$> getSelfPid
+    myNode <- getSelfNode
     fib (myNode,6) >>= stash result
 
 tests :: LocalNode  -> [Test]
@@ -209,18 +182,10 @@ tests localNode = [
             (delayedAssertion
              "expected waitTimeout to return Nothing when it times out"
              localNode (Nothing) testAsyncWaitTimeout)
-        , testCase "testAsyncWaitTimeoutSTM"
-            (delayedAssertion
-             "expected waitTimeoutSTM to return Nothing when it times out"
-             localNode (Nothing) testAsyncWaitTimeoutSTM)
         , testCase "testAsyncWaitTimeoutCompletes"
             (delayedAssertion
              "expected waitTimeout to return a value"
-             localNode Nothing testAsyncWaitTimeoutCompletes)
-        , testCase "testAsyncWaitTimeoutCompletesSTM"
-            (delayedAssertion
-             "expected waitTimeout to return a value"
-             localNode (Just (AsyncDone 10)) testAsyncWaitTimeoutCompletesSTM)
+             localNode (Just (AsyncDone ())) testAsyncWaitTimeoutCompletes)
         , testCase "testAsyncLinked"
             (delayedAssertion
              "expected linked process to die with originator"
