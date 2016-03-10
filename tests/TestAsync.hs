@@ -12,6 +12,7 @@ import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable()
 import Control.Distributed.Process.Async
 import Control.Distributed.Process.Tests.Internal.Utils
+import Control.Monad (replicateM_)
 import Data.Binary()
 import Data.Typeable()
 import Network.Transport.TCP
@@ -112,7 +113,7 @@ testAsyncWaitAny result = do
   send (asyncWorker p2) "b"
   ref1 <- monitorAsync p1
   ref2 <- monitorAsync p2
-  receiveWait
+  replicateM_ 2 $ receiveWait
     [ matchIf (\(ProcessMonitorNotification ref _ _) -> elem ref [ref1, ref2])
               $ \_ -> return ()
     ]
