@@ -119,11 +119,11 @@ asyncLinked = asyncDo True
 -- private API
 asyncDo :: (Serializable a) => Bool -> AsyncTask a -> Process (Async a)
 asyncDo shouldLink (AsyncRemoteTask d n c) =
-  let proc = call d n c in asyncDo shouldLink AsyncTask { asyncTask = proc }
+    asyncDo shouldLink $ AsyncTask $ call d n c
 asyncDo shouldLink (AsyncTask proc) = do
     root <- getSelfPid
-    result <- liftIO $ newEmptyTMVarIO
-    sigStart <- liftIO $ newEmptyTMVarIO
+    result <- liftIO newEmptyTMVarIO
+    sigStart <- liftIO newEmptyTMVarIO
     (sp, rp) <- newChan
 
     -- listener/response proxy
