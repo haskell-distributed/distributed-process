@@ -11,7 +11,6 @@ import Control.Distributed.Process.Closure
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable()
 import Control.Distributed.Process.Async
-import Control.Distributed.Process.Extras (Routable(..), Resolvable(..))
 import Control.Distributed.Process.Tests.Internal.Utils
 import Control.Distributed.Process.Extras.Time
 import Control.Distributed.Process.Extras.Timer
@@ -34,7 +33,7 @@ testAsyncPoll result = do
     ar <- poll hAsync
     case ar of
       AsyncPending ->
-        sendTo hAsync "go" >> wait hAsync >>= stash result
+        send (asyncWorker hAsync) "go" >> wait hAsync >>= stash result
       _ -> stash result ar >> return ()
 
 testAsyncCancel :: TestResult (AsyncResult ()) -> Process ()
@@ -80,7 +79,7 @@ testAsyncWaitTimeoutCompletes result = do
 
     r <- waitTimeout 1000000 hAsync
     case r of
-        Nothing -> sendTo hAsync (10 :: Int)
+        Nothing -> send (asyncWorker hAsync) (10 :: Int)
                     >> wait hAsync >>= stash result . Just
         Just _  -> cancelWait hAsync >> stash result Nothing
 
@@ -98,8 +97,7 @@ testAsyncLinked result = do
 
     hAsync <- liftIO $ takeMVar mv
 
-    Just worker <- resolve hAsync
-    mref <- monitor worker
+    mref <- monitorAsync hAsync
     exit pid "stop"
 
     _ <- receiveTimeout (after 5 Seconds) [
@@ -121,11 +119,11 @@ testAsyncWaitAny result = do
   p1 <- async $ task $ expect >>= return
   p2 <- async $ task $ expect >>= return
   p3 <- async $ task $ expect >>= return
-  sendTo p3 "c"
+  send (asyncWorker p3) "c"
   r1 <- waitAny [p1, p2, p3]
 
-  sendTo p1 "a"
-  sendTo p2 "b"
+  send (asyncWorker p1) "a"
+  send (asyncWorker p2) "b"
   sleep $ seconds 1
 
   r2 <- waitAny [p2, p3]

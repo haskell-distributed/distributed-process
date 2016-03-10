@@ -35,6 +35,7 @@ module Control.Distributed.Process.Async
   , task
   , remoteTask
   , monitorAsync
+  , asyncWorker
     -- * Cancelling asynchronous operations
   , cancel
   , cancelWait
@@ -67,9 +68,6 @@ import Control.Concurrent.STM hiding (check)
 import Control.Distributed.Process
 import Control.Distributed.Process.Serializable
 import Control.Distributed.Process.Async.Internal.Types
-import Control.Distributed.Process.Extras
-  ( Resolvable(..)
-  )
 import Control.Monad
 import Data.Maybe
   ( fromMaybe
@@ -90,11 +88,7 @@ remoteTask = AsyncRemoteTask
 
 -- | Given an 'Async' handle, monitor the worker process.
 monitorAsync :: Async a -> Process MonitorRef
-monitorAsync hAsync = do
-  worker <- resolve hAsync
-  case worker of
-    Nothing -> die "Invalid Async Handle"
-    Just p  -> monitor p
+monitorAsync = monitor . _asyncWorker
 
 -- | Spawns an asynchronous action and returns a handle to it,
 -- which can be used to obtain its status and/or result or interact
@@ -102,6 +96,10 @@ monitorAsync hAsync = do
 --
 async :: (Serializable a) => AsyncTask a -> Process (Async a)
 async = asyncDo False
+
+-- | Provides the pid of the worker process performing the async operation.
+asyncWorker :: Async a -> ProcessId
+asyncWorker = _asyncWorker
 
 -- | This is a useful variant of 'async' that ensures an @Async@ task is
 -- never left running unintentionally. We ensure that if the caller's process
@@ -297,19 +295,11 @@ cancelWait hAsync = cancel hAsync >> wait hAsync
 
 -- | Cancel an asynchronous operation immediately.
 cancelWith :: (Serializable b) => b -> Async a -> Process ()
-cancelWith reason hAsync = do
-  worker <- resolve hAsync
-  case worker of
-    Nothing  -> die "Invalid Async Handle"
-    Just ref -> exit ref reason
+cancelWith reason hAsync = exit (_asyncWorker hAsync) reason
 
 -- | Like 'cancelWith' but sends a @kill@ instruction instead of an exit.
 cancelKill :: String -> Async a -> Process ()
-cancelKill reason hAsync = do
-  worker <- resolve hAsync
-  case worker of
-    Nothing  -> die "Invalid Async Handle"
-    Just ref -> kill ref reason
+cancelKill reason hAsync = kill (_asyncWorker hAsync) reason
 
 --------------------------------------------------------------------------------
 -- STM Specific API                                                           --
