@@ -94,12 +94,10 @@ testAsyncLinked result = do
     -- pick up on the exit signal and set the result accordingly. trying to match
     -- on 'DiedException String' is pointless though, as the *string* is highly
     -- context dependent.
-    --
-    -- TODO: wait should return AsyncLinkFailed instead of blocking indefinitely.
-    r <- waitTimeout 100000 hAsync
+    r <- wait hAsync
     case r of
-        Nothing -> stash result True
-        Just _  -> stash result False
+      AsyncLinkFailed _ -> stash result True
+      _                 -> stash result False
 
 -- Tests that waitAny returns when any of the actions complete.
 testAsyncWaitAny :: TestResult [AsyncResult String] -> Process ()

@@ -165,11 +165,19 @@ asyncDo shouldLink (AsyncTask proc) = do
           Left CancelWait
             -> liftIO $ atomically $ putTMVar result' AsyncCancelled
           Right (fpid, d)
-            | fpid == wpid
-              -> case d of
-                     DiedNormal -> return ()
-                     _          -> liftIO $ atomically $ putTMVar result' (AsyncFailed d)
-            | otherwise -> kill wpid "linkFailed"
+            | fpid == wpid -> case d of
+                DiedNormal -> return ()
+                _          -> liftIO $ atomically $ void $
+                                tryPutTMVar result' (AsyncFailed d)
+            | otherwise -> do
+                kill wpid "linkFailed"
+                receiveWait
+                  [ matchIf (\(ProcessMonitorNotification _ pid' _) ->
+                             pid' == wpid
+                            ) $ \_ -> return ()
+                  ]
+                liftIO $ atomically $ void $
+                  tryPutTMVar result' (AsyncLinkFailed d)
 
 -- | Check whether an 'Async' has completed yet.
 poll :: (Serializable a) => Async a -> Process (AsyncResult a)
