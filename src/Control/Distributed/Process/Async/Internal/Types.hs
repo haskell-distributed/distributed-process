@@ -4,6 +4,7 @@
 {-# LANGUAGE RankNTypes                #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE DeriveGeneric             #-}
+{-# LANGUAGE DeriveFunctor             #-}
 
 -- | shared, internal types for the Async package
 module Control.Distributed.Process.Async.Internal.Types
@@ -23,6 +24,7 @@ import Control.Distributed.Process.Serializable
   )
 import Data.Binary
 import Data.Typeable (Typeable)
+import Data.Monoid
 
 import GHC.Generics
 
@@ -40,10 +42,13 @@ data Async a = Async {
     _asyncWorker  :: AsyncRef
   , _asyncMonitor :: AsyncRef
   , _asyncWait    :: STM (AsyncResult a)
-  }
+  } deriving (Functor)
 
 instance Eq (Async a) where
   Async a b _ == Async c d _  =  a == c && b == d
+
+instance Ord (Async a) where
+  compare (Async a b _) (Async c d _) = a `compare` c <> b `compare` d
 
 -- | A task to be performed asynchronously.
 data AsyncTask a =
@@ -67,7 +72,8 @@ data AsyncResult a =
   | AsyncLinkFailed DiedReason  -- ^ a link failure and the reason
   | AsyncCancelled              -- ^ a cancelled action
   | AsyncPending                -- ^ a pending action (that is still running)
-    deriving (Typeable, Generic)
+    deriving (Typeable, Generic, Functor)
+
 
 instance Serializable a => Binary (AsyncResult a) where
 
