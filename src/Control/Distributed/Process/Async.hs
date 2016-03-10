@@ -174,24 +174,18 @@ asyncDo shouldLink (AsyncTask proc) = do
             | otherwise -> kill wpid "linkFailed"
 
 -- | Check whether an 'Async' has completed yet.
---
--- See "Control.Distributed.Process.Platform.Async".
 poll :: (Serializable a) => Async a -> Process (AsyncResult a)
 poll hAsync = do
   r <- liftIO $ atomically $ pollSTM hAsync
   return $ fromMaybe (AsyncPending) r
 
 -- | Like 'poll' but returns 'Nothing' if @(poll hAsync) == AsyncPending@.
---
--- See "Control.Distributed.Process.Platform.Async".
 check :: (Serializable a) => Async a -> Process (Maybe (AsyncResult a))
 check hAsync = poll hAsync >>= \r -> case r of
   AsyncPending -> return Nothing
   ar           -> return (Just ar)
 
 -- | Wait for an asynchronous operation to complete or timeout.
---
--- See "Control.Distributed.Process.Platform.Async".
 waitCheckTimeout :: (Serializable a) =>
                     Int -> Async a -> Process (AsyncResult a)
 waitCheckTimeout t hAsync =
@@ -203,7 +197,6 @@ waitCheckTimeout t hAsync =
 --
 -- @wait = liftIO . atomically . waitSTM@
 --
--- See "Control.Distributed.Process.Platform.Async".
 {-# INLINE wait #-}
 wait :: Async a -> Process (AsyncResult a)
 wait = liftIO . atomically . waitSTM
@@ -295,20 +288,14 @@ waitAnyTimeout delay asyncs =
     return $ snd r
 
 -- | Cancel an asynchronous operation.
---
--- See "Control.Distributed.Process.Platform.Async".
 cancel :: Async a -> Process ()
 cancel (Async _ g _) = send g CancelWait
 
 -- | Cancel an asynchronous operation and wait for the cancellation to complete.
---
--- See "Control.Distributed.Process.Platform.Async".
 cancelWait :: (Serializable a) => Async a -> Process (AsyncResult a)
 cancelWait hAsync = cancel hAsync >> wait hAsync
 
 -- | Cancel an asynchronous operation immediately.
---
--- See "Control.Distributed.Process.Platform.Async".
 cancelWith :: (Serializable b) => b -> Async a -> Process ()
 cancelWith reason hAsync = do
   worker <- resolve hAsync
@@ -317,8 +304,6 @@ cancelWith reason hAsync = do
     Just ref -> exit ref reason
 
 -- | Like 'cancelWith' but sends a @kill@ instruction instead of an exit.
---
--- See 'Control.Distributed.Process.Platform.Async'.
 cancelKill :: String -> Async a -> Process ()
 cancelKill reason hAsync = do
   worker <- resolve hAsync
