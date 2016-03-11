@@ -3,8 +3,6 @@ module Control.Distributed.Process.Tests.Mx (tests) where
 
 import Control.Distributed.Process.Tests.Internal.Utils
 import Network.Transport.Test (TestTransport(..))
-
-import Control.Concurrent (threadDelay)
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TChan
   ( newBroadcastTChanIO
@@ -12,14 +10,7 @@ import Control.Concurrent.STM.TChan
   , writeTChan
   , dupTChan
   )
-import Control.Concurrent.MVar
-  ( newEmptyMVar
-  , putMVar
-  , takeMVar
-  , readMVar
-  )
 import Control.Distributed.Process
-import Control.Distributed.Process.Debug (traceLog)
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Management
   ( MxEvent(..)
@@ -36,9 +27,8 @@ import Control.Distributed.Process.Management
   , mxUpdateLocal
   , mxNotify
   , mxBroadcast
-  , mxGetId
   )
-import Control.Monad (void, forever, replicateM_, when)
+import Control.Monad (void, replicateM_, when)
 import Data.Binary
 import Data.List (find, sort)
 import Data.Maybe (isJust)
