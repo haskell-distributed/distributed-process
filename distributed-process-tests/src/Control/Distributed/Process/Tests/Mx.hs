@@ -5,10 +5,25 @@ import Control.Distributed.Process.Tests.Internal.Utils
 import Network.Transport.Test (TestTransport(..))
 
 import Control.Concurrent (threadDelay)
+import Control.Concurrent.STM (atomically)
+import Control.Concurrent.STM.TChan
+  ( newBroadcastTChanIO
+  , readTChan
+  , writeTChan
+  , dupTChan
+  )
+import Control.Concurrent.MVar
+  ( newEmptyMVar
+  , putMVar
+  , takeMVar
+  , readMVar
+  )
 import Control.Distributed.Process
+import Control.Distributed.Process.Debug (traceLog)
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Management
   ( MxEvent(..)
+  , Destination(..) 
   , MxAgentId(..)
   , mxAgent
   , mxSink
@@ -23,7 +38,7 @@ import Control.Distributed.Process.Management
   , mxBroadcast
   , mxGetId
   )
-import Control.Monad (void)
+import Control.Monad (void, forever, replicateM_, when)
 import Data.Binary
 import Data.List (find, sort)
 import Data.Maybe (isJust)
@@ -175,6 +190,85 @@ testAgentEventHandling result = do
 
   stash result $ seenAlive && seenDead
 
+testAgentSendRecvHandling :: LocalNode -> IO ()
+testAgentSendRecvHandling node = do
+  runProcess node $ do
+    testPid <- getSelfPid
+    agent <- mxAgent (MxAgentId "sendrecv-listener-agent") initState [
+        (mxSink $ \(p1, p2, sp) -> do
+            mxSetLocal [p1, p2]
+            liftMX $ sendChan sp ()
+            mxReady
+        ),
+        (mxSink $ \ev -> do
+            st <- mxGetLocal
+--            mxBroadcast (MxLog $ "checking " ++ (show st))
+            let possiblyNotifyTestProcess pid = when (pid `elem` st) (liftMX $ send testPid ev)
+            let act = case ev of
+                        MxSent{..}     -> possiblyNotifyTestProcess whichProcess
+                        MxReceived{..} -> possiblyNotifyTestProcess whichProcess
+                        _              -> return ()
+            act >> mxReady)
+        ]
+
+    mRef <- monitor agent
+
+    sigStart <- liftIO newBroadcastTChanIO
+    p1Ready <- liftIO $ atomically (dupTChan sigStart)
+    p2Ready <- liftIO $ atomically (dupTChan sigStart)
+
+    p1 <- spawnLocal $ do
+      link testPid
+      liftIO $ atomically (readTChan p1Ready)
+
+      -- first we expect a message via send
+      () <- expect
+      -- then another, via nsend
+      () <- expect
+      -- then another, via usend
+      () <- expect
+      expect
+
+    let testProcName = "test.process.1"
+
+    p2 <- spawnLocal $ do
+      link testPid
+      liftIO $ atomically (readTChan p2Ready)
+
+      send p1 ()
+      nsend "test.process.1" ()
+      usend p1 ()
+      -- and using unsafe primitives...
+  
+      expect
+
+    register testProcName p1    
+    (Just _) <- whereis testProcName
+
+    (agentGo, agentReady) <- newChan
+    mxNotify (p1, p2, agentGo)
+
+    () <- receiveChan agentReady
+
+    liftIO $ atomically $ writeTChan sigStart ()
+
+    let destProc (ProcId p)   = p == p1
+        destProc (ProcName n) = n == testProcName
+        destProc _            = False
+
+    replicateM_ 6 $ receiveWait [ 
+      matchIf (\(ev :: MxEvent) ->
+                case ev of
+                  (MxSent p' d' _)  -> p' == p2 && destProc d'
+                  (MxReceived p' _) -> p' == p1
+                  -- we should never get any other kind of MxEvent here...
+                  _                 -> error "unexpected MxEvent"
+              ) (const $ return ()) ]
+  
+  where
+    initState :: [ProcessId]
+    initState = []
+      
 tests :: TestTransport -> IO [Test]
 tests TestTransport{..} = do
   node1 <- newLocalNode testTransport initRemoteTable
@@ -184,6 +278,8 @@ tests TestTransport{..} = do
             (delayedAssertion
              "expected True, but events where not as expected"
              node1 True testAgentEventHandling)
+      , testCase "Send & Receive"
+            (testAgentSendRecvHandling node1)
       , testCase "Inter-Agent Broadcast"
             (delayedAssertion
              "expected (), but no broadcast was received"
