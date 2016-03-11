@@ -192,7 +192,6 @@ testAgentSendRecvHandling node = do
         ),
         (mxSink $ \ev -> do
             st <- mxGetLocal
---            mxBroadcast (MxLog $ "checking " ++ (show st))
             let possiblyNotifyTestProcess pid = when (pid `elem` st) (liftMX $ send testPid ev)
             let act = case ev of
                         MxSent{..}     -> possiblyNotifyTestProcess whichProcess
