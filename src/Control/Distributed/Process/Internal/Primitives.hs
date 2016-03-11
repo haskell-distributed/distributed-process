@@ -1195,8 +1195,17 @@ whereisRemoteAsync nid label = do
 
 -- | Named send to a process in the local registry (asynchronous)
 nsend :: Serializable a => String -> a -> Process ()
-nsend label msg =
-  sendCtrlMsg Nothing (NamedSend label (createMessage msg))
+nsend label msg = do
+  proc <- ask
+  let us   = processId proc
+      node = processNode proc
+      msg' = createMessage msg
+  -- see note [trace MxSent]
+  liftIO $ traceEvent (localEventBus node) $ MxSent { whichProcess = us
+                                                    , whereTo      = ProcName label
+                                                    , message      = msg'
+                                                    }
+  sendCtrlMsg Nothing (NamedSend label msg')
 
 -- | Named send to a process in the local registry (asynchronous).
 -- This function makes /no/ attempt to serialize and (in the case when the
