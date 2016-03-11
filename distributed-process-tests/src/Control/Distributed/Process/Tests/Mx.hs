@@ -202,9 +202,9 @@ testAgentSendRecvHandling node = do
 
     mRef <- monitor agent
 
-    sigStart <- liftIO newBroadcastTChanIO
-    p1Ready <- liftIO $ atomically (dupTChan sigStart)
-    p2Ready <- liftIO $ atomically (dupTChan sigStart)
+    goSignal <- liftIO newBroadcastTChanIO
+    p1Ready <- liftIO $ atomically (dupTChan goSignal)
+    p2Ready <- liftIO $ atomically (dupTChan goSignal)
 
     p1 <- spawnLocal $ do
       link testPid
@@ -212,24 +212,30 @@ testAgentSendRecvHandling node = do
 
       -- first we expect a message via send
       () <- expect
-      -- then another, via nsend
-      () <- expect
-      -- then another, via usend
-      () <- expect
-      expect
 
-    let testProcName = "test.process.1"
+      -- then another, via nsend
+      liftIO $ atomically (readTChan p1Ready)
+      () <- expect
+
+      -- then another, via usend
+      liftIO $ atomically (readTChan p1Ready)
+      () <- expect
+
+      return ()
 
     p2 <- spawnLocal $ do
       link testPid
       liftIO $ atomically (readTChan p2Ready)
 
       send p1 ()
+
+      liftIO $ atomically (readTChan p2Ready)
       nsend "test.process.1" ()
+
+      liftIO $ atomically (readTChan p2Ready)
       usend p1 ()
       -- and using unsafe primitives...
   
-      expect
 
     register testProcName p1    
     (Just _) <- whereis testProcName
@@ -239,24 +245,43 @@ testAgentSendRecvHandling node = do
 
     () <- receiveChan agentReady
 
-    liftIO $ atomically $ writeTChan sigStart ()
+    replicateM_ 3 $ checkOnce p1 p2 goSignal
 
-    let destProc (ProcId p)   = p == p1
-        destProc (ProcName n) = n == testProcName
-        destProc _            = False
-
-    replicateM_ 6 $ receiveWait [ 
-      matchIf (\(ev :: MxEvent) ->
-                case ev of
-                  (MxSent p' d' _)  -> p' == p2 && destProc d'
-                  (MxReceived p' _) -> p' == p1
-                  -- we should never get any other kind of MxEvent here...
-                  _                 -> error "unexpected MxEvent"
-              ) (const $ return ()) ]
+    kill agent "finished"
+    receiveWait [ matchIf (\(ProcessMonitorNotification ref _ _) -> ref == mRef)
+                          (const $ return ()) ]
   
   where
+    checkOnce p1' p2' sig = do
+      -- tell both the sending and receiving actors to take a step
+      liftIO $ atomically $ writeTChan sig ()
+
+      -- ensure we saw the send first...
+      receiveWait [ 
+        matchIf (\(ev :: MxEvent) ->
+                  case ev of
+                    (MxSent p' d' _)  -> p' == p2' && destProc d' p1'
+                    -- we should never get any other kind of MxEvent here...
+                    _                 -> error "unexpected MxEvent"
+                ) (const $ return ()) ]
+
+      -- and the receive after...
+      receiveWait [ 
+        matchIf (\(ev :: MxEvent) ->
+                  case ev of
+                    (MxReceived p' _) -> p' == p1'
+                    -- we should never get any other kind of MxEvent here...
+                    _                 -> error "unexpected MxEvent"
+                ) (const $ return ()) ]
+
     initState :: [ProcessId]
     initState = []
+
+    testProcName = "test.process.1"
+
+    destProc (ProcId p)   p' = p == p'
+    destProc (ProcName n) _  = n == testProcName
+    destProc _            _  = False
       
 tests :: TestTransport -> IO [Test]
 tests TestTransport{..} = do
