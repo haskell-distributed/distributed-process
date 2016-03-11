@@ -141,17 +141,14 @@ module Control.Distributed.Process.Debug
   )
   where
 
-import Control.Applicative ((<$>))
+import Control.Applicative
 import Control.Distributed.Process.Internal.Primitives
   ( proxy
-  , finally
   , die
   , whereis
   , send
   , receiveWait
   , matchIf
-  , finally
-  , try
   , monitor
   )
 import Control.Distributed.Process.Internal.Types
@@ -196,12 +193,11 @@ import Control.Exception (SomeException)
 
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (ask)
+import Control.Monad.Catch (finally, try)
 
 import Data.Binary()
 
-#if ! MIN_VERSION_base(4,6,0)
-import Prelude hiding (catch)
-#endif
+import Prelude
 
 --------------------------------------------------------------------------------
 -- Debugging/Tracing API                                                      --

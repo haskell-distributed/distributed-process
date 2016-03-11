@@ -3,7 +3,7 @@
 
 module Control.Distributed.Process.Management.Internal.Agent where
 
-import Control.Applicative ((<$>))
+import Control.Applicative
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar)
 import Control.Concurrent.STM (atomically)
@@ -44,6 +44,7 @@ import Control.Monad (void)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (ask)
 import GHC.Weak (Weak, deRefWeak)
+import Prelude
 
 --------------------------------------------------------------------------------
 -- Agent Controller Implementation                                            --
