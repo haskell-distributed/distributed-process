@@ -887,9 +887,8 @@ monitor = monitor' . ProcessIdentifier
 -- @withMonitor@ returns, there might still be unreceived monitor
 -- messages in the queue.
 --
-withMonitor :: ProcessId -> Process a -> Process a
-withMonitor pid = bracket (monitor pid) unmonitor . const
-{-# WARNING withMonitor "Signature of this function will be changed to 'ProcessId -> (MonitorRef -> Process a) -> Process a' in the next release, for stable behaviour use withMonitor_" #-}
+withMonitor :: ProcessId -> (MonitorRef -> Process a) -> Process a
+withMonitor pid = bracket (monitor pid) unmonitor
 
 -- | Establishes temporary monitoring of another process.
 --
@@ -900,7 +899,7 @@ withMonitor pid = bracket (monitor pid) unmonitor . const
 --
 -- Since 0.6.1
 withMonitor_ :: ProcessId -> Process a -> Process a
-withMonitor_ = withMonitor
+withMonitor_ p = withMonitor p . const
 
 -- | Remove a link
 --
