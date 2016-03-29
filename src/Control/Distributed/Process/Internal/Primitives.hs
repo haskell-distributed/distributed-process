@@ -77,7 +77,7 @@ module Control.Distributed.Process.Internal.Primitives
   , monitor
   , unmonitor
   , withMonitor
-  , withMonitorRef
+  , withMonitor_
     -- * Logging
   , say
     -- * Registry
@@ -887,21 +887,19 @@ monitor = monitor' . ProcessIdentifier
 -- @withMonitor@ returns, there might still be unreceived monitor
 -- messages in the queue.
 --
-withMonitor :: ProcessId -> Process a -> Process a
-withMonitor pid = withMonitorRef pid . const
-  -- unmonitor blocks waiting for the response, so there's a possibility
-  -- that an exception might interrupt withMonitor before the unmonitor
-  -- has completed.  I think that's better than making the unmonitor
-  -- uninterruptible.
+withMonitor :: ProcessId -> (MonitorRef -> Process a) -> Process a
+withMonitor pid = bracket (monitor pid) unmonitor
 
 -- | Establishes temporary monitoring of another process.
 --
--- @withMonitorRef pid code@ sets up monitoring of @pid@ for the duration
--- of @code@.  Note: although monitoring is no longer active when
--- @withMonitorRef@ returns, there might still be unreceived monitor
+-- @withMonitor_ pid code@ sets up monitoring of @pid@ for the duration
+-- of @code@. Note: although monitoring is no longer active when
+-- @withMonitor_@ returns, there might still be unreceived monitor
 -- messages in the queue.
-withMonitorRef :: ProcessId -> (MonitorRef -> Process a) -> Process a
-withMonitorRef pid code = bracket (monitor pid) unmonitor code
+--
+-- Since 0.6.1
+withMonitor_ :: ProcessId -> Process a -> Process a
+withMonitor_ p = withMonitor p . const
 
 -- | Remove a link
 --
