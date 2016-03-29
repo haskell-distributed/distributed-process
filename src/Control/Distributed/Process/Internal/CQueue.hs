@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE BangPatterns  #-}
 {-# LANGUAGE MagicHash, UnboxedTuples, PatternGuards, ScopedTypeVariables, RankNTypes #-}
@@ -46,7 +47,7 @@ import Control.Distributed.Process.Internal.StrictList
 import Data.Maybe (fromJust)
 import Data.Traversable (traverse)
 import GHC.MVar (MVar(MVar))
-import GHC.IO (IO(IO))
+import GHC.IO (IO(IO), unIO)
 import GHC.Prim (mkWeak#)
 import GHC.Weak (Weak(Weak))
 
@@ -265,7 +266,11 @@ dequeue (CQueue arrived incoming size) blockSpec matchons = mask_ $ decrementJus
 -- | Weak reference to a CQueue
 mkWeakCQueue :: CQueue a -> IO () -> IO (Weak (CQueue a))
 mkWeakCQueue m@(CQueue (StrictMVar (MVar m#)) _ _) f = IO $ \s ->
+#if MIN_VERSION_ghc_prim(0,5,0)
+  case mkWeak# m# m (unIO f) s of (# s1, w #) -> (# s1, Weak w #)
+#else
   case mkWeak# m# m f s of (# s1, w #) -> (# s1, Weak w #)
+#endif
 
 queueSize :: CQueue a -> IO Int
 queueSize (CQueue _ _ size) = readTVarIO size
