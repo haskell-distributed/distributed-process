@@ -299,7 +299,11 @@ getType :: Name -> Q (Name, Type)
 getType name = do
   info <- reify name
   case info of
+#if MIN_VERSION_template_haskell(2,11,0)
+    VarI origName typ _   -> return (origName, typ)
+#else
     VarI origName typ _ _ -> return (origName, typ)
+#endif
     _                     -> fail $ show name ++ " not found"
 
 -- | Variation on 'funD' which takes a single expression to define the function
