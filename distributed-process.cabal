@@ -42,7 +42,7 @@ flag old-locale
 
 Library
   Build-Depends:     base >= 4.4 && < 5,
-                     binary >= 0.6.3 && < 0.8,
+                     binary >= 0.6.3 && < 0.9,
                      hashable >= 1.2.0.5 && < 1.3,
                      network-transport >= 0.4.1.0 && < 0.5,
                      stm >= 2.4 && < 2.5,
@@ -109,7 +109,7 @@ benchmark distributed-process-throughput
                    distributed-process,
                    network-transport-tcp >= 0.3 && < 0.6,
                    bytestring >= 0.9 && < 0.11,
-                   binary >= 0.6.3 && < 0.8
+                   binary >= 0.6.3 && < 0.9
   Main-Is:         benchmarks/Throughput.hs
   ghc-options:     -Wall
 
@@ -119,7 +119,7 @@ benchmark distributed-process-latency
                    distributed-process,
                    network-transport-tcp >= 0.3 && < 0.6,
                    bytestring >= 0.9 && < 0.11,
-                   binary >= 0.6.3 && < 0.8
+                   binary >= 0.6.3 && < 0.9
   Main-Is:         benchmarks/Latency.hs
   ghc-options:     -Wall
 
@@ -129,7 +129,7 @@ benchmark distributed-process-channels
                    distributed-process,
                    network-transport-tcp >= 0.3 && < 0.6,
                    bytestring >= 0.9 && < 0.11,
-                   binary >= 0.6.3 && < 0.8
+                   binary >= 0.6.3 && < 0.9
   Main-Is:         benchmarks/Channels.hs
   ghc-options:     -Wall
 
@@ -139,7 +139,7 @@ benchmark distributed-process-spawns
                    distributed-process,
                    network-transport-tcp >= 0.3 && < 0.6,
                    bytestring >= 0.9 && < 0.11,
-                   binary >= 0.6.3 && < 0.8
+                   binary >= 0.6.3 && < 0.9
   Main-Is:         benchmarks/Spawns.hs
   ghc-options:     -Wall
 
@@ -149,6 +149,6 @@ benchmark distributed-process-ring
                    distributed-process,
                    network-transport-tcp >= 0.3 && < 0.6,
                    bytestring >= 0.9 && < 0.11,
-                   binary >= 0.6.3 && < 0.8
+                   binary >= 0.6.3 && < 0.9
   Main-Is:         benchmarks/ProcessRing.hs
   ghc-options:     -Wall -threaded -O2 -rtsopts

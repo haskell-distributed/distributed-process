@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP  #-}
 {-# LANGUAGE DeriveDataTypeable  #-}
 {-# LANGUAGE MagicHash, UnboxedTuples #-}
 -- | Clone of Control.Concurrent.STM.TQueue with support for mkWeakTQueue
@@ -22,7 +23,7 @@ module Control.Distributed.Process.Internal.WeakTQueue (
 import Prelude hiding (read)
 import GHC.Conc
 import Data.Typeable (Typeable)
-import GHC.IO (IO(IO))
+import GHC.IO (IO(IO), unIO)
 import GHC.Prim (mkWeak#)
 import GHC.Weak (Weak(Weak))
 
@@ -99,4 +100,8 @@ isEmptyTQueue (TQueue read write) = do
 
 mkWeakTQueue :: TQueue a -> IO () -> IO (Weak (TQueue a))
 mkWeakTQueue q@(TQueue _read (TVar write#)) f = IO $ \s ->
+#if MIN_VERSION_ghc_prim(0,5,0)
+  case mkWeak# write# q (unIO f) s of (# s', w #) -> (# s', Weak w #)
+#else
   case mkWeak# write# q f s of (# s', w #) -> (# s', Weak w #)
+#endif

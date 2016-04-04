@@ -36,7 +36,7 @@ import qualified Control.Concurrent.MVar as MVar
 #endif
   )
 import GHC.MVar (MVar(MVar))
-import GHC.IO (IO(IO))
+import GHC.IO (IO(IO), unIO)
 import GHC.Prim (mkWeak#)
 import GHC.Weak (Weak(Weak))
 
@@ -85,5 +85,9 @@ modifyMVarMasked (StrictMVar v) f =
     evaluateFst (x, y) = evaluate x >> return (x, y)
 
 mkWeakMVar :: StrictMVar a -> IO () -> IO (Weak (StrictMVar a))
-mkWeakMVar m@(StrictMVar (MVar m#)) f = IO $ \s ->
-  case mkWeak# m# m f s of (# s1, w #) -> (# s1, Weak w #)
+mkWeakMVar q@(StrictMVar (MVar m#)) f = IO $ \s ->
+#if MIN_VERSION_ghc_prim(0,5,0)
+  case mkWeak# m# q (unIO f) s of (# s', w #) -> (# s', Weak w #)
+#else
+  case mkWeak# m# q f s of (# s', w #) -> (# s', Weak w #)
+#endif
