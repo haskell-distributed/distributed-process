@@ -1166,16 +1166,17 @@ throwException :: Exception e => ProcessId -> e -> NC ()
 throwException pid e = do
   node <- ask
   -- throwTo blocks until the exception is received by the target thread.
-  -- We fork a helper thread to avoid blocking the node controller.
-  liftIO $ withLocalProc node pid $ \p -> void $ forkIO $ throwTo (processThread p) e
+  -- We cannot easily make it happen asynchronpusly because then 'unlink'
+  -- semantics would break.
+  liftIO $ withLocalProc node pid $ \p -> throwTo (processThread p) e
 
 withLocalProc :: LocalNode -> ProcessId -> (LocalProcess -> IO ()) -> IO ()
 withLocalProc node pid p =
   -- By [Unified: table 6, rule missing_process] messages to dead processes
   -- can silently be dropped
   let lpid = processLocalId pid in do
-  withValidLocalState node $ \vst ->
-    forM_ (vst ^. localProcessWithId lpid) p
+  join $ withValidLocalState node $ \vst ->
+    return $ forM_ (vst ^. localProcessWithId lpid) p
 
 --------------------------------------------------------------------------------
 -- Accessors                                                                  --
