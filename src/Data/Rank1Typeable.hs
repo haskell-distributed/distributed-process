@@ -109,11 +109,10 @@ import Data.Typeable
   , tyConModule
   , tyConName
   )
-#if MIN_VERSION_base(4,9,0)
-import Data.Typeable.Internal (tcList, tcFun)
-#else
-import Data.Typeable.Internal (listTc, funTc)
+#if MIN_VERSION_base(4,7,0)
+import Data.Proxy (Proxy(Proxy))
 #endif
+import qualified Data.Typeable.Internal as T
 import Data.Binary (Binary(get, put))
 import qualified Data.Typeable as Typeable
   ( TypeRep
@@ -122,11 +121,13 @@ import qualified Data.Typeable as Typeable
   , mkTyConApp
   )
 
-
-#if !MIN_VERSION_base(4,9,0)
 tcList, tcFun :: TyCon
-tcList = listTc
-tcFun = funTc
+#if MIN_VERSION_base(4,7,0)
+tcList = T.typeRepTyCon (T.typeOf [()])
+tcFun = T.typeRepTyCon (T.typeRep (Proxy :: Proxy (->)))
+#else
+tcList = T.listTc
+tcFun = T.funTc
 #endif
 
 --------------------------------------------------------------------------------
