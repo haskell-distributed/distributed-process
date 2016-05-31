@@ -468,7 +468,7 @@ unclosure rtable (Closure dec env) = do
   return (f env)
 
 -- | Convert a static value into a closure.
-staticClosure :: Typeable a => Static a -> Closure a
+staticClosure :: Static a -> Closure a
 staticClosure dec = closure (staticConst dec) empty
 
 --------------------------------------------------------------------------------
@@ -476,28 +476,23 @@ staticClosure dec = closure (staticConst dec) empty
 --------------------------------------------------------------------------------
 
 -- | Static version of ('Prelude..')
-composeStatic :: (Typeable a, Typeable b, Typeable c)
-              => Static ((b -> c) -> (a -> b) -> a -> c)
+composeStatic :: Static ((b -> c) -> (a -> b) -> a -> c)
 composeStatic = staticLabel "$compose"
 
 -- | Static version of 'const'
-constStatic :: (Typeable a, Typeable b)
-            => Static (a -> b -> a)
+constStatic :: Static (a -> b -> a)
 constStatic = staticLabel "$const"
 
 -- | Static version of ('Arrow.***')
-splitStatic :: (Typeable a, Typeable a', Typeable b, Typeable b')
-            => Static ((a -> b) -> (a' -> b') -> (a, a') -> (b, b'))
+splitStatic :: Static ((a -> b) -> (a' -> b') -> (a, a') -> (b, b'))
 splitStatic = staticLabel "$split"
 
 -- | Static version of 'Arrow.app'
-appStatic :: (Typeable a, Typeable b)
-          => Static ((a -> b, a) -> b)
+appStatic :: Static ((a -> b, a) -> b)
 appStatic = staticLabel "$app"
 
 -- | Static version of 'flip'
-flipStatic :: (Typeable a, Typeable b, Typeable c)
-           => Static ((a -> b -> c) -> b -> a -> c)
+flipStatic :: Static ((a -> b -> c) -> b -> a -> c)
 flipStatic = staticLabel "$flip"
 
 --------------------------------------------------------------------------------
@@ -505,23 +500,19 @@ flipStatic = staticLabel "$flip"
 --------------------------------------------------------------------------------
 
 -- | Static version of ('Prelude..')
-staticCompose :: (Typeable a, Typeable b, Typeable c)
-              => Static (b -> c) -> Static (a -> b) -> Static (a -> c)
+staticCompose :: Static (b -> c) -> Static (a -> b) -> Static (a -> c)
 staticCompose g f = composeStatic `staticApply` g `staticApply` f
 
 -- | Static version of ('Control.Arrow.***')
-staticSplit :: (Typeable a, Typeable a', Typeable b, Typeable b')
-            => Static (a -> b) -> Static (a' -> b') -> Static ((a, a') -> (b, b'))
+staticSplit :: Static (a -> b) -> Static (a' -> b') -> Static ((a, a') -> (b, b'))
 staticSplit f g = splitStatic `staticApply` f `staticApply` g
 
 -- | Static version of 'Prelude.const'
-staticConst :: (Typeable a, Typeable b)
-            => Static a -> Static (b -> a)
+staticConst :: Static a -> Static (b -> a)
 staticConst x = constStatic `staticApply` x
 
 -- | Static version of 'Prelude.flip'
-staticFlip :: (Typeable a, Typeable b, Typeable c)
-           => Static (a -> b -> c) -> Static (b -> a -> c)
+staticFlip :: Static (a -> b -> c) -> Static (b -> a -> c)
 staticFlip f = flipStatic `staticApply` f
 
 --------------------------------------------------------------------------------
@@ -529,8 +520,7 @@ staticFlip f = flipStatic `staticApply` f
 --------------------------------------------------------------------------------
 
 -- | Apply a static function to a closure
-closureApplyStatic :: (Typeable a, Typeable b)
-                   => Static (a -> b) -> Closure a -> Closure b
+closureApplyStatic :: Static (a -> b) -> Closure a -> Closure b
 closureApplyStatic f (Closure decoder env) =
   closure (f `staticCompose` decoder) env
 
@@ -538,8 +528,8 @@ decodeEnvPairStatic :: Static (ByteString -> (ByteString, ByteString))
 decodeEnvPairStatic = staticLabel "$decodeEnvPair"
 
 -- | Closure application
-closureApply :: forall a b. (Typeable a, Typeable b)
-             => Closure (a -> b) -> Closure a -> Closure b
+closureApply :: forall a b . 
+                Closure (a -> b) -> Closure a -> Closure b
 closureApply (Closure fdec fenv) (Closure xdec xenv) =
     closure decoder (encode (fenv, xenv))
   where
@@ -551,11 +541,9 @@ closureApply (Closure fdec fenv) (Closure xdec xenv) =
               decodeEnvPairStatic
 
 -- | Closure composition
-closureCompose :: (Typeable a, Typeable b, Typeable c)
-               => Closure (b -> c) -> Closure (a -> b) -> Closure (a -> c)
+closureCompose :: Closure (b -> c) -> Closure (a -> b) -> Closure (a -> c)
 closureCompose g f = composeStatic `closureApplyStatic` g `closureApply` f
 
 -- | Closure version of ('Arrow.***')
-closureSplit :: (Typeable a, Typeable a', Typeable b, Typeable b')
-             => Closure (a -> b) -> Closure (a' -> b') -> Closure ((a, a') -> (b, b'))
+closureSplit ::  Closure (a -> b) -> Closure (a' -> b') -> Closure ((a, a') -> (b, b'))
 closureSplit f g = splitStatic `closureApplyStatic` f `closureApply` g
