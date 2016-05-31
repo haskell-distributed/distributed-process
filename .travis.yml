@@ -7,6 +7,9 @@ matrix:
   - env: CABAL_INSTALL_VER=1.22 GHCVER=7.6.3 BUILD=cabal
     addons: {apt: {packages: [cabal-install-1.22,ghc-7.6.3], sources: [hvr-ghc]}}
 
+  - env: CABAL_INSTALL_VER=1.24 GHCVER=8.0.1 BUILD=cabal
+    addons: {apt: {packages: [cabal-install-1.24,ghc-8.0.1], sources: [hvr-ghc]}}
+
   - env: ARGS="--stack-yaml stack-ghc-7.8.4.yaml" BUILD=stack CABALVER=1.18.1.5
     addons: {apt: {packages: [libgmp-dev]}}
 
