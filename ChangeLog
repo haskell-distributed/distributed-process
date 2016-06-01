@@ -1,3 +1,7 @@
+2016-01-28  Facundo Domínguez <facundo.dominguez@tweag.io> 0.4.4.0
+
+* Add compatibility with ghc-8.
+
 2016-01-28  Facundo Domínguez <facundo.dominguez@tweag.io> 0.4.3.0
 
 * Derive Binary instances for missing types.
