@@ -1,3 +1,8 @@
+2016-05-31  Facundo Domínguez  <facundo.dominguez@tweag.io>  0.3.3.0
+
+* Add compatibility with ghc-8.
+* Update bug report url in cabal file.
+
 2016-02-18  Facundo Domínguez  <facundo.dominguez@tweag.io>  0.3.2.0
 
 * Stop testing ghc-7.4 and test ghc-7.10.
