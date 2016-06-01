@@ -23,7 +23,7 @@ Source-Repository head
 Library
   Exposed-Modules:     Data.Rank1Dynamic,
                        Data.Rank1Typeable
-  Build-Depends:       base >= 4.4 && < 5,
+  Build-Depends:       base >= 4.6 && < 5,
                        binary >= 0.5 && < 0.9
   HS-Source-Dirs:      src
   GHC-Options:         -Wall
@@ -35,7 +35,7 @@ Library
 Test-Suite TestRank1Dynamic
   Type:              exitcode-stdio-1.0
   Main-Is:           test.hs
-  Build-Depends:     base >= 4.4 && < 5,
+  Build-Depends:     base >= 4.6 && < 5,
                      HUnit >= 1.2 && < 1.4,
                      rank1dynamic,
                      test-framework >= 0.6 && < 0.9,
