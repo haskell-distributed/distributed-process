@@ -19,7 +19,7 @@ License:             BSD3
 License-File:        LICENSE
 Author:              Edsko de Vries
 Maintainer:          Facundo Domínguez <facundo.dominguez@tweag.io>
-Bug-Reports:         https://cloud-haskell.atlassian.net/browse/DS
+Bug-Reports:         https://github.com/haskell-distributed/distributed-static/issues
 Copyright:           Well-Typed LLP
 Category:            Control
 Build-Type:          Simple
