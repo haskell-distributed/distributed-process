@@ -9,7 +9,7 @@ License:             BSD3
 License-File:        LICENSE
 Author:              Edsko de Vries
 Maintainer:          Facundo Domínguez <facundo.dominguez@tweag.io>
-Bug-Reports:         https://cloud-haskell.atlassian.net/browse/RANKNDYN
+Bug-Reports:         https://github.com/haskell-distributed/rank1dynamic/issues
 Copyright:           Well-Typed LLP, Tweag I/O Limited
 Category:            Data
 Build-Type:          Simple
