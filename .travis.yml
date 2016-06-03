@@ -45,7 +45,7 @@ install:
 - case "$BUILD" in
     stack)
       stack $ARGS setup --no-terminal;
-      stack $ARGS build --no-terminal --only-snapshot --test
+      stack $ARGS build --no-terminal --only-snapshot --test --no-run-tests;
       ;;
     cabal)
       cabal install --jobs=2 --enable-tests --only-dependencies -ftcp . distributed-process-tests/
@@ -55,23 +55,21 @@ install:
 script:
 - case "$BUILD" in
     stack)
-      stack $ARGS --no-terminal build --test --no-run-tests;
-      cd distributed-process-tests;
-      export BUILD_DIR=.stack-work/dist/x86_64-linux/Cabal-$CABALVER/build
+      export ARG='--test-arguments'
+      export TEST_PACKAGE="distributed-process-tests:"
       ;;
     cabal)
-      cabal install --enable-tests;
-      cabal install --jobs=2;
-      cd distributed-process-tests/;
+      cabal install --jobs=2 --enable-tests -ftcp .
+      cd distributed-process-tests;
       cabal configure -ftcp --enable-tests;
       cabal build --jobs=2;
-      export BUILD_DIR=dist/build
+      export ARG='--test-options'
+      export TEST_PACKAGE=""
       ;;
    esac
-  # skip intermittent tests
-- $BUILD_DIR/TestCHInMemory/TestCHInMemory --plain -t '!Flaky'
-- $BUILD_DIR/TestCHInTCP/TestCHInTCP --plain -t '!Flaky'
-- $BUILD_DIR/TestClosure/TestClosure --plain -t '!SpawnReconnect'
-- $BUILD_DIR/TestStats/TestStats --plain
-- $BUILD_DIR/TestMx/TestMx --plain
-- $BUILD_DIR/TestTracing/TestTracing --plain
+- $BUILD ${ARGS} test $ARG='--plain -t "!Flaky"' ${TEST_PACKAGE}TestCHInMemory
+- $BUILD ${ARGS} test $ARG='--plain -t "!Flaky"' ${TEST_PACKAGE}TestCHInTCP
+- $BUILD ${ARGS} test $ARG='--plain -t "!SpawnReconnect"' ${TEST_PACKAGE}TestClosure
+- $BUILD ${ARGS} test $ARG='--plain' ${TEST_PACKAGE}TestStats
+- $BUILD ${ARGS} test $ARG='--plain' ${TEST_PACKAGE}TestMx
+- $BUILD ${ARGS} test $ARG='--plain' ${TEST_PACKAGE}TestTracing
