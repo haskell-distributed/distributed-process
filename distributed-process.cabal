@@ -51,7 +51,6 @@ Library
                      data-accessor >= 0.2 && < 0.3,
                      bytestring >= 0.9 && < 0.11,
                      random >= 1.0 && < 1.2,
-                     ghc-prim >= 0.2 && < 0.6,
                      distributed-static >= 0.2 && < 0.4,
                      rank1dynamic >= 0.1 && < 0.4,
                      syb >= 0.3 && < 0.7,
