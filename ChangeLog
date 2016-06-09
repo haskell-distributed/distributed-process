@@ -1,3 +1,13 @@
+2016-06-09 Facundo Domínguez <facundo.dominguez@tweag.io> 0.6.2
+
+* Provide compatibility with ghc-8.0.1
+* Remove dependency on ghc-prim.
+* Don't throw exceptions asynchronously.
+* Bump upper bounds of dependencies.
+* Fix exception handling in callLocal.
+* Have spawnLocal inherit the masking state of the caller.
+* Have nsend send unencoded messages to local processes.
+
 2016-03-03 Facundo Domínguez <facundo.dominguez@tweag.io> 0.6.1
 
 * Implement MonadCatch, MonadThrow, MonadMask for Process.
