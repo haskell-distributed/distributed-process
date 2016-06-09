@@ -1,0 +1,9 @@
+resolver: nightly-2016-03-08
+
+packages:
+- '.'
+- distributed-process-tests/
+
+flags:
+  distributed-process-tests:
+    tcp: true
