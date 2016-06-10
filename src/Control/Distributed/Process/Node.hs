@@ -558,9 +558,9 @@ handleIncomingMessages node = go initConnectionState
                     Just proc ->
                       go (incomingAt cid ^= Just (src, ToProc pid (processWeakQ proc)) $ st)
                     Nothing ->
-                      invalidRequest cid st $
-                        "incoming attempt to connect to unknown process "
-                        ++ show pid
+                      -- incoming attempt to connect to unknown process - might
+                      -- be dead already
+                      go (incomingAt cid ^= Nothing $ st)
                 SendPortIdentifier chId -> do
                   let lcid = sendPortLocalId chId
                       lpid = processLocalId (sendPortProcessId chId)
@@ -576,9 +576,9 @@ handleIncomingMessages node = go initConnectionState
                             "incoming attempt to connect to unknown channel of"
                             ++ " process " ++ show (sendPortProcessId chId)
                     Nothing ->
-                      invalidRequest cid st $
-                        "incoming attempt to connect to channel of unknown"
-                        ++ " process " ++ show (sendPortProcessId chId)
+                      -- incoming attempt to connect to channel of unknown
+                      -- process - might be dead already
+                      go (incomingAt cid ^= Nothing $ st)
                 NodeIdentifier nid ->
                   if nid == localNodeId node
                     then go (incomingAt cid ^= Just (src, ToNode) $ st)
