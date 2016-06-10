@@ -560,19 +560,10 @@ testMergeChannels TestTransport{..} = do
 testTerminate :: TestTransport -> Assertion
 testTerminate TestTransport{..} = do
   localNode <- newLocalNode testTransport initRemoteTable
-  done <- newEmptyMVar
-
-  pid <- forkProcess localNode $ do
-    liftIO $ threadDelay 100000
-    terminate
-
   runProcess localNode $ do
-    ref <- monitor pid
-    ProcessMonitorNotification ref' pid' (DiedException ex) <- expect
-    True <- return $ ref == ref' && pid == pid' && ex == show ProcessTerminationException
-    liftIO $ putMVar done ()
-
-  takeMVar done
+    e <- try terminate :: Process (Either ProcessTerminationException ())
+    True <- return $ either show show e == show ProcessTerminationException
+    return ()
 
 testMonitorNode :: TestTransport -> Assertion
 testMonitorNode TestTransport{..} = do
