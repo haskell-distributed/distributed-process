@@ -1,3 +1,7 @@
+2016-06-09 Facundo Domínguez <facundo.dominguez@tweag.io> 0.6.4
+
+* Fixup build errors.
+
 2016-06-09 Facundo Domínguez <facundo.dominguez@tweag.io> 0.6.3
 
 * Relax template-haskell upper bound.
