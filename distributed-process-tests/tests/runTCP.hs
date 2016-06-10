@@ -15,6 +15,7 @@ import Network.Transport.TCP
 import Test.Framework (defaultMainWithArgs)
 
 import Control.Concurrent (threadDelay)
+import Control.Exception  (IOException, try)
 import System.Environment (getArgs)
 import System.IO
 
@@ -28,8 +29,8 @@ main = do
     ts <- tests TestTransport
       { testTransport = transport
       , testBreakConnection = \addr1 addr2 -> do
-          sock <- socketBetween internals addr1 addr2
-          sClose sock
+          esock <- try $ socketBetween internals addr1 addr2
+          either (\e -> const (return ()) (e :: IOException)) sClose esock
           threadDelay 10000
       }
     args <- getArgs
