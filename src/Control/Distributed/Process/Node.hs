@@ -321,6 +321,8 @@ startServiceProcesses node = do
     -- process which uses 'send' or other primitives which are traced.
     register "trace.logger" logger
  where
+   fork = forkProcess node
+
    loop = do
      receiveWait
        [ match $ \((time, pid, string) ::(String, ProcessId, String)) -> do
