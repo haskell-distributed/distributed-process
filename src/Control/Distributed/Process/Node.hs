@@ -516,7 +516,7 @@ handleIncomingMessages node = go initConnectionState
                     . (incomingFrom theirAddr ^: Set.insert cid)
                     $ st
                     )
-            else invalidRequest cid st
+            else invalidRequest cid st ("unsupported reliability: "++show rel)
         NT.Received cid payload ->
           case st ^. incomingAt cid of
             Just (_, ToProc pid weakQueue) -> do
@@ -549,7 +549,7 @@ handleIncomingMessages node = go initConnectionState
                     Just proc ->
                       go (incomingAt cid ^= Just (src, ToProc pid (processWeakQ proc)) $ st)
                     Nothing ->
-                      invalidRequest cid st
+                      invalidRequest cid st "unknown local process id"
                 SendPortIdentifier chId -> do
                   let lcid = sendPortLocalId chId
                       lpid = processLocalId (sendPortProcessId chId)
@@ -561,19 +561,19 @@ handleIncomingMessages node = go initConnectionState
                         Just channel ->
                           go (incomingAt cid ^= Just (src, ToChan channel) $ st)
                         Nothing ->
-                          invalidRequest cid st
+                          invalidRequest cid st "unknown channel"
                     Nothing ->
-                      invalidRequest cid st
+                      invalidRequest cid st "unknown process id"
                 NodeIdentifier nid ->
                   if nid == localNodeId node
                     then go (incomingAt cid ^= Just (src, ToNode) $ st)
-                    else invalidRequest cid st
+                    else invalidRequest cid st "invalid node id"
             Nothing ->
-              invalidRequest cid st
+              invalidRequest cid st "invalid request target"
         NT.ConnectionClosed cid ->
           case st ^. incomingAt cid of
             Nothing ->
-              invalidRequest cid st
+              invalidRequest cid st "closed unknown connection id"
             Just (src, _) -> do
               trace node (MxDisconnected cid src)
               go ( (incomingAt cid ^= Nothing)
@@ -604,13 +604,13 @@ handleIncomingMessages node = go initConnectionState
           -- and we just give up
           fail "Cloud Haskell fatal error: received unexpected multicast"
 
-    invalidRequest :: NT.ConnectionId -> ConnectionState -> IO ()
-    invalidRequest cid st = do
+    invalidRequest :: NT.ConnectionId -> ConnectionState -> String -> IO ()
+    invalidRequest cid st msg = do
       -- TODO: We should treat this as a fatal error on the part of the remote
       -- node. That is, we should report the remote node as having died, and we
       -- should close incoming connections (this requires a Transport layer
       -- extension).
-      traceEventFmtIO node "" [(TraceStr " [network] invalid request: "),
+      traceEventFmtIO node "" [(TraceStr $ " [network] invalid request ("++msg++"): "),
                                (Trace cid)]
       go ( incomingAt cid ^= Nothing
          $ st
