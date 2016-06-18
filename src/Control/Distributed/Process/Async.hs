@@ -59,10 +59,6 @@ module Control.Distributed.Process.Async
   , waitBoth
   ) where
 
-#if ! MIN_VERSION_base(4,6,0)
-import Prelude hiding (catch)
-#endif
-
 import Control.Applicative
 import Control.Concurrent.STM hiding (check)
 import Control.Distributed.Process
@@ -74,6 +70,7 @@ import Data.Maybe
   )
 
 import System.Timeout (timeout)
+import Prelude
 
 -- | Wraps a regular @Process a@ as an 'AsyncTask'.
 task :: Process a -> AsyncTask a
