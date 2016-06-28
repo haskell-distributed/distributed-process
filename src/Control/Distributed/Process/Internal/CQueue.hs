@@ -76,13 +76,25 @@ data BlockSpec =
   | Blocking
   | Timeout Int
 
+-- Match operations
+--
+-- They can be either a message match or a channel match.
 data MatchOn m a
  = MatchMsg  (m -> Maybe a)
  | MatchChan (STM a)
  deriving (Functor)
 
+-- Lists of chunks of matches
+--
+-- Two consecutive chunks never have the same kind of matches. i.e. if one chunk
+-- contains message matches then the next one must contain channel matches and
+-- viceversa.
 type MatchChunks m a = [Either [m -> Maybe a] [STM a]]
 
+-- Splits a list of matches into chunks.
+--
+-- > concatMap (either (map MatchMsg) (map MatchChan)) . chunkMatches == id
+--
 chunkMatches :: [MatchOn m a] -> MatchChunks m a
 chunkMatches [] = []
 chunkMatches (MatchMsg m : ms) = Left (m : chk) : chunkMatches rest
@@ -90,6 +102,7 @@ chunkMatches (MatchMsg m : ms) = Left (m : chk) : chunkMatches rest
 chunkMatches (MatchChan r : ms) = Right (r : chk) : chunkMatches rest
    where (chk, rest) = spanMatchChan ms
 
+-- | @spanMatchMsg = first (map (\(MatchMsg x) -> x)) . span isMatchMsg@
 spanMatchMsg :: [MatchOn m a] -> ([m -> Maybe a], [MatchOn m a])
 spanMatchMsg [] = ([],[])
 spanMatchMsg (m : ms)
@@ -97,6 +110,7 @@ spanMatchMsg (m : ms)
     | otherwise         = ([], m:ms)
     where !(msgs,rest) = spanMatchMsg ms
 
+-- | @spanMatchMsg = first (map (\(MatchChan x) -> x)) . span isMatchChan@
 spanMatchChan :: [MatchOn m a] -> ([STM a], [MatchOn m a])
 spanMatchChan [] = ([],[])
 spanMatchChan (m : ms)
@@ -128,6 +142,7 @@ dequeue (CQueue arrived incoming size) blockSpec matchons = mask_ $ decrementJus
     -- Decrement counter is smth is returned from the queue,
     -- this is safe to use as method is called under a mask
     -- and there is no 'unmasked' operation inside
+    decrementJust :: IO (Maybe (Either a a)) -> IO (Maybe a)
     decrementJust f =
        traverse (either return (\x -> decrement >> return x)) =<< f
     decrement = atomically $ modifyTVar' size pred
@@ -144,6 +159,10 @@ dequeue (CQueue arrived incoming size) blockSpec matchons = mask_ $ decrementJus
            arr' <- grabNew arr
            goCheck chunks arr'
 
+    -- Yields the value of the first succesful STM transaction as
+    -- @Just (Left v)@. If all transactions fail, yields the value of the second
+    -- argument.
+    waitChans :: [STM a] -> STM (Maybe (Either a a)) -> STM (Maybe (Either a a))
     waitChans ports on_block =
         foldr orElse on_block (map (fmap (Just . Left)) ports)
 
@@ -151,6 +170,10 @@ dequeue (CQueue arrived incoming size) blockSpec matchons = mask_ $ decrementJus
     -- First check the MatchChunks against the messages already in the
     -- mailbox.  For channel matches, we do a non-blocking check at
     -- this point.
+    --
+    -- Yields @Just (Left a)@ when a channel is matched, @Just (Right a)@
+    -- when a message is matched and @Nothing@ when there are no messages and we
+    -- aren't blocking.
     --
     goCheck :: MatchChunks m a
             -> StrictList m  -- messages to check, in this order
@@ -250,6 +273,7 @@ dequeue (CQueue arrived incoming size) blockSpec matchons = mask_ $ decrementJus
     checkArrived :: [m -> Maybe a] -> StrictList m -> (StrictList m, Maybe a)
     checkArrived matches list = go list Nil
       where
+        -- @go xs ys@ searches for a message match in @append xs ys@
         go Nil Nil           = (Nil, Nothing)
         go Nil r             = go r Nil
         go (Append xs ys) tl = go xs (append ys tl)
