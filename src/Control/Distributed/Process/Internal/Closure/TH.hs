@@ -33,7 +33,8 @@ import Language.Haskell.TH
   , Pred
 #endif
   , varT
-  , classP
+  , conT
+  , appT
     -- Lifted constructors
     -- .. Literals
   , stringL
@@ -261,7 +262,7 @@ generateStatic n xs typ = do
       ]
   where
     typeable :: TyVarBndr -> Q Pred
-    typeable tv = classP (mkName "Typeable") [varT (tyVarBndrName tv)]
+    typeable tv = conT (mkName "Typeable") `appT` varT (tyVarBndrName tv)
 
 -- | Generate a serialization dictionary with name 'n' for type 'typ'
 generateDict :: Name -> Type -> Q [Dec]
