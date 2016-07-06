@@ -30,12 +30,10 @@ import Control.Exception (throw)
 import GHC.Fingerprint.Type (Fingerprint(..))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Internal as BSI ( unsafeCreate
-                                                 , inlinePerformIO
-                                                 , toForeignPtr
-                                                 )
+import qualified Data.ByteString.Internal as BSI ( unsafeCreate, toForeignPtr )
 import Foreign.Storable (pokeByteOff, peekByteOff, sizeOf)
 import Foreign.ForeignPtr (withForeignPtr)
+import System.IO.Unsafe (unsafePerformIO)
 
 -- | Reification of 'Serializable' (see "Control.Distributed.Process.Closure")
 data SerializableDict a where
@@ -63,7 +61,7 @@ decodeFingerprint :: ByteString -> Fingerprint
 decodeFingerprint bs
   | BS.length bs /= sizeOfFingerprint =
       throw $ userError "decodeFingerprint: Invalid length"
-  | otherwise = BSI.inlinePerformIO $ do
+  | otherwise = unsafePerformIO $ do
       let (fp, offset, _) = BSI.toForeignPtr bs
       withForeignPtr fp $ \p -> peekByteOff p offset
 
