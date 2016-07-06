@@ -1,5 +1,4 @@
 {-# LANGUAGE DeriveDataTypeable  #-}
-{-# LANGUAGE StandaloneDeriving  #-}
 {-# LANGUAGE ExistentialQuantification  #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving  #-}
 {-# LANGUAGE DeriveGeneric   #-}
@@ -23,7 +22,6 @@ import Control.Distributed.Process.Internal.Types
   ( Process
   , ProcessId
   , Message
-  , SendPort
   , DiedReason
   , NodeId
   )
