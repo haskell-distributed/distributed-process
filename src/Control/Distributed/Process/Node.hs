@@ -37,6 +37,12 @@ import qualified Data.Map as Map
   , filterWithKey
   , foldlWithKey
   )
+import Data.Time.Format (formatTime)
+#if MIN_VERSION_time(1,5,0)
+import Data.Time.Format (defaultTimeLocale)
+#else
+import System.Locale (defaultTimeLocale)
+#endif
 import Data.Set (Set)
 import qualified Data.Set as Set
   ( empty
@@ -200,6 +206,7 @@ import Control.Distributed.Process.Internal.Primitives
   , match
   , sendChan
   , unwrapMessage
+  , SayMessage(..)
   )
 import Control.Distributed.Process.Internal.Types (SendPort, Tracer(..))
 import qualified Control.Distributed.Process.Internal.Closure.BuiltIn as BuiltIn (remoteTable)
@@ -317,8 +324,9 @@ startServiceProcesses node = do
  where
    loop = do
      receiveWait
-       [ match $ \((time, pid, string) ::(String, ProcessId, String)) -> do
-           liftIO . hPutStrLn stderr $ time ++ " " ++ show pid ++ ": " ++ string
+       [ match $ \(SayMessage time pid string) -> do
+           let time' = formatTime defaultTimeLocale "%c" time
+           liftIO . hPutStrLn stderr $ time' ++ " " ++ show pid ++ ": " ++ string
            loop
        , match $ \((time, string) :: (String, String)) -> do
            -- this is a 'trace' message from the local node tracer
