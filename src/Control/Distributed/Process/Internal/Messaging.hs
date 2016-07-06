@@ -30,7 +30,7 @@ import qualified Network.Transport as NT
   , close
   )
 import Control.Distributed.Process.Internal.Types
-  ( LocalNode(localState, localEndPoint, localCtrlChan)
+  ( LocalNode(localEndPoint, localCtrlChan)
   , withValidLocalState
   , modifyValidLocalState
   , modifyValidLocalState_
