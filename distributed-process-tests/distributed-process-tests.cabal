@@ -48,7 +48,6 @@ library
                      DeriveDataTypeable,
                      DeriveGeneric,
                      GeneralizedNewtypeDeriving,
-                     OverlappingInstances,
                      RankNTypes,
                      RecordWildCards,
                      ScopedTypeVariables
