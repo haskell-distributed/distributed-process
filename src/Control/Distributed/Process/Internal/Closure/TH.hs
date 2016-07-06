@@ -29,12 +29,14 @@ import Language.Haskell.TH
   , Type(AppT, ForallT, VarT, ArrowT)
   , Info(VarI)
   , TyVarBndr(PlainTV, KindedTV)
-#if ! MIN_VERSION_template_haskell(2,10,0)
   , Pred
-#endif
-  , varT
+#if MIN_VERSION_template_haskell(2,10,0)
   , conT
   , appT
+#else
+  , classP
+#endif
+  , varT
     -- Lifted constructors
     -- .. Literals
   , stringL
@@ -71,10 +73,6 @@ import Control.Distributed.Process.Serializable
   ( SerializableDict(SerializableDict)
   )
 import Control.Distributed.Process.Internal.Closure.BuiltIn (staticDecode)
-
-#if MIN_VERSION_template_haskell(2,10,0)
-type Pred = Type
-#endif
 
 --------------------------------------------------------------------------------
 -- User-level API                                                             --
@@ -262,7 +260,12 @@ generateStatic n xs typ = do
       ]
   where
     typeable :: TyVarBndr -> Q Pred
-    typeable tv = conT (mkName "Typeable") `appT` varT (tyVarBndrName tv)
+    typeable tv =
+#if MIN_VERSION_template_haskell(2,10,0)
+      conT (mkName "Typeable") `appT` varT (tyVarBndrName tv)
+#else
+      classP (mkName "Typeable") [varT (tyVarBndrName tv)]
+#endif
 
 -- | Generate a serialization dictionary with name 'n' for type 'typ'
 generateDict :: Name -> Type -> Q [Dec]
