@@ -6,7 +6,6 @@
   , UndecidableInstances
   , KindSignatures
   , GADTs
-  , OverlappingInstances
   , EmptyDataDecls
   , DeriveDataTypeable #-}
 module Control.Distributed.Process.Internal.Closure.Explicit
@@ -109,7 +108,7 @@ instance Binary EndOfTuple where
 class Curry a b | a -> b where
     curryFun :: a -> b
 
-instance Curry ((a,EndOfTuple) -> b) (a -> b) where
+instance Curry ((a, EndOfTuple) -> b) (a -> b) where
     curryFun f = \x -> f (x,undefined)
 
 instance Curry (b -> c) r => Curry ((a,b) -> c) (a -> r) where
