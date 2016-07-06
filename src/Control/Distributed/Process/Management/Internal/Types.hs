@@ -1,5 +1,4 @@
 {-# LANGUAGE DeriveDataTypeable  #-}
-{-# LANGUAGE StandaloneDeriving  #-}
 {-# LANGUAGE ExistentialQuantification  #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving  #-}
 {-# LANGUAGE DeriveGeneric   #-}
