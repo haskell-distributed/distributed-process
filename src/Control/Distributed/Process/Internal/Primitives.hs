@@ -79,6 +79,7 @@ module Control.Distributed.Process.Internal.Primitives
   , withMonitor
   , withMonitor_
     -- * Logging
+  , SayMessage(..)
   , say
     -- * Registry
   , register
@@ -126,8 +127,9 @@ module Control.Distributed.Process.Internal.Primitives
 import Prelude hiding (catch)
 #endif
 
-import Data.Binary (decode)
-import Data.Time.Clock (getCurrentTime)
+import Data.Binary (Binary(..), Put, Get, decode)
+import Data.Time.Clock (getCurrentTime, UTCTime(..))
+import Data.Time.Calendar (Day(..))
 import Data.Time.Format (formatTime)
 #if MIN_VERSION_time(1,5,0)
 import Data.Time.Format (defaultTimeLocale)
@@ -1077,17 +1079,52 @@ unlinkPortAsync (SendPort cid) =
 -- Logging                                                                    --
 --------------------------------------------------------------------------------
 
+data SayMessage = SayMessage { sayTime    :: UTCTime
+                             , sayProcess :: ProcessId
+                             , sayMessage :: String }
+  deriving (Typeable)
+
+-- There is sadly no Show UTCTime instance
+instance Show SayMessage where
+  showsPrec p msg =
+    showParen (p >= 11)
+    $ showString "SayMessage "
+    . showString (formatTime defaultTimeLocale "%c" (sayTime msg))
+    . showChar ' '
+    . showsPrec 11 (sayProcess msg) . showChar ' '
+    . showsPrec 11 (sayMessage msg) . showChar ' '
+
+instance Binary SayMessage where
+  put s = do
+    putUTCTime (sayTime s)
+    put (sayProcess s)
+    put (sayMessage s)
+  get = SayMessage <$> getUTCTime <*> get <*> get
+
+-- Sadly there is no Binary UTCTime instance
+putUTCTime :: UTCTime -> Put
+putUTCTime (UTCTime (ModifiedJulianDay day) tod) = do
+  put day
+  put (toRational tod)
+
+getUTCTime :: Get UTCTime
+getUTCTime = do
+  day <- get
+  tod <- get
+  return $! UTCTime (ModifiedJulianDay day)
+                    (fromRational tod)
+
 -- | Log a string
 --
--- @say message@ sends a message (time, pid of the current process, message)
--- to the process registered as 'logger'.  By default, this process simply
--- sends the string to 'stderr'. Individual Cloud Haskell backends might
--- replace this with a different logger process, however.
+-- @say message@ sends a message of type 'SayMessage' with the current time and
+-- 'ProcessId' of the current process to the process registered as @logger@. By
+-- default, this process simply sends the string to @stderr@. Individual Cloud
+-- Haskell backends might replace this with a different logger process, however.
 say :: String -> Process ()
 say string = do
   now <- liftIO getCurrentTime
   us  <- getSelfPid
-  nsend "logger" (formatTime defaultTimeLocale "%c" now, us, string)
+  nsend "logger" (SayMessage now us string)
 
 --------------------------------------------------------------------------------
 -- Registry                                                                   --

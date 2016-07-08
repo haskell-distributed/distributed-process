@@ -1,3 +1,8 @@
+2016-07-06 Facundo Domínguez <facundo.dominguez@tweag.io> 0.7.0
+
+* Change type of message sent by `say` from a 3-tuple to a proper
+type (`SayMessage`) with a proper `UTCTime`.
+
 2016-06-09 Facundo Domínguez <facundo.dominguez@tweag.io> 0.6.4
 
 * Fixup build errors.
