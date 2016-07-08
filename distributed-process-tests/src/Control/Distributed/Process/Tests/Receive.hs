@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell, DeriveDataTypeable #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -Wall #-}
 
 -- | XXX test doesn't work, because failure exceptions don't get propagated. The
@@ -14,9 +14,6 @@ import Control.Distributed.Process.Closure
 import Control.Distributed.Process.Node
 
 import Control.Monad
-import Text.Printf
-import Data.Binary
-import Data.Typeable
 
 import Test.HUnit (Assertion, (@?=))
 import Test.Framework (Test, defaultMain)

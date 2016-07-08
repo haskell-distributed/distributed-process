@@ -327,7 +327,6 @@ import Prelude
 #else
 import Prelude hiding (catch)
 #endif
-import Control.Distributed.Process.Internal.StrictMVar (readMVar)
 import qualified Control.Exception as Exception (onException)
 import Data.Accessor ((^.))
 import Data.Foldable (forM_)

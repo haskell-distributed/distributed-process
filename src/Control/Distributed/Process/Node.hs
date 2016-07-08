@@ -76,7 +76,7 @@ import qualified Control.Exception as Exception
   , catches
   , finally
   )
-import Control.Concurrent (forkIO, forkIOWithUnmask, killThread)
+import Control.Concurrent (forkIO, killThread)
 import Control.Distributed.Process.Internal.StrictMVar
   ( newMVar
   , withMVar
@@ -1060,7 +1060,7 @@ ncEffectGetInfo from pid =
                  , infoMonitors       = Set.toList itsMons
                  , infoLinks          = Set.toList itsLinks
                  }
-  where dispatch :: (Serializable a, Show a)
+  where dispatch :: (Serializable a)
                  => Bool
                  -> ProcessId
                  -> a
