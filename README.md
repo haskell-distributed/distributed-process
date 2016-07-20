@@ -1,4 +1,4 @@
-# distribributed-static
+# distributed-static
 [![travis](https://secure.travis-ci.org/haskell-distributed/distributed-static.png)](http://travis-ci.org/haskell-distributed/distributed-static)
 [![Release](https://img.shields.io/hackage/v/distributed-static.svg)](https://hackage.haskell.org/package/distributed-static)
 
