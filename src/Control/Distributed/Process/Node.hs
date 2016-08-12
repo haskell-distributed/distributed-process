@@ -27,7 +27,9 @@ import qualified Data.ByteString.Lazy as BSL (fromChunks)
 import Data.Binary (decode)
 import Data.Map (Map)
 import qualified Data.Map as Map
-  ( empty
+  ( alter
+  , delete
+  , empty
   , toList
   , fromList
   , filter
@@ -50,8 +52,9 @@ import qualified Data.Set as Set
   , delete
   , member
   , toList
+  , null
   )
-import Data.Foldable (forM_)
+import Data.Foldable (forM_, foldr)
 import Data.Maybe (isJust, fromJust, isNothing, catMaybes)
 import Data.Typeable (Typeable)
 import Control.Category ((>>>))
@@ -220,7 +223,7 @@ import GHC.IO (IO(..), unsafeUnmask)
 import GHC.Base ( maskAsyncExceptions# )
 
 import Unsafe.Coerce
-import Prelude
+import Prelude hiding (foldr)
 
 -- Remove these definitions when the fix for
 -- https://ghc.haskell.org/trac/ghc/ticket/10149
@@ -660,6 +663,10 @@ data NCState = NCState
      -- Mapping from remote processes to monitoring local processes
   , _monitors :: !(Map Identifier (Set (ProcessId, MonitorRef)))
      -- Process registry: names and where they live, mapped to the PIDs
+  , _rev_links :: !(Map ProcessId (Set Identifier))
+     -- Reverse mapping from remote proceses to linked local processes.
+  , _rev_monitors :: !(Map ProcessId (Set (Identifier, MonitorRef)))
+     -- Reverse mapping from remote proceses to monitoring local processes.
   , _registeredHere :: !(Map String ProcessId)
   , _registeredOnNodes :: !(Map ProcessId [(NodeId,Int)])
   }
@@ -676,6 +683,8 @@ newtype NC a = NC { unNC :: StateT NCState (ReaderT LocalNode IO) a }
 initNCState :: NCState
 initNCState = NCState { _links    = Map.empty
                       , _monitors = Map.empty
+                      , _rev_links = Map.empty
+                      , _rev_monitors = Map.empty
                       , _registeredHere = Map.empty
                       , _registeredOnNodes = Map.empty
                       }
@@ -818,8 +827,10 @@ ncEffectMonitor from them mRef = do
   case (shouldLink, isLocal node (ProcessIdentifier from)) of
     (True, _) ->  -- [Unified: first rule]
       case mRef of
-        Just ref -> modify' $ monitorsFor them ^: Set.insert (from, ref)
-        Nothing  -> modify' $ linksFor them ^: Set.insert from
+        Just ref -> do modify' $ monitorsFor them ^: Set.insert (from, ref)
+                       modify' $ revMonitorsFor from ^: Set.insert (them, ref)
+        Nothing  -> do modify' $ linksFor them ^: Set.insert from
+                       modify' $ revLinksFor from ^: Set.insert them
     (False, True) -> -- [Unified: second rule]
       notifyDied from them DiedUnknownId mRef
     (False, False) -> -- [Unified: third rule]
@@ -844,6 +855,7 @@ ncEffectUnlink from them = do
       SendPortIdentifier cid ->
         postAsMessage from $ DidUnlinkPort cid
   modify' $ linksFor them ^: Set.delete from
+  modify' $ revLinksFor from ^: Set.delete them
 
 -- [Unified: Table 11]
 ncEffectUnmonitor :: ProcessId -> MonitorRef -> NC ()
@@ -852,6 +864,7 @@ ncEffectUnmonitor from ref = do
   when (isLocal node (ProcessIdentifier from)) $
     postAsMessage from $ DidUnmonitor ref
   modify' $ monitorsFor (monitorRefIdent ref) ^: Set.delete (from, ref)
+  modify' $ revMonitorsFor from ^: Set.delete (monitorRefIdent ref, ref)
 
 -- [Unified: Table 12]
 ncEffectDied :: Identifier -> DiedReason -> NC ()
@@ -866,16 +879,35 @@ ncEffectDied ident reason = do
   let localOnly = case ident of NodeIdentifier _ -> True ; _ -> False
 
   forM_ (Map.toList affectedLinks) $ \(them, uss) ->
-    forM_ uss $ \us ->
+    forM_ uss $ \us -> do
       when (localOnly <= isLocal node (ProcessIdentifier us)) $
         notifyDied us them reason Nothing
+      modify' $ revLinksFor us ^: Set.delete them
 
   forM_ (Map.toList affectedMons) $ \(them, refs) ->
-    forM_ refs $ \(us, ref) ->
+    forM_ refs $ \(us, ref) -> do
       when (localOnly <= isLocal node (ProcessIdentifier us)) $
         notifyDied us them reason (Just ref)
-
-  modify' $ (links ^= unaffectedLinks) . (monitors ^= unaffectedMons)
+      modify' $ revMonitorsFor us ^: Set.delete (them, ref)
+  
+  case ident of
+    ProcessIdentifier pid -> do
+      removedLinks <- gets (^. revLinksFor pid)
+      let removeLink i = Map.alter (\ms -> ms >>= \s ->
+            let s' = Set.delete pid s
+            in if Set.null s' then Nothing else Just s') i
+      let !unaffectedLinks' = foldr removeLink unaffectedLinks removedLinks
+      removedMons <- gets (^. revMonitorsFor pid)
+      let removeMon (i,r) = Map.alter (\ms -> ms >>= \s ->
+            let s' = Set.delete (pid,r) s
+            in if Set.null s' then Nothing else Just s') i
+      let !unaffectedMons' = foldr removeMon unaffectedMons removedMons
+      modify' $ (links ^= unaffectedLinks')
+              . (revLinks ^: Map.delete pid)
+              . (monitors ^= unaffectedMons')
+              . (revMonitors ^: Map.delete pid)
+    _ -> modify' $ (links ^= unaffectedLinks)
+                 . (monitors ^= unaffectedMons)
 
   modify' $ registeredHere ^: Map.filter (\pid -> not $ ident `impliesDeathOf` ProcessIdentifier pid)
 
@@ -1210,6 +1242,12 @@ links = accessor _links (\ls st -> st { _links = ls })
 monitors :: Accessor NCState (Map Identifier (Set (ProcessId, MonitorRef)))
 monitors = accessor _monitors (\ms st -> st { _monitors = ms })
 
+revLinks :: Accessor NCState (Map ProcessId (Set Identifier))
+revLinks = accessor _rev_links (\ls st -> st { _rev_links = ls })
+
+revMonitors :: Accessor NCState (Map ProcessId (Set (Identifier, MonitorRef)))
+revMonitors = accessor _rev_monitors (\ls st -> st { _rev_monitors = ls })
+
 registeredHere :: Accessor NCState (Map String ProcessId)
 registeredHere = accessor _registeredHere (\ry st -> st { _registeredHere = ry })
 
@@ -1219,8 +1257,14 @@ registeredOnNodes = accessor _registeredOnNodes (\ry st -> st { _registeredOnNod
 linksFor :: Identifier -> Accessor NCState (Set ProcessId)
 linksFor ident = links >>> DAC.mapDefault Set.empty ident
 
+revLinksFor :: ProcessId -> Accessor NCState (Set Identifier)
+revLinksFor pid = revLinks >>> DAC.mapDefault Set.empty pid
+
 monitorsFor :: Identifier -> Accessor NCState (Set (ProcessId, MonitorRef))
 monitorsFor ident = monitors >>> DAC.mapDefault Set.empty ident
+
+revMonitorsFor :: ProcessId -> Accessor NCState (Set (Identifier, MonitorRef))
+revMonitorsFor pid = revMonitors >>> DAC.mapDefault Set.empty pid
 
 registeredHereFor :: String -> Accessor NCState (Maybe ProcessId)
 registeredHereFor ident = registeredHere >>> DAC.mapMaybe ident
