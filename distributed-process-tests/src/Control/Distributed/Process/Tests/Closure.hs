@@ -305,14 +305,16 @@ testSpawnRace TestTransport{..} rtable = do
     wrapEP e =
       e { NT.connect = \x y z -> do
             healthy <- newIORef True
-            fmap (fmap $ wrapConnection healthy) $ NT.connect e x y z
+            fmap (fmap $ wrapConnection healthy e x) $ NT.connect e x y z
         }
 
-    wrapConnection :: IORef Bool -> NT.Connection -> NT.Connection
-    wrapConnection healthy (NT.Connection s closeC) =
+    wrapConnection :: IORef Bool -> NT.EndPoint -> NT.EndPointAddress
+                   -> NT.Connection -> NT.Connection
+    wrapConnection healthy e remoteAddr (NT.Connection s closeC) =
       flip NT.Connection closeC $ \msg -> do
         when (msg == messageToPayload (createMessage ())) $ do
           writeIORef healthy False
+          testBreakConnection (NT.address e) remoteAddr
         isHealthy <- readIORef healthy
         if isHealthy then s msg
           else return $ Left $ NT.TransportError NT.SendFailed ""
