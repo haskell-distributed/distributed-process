@@ -889,7 +889,7 @@ ncEffectDied ident reason = do
       when (localOnly <= isLocal node (ProcessIdentifier us)) $
         notifyDied us them reason (Just ref)
       modify' $ revMonitorsFor us ^: Set.delete (them, ref)
-  
+
   case ident of
     ProcessIdentifier pid -> do
       removedLinks <- gets (^. revLinksFor pid)
