@@ -58,6 +58,7 @@ Library
   Exposed-modules:   Control.Distributed.Process,
                      Control.Distributed.Process.Closure,
                      Control.Distributed.Process.Debug,
+                     Control.Distributed.Process.Internal.BiMultiMap,
                      Control.Distributed.Process.Internal.Closure.BuiltIn,
                      Control.Distributed.Process.Internal.Closure.Explicit,
                      Control.Distributed.Process.Internal.CQueue,
