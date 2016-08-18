@@ -42,10 +42,12 @@ import qualified Data.Set as Set
   ( empty
   , insert
   , delete
+  , map
   , member
   , toList
   )
 import Data.Foldable (forM_)
+import Data.List (foldl')
 import Data.Maybe (isJust, fromJust, isNothing, catMaybes)
 import Data.Typeable (Typeable)
 import Control.Category ((>>>))
@@ -71,6 +73,8 @@ import qualified Control.Exception as Exception
   , finally
   )
 import Control.Concurrent (forkIO, killThread)
+import Control.Distributed.Process.Internal.BiMultiMap (BiMultiMap)
+import qualified Control.Distributed.Process.Internal.BiMultiMap as BiMultiMap
 import Control.Distributed.Process.Internal.StrictMVar
   ( newMVar
   , withMVar
@@ -656,9 +660,9 @@ runNodeController node =
 
 data NCState = NCState
   {  -- Mapping from remote processes to linked local processes
-    _links    :: !(Map Identifier (Set ProcessId))
+    _links    :: !(BiMultiMap Identifier ProcessId ())
      -- Mapping from remote processes to monitoring local processes
-  , _monitors :: !(Map Identifier (Set (ProcessId, MonitorRef)))
+  , _monitors :: !(BiMultiMap Identifier ProcessId MonitorRef)
      -- Process registry: names and where they live, mapped to the PIDs
   , _registeredHere :: !(Map String ProcessId)
   , _registeredOnNodes :: !(Map ProcessId [(NodeId,Int)])
@@ -674,8 +678,8 @@ newtype NC a = NC { unNC :: StateT NCState (ReaderT LocalNode IO) a }
            )
 
 initNCState :: NCState
-initNCState = NCState { _links    = Map.empty
-                      , _monitors = Map.empty
+initNCState = NCState { _links    = BiMultiMap.empty
+                      , _monitors = BiMultiMap.empty
                       , _registeredHere = Map.empty
                       , _registeredOnNodes = Map.empty
                       }
@@ -818,8 +822,8 @@ ncEffectMonitor from them mRef = do
   case (shouldLink, isLocal node (ProcessIdentifier from)) of
     (True, _) ->  -- [Unified: first rule]
       case mRef of
-        Just ref -> modify' $ monitorsFor them ^: Set.insert (from, ref)
-        Nothing  -> modify' $ linksFor them ^: Set.insert from
+        Just ref -> modify' $ monitors ^: BiMultiMap.insert them from ref
+        Nothing  -> modify' $ links ^: BiMultiMap.insert them from ()
     (False, True) -> -- [Unified: second rule]
       notifyDied from them DiedUnknownId mRef
     (False, False) -> -- [Unified: third rule]
@@ -843,7 +847,7 @@ ncEffectUnlink from them = do
         postAsMessage from $ DidUnlinkNode nid
       SendPortIdentifier cid ->
         postAsMessage from $ DidUnlinkPort cid
-  modify' $ linksFor them ^: Set.delete from
+  modify' $ links ^: BiMultiMap.delete them from ()
 
 -- [Unified: Table 11]
 ncEffectUnmonitor :: ProcessId -> MonitorRef -> NC ()
@@ -851,7 +855,7 @@ ncEffectUnmonitor from ref = do
   node <- ask
   when (isLocal node (ProcessIdentifier from)) $
     postAsMessage from $ DidUnmonitor ref
-  modify' $ monitorsFor (monitorRefIdent ref) ^: Set.delete (from, ref)
+  modify' $ monitors ^: BiMultiMap.delete (monitorRefIdent ref) from ref
 
 -- [Unified: Table 12]
 ncEffectDied :: Identifier -> DiedReason -> NC ()
@@ -866,7 +870,7 @@ ncEffectDied ident reason = do
   let localOnly = case ident of NodeIdentifier _ -> True ; _ -> False
 
   forM_ (Map.toList affectedLinks) $ \(them, uss) ->
-    forM_ uss $ \us ->
+    forM_ uss $ \(us, _) ->
       when (localOnly <= isLocal node (ProcessIdentifier us)) $
         notifyDied us them reason Nothing
 
@@ -875,7 +879,15 @@ ncEffectDied ident reason = do
       when (localOnly <= isLocal node (ProcessIdentifier us)) $
         notifyDied us them reason (Just ref)
 
-  modify' $ (links ^= unaffectedLinks) . (monitors ^= unaffectedMons)
+  let (unaffectedLinks', unaffectedMons') =
+        case ident of
+          ProcessIdentifier pid ->
+            ( BiMultiMap.deleteAllBy2nd pid unaffectedLinks
+            , BiMultiMap.deleteAllBy2nd pid unaffectedMons
+            )
+          _ -> (unaffectedLinks, unaffectedMons)
+
+  modify' $ (links ^= unaffectedLinks') . (monitors ^= unaffectedMons')
 
   modify' $ registeredHere ^: Map.filter (\pid -> not $ ident `impliesDeathOf` ProcessIdentifier pid)
 
@@ -1045,8 +1057,9 @@ ncEffectGetInfo from pid =
     Nothing   -> dispatch (isLocal node (ProcessIdentifier from))
                           from (ProcessInfoNone DiedUnknownId)
     Just proc    -> do
-      itsLinks    <- gets (^. linksFor    them)
-      itsMons     <- gets (^. monitorsFor them)
+      itsLinks    <- Set.map fst . BiMultiMap.lookup them <$>
+                       gets (^. links)
+      itsMons     <- BiMultiMap.lookup them <$> gets (^. monitors)
       registered  <- gets (^. registeredHere)
       size        <- liftIO $ queueSize $ processQueue $ proc
 
@@ -1082,8 +1095,8 @@ ncEffectGetNodeStats from _nid = do
         NodeStats {
             nodeStatsNode = localNodeId node
           , nodeStatsRegisteredNames = Map.size $ ncState ^. registeredHere
-          , nodeStatsMonitors = Map.size $ ncState ^. monitors
-          , nodeStatsLinks = Map.size $ ncState ^. links
+          , nodeStatsMonitors = BiMultiMap.size $ ncState ^. monitors
+          , nodeStatsLinks = BiMultiMap.size $ ncState ^. links
           , nodeStatsProcesses = Map.size (nodeState ^. localProcesses)
           }
   postAsMessage from stats
@@ -1204,10 +1217,10 @@ withLocalProc node pid p =
 -- Accessors                                                                  --
 --------------------------------------------------------------------------------
 
-links :: Accessor NCState (Map Identifier (Set ProcessId))
+links :: Accessor NCState (BiMultiMap Identifier ProcessId ())
 links = accessor _links (\ls st -> st { _links = ls })
 
-monitors :: Accessor NCState (Map Identifier (Set (ProcessId, MonitorRef)))
+monitors :: Accessor NCState (BiMultiMap Identifier ProcessId MonitorRef)
 monitors = accessor _monitors (\ms st -> st { _monitors = ms })
 
 registeredHere :: Accessor NCState (Map String ProcessId)
@@ -1215,12 +1228,6 @@ registeredHere = accessor _registeredHere (\ry st -> st { _registeredHere = ry }
 
 registeredOnNodes :: Accessor NCState (Map ProcessId [(NodeId, Int)])
 registeredOnNodes = accessor _registeredOnNodes (\ry st -> st { _registeredOnNodes = ry })
-
-linksFor :: Identifier -> Accessor NCState (Set ProcessId)
-linksFor ident = links >>> DAC.mapDefault Set.empty ident
-
-monitorsFor :: Identifier -> Accessor NCState (Set (ProcessId, MonitorRef))
-monitorsFor ident = monitors >>> DAC.mapDefault Set.empty ident
 
 registeredHereFor :: String -> Accessor NCState (Maybe ProcessId)
 registeredHereFor ident = registeredHere >>> DAC.mapMaybe ident
@@ -1248,10 +1255,12 @@ registeredOnNodesFor ident = registeredOnNodes >>> DAC.mapMaybe ident
 -- * the notifications for typed channels to that process.
 --
 -- See https://github.com/haskell/containers/issues/14 for the bang on _v.
-splitNotif :: Identifier
-           -> Map Identifier a
-           -> (Map Identifier a, Map Identifier a)
-splitNotif ident = Map.partitionWithKey (\k !_v -> ident `impliesDeathOf` k)
+splitNotif :: (Ord a, Ord v)
+           => Identifier
+           -> BiMultiMap Identifier a v
+           -> (Map Identifier (Set (a,v)), BiMultiMap Identifier a v)
+splitNotif ident =
+    BiMultiMap.partitionWithKey (\k !_v -> ident `impliesDeathOf` k)
 
 --------------------------------------------------------------------------------
 -- Auxiliary                                                                  --
