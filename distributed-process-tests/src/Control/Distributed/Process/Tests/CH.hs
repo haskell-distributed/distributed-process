@@ -1081,6 +1081,7 @@ testMatchMessageWithUnwrap TestTransport{..} = do
 testReceiveChanTimeout :: TestTransport -> Assertion
 testReceiveChanTimeout TestTransport{..} = do
   done <- newEmptyMVar
+  mvSender <- newEmptyMVar
   sendPort <- newEmptyMVar
 
   forkTry $ do
@@ -1090,18 +1091,31 @@ testReceiveChanTimeout TestTransport{..} = do
       (sp, rp) <- newChan :: Process (SendPort Bool, ReceivePort Bool)
       liftIO $ putMVar sendPort sp
 
-      -- Wait for a message with a delay. No message arrives, we should get Nothing after 1 second
-      Nothing <- receiveChanTimeout 1000000 rp
+      -- Wait for a message with a delay. No message arrives, we should get
+      -- Nothing after the delay.
+      Nothing <- receiveChanTimeout 100000 rp
 
-      -- Wait for a message with a delay again. Now a message arrives after 0.5 seconds
-      Just True <- receiveChanTimeout 1000000 rp
+      -- Let the sender know that it can send a message.
+      liftIO $ putMVar mvSender ()
 
-      -- Wait for a message with zero timeout: non-blocking check. No message is available, we get Nothing
+      -- Wait for a message with a delay again. Now a message arrives after
+      -- 0.1 seconds
+      Just True <- receiveChanTimeout 20000000 rp
+
+      -- Wait for a message with zero timeout: non-blocking check. No message is
+      -- available, we get Nothing
       Nothing <- receiveChanTimeout 0 rp
 
+      -- Let the sender know that it can send a message.
+      liftIO $ putMVar mvSender ()
+
       -- Again, but now there is a message available
-      liftIO $ threadDelay 1000000
-      Just False <- receiveChanTimeout 0 rp
+      fix $ \loop -> do
+        liftIO $ threadDelay 100000
+        mb <- receiveChanTimeout 0 rp
+        case mb of
+          Just b -> do False <- return b; return ()
+          _      -> loop
 
       liftIO $ putMVar done ()
 
@@ -1110,10 +1124,11 @@ testReceiveChanTimeout TestTransport{..} = do
     runProcess localNode $ do
       sp <- liftIO $ readMVar sendPort
 
-      liftIO $ threadDelay 1500000
+      liftIO $ takeMVar mvSender
+      liftIO $ threadDelay 100000
       sendChan sp True
 
-      liftIO $ threadDelay 500000
+      liftIO $ takeMVar mvSender
       sendChan sp False
 
   takeMVar done
