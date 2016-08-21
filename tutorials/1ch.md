@@ -138,6 +138,9 @@ main = do
       -- Die immediately - throws a ProcessExitException with the given reason.
       Nothing  -> die "nothing came back!"
       Just s -> say $ "got " ++ s ++ " back!"
+      
+    -- Without the following delay, the process sometimes exits before the messages are exchanged.
+    liftIO $ threadDelay 2000000
 {% endhighlight %}
 
 Note that we've used `receiveWait` this time around to get a message.
