@@ -138,6 +138,9 @@ main = do
       -- Die immediately - throws a ProcessExitException with the given reason.
       Nothing  -> die "nothing came back!"
       Just s -> say $ "got " ++ s ++ " back!"
+      
+    -- Without the following delay, the process sometimes exits before the messages are exchanged.
+    liftIO $ threadDelay 2000000
 {% endhighlight %}
 
 Note that we've used `receiveWait` this time around to get a message.
@@ -198,7 +201,7 @@ not depend on any runtime arguments). The type of static actions in Cloud
 Haskell is `Closure (Process a)`. More generally, a value of type `Closure b`
 is a value that was constructed explicitly as the composition of symbolic
 pointers and serializable values. Values of type `Closure b` are serializable,
-even if values of type `b` might not. For instance, while we can't in general
+even if values of type `b` might not be. For instance, while we can't in general
 send actions of type `Process ()`, we can construct a value of type `Closure
 (Process ())` instead, containing a symbolic name for the action, and send
 that instead. So long as the remote end understands the same meaning for the
@@ -218,7 +221,7 @@ For curried functions, you'll need to uncurry them first (i.e. "tuple up" the
 arguments). However, to ensure that the remote side can adequately interpret
 the resulting `Closure`, you'll need to add a mapping in a so-called *remote
 table* associating the symbolic name of a function to its value. Processes can
-only be successfully spawned on remote nodes of all these remote nodes have
+only be successfully spawned on remote nodes if all these remote nodes have
 the same remote table as the local one.
 
 We need to configure our remote table (see the [API reference][6] for
@@ -278,8 +281,8 @@ In the above example, we spawn `sampleTask` on node `us` in two
 different ways:
 
 * using `spawn`, which expects some node identifier to spawn a process
-  on along for the action of the process.
-* using `spawnLocal`, a specialization of `spawn` to the case when the
+  on along with a `Closure` for the action of the process.
+* using `spawnLocal`, a specialization of `spawn` for the case when the
   node identifier actually refers to the local node (i.e. `us`). In
   this special case, no serialization is necessary, so passing an
   action directly rather than a `Closure` works just fine.
