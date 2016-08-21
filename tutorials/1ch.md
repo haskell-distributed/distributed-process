@@ -281,8 +281,8 @@ In the above example, we spawn `sampleTask` on node `us` in two
 different ways:
 
 * using `spawn`, which expects some node identifier to spawn a process
-* using `spawnLocal`, a specialization of `spawn` to the case when the
   on along with a `Closure` for the action of the process.
+* using `spawnLocal`, a specialization of `spawn` for the case when the
   node identifier actually refers to the local node (i.e. `us`). In
   this special case, no serialization is necessary, so passing an
   action directly rather than a `Closure` works just fine.
