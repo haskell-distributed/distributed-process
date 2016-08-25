@@ -879,13 +879,15 @@ ncEffectDied ident reason = do
       when (localOnly <= isLocal node (ProcessIdentifier us)) $
         notifyDied us them reason (Just ref)
 
-  let (unaffectedLinks', unaffectedMons') =
-        case ident of
-          ProcessIdentifier pid ->
-            ( BiMultiMap.deleteAllBy2nd pid unaffectedLinks
-            , BiMultiMap.deleteAllBy2nd pid unaffectedMons
-            )
-          _ -> (unaffectedLinks, unaffectedMons)
+  let deleteDeads :: (Ord a, Ord v)
+                  => BiMultiMap a ProcessId v -> BiMultiMap a ProcessId v
+      deleteDeads = case ident of
+                      -- deleteAllBy2nd is faster than partitionWithKeyBy2nd
+                      ProcessIdentifier pid -> BiMultiMap.deleteAllBy2nd pid
+                      _ -> snd . BiMultiMap.partitionWithKeyBy2nd
+                        (\pid _ -> ident `impliesDeathOf` ProcessIdentifier pid)
+      unaffectedLinks' = deleteDeads unaffectedLinks
+      unaffectedMons' = deleteDeads unaffectedMons
 
   modify' $ (links ^= unaffectedLinks') . (monitors ^= unaffectedMons')
 
@@ -1260,7 +1262,7 @@ splitNotif :: (Ord a, Ord v)
            -> BiMultiMap Identifier a v
            -> (Map Identifier (Set (a,v)), BiMultiMap Identifier a v)
 splitNotif ident =
-    BiMultiMap.partitionWithKey (\k !_v -> ident `impliesDeathOf` k)
+    BiMultiMap.partitionWithKeyBy1st (\k !_v -> ident `impliesDeathOf` k)
 
 --------------------------------------------------------------------------------
 -- Auxiliary                                                                  --

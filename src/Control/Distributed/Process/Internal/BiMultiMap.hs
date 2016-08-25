@@ -9,7 +9,8 @@ module Control.Distributed.Process.Internal.BiMultiMap
   , delete
   , deleteAllBy1st
   , deleteAllBy2nd
-  , partitionWithKey
+  , partitionWithKeyBy1st
+  , partitionWithKeyBy2nd
   , flip
   ) where
 
@@ -91,14 +92,22 @@ deleteAllBy2nd b = flip . deleteAllBy1st b . flip
 
 -- | Yields the triplets satisfying the given predicate, and a multimap
 -- with all this triplets removed.
-partitionWithKey :: (Ord a, Ord b, Ord v)
-                 => (a -> Set (b, v) -> Bool) -> BiMultiMap a b v
-                 -> (Map a (Set (b, v)), BiMultiMap a b v)
-partitionWithKey f (BiMultiMap m r) =
-    let (m0, m1) = Map.partitionWithKey f m
+partitionWithKeyBy1st :: (Ord a, Ord b, Ord v)
+                      => (a -> Set (b, v) -> Bool) -> BiMultiMap a b v
+                      -> (Map a (Set (b, v)), BiMultiMap a b v)
+partitionWithKeyBy1st p (BiMultiMap m r) =
+    let (m0, m1) = Map.partitionWithKey p m
         r1 = foldl' (\rr (a, mb) -> reverseDelete a (Set.toList mb) rr) r $
                Map.toList m0
      in (m0, BiMultiMap m1 r1)
+
+-- | Like 'partitionWithKeyBy1st' but the predicates takes the second component
+-- of the triplets as first argument.
+partitionWithKeyBy2nd :: (Ord a, Ord b, Ord v)
+                      => (b -> Set (a, v) -> Bool) -> BiMultiMap a b v
+                      -> (Map b (Set (a, v)), BiMultiMap a b v)
+partitionWithKeyBy2nd p b = let (m, b') = partitionWithKeyBy1st p $ flip b
+                             in (m, flip b')
 
 -- | Exchange the first and the second components of all triplets.
 flip :: BiMultiMap a b v -> BiMultiMap b a v
