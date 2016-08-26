@@ -5,7 +5,8 @@ module Control.Distributed.Process.Internal.BiMultiMap
   , singleton
   , size
   , insert
-  , lookup
+  , lookupBy1st
+  , lookupBy2nd
   , delete
   , deleteAllBy1st
   , deleteAllBy2nd
@@ -62,10 +63,12 @@ insert a b v (BiMultiMap m r) =
                                r)
 
 -- | Looks up all the triplets whose first component is the given value.
---
--- See 'flip' in order to look up by the second component.
-lookup :: Ord a => a -> BiMultiMap a b v -> Set (b, v)
-lookup a (BiMultiMap m _) = maybe Set.empty id $ Map.lookup a m
+lookupBy1st :: Ord a => a -> BiMultiMap a b v -> Set (b, v)
+lookupBy1st a (BiMultiMap m _) = maybe Set.empty id $ Map.lookup a m
+
+-- | Looks up all the triplets whose second component is the given value.
+lookupBy2nd :: Ord b => b -> BiMultiMap a b v -> Set (a, v)
+lookupBy2nd b = lookupBy1st b . flip
 
 -- | Deletes a triplet. It yields the original multimap if the triplet is
 -- not present.

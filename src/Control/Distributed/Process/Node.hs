@@ -37,6 +37,7 @@ import qualified Data.Map as Map
   , filterWithKey
   , foldlWithKey
   )
+import qualified Data.Set as Set
 import Data.Time.Format (formatTime)
 #if MIN_VERSION_time(1,5,0)
 import Data.Time.Format (defaultTimeLocale)
@@ -879,6 +880,18 @@ ncEffectDied ident reason = do
       when (localOnly <= isLocal node (ProcessIdentifier us)) $
         notifyDied us them reason (Just ref)
 
+  -- Notify remote nodes that the process died so it can be removed from monitor
+  -- lists.
+  mapM_ (forwardDeath node) $
+    [ nid | ProcessIdentifier pid <- [ident]
+          , i <- Set.toList $ Set.union
+             (Set.map fst $ BiMultiMap.lookupBy2nd pid unaffectedLinks)
+             (Set.map fst $ BiMultiMap.lookupBy2nd pid unaffectedMons)
+          , let nid = nodeOf i
+          , nid /= localNodeId node
+    ]
+
+  -- Delete monitors in the local node.
   let deleteDeads :: (Ord a, Ord v)
                   => BiMultiMap a ProcessId v -> BiMultiMap a ProcessId v
       deleteDeads = case ident of
@@ -899,12 +912,12 @@ ncEffectDied ident reason = do
            True ->
               do forM_ nidlist $ \(nid,_) ->
                    when (not $ isLocal node (NodeIdentifier nid))
-                      (forwardNameDeath node nid)
+                      (forwardDeath node nid)
                  return Nothing
            False -> return $ Just (pid,nidlist)  )
   modify' $ registeredOnNodes ^= (Map.fromList (catMaybes remaining))
     where
-       forwardNameDeath node nid = ncSendToNode nid
+       forwardDeath node nid = ncSendToNode nid
            NCMsg { ctrlMsgSender = NodeIdentifier (localNodeId node)
                  , ctrlMsgSignal = Died ident reason
                  }
@@ -1059,9 +1072,9 @@ ncEffectGetInfo from pid =
     Nothing   -> dispatch (isLocal node (ProcessIdentifier from))
                           from (ProcessInfoNone DiedUnknownId)
     Just proc    -> do
-      itsLinks    <- Set.map fst . BiMultiMap.lookup them <$>
+      itsLinks    <- Set.map fst . BiMultiMap.lookupBy1st them <$>
                        gets (^. links)
-      itsMons     <- BiMultiMap.lookup them <$> gets (^. monitors)
+      itsMons     <- BiMultiMap.lookupBy1st them <$> gets (^. monitors)
       registered  <- gets (^. registeredHere)
       size        <- liftIO $ queueSize $ processQueue $ proc
 
