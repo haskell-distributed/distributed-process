@@ -201,7 +201,7 @@ sendCtrlMsg mNid signal = do
       liftIO $ writeChan (localCtrlChan (processNode proc)) $! msg
     Just nid ->
       liftIO $ sendBinary (processNode proc)
-                          (ProcessIdentifier (processId proc))
+                          (NodeIdentifier (processNodeId $ processId proc))
                           (NodeIdentifier nid)
                           WithImplicitReconnect
                           msg
