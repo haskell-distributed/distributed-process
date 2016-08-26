@@ -43,7 +43,7 @@ import Control.Distributed.Process.Internal.Closure.BuiltIn
   )
 import Control.Distributed.Process.Internal.Primitives
   ( -- Basic messaging
-    send
+    usend
   , expect
   , receiveWait
   , match
@@ -71,7 +71,7 @@ spawn nid proc = do
   receiveWait [
       matchIf (\(DidSpawn ref _) -> ref == sRef) $ \(DidSpawn _ pid) -> do
         unmonitor mRef
-        send pid ()
+        usend pid ()
         return pid
     , matchIf (\(NodeMonitorNotification ref _ _) -> ref == mRef) $ \_ ->
         return (nullProcessId nid)
@@ -118,7 +118,7 @@ call dict nid proc = do
                                    cpDelayed us (returnCP sdictUnit ())
                                   )
   mResult <- receiveWait
-    [ match $ \a -> send pid () >> return (Right a)
+    [ match $ \a -> usend pid () >> return (Right a)
     , matchIf (\(ProcessMonitorNotification ref _ _) -> ref == mRef)
               (\(ProcessMonitorNotification _ _ reason) -> return (Left reason))
     ]
