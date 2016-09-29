@@ -8,35 +8,6 @@
 -- all distributed nodes are using the same 'RemoteTable'). In this module
 -- we implement this mimickry and various extensions.
 --
--- [Dynamic type checking]
---
--- The paper stipulates that 'Static' values should have a free 'Binary'
--- instance:
---
--- > instance Binary (Static a)
---
--- This however is not (runtime) type safe: for instance, what would be the
--- behaviour of
---
--- > f :: Static Int -> Static Bool
--- > f = decode . encode
---
--- For this reason we work only with 'Typeable' terms in this module, and
--- implement runtime checks
---
--- > instance Typeable a => Binary (Static a)
---
--- The above function 'f' typechecks but throws an exception if executed. The
--- type representation we use, however, is not the standard
--- 'Data.Typeable.TypeRep' from "Data.Typeable" but
--- 'Data.Rank1Typeable.TypeRep' from "Data.Rank1Typeable". This means that we
--- can represent polymorphic static values (see below for an example).
---
--- Since the runtime mapping ('RemoteTable') contains values of different types,
--- it maps labels ('String's) to 'Data.Rank1Dynamic.Dynamic' values. Again, we
--- use the implementation from "Data.Rank1Dynamic" so that we can store
--- polymorphic dynamic values.
---
 -- [Compositionality]
 --
 -- Static values as described in the paper are not compositional: there is no
@@ -252,14 +223,13 @@ import Control.DeepSeq (NFData(rnf), force)
 import Data.Rank1Dynamic (Dynamic, toDynamic, fromDynamic, dynApply)
 import Data.Rank1Typeable
   ( Typeable
-  , typeOf
   , ANY1
   , ANY2
   , ANY3
   , ANY4
-  , isInstanceOf
 #if __GLASGOW_HASKELL__ >= 710
   , TypeRep
+  , typeOf
 #endif
   )
 
@@ -322,14 +292,9 @@ newtype Static a = Static StaticLabel
 instance NFData (Static a) where
   rnf (Static s) = rnf s
 
-instance Typeable a => Binary (Static a) where
-  put (Static label) = putStaticLabel label >> put (typeOf (undefined :: a))
-  get = do
-    label   <- getStaticLabel
-    typeRep <- get
-    case typeOf (undefined :: a) `isInstanceOf` typeRep of
-      Left err -> fail $ "Static.get: type error: " ++ err
-      Right () -> return (Static label)
+instance Binary (Static a) where
+  put (Static label) = putStaticLabel label
+  get = Static <$> getStaticLabel
 
 -- We don't want StaticLabel to be its own Binary instance
 putStaticLabel :: StaticLabel -> Put
@@ -446,8 +411,8 @@ unstatic rtable (Static label) = do
 data Closure a = Closure !(Static (ByteString -> a)) !ByteString
   deriving (Eq, Ord, Typeable, Show)
 
-instance Typeable a => Binary (Closure a) where
-  put (Closure dec env) = put dec >> put env
+instance Binary (Closure a) where
+  put (Closure st env) = put st >> put env
   get = Closure <$> get <*> get
 
 #if MIN_VERSION_bytestring(0,10,0)
