@@ -11,7 +11,7 @@ process and in particular, the branching strategy. We also point out Cloud Haske
 various bits of infrastructure as they stand at the moment.
 
 Perhaps the most important thing to do as a maintainer, is to make other developers
-aware of what you're working on by assigning the Jira issue to yourself!
+aware of what you're working on by assigning the github issue to yourself!
 
 ----
 #### Releases
@@ -132,7 +132,7 @@ you've finished and uploaded the release. If you build and tag three projects,
 only to find that a subsequent dependent package needs a bit of last minute
 surgery, you'll be sorry you didn't wait. With that in mind....
 
-Before releasing any source code, make sure that all the jira tickets
+Before releasing any source code, make sure that all the github tickets
 added to the release are either resolved or remove them from the
 release if you've decided to exclude them.
 

@@ -19,19 +19,6 @@ there are still gaps.
 
 You can find them via the *resources* tab just above this page.
 
-#### Will I have to register a Jira account to submit issues?
-
-Yes, you will need to provide a name and email address.
-
-#### Why are you using Jira instead of Github Issues? It seems more complicated.
-
-Jira **is** a bit more complicated than github's bug tracker, and it's certainly
-not perfect. It is, however, a lot better suited to managing and planning a
-project of this size. Cloud Haskell consists of no less than **13** individual
-projects at this time, and that's not to mention some of the experimental ones
-that have been developed by community members and *might* end up being absorbed
-by the team.
-
 ### Help
 
 If the documentation doesn't answer your question, queries about Cloud Haskell
