@@ -170,6 +170,7 @@
 {-# LANGUAGE CPP #-}
 #if __GLASGOW_HASKELL__ >= 710
 {-# LANGUAGE StaticPointers #-}
+{-# LANGUAGE RoleAnnotations #-}
 #endif
 module Control.Distributed.Static
   ( -- * Static values
@@ -288,6 +289,11 @@ instance NFData StaticLabel where
 -- | A static value. Static is opaque; see 'staticLabel' and 'staticApply'.
 newtype Static a = Static StaticLabel
   deriving (Eq, Ord, Typeable, Show)
+
+-- Trying to 'coerce' static values will lead to unification errors
+#if __GLASGOW_HASKELL__ >= 710
+type role Static nominal
+#endif
 
 instance NFData (Static a) where
   rnf (Static s) = rnf s
@@ -493,7 +499,7 @@ decodeEnvPairStatic :: Static (ByteString -> (ByteString, ByteString))
 decodeEnvPairStatic = staticLabel "$decodeEnvPair"
 
 -- | Closure application
-closureApply :: forall a b . 
+closureApply :: forall a b .
                 Closure (a -> b) -> Closure a -> Closure b
 closureApply (Closure fdec fenv) (Closure xdec xenv) =
     closure decoder (encode (fenv, xenv))
