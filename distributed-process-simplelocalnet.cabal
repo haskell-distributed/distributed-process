@@ -33,9 +33,9 @@ Library
                      network >= 2.3 && < 2.7,
                      network-multicast >= 0.1.1 && < 0.2,
                      data-accessor >= 0.2 && < 0.3,
-                     binary >= 0.6.3 && < 0.8,
+                     binary >= 0.6.3 && < 0.9,
                      containers >= 0.4 && < 0.6,
-                     transformers >= 0.2 && < 0.5,
+                     transformers >= 0.2 && < 0.6,
                      network-transport >= 0.4.1.0 && < 0.5,
                      network-transport-tcp >= 0.4 && < 0.6,
                      distributed-process >= 0.5.0 && < 0.7
@@ -55,9 +55,9 @@ Executable TestSimpleLocalnet
                        network >= 2.3 && < 2.7,
                        network-multicast >= 0.0 && < 0.2,
                        data-accessor >= 0.2 && < 0.3,
-                       binary >= 0.5 && < 0.8,
+                       binary >= 0.5 && < 0.9,
                        containers >= 0.4 && < 0.6,
-                       transformers >= 0.2 && < 0.5,
+                       transformers >= 0.2 && < 0.6,
                        network-transport >= 0.4.1.0 && < 0.5,
                        network-transport-tcp >= 0.4 && < 0.6,
                        distributed-process >= 0.5.0 && < 0.7
