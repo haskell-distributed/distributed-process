@@ -1,3 +1,13 @@
+2016-10-12 Facundo Domínguez <facundo.dominguez@tweag.io> 0.6.5
+
+* Use only one connection to communicate between NCs. (#296, #297)
+* Improve documentation of CQueue.
+* Implement bidirectional multimaps for links and monitors. (#293, #294, #295)
+* Fix various warnings. (#292)
+* Fix some of the intermittent failures in tests.
+* Improve error messages when node controllers receive invalid requests.
+(#290)
+
 2016-06-09 Facundo Domínguez <facundo.dominguez@tweag.io> 0.6.4
 
 * Fixup build errors.
