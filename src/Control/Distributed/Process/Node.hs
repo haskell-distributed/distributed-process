@@ -52,6 +52,7 @@ import qualified Data.Set as Set
   , map
   , member
   , toList
+  , union
   )
 import Data.Foldable (forM_)
 import Data.List (foldl')
