@@ -449,6 +449,8 @@ data ControlHeader =
   | CloseConnection
     -- | Request to close the connection (see module description)
   | CloseSocket
+    -- | Sent by an endpoint when it is closed.
+  | CloseEndPoint
     -- | Message sent to probe a socket
   | ProbeSocket
     -- | Acknowledgement of the ProbeSocket message
@@ -747,9 +749,7 @@ apiCloseEndPoint transport evs ourEndPoint =
             return closed
           RemoteEndPointValid vst -> do
             sched theirEndPoint $ do
-              void $ tryIO $ sendOn vst [ encodeInt32 CloseSocket
-                                        , encodeInt32 (vst ^. remoteMaxIncoming)
-                                        ]
+              void $ tryIO $ sendOn vst [ encodeInt32 CloseEndPoint ]
               -- Release probing resources if probing.
               forM_ (remoteProbing vst) id
               tryCloseSocket (remoteSocket vst)
@@ -929,6 +929,29 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
             Just CloseSocket -> do
               didClose <- recvInt32 sock >>= closeSocket sock
               unless didClose $ go sock
+            Just CloseEndPoint -> do
+              let closeRemoteEndPoint vst = do
+                    forM_ (remoteProbing vst) id
+                    -- close incoming connections
+                    forM_ (Set.elems $ vst ^. remoteIncoming) $
+                      writeChan ourChannel . ConnectionClosed . connId
+                    -- report the endpoint as gone if we have any outgoing
+                    -- connections
+                    when (vst ^. remoteOutgoing > 0) $ do
+                      let code = EventConnectionLost (remoteAddress theirEndPoint)
+                      writeChan ourChannel . ErrorEvent $
+                        TransportError code "The remote endpoint was closed."
+              removeRemoteEndPoint (ourEndPoint, theirEndPoint)
+              modifyMVar_ theirState $ \s -> case s of
+                RemoteEndPointValid vst     -> do
+                  closeRemoteEndPoint vst
+                  return RemoteEndPointClosed
+                RemoteEndPointClosing resolved vst -> do
+                  closeRemoteEndPoint vst
+                  putMVar resolved ()
+                  return RemoteEndPointClosed
+                _                           -> return s
+              tryCloseSocket sock
             Just ProbeSocket -> do
               forkIO $ sendMany sock [encodeInt32 ProbeSocketAck]
               go sock
