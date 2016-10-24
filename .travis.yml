@@ -11,6 +11,10 @@ matrix:
     - env: CABALVER=1.22 GHCVER=7.10.3
       addons: {apt: {packages: [cabal-install-1.22,ghc-7.10.3],sources: [hvr-ghc]}}
 
+cache:
+  directories:
+    - .cabal-sandbox
+
 before_install:
   - export PATH=/opt/ghc/$GHCVER/bin:/opt/cabal/$CABALVER/bin:~/.cabal/bin:$PATH
   - ghc --version
@@ -21,6 +25,9 @@ before_install:
   - sed -i 's/^jobs:/-- jobs:/' $HOME/.cabal/config
 
 install:
+  - git clone https://github.com/haskell-distributed/network-transport-tests.git
+  - cabal sandbox init
+  - cabal sandbox add-source network-transport-tests
   - cabal install --only-dependencies --enable-tests
 
 script:
