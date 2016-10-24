@@ -607,6 +607,7 @@ testCloseSelf newTransport = do
 -- | Test various aspects of 'closeEndPoint'
 testCloseEndPoint :: Transport -> Int -> IO ()
 testCloseEndPoint transport _ = do
+  serverFirstTestDone <- newEmptyMVar
   serverDone <- newEmptyMVar
   clientDone <- newEmptyMVar
   clientAddr1 <- newEmptyMVar
@@ -621,7 +622,13 @@ testCloseEndPoint transport _ = do
     -- First test (see client)
     do
       theirAddr <- readMVar clientAddr1
-      ConnectionOpened cid ReliableOrdered addr <- receive endpoint ; True <- return $ addr == theirAddr
+      ev <- receive endpoint
+      True <- case ev of
+        ConnectionOpened cid ReliableOrdered addr
+          | addr == theirAddr -> return True
+        _ -> print ev >> return False
+      ConnectionOpened cid _ _ <- return ev
+      putMVar serverFirstTestDone ()
       ConnectionClosed cid' <- receive endpoint ; True <- return $ cid == cid'
       return ()
 
@@ -655,6 +662,9 @@ testCloseEndPoint transport _ = do
 
       -- Connect to the server, then close the endpoint without disconnecting explicitly
       Right _ <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
+      -- Don't close before the remote server had a chance to digest the
+      -- connection.
+      readMVar serverFirstTestDone
       closeEndPoint endpoint
       EndPointClosed <- receive endpoint
       return ()
