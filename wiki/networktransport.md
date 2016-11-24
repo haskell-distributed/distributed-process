@@ -55,30 +55,35 @@ main :: IO ()
 main = do
   serverAddr <- newEmptyMVar
   clientDone <- newEmptyMVar
+  serverDone <- newEmptyMVar
 
   Right transport <- createTransport "127.0.0.1" "10080" defaultTCPParameters
-  
+
   -- "Server"
   forkIO $ do
     Right endpoint <- newEndPoint transport
     putMVar serverAddr (address endpoint)
-   
+
     forever $ do
       event <- receive endpoint
       case event of
         Received _ msg -> print msg
+        ConnectionClosed{} -> putMVar serverDone ()
         _ -> return () -- ignore
+
 
   -- "Client"
   forkIO $ do
     Right endpoint <- newEndPoint transport
-    Right conn     <- do addr <- readMVar serverAddr 
+    Right conn     <- do addr <- readMVar serverAddr
                          connect endpoint addr ReliableOrdered defaultConnectHints
     send conn [fromString "Hello world"]
-    putMVar clientDone ()
+    putMVar clientDone conn
 
   -- Wait for the client to finish
-  takeMVar clientDone
+  conn <- takeMVar clientDone
+  close conn
+  takeMVar serverDone
 {% endhighlight %}
 
 We create a "server" and a "client" (each represented by an `EndPoint`).
