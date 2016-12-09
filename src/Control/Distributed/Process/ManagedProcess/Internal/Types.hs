@@ -81,7 +81,7 @@ type CallId = MonitorRef
 
 newtype CallRef a = CallRef { unCaller :: (Recipient, CallId) }
   deriving (Eq, Show, Typeable, Generic)
---instance Serializable a => Binary (CallRef a) where
+
 instance Binary (CallRef a) where
 instance NFData (CallRef a) where rnf (CallRef x) = rnf x `seq` ()
 
