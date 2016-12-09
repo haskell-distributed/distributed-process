@@ -7,7 +7,7 @@ module Main where
 
 import Control.Concurrent.MVar
 import Control.Exception (SomeException)
-import Control.Distributed.Process hiding (call)
+import Control.Distributed.Process hiding (call, catch)
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Extras hiding (__remoteTable, monitor, send, nsend)
 import Control.Distributed.Process.ManagedProcess
@@ -30,6 +30,7 @@ import ManagedProcessCommon
 
 import qualified Network.Transport as NT
 import Control.Monad (void)
+import Control.Monad.Catch (catch)
 
 -- utilities
 

@@ -59,7 +59,6 @@ module Control.Distributed.Process.ManagedProcess.Server.Restricted
   , say
   ) where
 
-import Control.Applicative (Applicative)
 import Control.Distributed.Process hiding (call, say)
 import qualified Control.Distributed.Process as P (say)
 import Control.Distributed.Process.Extras
@@ -73,7 +72,6 @@ import Prelude hiding (init)
 import Control.Monad.IO.Class (MonadIO)
 import qualified Control.Monad.State as ST
   ( MonadState
-  , MonadTrans
   , StateT
   , get
   , lift

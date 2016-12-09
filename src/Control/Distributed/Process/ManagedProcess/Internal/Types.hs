@@ -49,7 +49,8 @@ module Control.Distributed.Process.ManagedProcess.Internal.Types
   , waitResponse
   ) where
 
-import Control.Distributed.Process hiding (Message)
+import Control.Distributed.Process hiding (Message, finally)
+import Control.Monad.Catch (finally)
 import qualified Control.Distributed.Process as P (Message)
 import Control.Distributed.Process.Serializable
 import Control.Distributed.Process.Extras
@@ -80,10 +81,11 @@ type CallId = MonitorRef
 
 newtype CallRef a = CallRef { unCaller :: (Recipient, CallId) }
   deriving (Eq, Show, Typeable, Generic)
-instance Serializable a => Binary (CallRef a) where
-instance NFData a => NFData (CallRef a) where rnf (CallRef x) = rnf x `seq` ()
+--instance Serializable a => Binary (CallRef a) where
+instance Binary (CallRef a) where
+instance NFData (CallRef a) where rnf (CallRef x) = rnf x `seq` ()
 
-makeRef :: forall a . (Serializable a) => Recipient -> CallId -> CallRef a
+makeRef :: Recipient -> CallId -> CallRef a
 makeRef r c = CallRef (r, c)
 
 instance Resolvable (CallRef a) where
@@ -232,8 +234,7 @@ instance Eq (ControlPort m) where
 
 -- | Obtain an opaque expression for communicating with a 'ControlChannel'.
 --
-channelControlPort :: (Serializable m)
-                   => ControlChannel m
+channelControlPort :: ControlChannel m
                    -> ControlPort m
 channelControlPort cc = ControlPort $ fst $ unControl cc
 
