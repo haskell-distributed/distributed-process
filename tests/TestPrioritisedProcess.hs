@@ -10,7 +10,7 @@ module Main where
 import Control.Concurrent.MVar
 import Control.Exception (SomeException)
 import Control.DeepSeq (NFData)
-import Control.Distributed.Process hiding (call, send)
+import Control.Distributed.Process hiding (call, send, catch)
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Extras hiding (__remoteTable)
 import Control.Distributed.Process.Async
@@ -19,6 +19,7 @@ import Control.Distributed.Process.Tests.Internal.Utils
 import Control.Distributed.Process.Extras.Time
 import Control.Distributed.Process.Extras.Timer
 import Control.Distributed.Process.Serializable()
+import Control.Monad.Catch (catch)
 
 import Data.Binary
 import Data.Either (rights)

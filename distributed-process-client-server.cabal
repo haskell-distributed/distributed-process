@@ -17,7 +17,7 @@ description:    Modelled after Erlang OTP's gen_server, this framework provides 
                 development into a set of modules and standards designed to help you build
                 concurrent, distributed applications with relative ease.
 category:       Control
-tested-with:    GHC == 7.4.2 GHC == 7.6.2
+tested-with:    GHC == 7.4.2 GHC == 7.6.2 GHC == 8.0.1
 data-dir:       ""
 
 source-repository head
@@ -31,16 +31,17 @@ library
                    distributed-process >= 0.5.2 && < 0.7,
                    distributed-process-extras >= 0.2.0 && < 0.3,
                    distributed-process-async >= 0.2.1 && < 0.3,
-                   binary >= 0.6.3.0 && < 0.8,
-                   deepseq >= 1.3.0.1 && < 1.5,
+                   binary >= 0.6.3.0 && < 0.9,
+                   deepseq >= 1.3.0.1 && < 1.6,
                    mtl,
                    containers >= 0.4 && < 0.6,
                    hashable >= 1.2.0.5 && < 1.3,
                    unordered-containers >= 0.2.3.0 && < 0.3,
                    fingertree < 0.2,
                    stm >= 2.4 && < 2.5,
-                   time > 1.4 && < 1.6,
-                   transformers
+                   time > 1.4 && < 1.7,
+                   transformers,
+                   exceptions >= 0.5
   if impl(ghc <= 7.5)
     Build-Depends:   template-haskell == 2.7.0.0,
                      derive == 2.5.5,
@@ -85,7 +86,8 @@ test-suite ManagedProcessTests
                    test-framework-hunit,
                    transformers,
                    rematch >= 0.2.0.0,
-                   ghc-prim
+                   ghc-prim,
+                   exceptions >= 0.5
   hs-source-dirs:
                    tests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
@@ -117,7 +119,8 @@ test-suite PrioritisedProcessTests
                    test-framework-hunit,
                    transformers,
                    rematch >= 0.2.0.0,
-                   ghc-prim
+                   ghc-prim,
+                   exceptions >= 0.5
   hs-source-dirs:
                    tests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind

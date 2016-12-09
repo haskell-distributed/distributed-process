@@ -17,7 +17,6 @@ import Control.Distributed.Process.Node
 import Control.Distributed.Process.Extras
 import Control.Distributed.Process.Extras.Time
 import Control.Distributed.Process.Extras.Timer
-import Test.HUnit (Assertion, assertFailure)
 import Test.Framework (Test, defaultMain)
 
 import Network.Transport.TCP

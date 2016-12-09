@@ -8,7 +8,6 @@ module MathsDemo
   , Add(..)
   ) where
 
-import Control.Applicative
 import Control.Distributed.Process hiding (call)
 import Control.Distributed.Process.Extras
 import Control.Distributed.Process.Extras.Time
