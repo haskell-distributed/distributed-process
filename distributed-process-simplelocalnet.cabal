@@ -31,7 +31,7 @@ Library
   Build-Depends:     base >= 4.4 && < 5,
                      bytestring >= 0.9 && < 0.11,
                      network >= 2.3 && < 2.7,
-                     network-multicast >= 0.1.1 && < 0.2,
+                     network-multicast >= 0.1.1 && < 0.3,
                      data-accessor >= 0.2 && < 0.3,
                      binary >= 0.6.3 && < 0.9,
                      containers >= 0.4 && < 0.6,
