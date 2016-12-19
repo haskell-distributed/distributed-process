@@ -37,6 +37,8 @@ Library
                    containers >= 0.4 && < 0.6,
                    stm >= 2.0 && < 3.0
   Exposed-modules: Network.Transport.InMemory
+                   Network.Transport.InMemory.Internal
+                   Network.Transport.InMemory.Debug
   ghc-options:     -Wall
   HS-Source-Dirs:  src
 
