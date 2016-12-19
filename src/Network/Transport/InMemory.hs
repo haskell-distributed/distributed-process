@@ -16,5 +16,5 @@ import Network.Transport.InMemory.Debug
 -- Only a single transport should be created per Haskell process
 -- (threads can, and should, create their own endpoints though).
 createTransport :: IO Transport
-createTransport = fst <$> createTransportExposeInternals
+createTransport = fmap fst createTransportExposeInternals
 

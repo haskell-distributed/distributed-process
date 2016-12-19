@@ -43,7 +43,7 @@ import qualified Data.ByteString.Char8 as BSC (pack)
 import Data.Accessor (Accessor, accessor, (^.), (^=), (^:))
 import qualified Data.Accessor.Container as DAC (mapMaybe)
 import Data.Typeable (Typeable)
-import Prelude
+import Prelude hiding (foldr)
 
 data TransportState
   = TransportValid {-# UNPACK #-} !ValidTransportState
