@@ -629,7 +629,7 @@ newtype DidUnlinkPort = DidUnlinkPort SendPortId
 
 -- | 'SpawnRef' are used to return pids of spawned processes
 newtype SpawnRef = SpawnRef Int32
-  deriving (Show, Binary, Typeable, Eq)
+  deriving (Show, Binary, Typeable, Eq, Ord)
 
 -- | (Asynchronius) reply from 'spawn'
 data DidSpawn = DidSpawn SpawnRef ProcessId
