@@ -155,7 +155,7 @@ timeToMicros Days    days = timeToMicros Hours   (days * hoursPerDay)
 
 {-# INLINE hoursPerDay #-}
 hoursPerDay :: Int
-hoursPerDay = 60
+hoursPerDay = 24
 
 {-# INLINE minutesPerHour #-}
 minutesPerHour :: Int
