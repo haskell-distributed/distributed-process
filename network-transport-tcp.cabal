@@ -30,7 +30,9 @@ Library
                    data-accessor >= 0.2 && < 0.3,
                    containers >= 0.4 && < 0.6,
                    bytestring >= 0.9 && < 0.11,
-                   network >= 2.6.2 && < 2.7
+                   network >= 2.6.2 && < 2.7,
+                   pqueue == 1.3.2,
+                   stm
   Exposed-modules: Network.Transport.TCP,
                    Network.Transport.TCP.Internal
   Default-Extensions: CPP
