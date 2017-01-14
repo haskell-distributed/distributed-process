@@ -1,4 +1,5 @@
 {-# LANGUAGE RebindableSyntax, TemplateHaskell #-}
+{-# LANGUAGE BangPatterns #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Main where
 
@@ -105,7 +106,7 @@ testEarlyDisconnect = do
     server :: MVar EndPointAddress -> MVar EndPointAddress -> MVar () -> IO ()
     server serverAddr clientAddr serverDone = do
       tlog "Server"
-      Right transport <- createTransport "127.0.0.1" "0" defaultTCPParameters
+      Right transport <- createTransport "127.0.0.1" "0" ((,) "127.0.0.1") defaultTCPParameters
       Right endpoint  <- newEndPoint transport
       putMVar serverAddr (address endpoint)
       theirAddr <- readMVar clientAddr
@@ -204,7 +205,7 @@ testEarlyCloseSocket = do
     server :: MVar EndPointAddress -> MVar EndPointAddress -> MVar () -> IO ()
     server serverAddr clientAddr serverDone = do
       tlog "Server"
-      Right transport <- createTransport "127.0.0.1" "0" defaultTCPParameters
+      Right transport <- createTransport "127.0.0.1" "0" ((,) "127.0.0.1") defaultTCPParameters
       Right endpoint  <- newEndPoint transport
       putMVar serverAddr (address endpoint)
       theirAddr <- readMVar clientAddr
@@ -300,13 +301,13 @@ testEarlyCloseSocket = do
 -- | Test the creation of a transport with an invalid address
 testInvalidAddress :: IO ()
 testInvalidAddress = do
-  Left _ <- createTransport "invalidHostName" "0" defaultTCPParameters
+  Left _ <- createTransport "invalidHostName" "0" ((,) "invalidHostName") defaultTCPParameters
   return ()
 
 -- | Test connecting to invalid or non-existing endpoints
 testInvalidConnect :: IO ()
 testInvalidConnect = do
-  Right transport <- createTransport "127.0.0.1" "0" defaultTCPParameters
+  Right transport <- createTransport "127.0.0.1" "0" ((,) "127.0.0.1") defaultTCPParameters
   Right endpoint  <- newEndPoint transport
 
   -- Syntax error in the endpoint address
@@ -337,7 +338,7 @@ testIgnoreCloseSocket = do
   clientDone <- newEmptyMVar
   serverDone <- newEmptyMVar
   connectionEstablished <- newEmptyMVar
-  Right transport <- createTransport "127.0.0.1" "0" defaultTCPParameters
+  Right transport <- createTransport "127.0.0.1" "0" ((,) "127.0.0.1") defaultTCPParameters
 
   -- Server
   forkTry $ do
@@ -418,7 +419,7 @@ testBlockAfterCloseSocket = do
   clientDone <- newEmptyMVar
   serverDone <- newEmptyMVar
   connectionEstablished <- newEmptyMVar
-  Right transport <- createTransport "127.0.0.1" "0" defaultTCPParameters
+  Right transport <- createTransport "127.0.0.1" "0" ((,) "127.0.0.1") defaultTCPParameters
 
   -- Server
   forkTry $ do
@@ -495,7 +496,7 @@ testUnnecessaryConnect numThreads = do
   serverAddr <- newEmptyMVar
 
   forkTry $ do
-    Right transport <- createTransport "127.0.0.1" "0" defaultTCPParameters
+    Right transport <- createTransport "127.0.0.1" "0" ((,) "127.0.0.1") defaultTCPParameters
     Right endpoint <- newEndPoint transport
     putMVar serverAddr (address endpoint)
 
@@ -534,11 +535,11 @@ testUnnecessaryConnect numThreads = do
 -- | Test that we can create "many" transport instances
 testMany :: IO ()
 testMany = do
-  Right masterTransport <- createTransport "127.0.0.1" "0" defaultTCPParameters
+  Right masterTransport <- createTransport "127.0.0.1" "0" ((,) "127.0.0.1") defaultTCPParameters
   Right masterEndPoint  <- newEndPoint masterTransport
 
   replicateM_ 10 $ do
-    mTransport <- createTransport "127.0.0.1" "0" defaultTCPParameters
+    mTransport <- createTransport "127.0.0.1" "0" ((,) "127.0.0.1") defaultTCPParameters
     case mTransport of
       Left ex -> do
         putStrLn $ "IOException: " ++ show ex ++ "; errno = " ++ show (ioe_errno ex)
@@ -555,7 +556,7 @@ testMany = do
 -- | Test what happens when the transport breaks completely
 testBreakTransport :: IO ()
 testBreakTransport = do
-  Right (transport, internals) <- createTransportExposeInternals "127.0.0.1" "0" defaultTCPParameters
+  Right (transport, internals) <- createTransportExposeInternals "127.0.0.1" "0" ((,) "127.0.0.1") defaultTCPParameters
   Right endpoint <- newEndPoint transport
 
   killThread (transportThread internals) -- Uh oh
@@ -609,7 +610,7 @@ testReconnect = do
 
   -- Client
   forkTry $ do
-    Right transport <- createTransport "127.0.0.1" "0" defaultTCPParameters
+    Right transport <- createTransport "127.0.0.1" "0" ((,) "127.0.0.1") defaultTCPParameters
     Right endpoint  <- newEndPoint transport
     let theirAddr = encodeEndPointAddress "127.0.0.1" serverPort 0
 
@@ -685,7 +686,7 @@ testUnidirectionalError = do
 
   -- Client
   forkTry $ do
-    Right (transport, internals) <- createTransportExposeInternals "127.0.0.1" "0" defaultTCPParameters
+    Right (transport, internals) <- createTransportExposeInternals "127.0.0.1" "0" ((,) "127.0.0.1") defaultTCPParameters
     Right endpoint <- newEndPoint transport
     let theirAddr = encodeEndPointAddress "127.0.0.1" serverPort 0
 
@@ -740,7 +741,7 @@ testUnidirectionalError = do
 
 testInvalidCloseConnection :: IO ()
 testInvalidCloseConnection = do
-  Right (transport, internals) <- createTransportExposeInternals "127.0.0.1" "0" defaultTCPParameters
+  Right (transport, internals) <- createTransportExposeInternals "127.0.0.1" "0" ((,) "127.0.0.1") defaultTCPParameters
   serverAddr <- newEmptyMVar
   clientDone <- newEmptyMVar
   serverDone <- newEmptyMVar
@@ -779,9 +780,10 @@ testUseRandomPort :: IO ()
 testUseRandomPort = do
    testDone <- newEmptyMVar
    forkTry $ do
-     Right transport1 <- createTransport "127.0.0.1" "0" defaultTCPParameters
+     Right transport1 <- createTransport "127.0.0.1" "0" ((,) "127.0.0.1") defaultTCPParameters
      Right ep1        <- newEndPoint transport1
-     Right transport2 <- createTransport "127.0.0.1" "0" defaultTCPParameters
+     -- Same as transport1, but is strict in the port.
+     Right transport2 <- createTransport "127.0.0.1" "0" (\(!port) -> ("127.0.0.1", port)) defaultTCPParameters
      Right ep2        <- newEndPoint transport2
      Right conn1 <- connect ep2 (address ep1) ReliableOrdered defaultConnectHints
      ConnectionOpened _ _ _ <- receive ep1
@@ -807,7 +809,7 @@ main = do
            ]
   -- Run the generic tests even if the TCP specific tests failed..
   testTransport (either (Left . show) (Right) <$>
-    createTransport "127.0.0.1" "0" defaultTCPParameters)
+    createTransport "127.0.0.1" "0" ((,) "127.0.0.1") defaultTCPParameters)
   -- ..but if the generic tests pass, still fail if the specific tests did not
   case tcpResult of
     Left err -> throwIO err
