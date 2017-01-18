@@ -13,10 +13,7 @@
 
 {-# LANGUAGE RecursiveDo #-}
 {-# LANGUAGE TupleSections #-}
-{-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE Rank2Types #-}
-{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE RankNTypes #-}
 
 module Network.Transport.TCP
   ( -- * Main API
@@ -35,10 +32,8 @@ module Network.Transport.TCP
   , firstNonReservedHeavyweightConnectionId
   , socketToEndPoint
   , LightweightConnectionId
-  , QPolicy(..)
-  , Buffer(..)
-  , roundRobinUnbounded
-  , roundRobinBounded
+  , QDisc(..)
+  , simpleUnboundedQDisc
     -- * Design notes
     -- $design
   ) where
@@ -150,26 +145,14 @@ import qualified Data.Set as Set
   , null
   , delete
   , member
-  , size
   )
 import Data.Map (Map)
-import qualified Data.Map as Map
+import qualified Data.Map as Map (empty)
 import Data.Traversable (traverse)
 import Data.Accessor (Accessor, accessor, (^.), (^=), (^:))
 import qualified Data.Accessor.Container as DAC (mapMaybe)
 import Data.Foldable (forM_, mapM_)
 import qualified System.Timeout (timeout)
-
-import qualified Data.Sequence as Seq
-import qualified Data.PQueue.Prio.Min as PQ
-import Control.Concurrent.STM (STM, atomically, retry)
-import Control.Concurrent.STM.TVar
-  ( TVar
-  , newTVarIO
-  , readTVar
-  , writeTVar
-  , modifyTVar'
-  )
 import qualified Data.ByteString as BS (length)
 
 -- $design
@@ -295,20 +278,17 @@ data TransportState =
   | TransportClosed
 
 data ValidTransportState = ValidTransportState
-  { _localEndPoints :: !(Map EndPointAddress SomeLocalEndPoint)
+  { _localEndPoints :: !(Map EndPointAddress LocalEndPoint)
   , _nextEndPointId :: !EndPointId
   }
 
-data LocalEndPoint prio = LocalEndPoint
+data LocalEndPoint = LocalEndPoint
   { localAddress :: !EndPointAddress
   , localState   :: !(MVar LocalEndPointState)
     -- | A 'QDisc' is held here rather than on the 'ValidLocalEndPointState'
     --   because even closed 'LocalEndPoint's can have queued input data.
-  , localQueue   :: !(TVar (QDisc prio))
+  , localQueue   :: !(QDisc Event)
   }
-
--- | A 'LocalEndPoint' with its queue type parameter hidden.
-data SomeLocalEndPoint = forall prio . Ord prio => SomeLocalEndPoint (LocalEndPoint prio)
 
 data LocalEndPointState =
     LocalEndPointValid !ValidLocalEndPointState
@@ -452,7 +432,7 @@ data ValidRemoteEndPointState = ValidRemoteEndPointState
 type EndPointId = Word32
 
 -- | Pair of local and a remote endpoint (for conciseness in signatures)
-type EndPointPair prio = (LocalEndPoint prio, RemoteEndPoint)
+type EndPointPair = (LocalEndPoint, RemoteEndPoint)
 
 -- | Lightweight connection ID (sender allocated)
 --
@@ -527,8 +507,7 @@ data TransportInternals = TransportInternals
                   -> EndPointAddress
                   -> IO N.Socket
     -- | Create an EndPoint using a custom queueing policy.
-  , newEndPointInternal :: forall prio . Ord prio
-                        => STM (QPolicy prio)
+  , newEndPointInternal :: (forall t . QDisc t)
                         -> IO (Either (TransportError NewEndPointErrorCode) EndPoint)
   }
 
@@ -585,20 +564,26 @@ createTransportExposeInternals host port params = do
     mkTransport :: TCPTransport
                 -> ThreadId
                 -> IO (Transport, TransportInternals)
-    mkTransport transport tid = return
-      ( Transport
-          { newEndPoint    = apiNewEndPoint transport (return roundRobinUnbounded)
-          , closeTransport = let evs = [ EndPointClosed
-                                       , throw $ userError "Transport closed"
-                                       ] in
-                             apiCloseTransport transport (Just tid) evs
-          }
-      , TransportInternals
-          { transportThread = tid
-          , socketBetween   = internalSocketBetween transport
-          , newEndPointInternal = apiNewEndPoint transport
-          }
-      )
+    mkTransport transport tid = do
+      let newEndPointInternal :: (forall t . QDisc t)
+                              -> IO (Either (TransportError NewEndPointErrorCode) EndPoint)
+          newEndPointInternal qdisc = apiNewEndPoint transport qdisc
+      return
+        ( Transport
+            { newEndPoint = do
+                qdisc <- simpleUnboundedQDisc
+                apiNewEndPoint transport qdisc
+            , closeTransport = let evs = [ EndPointClosed
+                                         , throw $ userError "Transport closed"
+                                         ] in
+                               apiCloseTransport transport (Just tid) evs
+            }
+        , TransportInternals
+            { transportThread = tid
+            , socketBetween   = internalSocketBetween transport
+            , newEndPointInternal = newEndPointInternal
+            }
+        )
 
     terminationHandler :: TCPTransport -> SomeException -> IO ()
     terminationHandler transport ex = do
@@ -630,22 +615,19 @@ apiCloseTransport transport mTransportThread evs =
     mTSt <- modifyMVar (transportState transport) $ \st -> case st of
       TransportValid vst -> return (TransportClosed, Just vst)
       TransportClosed    -> return (TransportClosed, Nothing)
-    forM_ mTSt $ \ts -> forM_ (ts ^. localEndPoints) $ \(SomeLocalEndPoint localEndPoint) ->
-      apiCloseEndPoint transport evs localEndPoint
+    forM_ mTSt $ mapM_ (apiCloseEndPoint transport evs) . (^. localEndPoints)
     -- This will invoke the termination handler, which in turn will call
     -- apiCloseTransport again, but then the transport will already be closed
     -- and we won't be passed a transport thread, so we terminate immmediate
     forM_ mTransportThread killThread
 
 -- | Create a new endpoint
-apiNewEndPoint :: forall prio .
-                  ( Ord prio )
-               => TCPTransport
-               -> STM (QPolicy prio)
+apiNewEndPoint :: TCPTransport
+               -> QDisc Event
                -> IO (Either (TransportError NewEndPointErrorCode) EndPoint)
-apiNewEndPoint transport qpolicy =
+apiNewEndPoint transport qdisc =
   try . asyncWhenCancelled closeEndPoint $ do
-    ourEndPoint <- createLocalEndPoint transport qpolicy :: IO (LocalEndPoint prio)
+    ourEndPoint <- createLocalEndPoint transport qdisc
     return EndPoint
       { receive       = takeEvent (localQueue ourEndPoint)
       , address       = localAddress ourEndPoint
@@ -663,212 +645,89 @@ apiNewEndPoint transport qpolicy =
     resolveMulticastGroupError =
       TransportError ResolveMulticastGroupUnsupported "Multicast not supported"
 
--- | Specification of input queueing for a 'LocalEndPoint'
-data QPolicy prio = QPolicy {
-    -- | Determine a buffer constructor given an EndPointAddress.
-    --   Parametricity ensures the buffer is empty.
-    qpolicyBuffer :: forall t . EndPointAddress -> Buffer t
-
-    -- | Determine a priority for each 'EndPointAddress'.
-    --
-    --   For each EndPointAddress (peers, but also an 'EndPoint's own address)
-    --   there is a buffer of network-transport 'Event's, and the priority given
-    --   by this function determines how soon data will be read from its buffer,
-    --   allowing more data to come in (from the relevant socket if it's a peer,
-    --   or from the same process if it's the 'EndPoint's own address).
-    --
-    --   Values which compare lower give higher priority. If two addresses are
-    --   given priorities which compare equal, then the one which was inserted
-    --   later will be dequeued later. Using '()' as a priority type therefore
-    --   gives round-robin scheduling.
-    --
-    --   It is possible to starve a queue, for instance by giving it a low
-    --   priority (higher value w.r.t. the 'Ord' instance) and always giving
-    --   other addresses higher priority. If there is enough traffic from the
-    --   high priority addresses, events from the low priority address will not
-    --   be read and reads from its socket will eventually stop.
-    --
-    --   This function is used to compute the priority at the time of insertion
-    --   into the queue, whether it's because the address was enqueued because
-    --   a new 'Event' arrived and its buffer was previously empty, or because
-    --   it was the highest priority and its buffer contains more than one
-    --   'Event', so that it will be re-enqueued with the new priority.
-  , qpolicyPriority :: EndPointAddress -> prio
+-- | Abstraction of a queue for an 'EndPoint'.
+--
+--   This specifies which 'Event's will come from
+--   'receive :: EndPoint -> IO Event' and when. It is highly general so that
+--   the simple yet potentially very fast implementation backed by a single
+--   unbounded channel can be used, without excluding more nuanced policies
+--   like class-based queueing with bounded buffers for each peer, which may be
+--   faster in certain conditions but probably has lower maximal throughput.
+--
+--   A 'QDisc' must satisfy some properties in order for the semantics of
+--   network-transport to hold true. To grok these, it may help to know how
+--   network-transport-tcp will use the 'QDisc'.
+--
+--   Every call to 'receive' is just 'qdiscDequeue' on that 'EndPoint's
+--   'QDisc'. Whenever an event arises from a socket, `qdiscEnqueue` is called
+--   with the relevant metadata in the same thread that reads from the socket.
+--   You can be clever about when to block here, so as to control network
+--   ingress. This applies also to loopback connections (an 'EndPoint' connects
+--   to itself), in which case blocking on the enqueue would only block some
+--   thread in your program rather than some chatty network peer. The
+--   metadata given to 'qdiscEnqueue' contains enough information to determine
+--   whether the connection is loopback or not.
+--
+--   TODO more explanation.
+--
+--   See 'newEndPointInternal', which expects a 'forall t . QDisc t', a queue
+--   discipline which does not use any details of the particular thing it's
+--   queueing.
+data QDisc t = QDisc {
+    qdiscDequeue :: IO t
+  , qdiscEnqueue :: QMetadata -> t -> IO ()
   }
 
--- | Round-robin queuing with unbounded queues for everybody.
-roundRobinUnbounded :: QPolicy ()
-roundRobinUnbounded = QPolicy {
-    -- Unbounded buffers for everybody.
-    qpolicyBuffer = const emptyUnbounded
-    -- Equal priority for everybody.
-  , qpolicyPriority = const ()
-  }
+-- | Event metadata which the queueing discipline may use to determine how to
+--   enqueue it.
+data QMetadata =
+    -- | Connection opened.
+    QMOpened !ConnectionId !Reliability !EndPointAddress
+    -- | Received data on a connection. The number of bytes is lazily included.
+  | QMReceived !ConnectionId Int
+    -- | Connection closed.
+  | QMClosed !ConnectionId
+    -- | Relevant to a particular peer.
+  | QMRemote !EndPointAddress
+    -- | Relevant to the local end point (all peers and all connections).
+  | QMLocal
 
--- | Round-robin queuing with bounded queues for everybody.
---   Minimum valid bound is 1.
-roundRobinBounded :: Int -> QPolicy ()
-roundRobinBounded bound
-  | bound < 1 = throw $ userError "roundRobinBounded minimum bound is 1"
-  | otherwise = QPolicy {
-        qpolicyBuffer = const (emptyBounded (bound - 1))
-      , qpolicyPriority = const ()
-      }
+-- | Produce the metadata for an event.
+--   TBD what to do for multicast?
+eventMetadata :: Event -> QMetadata
+eventMetadata event = case event of
+  ConnectionOpened connid reliability addr -> QMOpened connid reliability addr
+  Received connid bss -> QMReceived connid (sum (fmap BS.length bss))
+  ConnectionClosed connid -> QMClosed connid
+  EndPointClosed -> QMLocal
+  ErrorEvent (TransportError err _) -> case err of
+    EventEndPointFailed -> QMLocal
+    EventTransportFailed -> QMLocal
+    EventConnectionLost addr -> QMRemote addr
 
--- | State of input queue and buffers for a 'LocalEndPoint'.
-data QDisc prio = QDisc {
-    -- | Ordered Events from 'RemoteEndPoint's.
-    --   All keys are elements in qdiscQueue.
-    qdiscBuffers :: Map EndPointAddress (NonEmptyBuffer Event)
-    -- | All values in this priority queue are keys in qdiscBuffers.
-  , qdiscQueue :: PQ.MinPQueue prio EndPointAddress
-    -- | What to do in case we try to read from an empty queue.
-    --   Typically this will be 'retry'. After a LocalEndPoint is closed, it
-    --   will be an STM which delivers the EndPointClosed event.
-  , qdiscIdle :: STM Event
-    -- | A queueing policy. It's in STM so that it can be changed over time.
-  , qdiscPolicy :: STM (QPolicy prio)
-  }
+-- | Post an 'Event' using a 'QDisc'.
+postEvent :: QDisc Event -> Event -> IO ()
+postEvent qdisc event = qdiscEnqueue qdisc (eventMetadata event) event
 
-instance Ord prio => Show (QDisc prio) where
-  show qdisc = concat [
-      "  == Buffers ==\n\n"
-    , show (qdiscBuffers qdisc)
-    , "\n\n  == Queue == \n\n"
-    , show (PQ.elems (qdiscQueue qdisc))
-    ]
+-- | Take the next 'Event' using a 'QDisc'.
+takeEvent :: QDisc Event -> IO Event
+takeEvent = qdiscDequeue
 
-emptyQDisc :: STM (QPolicy prio) -> QDisc prio
-emptyQDisc = QDisc Map.empty PQ.empty retry
-
-type NonEmptyBuffer t = (t, Buffer t)
-
-data Buffer t = Unbounded !(Seq.Seq t) | Bounded !Int !(Seq.Seq t)
-
-instance Show t => Show (Buffer t) where
-  show buffer = case buffer of
-    Unbounded seqnc -> concat ["Unbounded : ", show seqnc]
-    Bounded bound seqnc -> concat ["Bounded ", show bound, " : ", show seqnc]
-
-emptyUnbounded :: Buffer t
-emptyUnbounded = Unbounded Seq.empty
-
-emptyBounded :: Int -> Buffer t
-emptyBounded n = Bounded n Seq.empty
-
--- | Copy a 'Buffer' to some empty Buffer' (this doesn't actually copy the
---   data, it's shared). With this you can make a bounded buffer unbounded.
---   You can also copy to a bounded buffer with a bound that is lower than
---   the current number of elements. In that case, nothing is dropped, and you
---   have a bounded buffer which is longer than its bound. That's OK: when
---   trying to append to a bounded buffer we block whenever it is at least as
---   long as its bound.
-copyBuffer :: (forall t . Buffer t) -> Buffer u -> Buffer u
-copyBuffer emptyBuffer buffer = case (emptyBuffer, buffer) of
-  (Unbounded _, Unbounded _) -> buffer
-  (Bounded bound _, Bounded _ seqnc) -> Bounded bound seqnc
-  (Unbounded _, Bounded _ seqnc) -> Unbounded seqnc
-  (Bounded bound _, Unbounded seqnc) -> Bounded bound seqnc
-
--- | Take the head of a NonEmptyBuffer and give the remaining NonEmptyBuffer,
---   or Nothing in case it's empty.
-nebGet :: NonEmptyBuffer t -> (t, Maybe (NonEmptyBuffer t))
-nebGet (t, buffer) = (t, next)
-  where
-  next = case buffer of
-    Unbounded seqnc -> case Seq.viewl seqnc of
-      Seq.EmptyL -> Nothing
-      t' Seq.:< rest -> Just (t', Unbounded rest)
-    Bounded bound seqnc -> case Seq.viewl seqnc of
-      Seq.EmptyL -> Nothing
-      t' Seq.:< rest -> Just (t', Bounded bound rest)
-
-nebOne :: (forall t . Buffer t) -> t -> NonEmptyBuffer t
-nebOne emptyBuffer t = (t, emptyBuffer)
-
--- | Append a value to a buffer. This gives 'Nothing' in case the buffer is
---   bounded and has at least as many elements as its bound.
-nebAppend :: (forall t . Buffer t) -> t -> NonEmptyBuffer t -> Maybe (NonEmptyBuffer t)
-nebAppend emptyBuffer t (t', buffer) = case buffer of
-  Unbounded seqnc -> Just (t', Unbounded (seqnc Seq.|> t))
-  Bounded bound seqnc ->
-    if Seq.length seqnc >= bound
-    then Nothing
-    else Just (t', Bounded bound (seqnc Seq.|> t))
-
--- | Atomically put the event at the end of the buffer for a given address.
---   This will block (retry) if the buffer for that address is full.
---   Threads handling network ingress can 'postEvent' to their `LocalEndPoint`'s
---   'TVar Buffers' as soon data is received, and the nature of the buffer for
---   allocated for it will control the flow rate.
-postEvent :: ( Ord prio ) => TVar (QDisc prio) -> EndPointAddress -> Event -> IO ()
-postEvent qdiscvar address event = atomically $ do
-  qdisc <- readTVar qdiscvar
-  qpolicy <- qdiscPolicy qdisc
-  let buffers = qdiscBuffers qdisc
-  let pqueue = qdiscQueue qdisc
-  let prio = qpolicyPriority qpolicy address
-  let emptyBuffer :: forall t . Buffer t
-      emptyBuffer = qpolicyBuffer qpolicy address
-  qdisc' <- case Map.lookup address buffers of
-    -- There's no buffered data for this address, so we create and insert a
-    -- new buffer.
-    -- We must also give the buffer a priority.
-    Nothing -> return $ qdisc {
-        qdiscBuffers = Map.insert address (nebOne emptyBuffer event) buffers
-      , qdiscQueue = PQ.insertBehind prio address pqueue
-      }
-    -- There is buffered data for this address. It's possible that the buffer
-    -- policy has changed so we must enforce that before we try to append.
-    Just neBuffer -> case nebAppend emptyBuffer event (fmap (copyBuffer emptyBuffer) neBuffer) of
-      -- It's full.
-      Nothing -> retry
-      -- It's not full, but data is already present so we know that the
-      -- address is already in the queue.
-      Just neBuffer' -> return $ qdisc {
-          qdiscBuffers = Map.insert address neBuffer' buffers
-        }
-  writeTVar qdiscvar qdisc'
-
--- | Take the next 'Event' from the 'QDisc', blocking if there is no 'Event'.
-takeEvent :: ( Ord prio ) => TVar (QDisc prio) -> IO Event
-takeEvent qdiscvar = atomically $ do
-  qdisc <- readTVar qdiscvar
-  qpolicy <- qdiscPolicy qdisc
-  let buffers = qdiscBuffers qdisc
-  let pqueue = qdiscQueue qdisc
-  case PQ.minView pqueue of
-    -- Nothing enqueued. buffers must be empty too.
-    -- Block until something is enqueued.
-    Nothing -> qdiscIdle qdisc
-    -- Got an address. Look up its buffer and update the QDisc.
-    Just (address, pqueue') -> do
-      -- Every address in the priority queue is a key in the buffers map, but
-      -- GHC doesn't know this.
-      case Map.lookup address buffers of
-        Nothing -> error "impossible"
-        Just neb -> do
-          let (event, remainder) = nebGet neb
-          let prio = qpolicyPriority qpolicy address
-          let qdisc' = case remainder of
-                Nothing -> qdisc {
-                    qdiscBuffers = Map.delete address buffers
-                  , qdiscQueue = pqueue'
-                  }
-                Just buffer' -> qdisc {
-                    qdiscBuffers = Map.insert address buffer' buffers
-                  , qdiscQueue = PQ.insertBehind prio address pqueue'
-                  }
-          writeTVar qdiscvar qdisc'
-          return event
+-- | A very simple QDisc backed by an unbounded channel.
+simpleUnboundedQDisc :: forall t . IO (QDisc t)
+simpleUnboundedQDisc = do
+  eventChan <- newChan
+  return $ QDisc {
+      qdiscDequeue = readChan eventChan
+    , qdiscEnqueue = const (writeChan eventChan)
+    }
 
 -- | Connnect to an endpoint
-apiConnect :: ( Ord prio )
-           => TCPParameters       -- ^ Parameters
-           -> LocalEndPoint prio  -- ^ Local end point
-           -> EndPointAddress     -- ^ Remote address
-           -> Reliability         -- ^ Reliability (ignored)
-           -> ConnectHints        -- ^ Hints
+apiConnect :: TCPParameters    -- ^ Parameters
+           -> LocalEndPoint    -- ^ Local end point
+           -> EndPointAddress  -- ^ Remote address
+           -> Reliability      -- ^ Reliability (ignored)
+           -> ConnectHints     -- ^ Hints
            -> IO (Either (TransportError ConnectErrorCode) Connection)
 apiConnect params ourEndPoint theirAddress _reliability hints =
   try . asyncWhenCancelled close $
@@ -887,11 +746,7 @@ apiConnect params ourEndPoint theirAddress _reliability hints =
           }
 
 -- | Close a connection
-apiClose :: ( Ord prio )
-         => EndPointPair prio
-         -> LightweightConnectionId
-         -> IORef Bool
-         -> IO ()
+apiClose :: EndPointPair -> LightweightConnectionId -> IORef Bool -> IO ()
 apiClose (ourEndPoint, theirEndPoint) connId connAlive =
   void . tryIO . asyncWhenCancelled return $ finally
     (withScheduledAction ourEndPoint $ \sched -> do
@@ -915,8 +770,7 @@ apiClose (ourEndPoint, theirEndPoint) connId connAlive =
 
 
 -- | Send data across a connection
-apiSend :: ( Ord prio )
-        => EndPointPair prio        -- ^ Local and remote endpoint
+apiSend :: EndPointPair             -- ^ Local and remote endpoint
         -> LightweightConnectionId  -- ^ Connection ID
         -> IORef Bool               -- ^ Is the connection still alive?
         -> [ByteString]             -- ^ Payload
@@ -954,11 +808,9 @@ apiSend (ourEndPoint, theirEndPoint) connId connAlive payload =
     sendFailed = TransportError SendFailed . show
 
 -- | Force-close the endpoint
-apiCloseEndPoint :: forall prio .
-                    ( Ord prio )
-                 => TCPTransport       -- ^ Transport
-                 -> [Event]            -- ^ Events used to report closure
-                 -> LocalEndPoint prio -- ^ Local endpoint
+apiCloseEndPoint :: TCPTransport    -- ^ Transport
+                 -> [Event]         -- ^ Events used to report closure
+                 -> LocalEndPoint   -- ^ Local endpoint
                  -> IO ()
 apiCloseEndPoint transport evs ourEndPoint =
   asyncWhenCancelled return $ do
@@ -973,20 +825,8 @@ apiCloseEndPoint transport evs ourEndPoint =
           return (LocalEndPointClosed, Nothing)
     forM_ mOurState $ \vst -> do
       forM_ (vst ^. localConnections) tryCloseRemoteSocket
-      -- Change the QDisc so that when it's idle it gives the supplied events,
-      -- in order.
-      let qdiscvar = localQueue ourEndPoint
-      let postNextEvent :: [Event] -> STM Event
-          postNextEvent evs = case evs of
-            [] -> retry
-            ev : evs' -> do
-              modifyTVar' qdiscvar $ \qdisc -> qdisc {
-                  qdiscIdle = postNextEvent evs'
-                }
-              return ev
-      atomically . modifyTVar' qdiscvar $ \qdisc -> qdisc {
-          qdiscIdle = postNextEvent evs
-        }
+      let qdisc = localQueue ourEndPoint
+      forM_ evs (postEvent qdisc)
   where
     -- Close the remote socket and return the set of all incoming connections
     tryCloseRemoteSocket :: RemoteEndPoint -> IO ()
@@ -1060,8 +900,8 @@ handleConnectionRequest transport sock = handle handleException $ do
         throwIO $ userError "Transport closed"
     void . forkIO $ go ourEndPoint theirAddress
   where
-    go :: SomeLocalEndPoint -> EndPointAddress -> IO ()
-    go (SomeLocalEndPoint ourEndPoint) theirAddress = do
+    go :: LocalEndPoint -> EndPointAddress -> IO ()
+    go ourEndPoint theirAddress = do
       -- This runs in a thread that will never be killed
       mEndPoint <- handle ((>> return Nothing) . handleException) $ do
         resetIfBroken ourEndPoint theirAddress
@@ -1135,10 +975,7 @@ handleConnectionRequest transport sock = handle handleException $ do
 --
 -- Returns only if the remote party closes the socket or if an error occurs.
 -- This runs in a thread that will never be killed.
-handleIncomingMessages :: forall prio .
-                          ( Ord prio )
-                       => EndPointPair prio
-                       -> IO ()
+handleIncomingMessages :: EndPointPair -> IO ()
 handleIncomingMessages (ourEndPoint, theirEndPoint) = do
     mSock <- withMVar theirState $ \st ->
       case st of
@@ -1157,36 +994,9 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
         RemoteEndPointFailed _ ->
           return Nothing
 
-    forM_ mSock go
+    forM_ mSock $ \sock ->
+      tryIO (go sock) >>= either (prematureExit sock) return
   where
-
-    -- Arguments
-    ourQDiscVar  = localQueue ourEndPoint
-    theirState   = remoteState theirEndPoint
-    theirAddr    = remoteAddress theirEndPoint
-
-    -- Error events are posted to the front of the queue.
-    postEvents :: [Event] -> IO ()
-    postEvents = mapM_ (postEvent ourQDiscVar theirAddr)
-
-    -- Read from the socket to get the next Event(s), then post them to
-    -- the queue.
-    go :: N.Socket -> IO ()
-    go sock = do
-      choice <- tryIO (nextEvents sock)
-      (events, maybeStop) <- case choice of
-        Left err -> do
-          mEv <- prematureExit sock err
-          return ([], Just mEv)
-        Right ok -> return ok
-      _ <- postEvents events
-      case maybeStop of
-        Nothing -> go sock
-        -- Finished without an exceptional event.
-        Just Nothing -> return ()
-        -- Finished with an exceptional event.
-        Just (Just exceptionalEvent) -> postEvents [exceptionalEvent]
-
     -- Dispatch
     --
     -- If a recv throws an exception this will be caught top-level and
@@ -1195,68 +1005,58 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
     -- (because a 'send' failed) -- the individual handlers below will throw a
     -- user exception which is then caught and handled the same way as an
     -- exception thrown by 'recv'.
-    --
-    -- Returns a list of normal 'Event's to post.
-    -- Also, an indication of whether to stop processing.
-    -- - If Nothing, keep going.
-    -- - If Just, stop, and post an optional error event.
-    --   So, for example, Just Nothing means stop processing, but post no
-    --   error.
-    nextEvents :: N.Socket -> IO ([Event], Maybe (Maybe Event))
-    nextEvents sock = do
+    go :: N.Socket -> IO ()
+    go sock = do
       lcid <- recvInt32 sock :: IO LightweightConnectionId
       if lcid >= firstNonReservedLightweightConnectionId
         then do
-          ev <- readMessage sock lcid
-          return ([ev], Nothing)
+          readMessage sock lcid
+          go sock
         else
           case tryToEnum (fromIntegral lcid) of
             Just CreatedNewConnection -> do
-              ev <- recvInt32 sock >>= createdNewConnection
-              return ([ev], Nothing)
+              recvInt32 sock >>= createdNewConnection
+              go sock
             Just CloseConnection -> do
-              ev <- recvInt32 sock >>= closeConnection
-              return ([ev], Nothing)
+              recvInt32 sock >>= closeConnection
+              go sock
             Just CloseSocket -> do
-              -- closeSocket will give True as the second component if the
-              -- socket closed, interpreted here as "stop processing".
-              (evs, didClose) <- recvInt32 sock >>= closeSocket sock
-              return (evs, if didClose then Just Nothing else Nothing)
+              didClose <- recvInt32 sock >>= closeSocket sock
+              unless didClose $ go sock
             Just CloseEndPoint -> do
               let closeRemoteEndPoint vst = do
                     forM_ (remoteProbing vst) id
                     -- close incoming connections
-                    let events = fmap (ConnectionClosed . connId) (Set.elems (vst ^. remoteIncoming))
+                    forM_ (Set.elems $ vst ^. remoteIncoming) $
+                      postEvent ourQueue . ConnectionClosed . connId
                     -- report the endpoint as gone if we have any outgoing
                     -- connections
-                    if (vst ^. remoteOutgoing > 0)
-                    then let code = EventConnectionLost (remoteAddress theirEndPoint)
-                             goneEvent = ErrorEvent (TransportError code "The remote endpoint was closed.")
-                         in  return (events, Just goneEvent)
-                    else return (events, Nothing)
+                    when (vst ^. remoteOutgoing > 0) $ do
+                      let code = EventConnectionLost (remoteAddress theirEndPoint)
+                      postEvent ourQueue . ErrorEvent $
+                        TransportError code "The remote endpoint was closed."
               removeRemoteEndPoint (ourEndPoint, theirEndPoint)
-              (normalEvs, mExceptionalEv) <- modifyMVar theirState $ \s -> case s of
-                RemoteEndPointValid vst -> do
-                  evs <- closeRemoteEndPoint vst
-                  return (RemoteEndPointClosed, evs)
+              modifyMVar_ theirState $ \s -> case s of
+                RemoteEndPointValid vst     -> do
+                  closeRemoteEndPoint vst
+                  return RemoteEndPointClosed
                 RemoteEndPointClosing resolved vst -> do
-                  evs <- closeRemoteEndPoint vst
+                  closeRemoteEndPoint vst
                   putMVar resolved ()
-                  return (RemoteEndPointClosed, evs)
-                _ -> return (s, ([], Nothing))
+                  return RemoteEndPointClosed
+                _                           -> return s
               tryCloseSocket sock
-              return (normalEvs, Just mExceptionalEv)
             Just ProbeSocket -> do
               forkIO $ sendMany sock [encodeInt32 ProbeSocketAck]
-              return ([], Nothing)
+              go sock
             Just ProbeSocketAck -> do
               stopProbing
-              return ([], Nothing)
+              go sock
             Nothing ->
               throwIO $ userError "Invalid control request"
 
     -- Create a new connection
-    createdNewConnection :: LightweightConnectionId -> IO Event
+    createdNewConnection :: LightweightConnectionId -> IO ()
     createdNewConnection lcid = do
       modifyMVar_ theirState $ \st -> do
         vst <- case st of
@@ -1289,12 +1089,12 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
             relyViolation (ourEndPoint, theirEndPoint)
               "createNewConnection (closed)"
         return (RemoteEndPointValid vst)
-      return $ ConnectionOpened (connId lcid) ReliableOrdered theirAddr
+      postEvent ourQueue (ConnectionOpened (connId lcid) ReliableOrdered theirAddr)
 
     -- Close a connection
     -- It is important that we verify that the connection is in fact open,
     -- because otherwise we should not decrement the reference count
-    closeConnection :: LightweightConnectionId -> IO Event
+    closeConnection :: LightweightConnectionId -> IO ()
     closeConnection lcid = do
       modifyMVar_ theirState $ \st -> case st of
         RemoteEndPointInvalid _ ->
@@ -1317,16 +1117,12 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
           throwIO err
         RemoteEndPointClosed ->
           relyViolation (ourEndPoint, theirEndPoint) "closeConnection (closed)"
-      return $ ConnectionClosed (connId lcid)
+      postEvent ourQueue (ConnectionClosed (connId lcid))
 
     -- Close the socket (if we don't have any outgoing connections)
-    -- The first component is a list of ConnectionClosed events which must be
-    -- posted (possibly empty of course).
-    -- The second component 'Bool' is True if the socket did close (and we
-    -- should therefore stop processing).
-    closeSocket :: N.Socket -> LightweightConnectionId -> IO ([Event], Bool)
+    closeSocket :: N.Socket -> LightweightConnectionId -> IO Bool
     closeSocket sock lastReceivedId = do
-      (events, mAct) <- modifyMVar theirState $ \st -> do
+      mAct <- modifyMVar theirState $ \st -> do
         case st of
           RemoteEndPointInvalid _ ->
             relyViolation (ourEndPoint, theirEndPoint)
@@ -1338,7 +1134,8 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
             -- We regard a CloseSocket message as an (optimized) way for the
             -- remote endpoint to indicate that all its connections to us are
             -- now properly closed
-            let events = fmap (ConnectionClosed . connId) (Set.elems (vst ^. remoteIncoming))
+            forM_ (Set.elems $ vst ^. remoteIncoming) $
+              postEvent ourQueue . ConnectionClosed . connId
             let vst' = remoteIncoming ^= Set.empty $ vst
             -- If we still have outgoing connections then we ignore the
             -- CloseSocket request (we sent a ConnectionCreated message to the
@@ -1349,7 +1146,7 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
             -- receive before sending the CloseSocket request.
             if vst' ^. remoteOutgoing > 0 || lastReceivedId < lastSentId vst
               then
-                return (RemoteEndPointValid vst', (events, Nothing))
+                return (RemoteEndPointValid vst', Nothing)
               else do
                 -- Release probing resources if probing.
                 forM_ (remoteProbing vst) id
@@ -1360,7 +1157,7 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
                                              , encodeInt32 (vst ^. remoteMaxIncoming)
                                              ]
                   tryCloseSocket sock
-                return (RemoteEndPointClosed, (events, Just act))
+                return (RemoteEndPointClosed, Just act)
           RemoteEndPointClosing resolved vst ->  do
             -- Like above, we need to check if there is a ConnectionCreated
             -- message that we sent but that the remote endpoint has not yet
@@ -1371,32 +1168,31 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
             -- that case.
             if lastReceivedId < lastSentId vst
               then do
-                return (RemoteEndPointClosing resolved vst, ([], Nothing))
+                return (RemoteEndPointClosing resolved vst, Nothing)
               else do
                 -- Release probing resources if probing.
                 forM_ (remoteProbing vst) id
                 removeRemoteEndPoint (ourEndPoint, theirEndPoint)
                 act <- schedule theirEndPoint $ tryCloseSocket sock
                 putMVar resolved ()
-                return (RemoteEndPointClosed, ([], Just act))
+                return (RemoteEndPointClosed, Just act)
           RemoteEndPointFailed err ->
             throwIO err
           RemoteEndPointClosed ->
             relyViolation (ourEndPoint, theirEndPoint)
               "handleIncomingMessages:closeSocket (closed)"
       case mAct of
-        Nothing -> return (events, False)
+        Nothing -> return False
         Just act -> do
           runScheduledAction (ourEndPoint, theirEndPoint) act
-          return (events, True)
+          return True
 
     -- Read a message and output it on the endPoint's channel. By rights we
     -- should verify that the connection ID is valid, but this is unnecessary
     -- overhead
-    readMessage :: N.Socket -> LightweightConnectionId -> IO Event
-    readMessage sock lcid = do
-      bs <- recvWithLength sock
-      return $ Received (connId lcid) bs
+    readMessage :: N.Socket -> LightweightConnectionId -> IO ()
+    readMessage sock lcid =
+      recvWithLength sock >>= postEvent ourQueue . Received (connId lcid)
 
     -- Stop probing a connection as a result of receiving a probe ack.
     stopProbing :: IO ()
@@ -1407,12 +1203,16 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
           return $ RemoteEndPointValid vst { remoteProbing = Nothing }
       _ -> return st
 
-    -- Deal with a premature exit.
-    -- It may give an ErrorEvent.
-    prematureExit :: N.Socket -> IOException -> IO (Maybe Event)
+    -- Arguments
+    ourQueue    = localQueue ourEndPoint
+    theirState  = remoteState theirEndPoint
+    theirAddr   = remoteAddress theirEndPoint
+
+    -- Deal with a premature exit
+    prematureExit :: N.Socket -> IOException -> IO ()
     prematureExit sock err = do
       tryCloseSocket sock
-      modifyMVar theirState $ \st ->
+      modifyMVar_ theirState $ \st ->
         case st of
           RemoteEndPointInvalid _ ->
             relyViolation (ourEndPoint, theirEndPoint)
@@ -1424,17 +1224,18 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
             -- Release probing resources if probing.
             forM_ (remoteProbing vst) id
             let code = EventConnectionLost (remoteAddress theirEndPoint)
-            return (RemoteEndPointFailed err, Just (ErrorEvent (TransportError code (show err))))
+            postEvent ourQueue . ErrorEvent $ TransportError code (show err)
+            return (RemoteEndPointFailed err)
           RemoteEndPointClosing resolved vst -> do
             -- Release probing resources if probing.
             forM_ (remoteProbing vst) id
             putMVar resolved ()
-            return (RemoteEndPointFailed err, Nothing)
+            return (RemoteEndPointFailed err)
           RemoteEndPointClosed ->
             relyViolation (ourEndPoint, theirEndPoint)
               "handleIncomingMessages:prematureExit"
           RemoteEndPointFailed err' ->
-            return (RemoteEndPointFailed err', Nothing)
+            return (RemoteEndPointFailed err')
 
     -- Construct a connection ID
     connId :: LightweightConnectionId -> ConnectionId
@@ -1460,12 +1261,11 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
 -- block until that is resolved.
 --
 -- May throw a TransportError ConnectErrorCode exception.
-createConnectionTo :: ( Ord prio )
-                   => TCPParameters
-                   -> LocalEndPoint prio
-                   -> EndPointAddress
-                   -> ConnectHints
-                   -> IO (RemoteEndPoint, LightweightConnectionId)
+createConnectionTo :: TCPParameters
+                    -> LocalEndPoint
+                    -> EndPointAddress
+                    -> ConnectHints
+                    -> IO (RemoteEndPoint, LightweightConnectionId)
 createConnectionTo params ourEndPoint theirAddress hints = do
     -- @timer@ is an IO action that completes when the timeout expires.
     timer <- case connTimeout of
@@ -1535,10 +1335,7 @@ createConnectionTo params ourEndPoint theirAddress hints = do
       return a
 
 -- | Set up a remote endpoint
-setupRemoteEndPoint :: ( Ord prio )
-                    => TCPParameters
-                    -> EndPointPair prio
-                    -> Maybe Int
+setupRemoteEndPoint :: TCPParameters -> EndPointPair -> Maybe Int
                     -> IO (Maybe ConnectionRequestResponse)
 setupRemoteEndPoint params (ourEndPoint, theirEndPoint) connTimeout = do
     result <- socketToEndPoint ourAddress
@@ -1590,7 +1387,7 @@ setupRemoteEndPoint params (ourEndPoint, theirEndPoint) connTimeout = do
     invalidAddress  = TransportError ConnectNotFound
 
 -- | Send a CloseSocket request if the remote endpoint is unused
-closeIfUnused :: ( Ord prio ) => EndPointPair prio -> IO ()
+closeIfUnused :: EndPointPair -> IO ()
 closeIfUnused (ourEndPoint, theirEndPoint) = do
   mAct <- modifyMVar (remoteState theirEndPoint) $ \st -> case st of
     RemoteEndPointValid vst ->
@@ -1619,7 +1416,7 @@ closeIfUnused (ourEndPoint, theirEndPoint) = do
 --
 -- Throws a TransportError ConnectFailed exception if the local endpoint is
 -- closed.
-resetIfBroken :: LocalEndPoint prio -> EndPointAddress -> IO ()
+resetIfBroken :: LocalEndPoint -> EndPointAddress -> IO ()
 resetIfBroken ourEndPoint theirAddress = do
   mTheirEndPoint <- withMVar (localState ourEndPoint) $ \st -> case st of
     LocalEndPointValid vst ->
@@ -1638,22 +1435,19 @@ resetIfBroken ourEndPoint theirAddress = do
 -- | Special case of 'apiConnect': connect an endpoint to itself
 --
 -- May throw a TransportError ConnectErrorCode (if the local endpoint is closed)
-connectToSelf :: forall prio .
-                 ( Ord prio )
-              => LocalEndPoint prio
-              -> IO Connection
+connectToSelf :: LocalEndPoint
+               -> IO Connection
 connectToSelf ourEndPoint = do
     connAlive <- newIORef True  -- Protected by the local endpoint lock
     lconnId   <- mapIOException connectFailed $ getLocalNextConnOutId ourEndPoint
     let connId = createConnectionId heavyweightSelfConnectionId lconnId
-        connectEvent = ConnectionOpened connId ReliableOrdered (localAddress ourEndPoint)
-    postEvent ourQueue ourAddress connectEvent
+    postEvent ourQueue $
+      ConnectionOpened connId ReliableOrdered (localAddress ourEndPoint)
     return Connection
       { send  = selfSend connAlive connId
       , close = selfClose connAlive connId
       }
   where
-
     selfSend :: IORef Bool
              -> ConnectionId
              -> [ByteString]
@@ -1663,9 +1457,8 @@ connectToSelf ourEndPoint = do
         LocalEndPointValid _ -> do
           alive <- readIORef connAlive
           if alive
-            then seq (foldr seq () msg) $ do
-                   let bytes = sum (fmap BS.length msg)
-                   postEvent ourQueue ourAddress (Received connId msg)
+            then seq (foldr seq () msg)
+                   postEvent ourQueue (Received connId msg)
             else throwIO $ TransportError SendClosed "Connection closed"
         LocalEndPointClosed ->
           throwIO $ TransportError SendFailed "Endpoint closed"
@@ -1676,18 +1469,17 @@ connectToSelf ourEndPoint = do
         LocalEndPointValid _ -> do
           alive <- readIORef connAlive
           when alive $ do
+            postEvent ourQueue (ConnectionClosed connId)
             writeIORef connAlive False
-            postEvent ourQueue ourAddress (ConnectionClosed connId)
         LocalEndPointClosed ->
           return ()
 
     ourQueue = localQueue ourEndPoint
     ourState = localState ourEndPoint
-    ourAddress = localAddress ourEndPoint
     connectFailed = TransportError ConnectFailed . show
 
 -- | Resolve an endpoint currently in 'Init' state
-resolveInit :: EndPointPair q -> RemoteState -> IO ()
+resolveInit :: EndPointPair -> RemoteState -> IO ()
 resolveInit (ourEndPoint, theirEndPoint) newState =
   modifyMVar_ (remoteState theirEndPoint) $ \st -> case st of
     RemoteEndPointInit resolved _ _ -> do
@@ -1706,7 +1498,7 @@ resolveInit (ourEndPoint, theirEndPoint) newState =
 -- | Get the next outgoing self-connection ID
 --
 -- Throws an IO exception when the endpoint is closed.
-getLocalNextConnOutId :: LocalEndPoint prio -> IO LightweightConnectionId
+getLocalNextConnOutId :: LocalEndPoint -> IO LightweightConnectionId
 getLocalNextConnOutId ourEndpoint =
   modifyMVar (localState ourEndpoint) $ \st -> case st of
     LocalEndPointValid vst -> do
@@ -1722,12 +1514,10 @@ getLocalNextConnOutId ourEndpoint =
 --
 -- May throw a TransportError NewEndPointErrorCode exception if the transport
 -- is closed.
-createLocalEndPoint :: ( Ord prio )
-                    => TCPTransport
-                    -> STM (QPolicy prio)
-                    -> IO (LocalEndPoint prio)
-createLocalEndPoint transport qpolicy = do
-    qdisc <- newTVarIO $ emptyQDisc qpolicy
+createLocalEndPoint :: TCPTransport
+                    -> QDisc Event
+                    -> IO LocalEndPoint
+createLocalEndPoint transport qdisc = do
     state <- newMVar . LocalEndPointValid $ ValidLocalEndPointState
       { _localNextConnOutId = firstNonReservedLightweightConnectionId
       , _localConnections   = Map.empty
@@ -1743,9 +1533,8 @@ createLocalEndPoint transport qpolicy = do
                                           , localQueue   = qdisc
                                           , localState   = state
                                           }
-        let someLocalEndPoint = SomeLocalEndPoint localEndPoint
         return ( TransportValid
-               . (localEndPointAt addr ^= Just someLocalEndPoint)
+               . (localEndPointAt addr ^= Just localEndPoint)
                . (nextEndPointId ^= ix + 1)
                $ vst
                , localEndPoint
@@ -1753,10 +1542,11 @@ createLocalEndPoint transport qpolicy = do
       TransportClosed ->
         throwIO (TransportError NewEndPointFailed "Transport closed")
 
+
 -- | Remove reference to a remote endpoint from a local endpoint
 --
 -- If the local endpoint is closed, do nothing
-removeRemoteEndPoint :: EndPointPair q -> IO ()
+removeRemoteEndPoint :: EndPointPair -> IO ()
 removeRemoteEndPoint (ourEndPoint, theirEndPoint) =
     modifyMVar_ ourState $ \st -> case st of
       LocalEndPointValid vst ->
@@ -1780,7 +1570,7 @@ removeRemoteEndPoint (ourEndPoint, theirEndPoint) =
 -- | Remove reference to a local endpoint from the transport state
 --
 -- Does nothing if the transport is closed
-removeLocalEndPoint :: TCPTransport -> LocalEndPoint prio -> IO ()
+removeLocalEndPoint :: TCPTransport -> LocalEndPoint -> IO ()
 removeLocalEndPoint transport ourEndPoint =
   modifyMVar_ (transportState transport) $ \st -> case st of
     TransportValid vst ->
@@ -1795,7 +1585,7 @@ removeLocalEndPoint transport ourEndPoint =
 -- create it in Init state. Returns if the endpoint was new, or 'Nothing' if
 -- it times out.
 findRemoteEndPoint
-  :: LocalEndPoint prio
+  :: LocalEndPoint
   -> EndPointAddress
   -> RequestedBy
   -> Maybe (IO ())           -- ^ an action which completes when the time is up
@@ -1920,11 +1710,7 @@ schedule theirEndPoint act = do
 -- 'runScheduledAction' will run @p@ (it might run some other scheduled action).
 -- However, it will then wait until @p@ is executed (by this call to
 -- 'runScheduledAction' or by another).
-runScheduledAction :: forall prio a .
-                      ( Ord prio )
-                   => EndPointPair prio
-                   -> Action a
-                   -> IO a
+runScheduledAction :: EndPointPair -> Action a -> IO a
 runScheduledAction (ourEndPoint, theirEndPoint) mvar = do
     join $ readChan (remoteScheduled theirEndPoint)
     ma <- readMVar mvar
@@ -1945,18 +1731,15 @@ runScheduledAction (ourEndPoint, theirEndPoint) mvar = do
       -- Release probing resources if probing.
       forM_ (remoteProbing vst) id
       tryCloseSocket (remoteSocket vst)
-      let code  = EventConnectionLost (remoteAddress theirEndPoint)
-          err   = TransportError code (show ex)
-      postEvent (localQueue ourEndPoint) (remoteAddress theirEndPoint) (ErrorEvent err)
+      let code     = EventConnectionLost (remoteAddress theirEndPoint)
+          err      = TransportError code (show ex)
+      postEvent (localQueue ourEndPoint) $ ErrorEvent err
       return (RemoteEndPointFailed ex)
 
 -- | Use 'schedule' action 'runScheduled' action in a safe way, it's assumed that
 -- callback is used only once, otherwise guarantees of runScheduledAction are not
 -- respected.
-withScheduledAction :: ( Ord prio )
-                    => LocalEndPoint prio
-                    -> ((RemoteEndPoint -> IO a -> IO ()) -> IO ())
-                    -> IO ()
+withScheduledAction :: LocalEndPoint -> ((RemoteEndPoint -> IO a -> IO ()) -> IO ()) -> IO ()
 withScheduledAction ourEndPoint f =
   bracket (newIORef Nothing)
           (traverse (\(tp, a) -> runScheduledAction (ourEndPoint, tp) a) <=< readIORef)
@@ -2069,35 +1852,33 @@ internalSocketBetween :: TCPTransport    -- ^ Transport
                       -> EndPointAddress -- ^ Remote endpoint
                       -> IO N.Socket
 internalSocketBetween transport ourAddress theirAddress = do
-  someEndPoint <- withMVar (transportState transport) $ \st -> case st of
+  ourEndPoint <- withMVar (transportState transport) $ \st -> case st of
       TransportClosed ->
         throwIO $ userError "Transport closed"
       TransportValid vst ->
         case vst ^. localEndPointAt ourAddress of
           Nothing -> throwIO $ userError "Local endpoint not found"
           Just ep -> return ep
-  case someEndPoint of
-    SomeLocalEndPoint ourEndPoint -> do
-      theirEndPoint <- withMVar (localState ourEndPoint) $ \st -> case st of
-          LocalEndPointClosed ->
-            throwIO $ userError "Local endpoint closed"
-          LocalEndPointValid vst ->
-            case vst ^. localConnectionTo theirAddress of
-              Nothing -> throwIO $ userError "Remote endpoint not found"
-              Just ep -> return ep
-      withMVar (remoteState theirEndPoint) $ \st -> case st of
-        RemoteEndPointInit _ _ _ ->
-          throwIO $ userError "Remote endpoint not yet initialized"
-        RemoteEndPointValid vst ->
-          return $ remoteSocket vst
-        RemoteEndPointClosing _ vst ->
-          return $ remoteSocket vst
-        RemoteEndPointClosed ->
-          throwIO $ userError "Remote endpoint closed"
-        RemoteEndPointInvalid err ->
-          throwIO err
-        RemoteEndPointFailed err ->
-          throwIO err
+  theirEndPoint <- withMVar (localState ourEndPoint) $ \st -> case st of
+      LocalEndPointClosed ->
+        throwIO $ userError "Local endpoint closed"
+      LocalEndPointValid vst ->
+        case vst ^. localConnectionTo theirAddress of
+          Nothing -> throwIO $ userError "Remote endpoint not found"
+          Just ep -> return ep
+  withMVar (remoteState theirEndPoint) $ \st -> case st of
+    RemoteEndPointInit _ _ _ ->
+      throwIO $ userError "Remote endpoint not yet initialized"
+    RemoteEndPointValid vst ->
+      return $ remoteSocket vst
+    RemoteEndPointClosing _ vst ->
+      return $ remoteSocket vst
+    RemoteEndPointClosed ->
+      throwIO $ userError "Remote endpoint closed"
+    RemoteEndPointInvalid err ->
+      throwIO err
+    RemoteEndPointFailed err ->
+      throwIO err
 
 --------------------------------------------------------------------------------
 -- Constants                                                                  --
@@ -2119,7 +1900,7 @@ firstNonReservedHeavyweightConnectionId = 1
 -- Accessor definitions                                                       --
 --------------------------------------------------------------------------------
 
-localEndPoints :: Accessor ValidTransportState (Map EndPointAddress SomeLocalEndPoint)
+localEndPoints :: Accessor ValidTransportState (Map EndPointAddress LocalEndPoint)
 localEndPoints = accessor _localEndPoints (\es st -> st { _localEndPoints = es })
 
 nextEndPointId :: Accessor ValidTransportState EndPointId
@@ -2146,7 +1927,7 @@ remoteMaxIncoming = accessor _remoteMaxIncoming (\lcid st -> st { _remoteMaxInco
 remoteNextConnOutId :: Accessor ValidRemoteEndPointState LightweightConnectionId
 remoteNextConnOutId = accessor _remoteNextConnOutId (\cix st -> st { _remoteNextConnOutId = cix })
 
-localEndPointAt :: EndPointAddress -> Accessor ValidTransportState (Maybe SomeLocalEndPoint)
+localEndPointAt :: EndPointAddress -> Accessor ValidTransportState (Maybe LocalEndPoint)
 localEndPointAt addr = localEndPoints >>> DAC.mapMaybe addr
 
 localConnectionTo :: EndPointAddress -> Accessor ValidLocalEndPointState (Maybe RemoteEndPoint)
@@ -2156,12 +1937,12 @@ localConnectionTo addr = localConnections >>> DAC.mapMaybe addr
 -- Debugging                                                                 --
 -------------------------------------------------------------------------------
 
-relyViolation :: EndPointPair prio -> String -> IO a
+relyViolation :: EndPointPair -> String -> IO a
 relyViolation (ourEndPoint, theirEndPoint) str = do
   elog (ourEndPoint, theirEndPoint) (str ++ " RELY violation")
   fail (str ++ " RELY violation")
 
-elog :: EndPointPair prio -> String -> IO ()
+elog :: EndPointPair -> String -> IO ()
 elog (ourEndPoint, theirEndPoint) msg = do
   tid <- myThreadId
   putStrLn  $  show (localAddress ourEndPoint)
