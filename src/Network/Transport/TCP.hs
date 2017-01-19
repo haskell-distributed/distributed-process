@@ -573,10 +573,8 @@ createTransportExposeInternals host port params = do
             { newEndPoint = do
                 qdisc <- simpleUnboundedQDisc
                 apiNewEndPoint transport qdisc
-            , closeTransport = let evs = [ EndPointClosed
-                                         , throw $ userError "Transport closed"
-                                         ] in
-                               apiCloseTransport transport (Just tid) evs
+            , closeTransport = let evs = [ EndPointClosed ]
+                               in apiCloseTransport transport (Just tid) evs
             }
         , TransportInternals
             { transportThread = tid
@@ -632,10 +630,8 @@ apiNewEndPoint transport qdisc =
       { receive       = takeEvent (localQueue ourEndPoint)
       , address       = localAddress ourEndPoint
       , connect       = apiConnect (transportParams transport) ourEndPoint
-      , closeEndPoint = let evs = [ EndPointClosed
-                                  , throw $ userError "Endpoint closed"
-                                  ] in
-                        apiCloseEndPoint transport evs ourEndPoint
+      , closeEndPoint = let evs = [ EndPointClosed ]
+                        in  apiCloseEndPoint transport evs ourEndPoint
       , newMulticastGroup     = return . Left $ newMulticastGroupError
       , resolveMulticastGroup = return . Left . const resolveMulticastGroupError
       }
