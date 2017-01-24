@@ -34,6 +34,7 @@ module Network.Transport.TCP
   , LightweightConnectionId
   , QDisc(..)
   , simpleUnboundedQDisc
+  , simpleOnePlaceQDisc
     -- * Design notes
     -- $design
   ) where
@@ -106,6 +107,7 @@ import Control.Concurrent.MVar
   , modifyMVar
   , modifyMVar_
   , readMVar
+  , takeMVar
   , putMVar
   , newEmptyMVar
   , withMVar
@@ -717,6 +719,20 @@ simpleUnboundedQDisc = do
   return $ QDisc {
       qdiscDequeue = readChan eventChan
     , qdiscEnqueue = const (writeChan eventChan)
+    }
+
+-- | A very simple QDisc backed by a 1-place queue (MVar).
+--   With this QDisc, all threads reading from sockets will try to put their
+--   events into the same MVar. That MVar will be cleared by calls to
+--   'receive'. Thus the rate at which data is read from the wire is directly
+--   related to the rate at which data is pulled from the EndPoint by
+--   'receive'.
+simpleOnePlaceQDisc :: forall t . IO (QDisc t)
+simpleOnePlaceQDisc = do
+  mvar <- newEmptyMVar
+  return $ QDisc {
+      qdiscDequeue = takeMVar mvar
+    , qdiscEnqueue = const (putMVar mvar)
     }
 
 -- | Connnect to an endpoint
