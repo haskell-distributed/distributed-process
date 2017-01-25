@@ -568,9 +568,6 @@ createTransportExposeInternals host port params = do
                 -> ThreadId
                 -> IO (Transport, TransportInternals)
     mkTransport transport tid = do
-      let newEndPointInternal :: (forall t . QDisc t)
-                              -> IO (Either (TransportError NewEndPointErrorCode) EndPoint)
-          newEndPointInternal qdisc = apiNewEndPoint transport qdisc
       return
         ( Transport
             { newEndPoint = do
@@ -666,10 +663,6 @@ apiNewEndPoint transport qdisc =
 --   thread in your program rather than some chatty network peer. The 'Event'
 --   which is to be enqueued is given to 'qdiscEnqueue' so that the 'QDisc'
 --   can know about open connections, their identifiers and peer addresses, etc.
---
---   See 'newEndPointInternal', which expects a 'forall t . QDisc t', a queue
---   discipline which does not use any details of the particular thing it's
---   queueing.
 data QDisc t = QDisc {
     qdiscDequeue :: IO t
   , qdiscEnqueue :: Event -> t -> IO ()
