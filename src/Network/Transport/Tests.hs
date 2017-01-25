@@ -407,11 +407,18 @@ testSelfSend transport = do
     Right conn <- connect endpoint (address endpoint) ReliableOrdered
                           defaultConnectHints
 
+    -- Must clear the ConnectionOpened event or else sending may block
+    ConnectionOpened _ _ _ <- receive endpoint
+
     do send conn [ error "bang!" ]
        error "testSelfSend: send didn't fail"
      `catch` (\(ErrorCall "bang!") -> return ())
 
     close conn
+
+    -- Must clear this event or else closing the end point may block.
+    ConnectionClosed _ <- receive endpoint
+
     closeEndPoint endpoint
 
 -- | Test that sending on a closed connection gives an error
@@ -530,14 +537,19 @@ testConnectToSelfTwice transport numPings = do
   done <- newEmptyMVar
   Right endpoint <- newEndPoint transport
 
-  tlog "Creating self-connection"
-  Right conn1 <- connect endpoint (address endpoint) ReliableOrdered defaultConnectHints
-  Right conn2 <- connect endpoint (address endpoint) ReliableOrdered defaultConnectHints
-
   tlog "Talk to myself"
+
+  -- An MVar to ensure that the node which sends pingA will connect first, as
+  -- this determines the order of the events given out by 'collect' and is
+  -- essential for the equality test there.
+  firstConnectionMade <- newEmptyMVar
 
   -- One thread to write to the endpoint using the first connection
   forkTry $ do
+    tlog "Creating self-connection"
+    Right conn1 <- connect endpoint (address endpoint) ReliableOrdered defaultConnectHints
+    putMVar firstConnectionMade ()
+
     tlog $ "writing"
 
     tlog $ "Sending ping"
@@ -548,6 +560,9 @@ testConnectToSelfTwice transport numPings = do
 
   -- One thread to write to the endpoint using the second connection
   forkTry $ do
+    takeMVar firstConnectionMade
+    tlog "Creating self-connection"
+    Right conn2 <- connect endpoint (address endpoint) ReliableOrdered defaultConnectHints
     tlog $ "writing"
 
     tlog $ "Sending ping"
@@ -577,20 +592,26 @@ testCloseSelf newTransport = do
   Right endpoint1 <- newEndPoint transport
   Right endpoint2 <- newEndPoint transport
   Right conn1     <- connect endpoint1 (address endpoint1) ReliableOrdered defaultConnectHints
+  ConnectionOpened _ _ _ <- receive endpoint1
   Right conn2     <- connect endpoint1 (address endpoint1) ReliableOrdered defaultConnectHints
+  ConnectionOpened _ _ _ <- receive endpoint1
   Right conn3     <- connect endpoint2 (address endpoint2) ReliableOrdered defaultConnectHints
+  ConnectionOpened _ _ _ <- receive endpoint2
 
   -- Close the conneciton and try to send
   close conn1
+  ConnectionClosed _ <- receive endpoint1
   Left (TransportError SendClosed _) <- send conn1 ["ping"]
 
   -- Close the first endpoint. We should not be able to use the first
   -- connection anymore, or open more self connections, but the self connection
   -- to the second endpoint should still be fine
   closeEndPoint endpoint1
+  EndPointClosed <- receive endpoint1
   Left (TransportError SendFailed _) <- send conn2 ["ping"]
   Left (TransportError ConnectFailed _) <- connect endpoint1 (address endpoint1) ReliableOrdered defaultConnectHints
   Right () <- send conn3 ["ping"]
+  Received _ _ <- receive endpoint2
 
   -- Close the transport; now the second should no longer work
   closeTransport transport
