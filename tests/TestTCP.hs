@@ -635,13 +635,15 @@ testReconnect = do
           Left _ -> return ()
           Right _ -> throwIO $ userError "testConnect: unexpected send success"
 
+    ErrorEvent (TransportError (EventConnectionLost _) _) <- receive endpoint
+
     -- The third attempt succeeds
     Right conn1 <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
 
     -- But a send will fail because the server has closed the connection again
     threadDelay 100000
     Left (TransportError SendFailed _) <- send conn1 ["ping"]
-    ErrorEvent (TransportError (EventConnectionLost _) _) <- receive endpoint
+
 
     -- But a subsequent call to connect should reestablish the connection
     Right conn2 <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
