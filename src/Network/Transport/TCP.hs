@@ -663,50 +663,21 @@ apiNewEndPoint transport qdisc =
 --   You can be clever about when to block here, so as to control network
 --   ingress. This applies also to loopback connections (an 'EndPoint' connects
 --   to itself), in which case blocking on the enqueue would only block some
---   thread in your program rather than some chatty network peer. The
---   metadata given to 'qdiscEnqueue' contains enough information to determine
---   whether the connection is loopback or not.
---
---   TODO more explanation.
+--   thread in your program rather than some chatty network peer. The 'Event'
+--   which is to be enqueued is given to 'qdiscEnqueue' so that the 'QDisc'
+--   can know about open connections, their identifiers and peer addresses, etc.
 --
 --   See 'newEndPointInternal', which expects a 'forall t . QDisc t', a queue
 --   discipline which does not use any details of the particular thing it's
 --   queueing.
 data QDisc t = QDisc {
     qdiscDequeue :: IO t
-  , qdiscEnqueue :: QMetadata -> t -> IO ()
+  , qdiscEnqueue :: Event -> t -> IO ()
   }
-
--- | Event metadata which the queueing discipline may use to determine how to
---   enqueue it.
-data QMetadata =
-    -- | Connection opened.
-    QMOpened !ConnectionId !Reliability !EndPointAddress
-    -- | Received data on a connection. The number of bytes is lazily included.
-  | QMReceived !ConnectionId Int
-    -- | Connection closed.
-  | QMClosed !ConnectionId
-    -- | Relevant to a particular peer.
-  | QMRemote !EndPointAddress
-    -- | Relevant to the local end point (all peers and all connections).
-  | QMLocal
-
--- | Produce the metadata for an event.
---   TBD what to do for multicast?
-eventMetadata :: Event -> QMetadata
-eventMetadata event = case event of
-  ConnectionOpened connid reliability addr -> QMOpened connid reliability addr
-  Received connid bss -> QMReceived connid (sum (fmap BS.length bss))
-  ConnectionClosed connid -> QMClosed connid
-  EndPointClosed -> QMLocal
-  ErrorEvent (TransportError err _) -> case err of
-    EventEndPointFailed -> QMLocal
-    EventTransportFailed -> QMLocal
-    EventConnectionLost addr -> QMRemote addr
 
 -- | Post an 'Event' using a 'QDisc'.
 postEvent :: QDisc Event -> Event -> IO ()
-postEvent qdisc event = qdiscEnqueue qdisc (eventMetadata event) event
+postEvent qdisc event = qdiscEnqueue qdisc event event
 
 -- | Take the next 'Event' using a 'QDisc'.
 takeEvent :: QDisc Event -> IO Event
