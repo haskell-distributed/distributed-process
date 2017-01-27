@@ -665,12 +665,12 @@ apiNewEndPoint transport qdisc =
 --   can know about open connections, their identifiers and peer addresses, etc.
 data QDisc t = QDisc {
     qdiscDequeue :: IO t
-  , qdiscEnqueue :: Event -> t -> IO ()
+  , qdiscEnqueue :: EndPointAddress -> Event -> t -> IO ()
   }
 
 -- | Post an 'Event' using a 'QDisc'.
-qdiscEnqueue' :: QDisc Event -> Event -> IO ()
-qdiscEnqueue' qdisc event = qdiscEnqueue qdisc event event
+qdiscEnqueue' :: QDisc Event -> EndPointAddress -> Event -> IO ()
+qdiscEnqueue' qdisc addr event = qdiscEnqueue qdisc addr event event
 
 -- | A very simple QDisc backed by an unbounded channel.
 simpleUnboundedQDisc :: forall t . IO (QDisc t)
@@ -678,7 +678,7 @@ simpleUnboundedQDisc = do
   eventChan <- newChan
   return $ QDisc {
       qdiscDequeue = readChan eventChan
-    , qdiscEnqueue = const (writeChan eventChan)
+    , qdiscEnqueue = const (const (writeChan eventChan))
     }
 
 -- | A very simple QDisc backed by a 1-place queue (MVar).
@@ -692,7 +692,7 @@ simpleOnePlaceQDisc = do
   mvar <- newEmptyMVar
   return $ QDisc {
       qdiscDequeue = takeMVar mvar
-    , qdiscEnqueue = const (putMVar mvar)
+    , qdiscEnqueue = const (const (putMVar mvar))
     }
 
 -- | Connnect to an endpoint
@@ -799,7 +799,7 @@ apiCloseEndPoint transport evs ourEndPoint =
     forM_ mOurState $ \vst -> do
       forM_ (vst ^. localConnections) tryCloseRemoteSocket
       let qdisc = localQueue ourEndPoint
-      forM_ evs (qdiscEnqueue' qdisc)
+      forM_ evs (qdiscEnqueue' qdisc (localAddress ourEndPoint))
   where
     -- Close the remote socket and return the set of all incoming connections
     tryCloseRemoteSocket :: RemoteEndPoint -> IO ()
@@ -1001,12 +1001,12 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
                     forM_ (remoteProbing vst) id
                     -- close incoming connections
                     forM_ (Set.elems $ vst ^. remoteIncoming) $
-                      qdiscEnqueue' ourQueue . ConnectionClosed . connId
+                      qdiscEnqueue' ourQueue theirAddr . ConnectionClosed . connId
                     -- report the endpoint as gone if we have any outgoing
                     -- connections
                     when (vst ^. remoteOutgoing > 0) $ do
                       let code = EventConnectionLost (remoteAddress theirEndPoint)
-                      qdiscEnqueue' ourQueue . ErrorEvent $
+                      qdiscEnqueue' ourQueue theirAddr . ErrorEvent $
                         TransportError code "The remote endpoint was closed."
               removeRemoteEndPoint (ourEndPoint, theirEndPoint)
               modifyMVar_ theirState $ \s -> case s of
@@ -1062,7 +1062,7 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
             relyViolation (ourEndPoint, theirEndPoint)
               "createNewConnection (closed)"
         return (RemoteEndPointValid vst)
-      qdiscEnqueue' ourQueue (ConnectionOpened (connId lcid) ReliableOrdered theirAddr)
+      qdiscEnqueue' ourQueue theirAddr (ConnectionOpened (connId lcid) ReliableOrdered theirAddr)
 
     -- Close a connection
     -- It is important that we verify that the connection is in fact open,
@@ -1090,7 +1090,7 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
           throwIO err
         RemoteEndPointClosed ->
           relyViolation (ourEndPoint, theirEndPoint) "closeConnection (closed)"
-      qdiscEnqueue' ourQueue (ConnectionClosed (connId lcid))
+      qdiscEnqueue' ourQueue theirAddr (ConnectionClosed (connId lcid))
 
     -- Close the socket (if we don't have any outgoing connections)
     closeSocket :: N.Socket -> LightweightConnectionId -> IO Bool
@@ -1108,7 +1108,7 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
             -- remote endpoint to indicate that all its connections to us are
             -- now properly closed
             forM_ (Set.elems $ vst ^. remoteIncoming) $
-              qdiscEnqueue' ourQueue . ConnectionClosed . connId
+              qdiscEnqueue' ourQueue theirAddr . ConnectionClosed . connId
             let vst' = remoteIncoming ^= Set.empty $ vst
             -- If we still have outgoing connections then we ignore the
             -- CloseSocket request (we sent a ConnectionCreated message to the
@@ -1165,7 +1165,7 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
     -- overhead
     readMessage :: N.Socket -> LightweightConnectionId -> IO ()
     readMessage sock lcid =
-      recvWithLength sock >>= qdiscEnqueue' ourQueue . Received (connId lcid)
+      recvWithLength sock >>= qdiscEnqueue' ourQueue theirAddr . Received (connId lcid)
 
     -- Stop probing a connection as a result of receiving a probe ack.
     stopProbing :: IO ()
@@ -1197,7 +1197,7 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
             -- Release probing resources if probing.
             forM_ (remoteProbing vst) id
             let code = EventConnectionLost (remoteAddress theirEndPoint)
-            qdiscEnqueue' ourQueue . ErrorEvent $ TransportError code (show err)
+            qdiscEnqueue' ourQueue theirAddr . ErrorEvent $ TransportError code (show err)
             return (RemoteEndPointFailed err)
           RemoteEndPointClosing resolved vst -> do
             -- Release probing resources if probing.
@@ -1414,7 +1414,7 @@ connectToSelf ourEndPoint = do
     connAlive <- newIORef True  -- Protected by the local endpoint lock
     lconnId   <- mapIOException connectFailed $ getLocalNextConnOutId ourEndPoint
     let connId = createConnectionId heavyweightSelfConnectionId lconnId
-    qdiscEnqueue' ourQueue $
+    qdiscEnqueue' ourQueue ourAddress $
       ConnectionOpened connId ReliableOrdered (localAddress ourEndPoint)
     return Connection
       { send  = selfSend connAlive connId
@@ -1431,7 +1431,7 @@ connectToSelf ourEndPoint = do
           alive <- readIORef connAlive
           if alive
             then seq (foldr seq () msg)
-                   qdiscEnqueue' ourQueue (Received connId msg)
+                   qdiscEnqueue' ourQueue ourAddress (Received connId msg)
             else throwIO $ TransportError SendClosed "Connection closed"
         LocalEndPointClosed ->
           throwIO $ TransportError SendFailed "Endpoint closed"
@@ -1442,7 +1442,7 @@ connectToSelf ourEndPoint = do
         LocalEndPointValid _ -> do
           alive <- readIORef connAlive
           when alive $ do
-            qdiscEnqueue' ourQueue (ConnectionClosed connId)
+            qdiscEnqueue' ourQueue ourAddress (ConnectionClosed connId)
             writeIORef connAlive False
         LocalEndPointClosed ->
           return ()
@@ -1450,6 +1450,7 @@ connectToSelf ourEndPoint = do
     ourQueue = localQueue ourEndPoint
     ourState = localState ourEndPoint
     connectFailed = TransportError ConnectFailed . show
+    ourAddress = localAddress ourEndPoint
 
 -- | Resolve an endpoint currently in 'Init' state
 resolveInit :: EndPointPair -> RemoteState -> IO ()
@@ -1706,7 +1707,7 @@ runScheduledAction (ourEndPoint, theirEndPoint) mvar = do
       tryCloseSocket (remoteSocket vst)
       let code     = EventConnectionLost (remoteAddress theirEndPoint)
           err      = TransportError code (show ex)
-      qdiscEnqueue' (localQueue ourEndPoint) $ ErrorEvent err
+      qdiscEnqueue' (localQueue ourEndPoint) (localAddress ourEndPoint) $ ErrorEvent err
       return (RemoteEndPointFailed ex)
 
 -- | Use 'schedule' action 'runScheduled' action in a safe way, it's assumed that
