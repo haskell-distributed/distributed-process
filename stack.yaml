@@ -1,13 +1,17 @@
-# Specifies the GHC version and set of packages available
-resolver: lts-7.14
+resolver: nightly-2016-06-09
 
-# Local packages, usually specified by relative directory name
 packages:
 - '.'
+- location:
+    git: https://github.com/haskell-distributed/distributed-process-systest.git
+    commit: 317026b17b94c40318f449674efbed6802cc9ec4
+  extra-dep: true
 
-# Packages to be pulled from upstream that are not in the resolver (e.g., acme-missiles-0.3)
 extra-deps:
+- rank1dynamic-0.3.3.0
+- distributed-static-0.3.5.0
+- network-transport-0.4.4.0
+- network-transport-tcp-0.5.1
+- network-transport-inmemory-0.5.1
 - distributed-process-0.6.6
-
-# Override default flag values for local packages and extra-deps
-flags: {}
+- rematch-0.2.0.0

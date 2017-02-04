@@ -4,31 +4,29 @@ sudo: false
 
 matrix:
   include:
-    - env: CABALVER=1.22 GHCVER=7.8.4
-      compiler: ": #GHC 7.8.4"
-      addons: {apt: {packages: [cabal-install-1.24,ghc-7.8.4], sources: [hvr-ghc]}}
-    - env: CABALVER=1.22 GHCVER=7.10.3
-      compiler: ": #GHC 7.10.3"
-      addons: {apt: {packages: [cabal-install-1.24,ghc-7.10.3],sources: [hvr-ghc]}}
-    - env: CABALVER=1.24 GHCVER=8.0.1
-      compiler: ": #GHC 8.0.1"
-      addons: {apt: {packages: [cabal-install-1.24,ghc-8.0.1], sources: [hvr-ghc]}}
+  - env: ARGS="--stack-yaml stack-ghc-7.10.3.yaml"
+    addons: {apt: {packages: [libgmp-dev]}}
+
+  - env: ARGS= GHCVER=8.0.1
+    addons: {apt: {packages: [libgmp-dev]}}
+
+cache:
+  directories:
+  - $HOME/.stack
 
 before_install:
-  - mkdir -p ~/.local/bin
-  - export PATH=~/.local/bin:$PATH
-  - travis_retry curl -L https://www.stackage.org/stack/linux-x86_64 | tar -xzO --wildcards '*/stack' > ~/.local/bin/stack
-  - chmod a+x ~/.local/bin/stack
-  - export PATH=/opt/ghc/$GHCVER/bin:/opt/cabal/$CABALVER/bin:$PATH
+- export PATH=$HOME/.local/bin:$HOME/.cabal/bin:$PATH
+- mkdir -p ~/.local/bin
+- travis_retry curl -L https://www.stackage.org/stack/linux-x86_64 | tar xz --wildcards --strip-components=1 -C ~/.local/bin '*/stack'
+- stack --version
 
 install:
-  - stack -j 2 setup --no-terminal --no-install-ghc --skip-ghc-check
-  - stack -j 2 build --only-snapshot --no-terminal --system-ghc --skip-ghc-check
+- stack ${ARGS} setup --no-terminal
+- stack ${ARGS} build --no-terminal --only-snapshot --test --no-run-tests;
 
 script:
-  - stack -j 2 test --no-terminal --system-ghc
+- stack ${ARGS} test --test-arguments='--plain'
 
 notifications:
   slack:
     secure: g0NP1tkOe3+kI6O0Q1mgT/jPaLjxQ31J26MWouicu2F1Y3p73qTvv/QsOkafRMZDn07HlzgviCP25r7Ytg32pUAFvOh4U4MT2MpO0jUVVGPi4ZiwB+W5AH+HlDtJSickeSZ0AjXZSaGv8nQNegWkeaLQgLBIzrTHU8s0Y9K+whQ=
-
