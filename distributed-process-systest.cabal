@@ -11,13 +11,17 @@ category:      Control, Cloud Haskell
 build-type:    Simple
 cabal-version: >=1.8
 
+source-repository head
+  type:      git
+  location:  https://github.com/haskell-distributed/distributed-process-systest
+
 library
   exposed-modules:   Control.Distributed.Process.SysTest.Utils
   Build-Depends:     base >= 4.4 && < 5,
                      ansi-terminal >= 0.5 && < 0.7,
                      binary >= 0.5 && < 0.9,
                      bytestring >= 0.9 && < 0.11,
-                     distributed-process >= 0.6.0 && < 0.7,
+                     distributed-process >= 0.6.1 && < 0.7,
                      distributed-static,
                      HUnit >= 1.2 && < 1.4,
                      network-transport >= 0.4.1.0 && < 0.5,
