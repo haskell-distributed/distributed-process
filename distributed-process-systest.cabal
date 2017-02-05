@@ -1,5 +1,5 @@
 name:          distributed-process-systest
-version:       0.1.0
+version:       0.1.1
 synopsis:      Testing Frameworks and Capabilities for programs built on Cloud Haskell
 homepage:      http://github.com/haskell-distributed/distributed-process-systest
 license:       BSD3
@@ -23,7 +23,7 @@ library
                      bytestring >= 0.9 && < 0.11,
                      distributed-process >= 0.6.1 && < 0.7,
                      distributed-static,
-                     HUnit >= 1.2 && < 1.4,
+                     HUnit >= 1.2 && < 1.6,
                      network-transport >= 0.4.1.0 && < 0.5,
                      network >= 2.5 && < 2.7,
                      random >= 1.0 && < 1.2,
