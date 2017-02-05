@@ -172,7 +172,7 @@ class Resolvable a where
   -- | Resolve the reference to a process id, or @Nothing@ if resolution fails
   resolve :: a -> Process (Maybe ProcessId)
 
-    -- | Unresolvable @Addressable@ Message
+  -- | Unresolvable @Addressable@ Message
   unresolvableMessage :: (Resolvable a) => a -> String
   unresolvableMessage = baseAddressableErrorMessage
 
@@ -183,7 +183,7 @@ instance Resolvable ProcessId where
 instance Resolvable String where
   resolve = whereis
   unresolvableMessage s = "CannotResolveRegisteredName[" ++ s ++ "]"
- 
+
 instance Resolvable (NodeId, String) where
   resolve (nid, pname) = whereisRemote nid pname
   unresolvableMessage (n, s) =
@@ -273,4 +273,3 @@ data ServerDisconnected = ServerDisconnected !DiedReason
   deriving (Typeable, Generic)
 instance Binary ServerDisconnected where
 instance NFData ServerDisconnected where
-
