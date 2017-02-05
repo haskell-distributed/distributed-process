@@ -6,8 +6,9 @@ matrix:
   include:
   - env: ARGS="--stack-yaml stack-ghc-7.10.3.yaml"
     addons: {apt: {packages: [libgmp-dev]}}
-
-  - env: ARGS= GHCVER=8.0.1
+  - env: ARGS="--stack-yaml stack-ghc-8.0.1.yaml" GHCVER=8.0.1
+    addons: {apt: {packages: [libgmp-dev]}}
+  - env: ARGS="--resolver nightly" GHCVER=latest
     addons: {apt: {packages: [libgmp-dev]}}
 
 cache:
