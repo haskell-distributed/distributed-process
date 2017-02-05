@@ -4,16 +4,17 @@ sudo: false
 
 matrix:
   include:
-  - env: ARGS="--stack-yaml stack-ghc-7.10.3.yaml"
+  - env: ARGS="--stack-yaml stack-ghc-7.10.3.yaml" COVER="" GHCVER=7.10.3
     addons: {apt: {packages: [libgmp-dev]}}
-  - env: ARGS="--stack-yaml stack-ghc-8.0.1.yaml" GHCVER=8.0.1
+  - env: ARGS="--stack-yaml stack-ghc-8.0.1.yaml" COVER="" GHCVER=8.0.1
     addons: {apt: {packages: [libgmp-dev]}}
-  - env: ARGS="--resolver nightly" GHCVER=latest
+  - env: ARGS="--resolver nightly" COVER="" GHCVER=latest
     addons: {apt: {packages: [libgmp-dev]}}
 
 cache:
   directories:
   - $HOME/.stack
+  - $HOME/.local
 
 before_install:
 - export PATH=$HOME/.local/bin:$HOME/.cabal/bin:$PATH
@@ -23,10 +24,17 @@ before_install:
 
 install:
 - stack ${ARGS} setup --no-terminal
-- stack ${ARGS} build --no-terminal --only-snapshot --test --no-run-tests;
 
 script:
-- stack ${ARGS} test --test-arguments='--plain'
+- case "$COVER" of
+  true)
+    stack ${ARGS} test --coverage --no-terminal
+    ./coverage.sh
+    ;;
+  *)
+    stack ${ARGS} test --test-arguments='--plain'
+    ;;
+  esac
 
 notifications:
   slack:
