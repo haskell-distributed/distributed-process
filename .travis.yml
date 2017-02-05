@@ -36,6 +36,15 @@ script:
     ;;
   esac
 
+deploy:
+  provider: hackage
+  username: "TimWatson"
+  password:
+    secure: corYDhj7TA+jbljNalGhE/p0NFCpSFxd9Z1+uWYikE2jAowNfdgdTe4NOf92gykq2TpQ8iNnptf3t8LwWIKCgGCAmV+8yiYpb5oS7upcvdmGN7P4rSrXhArmtcqHBPFkmtgocexVCz4t4w9bRDDc1TIfQIXCcBQviupOLxoi3V8=
+  skip_cleanup: true
+  on:
+    tags: true
+
 notifications:
   slack:
     secure: g0NP1tkOe3+kI6O0Q1mgT/jPaLjxQ31J26MWouicu2F1Y3p73qTvv/QsOkafRMZDn07HlzgviCP25r7Ytg32pUAFvOh4U4MT2MpO0jUVVGPi4ZiwB+W5AH+HlDtJSickeSZ0AjXZSaGv8nQNegWkeaLQgLBIzrTHU8s0Y9K+whQ=
