@@ -4,12 +4,18 @@ sudo: false
 
 matrix:
   include:
+<<<<<<< HEAD
+=======
+    - env: CABALVER=1.22 GHCVER=7.6.3
+      addons: {apt: {packages: [cabal-install-1.22,ghc-7.6.3], sources: [hvr-ghc]}}
+>>>>>>> f571d3d4ced2f1d9caffdc08d80eade5cb0f061d
     - env: CABALVER=1.22 GHCVER=7.8.4
       addons: {apt: {packages: [cabal-install-1.22,ghc-7.8.4], sources: [hvr-ghc]}}
     - env: CABALVER=1.22 GHCVER=7.10.3
       addons: {apt: {packages: [cabal-install-1.22,ghc-7.10.3],sources: [hvr-ghc]}}
 
 before_install:
+<<<<<<< HEAD
   - mkdir -p ~/.local/bin
   - export PATH=~/.local/bin:$PATH
   - travis_retry curl -L https://www.stackage.org/stack/linux-x86_64 | tar -xzO --wildcards '*/stack' > ~/.local/bin/stack
@@ -27,3 +33,18 @@ notifications:
   slack:
     secure: g0NP1tkOe3+kI6O0Q1mgT/jPaLjxQ31J26MWouicu2F1Y3p73qTvv/QsOkafRMZDn07HlzgviCP25r7Ytg32pUAFvOh4U4MT2MpO0jUVVGPi4ZiwB+W5AH+HlDtJSickeSZ0AjXZSaGv8nQNegWkeaLQgLBIzrTHU8s0Y9K+whQ=
 
+=======
+  - export PATH=/opt/ghc/$GHCVER/bin:/opt/cabal/$CABALVER/bin:~/.cabal/bin:$PATH
+  - ghc --version
+  - cabal --version
+  - cabal update
+  # workaround for https://ghc.haskell.org/trac/ghc/ticket/9221
+  # taken from https://github.com/hvr/multi-ghc-travis/blob/0fa68f78c2b1b059f904c9abc85510a3bb4f57e2/README.md
+  - sed -i 's/^jobs:/-- jobs:/' $HOME/.cabal/config
+
+install:
+  - cabal install --only-dependencies --enable-tests
+
+script:
+  - cabal test
+>>>>>>> f571d3d4ced2f1d9caffdc08d80eade5cb0f061d
