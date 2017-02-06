@@ -44,6 +44,7 @@ deploy:
   skip_cleanup: true
   on:
     tags: true
+  condition: "$GHCVER=8.0.1"
 
 notifications:
   slack:
