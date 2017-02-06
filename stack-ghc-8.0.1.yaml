@@ -1,5 +1,5 @@
 # Specifies the GHC version and set of packages available
-resolver: nightly-2017-02-03
+resolver: lts-7.14
 
 # Local packages, usually specified by relative directory name
 packages:
@@ -10,7 +10,6 @@ extra-deps:
 - distributed-process-0.6.6
 - distributed-process-extras-0.3.0
 - distributed-process-systest-0.1.1
-- rematch-0.2.0.0
 
 # Override default flag values for local packages and extra-deps
 flags: {}
