@@ -5,7 +5,7 @@
 [![Slack Sign Up/In](https://rauchg-slackin-dxinpkuzrg.now.sh/badge.svg)](https://rauchg-slackin-dxinpkuzrg.now.sh/)
 
 ### Releases, LTS
-Github: [![GitHub tag](https://img.shields.io/github/tag/haskell-distributed/distributed-process-extras.svg)]() [![GitHub release](https://img.shields.io/github/release/qubyte/rubidium.svg)]() [![GitHub commits](https://img.shields.io/github/commits-since/haskell-distributed/distributed-process-extras/release-0.2.1.svg)]()
+Github: [![GitHub tag](https://img.shields.io/github/tag/haskell-distributed/distributed-process-extras.svg)]() [![GitHub release](https://img.shields.io/github/release/haskell-distibuted/distributed-process-extras.svg)]() [![GitHub commits](https://img.shields.io/github/commits-since/haskell-distributed/distributed-process-extras/release-0.2.1.svg)]()
 
 Hackage: [![Releases](https://img.shields.io/hackage/v/distributed-process-extras.svg)](https://hackage.haskell.org/package/distributed-process-extras) [![Dependencies](https://img.shields.io/hackage-deps/v/distributed-process-extras.svg)](http://packdeps.haskellers.com/feed?needle=distributed-process-extras)
 
