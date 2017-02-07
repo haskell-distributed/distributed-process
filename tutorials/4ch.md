@@ -8,9 +8,9 @@ title: 4. Managed Process Tutorial
 ### Introduction
 
 The source code for this tutorial is based on the `BlockingQueue` API
-from distributed-process-platform and can be accessed [here][1].
+from distributed-process-task and can be accessed [here][1].
 Please note that this tutorial is based on the stable (master) branch
-of [distributed-process-platform][3].
+of [distributed-process-task][3].
 
 ### Managed Processes
 
@@ -40,8 +40,8 @@ code to be run on termination/shutdown.
 
 {% highlight haskell %}
 myServer :: ProcessDefinition MyStateType
-myServer = 
-  ProcessDefinition { 
+myServer =
+  ProcessDefinition {
       -- handle messages sent to us via the call/cast API functions
       apiHandlers = [
         -- a list of Dispatchers, derived by calling on of the various
@@ -113,7 +113,7 @@ that math server that does just that:
 ----
 
 {% highlight haskell %}
-module MathServer 
+module MathServer
   ( -- client facing API
     add
     -- starting/spawning the server process
@@ -241,9 +241,9 @@ more interesting and useful.
 ### Building a Task Queue
 
 This section of the tutorial is based on a real module from the
-distributed-process-platform library, called `BlockingQueue`.
+distributed-process-task library, called `BlockingQueue`.
 
-Let's imagine we want to execute tasks on an arbitrary node, but want 
+Let's imagine we want to execute tasks on an arbitrary node, but want
 the caller to block whilst the remote task is executing. We also want
 to put an upper bound on the number of concurrent tasks/callers that
 the server will accept. Let's use `ManagedProcess` to implement a generic
@@ -275,7 +275,7 @@ typeclass to allow clients to specify the server's location in whatever
 manner suits them: The type of a task will be `Closure (Process a)` and
 the server will explicitly return an /either/ value with `Left String`
 for errors and `Right a` for successful results.
- 
+
 {% highlight haskell %}
 -- enqueues the task in the pool and blocks
 -- the caller until the task is complete
@@ -663,8 +663,8 @@ another to monitor the first and handle failures and/or cancellation. Spawning
 processes is cheap, but not free as each process is a haskell thread, plus some
 additional book keeping data.
 
-[1]: https://github.com/haskell-distributed/distributed-process-platform/blob/master/src/Control/Distributed/Process/Platform/Task/Queue/BlockingQueue.hs
-[2]: /static/doc/distributed-process-platform/Control-Distributed-Process-Platform-ManagedProcess.html#t:ProcessDefinition
-[3]: https://github.com/haskell-distributed/distributed-process-platform/tree/master/
-[4]: https://github.com/haskell-distributed/distributed-process-platform/tree/master/src/Control/Distributed/Process/Platform/UnsafePrimitives.hs
+[1]: https://github.com/haskell-distributed/distributed-process-task/blob/master/src/Control/Distributed/Process/Task/Queue/BlockingQueue.hs
+[2]: https://hackage.haskell.org/package/distributed-process-client-server-0.1.3.2/docs/Control-Distributed-Process-ManagedProcess.html#t:ProcessDefinition
+[3]: https://github.com/haskell-distributed/distributed-process-task
+[4]: https://github.com/haskell-distributed/distributed-process-extras/blob/master/src/Control/Distributed/Process/Extras/UnsafePrimitives.hs
 [5]: /documentation.html

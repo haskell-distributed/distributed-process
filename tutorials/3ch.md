@@ -177,9 +177,9 @@ proxy :: Serializable a => ProcessId -> (a -> Process Bool) -> Process ()
 {% endhighlight %}
 
 Since `matchAny` operates on `(Message -> Process b)` and `handleMessage` operates on
-`a -> Process b` we can compose these to make our proxy server. We must not forward 
+`a -> Process b` we can compose these to make our proxy server. We must not forward
 messages for which the predicate function evaluates to `Just False`, nor can we sensibly
-forward messages which the predicate function is unable to evaluate due to type 
+forward messages which the predicate function is unable to evaluate due to type
 incompatibility. This leaves us with the definition found in distributed-process:
 
 {% highlight haskell %}
@@ -197,7 +197,7 @@ proxy pid proc = do
 
 Beyond simple relays and proxies, the raw message handling capabilities available in
 distributed-process can be utilised to develop highly generic message processing code.
-All the richness of the distributed-process-platform APIs (such as `ManagedProcess`) which
+All the richness of the distributed-process-client-server APIs (such as `ManagedProcess`) which
 will be discussed in later tutorials are, in fact, built upon these families of primitives.
 
 ### Typed Channels
@@ -234,10 +234,10 @@ is terminated.
 
 The `ProcessExitException` signal is sent from one process to another, indicating that the
 receiver is being asked to terminate. A process can choose to tell itself to exit, and the
-[`die`][7] primitive simplifies doing so without worrying about the expected type for the 
+[`die`][7] primitive simplifies doing so without worrying about the expected type for the
 action. In fact, [`die`][7] has slightly different semantics from [`exit`][5], since the
 latter involves sending an internal signal to the local node controller. A direct consequence
-of this is that the _exit signal_ may not arrive immediately, since the _Node Controller_ could 
+of this is that the _exit signal_ may not arrive immediately, since the _Node Controller_ could
 be busy processing other events. On the other hand, the [`die`][7] primitive throws a
 `ProcessExitException` directly in the calling thread, thus terminating it without delay.
 In practise, this means the following two functions could behave quite differently at
@@ -247,19 +247,19 @@ runtime:
 
 -- this will never print anything...
 demo1 = die "Boom" >> expect >>= say
-  
+
 -- this /might/ print something before it exits
 demo2 = do
   self <- getSelfPid
   exit self "Boom"
-  expect >>= say 
+  expect >>= say
 {% endhighlight %}
 
 The `ProcessExitException` type holds a _reason_ field, which is serialised as a raw `Message`.
 This exception type is exported, so it is possible to catch these _exit signals_ and decide how
 to respond to them. Catching _exit signals_ is done via a set of primitives in
 distributed-process, and the use of them forms a key component of the various fault tolerance
-strategies provided by distributed-process-platform.
+strategies provided by distributed-process-supervisor.
 
 A `ProcessKillException` is intended to be an _untrappable_ exit signal, so its type is
 not exported and therefore you can __only__ handle it by catching all exceptions, which
@@ -296,7 +296,7 @@ special case. Since link exit signals cannot be caught directly, if you find you
 to _trap_ a link failure, you probably want to use a monitor instead.
 
 Whilst the built-in `link` primitive terminates the link-ee regardless of exit reason,
-distributed-process-platform provides an alternate function `linkOnFailure`, which only
+distributed-process-extras provides an alternate function `linkOnFailure`, which only
 dispatches the `ProcessLinkException` if the link-ed process dies abnormally (i.e., with
 some `DiedReason` other than `DiedNormal`).
 
@@ -305,7 +305,7 @@ putting a `ProcessMonitorNotification` into the process' mailbox. This signal an
 constituent fields can be introspected in order to decide what action (if any) the receiver
 can/should take in response to the monitored process' death. Let's take a look at how
 monitors can be used to determine both when and _how_ a process has terminated. Tucked
-away in distributed-process-platform, the `linkOnFailure` primitive works in exactly this
+away in distributed-process-extras, the `linkOnFailure` primitive works in exactly this
 way, only terminating the caller if the subject terminates abnormally. Let's take a look...
 
 {% highlight haskell %}
@@ -366,17 +366,17 @@ process. The `ProcessInfo` type it returns contains the local node id and a list
 registered names, monitors and links for the process. The call returns `Nothing` if the
 process in question is not alive.
 
-### Monad Transformer Stacks 
+### Monad Transformer Stacks
 
-It is not generally necessary, but it may be convenient in your application to use a 
-custom monad transformer stack with the Process monad at the bottom. For example, 
+It is not generally necessary, but it may be convenient in your application to use a
+custom monad transformer stack with the Process monad at the bottom. For example,
 you may have decided that in various places in your application you will make calls to
 a network database. You may create a data access module, and it will need configuration information available to it in
-order to connect to the database server. A ReaderT can be a nice way to make 
+order to connect to the database server. A ReaderT can be a nice way to make
 configuration data available throughout an application without
-schlepping it around by hand. 
+schlepping it around by hand.
 
-This example is a bit contrived and over-simplified but 
+This example is a bit contrived and over-simplified but
 illustrates the concept. Consider the `fetchUser` function below, it runs in the `AppProcess`
 monad which provides the configuration settings required to connect to the database:
 
@@ -409,7 +409,7 @@ openDB = do
 
 closeDB :: DB.Connection -> AppProcess ()
 closeDB db = liftIO (DB.close db)
-  
+
 {% endhighlight %}
 
 So this would mostly work but it is not complete. What happens if an exception
@@ -423,17 +423,17 @@ In the base library, [bracket][brkt] is defined in Control.Exception with this s
 bracket :: IO a	       --^ computation to run first ("acquire resource")
         -> (a -> IO b) --^ computation to run last ("release resource")
         -> (a -> IO c) --^ computation to run in-between
-	-> IO c	 
+	-> IO c
 
 {% endhighlight %}
 
 Great! We pass an IO action that acquires a resource; `bracket` passes that
 resource to a function which takes the resource and runs another action.
-We also provide a release function which `bracket` is guaranteed to run 
-even if the primary action raises an exception. 
+We also provide a release function which `bracket` is guaranteed to run
+even if the primary action raises an exception.
 
 
-Unfortunately, we cannot directly use `bracket` in our 
+Unfortunately, we cannot directly use `bracket` in our
 `fetchUser` function: openDB (resource acquisition) runs in the `AppProcess`
 monad. If our functions ran in IO, we could lift the entire bracket computation into
 our monad transformer stack with liftIO; but we cannot do that for the computations
@@ -473,7 +473,7 @@ onException p what = p `catch` \e -> do _ <- what
 
 `distributed-process` needs to do this sort of thing to keep its dependency
 list small, but do we really want to write this for every transformer stack
-we use in our own applications? No! And we do not have to, thanks to 
+we use in our own applications? No! And we do not have to, thanks to
 the [monad-control][mctrl] and [lifted-base][lbase] libraries.
 
 [monad-control][mctrl] provides several typeclasses and helper functions
@@ -489,17 +489,17 @@ bracket that looks like this:
 
 {% highlight haskell %}
 
-bracket :: MonadBaseControl IO m	 
+bracket :: MonadBaseControl IO m
         => m a	       --^ computation to run first ("acquire resource")
         -> (a -> m b)  --^ computation to run last ("release resource")
         -> (a -> m c)  --^ computation to run in-between
-        -> m c	 
+        -> m c
 
 {% endhighlight %}
 
 It is just the same as the version found in base, except it is generalized to work
 with actions in any monad that implements [MonadBaseControl IO][mbc]. [monad-control][mctrl] defines
-instances for the standard transformers, but that instance requires the base monad 
+instances for the standard transformers, but that instance requires the base monad
 (in this case, `Process`) to also have an instance of these classes.
 
 To address this the [distributed-process-monad-control][dpmc] package
@@ -520,7 +520,7 @@ fetchUser email =
   Lifted.bracket openDB
                  closeDB
           	 $ \db -> liftIO $ DB.query db email
-          
+
 
 {% endhighlight %}
 

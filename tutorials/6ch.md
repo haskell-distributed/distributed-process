@@ -56,7 +56,7 @@ look at this in action, revisiting the well-trodden _math server_ example
 from our previous tutorials:
 
 {% highlight haskell %}
-module MathServer 
+module MathServer
   ( -- client facing API
     MathServer()
   , add
@@ -561,20 +561,19 @@ the client using the send ports supplied in the request data.
 > passes data to them (via the `SendPort`) is bound to exactly the same type(s)!
 > Furthermore, adding reply channels (in the form of a `SendPort`) to the request
 > types ensures that the replies will be handled correctly as well! As a result,
-> there can be no ambiguity about the types involved for _either_ side of the 
+> there can be no ambiguity about the types involved for _either_ side of the
 > client-server relationship and therefore no unhandled messages due to runtime
 > type mismatches - the compiler will catch that sort of thing for us!
 ------
 
-[1]: http://hackage.haskell.org/package/distributed-process-platform/Control-Distributed-Process-Platform-Service-Registry.html
-[2]: http://hackage.haskell.org/package/distributed-process-platform/Control-Distributed-Process-Platform-Async.html
-[3]: http://hackage.haskell.org/package/distributed-process-platform/Control-Distributed-Process-Platform-Service-SystemLog.html
-[mgmt]: http://hackage.haskell.org/package/distributed-process/Control-Distributed-Process-Management.html
-[dbg]: http://hackage.haskell.org/package/distributed-process/Control-Distributed-Process-Debug.html
-[rtbl]: http://hackage.haskell.org/package/distributed-proces-platforms/Control-Distributed-Process-Platform.html#t:Routable
-[rsbl]: http://hackage.haskell.org/package/distributed-process-platform/Control-Distributed-Process-Platform.html#t:Resolvable
+[1]: https://hackage.haskell.org/package/distributed-process-registry/docs/Control-Distributed-Process-Registry.html
+[2]: https://hackage.haskell.org/package/distributed-process-async/docs/Control-Distributed-Process-Async.html
+[3]: https://hackage.haskell.org/package/distributed-process-extras/docs/Control-Distributed-Process-Extras-SystemLog.html
+[mgmt]: https://hackage.haskell.org/package/distributed-process/Control-Distributed-Process-Management.html
+[dbg]: https://hackage.haskell.org/package/distributed-process/Control-Distributed-Process-Debug.html
+[rtbl]: https://hackage.haskell.org/package/distributed-process-extras/docs/Control-Distributed-Process-Extras.html#t:Routable
+[rsbl]: https://hackage.haskell.org/package/distributed-process-extras/docs/Control-Distributed-Process-Extras.html#t:Resolvable
 [alert]: /img/alert.png
 [info]: /img/info.png
-[policy]: http://hackage.haskell.org/package/distributed-process-platform/Control-Distributed-Process-Platform-ManagedProcess.html#t:UnhandledMessagePolicy
-[mailbox]: http://hackage.haskell.org/package/distributed-process-platform/Control-Distributed-Process-Platform-Execution-Mailbox.html
-
+[policy]: https://hackage.haskell.org/package/distributed-process-client-server/docs/Control-Distributed-Process-ManagedProcess.html#v:unhandledMessagePolicy
+[mailbox]: https://hackage.haskell.org/package/distributed-process-execution-0.1.2.2/docs/Control-Distributed-Process-Execution-Mailbox.html
