@@ -550,6 +550,7 @@ handleIncomingMessages node = go initConnectionState
               forM_ mChan $ \chan -> atomically $
                 -- We make sure the message is fully decoded when it is enqueued
                 writeTQueue chan $! decode (BSL.fromChunks payload)
+                -- trace node (MxReceived pid msg)
               go st
             Just (_, ToNode) -> do
               let ctrlMsg = decode . BSL.fromChunks $ payload

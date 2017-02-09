@@ -57,8 +57,8 @@ type AgentConfig =
   (Tracer, Weak (CQueue Message),
    (((TChan Message, TChan Message) -> Process ()) -> IO ProcessId))
 
--- | Starts a management agent for the current node. The agent process
--- must not crash or be killed, so we generally avoid publishing its
+-- | Starts a management agent controller for the current node. The process
+-- must not crash or be killed, so we generally try to avoid publishing its
 -- @ProcessId@ where possible.
 --
 -- Our process is also responsible for forwarding messages to the trace

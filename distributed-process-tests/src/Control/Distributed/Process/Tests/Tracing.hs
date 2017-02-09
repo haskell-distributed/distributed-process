@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveDataTypeable        #-}
 {-# OPTIONS_GHC -fno-warn-orphans      #-}
 module Control.Distributed.Process.Tests.Tracing (tests) where
 
@@ -19,6 +18,7 @@ import Control.Distributed.Process.Node
 import Control.Distributed.Process.Debug
 import Control.Distributed.Process.Management
   ( MxEvent(..)
+  , Destination(..)
   )
 import qualified Control.Exception as IO (bracket)
 import Data.List (isPrefixOf, isSuffixOf)
@@ -124,10 +124,11 @@ testTraceSending result = do
     withTracer
       (\ev ->
         case ev of
-          (MxSent to from msg) -> do
-            (Just s) <- unwrapMessage msg :: Process (Maybe String)
-            stash res (to == pid && from == self && s == "hello there")
-            stash res (to == pid && from == self)
+          MxSent{..} -> do
+            let to = procId whereTo
+            (Just s) <- unwrapMessage message :: Process (Maybe String)
+            stash res (to == pid && whichProcess == self && s == "hello there")
+            stash res (to == pid && whichProcess == self)
           _ ->
             return ()) $ do
         send pid "hello there"
@@ -314,24 +315,29 @@ testSystemLoggerMsg t action interestingMessage =
     runProcess n $ do
       self <- getSelfPid
       reregister "trace.logger" self
+
       a <- action
       let interestingMessage' (_ :: String, msg) = interestingMessage a msg
       -- Wait for the trace message.
       receiveWait [ matchIf interestingMessage' $ const $ return () ]
       -- Only one interesting message should arrive.
       Nothing <- receiveTimeout 100000
-                   [ matchIf interestingMessage' $ const $ return () ]
+                      [ matchIf interestingMessage' $ const $ return () ]
+      -- return ()
+      _ <- expectTimeout 5000000 :: Process (Maybe ())
       return ()
 
+    closeLocalNode n
 
 -- | Tests that one and only one trace message is produced when a message is
 -- received.
 testSystemLoggerMxReceive :: TestTransport -> IO ()
 testSystemLoggerMxReceive t = testSystemLoggerMsg t
-    (getSelfPid >>= flip send ())
-    (\_ msg -> "MxReceived" `isPrefixOf` msg
+    -- this is never going to work because we are trace.logger dumbass
+    ((spawnLocal expect) >>= \pid -> send pid () >> return pid)
+    (\pid msg -> ("MxReceived" `isPrefixOf` msg)
              -- discard traces of internal messages
-          && not (":: RegisterReply" `isSuffixOf` msg)
+          && not (":: RegisterReply}" `isSuffixOf` msg)
     )
 
 -- | Tests that one and only one trace message is produced when a message is
@@ -339,33 +345,39 @@ testSystemLoggerMxReceive t = testSystemLoggerMsg t
 testSystemLoggerMxSent :: TestTransport -> IO ()
 testSystemLoggerMxSent t = testSystemLoggerMsg t
     (getSelfPid >>= flip send ())
-    (const $ isPrefixOf "MxSent")
+    (\pid msg -> (("MxSent {whichProcess = " ++ show pid) `isPrefixOf` msg)
+             -- discard traces of internal messages
+          && not (":: RegisterReply}" `isSuffixOf` msg)
+    )
 
 -- | Tests that one and only one trace message is produced when a process dies.
 testSystemLoggerMxProcessDied :: TestTransport -> IO ()
 testSystemLoggerMxProcessDied t = testSystemLoggerMsg t
     (spawnLocal $ return ())
-    (\pid -> isPrefixOf $ "MxProcessDied " ++ show pid)
+    (\pid -> (== "MxProcessDied {whichProcess = " ++
+                  show pid ++ ", why = DiedNormal}"))
 
 -- | Tests that one and only one trace message appears when a process spawns.
 testSystemLoggerMxSpawned :: TestTransport -> IO ()
 testSystemLoggerMxSpawned t = testSystemLoggerMsg t
     (spawnLocal $ return ())
-    (\pid -> isPrefixOf $ "MxSpawned " ++ show pid)
+    (\pid -> isPrefixOf $ "MxSpawned {whichProcess = " ++ show pid)
 
 -- | Tests that one and only one trace message appears when a process is
 -- registered.
 testSystemLoggerMxRegistered :: TestTransport -> IO ()
 testSystemLoggerMxRegistered t = testSystemLoggerMsg t
     (getSelfPid >>= register "a" >> getSelfPid)
-    (\self -> isPrefixOf $ "MxRegistered " ++ show self ++ " " ++ show "a")
+    (\pid -> (== "MxRegistered {whichProcess = " ++ show pid ++
+                 ", whichName = " ++ show "a" ++ "}"))
 
 -- | Tests that one and only one trace message appears when a process is
 -- unregistered.
 testSystemLoggerMxUnRegistered :: TestTransport -> IO ()
 testSystemLoggerMxUnRegistered t = testSystemLoggerMsg t
     (getSelfPid >>= register "a" >> unregister "a" >> getSelfPid)
-    (\self -> isPrefixOf $ "MxUnRegistered " ++ show self ++ " " ++ show "a")
+    (\pid -> (== "MxUnRegistered {whichProcess = " ++
+                  show pid ++ ", whichName = " ++ show "a" ++ "}"))
 
 tests :: TestTransport -> IO [Test]
 tests testtrans@TestTransport{..} = do

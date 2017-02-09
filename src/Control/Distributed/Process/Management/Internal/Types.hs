@@ -11,6 +11,7 @@ module Control.Distributed.Process.Management.Internal.Types
   , Fork
   , MxSink
   , MxEvent(..)
+  , Destination(..)
   , Addressable(..)
   ) where
 
@@ -18,10 +19,12 @@ import Control.Applicative (Applicative)
 import Control.Concurrent.STM
   ( TChan
   )
+import Control.DeepSeq (NFData(..))
 import Control.Distributed.Process.Internal.Types
   ( Process
   , ProcessId
   , Message
+  , SendPort
   , DiedReason
   , NodeId
   )
@@ -38,35 +41,68 @@ import Network.Transport
   , EndPointAddress
   )
 
+-- | A simple means of mapping send events to their destinations
+data Destination =
+    ProcId             { procId   :: !ProcessId }
+  | ProcName           { procName :: !String    }
+  | RemoteProcName     { procName :: !String
+                       , procNode :: !NodeId    }
+  | UserDefined        { userData :: !Message   }
+  deriving (Typeable, Generic, Show)
+instance Binary Destination where
+instance NFData Destination where
+  rnf (ProcId p)           = rnf p `seq` ()
+  rnf (ProcName s)         = rnf s `seq` ()
+  rnf (RemoteProcName s n) = rnf s `seq` rnf n `seq` ()
+  rnf (UserDefined m)      = rnf m `seq` ()
+
+
 -- | This is the /default/ management event, fired for various internal
 -- events around the NT connection and Process lifecycle. All published
 -- events that conform to this type, are eligible for tracing - i.e.,
 -- they will be delivered to the trace controller.
 --
 data MxEvent =
-    MxSpawned          ProcessId
+    MxSpawned          { whichProcess :: ProcessId }
     -- ^ fired whenever a local process is spawned
-  | MxRegistered       ProcessId    String
+  | MxRegistered       { whichProcess :: ProcessId
+                       , whichName    :: String
+                       }
     -- ^ fired whenever a process/name is registered (locally)
-  | MxUnRegistered     ProcessId    String
+  | MxUnRegistered     { whichProcess :: ProcessId
+                       , whichName    :: String
+                       }
     -- ^ fired whenever a process/name is unregistered (locally)
-  | MxProcessDied      ProcessId    DiedReason
+  | MxProcessDied      { whichProcess :: ProcessId
+                       , why          :: DiedReason
+                       }
     -- ^ fired whenever a process dies
-  | MxNodeDied         NodeId       DiedReason
+  | MxNodeDied         { whichNode    :: NodeId
+                       , why          :: DiedReason
+                       }
     -- ^ fired whenever a node /dies/ (i.e., the connection is broken/disconnected)
-  | MxSent             ProcessId    ProcessId Message
+  | MxSent             { whichProcess :: ProcessId
+                       , whereTo      :: Destination
+                       , message      :: Message
+                       }
     -- ^ fired whenever a message is sent from a local process
-  | MxReceived         ProcessId    Message
+  | MxReceived         { whichProcess  :: ProcessId
+                       , message       :: Message
+                       }
     -- ^ fired whenever a message is received by a local process
-  | MxConnected        ConnectionId EndPointAddress
+  | MxConnected        { whichConnection :: ConnectionId
+                       , whichEndoint    :: EndPointAddress
+                       }
     -- ^ fired when a network-transport connection is first established
-  | MxDisconnected     ConnectionId EndPointAddress
+  | MxDisconnected     { whichConnection :: ConnectionId
+                       , whichEndpoint   :: EndPointAddress
+                       }
     -- ^ fired when a network-transport connection is broken/disconnected
-  | MxUser             Message
+  | MxUser             { message :: Message }
     -- ^ a user defined trace event
-  | MxLog              String
+  | MxLog              { text :: String }
     -- ^ a /logging/ event - used for debugging purposes only
-  | MxTraceTakeover    ProcessId
+  | MxTraceTakeover    { whichProcess :: ProcessId }
     -- ^ notifies a trace listener that all subsequent traces will be sent to /pid/
   | MxTraceDisable
     -- ^ notifies a trace listener that it has been disabled/removed
@@ -74,15 +110,20 @@ data MxEvent =
 
 instance Binary MxEvent where
 
--- | The class of things that we might be able to resolve to
--- a @ProcessId@ (or not).
+-- The class of things that we might be able to resolve to
+-- a @ProcessId@ (or not). Note we don't want to export this!
 class Addressable a where
   resolveToPid :: a -> Maybe ProcessId
+
+instance Addressable Destination where
+  resolveToPid dest
+    | (ProcId pid) <- dest = Just pid
+    | otherwise            = Nothing
 
 instance Addressable MxEvent where
   resolveToPid (MxSpawned     p)     = Just p
   resolveToPid (MxProcessDied p _)   = Just p
-  resolveToPid (MxSent        _ p _) = Just p
+  resolveToPid (MxSent        _ p _) = resolveToPid p
   resolveToPid (MxReceived    p _)   = Just p
   resolveToPid _                     = Nothing
 

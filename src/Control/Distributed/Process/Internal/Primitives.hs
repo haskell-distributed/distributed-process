@@ -226,6 +226,7 @@ import Control.Distributed.Process.Internal.Messaging
   )
 import Control.Distributed.Process.Management.Internal.Types
   ( MxEvent(..)
+  , Destination(..)
   )
 import Control.Distributed.Process.Management.Internal.Trace.Types
   ( traceEvent
@@ -256,14 +257,16 @@ send them msg = do
   case destNode == nodeId of
     True  -> sendLocal them msg
     False -> liftIO $ sendMessage (processNode proc)
-                                  (ProcessIdentifier (processId proc))
-                                  (ProcessIdentifier them)
-                                  NoImplicitReconnect
-                                  msg
-  -- We do not fire the trace event until after the sending is complete;
-  -- In the remote case, 'sendMessage' can block in the networking stack.
+                                     (ProcessIdentifier (processId proc))
+                                     (ProcessIdentifier them)
+                                     NoImplicitReconnect
+                                     msg
+  -- see note [trace MxSent]
   liftIO $ traceEvent (localEventBus node)
-                      (MxSent them us (createUnencodedMessage msg))
+                      MxSent { whichProcess = us
+                             , whereTo      = ProcId them
+                             , message      = (createUnencodedMessage msg)
+                             }
 
 -- | /Unsafe/ variant of 'send'. This function makes /no/ attempt to serialize
 -- and (in the case when the destination process resides on the same local
@@ -283,12 +286,22 @@ unsafeSend = Unsafe.send
 --
 usend :: Serializable a => ProcessId -> a -> Process ()
 usend them msg = do
-    here <- getSelfNode
-    let there = processNodeId them
-    if here == there
+    proc <- ask
+    let us       = processId proc
+        node     = processNode proc
+        nodeId   = localNodeId node
+    let destNodeId = processNodeId them
+    if nodeId == destNodeId
       then sendLocal them msg
-      else sendCtrlMsg (Just there) $ UnreliableSend (processLocalId them)
-                                                     (createMessage msg)
+      else do -- see note [trace MxSent]
+        let evBus  = localEventBus node
+        let msg'   = createMessage msg
+        sendCtrlMsg (Just destNodeId) $ UnreliableSend (processLocalId them) msg'
+        liftIO $ traceEvent evBus $ MxSent { whichProcess = us
+                                           , whereTo      = ProcId them
+                                           , message      = msg'
+                                           }
+
 
 -- | /Unsafe/ variant of 'usend'. This function makes /no/ attempt to serialize
 -- the message when the destination process resides on the same local
@@ -487,10 +500,12 @@ forward msg them = do
                                   (ProcessIdentifier them)
                                   NoImplicitReconnect
                                   (messageToPayload msg)
-  -- We do not fire the trace event until after the sending is complete;
-  -- In the remote case, 'sendMessage' can block in the networking stack.
+
   liftIO $ traceEvent (localEventBus node)
-                      (MxSent them us msg)
+                      MxSent { whichProcess = us
+                             , whereTo      = ProcId them
+                             , message      = msg
+                             }
 
 -- | Forward a raw 'Message' to the given 'ProcessId'.
 --
@@ -511,7 +526,10 @@ uforward msg them = do
   -- We do not fire the trace event until after the sending is complete;
   -- In the remote case, 'sendCtrlMsg' can block in the networking stack.
   liftIO $ traceEvent (localEventBus node)
-                      (MxSent them us msg)
+                      MxSent { whichProcess = us
+                             , whereTo      = ProcId them
+                             , message      = msg
+                             }
 
 -- | Wrap a 'Serializable' value in a 'Message'. Note that 'Message's are
 -- 'Serializable' - like the datum they contain - but also note, deserialising
@@ -1220,8 +1238,20 @@ whereisRemoteAsync nid label = do
 
 -- | Named send to a process in the local registry (asynchronous)
 nsend :: Serializable a => String -> a -> Process ()
-nsend label msg =
-  sendCtrlMsg Nothing (NamedSend label (createUnencodedMessage msg))
+nsend label msg = do
+    proc <- ask
+    let us   = processId proc
+        node = processNode proc
+        msg' = createMessage msg   -- NB: using UnencodedMessage here causes chaos... :/
+
+    sendCtrlMsg Nothing (NamedSend label msg')
+
+    -- see note [trace MxSent]
+    liftIO $ traceEvent (localEventBus node)
+                        MxSent { whichProcess = us
+                               , whereTo      = ProcName label
+                               , message      = msg'
+                               }
 
 -- | Named send to a process in the local registry (asynchronous).
 -- This function makes /no/ attempt to serialize and (in the case when the
@@ -1233,9 +1263,19 @@ unsafeNSend = Unsafe.nsend
 -- | Named send to a process in a remote registry (asynchronous)
 nsendRemote :: Serializable a => NodeId -> String -> a -> Process ()
 nsendRemote nid label msg = do
+  proc <- ask
+  let us   = processId   proc
+      node = processNode proc
   here <- getSelfNode
   if here == nid then nsend label msg
-    else sendCtrlMsg (Just nid) (NamedSend label (createMessage msg))
+    else do let msg' = createMessage msg
+            sendCtrlMsg (Just nid) (NamedSend label msg')
+            -- see note [trace MxSent]
+            liftIO $ traceEvent (localEventBus node)
+                                MxSent { whichProcess = us
+                                       , whereTo      = ProcName label
+                                       , message      = msg'
+                                       }
 
 -- | Named send to a process in a remote registry (asynchronous)
 -- This function makes /no/ attempt to serialize and (in the case when the
@@ -1306,8 +1346,18 @@ reconnectPort them = do
 --------------------------------------------------------------------------------
 
 sendLocal :: (Serializable a) => ProcessId -> a -> Process ()
-sendLocal to msg =
-  sendCtrlMsg Nothing $ LocalSend to (createUnencodedMessage msg)
+sendLocal to msg = do
+   proc <- ask
+   let us   = processId proc
+       node = processNode proc
+       msg' = createUnencodedMessage msg
+
+   sendCtrlMsg Nothing $ LocalSend to msg'
+   liftIO $ traceEvent (localEventBus node)
+                       MxSent { whichProcess = us
+                              , whereTo      = ProcId to
+                              , message      = msg'
+                              }
 
 sendChanLocal :: (Serializable a) => SendPortId -> a -> Process ()
 sendChanLocal spId msg =

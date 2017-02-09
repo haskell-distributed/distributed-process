@@ -219,6 +219,7 @@
 module Control.Distributed.Process.Management
   (
     MxEvent(..)
+  , Destination(..)
     -- * Firing Arbitrary /Mx Events/
   , mxNotify
     -- * Constructing Mx Agents
@@ -276,6 +277,7 @@ import Control.Distributed.Process.Management.Internal.Types
   , MxAgentState(..)
   , MxSink
   , MxEvent(..)
+  , Destination(..)
   )
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Monad.IO.Class (liftIO)

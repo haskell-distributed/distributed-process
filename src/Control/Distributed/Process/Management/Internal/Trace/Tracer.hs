@@ -1,5 +1,7 @@
 {-# LANGUAGE CPP  #-}
 {-# LANGUAGE ScopedTypeVariables  #-}
+{-# LANGUAGE RecordWildCards  #-}
+{-# LANGUAGE PatternGuards  #-}
 -- | Tracing/Debugging support - Trace Implementation
 module Control.Distributed.Process.Management.Internal.Trace.Tracer
   ( -- * API for the Management Agent
@@ -142,21 +144,28 @@ nullTracer =
 
 systemLoggerTracer :: Process ()
 systemLoggerTracer = do
-  node <- processNode <$> ask
-  let tr = sendTraceLog node
-  forever' $ receiveWait [ matchAny (\m -> handleMessage m tr) ]
+  proc <- ask
+  let pid  = processId proc
+      node = processNode proc
+  forever' $ receiveWait [ matchAny (\m -> handleMessage m (sendTraceLog pid node)) ]
   where
-    sendTraceLog :: LocalNode -> MxEvent -> Process ()
-    sendTraceLog node ev = do
-      now <- liftIO $ getCurrentTime
-      msg <- return $ (formatTime defaultTimeLocale "%c" now, buildTxt ev)
-      emptyPid <- return $ (nullProcessId (localNodeId node))
-      traceMsg <- return $ NCMsg {
-                             ctrlMsgSender = ProcessIdentifier (emptyPid)
-                           , ctrlMsgSignal = (NamedSend "trace.logger"
-                                                 (createUnencodedMessage msg))
-                           }
-      liftIO $ writeChan (localCtrlChan node) traceMsg
+    sendTraceLog :: ProcessId -> LocalNode -> MxEvent -> Process ()
+    sendTraceLog pid' node' ev
+      -- because process is the trace client, the trace coordinator cannot
+      -- filter out messages pertaining to the trace.logger, so we do so here
+      | MxReceived{..} <- ev
+      , whichProcess == pid' = return ()
+      | otherwise                           = do
+          now <- liftIO $ getCurrentTime
+          msg <- return $ (formatTime defaultTimeLocale "%c" now, buildTxt ev)
+          emptyPid <- return $ nullPid node'
+          traceMsg <- return $ NCMsg { ctrlMsgSender = ProcessIdentifier (emptyPid)
+                                     , ctrlMsgSignal = (NamedSend "trace.logger"
+                                                        (createUnencodedMessage msg))
+                                     }
+          liftIO $ writeChan (localCtrlChan node') traceMsg
+
+    nullPid node'' = nullProcessId (localNodeId node'')
 
     buildTxt :: MxEvent -> String
     buildTxt (MxLog msg) = msg
@@ -235,7 +244,8 @@ traceController mv = do
                   sendOk confResp >> applyTraceFlags flags' st)
         , match (\chGetFlags -> sendChan chGetFlags (flags st) >> return st)
         , match (\chGetCurrent -> sendChan chGetCurrent (client st) >> return st)
-          -- we dequeue incoming events even if we don't process them
+          -- we do not forward messages to the client that pertain to itself
+          -- also, we de-queue incoming events even if we don't process them
         , matchAny (\ev ->
             handleMessage ev (handleTrace st ev) >>= return . fromMaybe st)
         ]
@@ -332,6 +342,10 @@ traceEv ev msg (Just (TraceProcs pids)) st = do
 traceEv ev msg (Just (TraceNames names)) st = do
   -- if we have recorded regnames for p, then we forward the trace iif
   -- there are overlapping trace targets
+  -- NB: this will now be broken for instances of Destination that cannot be
+  --     resolved, thus we need to re-examine this branch of the tracing code
+  --     to understand what the impact of that will actually be...
+
   node <- processNode <$> ask
   let p = case resolveToPid ev of
             Nothing  -> (nullProcessId (localNodeId node))

@@ -167,7 +167,10 @@ withRegisteredTracer act = do
   (sp, rp) <- newChan
   withLocalTracer $ \t -> liftIO $ Tracer.getCurrentTraceClient t sp
   currentTracer <- receiveChan rp
+  -- TODO: there is an obvious race here, whereby tracer.initial could
+  -- die or be replaced (via reregister) between the call to whereis
+  -- and the expression acting on the pid. Maybe pass the trace client
+  -- instead???
   case currentTracer of
     Nothing  -> do { (Just p') <- whereis "tracer.initial"; act p' }
     (Just p) -> act p
-
