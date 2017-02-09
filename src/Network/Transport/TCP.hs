@@ -641,6 +641,8 @@ apiNewEndPoint transport qdisc =
 
 -- | Abstraction of a queue for an 'EndPoint'.
 --
+--   A value of type @QDisc t@ is a queue of events of an abstract type @t@.
+--
 --   This specifies which 'Event's will come from
 --   'receive :: EndPoint -> IO Event' and when. It is highly general so that
 --   the simple yet potentially very fast implementation backed by a single
@@ -649,8 +651,11 @@ apiNewEndPoint transport qdisc =
 --   faster in certain conditions but probably has lower maximal throughput.
 --
 --   A 'QDisc' must satisfy some properties in order for the semantics of
---   network-transport to hold true. To grok these, it may help to know how
---   network-transport-tcp will use the 'QDisc'.
+--   network-transport to hold true. In general, an event fed with
+--   'qdiscEnqueue' must not be dropped. i.e. provided that no other event in
+--   the QDisc has higher priority, the event should eventually be returned by
+--   'qdiscDequeue'. An exception to this are 'Receive' events of unreliable
+--   connections.
 --
 --   Every call to 'receive' is just 'qdiscDequeue' on that 'EndPoint's
 --   'QDisc'. Whenever an event arises from a socket, `qdiscEnqueue` is called
@@ -662,7 +667,17 @@ apiNewEndPoint transport qdisc =
 --   which is to be enqueued is given to 'qdiscEnqueue' so that the 'QDisc'
 --   can know about open connections, their identifiers and peer addresses, etc.
 data QDisc t = QDisc {
+    -- | Dequeue an event.
     qdiscDequeue :: IO t
+    -- | @qdiscEnqueue ep ev t@ enqueues and event @t@, originated from the
+    -- given remote endpoint @ep@ and with data @ev@.
+    --
+    -- @ep@ might be the local endpoint if it relates to a self-connection.
+    --
+    -- @ev@ might be in practice the value given as @t@. It is passed in
+    -- the abstract form @t@ to enforce it is dequeued unmodified, but the
+    -- 'QDisc' implementation can still observe the concrete form @ev@ to
+    -- make prioritization decisions.
   , qdiscEnqueue :: EndPointAddress -> Event -> t -> IO ()
   }
 
