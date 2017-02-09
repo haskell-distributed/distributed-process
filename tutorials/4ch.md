@@ -342,7 +342,7 @@ data BlockingQueue a = BlockingQueue
 ### Making use of Async
 
 So **how** can we execute this `Closure (Process a)` without blocking the server
-process itself? We can use the `Control.Distributed.Process.Platform.Async` API
+process itself? We can use the `Control.Distributed.Process.Async` API
 to execute each task asynchronously and provide a means for waiting on the result.
 
 In order to use an `Async` handle to get the result of the computation once it's

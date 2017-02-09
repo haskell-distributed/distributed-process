@@ -328,7 +328,7 @@ Haskell concurrency design patterns along the way.
 
 In fact, [distributed-process-async][distributed-process-async] does not really consider the
 *task layer* in great detail. We provide an API comparable to remote's
-`Promise` in `Control.Distributed.Process.Platform.Async`. This API however,
+`Promise` in `Control.Distributed.Process.Async`. This API however,
 is derived from Simon Marlow's [Control.Concurrent.Async][async] package, and is not
 limited to blocking queries on `Async` handles in the same way. Instead our
 [API][d-p-async-async] handles both blocking and non-blocking queries, polling
