@@ -498,10 +498,8 @@ data TCPParameters = TCPParameters {
     -- This can be overriden for each connect call with
     -- 'ConnectHints'.'connectTimeout'.
   , transportConnectTimeout :: Maybe Int
-    -- | Create a QDisc for an EndPoint. This is uniform over the whole
-    -- transport: every EndPoint will have the same QDisc, although possibly
-    -- with independent state (that's why it's in IO).
-  , tcpQDisc :: forall t . IO (QDisc t)
+    -- | Create a QDisc for an EndPoint.
+  , tcpNewQDisc :: forall t . IO (QDisc t)
   }
 
 -- | Internal functionality we expose for unit testing
@@ -571,7 +569,7 @@ createTransportExposeInternals host port params = do
       return
         ( Transport
             { newEndPoint = do
-                qdisc <- tcpQDisc params
+                qdisc <- tcpNewQDisc params
                 apiNewEndPoint transport qdisc
             , closeTransport = let evs = [ EndPointClosed ]
                                in apiCloseTransport transport (Just tid) evs
@@ -598,7 +596,7 @@ defaultTCPParameters = TCPParameters {
   , tcpNoDelay         = False
   , tcpKeepAlive       = False
   , tcpUserTimeout     = Nothing
-  , tcpQDisc           = simpleUnboundedQDisc
+  , tcpNewQDisc        = simpleUnboundedQDisc
   , transportConnectTimeout = Nothing
   }
 
