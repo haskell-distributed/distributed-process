@@ -13,6 +13,7 @@
 
 {-# LANGUAGE RecursiveDo #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE RankNTypes #-}
 
 module Network.Transport.TCP
   ( -- * Main API
@@ -31,6 +32,9 @@ module Network.Transport.TCP
   , firstNonReservedHeavyweightConnectionId
   , socketToEndPoint
   , LightweightConnectionId
+  , QDisc(..)
+  , simpleUnboundedQDisc
+  , simpleOnePlaceQDisc
     -- * Design notes
     -- $design
   ) where
@@ -103,6 +107,7 @@ import Control.Concurrent.MVar
   , modifyMVar
   , modifyMVar_
   , readMVar
+  , takeMVar
   , putMVar
   , newEmptyMVar
   , withMVar
@@ -150,7 +155,7 @@ import Data.Accessor (Accessor, accessor, (^.), (^=), (^:))
 import qualified Data.Accessor.Container as DAC (mapMaybe)
 import Data.Foldable (forM_, mapM_)
 import qualified System.Timeout (timeout)
-
+import qualified Data.ByteString as BS (length)
 
 -- $design
 --
@@ -281,8 +286,10 @@ data ValidTransportState = ValidTransportState
 
 data LocalEndPoint = LocalEndPoint
   { localAddress :: !EndPointAddress
-  , localChannel :: !(Chan Event)
   , localState   :: !(MVar LocalEndPointState)
+    -- | A 'QDisc' is held here rather than on the 'ValidLocalEndPointState'
+    --   because even closed 'LocalEndPoint's can have queued input data.
+  , localQueue   :: !(QDisc Event)
   }
 
 data LocalEndPointState =
@@ -491,6 +498,8 @@ data TCPParameters = TCPParameters {
     -- This can be overriden for each connect call with
     -- 'ConnectHints'.'connectTimeout'.
   , transportConnectTimeout :: Maybe Int
+    -- | Create a QDisc for an EndPoint.
+  , tcpNewQDisc :: forall t . IO (QDisc t)
   }
 
 -- | Internal functionality we expose for unit testing
@@ -556,19 +565,20 @@ createTransportExposeInternals host port params = do
     mkTransport :: TCPTransport
                 -> ThreadId
                 -> IO (Transport, TransportInternals)
-    mkTransport transport tid = return
-      ( Transport
-          { newEndPoint    = apiNewEndPoint transport
-          , closeTransport = let evs = [ EndPointClosed
-                                       , throw $ userError "Transport closed"
-                                       ] in
-                             apiCloseTransport transport (Just tid) evs
-          }
-      , TransportInternals
-          { transportThread = tid
-          , socketBetween   = internalSocketBetween transport
-          }
-      )
+    mkTransport transport tid = do
+      return
+        ( Transport
+            { newEndPoint = do
+                qdisc <- tcpNewQDisc params
+                apiNewEndPoint transport qdisc
+            , closeTransport = let evs = [ EndPointClosed ]
+                               in apiCloseTransport transport (Just tid) evs
+            }
+        , TransportInternals
+            { transportThread = tid
+            , socketBetween   = internalSocketBetween transport
+            }
+        )
 
     terminationHandler :: TCPTransport -> SomeException -> IO ()
     terminationHandler transport ex = do
@@ -586,6 +596,7 @@ defaultTCPParameters = TCPParameters {
   , tcpNoDelay         = False
   , tcpKeepAlive       = False
   , tcpUserTimeout     = Nothing
+  , tcpNewQDisc        = simpleUnboundedQDisc
   , transportConnectTimeout = Nothing
   }
 
@@ -608,18 +619,17 @@ apiCloseTransport transport mTransportThread evs =
 
 -- | Create a new endpoint
 apiNewEndPoint :: TCPTransport
+               -> QDisc Event
                -> IO (Either (TransportError NewEndPointErrorCode) EndPoint)
-apiNewEndPoint transport =
+apiNewEndPoint transport qdisc =
   try . asyncWhenCancelled closeEndPoint $ do
-    ourEndPoint <- createLocalEndPoint transport
+    ourEndPoint <- createLocalEndPoint transport qdisc
     return EndPoint
-      { receive       = readChan (localChannel ourEndPoint)
+      { receive       = qdiscDequeue (localQueue ourEndPoint)
       , address       = localAddress ourEndPoint
       , connect       = apiConnect (transportParams transport) ourEndPoint
-      , closeEndPoint = let evs = [ EndPointClosed
-                                  , throw $ userError "Endpoint closed"
-                                  ] in
-                        apiCloseEndPoint transport evs ourEndPoint
+      , closeEndPoint = let evs = [ EndPointClosed ]
+                        in  apiCloseEndPoint transport evs ourEndPoint
       , newMulticastGroup     = return . Left $ newMulticastGroupError
       , resolveMulticastGroup = return . Left . const resolveMulticastGroupError
       }
@@ -628,6 +638,75 @@ apiNewEndPoint transport =
       TransportError NewMulticastGroupUnsupported "Multicast not supported"
     resolveMulticastGroupError =
       TransportError ResolveMulticastGroupUnsupported "Multicast not supported"
+
+-- | Abstraction of a queue for an 'EndPoint'.
+--
+--   A value of type @QDisc t@ is a queue of events of an abstract type @t@.
+--
+--   This specifies which 'Event's will come from
+--   'receive :: EndPoint -> IO Event' and when. It is highly general so that
+--   the simple yet potentially very fast implementation backed by a single
+--   unbounded channel can be used, without excluding more nuanced policies
+--   like class-based queueing with bounded buffers for each peer, which may be
+--   faster in certain conditions but probably has lower maximal throughput.
+--
+--   A 'QDisc' must satisfy some properties in order for the semantics of
+--   network-transport to hold true. In general, an event fed with
+--   'qdiscEnqueue' must not be dropped. i.e. provided that no other event in
+--   the QDisc has higher priority, the event should eventually be returned by
+--   'qdiscDequeue'. An exception to this are 'Receive' events of unreliable
+--   connections.
+--
+--   Every call to 'receive' is just 'qdiscDequeue' on that 'EndPoint's
+--   'QDisc'. Whenever an event arises from a socket, `qdiscEnqueue` is called
+--   with the relevant metadata in the same thread that reads from the socket.
+--   You can be clever about when to block here, so as to control network
+--   ingress. This applies also to loopback connections (an 'EndPoint' connects
+--   to itself), in which case blocking on the enqueue would only block some
+--   thread in your program rather than some chatty network peer. The 'Event'
+--   which is to be enqueued is given to 'qdiscEnqueue' so that the 'QDisc'
+--   can know about open connections, their identifiers and peer addresses, etc.
+data QDisc t = QDisc {
+    -- | Dequeue an event.
+    qdiscDequeue :: IO t
+    -- | @qdiscEnqueue ep ev t@ enqueues and event @t@, originated from the
+    -- given remote endpoint @ep@ and with data @ev@.
+    --
+    -- @ep@ might be the local endpoint if it relates to a self-connection.
+    --
+    -- @ev@ might be in practice the value given as @t@. It is passed in
+    -- the abstract form @t@ to enforce it is dequeued unmodified, but the
+    -- 'QDisc' implementation can still observe the concrete form @ev@ to
+    -- make prioritization decisions.
+  , qdiscEnqueue :: EndPointAddress -> Event -> t -> IO ()
+  }
+
+-- | Post an 'Event' using a 'QDisc'.
+qdiscEnqueue' :: QDisc Event -> EndPointAddress -> Event -> IO ()
+qdiscEnqueue' qdisc addr event = qdiscEnqueue qdisc addr event event
+
+-- | A very simple QDisc backed by an unbounded channel.
+simpleUnboundedQDisc :: forall t . IO (QDisc t)
+simpleUnboundedQDisc = do
+  eventChan <- newChan
+  return $ QDisc {
+      qdiscDequeue = readChan eventChan
+    , qdiscEnqueue = const (const (writeChan eventChan))
+    }
+
+-- | A very simple QDisc backed by a 1-place queue (MVar).
+--   With this QDisc, all threads reading from sockets will try to put their
+--   events into the same MVar. That MVar will be cleared by calls to
+--   'receive'. Thus the rate at which data is read from the wire is directly
+--   related to the rate at which data is pulled from the EndPoint by
+--   'receive'.
+simpleOnePlaceQDisc :: forall t . IO (QDisc t)
+simpleOnePlaceQDisc = do
+  mvar <- newEmptyMVar
+  return $ QDisc {
+      qdiscDequeue = takeMVar mvar
+    , qdiscEnqueue = const (const (putMVar mvar))
+    }
 
 -- | Connnect to an endpoint
 apiConnect :: TCPParameters    -- ^ Parameters
@@ -732,7 +811,8 @@ apiCloseEndPoint transport evs ourEndPoint =
           return (LocalEndPointClosed, Nothing)
     forM_ mOurState $ \vst -> do
       forM_ (vst ^. localConnections) tryCloseRemoteSocket
-      forM_ evs $ writeChan (localChannel ourEndPoint)
+      let qdisc = localQueue ourEndPoint
+      forM_ evs (qdiscEnqueue' qdisc (localAddress ourEndPoint))
   where
     -- Close the remote socket and return the set of all incoming connections
     tryCloseRemoteSocket :: RemoteEndPoint -> IO ()
@@ -934,12 +1014,12 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
                     forM_ (remoteProbing vst) id
                     -- close incoming connections
                     forM_ (Set.elems $ vst ^. remoteIncoming) $
-                      writeChan ourChannel . ConnectionClosed . connId
+                      qdiscEnqueue' ourQueue theirAddr . ConnectionClosed . connId
                     -- report the endpoint as gone if we have any outgoing
                     -- connections
                     when (vst ^. remoteOutgoing > 0) $ do
                       let code = EventConnectionLost (remoteAddress theirEndPoint)
-                      writeChan ourChannel . ErrorEvent $
+                      qdiscEnqueue' ourQueue theirAddr . ErrorEvent $
                         TransportError code "The remote endpoint was closed."
               removeRemoteEndPoint (ourEndPoint, theirEndPoint)
               modifyMVar_ theirState $ \s -> case s of
@@ -995,7 +1075,7 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
             relyViolation (ourEndPoint, theirEndPoint)
               "createNewConnection (closed)"
         return (RemoteEndPointValid vst)
-      writeChan ourChannel (ConnectionOpened (connId lcid) ReliableOrdered theirAddr)
+      qdiscEnqueue' ourQueue theirAddr (ConnectionOpened (connId lcid) ReliableOrdered theirAddr)
 
     -- Close a connection
     -- It is important that we verify that the connection is in fact open,
@@ -1023,7 +1103,7 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
           throwIO err
         RemoteEndPointClosed ->
           relyViolation (ourEndPoint, theirEndPoint) "closeConnection (closed)"
-      writeChan ourChannel (ConnectionClosed (connId lcid))
+      qdiscEnqueue' ourQueue theirAddr (ConnectionClosed (connId lcid))
 
     -- Close the socket (if we don't have any outgoing connections)
     closeSocket :: N.Socket -> LightweightConnectionId -> IO Bool
@@ -1041,7 +1121,7 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
             -- remote endpoint to indicate that all its connections to us are
             -- now properly closed
             forM_ (Set.elems $ vst ^. remoteIncoming) $
-              writeChan ourChannel . ConnectionClosed . connId
+              qdiscEnqueue' ourQueue theirAddr . ConnectionClosed . connId
             let vst' = remoteIncoming ^= Set.empty $ vst
             -- If we still have outgoing connections then we ignore the
             -- CloseSocket request (we sent a ConnectionCreated message to the
@@ -1098,7 +1178,7 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
     -- overhead
     readMessage :: N.Socket -> LightweightConnectionId -> IO ()
     readMessage sock lcid =
-      recvWithLength sock >>= writeChan ourChannel . Received (connId lcid)
+      recvWithLength sock >>= qdiscEnqueue' ourQueue theirAddr . Received (connId lcid)
 
     -- Stop probing a connection as a result of receiving a probe ack.
     stopProbing :: IO ()
@@ -1110,7 +1190,7 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
       _ -> return st
 
     -- Arguments
-    ourChannel  = localChannel ourEndPoint
+    ourQueue    = localQueue ourEndPoint
     theirState  = remoteState theirEndPoint
     theirAddr   = remoteAddress theirEndPoint
 
@@ -1130,7 +1210,7 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
             -- Release probing resources if probing.
             forM_ (remoteProbing vst) id
             let code = EventConnectionLost (remoteAddress theirEndPoint)
-            writeChan ourChannel . ErrorEvent $ TransportError code (show err)
+            qdiscEnqueue' ourQueue theirAddr . ErrorEvent $ TransportError code (show err)
             return (RemoteEndPointFailed err)
           RemoteEndPointClosing resolved vst -> do
             -- Release probing resources if probing.
@@ -1347,7 +1427,7 @@ connectToSelf ourEndPoint = do
     connAlive <- newIORef True  -- Protected by the local endpoint lock
     lconnId   <- mapIOException connectFailed $ getLocalNextConnOutId ourEndPoint
     let connId = createConnectionId heavyweightSelfConnectionId lconnId
-    writeChan ourChan $
+    qdiscEnqueue' ourQueue ourAddress $
       ConnectionOpened connId ReliableOrdered (localAddress ourEndPoint)
     return Connection
       { send  = selfSend connAlive connId
@@ -1364,7 +1444,7 @@ connectToSelf ourEndPoint = do
           alive <- readIORef connAlive
           if alive
             then seq (foldr seq () msg)
-                   writeChan ourChan (Received connId msg)
+                   qdiscEnqueue' ourQueue ourAddress (Received connId msg)
             else throwIO $ TransportError SendClosed "Connection closed"
         LocalEndPointClosed ->
           throwIO $ TransportError SendFailed "Endpoint closed"
@@ -1375,14 +1455,15 @@ connectToSelf ourEndPoint = do
         LocalEndPointValid _ -> do
           alive <- readIORef connAlive
           when alive $ do
-            writeChan ourChan (ConnectionClosed connId)
+            qdiscEnqueue' ourQueue ourAddress (ConnectionClosed connId)
             writeIORef connAlive False
         LocalEndPointClosed ->
           return ()
 
-    ourChan  = localChannel ourEndPoint
+    ourQueue = localQueue ourEndPoint
     ourState = localState ourEndPoint
     connectFailed = TransportError ConnectFailed . show
+    ourAddress = localAddress ourEndPoint
 
 -- | Resolve an endpoint currently in 'Init' state
 resolveInit :: EndPointPair -> RemoteState -> IO ()
@@ -1420,9 +1501,10 @@ getLocalNextConnOutId ourEndpoint =
 --
 -- May throw a TransportError NewEndPointErrorCode exception if the transport
 -- is closed.
-createLocalEndPoint :: TCPTransport -> IO LocalEndPoint
-createLocalEndPoint transport = do
-    chan  <- newChan
+createLocalEndPoint :: TCPTransport
+                    -> QDisc Event
+                    -> IO LocalEndPoint
+createLocalEndPoint transport qdisc = do
     state <- newMVar . LocalEndPointValid $ ValidLocalEndPointState
       { _localNextConnOutId = firstNonReservedLightweightConnectionId
       , _localConnections   = Map.empty
@@ -1434,9 +1516,9 @@ createLocalEndPoint transport = do
         let addr = encodeEndPointAddress (transportHost transport)
                                          (transportPort transport)
                                          ix
-        let localEndPoint = LocalEndPoint { localAddress  = addr
-                                          , localChannel  = chan
-                                          , localState    = state
+        let localEndPoint = LocalEndPoint { localAddress = addr
+                                          , localQueue   = qdisc
+                                          , localState   = state
                                           }
         return ( TransportValid
                . (localEndPointAt addr ^= Just localEndPoint)
@@ -1638,7 +1720,7 @@ runScheduledAction (ourEndPoint, theirEndPoint) mvar = do
       tryCloseSocket (remoteSocket vst)
       let code     = EventConnectionLost (remoteAddress theirEndPoint)
           err      = TransportError code (show ex)
-      writeChan (localChannel ourEndPoint) $ ErrorEvent err
+      qdiscEnqueue' (localQueue ourEndPoint) (localAddress ourEndPoint) $ ErrorEvent err
       return (RemoteEndPointFailed ex)
 
 -- | Use 'schedule' action 'runScheduled' action in a safe way, it's assumed that
