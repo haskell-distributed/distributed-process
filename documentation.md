@@ -31,7 +31,7 @@ Cloud Haskell comprises the following components, some of which are complete,
 others experimental.
 
 * [distributed-process][distributed-process]: Base concurrency and distribution support
-* [distributed-process-platform][distributed-process-platform]: The Cloud Haskell Platform - APIs
+* [distributed-process-client-server][distributed-process-client-server]: Common client/server patterns like Erlang's `gen_server`
 * [distributed-static][distributed-static]: Support for static values
 * [rank1dynamic][rank1dynamic]: Like `Data.Dynamic` and `Data.Typeable` but supporting polymorphic values
 * [network-transport][network-transport]: Generic `Network.Transport` API
@@ -319,19 +319,19 @@ is managed in the *process layer*, whilst a higher level API described as the
 * data centric processing model
 * a promise (or *future*) abstraction, representing the result of a calculation that may or may not have yet completed
 
-The [distributed-process-platform][distributed-process-platform] library implements parts of the
+The [distributed-process-task][distributed-process-task] library implements parts of the
 *task layer*, but takes a very different approach to that described
 in the original paper and implemented by the [remote][remote] package. In particular,
 we diverge from the original design and defer to many of the principles
 defined by Erlang's [Open Telecom Platform][OTP], taking in some well established
 Haskell concurrency design patterns along the way.
 
-In fact, [distributed-process-platform][distributed-process-platform] does not really consider the
+In fact, [distributed-process-async][distributed-process-async] does not really consider the
 *task layer* in great detail. We provide an API comparable to remote's
 `Promise` in `Control.Distributed.Process.Platform.Async`. This API however,
 is derived from Simon Marlow's [Control.Concurrent.Async][async] package, and is not
 limited to blocking queries on `Async` handles in the same way. Instead our
-[API][d-p-platform-async] handles both blocking and non-blocking queries, polling
+[API][d-p-async-async] handles both blocking and non-blocking queries, polling
 and working with lists of `Async` handles. We also eschew throwing exceptions
 to indicate asynchronous task failures, instead handling *task* and connectivity
 failures using monitors. Users of the API need only concern themselves with the
@@ -388,7 +388,7 @@ Work is also underway to provide abstractions for managing asynchronous tasks
 at a higher level, focussing on workload distribution and load regulation.
 
 The kinds of task that can be performed by the async implementations in
-[distributed-process-platform][distributed-process-platform] are limited only by their return type:
+[distributed-process-async][distributed-process-async] are limited only by their return type:
 it **must** be `Serializable` - that much should've been obvious by now.
 The type of asynchronous task definitions comes in two flavours, one for
 local nodes which require no remote-table or static serialisation dictionary,
@@ -427,14 +427,14 @@ domain was more *haskell-ish* than working with bare send and receive primitives
 The `Async` sub-package also provides a type safe interface for receiving data,
 although it is limited to running a computation and waiting for its result.
 
-The [Control.Distributed.Processes.Platform.ManagedProcess][d-p-platform-ManagedProcess] API provides a
+The [Control.Distributed.Processes.Platform.ManagedProcess][d-p-client-server-ManagedProcess] API provides a
 number of different abstractions that can be used to achieve similar benefits
 in your code. It works by introducing a standard protocol between your process
 and the *world outside*, which governs how to handle request/reply processing,
 exit signals, timeouts, sleeping/hibernation with `threadDelay` and even provides
 hooks that terminating processes can use to clean up residual state.
 
-The [API documentation][d-p-platform-ManagedProcess] is quite extensive, so here we will simply point
+The [API documentation][d-p-client-server-ManagedProcess] is quite extensive, so here we will simply point
 out the obvious differences. A process implemented with `ManagedProcess`
 can present a type safe API to its callers (and the server side code too!),
 although that's not its primary benefit. For a very simplified example:
@@ -487,7 +487,7 @@ configurable task pools and task supervision strategy part of its API.
 
 More complex examples of the `ManagedProcess` API can be seen in the
 [Managed Processes tutorial](tutorials/tutorial3.html). API documentation for HEAD is available
-[here][d-p-platform-ManagedProcess].
+[here][d-p-client-server-ManagedProcess].
 
 ### Supervision Trees
 
@@ -500,7 +500,8 @@ TBC
 [cloud-haskell]: http://haskell-distributed.github.io/documentation.html
 [fun201202-coutts]: http://sneezy.cs.nott.ac.uk/fun/2012-02/coutts-2012-02-28.pdf
 [distributed-process]: https://github.com/haskell-distributed/distributed-process
-[distributed-process-platform]: https://github.com/haskell-distributed/distributed-process-platform
+[distributed-process-client-server]: https://github.com/haskell-distributed/distributed-process-client-server
+[distributed-process-async]: https://github.com/haskell-distributed/distributed-process-async
 [distributed-static]: http://hackage.haskell.org/package/distributed-static
 [rank1dynamic]: http://hackage.haskell.org/package/rank1dynamic
 [network-transport]: http://hackage.haskell.org/package/network-transport
@@ -513,6 +514,6 @@ TBC
 [haskell11-ch]: http://research.microsoft.com/en-us/um/people/simonpj/papers/parallel/remote.pdf
 [OTP]: http://en.wikipedia.org/wiki/Open_Telecom_Platform
 [remote]: http://hackage.haskell.org/package/remote
-[d-p-platform-async]: http://hackage.haskell.org/package/distributed-process-platform/Control-Distributed-Process-Platform-Async.html
+[d-p-async-async]: https://hackage.haskell.org/package/distributed-process-async/docs/Control-Distributed-Process-Async.html
 [async]: http://hackage.haskell.org/package/async
-[d-p-platform-ManagedProcess]: http://hackage.haskell.org/package/distributed-process-platform/Control-Distributed-Process-Platform-ManagedProcess.html
+[d-p-client-server-ManagedProcess]: https://hackage.haskell.org/package/distributed-process-client-server/docs/Control-Distributed-Process-ManagedProcess.html

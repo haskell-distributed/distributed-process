@@ -27,7 +27,7 @@ of Cloud Haskell as a whole. [Edsko De Vries][13], a member of Well-Typed and th
 author of much of the new implementation we have today, is still closely involved
 as well.
 
-[Tim][6] is the primary author and maintainer of [disributed-process-platform][8];
+[Tim][6] is the primary author and maintainer of [disributed-process][8];
 an effort to port many of the benefits of Erlang's [Open Telecom Platform][10] to
 the Cloud Haskell ecosystem.
 
@@ -48,7 +48,7 @@ Duncan Coutts, Simon Marlow, Ryan Newton, Eric Kow, Adam Foltzer, Nicolas Wu
 [5]: http://www.haskell.org/haskellwiki/Parallel_GHC_Project
 [6]: https://github.com/hyperthunk
 [7]: https://github.com/jepst
-[8]: https://github.com/haskell-distributed/disributed-process-platform
+[8]: https://github.com/haskell-distributed/disributed-process
 [9]: http://hackage.haskell.org/trac/ghc/wiki/Contributors
 [10]: http://en.wikipedia.org/wiki/Open_Telecom_Platform
 [11]: https://github.com/jepst/distributed-process-global

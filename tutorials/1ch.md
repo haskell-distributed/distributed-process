@@ -138,7 +138,7 @@ main = do
       -- Die immediately - throws a ProcessExitException with the given reason.
       Nothing  -> die "nothing came back!"
       Just s -> say $ "got " ++ s ++ " back!"
-      
+
     -- Without the following delay, the process sometimes exits before the messages are exchanged.
     liftIO $ threadDelay 2000000
 {% endhighlight %}
@@ -289,9 +289,9 @@ different ways:
 
 ------
 
-[1]: /static/doc/distributed-process/Control-Distributed-Process.html#v:Message
-[2]: http://hackage.haskell.org/package/distributed-process
-[3]: /static/doc/distributed-process-platform/Control-Distributed-Process-Platform-Async.html
-[4]: /static/doc/distributed-process-platform/Control-Distributed-Process-Platform-ManagedProcess.htmlv:callAsync
-[5]: http://hackage.haskell.org/packages/archive/distributed-process/latest/doc/html/Control-Distributed-Process-Internal-Primitives.html#t:Match
-[6]: http://hackage.haskell.org/packages/archive/distributed-process/latest/doc/html/Control-Distributed-Process-Closure.html
+[1]: https://hackage.haskell.org/package/distributed-process-0.6.6/docs/Control-Distributed-Process.html#t:Message
+[2]: https://hackage.haskell.org/package/distributed-process
+[3]: https://hackage.haskell.org/package/distributed-process-async/docs/Control-Distributed-Process-Async.html
+[4]: https://hackage.haskell.org/package/distributed-process-client-server-0.1.3.2/docs/Control-Distributed-Process-ManagedProcess-Client.html#v:callAsync
+[5]: https://hackage.haskell.org/packages/archive/distributed-process/latest/doc/html/Control-Distributed-Process-Internal-Primitives.html#t:Match
+[6]: https://hackage.haskell.org/packages/archive/distributed-process/latest/doc/html/Control-Distributed-Process-Closure.html

@@ -56,7 +56,7 @@ triggered the shutdown/terminate sequence for the supervisor's process explicitl
 When a supervisor is told directly to terminate a child process, it uses the
 `ChildTerminationPolicy` to determine whether the child should be terminated
 _gracefully_ or _brutally killed_. This _shutdown protocol_ is used throughout
-[distributed-process-platform][dpp] and in order for a child process to be managed
+[distributed-process-supervisor][dpp] and in order for a child process to be managed
 effectively by its supervisor, it is imperative that it understands the protocol.
 When a _graceful_ shutdown is required, the supervisor will send an exit signal to the
 child process, with the `ExitReason` set to `ExitShutdown`, whence the child process is
@@ -70,7 +70,7 @@ provide a timeout value. The supervisor attempts a _gracefull_ shutdown initiall
 however if the child does not exit within the given time window, the supervisor will
 automatically revert to a _brutal kill_ using `TerminateImmediately`. If the
 timeout value is set to `Infinity`, the supervisor will wait indefintiely for the
-child to exit cleanly. 
+child to exit cleanly.
 
 When a supervisor detects a child exit, it will attempt a restart. Whilst explicitly
 terminating a child will **only** terminate the specified child process, unexpected
@@ -142,11 +142,10 @@ order, otherwise the dependent children might crash whilst we're restarting othe
 rely on. It follows that, in this setup, we cannot subsequently (re)start the children in the
 same order we stopped them either.
 
-[dpp]: https://github.com/haskell-distributed/distributed-process-platform
+[dpp]: https://github.com/haskell-distributed/distributed-process-supervisor
 [sup1]: /img/one-for-one.png
 [sup2]: /img/one-for-all.png
 [sup3]: /img/one-for-all-left-to-right.png
 [alert]: /img/alert.png
 [info]: /img/info.png
 [erlsup]: http://www.erlang.org/doc/man/supervisor.html
-
