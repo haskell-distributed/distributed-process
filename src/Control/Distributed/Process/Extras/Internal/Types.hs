@@ -42,7 +42,7 @@ import Control.Concurrent.MVar
   , modifyMVar
   )
 import Control.DeepSeq (NFData(..), ($!!))
-import Control.Distributed.Process hiding (send)
+import Control.Distributed.Process hiding (send, catch)
 import qualified Control.Distributed.Process as P
   ( send
   , unsafeSend
@@ -54,7 +54,8 @@ import Control.Distributed.Process.Closure
   , functionTDict
   )
 import Control.Distributed.Process.Serializable
-
+import Control.Exception (SomeException)
+import Control.Monad.Catch (catch)
 import Data.Binary
 import Data.Foldable (traverse_)
 import Data.Typeable (Typeable)
@@ -76,6 +77,7 @@ class (NFData a, Serializable a) => NFSerializable a
 
 instance NFSerializable ProcessId
 instance (NFSerializable a) => NFSerializable (SendPort a)
+instance NFSerializable NodeId
 instance NFSerializable Message
 
 -- | Tags provide uniqueness for messages, so that they can be
@@ -185,7 +187,8 @@ instance Resolvable String where
   unresolvableMessage s = "CannotResolveRegisteredName[" ++ s ++ "]"
 
 instance Resolvable (NodeId, String) where
-  resolve (nid, pname) = whereisRemote nid pname
+  resolve (nid, pname) =
+    whereisRemote nid pname `catch` (\(_ :: SomeException) -> return Nothing)
   unresolvableMessage (n, s) =
     "CannotResolveRemoteRegisteredName[name: " ++ s ++ ", node: " ++ (show n) ++ "]"
 
