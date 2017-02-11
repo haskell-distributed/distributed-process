@@ -96,9 +96,11 @@ awaitExit addr = do
                   (\_ -> return ())
         ]
 
+-- | deliver = flip sendTo
 deliver :: (Addressable a, Serializable m) => m -> a -> Process ()
 deliver = flip sendTo
 
+-- | True if getProcessInfo /= Nothing
 isProcessAlive :: ProcessId -> Process Bool
 isProcessAlive pid = getProcessInfo pid >>= \info -> return $ info /= Nothing
 
@@ -287,4 +289,3 @@ awaitResponse addr matches = do
     matchRef r = matchIf (\(ProcessMonitorNotification r' _ _) -> r == r')
                          (\(ProcessMonitorNotification _ _ d) -> do
                              return (Left (ExitOther (show d))))
-

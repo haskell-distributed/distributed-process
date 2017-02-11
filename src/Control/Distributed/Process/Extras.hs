@@ -118,4 +118,3 @@ __remoteTable :: RemoteTable -> RemoteTable
 __remoteTable =
   Control.Distributed.Process.Extras.Internal.Primitives.__remoteTable .
   Control.Distributed.Process.Extras.Internal.Types.__remoteTable
-
