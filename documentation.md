@@ -28,12 +28,25 @@ on Cloud Haskell and this reimplementation, which is worth reading in conjunctio
 with the documentation and wiki pages on this website..
 
 Cloud Haskell comprises the following components, some of which are complete,
-others experimental.
+others experimental. There are three main parts:
 
-* [distributed-process][distributed-process]: Base concurrency and distribution support
-* [distributed-process-client-server][distributed-process-client-server]: Common client/server patterns like Erlang's `gen_server`
+#### The core libraries
+
+* [distributed-process][distributed-process]: Base concurrency and distribution support. It provides a number of primitives known from Erlang like `link` and `monitor`.
 * [distributed-static][distributed-static]: Support for static values
 * [rank1dynamic][rank1dynamic]: Like `Data.Dynamic` and `Data.Typeable` but supporting polymorphic values
+
+#### The platform libraries
+
+* [distributed-process-client-server][distributed-process-client-server]: Common client/server patterns like Erlang's `gen_server`
+* [distributed-process-async][distributed-process-async]: Future-style computations
+* [distributed-process-task][distributed-process-task]: A worker queue
+* [distributed-process-extras][distributed-process-extras]: Monitoring, logging, resolving names etc.
+* [distributed-process-registry][distributed-process-registry]: A key-value registry
+* [distributed-process-execution][distributed-process-execution]: Load regulation, work shedding, hand-off etc.
+
+#### The network layer
+
 * [network-transport][network-transport]: Generic `Network.Transport` API
 * [network-transport-tcp][network-transport-tcp]: TCP realisation of `Network.Transport`
 * [network-transport-inmemory][network-transport-inmemory]: In-memory realisation of `Network.Transport` (incomplete)
@@ -328,7 +341,7 @@ Haskell concurrency design patterns along the way.
 
 In fact, [distributed-process-async][distributed-process-async] does not really consider the
 *task layer* in great detail. We provide an API comparable to remote's
-`Promise` in `Control.Distributed.Process.Platform.Async`. This API however,
+`Promise` in `Control.Distributed.Process.Async`. This API however,
 is derived from Simon Marlow's [Control.Concurrent.Async][async] package, and is not
 limited to blocking queries on `Async` handles in the same way. Instead our
 [API][d-p-async-async] handles both blocking and non-blocking queries, polling
@@ -502,6 +515,10 @@ TBC
 [distributed-process]: https://github.com/haskell-distributed/distributed-process
 [distributed-process-client-server]: https://github.com/haskell-distributed/distributed-process-client-server
 [distributed-process-async]: https://github.com/haskell-distributed/distributed-process-async
+[distributed-process-execution]: https://github.com/haskell-distributed/distributed-process-execution
+[distributed-process-extras]: https://github.com/haskell-distributed/distributed-process-extras
+[distributed-process-task]: https://github.com/haskell-distributed/distributed-process-task
+[distributed-process-registry]: https://github.com/haskell-distributed/distributed-process-registry
 [distributed-static]: http://hackage.haskell.org/package/distributed-static
 [rank1dynamic]: http://hackage.haskell.org/package/rank1dynamic
 [network-transport]: http://hackage.haskell.org/package/network-transport

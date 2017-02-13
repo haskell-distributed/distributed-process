@@ -18,6 +18,8 @@ Documentation is available on this site for HEAD, or
 [hackage](http://hackage.haskell.org/package/distributed-process) for the current and preceding versions of
 each library.
 
+### <a href="/rss.xml"><img src="/img/feed-icon-28x28.png"></a> Recent Activity
+
 <div class="content">
   <div class="related">
     <ul>

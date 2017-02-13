@@ -27,9 +27,15 @@ of Cloud Haskell as a whole. [Edsko De Vries][13], a member of Well-Typed and th
 author of much of the new implementation we have today, is still closely involved
 as well.
 
-[Tim][6] is the primary author and maintainer of [disributed-process][8];
-an effort to port many of the benefits of Erlang's [Open Telecom Platform][10] to
-the Cloud Haskell ecosystem.
+Most of the packages are maintained by the haskell-distributed
+organization, with people from Well Typed, Tweag, and other companies
+that are involved.
+
+The core [disributed-process][8] library is maintained by
+[Facundo Domínguez][14], and the platform libaries are maintained by
+[Tim Watson][6].
+
+Some libraries are maintained my third parties, most notably d-p-p2p.
 
 [Jeff][7] is the author of [distributed-process-global][11], a re-implementation of
 Erlang's [global][12] (locking, registration and cluster management) API for
@@ -54,3 +60,4 @@ Duncan Coutts, Simon Marlow, Ryan Newton, Eric Kow, Adam Foltzer, Nicolas Wu
 [11]: https://github.com/jepst/distributed-process-global
 [12]: http://www.erlang.org/doc/man/global.html
 [13]: https://github.com/edsko
+[14]: https://github.com/facundominguez
