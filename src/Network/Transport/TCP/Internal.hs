@@ -51,6 +51,7 @@ import qualified Network.Socket as N
   , accept
   , sClose
   , socketPort
+  , SockAddr
   )
 
 #ifdef USE_MOCK_NETWORK
@@ -59,11 +60,27 @@ import qualified Network.Transport.TCP.Mock.Socket.ByteString as NBS (recv)
 import qualified Network.Socket.ByteString as NBS (recv)
 #endif
 
-import Control.Concurrent (ThreadId)
 import Data.Word (Word32)
 
 import Control.Monad (forever, when, unless)
 import Control.Exception (SomeException, catch, bracketOnError, throwIO, mask_)
+import Control.Concurrent (ThreadId, forkIO)
+import Control.Concurrent.MVar
+  ( MVar
+  , newEmptyMVar
+  , putMVar
+  , readMVar
+  )
+import Control.Monad (forever, when)
+import Control.Exception
+  ( SomeException
+  , catch
+  , bracketOnError
+  , throwIO
+  , mask_
+  , mask
+  , finally)
+
 import Control.Applicative ((<$>), (<*>))
 import Data.Word (Word32)
 import Data.ByteString (ByteString)
@@ -134,27 +151,27 @@ encodeConnectionRequestResponse crr = case crr of
 -- thrown during setup are not caught.
 --
 -- Once the socket is created we spawn a new thread which repeatedly accepts
--- incoming connections and executes the given request handler. If any
--- exception occurs the thread terminates and calls the terminationHandler.
--- This exception may occur because of a call to 'N.accept', because the thread
--- was explicitly killed, or because of a synchronous exception thrown by the
--- request handler. Typically, you should avoid the last case by catching any
--- relevant exceptions in the request handler.
+-- incoming connections and executes the given request handler in another
+-- thread. If any exception occurs the accepting thread terminates and calls
+-- the terminationHandler. Threads spawned for previous accepted connections
+-- are not killed.
+-- This exception may occur because of a call to 'N.accept', or because the
+-- thread was explicitly killed.
 --
--- The request handler should spawn threads to handle each individual request
--- or the server will block. Once a thread has been spawned it will be the
--- responsibility of the new thread to close the socket when an exception
--- occurs.
+-- The request handler is not responsible for closing the socket. It will be
+-- closed once that handler returns. Take care to ensure that the socket is
+-- not used after the handler returns, or you will get undefined behavior (the
+-- file descriptor may be re-used).
 --
 -- The return value includes the port was bound to. This is not always the same
 -- port as that given in the argument. For example, binding to port 0 actually
 -- binds to a random port, selected by the OS.
-forkServer :: N.HostName               -- ^ Host
-           -> N.ServiceName            -- ^ Port
-           -> Int                      -- ^ Backlog (maximum number of queued connections)
-           -> Bool                     -- ^ Set ReuseAddr option?
-           -> (SomeException -> IO ()) -- ^ Termination handler
-           -> (N.Socket -> IO ())      -- ^ Request handler
+forkServer :: N.HostName                     -- ^ Host
+           -> N.ServiceName                  -- ^ Port
+           -> Int                            -- ^ Backlog (maximum number of queued connections)
+           -> Bool                           -- ^ Set ReuseAddr option?
+           -> (SomeException -> IO ())       -- ^ Termination handler
+           -> (IO () -> N.Socket -> IO ())   -- ^ Request handler
            -> IO (N.ServiceName, ThreadId)
 forkServer host port backlog reuseAddr terminationHandler requestHandler = do
     -- Resolve the specified address. By specification, getAddrInfo will never
@@ -166,22 +183,34 @@ forkServer host port backlog reuseAddr terminationHandler requestHandler = do
       when reuseAddr $ N.setSocketOption sock N.ReuseAddr 1
       N.bindSocket sock (N.addrAddress addr)
       N.listen sock backlog
+
+      -- Close up and fill the synchonizing MVar.
+      let release :: ((N.Socket, N.SockAddr), MVar ()) -> IO ()
+          release ((sock, _), socketClosed) = do
+            N.sClose sock `finally` putMVar socketClosed ()
+
+      -- Accept connections and handle them in separate threads, taking care
+      -- to close the socket when its handler is finished.
+      let acceptRequest :: IO ()
+          acceptRequest = do
+            (sock, sockAddr) <- N.accept sock
+            socketClosed <- newEmptyMVar
+            void $ mask $ \restore -> forkIO $ do
+              restore (requestHandler (readMVar socketClosed) sock)
+              `finally`
+              release ((sock, sockAddr), socketClosed)
+
       -- We start listening for incoming requests in a separate thread. When
       -- that thread is killed, we close the server socket and the termination
-      -- handler. We have to make sure that the exception handler is installed
-      -- /before/ any asynchronous exception occurs. So we mask_, then fork
-      -- (the child thread inherits the masked state from the parent), then
+      -- handler is run. We have to make sure that the exception handler is
+      -- installed /before/ any asynchronous exception occurs. So we mask_, then
+      -- fork (the child thread inherits the masked state from the parent), then
       -- unmask only inside the catch.
       (,) <$> fmap show (N.socketPort sock) <*>
         (mask_ $ forkIOWithUnmask $ \unmask ->
-          catch (unmask (forever $ acceptRequest sock)) $ \ex -> do
+          catch (unmask (forever acceptRequest)) $ \ex -> do
             tryCloseSocket sock
             terminationHandler ex)
-  where
-    acceptRequest :: N.Socket -> IO ()
-    acceptRequest sock = bracketOnError (N.accept sock)
-                                        (tryCloseSocket . fst)
-                                        (requestHandler . fst)
 
 -- | Read a length, then 1 or more payloads each less than some maximum
 -- length in bytes, such that the sum of their lengths is the length that was
