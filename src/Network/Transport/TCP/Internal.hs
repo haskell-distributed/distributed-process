@@ -15,6 +15,7 @@ module Network.Transport.TCP.Internal
   , recvWord32
   , encodeWord32
   , tryCloseSocket
+  , tryShutdownSocketBoth
   ) where
 
 #if ! MIN_VERSION_base(4,6,0)
@@ -51,6 +52,8 @@ import qualified Network.Socket as N
   , accept
   , sClose
   , socketPort
+  , shutdown
+  , ShutdownCmd(ShutdownBoth)
   , SockAddr
   )
 
@@ -158,10 +161,12 @@ encodeConnectionRequestResponse crr = case crr of
 -- This exception may occur because of a call to 'N.accept', or because the
 -- thread was explicitly killed.
 --
--- The request handler is not responsible for closing the socket. It will be
--- closed once that handler returns. Take care to ensure that the socket is
--- not used after the handler returns, or you will get undefined behavior (the
--- file descriptor may be re-used).
+-- If Right is given for the request handler, then it's not responsible for
+-- closing the socket. It will be closed once that handler returns. Take care
+-- to ensure that the socket is not used after the handler returns, or you will
+-- get undefined behavior (the file descriptor may be re-used).
+--
+-- Use Left if you want to take care of closing it.
 --
 -- The return value includes the port was bound to. This is not always the same
 -- port as that given in the argument. For example, binding to port 0 actually
@@ -171,7 +176,9 @@ forkServer :: N.HostName                     -- ^ Host
            -> Int                            -- ^ Backlog (maximum number of queued connections)
            -> Bool                           -- ^ Set ReuseAddr option?
            -> (SomeException -> IO ())       -- ^ Termination handler
-           -> (IO () -> N.Socket -> IO ())   -- ^ Request handler
+           -> Either (N.Socket -> IO ()) (IO () -> N.Socket -> IO ())
+              -- ^ Request handler. If you give Left, we won't close the
+              --   socket for you.
            -> IO (N.ServiceName, ThreadId)
 forkServer host port backlog reuseAddr terminationHandler requestHandler = do
     -- Resolve the specified address. By specification, getAddrInfo will never
@@ -186,7 +193,7 @@ forkServer host port backlog reuseAddr terminationHandler requestHandler = do
 
       -- Close up and fill the synchonizing MVar.
       let release :: ((N.Socket, N.SockAddr), MVar ()) -> IO ()
-          release ((sock, _), socketClosed) = do
+          release ((sock, _), socketClosed) =
             N.sClose sock `finally` putMVar socketClosed ()
 
       -- Accept connections and handle them in separate threads, taking care
@@ -194,11 +201,15 @@ forkServer host port backlog reuseAddr terminationHandler requestHandler = do
       let acceptRequest :: IO ()
           acceptRequest = do
             (sock, sockAddr) <- N.accept sock
-            socketClosed <- newEmptyMVar
-            void $ mask $ \restore -> forkIO $ do
-              restore (requestHandler (readMVar socketClosed) sock)
-              `finally`
-              release ((sock, sockAddr), socketClosed)
+            case requestHandler of
+              Left handleNoClose -> void $ mask $ \restore -> forkIO $ do
+                restore (handleNoClose sock)
+              Right handleClose -> do
+                socketClosed <- newEmptyMVar
+                void $ mask $ \restore -> forkIO $ do
+                  restore (handleClose (readMVar socketClosed) sock)
+                  `finally`
+                  release ((sock, sockAddr), socketClosed)
 
       -- We start listening for incoming requests in a separate thread. When
       -- that thread is killed, we close the server socket and the termination
@@ -255,6 +266,11 @@ recvWord32 = fmap (decodeWord32 . BS.concat . fst) . flip recvExact 4
 tryCloseSocket :: N.Socket -> IO ()
 tryCloseSocket sock = void . tryIO $
   N.sClose sock
+
+-- | Shutdown socket sends and receives, ignoring I/O exceptions.
+tryShutdownSocketBoth :: N.Socket -> IO ()
+tryShutdownSocketBoth sock = void . tryIO $
+  N.shutdown sock N.ShutdownBoth
 
 -- | Read an exact number of bytes from a socket
 --

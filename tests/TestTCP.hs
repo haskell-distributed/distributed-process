@@ -162,7 +162,7 @@ testEarlyDisconnect = do
       tlog "Client"
 
       -- Listen for incoming messages
-      (clientPort, _) <- forkServer "127.0.0.1" "0" 5 True throwIO $ \sock -> do
+      (clientPort, _) <- forkServer "127.0.0.1" "0" 5 True throwIO $ Left $ \sock -> do
         -- Initial setup
         0 <- recvWord32 sock
         _ <- recvWithLength maxBound sock
@@ -190,7 +190,7 @@ testEarlyDisconnect = do
       putMVar clientAddr ourAddress
 
       -- Connect to the server
-      Right (sock, ConnectionRequestAccepted) <- readMVar serverAddr >>= \addr -> socketToEndPoint ourAddress addr True False False Nothing Nothing
+      Right (_, sock, ConnectionRequestAccepted) <- readMVar serverAddr >>= \addr -> socketToEndPoint ourAddress addr True False False Nothing Nothing
 
       -- Open a new connection
       sendMany sock [
@@ -274,7 +274,7 @@ testEarlyCloseSocket = do
       tlog "Client"
 
       -- Listen for incoming messages
-      (clientPort, _) <- forkServer "127.0.0.1" "0" 5 True throwIO $ \sock -> do
+      (clientPort, _) <- forkServer "127.0.0.1" "0" 5 True throwIO $ Left $ \sock -> do
         -- Initial setup
         0 <- recvWord32 sock
         _ <- recvWithLength maxBound sock
@@ -307,7 +307,7 @@ testEarlyCloseSocket = do
       putMVar clientAddr ourAddress
 
       -- Connect to the server
-      Right (sock, ConnectionRequestAccepted) <- readMVar serverAddr >>= \addr -> socketToEndPoint ourAddress addr True False False Nothing Nothing
+      Right (_, sock, ConnectionRequestAccepted) <- readMVar serverAddr >>= \addr -> socketToEndPoint ourAddress addr True False False Nothing Nothing
 
       -- Open a new connection
       sendMany sock [
@@ -401,7 +401,7 @@ testIgnoreCloseSocket = do
     theirAddress <- readMVar serverAddr
 
     -- Connect to the server
-    Right (sock, ConnectionRequestAccepted) <- socketToEndPoint ourAddress theirAddress True False False Nothing Nothing
+    Right (_, sock, ConnectionRequestAccepted) <- socketToEndPoint ourAddress theirAddress True False False Nothing Nothing
     putMVar connectionEstablished ()
 
     -- Server connects to us, and then closes the connection
@@ -487,7 +487,7 @@ testBlockAfterCloseSocket = do
     theirAddress <- readMVar serverAddr
 
     -- Connect to the server
-    Right (sock, ConnectionRequestAccepted) <- socketToEndPoint ourAddress theirAddress True False False Nothing Nothing
+    Right (_, sock, ConnectionRequestAccepted) <- socketToEndPoint ourAddress theirAddress True False False Nothing Nothing
     putMVar connectionEstablished ()
 
     -- Server connects to us, and then closes the connection
@@ -550,14 +550,14 @@ testUnnecessaryConnect numThreads = do
         -- immediately (depending on far the remote endpoint got with the initialization)
         response <- readMVar serverAddr >>= \addr -> socketToEndPoint ourAddress addr True False False Nothing Nothing
         case response of
-          Right (_, ConnectionRequestAccepted) ->
+          Right (_, _, ConnectionRequestAccepted) ->
             -- We don't close this socket because we want to keep this connection open
             putMVar gotAccepted ()
           -- We might get either Invalid or Crossed (the transport does not
           -- maintain enough history to be able to tell)
-          Right (sock, ConnectionRequestInvalid) ->
+          Right (_, sock, ConnectionRequestInvalid) ->
             N.sClose sock
-          Right (sock, ConnectionRequestCrossed) ->
+          Right (_, sock, ConnectionRequestCrossed) ->
             N.sClose sock
           Left _ ->
             return ()
@@ -617,7 +617,7 @@ testReconnect = do
   counter <- newMVar (0 :: Int)
 
   -- Server
-  (serverPort, _) <- forkServer "127.0.0.1" "0" 5 True throwIO $ \sock -> do
+  (serverPort, _) <- forkServer "127.0.0.1" "0" 5 True throwIO $ Left $ \sock -> do
     -- Accept the connection
     Right 0  <- tryIO $ recvWord32 sock
     Right _  <- tryIO $ recvWithLength maxBound sock
@@ -704,7 +704,7 @@ testUnidirectionalError = do
   serverGotPing <- newEmptyMVar
 
   -- Server
-  (serverPort, _) <- forkServer "127.0.0.1" "0" 5 True throwIO $ \sock -> do
+  (serverPort, _) <- forkServer "127.0.0.1" "0" 5 True throwIO $ Left $ \sock -> do
     -- We accept connections, but when an exception occurs we don't do
     -- anything (in particular, we don't close the socket). This is important
     -- because when we shutdown one direction of the socket a recv here will
