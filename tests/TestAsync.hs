@@ -11,7 +11,10 @@ import Control.Distributed.Process.Closure
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable()
 import Control.Distributed.Process.Async
-import Control.Distributed.Process.Tests.Internal.Utils
+import Control.Distributed.Process.Extras (Routable(..), Resolvable(..))
+import Control.Distributed.Process.SysTest.Utils
+import Control.Distributed.Process.Extras.Time
+import Control.Distributed.Process.Extras.Timer
 import Control.Monad (replicateM_)
 import Data.Binary()
 import Data.Typeable()

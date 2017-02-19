@@ -1,5 +1,5 @@
 # Specifies the GHC version and set of packages available
-resolver: nightly-2017-02-03
+resolver: lts-7.14
 
 # Local packages, usually specified by relative directory name
 packages:
