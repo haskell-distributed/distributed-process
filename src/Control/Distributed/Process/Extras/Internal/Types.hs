@@ -1,9 +1,6 @@
 {-# LANGUAGE DeriveDataTypeable     #-}
 {-# LANGUAGE DeriveGeneric          #-}
-{-# LANGUAGE StandaloneDeriving     #-}
-{-# LANGUAGE TemplateHaskell        #-}
 {-# LANGUAGE FlexibleInstances      #-}
-{-# LANGUAGE DefaultSignatures      #-}
 {-# LANGUAGE MultiParamTypeClasses  #-}
 {-# LANGUAGE ScopedTypeVariables    #-}
 {-# LANGUAGE UndecidableInstances   #-}
@@ -33,8 +30,6 @@ module Control.Distributed.Process.Extras.Internal.Types
   , ExitReason(..)
   , ServerDisconnected(..)
   , NFSerializable
-    -- remote table
-  , __remoteTable
   ) where
 
 import Control.Concurrent.MVar
@@ -48,11 +43,6 @@ import qualified Control.Distributed.Process as P
   ( send
   , unsafeSend
   , unsafeNSend
-  )
-import Control.Distributed.Process.Closure
-  ( remotable
-  , mkClosure
-  , functionTDict
   )
 import Control.Distributed.Process.Serializable
 import Control.Exception (SomeException)
@@ -99,8 +89,6 @@ newTagPool = liftIO $ newMVar 0
 getTag :: TagPool -> Process Tag
 getTag tp = liftIO $ modifyMVar tp (\tag -> return (tag+1,tag))
 
-$(remotable ['whereis])
-
 -- | A synchronous version of 'whereis', this monitors the remote node
 -- and returns @Nothing@ if the node goes down (since a remote node failing
 -- or being non-contactible has the same effect as a process not being
@@ -111,7 +99,7 @@ whereisRemote node name = do
   whereisRemoteAsync node name
   receiveWait [ matchIf (\(NodeMonitorNotification ref nid _) -> ref == mRef &&
                                                                  nid == node)
-                        (\(NodeMonitorNotification _ _ _) -> return Nothing)
+                        (\NodeMonitorNotification{} -> return Nothing)
               , matchIf (\(WhereIsReply n _) -> n == name)
                         (\(WhereIsReply _ mPid) -> return mPid)
               ]

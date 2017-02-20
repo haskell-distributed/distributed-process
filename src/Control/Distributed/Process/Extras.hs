@@ -117,11 +117,9 @@ import Control.Distributed.Process.Extras.Internal.Types
 import Control.Distributed.Process.Extras.UnsafePrimitives
 import Control.Distributed.Process.Extras.Internal.Primitives hiding (__remoteTable)
 import qualified Control.Distributed.Process.Extras.Internal.Primitives (__remoteTable)
-import qualified Control.Distributed.Process.Extras.Internal.Types      (__remoteTable)
 
 -- remote table
 
 __remoteTable :: RemoteTable -> RemoteTable
 __remoteTable =
-  Control.Distributed.Process.Extras.Internal.Primitives.__remoteTable .
-  Control.Distributed.Process.Extras.Internal.Types.__remoteTable
+  Control.Distributed.Process.Extras.Internal.Primitives.__remoteTable
