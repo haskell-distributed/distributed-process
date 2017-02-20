@@ -11,7 +11,7 @@ import Control.Distributed.Process hiding (call, catch)
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Extras hiding (__remoteTable, monitor, send, nsend)
 import Control.Distributed.Process.ManagedProcess
-import Control.Distributed.Process.Tests.Internal.Utils
+import Control.Distributed.Process.SysTest.Utils
 import Control.Distributed.Process.Extras.Time
 import Control.Distributed.Process.Serializable()
 

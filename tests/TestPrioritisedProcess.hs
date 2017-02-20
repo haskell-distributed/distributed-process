@@ -15,7 +15,7 @@ import Control.Distributed.Process.Node
 import Control.Distributed.Process.Extras hiding (__remoteTable)
 import Control.Distributed.Process.Async
 import Control.Distributed.Process.ManagedProcess
-import Control.Distributed.Process.Tests.Internal.Utils
+import Control.Distributed.Process.SysTest.Utils
 import Control.Distributed.Process.Extras.Time
 import Control.Distributed.Process.Extras.Timer
 import Control.Distributed.Process.Serializable()
