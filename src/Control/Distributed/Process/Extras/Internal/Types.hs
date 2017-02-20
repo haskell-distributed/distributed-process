@@ -1,11 +1,9 @@
 {-# LANGUAGE DeriveDataTypeable     #-}
 {-# LANGUAGE DeriveGeneric          #-}
-{-# LANGUAGE StandaloneDeriving     #-}
-{-# LANGUAGE TemplateHaskell        #-}
 {-# LANGUAGE FlexibleInstances      #-}
-{-# LANGUAGE DefaultSignatures      #-}
 {-# LANGUAGE MultiParamTypeClasses  #-}
 {-# LANGUAGE ScopedTypeVariables    #-}
+{-# LANGUAGE UndecidableInstances   #-}
 
 -- | Types used throughout the Extras package
 --
@@ -32,8 +30,6 @@ module Control.Distributed.Process.Extras.Internal.Types
   , ExitReason(..)
   , ServerDisconnected(..)
   , NFSerializable
-    -- remote table
-  , __remoteTable
   ) where
 
 import Control.Concurrent.MVar
@@ -47,11 +43,6 @@ import qualified Control.Distributed.Process as P
   ( send
   , unsafeSend
   , unsafeNSend
-  )
-import Control.Distributed.Process.Closure
-  ( remotable
-  , mkClosure
-  , functionTDict
   )
 import Control.Distributed.Process.Serializable
 import Control.Exception (SomeException)
@@ -74,11 +65,9 @@ import GHC.Generics
 -- behaviour by using /unsafe/ primitives in this way.
 --
 class (NFData a, Serializable a) => NFSerializable a
+instance (NFData a, Serializable a) => NFSerializable a
 
-instance NFSerializable ProcessId
 instance (NFSerializable a) => NFSerializable (SendPort a)
-instance NFSerializable NodeId
-instance NFSerializable Message
 
 -- | Tags provide uniqueness for messages, so that they can be
 -- matched with their response.
@@ -100,14 +89,20 @@ newTagPool = liftIO $ newMVar 0
 getTag :: TagPool -> Process Tag
 getTag tp = liftIO $ modifyMVar tp (\tag -> return (tag+1,tag))
 
-$(remotable ['whereis])
-
--- | A synchronous version of 'whereis', this relies on 'call'
--- to perform the relevant monitoring of the remote node.
+-- | A synchronous version of 'whereis', this monitors the remote node
+-- and returns @Nothing@ if the node goes down (since a remote node failing
+-- or being non-contactible has the same effect as a process not being
+-- registered from the caller's point of view).
 whereisRemote :: NodeId -> String -> Process (Maybe ProcessId)
-whereisRemote node name =
-  call $(functionTDict 'whereis) node ($(mkClosure 'whereis) name)
-
+whereisRemote node name = do
+  mRef <- monitorNode node
+  whereisRemoteAsync node name
+  receiveWait [ matchIf (\(NodeMonitorNotification ref nid _) -> ref == mRef &&
+                                                                 nid == node)
+                        (\NodeMonitorNotification{} -> return Nothing)
+              , matchIf (\(WhereIsReply n _) -> n == name)
+                        (\(WhereIsReply _ mPid) -> return mPid)
+              ]
 
 -- | Wait cancellation message.
 data CancelWait = CancelWait
@@ -159,6 +154,8 @@ class Killable p where
   -- | Kill (instruct to exit) generic process, using 'exit' primitive.
   exitProc :: (Resolvable p, Serializable m) => p -> m -> Process ()
   exitProc r m = resolve r >>= traverse_ (flip exit $ m)
+
+instance Resolvable p => Killable p
 
 -- | resolve the Resolvable or die with specified msg plus details of what didn't resolve
 resolveOrDie  :: (Resolvable a) => a -> String -> Process ProcessId
@@ -223,8 +220,8 @@ instance Routable String where
   unsafeSendTo name msg = P.unsafeNSend name $!! msg
 
 instance Routable (NodeId, String) where
-  sendTo  (nid, pname) msg   = nsendRemote nid pname msg
-  unsafeSendTo               = sendTo -- because serialisation *must* take place
+  sendTo  (nid, pname) = nsendRemote nid pname
+  unsafeSendTo         = sendTo -- because serialisation *must* take place
 
 instance Routable (Message -> Process ()) where
   sendTo f       = f . wrapMessage
@@ -272,7 +269,7 @@ instance Routable Recipient where
 -- useful exit reasons
 
 -- | Given when a server is unobtainable.
-data ServerDisconnected = ServerDisconnected !DiedReason
+newtype ServerDisconnected = ServerDisconnected DiedReason
   deriving (Typeable, Generic)
 instance Binary ServerDisconnected where
 instance NFData ServerDisconnected where

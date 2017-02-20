@@ -1,15 +1,3 @@
------------------------------------------------------------------------------
--- |
--- Module      :  Control.Distributed.Process.Extras.Internal.Queue.SeqQ
--- Copyright   :  (c) Tim Watson 2012 - 2013
--- License     :  BSD3 (see the file LICENSE)
---
--- Maintainer  :  Tim Watson <watson.timothy@gmail.com>
--- Stability   :  experimental
---
--- A simple FIFO queue implementation backed by @Data.Sequence@.
------------------------------------------------------------------------------
-
 module Control.Distributed.Process.Extras.Internal.Queue.SeqQ
   ( SeqQ
   , empty
@@ -20,6 +8,8 @@ module Control.Distributed.Process.Extras.Internal.Queue.SeqQ
   , peek
   )
   where
+
+-- A simple FIFO queue implementation backed by @Data.Sequence@.
 
 import Data.Sequence
   ( Seq
@@ -63,4 +53,3 @@ getR s =
   case (viewr (q s)) of
     EmptyR -> Nothing
     a      -> Just a
-

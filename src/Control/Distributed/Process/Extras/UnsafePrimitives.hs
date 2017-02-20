@@ -1,7 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  Control.Distributed.Process.Extras.UnsafePrimitives
--- Copyright   :  (c) Tim Watson 2013
+-- Copyright   :  (c) Tim Watson 2013 - 2017
 -- License     :  BSD3 (see the file LICENSE)
 --
 -- Maintainer  :  Tim Watson <watson.timothy@gmail.com>
@@ -60,4 +60,3 @@ sendChan port msg = Unsafe.sendChan port $!! msg
 -- | Create an unencoded @Message@ for any @Serializable@ type.
 wrapMessage :: NFSerializable a => a -> Message
 wrapMessage msg = Unsafe.wrapMessage $!! msg
-

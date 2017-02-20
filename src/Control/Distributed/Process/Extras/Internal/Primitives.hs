@@ -9,7 +9,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  Control.Distributed.Process.Extras.Internal.Primitives
--- Copyright   :  (c) Tim Watson 2013, Parallel Scientific (Jeff Epstein) 2012
+-- Copyright   :  (c) Tim Watson 2013 - 2017, Parallel Scientific (Jeff Epstein) 2012
 -- License     :  BSD3 (see the file LICENSE)
 --
 -- Maintainers :  Jeff Epstein, Tim Watson
@@ -56,7 +56,7 @@ module Control.Distributed.Process.Extras.Internal.Primitives
   ) where
 
 import Control.Concurrent (myThreadId, throwTo)
-import Control.Distributed.Process hiding (monitor)
+import Control.Distributed.Process hiding (monitor, finally, catch)
 import qualified Control.Distributed.Process as P (monitor)
 import Control.Distributed.Process.Closure (seqCP, remotable, mkClosure)
 import Control.Distributed.Process.Serializable (Serializable)
@@ -71,6 +71,7 @@ import Control.Distributed.Process.Extras.Internal.Types
   , whereisRemote
   )
 import Control.Monad (void)
+import Control.Monad.Catch (finally, catchIf)
 import Data.Maybe (isJust, fromJust)
 
 -- utility
@@ -101,6 +102,7 @@ deliver :: (Addressable a, Serializable m) => m -> a -> Process ()
 deliver = flip sendTo
 
 -- | True if getProcessInfo /= Nothing
+-- NB: only works for local processes.
 isProcessAlive :: ProcessId -> Process Bool
 isProcessAlive pid = getProcessInfo pid >>= \info -> return $ info /= Nothing
 
@@ -135,7 +137,7 @@ spawnSignalled before after = do
       matchIf (\(ProcessMonitorNotification ref _ _) -> ref == mRef)
               (\(ProcessMonitorNotification _ _ dr) -> die $ ExitOther (show dr))
     , matchChan recvStart (\() -> return pid)
-    ]
+    ] `finally` (unmonitor mRef)
 
 -- | Node local version of 'Control.Distributed.Process.spawnLink'.
 -- Note that this is just the sequential composition of 'spawn' and 'link'.
@@ -184,31 +186,20 @@ linkOnFailure them = do
 -- is started. This is a handy way to start per-node named servers.
 --
 whereisOrStart :: String -> Process () -> Process ProcessId
-whereisOrStart name proc =
-  do mpid <- whereis name
-     case mpid of
-       Just pid -> return pid
-       Nothing ->
-         do caller <- getSelfPid
-            pid <- spawnLocal $
-                 do self <- getSelfPid
-                    register name self
-                    send caller (RegisterSelf,self)
-                    () <- expect
-                    proc
-            ref <- P.monitor pid
-            ret <- receiveWait
-               [ matchIf (\(ProcessMonitorNotification aref _ _) -> ref == aref)
-                         (\(ProcessMonitorNotification _ _ _) -> return Nothing),
-                 matchIf (\(RegisterSelf,apid) -> apid == pid)
-                         (\(RegisterSelf,_) -> return $ Just pid)
-               ]
-            case ret of
-              Nothing -> whereisOrStart name proc
-              Just somepid ->
-                do unmonitor ref
-                   send somepid ()
-                   return somepid
+whereisOrStart name proc = do
+  (sigStart, recvStart) <- newChan
+  (_, mRef) <- spawnMonitorLocal $ do
+    us <- getSelfPid
+    catchIf (\(ProcessRegistrationException _ r) -> isJust r)
+            (register name us >> sendChan sigStart us)
+            (\(ProcessRegistrationException _ rPid) ->
+                sendChan sigStart $ fromJust rPid)
+    proc
+  receiveWait [
+      matchIf (\(ProcessMonitorNotification ref _ _) -> ref == mRef)
+              (\(ProcessMonitorNotification _ _ dr) -> die $ ExitOther (show dr))
+    , matchChan recvStart return
+    ] `finally` (unmonitor mRef)
 
 registerSelf :: (String, ProcessId) -> Process ()
 registerSelf (name,target) =

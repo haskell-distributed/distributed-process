@@ -1,7 +1,7 @@
 {-# LANGUAGE DeriveDataTypeable   #-}
 {-# LANGUAGE DeriveGeneric        #-}
 {-# LANGUAGE ScopedTypeVariables  #-}
-{-# LANGUAGE PatternGuards        #-}
+{-# LANGUAGE RecordWildCards      #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances    #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -10,7 +10,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  Control.Distributed.Process.Extras.SystemLog
--- Copyright   :  (c) Tim Watson 2013 - 2014
+-- Copyright   :  (c) Tim Watson 2013 - 2017
 -- License     :  BSD3 (see the file LICENSE)
 --
 -- Maintainer  :  Tim Watson <watson.timothy@gmail.com>
@@ -86,18 +86,10 @@ import Control.Distributed.Process.Extras
   ( Resolvable(..)
   , Routable(..)
   , Addressable
-  , NFSerializable
   )
 import Control.Distributed.Process.Serializable
 import Control.Exception (SomeException)
 import Control.Monad.Catch (catch)
-import Data.Accessor
-  ( Accessor
-  , accessor
-  , (^:)
-  , (^=)
-  , (^.)
-  )
 import Data.Binary
 import Data.Typeable (Typeable)
 import GHC.Generics
@@ -142,11 +134,11 @@ newtype AddFormatter = AddFormatter (Closure (Message -> Process (Maybe String))
 instance Binary AddFormatter
 
 data LogState =
-  LogState { output      :: !(String -> Process ())
-           , cleanup     :: !(Process ())
-           , _level      :: !LogLevel
-           , _format     :: !(String -> Process String)
-           , _formatters :: ![Message -> Process (Maybe String)]
+  LogState { output     :: !(String -> Process ())
+           , cleanup    :: !(Process ())
+           , level      :: !LogLevel
+           , format     :: !(String -> Process String)
+           , formatters :: ![Message -> Process (Maybe String)]
            }
 
 data LogMessage =
@@ -166,7 +158,6 @@ instance Routable LogChan where
   unsafeSendTo _ = mxNotify
 
 type LogText = String
-instance NFSerializable LogText
 
 newtype LogClient = LogClient { agent :: ProcessId }
 instance Resolvable LogClient where
@@ -206,7 +197,7 @@ report :: (Logger l)
        -> l
        -> String
        -> Process ()
-report f l = f l 
+report f l = f l
 
 client :: Process (Maybe LogClient)
 client = resolve logProcessName >>= return . maybe Nothing (Just . LogClient)
@@ -269,17 +260,17 @@ systemLog :: (String -> Process ()) -- ^ This expression does the actual logging
 systemLog o c l f = go $ LogState o c l f defaultFormatters
   where
     go :: LogState -> Process ProcessId
-    go st = do
+    go st =
       mxAgentWithFinalize mxLogId st [
             -- these are the messages we're /really/ interested in
-            (mxSink $ \(m :: LogMessage) -> do
+            (mxSink $ \(m :: LogMessage) ->
                 case m of
-                  (LogMessage msg lvl) -> do
+                  (LogMessage msg lvl) ->
                     mxGetLocal >>= outputMin lvl msg >> mxReceive
                   (LogData dat lvl) -> handleRawMsg dat lvl)
 
             -- complex messages rely on properly registered formatters
-          , (mxSink $ \(ev :: MxEvent) -> do
+          , (mxSink $ \(ev :: MxEvent) ->
                 case ev of
                   (MxUser msg) -> handleRawMsg msg Debug
                   -- we treat trace/log events like regular log events at
@@ -289,14 +280,14 @@ systemLog o c l f = go $ LogState o c l f defaultFormatters
 
             -- command message handling
           , (mxSink $ \(SetLevel lvl) ->
-                mxGetLocal >>= mxSetLocal . (level ^= lvl) >> mxReceive)
+                mxGetLocal >>= \st' -> mxSetLocal st' { level = lvl } >> mxReceive)
           , (mxSink $ \(AddFormatter f') -> do
                 fmt <- liftMX $ catch (unClosure f' >>= return . Just)
                                       (\(_ :: SomeException) -> return Nothing)
                 case fmt of
                   Nothing -> mxReady
                   Just mf -> do
-                    mxUpdateLocal (formatters ^: (mf:))
+                    mxUpdateLocal (\s -> s { formatters = mf:formatters s })
                     mxReceive)
         ] runCleanup
 
@@ -309,15 +300,15 @@ systemLog o c l f = go $ LogState o c l f defaultFormatters
         Just str -> outputMin lvl' str st >> mxReceive
         Nothing  -> mxReceive  -- we cannot format a Message, so we ignore it
 
-    handleEvent (MxConnected    _ ep) = do
+    handleEvent (MxConnected    _ ep) =
           mxGetLocal >>= outputMin Notice
-                                   ("Endpoint: " ++ (show ep) ++ " Disconnected")
-    handleEvent (MxDisconnected _ ep) = do
+                                   ("Endpoint: " ++ show ep ++ " Disconnected")
+    handleEvent (MxDisconnected _ ep) =
           mxGetLocal >>= outputMin Notice
-                                   ("Endpoint " ++ (show ep) ++ " Connected")
+                                   ("Endpoint " ++ show ep ++ " Connected")
     handleEvent _                     = return ()
 
-    formatMsg m st = let fms = st ^. formatters in formatMsg' m fms
+    formatMsg m LogState{..} = let fms = formatters in formatMsg' m fms
 
     formatMsg' _ []     = return Nothing
     formatMsg' m (f':fs) = do
@@ -326,22 +317,12 @@ systemLog o c l f = go $ LogState o c l f defaultFormatters
         ok@(Just _) -> return ok
         Nothing     -> formatMsg' m fs
 
-    outputMin minLvl msgData st =
-      case minLvl >= (st ^. level) of
-        True  -> liftMX $ ((st ^. format) msgData >>= (output st))
+    outputMin minLvl msgData LogState{..} =
+      case minLvl >= level of
+        True  -> liftMX (format msgData >>= output)
         False -> return ()
 
     defaultFormatters = [basicDataFormat]
 
 basicDataFormat :: Message -> Process (Maybe String)
 basicDataFormat = unwrapMessage
-
-level :: Accessor LogState LogLevel
-level = accessor _level (\l s -> s { _level = l })
-
-format :: Accessor LogState LogFormat
-format = accessor _format (\f s -> s { _format = f })
-
-formatters :: Accessor LogState [Message -> Process (Maybe String)]
-formatters = accessor _formatters (\n' st -> st { _formatters = n' })
-

@@ -4,7 +4,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  Control.Distributed.Process.Extras.Monitoring
--- Copyright   :  (c) Tim Watson 2013 - 2014
+-- Copyright   :  (c) Tim Watson 2013 - 2017
 -- License     :  BSD3 (see the file LICENSE)
 --
 -- Maintainer  :  Tim Watson <watson.timothy@gmail.com>
@@ -136,4 +136,3 @@ nodeMonitor = do
 
     nodeUp = NodeUp . NodeId
     nodeDown = NodeDown . NodeId
-
