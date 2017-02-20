@@ -414,6 +414,22 @@ handleCastIf cond h
     , dispatchIf = checkCast cond
     }
 
+-- | Creates a generic input handler for @STM@ actions, from an ordinary
+-- function in the 'Process' monad. The @STM a@ action tells the server how
+-- to read inputs, which when presented are passed to the handler in the same
+-- manner as @handleInfo@ messages would be.
+--
+-- Note that messages sent to the server's mailbox will never match this
+-- handler, only data arriving via the @STM a@ action will.
+--
+-- Notably, this kind of handler can be used to pass non-serialisable data to
+-- a server process. In such situations, the programmer is responsible for
+-- managing the underlying @STM@ infrastructure, and the server simply composes
+-- the @STM a@ action with the other reads on its mailbox, using the underlying
+-- @matchSTM@ API from distributed-process.
+--
+-- NB: this function cannot be used with a prioristised process definition.
+--
 handleExternal :: forall s a .
        STM a
     -> (s -> a -> Process (ProcessAction s))
