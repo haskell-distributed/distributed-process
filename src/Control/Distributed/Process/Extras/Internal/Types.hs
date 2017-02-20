@@ -223,8 +223,8 @@ instance Routable String where
   unsafeSendTo name msg = P.unsafeNSend name $!! msg
 
 instance Routable (NodeId, String) where
-  sendTo  (nid, pname) msg   = nsendRemote nid pname msg
-  unsafeSendTo               = sendTo -- because serialisation *must* take place
+  sendTo  (nid, pname) = nsendRemote nid pname
+  unsafeSendTo         = sendTo -- because serialisation *must* take place
 
 instance Routable (Message -> Process ()) where
   sendTo f       = f . wrapMessage
@@ -272,7 +272,7 @@ instance Routable Recipient where
 -- useful exit reasons
 
 -- | Given when a server is unobtainable.
-data ServerDisconnected = ServerDisconnected !DiedReason
+newtype ServerDisconnected = ServerDisconnected DiedReason
   deriving (Typeable, Generic)
 instance Binary ServerDisconnected where
 instance NFData ServerDisconnected where

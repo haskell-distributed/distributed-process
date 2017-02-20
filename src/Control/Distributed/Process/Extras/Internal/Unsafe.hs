@@ -1,7 +1,6 @@
 {-# LANGUAGE DeriveDataTypeable  #-}
 {-# LANGUAGE DeriveGeneric       #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE StandaloneDeriving  #-}
 
 -- | If you don't know exactly what this module is for and precisely
 -- how to use the types within, you should move on, quickly!

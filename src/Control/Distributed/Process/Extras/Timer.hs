@@ -1,7 +1,5 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric      #-}
-{-# LANGUAGE PatternGuards      #-}
-{-# LANGUAGE TemplateHaskell    #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -42,6 +40,7 @@ import Control.Distributed.Process.Serializable
 import Control.Distributed.Process.Extras.UnsafePrimitives (send)
 import Control.Distributed.Process.Extras.Internal.Types (NFSerializable)
 import Control.Distributed.Process.Extras.Time
+import Control.Monad (unless, void)
 import Data.Binary
 import Data.Typeable (Typeable)
 import Prelude hiding (init)
@@ -99,7 +98,7 @@ sendAfter :: (NFSerializable a)
           -> a
           -> Process TimerRef
 sendAfter t pid msg = runAfter t proc
-  where proc = do { send pid msg }
+  where proc = send pid msg
 
 -- | runs the supplied process action(s) after @t@ has elapsed
 runAfter :: TimeInterval -> Process () -> Process TimerRef
@@ -138,11 +137,11 @@ periodically t p = spawnLocal $ runTimer t p False
 -- out, after which the timer will continue running. To stop a long-running
 -- timer permanently, you should use 'cancelTimer' instead.
 resetTimer :: TimerRef -> Process ()
-resetTimer = (flip send) Reset
+resetTimer = flip send Reset
 
 -- | permanently cancels a timer
 cancelTimer :: TimerRef -> Process ()
-cancelTimer = (flip send) Cancel
+cancelTimer = flip send Cancel
 
 -- | cancels a running timer and flushes any viable timer messages from the
 -- process' message queue. This function should only be called by the process
@@ -155,9 +154,9 @@ flushTimer ref ignore t = do
     return ()
   where performFlush mRef Infinity  = receiveWait $ filters mRef
         performFlush mRef NoDelay   = performFlush mRef (Delay $ microSeconds 0)
-        performFlush mRef (Delay i) = receiveTimeout (asTimeout i) (filters mRef) >> return ()
+        performFlush mRef (Delay i) = void (receiveTimeout (asTimeout i) (filters mRef))
         filters mRef = [
-                matchIf (\x -> x == ignore)
+                matchIf (== ignore)
                         (\_ -> return ())
               , matchIf (\(ProcessMonitorNotification mRef' _ _) -> mRef == mRef')
                         (\_ -> return ()) ]
@@ -178,7 +177,6 @@ runTimer t proc cancelOnReset = do
     case cancel of
         Nothing     -> runProc cancelOnReset
         Just Cancel -> return ()
-        Just Reset  -> if cancelOnReset then return ()
-                                        else runTimer t proc cancelOnReset
+        Just Reset  -> unless cancelOnReset $ runTimer t proc cancelOnReset
   where runProc True  = proc
         runProc False = proc >> runTimer t proc cancelOnReset
