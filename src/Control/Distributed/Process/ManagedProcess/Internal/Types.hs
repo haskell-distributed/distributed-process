@@ -1,7 +1,5 @@
 {-# LANGUAGE DeriveDataTypeable         #-}
 {-# LANGUAGE ExistentialQuantification  #-}
-{-# LANGUAGE StandaloneDeriving         #-}
-{-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE StandaloneDeriving         #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
@@ -62,7 +60,6 @@ import Control.Distributed.Process.Extras
   , Resolvable(..)
   , Routable(..)
   , NFSerializable
-  , Shutdown
   )
 import Control.Distributed.Process.Extras.Internal.Types
   ( resolveOrDie
@@ -102,7 +99,6 @@ instance (NFSerializable a, NFSerializable b) => NFData (Message a b) where
   rnf (CastMessage a) = rnf a `seq` ()
   rnf (CallMessage a b) = rnf a `seq` rnf b `seq` ()
   rnf (ChanMessage a b) = rnf a `seq` rnf b `seq` ()
-instance (NFSerializable a, NFSerializable b) => NFSerializable (Message a b)
 deriving instance (Eq a, Eq b) => Eq (Message a b)
 deriving instance (Show a, Show b) => Show (Message a b)
 
@@ -112,7 +108,6 @@ data CallResponse a = CallResponse a CallId
 instance Serializable a => Binary (CallResponse a)
 instance NFSerializable a => NFData (CallResponse a) where
   rnf (CallResponse a c) = rnf a `seq` rnf c `seq` ()
-instance NFSerializable a => NFSerializable (CallResponse a)
 deriving instance Eq a => Eq (CallResponse a)
 deriving instance Show a => Show (CallResponse a)
 
@@ -122,11 +117,6 @@ instance Resolvable (CallRef a) where
 instance Routable (CallRef a) where
   sendTo  (CallRef (client, tag)) msg = sendTo client (CallResponse msg tag)
   unsafeSendTo (CallRef (c, tag)) msg = unsafeSendTo c (CallResponse msg tag)
-
--- yuk yuk, move these back into -extras before we release...
-
-instance NFSerializable Shutdown
-instance NFSerializable ()
 
 -- | Return type for and 'InitHandler' expression.
 data InitResult s =

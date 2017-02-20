@@ -109,9 +109,6 @@ testControlledTimeout launch result = do
   cast pid ("timeout", Delay $ within 1 Seconds)
   waitForExit exitReason >>= stash result
 
-instance NFSerializable (String, ProcessId) where
-instance NFSerializable (String, Delay) where
-
 testUnsafeControlledTimeout :: Launcher () -> TestResult (Maybe ExitReason) -> Process ()
 testUnsafeControlledTimeout launch result = do
   (pid, exitReason) <- launch ()
@@ -188,8 +185,6 @@ testDeadLetterPolicy launch result = do
     (after 5 Seconds)
     [ match (\m@(_ :: String, _ :: Int) -> return m) ] >>= stash result
 
-instance NFSerializable (String, Int) where
-
 testUnsafeDeadLetterPolicy :: Launcher ProcessId
                      -> TestResult (Maybe (String, Int))
                      -> Process ()
@@ -247,8 +242,6 @@ testKillMidCall launch result = do
         unpack res sid AsyncCancelled = kill sid "stop" >> stash res True
         unpack res sid _              = kill sid "stop" >> stash res False
 
-instance NFSerializable (String, TimeInterval) where
-
 testUnsafeKillMidCall :: Launcher () -> TestResult Bool -> Process ()
 testUnsafeKillMidCall launch result = do
   (pid, _) <- launch ()
@@ -302,8 +295,6 @@ testAlternativeErrorHandling launch result = do
 
   shutdown pid
   waitForExit exitReason >>= stash result
-
-instance NFSerializable Int where
 
 testUnsafeAlternativeErrorHandling :: Launcher ProcessId
                              -> TestResult (Maybe ExitReason)

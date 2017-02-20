@@ -131,10 +131,6 @@ data StmServer = StmServer { serverPid  :: ProcessId
 instance Resolvable StmServer where
   resolve = return . Just . serverPid
 
-instance Killable StmServer where
-  killProc StmServer{..} = kill serverPid
-  exitProc StmServer{..} = exit serverPid
-
 echoStm :: StmServer -> String -> Process (Either ExitReason String)
 echoStm StmServer{..} = callSTM serverPid
                                 (writeTQueue writerChan)

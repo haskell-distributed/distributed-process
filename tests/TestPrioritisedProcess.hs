@@ -1,9 +1,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveDataTypeable  #-}
-{-# LANGUAGE BangPatterns        #-}
 {-# LANGUAGE DeriveGeneric       #-}
-
--- NB: this module contains tests for the GenProcess /and/ GenServer API.
 
 module Main where
 
@@ -84,7 +81,6 @@ data MyAlarmSignal = MyAlarmSignal
   deriving (Typeable, Generic, Show, Eq)
 instance Binary MyAlarmSignal where
 instance NFData MyAlarmSignal where
-instance NFSerializable MyAlarmSignal where
 
 mkPrioritisedServer :: Process ProcessId
 mkPrioritisedServer =
