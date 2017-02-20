@@ -6,6 +6,16 @@
 -- | If you don't know exactly what this module is for and precisely
 -- how to use the types within, you should move on, quickly!
 --
+-- [Implementation Notes]
+-- This module provides facilities for forcibly sending non-serializable
+-- data via cloud haskell's messaging primitives, such as @send@ et al.
+-- Of course, if you attmept to do this when interacting with a remote process,
+-- your application will break.
+--
+-- NB: this module will be deprecated in the next dot release, pending rewrite
+-- of the libraries that currently rely on it, to use the new supporting APIs
+-- for STM interactions in distributed-process-client-server.
+--
 module Control.Distributed.Process.Extras.Internal.Unsafe
   ( -- * Copying non-serializable data
     PCopy()

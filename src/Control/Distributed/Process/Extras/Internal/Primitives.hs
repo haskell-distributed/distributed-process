@@ -101,6 +101,7 @@ deliver :: (Addressable a, Serializable m) => m -> a -> Process ()
 deliver = flip sendTo
 
 -- | True if getProcessInfo /= Nothing
+-- NB: only works for local processes.
 isProcessAlive :: ProcessId -> Process Bool
 isProcessAlive pid = getProcessInfo pid >>= \info -> return $ info /= Nothing
 

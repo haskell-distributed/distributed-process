@@ -33,6 +33,13 @@ sending, we /still/ cannot make any actual guarantees about the evaluation
 semantics of these operations, and therefore the /unsafe/ moniker will remain
 in place, in one form or another, for all functions and modules that use them.
 
+[Addressing/Interaction Tools]
+
+The various type classes exposed here, along with some common data types (such
+as @Shutdown@, @ServerDisconnected@, etc.) are intended to simplify your CH
+programs, and facilitate easily plugging code into higher level libraries such
+as distributed-process-client-server and distributed-process-supervisor.
+
 [Error/Exception Handling]
 
 It is /important/ not to be too general when catching exceptions in
