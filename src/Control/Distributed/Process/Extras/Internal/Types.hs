@@ -101,12 +101,20 @@ getTag tp = liftIO $ modifyMVar tp (\tag -> return (tag+1,tag))
 
 $(remotable ['whereis])
 
--- | A synchronous version of 'whereis', this relies on 'call'
--- to perform the relevant monitoring of the remote node.
+-- | A synchronous version of 'whereis', this monitors the remote node
+-- and returns @Nothing@ if the node goes down (since a remote node failing
+-- or being non-contactible has the same effect as a process not being
+-- registered from the caller's point of view).
 whereisRemote :: NodeId -> String -> Process (Maybe ProcessId)
-whereisRemote node name =
-  call $(functionTDict 'whereis) node ($(mkClosure 'whereis) name)
-
+whereisRemote node name = do
+  mRef <- monitorNode node
+  whereisRemoteAsync node name
+  receiveWait [ matchIf (\(NodeMonitorNotification ref nid _) -> ref == mRef &&
+                                                                 nid == node)
+                        (\(NodeMonitorNotification _ _ _) -> return Nothing)
+              , matchIf (\(WhereIsReply n _) -> n == name)
+                        (\(WhereIsReply _ mPid) -> return mPid)
+              ]
 
 -- | Wait cancellation message.
 data CancelWait = CancelWait
