@@ -84,6 +84,7 @@ data MyAlarmSignal = MyAlarmSignal
   deriving (Typeable, Generic, Show, Eq)
 instance Binary MyAlarmSignal where
 instance NFData MyAlarmSignal where
+instance NFSerializable MyAlarmSignal where
 
 mkPrioritisedServer :: Process ProcessId
 mkPrioritisedServer =
@@ -218,5 +219,3 @@ tests transport = do
 
 main :: IO ()
 main = testMain $ tests
-
-

@@ -5,7 +5,8 @@ module ManagedProcessCommon where
 import Control.Concurrent.MVar (MVar)
 import Control.Distributed.Process hiding (call, send)
 import Control.Distributed.Process.Extras hiding (monitor)
-import Control.Distributed.Process.Tests.Internal.Utils
+import qualified Control.Distributed.Process as P
+import Control.Distributed.Process.SysTest.Utils
 import Control.Distributed.Process.Extras.Time
 import Control.Distributed.Process.Extras.Timer
 import Control.Distributed.Process.Async
@@ -34,7 +35,7 @@ explodingTestProcess pid =
        handleExit  (\s _ (m :: String) -> send pid (m :: String) >>
                                           continue s)
      , handleExit  (\s _ m@((_ :: ProcessId),
-                            (_ :: Int)) -> send pid m >> continue s)
+                            (_ :: Int)) -> P.send pid m >> continue s)
      ]
   }
 
@@ -106,6 +107,9 @@ testControlledTimeout launch result = do
   (pid, exitReason) <- launch ()
   cast pid ("timeout", Delay $ within 1 Seconds)
   waitForExit exitReason >>= stash result
+
+instance NFSerializable (String, ProcessId) where
+instance NFSerializable (String, Delay) where
 
 testUnsafeControlledTimeout :: Launcher () -> TestResult (Maybe ExitReason) -> Process ()
 testUnsafeControlledTimeout launch result = do
@@ -183,6 +187,8 @@ testDeadLetterPolicy launch result = do
     (after 5 Seconds)
     [ match (\m@(_ :: String, _ :: Int) -> return m) ] >>= stash result
 
+instance NFSerializable (String, Int) where
+
 testUnsafeDeadLetterPolicy :: Launcher ProcessId
                      -> TestResult (Maybe (String, Int))
                      -> Process ()
@@ -240,6 +246,8 @@ testKillMidCall launch result = do
         unpack res sid AsyncCancelled = kill sid "stop" >> stash res True
         unpack res sid _              = kill sid "stop" >> stash res False
 
+instance NFSerializable (String, TimeInterval) where
+
 testUnsafeKillMidCall :: Launcher () -> TestResult Bool -> Process ()
 testUnsafeKillMidCall launch result = do
   (pid, _) <- launch ()
@@ -294,6 +302,8 @@ testAlternativeErrorHandling launch result = do
   shutdown pid
   waitForExit exitReason >>= stash result
 
+instance NFSerializable Int where
+
 testUnsafeAlternativeErrorHandling :: Launcher ProcessId
                              -> TestResult (Maybe ExitReason)
                              -> Process ()
@@ -310,4 +320,3 @@ testUnsafeAlternativeErrorHandling launch result = do
 
   Unsafe.shutdown pid
   waitForExit exitReason >>= stash result
-
