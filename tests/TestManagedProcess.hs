@@ -143,8 +143,8 @@ echoStm StmServer{..} = callSTM serverPid
                                 (writeTQueue writerChan)
                                 (readTQueue  readerChan)
 
-launchEchoServer :: Process StmServer
-launchEchoServer = do
+launchEchoServer :: CallHandler () String String -> Process StmServer
+launchEchoServer handler = do
   (inQ, replyQ) <- liftIO $ do
     cIn <- newTQueueIO
     cOut <- newTQueueIO
@@ -155,7 +155,7 @@ launchEchoServer = do
                     handleCallExternal
                       (readTQueue inQ)
                       (writeTQueue replyQ)
-                      (\st (msg :: String) -> reply msg st)
+                      handler
                   ]
                 }
 
@@ -165,9 +165,24 @@ launchEchoServer = do
 testExternalCall :: TestResult Bool -> Process ()
 testExternalCall result = do
   let txt = "hello stm-call foo"
-  srv <- launchEchoServer
+  srv <- launchEchoServer (\st (msg :: String) -> reply msg st)
   echoStm srv txt >>= stash result . (== Right txt)
   killProc srv "done"
+
+testExternalCallHaltingServer :: TestResult Bool -> Process ()
+testExternalCallHaltingServer result = do
+  let msg = "foo bar baz"
+  srv <- launchEchoServer (\_ (_ :: String) -> haltNoReply_ ExitNormal)
+  echoReply <- echoStm srv msg
+  case echoReply of
+    -- sadly, we cannot guarantee that our monitor will be set up fast
+    -- enough, as per the documentation!
+    Left (ExitOther reason) -> stash result $ reason `elem` [ "DiedUnknownId"
+                                                            , "DiedNormal"
+                                                            ]
+    (Left ExitNormal)       -> stash result False
+    (Left ExitShutdown)     -> stash result False
+    (Right _)               -> stash result False
 
 -- MathDemo tests
 
@@ -328,6 +343,10 @@ tests transport = do
             (delayedAssertion
              "expected the server to reply back via the TQueue"
              localNode True testExternalCall)
+          , testCase "getting error data back from callSTM"
+            (delayedAssertion
+             "expected the server to exit with ExitNormal"
+             localNode True testExternalCallHaltingServer)
           , testCase "long running call cancellation"
             (delayedAssertion "expected to get AsyncCancelled"
              localNode True (testKillMidCall $ wrap server))
