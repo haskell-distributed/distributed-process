@@ -436,12 +436,19 @@ handleExternal :: forall s a .
     -> Dispatcher s
 handleExternal = DispatchSTM
 
+-- | Version of @handleExternal@ that ignores state.
 handleExternal_ :: forall s a .
        STM a
     -> (a -> (s -> Process (ProcessAction s)))
     -> Dispatcher s
 handleExternal_ a h = DispatchSTM a (\s m -> (h m) s)
 
+-- | Handle @call@ style API interactions using arbitrary /STM/ actions.
+--
+-- The usual @CallHandler@ is preceded by an stm action that, when evaluated,
+-- yields a value, and a second expression that is used to send a reply back
+-- to the /caller/. The corrolary client API is /callSTM/.
+--
 handleCallExternal :: forall s r w .
                       STM r
                    -> (w -> STM ())
