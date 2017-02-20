@@ -136,4 +136,3 @@ nodeMonitor = do
 
     nodeUp = NodeUp . NodeId
     nodeDown = NodeDown . NodeId
-

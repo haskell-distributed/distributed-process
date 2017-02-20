@@ -56,7 +56,6 @@ data TimerConfig = Reset | Cancel
 instance Binary TimerConfig where
 instance NFData TimerConfig where
   rnf tc = tc `seq` ()
-instance NFSerializable TimerConfig
 
 -- | represents a 'tick' event that timers can generate
 data Tick = Tick
@@ -64,7 +63,6 @@ data Tick = Tick
 instance Binary Tick where
 instance NFData Tick where
   rnf t = t `seq` ()
-instance NFSerializable Tick
 
 data SleepingPill = SleepingPill
     deriving (Typeable, Generic, Eq, Show)

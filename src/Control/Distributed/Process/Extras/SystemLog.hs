@@ -86,7 +86,6 @@ import Control.Distributed.Process.Extras
   ( Resolvable(..)
   , Routable(..)
   , Addressable
-  , NFSerializable
   )
 import Control.Distributed.Process.Serializable
 import Control.Exception (SomeException)
@@ -166,7 +165,6 @@ instance Routable LogChan where
   unsafeSendTo _ = mxNotify
 
 type LogText = String
-instance NFSerializable LogText
 
 newtype LogClient = LogClient { agent :: ProcessId }
 instance Resolvable LogClient where
@@ -206,7 +204,7 @@ report :: (Logger l)
        -> l
        -> String
        -> Process ()
-report f l = f l 
+report f l = f l
 
 client :: Process (Maybe LogClient)
 client = resolve logProcessName >>= return . maybe Nothing (Just . LogClient)
@@ -344,4 +342,3 @@ format = accessor _format (\f s -> s { _format = f })
 
 formatters :: Accessor LogState [Message -> Process (Maybe String)]
 formatters = accessor _formatters (\n' st -> st { _formatters = n' })
-

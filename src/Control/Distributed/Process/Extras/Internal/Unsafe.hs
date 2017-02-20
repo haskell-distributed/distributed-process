@@ -134,4 +134,3 @@ matchInputStream (ReadChan rp) = matchChan rp return
 matchInputStream (ReadSTM stm) = matchSTM stm return
 matchInputStream Null          = match (\NullInputStream -> do
                                            error "NullInputStream")
-

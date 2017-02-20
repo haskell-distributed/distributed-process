@@ -6,6 +6,7 @@
 {-# LANGUAGE DefaultSignatures      #-}
 {-# LANGUAGE MultiParamTypeClasses  #-}
 {-# LANGUAGE ScopedTypeVariables    #-}
+{-# LANGUAGE UndecidableInstances   #-}
 
 -- | Types used throughout the Extras package
 --
@@ -74,11 +75,9 @@ import GHC.Generics
 -- behaviour by using /unsafe/ primitives in this way.
 --
 class (NFData a, Serializable a) => NFSerializable a
+instance (NFData a, Serializable a) => NFSerializable a
 
-instance NFSerializable ProcessId
 instance (NFSerializable a) => NFSerializable (SendPort a)
-instance NFSerializable NodeId
-instance NFSerializable Message
 
 -- | Tags provide uniqueness for messages, so that they can be
 -- matched with their response.
@@ -159,6 +158,8 @@ class Killable p where
   -- | Kill (instruct to exit) generic process, using 'exit' primitive.
   exitProc :: (Resolvable p, Serializable m) => p -> m -> Process ()
   exitProc r m = resolve r >>= traverse_ (flip exit $ m)
+
+instance Resolvable p => Killable p
 
 -- | resolve the Resolvable or die with specified msg plus details of what didn't resolve
 resolveOrDie  :: (Resolvable a) => a -> String -> Process ProcessId

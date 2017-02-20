@@ -60,4 +60,3 @@ sendChan port msg = Unsafe.sendChan port $!! msg
 -- | Create an unencoded @Message@ for any @Serializable@ type.
 wrapMessage :: NFSerializable a => a -> Message
 wrapMessage msg = Unsafe.wrapMessage $!! msg
-

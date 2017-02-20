@@ -53,4 +53,3 @@ getR s =
   case (viewr (q s)) of
     EmptyR -> Nothing
     a      -> Just a
-
