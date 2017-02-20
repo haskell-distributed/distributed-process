@@ -19,10 +19,6 @@ As well as our Slack channels (you'll need to sign up, but there is a form for d
 
 Visit the [bug tracker](https://github.com/haskell-distributed/distributed-process-extras/issues) to submit issues.
 
-### Story Boards
-[![Stories Ready](https://badge.waffle.io/haskell-distributed/distributed-process-extras.svg?label=ready&title=Ready)](https://waffle.io/haskell-distributed/distributed-process-extras)
-[![Stories In Progress](https://badge.waffle.io/haskell-distributed/distributed-process-extras.svg?label=waffle%3Ain%20progress&title=In%20Progress)](https://waffle.io/haskell-distributed/distributed-process-extras)
-
 ### License
 
 This package is made available under a 3-clause BSD-style license.
