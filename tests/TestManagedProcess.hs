@@ -187,6 +187,10 @@ tests transport = do
             (delayedAssertion
              "expected pong back from the server"
              localNode (Just "pong") (testUnsafeBasicCast $ wrap server))
+          , testCase "basic channel based rpc"
+            (delayedAssertion
+             "expected response back from the server"
+             localNode True testChannelBasedService)
           , testCase "cast and explicit server timeout"
             (delayedAssertion
              "expected the server to stop after the timeout"
@@ -294,4 +298,3 @@ tests transport = do
 
 main :: IO ()
 main = testMain $ tests
-
