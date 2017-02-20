@@ -6,6 +6,7 @@
 {-# LANGUAGE StandaloneDeriving         #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LiberalTypeSynonyms        #-}
 
 -- | Types used throughout the ManagedProcess framework
 module Control.Distributed.Process.ManagedProcess.Internal.Types
@@ -49,6 +50,7 @@ module Control.Distributed.Process.ManagedProcess.Internal.Types
   , waitResponse
   ) where
 
+import Control.Concurrent.STM (STM)
 import Control.Distributed.Process hiding (Message, finally)
 import Control.Monad.Catch (finally)
 import qualified Control.Distributed.Process as P (Message)
@@ -265,6 +267,12 @@ data Dispatcher s =
       channel  :: ReceivePort (Message a b)
     , dispatch :: s -> Message a b -> Process (ProcessAction s)
     }
+  | forall a .
+    DispatchSTM -- arbitrary STM actions
+    {
+      stmAction   :: STM a
+    , stmDispatch :: s -> a -> Process (ProcessAction s)
+    }
 
 -- | Provides dispatch for any input, returns 'Nothing' for unhandled messages.
 data DeferredDispatcher s =
@@ -289,9 +297,10 @@ class MessageMatcher d where
   matchDispatch :: UnhandledMessagePolicy -> s -> d s -> Match (ProcessAction s)
 
 instance MessageMatcher Dispatcher where
-  matchDispatch _ s (Dispatch   d)      = match (d s)
-  matchDispatch _ s (DispatchIf d cond) = matchIf (cond s) (d s)
-  matchDispatch _ s (DispatchCC c d)    = matchChan c (d s)
+  matchDispatch _ s (Dispatch    d)      = match (d s)
+  matchDispatch _ s (DispatchIf  d cond) = matchIf (cond s) (d s)
+  matchDispatch _ s (DispatchCC  c d)    = matchChan c (d s)
+  matchDispatch _ s (DispatchSTM c d)    = matchSTM  c (d s)
 
 class DynMessageHandler d where
   dynHandleMessage :: UnhandledMessagePolicy
@@ -301,9 +310,10 @@ class DynMessageHandler d where
                    -> Process (Maybe (ProcessAction s))
 
 instance DynMessageHandler Dispatcher where
-  dynHandleMessage _ s (Dispatch   d)   msg = handleMessage   msg (d s)
-  dynHandleMessage _ s (DispatchIf d c) msg = handleMessageIf msg (c s) (d s)
-  dynHandleMessage _ _ (DispatchCC _ _) _   = error "ThisCanNeverHappen"
+  dynHandleMessage _ s (Dispatch    d)   msg = handleMessage   msg (d s)
+  dynHandleMessage _ s (DispatchIf  d c) msg = handleMessageIf msg (c s) (d s)
+  dynHandleMessage _ _ (DispatchCC  _ _) _   = error "ThisCanNeverHappen"
+  dynHandleMessage _ _ (DispatchSTM _ _) _   = error "ThisCanNeverHappen"
 
 instance DynMessageHandler DeferredDispatcher where
   dynHandleMessage _ s (DeferredDispatcher d) = d s
@@ -399,8 +409,10 @@ initCall sid msg = do
     sendTo pid (CallMessage msg cRef :: Message a b)
     return cRef
 
-unsafeInitCall :: forall s a b . (Addressable s,
-                                  NFSerializable a, NFSerializable b)
+unsafeInitCall :: forall s a b . ( Addressable s
+                                 , NFSerializable a
+                                 , NFSerializable b
+                                 )
          => s -> a -> Process (CallRef b)
 unsafeInitCall sid msg = do
   pid <- resolveOrDie sid "unsafeInitCall: unresolveable address "

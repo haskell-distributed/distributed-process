@@ -64,8 +64,11 @@ module Control.Distributed.Process.ManagedProcess.Server
     -- * Working with Control Channels
   , handleControlChan
   , handleControlChan_
+    -- * Working with external/STM actions
+  , handleExternal
   ) where
 
+import Control.Concurrent.STM (STM)
 import Control.Distributed.Process hiding (call, Message)
 import qualified Control.Distributed.Process as P (Message)
 import Control.Distributed.Process.Serializable
@@ -80,6 +83,11 @@ import Prelude hiding (init)
 --------------------------------------------------------------------------------
 -- Producing ProcessAction and ProcessReply from inside handler expressions   --
 --------------------------------------------------------------------------------
+
+-- note [Message type]: Since we own both client and server portions of the
+-- codebase, we know for certain which types will be passed to which kinds
+-- of handler, so the catch-all cases that @die $ "THIS_CAN_NEVER_HAPPEN"@ and
+-- such, are relatively sane despite appearances!
 
 -- | Creates a 'Condition' from a function that takes a process state @a@ and
 -- an input message @b@ and returns a 'Bool' indicating whether the associated
@@ -404,6 +412,12 @@ handleCastIf cond h
     , dispatchIf = checkCast cond
     }
 
+handleExternal :: forall s a .
+       STM a
+    -> (s -> a -> Process (ProcessAction s))
+    -> Dispatcher s
+handleExternal = DispatchSTM
+
 -- | Constructs a /control channel/ handler from a function in the
 -- 'Process' monad. The handler expression returns no reply, and the
 -- /control message/ is treated in the same fashion as a 'cast'.
@@ -597,4 +611,3 @@ decode :: Message a b -> a
 decode (CallMessage a _) = a
 decode (CastMessage a)   = a
 decode (ChanMessage a _) = a
-
