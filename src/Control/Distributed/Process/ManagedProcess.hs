@@ -226,6 +226,13 @@
 -- Using a prioritised process is as simple as calling 'pserve' instead of
 -- 'serve', and passing an initialised 'PrioritisedProcessDefinition'.
 --
+-- Note that prioritised process definitions cannot utilise control channels,
+-- not can the @handleExternal@ family of expressions be used with them. This
+-- constraint is currenly not enforced by the compiler, and calling @pserve@
+-- with a @ProcessDefinition@ containing any of these items will fail with
+-- either @ExitOther "IllegalControlChannel"@ or @ExitOther "IllegalSTMAction"@
+-- at runtime.
+--
 -- [Control Channels]
 --
 -- For advanced users and those requiring very low latency, a prioritised
