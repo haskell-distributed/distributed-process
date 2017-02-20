@@ -386,6 +386,8 @@ module Control.Distributed.Process.ManagedProcess
   , channelControlPort
   , handleControlChan
   , handleControlChan_
+    -- * Arbitrary STM actions
+  , handleExternal
     -- * Prioritised mailboxes
   , module Control.Distributed.Process.ManagedProcess.Server.Priority
     -- * Constructing handler results
@@ -522,4 +524,3 @@ statelessProcess = defaultProcess :: ProcessDefinition ()
 -- state (i.e., unit) and the given 'Delay'.
 statelessInit :: Delay -> InitHandler () ()
 statelessInit d () = return $ InitOk () d
-

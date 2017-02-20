@@ -5,6 +5,8 @@
 
 module Main where
 
+import Control.Concurrent.STM (atomically)
+import Control.Concurrent.STM.TQueue (newTQueueIO, readTQueue, writeTQueue)
 import Control.Concurrent.MVar
 import Control.Exception (SomeException)
 import Control.Distributed.Process hiding (call, catch)
@@ -93,6 +95,30 @@ testChannelBasedService result =
     echo <- syncCallChan pid "hello"
     stash result (echo == "hello")
     kill pid "done"
+
+testExternalService :: TestResult Bool -> Process ()
+testExternalService result = do
+  inChan <- liftIO $ newTQueueIO
+  replyChan <- liftIO $ newTQueueIO
+  let procDef = statelessProcess {
+                    apiHandlers = [
+                      handleExternal
+                        (readTQueue inChan)
+                        (\s (m :: String) -> do
+                            liftIO $ atomically $ writeTQueue replyChan m
+                            continue s)
+                    ]
+                    }
+  let txt = "hello 2-way stm foo"
+  pid <- spawnLocal $ serve () (statelessInit Infinity) procDef
+  echoTxt <- liftIO $ do
+    -- firstly we write something that the server can receive
+    atomically $ writeTQueue inChan txt
+    -- then sit and wait for it to write something back to us
+    atomically $ readTQueue replyChan
+
+  stash result (echoTxt == txt)
+  kill pid "done"
 
 -- MathDemo tests
 
@@ -191,6 +217,14 @@ tests transport = do
             (delayedAssertion
              "expected response back from the server"
              localNode True testChannelBasedService)
+          , testCase "invalid return type handling"
+            (delayedAssertion
+             "expected response to fail on runtime type verification"
+             localNode True testCallReturnTypeMismatchHandling)
+          , testCase "taking arbitrary STM actions"
+            (delayedAssertion
+             "expected the server to read the STM queue and reply using STM"
+             localNode True testExternalService)
           , testCase "cast and explicit server timeout"
             (delayedAssertion
              "expected the server to stop after the timeout"
