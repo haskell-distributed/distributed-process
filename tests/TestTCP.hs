@@ -17,6 +17,7 @@ import Network.Transport.TCP ( createTransport
                              , createTransportExposeInternals
                              , TransportInternals(..)
                              , encodeEndPointAddress
+                             , TCPParameters(..)
                              , defaultTCPParameters
                              , LightweightConnectionId
                              )
@@ -831,10 +832,77 @@ testUseRandomPort = do
      putMVar testDone ()
    takeMVar testDone
 
+-- | Verify that if a peer sends an address or data which exceeds the maximum
+--   length, that peer's connection will be terminated, but other peers will
+--   not be affected.
+testMaxLength :: IO ()
+testMaxLength = do
+
+  Right serverTransport <- createTransport "127.0.0.1" "9998" ((,) "127.0.0.1") $ defaultTCPParameters {
+      -- 17 bytes should fit every valid address at 127.0.0.1.
+      -- Port is at most 5 bytes (65536) and id is a base-10 Word32 so
+      -- at most 10 bytes. We'll have one client with a 5-byte port to push it
+      -- over the chosen limit of 16
+      tcpMaxAddressLength = Just 16
+    , tcpMaxReceiveLength = Just 8
+    }
+  Right goodClientTransport <- createTransport "127.0.0.1" "9999" ((,) "127.0.0.1") defaultTCPParameters
+  Right badClientTransport <- createTransport "127.0.0.1" "10000" ((,) "127.0.0.1") defaultTCPParameters
+
+  serverAddress <- newEmptyMVar
+  testDone <- newEmptyMVar
+  goodClientConnected <- newEmptyMVar
+  goodClientDone <- newEmptyMVar
+  badClientDone <- newEmptyMVar
+
+  forkTry $ do
+    Right serverEp <- newEndPoint serverTransport
+    putMVar serverAddress (address serverEp)
+    readMVar badClientDone
+    ConnectionOpened _ _ _ <- receive serverEp
+    Received _ _ <- receive serverEp
+    -- Will lose the connection when the good client sends 9 bytes.
+    ErrorEvent (TransportError (EventConnectionLost _) _) <- receive serverEp
+    readMVar goodClientDone
+    putMVar testDone ()
+
+  forkTry $ do
+    Right badClientEp <- newEndPoint badClientTransport
+    address <- readMVar serverAddress
+    -- Wait until the good client connects, then try to connect. It'll fail,
+    -- but the good client should still be OK.
+    readMVar goodClientConnected
+    Left (TransportError ConnectFailed _)
+      <- connect badClientEp address ReliableOrdered defaultConnectHints
+    closeEndPoint badClientEp
+    putMVar badClientDone ()
+
+  forkTry $ do
+    Right goodClientEp <- newEndPoint goodClientTransport
+    address <- readMVar serverAddress
+    Right conn <- connect goodClientEp address ReliableOrdered defaultConnectHints
+    putMVar goodClientConnected ()
+    -- Wait until the bad client has tried and failed to connect before
+    -- attempting a send, to ensure that its failure did not affect us.
+    readMVar badClientDone
+    Right () <- send conn ["00000000"]
+    -- The send which breaches the limit does not appear to fail, but the
+    -- (heavyweight) connection is now severed. We can reliably determine that
+    -- by receiving.
+    Right () <- send conn ["000000000"]
+    ErrorEvent (TransportError (EventConnectionLost _) _) <- receive goodClientEp
+    closeEndPoint goodClientEp
+    putMVar goodClientDone ()
+
+  readMVar testDone
+  closeTransport badClientTransport
+  closeTransport goodClientTransport
+  closeTransport serverTransport
+
 main :: IO ()
 main = do
   tcpResult <- tryIO $ runTests
-           [ ("Use random port"       , testUseRandomPort)
+           [ ("Use random port",        testUseRandomPort)
            , ("EarlyDisconnect",        testEarlyDisconnect)
            , ("EarlyCloseSocket",       testEarlyCloseSocket)
            , ("IgnoreCloseSocket",      testIgnoreCloseSocket)
@@ -847,6 +915,7 @@ main = do
            , ("Reconnect",              testReconnect)
            , ("UnidirectionalError",    testUnidirectionalError)
            , ("InvalidCloseConnection", testInvalidCloseConnection)
+           , ("MaxLength",              testMaxLength)
            ]
   -- Run the generic tests even if the TCP specific tests failed..
   testTransport (either (Left . show) (Right) <$>
