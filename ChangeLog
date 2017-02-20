@@ -1,5 +1,15 @@
 2017-02-05 Tim Watson <watson.timothy @ google mail service dot com> 0.3.0
 
+* re-implement whereIsRemote in terms of whereIsRemoteAsync
+* re-implement whereisOrStart to avoid leaking zombie processes
+* implement general NFSerializable instances
+* make Resolvable instance of (NodeId, String) exception safe
+* remove dependency on data-accessor
+* Relax upper bound on time for testing
+* documentation fixes and improvements
+
+2017-02-05 Tim Watson <watson.timothy @ google mail service dot com> 0.3.0
+
 * Update dependency bounds - drop support for distributed-process < 0.6.6
 * Drop support for GHC < 7.10
 * Fixes for testing with latest stack and CI changes
