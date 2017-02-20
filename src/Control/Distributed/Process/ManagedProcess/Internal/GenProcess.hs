@@ -1,6 +1,5 @@
 {-# LANGUAGE ExistentialQuantification  #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
-{-# LANGUAGE ViewPatterns               #-}
 {-# LANGUAGE PatternGuards              #-}
 
 -- | This is the @Process@ implementation of a /managed process/
@@ -56,9 +55,10 @@ precvLoop ppDef pState recvDelay = do
     verify pDef = mapM_ disallowCC $ apiHandlers pDef
 
     -- TODO: better failure messages here!
-    disallowCC (DispatchCC _ _)  = die $ ExitOther "IllegalControlChannel"
-    disallowCC (DispatchSTM _ _) = die $ ExitOther "IllegalSTMAction"
-    disallowCC _                 = return ()
+    disallowCC (DispatchCC _ _)     = die $ ExitOther "IllegalControlChannel"
+    disallowCC (DispatchSTM _ _)    = die $ ExitOther "IllegalSTMAction"
+    disallowCC (DispatchExtern _ _) = die $ ExitOther "IllegalSTMAction"
+    disallowCC _                    = return ()
 
 recvQueue :: PrioritisedProcessDefinition s
           -> s
