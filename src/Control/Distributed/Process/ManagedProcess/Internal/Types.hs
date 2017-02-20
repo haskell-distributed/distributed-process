@@ -50,7 +50,7 @@ module Control.Distributed.Process.ManagedProcess.Internal.Types
   , waitResponse
   ) where
 
-import Control.Concurrent.STM (STM, atomically)
+import Control.Concurrent.STM (STM)
 import Control.Distributed.Process hiding (Message, finally)
 import Control.Monad.Catch (finally)
 import qualified Control.Distributed.Process as P (Message)

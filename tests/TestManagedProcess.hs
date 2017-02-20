@@ -1,7 +1,4 @@
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE DeriveDataTypeable  #-}
-{-# LANGUAGE BangPatterns        #-}
-{-# LANGUAGE TemplateHaskell     #-}
 {-# LANGUAGE RecordWildCards     #-}
 
 module Main where
@@ -42,23 +39,23 @@ import Control.Monad.Catch (catch)
 
 -- utilities
 
-server :: Process (ProcessId, (MVar ExitReason))
+server :: Process (ProcessId, MVar ExitReason)
 server = mkServer Terminate
 
 mkServer :: UnhandledMessagePolicy
-         -> Process (ProcessId, (MVar ExitReason))
+         -> Process (ProcessId, MVar ExitReason)
 mkServer policy =
   let s = standardTestServer policy
   in do
-    exitReason <- liftIO $ newEmptyMVar
-    pid <- spawnLocal $ do
+    exitReason <- liftIO newEmptyMVar
+    pid <- spawnLocal $
        catch  ((serve () (statelessInit Infinity) s >> stash exitReason ExitNormal)
                 `catchesExit` [
                     (\_ msg -> do
                       mEx <- unwrapMessage msg :: Process (Maybe ExitReason)
                       case mEx of
                         Nothing -> return Nothing
-                        Just r  -> stash exitReason r >>= return . Just
+                        Just r  -> fmap Just (stash exitReason r)
                     )
                  ])
               (\(e :: SomeException) -> stash exitReason $ ExitOther (show e))
@@ -69,8 +66,8 @@ explodingServer :: ProcessId
 explodingServer pid =
   let srv = explodingTestProcess pid
   in do
-    exitReason <- liftIO $ newEmptyMVar
-    spid <- spawnLocal $ do
+    exitReason <- liftIO newEmptyMVar
+    spid <- spawnLocal $
        catch  (serve () (statelessInit Infinity) srv >> stash exitReason ExitNormal)
               (\(e :: SomeException) -> stash exitReason $ ExitOther (show e))
     return (spid, exitReason)
@@ -104,14 +101,14 @@ testChannelBasedService result =
 
 testExternalService :: TestResult Bool -> Process ()
 testExternalService result = do
-  inChan <- liftIO $ newTQueueIO
-  replyChan <- liftIO $ newTQueueIO
+  inChan <- liftIO newTQueueIO
+  replyQ <- liftIO newTQueueIO
   let procDef = statelessProcess {
                     apiHandlers = [
                       handleExternal
                         (readTQueue inChan)
                         (\s (m :: String) -> do
-                            liftIO $ atomically $ writeTQueue replyChan m
+                            liftIO $ atomically $ writeTQueue replyQ m
                             continue s)
                     ]
                     }
@@ -121,7 +118,7 @@ testExternalService result = do
     -- firstly we write something that the server can receive
     atomically $ writeTQueue inChan txt
     -- then sit and wait for it to write something back to us
-    atomically $ readTQueue replyChan
+    atomically $ readTQueue replyQ
 
   stash result (echoTxt == txt)
   kill pid "done"
