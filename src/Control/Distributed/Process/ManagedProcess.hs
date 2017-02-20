@@ -1,8 +1,5 @@
-{-# LANGUAGE DeriveDataTypeable         #-}
 {-# LANGUAGE ExistentialQuantification  #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
-{-# LANGUAGE TemplateHaskell            #-}
-{-# LANGUAGE RecordWildCards            #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -388,6 +385,8 @@ module Control.Distributed.Process.ManagedProcess
   , handleControlChan_
     -- * Arbitrary STM actions
   , handleExternal
+  , handleExternal_
+  , handleCallExternal
     -- * Prioritised mailboxes
   , module Control.Distributed.Process.ManagedProcess.Server.Priority
     -- * Constructing handler results

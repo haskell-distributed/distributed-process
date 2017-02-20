@@ -66,9 +66,11 @@ module Control.Distributed.Process.ManagedProcess.Server
   , handleControlChan_
     -- * Working with external/STM actions
   , handleExternal
+  , handleExternal_
+  , handleCallExternal
   ) where
 
-import Control.Concurrent.STM (STM)
+import Control.Concurrent.STM (STM, atomically)
 import Control.Distributed.Process hiding (call, Message)
 import qualified Control.Distributed.Process as P (Message)
 import Control.Distributed.Process.Serializable
@@ -417,6 +419,27 @@ handleExternal :: forall s a .
     -> (s -> a -> Process (ProcessAction s))
     -> Dispatcher s
 handleExternal = DispatchSTM
+
+handleExternal_ :: forall s a .
+       STM a
+    -> (a -> (s -> Process (ProcessAction s)))
+    -> Dispatcher s
+handleExternal_ a h = DispatchSTM a (\s m -> (h m) s)
+
+handleCallExternal :: forall s r w .
+                      STM r
+                   -> (w -> STM ())
+                   -> CallHandler s r w
+                   -> Dispatcher s
+handleCallExternal reader writer handler
+  = DispatchExtern { stmAction   = reader
+                   , stmDispatch = doStmReply handler
+                   }
+  where
+    doStmReply d s m = d s m >>= doXfmReply writer
+
+    doXfmReply _ (NoReply a)         = return a
+    doXfmReply w (ProcessReply r' a) = liftIO (atomically $ w r') >> return a
 
 -- | Constructs a /control channel/ handler from a function in the
 -- 'Process' monad. The handler expression returns no reply, and the

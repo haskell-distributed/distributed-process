@@ -28,8 +28,10 @@ module Control.Distributed.Process.ManagedProcess.Client
   , callChan
   , syncCallChan
   , syncSafeCallChan
+  , callSTM
   ) where
 
+import Control.Concurrent.STM (atomically, STM)
 import Control.Distributed.Process hiding (call)
 import Control.Distributed.Process.Serializable
 import Control.Distributed.Process.Async hiding (check)
@@ -162,3 +164,12 @@ syncSafeCallChan server msg = do
   rp <- callChan server msg
   awaitResponse server [ matchChan rp (return . Right) ]
 
+callSTM :: forall s a b . (Addressable s)
+         => s
+         -> (a -> STM ())
+         -> STM b
+         -> a
+         -> Process (Either ExitReason b)
+callSTM server writeAction readAction input = do
+  liftIO $ atomically $ writeAction input
+  awaitResponse server [ matchSTM readAction (return . Right) ]

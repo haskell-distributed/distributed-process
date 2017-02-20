@@ -2,11 +2,17 @@
 {-# LANGUAGE DeriveDataTypeable  #-}
 {-# LANGUAGE BangPatterns        #-}
 {-# LANGUAGE TemplateHaskell     #-}
+{-# LANGUAGE RecordWildCards     #-}
 
 module Main where
 
 import Control.Concurrent.STM (atomically)
-import Control.Concurrent.STM.TQueue (newTQueueIO, readTQueue, writeTQueue)
+import Control.Concurrent.STM.TQueue
+ ( newTQueueIO
+ , readTQueue
+ , writeTQueue
+ , TQueue
+ )
 import Control.Concurrent.MVar
 import Control.Exception (SomeException)
 import Control.Distributed.Process hiding (call, catch)
@@ -120,6 +126,49 @@ testExternalService result = do
   stash result (echoTxt == txt)
   kill pid "done"
 
+data StmServer = StmServer { serverPid  :: ProcessId
+                           , writerChan :: TQueue String
+                           , readerChan :: TQueue String
+                           }
+
+instance Resolvable StmServer where
+  resolve = return . Just . serverPid
+
+instance Killable StmServer where
+  killProc StmServer{..} = kill serverPid
+  exitProc StmServer{..} = exit serverPid
+
+echoStm :: StmServer -> String -> Process (Either ExitReason String)
+echoStm StmServer{..} = callSTM serverPid
+                                (writeTQueue writerChan)
+                                (readTQueue  readerChan)
+
+launchEchoServer :: Process StmServer
+launchEchoServer = do
+  (inQ, replyQ) <- liftIO $ do
+    cIn <- newTQueueIO
+    cOut <- newTQueueIO
+    return (cIn, cOut)
+
+  let procDef = statelessProcess {
+                  apiHandlers = [
+                    handleCallExternal
+                      (readTQueue inQ)
+                      (writeTQueue replyQ)
+                      (\st (msg :: String) -> reply msg st)
+                  ]
+                }
+
+  pid <- spawnLocal $ serve () (statelessInit Infinity) procDef
+  return $ StmServer pid inQ replyQ
+
+testExternalCall :: TestResult Bool -> Process ()
+testExternalCall result = do
+  let txt = "hello stm-call foo"
+  srv <- launchEchoServer
+  echoStm srv txt >>= stash result . (== Right txt)
+  killProc srv "done"
+
 -- MathDemo tests
 
 testAdd :: ProcessId -> TestResult Double -> Process ()
@@ -188,7 +237,7 @@ tests transport = do
   _ <- forkProcess localNode $ SafeCounter.startCounter 5 >>= stash scpid
   safeCounter <- takeMVar scpid
   return [
-        testGroup "basic server functionality" [
+        testGroup "Basic Client/Server Functionality" [
             testCase "basic call with explicit server reply"
             (delayedAssertion
              "expected a response from the server"
@@ -217,14 +266,78 @@ tests transport = do
             (delayedAssertion
              "expected response back from the server"
              localNode True testChannelBasedService)
+             ]
+           , testGroup "Unhandled Message Policies" [
+              testCase "unhandled input when policy = Terminate"
+              (delayedAssertion
+               "expected the server to stop upon receiving unhandled input"
+               localNode (Just $ ExitOther "UnhandledInput")
+               (testTerminatePolicy $ wrap server))
+            , testCase "(unsafe) unhandled input when policy = Terminate"
+              (delayedAssertion
+               "expected the server to stop upon receiving unhandled input"
+               localNode (Just $ ExitOther "UnhandledInput")
+               (testUnsafeTerminatePolicy $ wrap server))
+            , testCase "unhandled input when policy = Drop"
+              (delayedAssertion
+               "expected the server to ignore unhandled input and exit normally"
+               localNode Nothing (testDropPolicy $ wrap (mkServer Drop)))
+            , testCase "(unsafe) unhandled input when policy = Drop"
+              (delayedAssertion
+               "expected the server to ignore unhandled input and exit normally"
+               localNode Nothing (testUnsafeDropPolicy $ wrap (mkServer Drop)))
+            , testCase "unhandled input when policy = DeadLetter"
+              (delayedAssertion
+               "expected the server to forward unhandled messages"
+               localNode (Just ("UNSOLICITED_MAIL", 500 :: Int))
+               (testDeadLetterPolicy $ \p -> mkServer (DeadLetter p)))
+            , testCase "(unsafe) unhandled input when policy = DeadLetter"
+              (delayedAssertion
+               "expected the server to forward unhandled messages"
+               localNode (Just ("UNSOLICITED_MAIL", 500 :: Int))
+               (testUnsafeDeadLetterPolicy $ \p -> mkServer (DeadLetter p)))
+            , testCase "incoming messages are ignored whilst hibernating"
+              (delayedAssertion
+               "expected the server to remain in hibernation"
+               localNode True (testHibernation $ wrap server))
+            , testCase "(unsafe) incoming messages are ignored whilst hibernating"
+              (delayedAssertion
+               "expected the server to remain in hibernation"
+               localNode True (testUnsafeHibernation $ wrap server))
+          ]
+        , testGroup "Server Exit Handling" [
+              testCase "simple exit handling"
+              (delayedAssertion "expected handler to catch exception and continue"
+               localNode Nothing (testSimpleErrorHandling $ explodingServer))
+            , testCase "(unsafe) simple exit handling"
+              (delayedAssertion "expected handler to catch exception and continue"
+               localNode Nothing (testUnsafeSimpleErrorHandling $ explodingServer))
+            , testCase "alternative exit handlers"
+              (delayedAssertion "expected handler to catch exception and continue"
+               localNode Nothing (testAlternativeErrorHandling $ explodingServer))
+            , testCase "(unsafe) alternative exit handlers"
+              (delayedAssertion "expected handler to catch exception and continue"
+               localNode Nothing (testUnsafeAlternativeErrorHandling $ explodingServer))
+          ]
+        , testGroup "Advanced Server Interactions" [
+            testCase "taking arbitrary STM actions"
+            (delayedAssertion
+             "expected the server to read the STM queue and reply using STM"
+             localNode True testExternalService)
+          , testCase "using callSTM to manage non-CH interactions"
+            (delayedAssertion
+             "expected the server to reply back via the TQueue"
+             localNode True testExternalCall)
+          , testCase "long running call cancellation"
+            (delayedAssertion "expected to get AsyncCancelled"
+             localNode True (testKillMidCall $ wrap server))
+          , testCase "(unsafe) long running call cancellation"
+            (delayedAssertion "expected to get AsyncCancelled"
+            localNode True (testUnsafeKillMidCall $ wrap server))
           , testCase "invalid return type handling"
             (delayedAssertion
              "expected response to fail on runtime type verification"
              localNode True testCallReturnTypeMismatchHandling)
-          , testCase "taking arbitrary STM actions"
-            (delayedAssertion
-             "expected the server to read the STM queue and reply using STM"
-             localNode True testExternalService)
           , testCase "cast and explicit server timeout"
             (delayedAssertion
              "expected the server to stop after the timeout"
@@ -233,60 +346,6 @@ tests transport = do
             (delayedAssertion
              "expected the server to stop after the timeout"
              localNode (Just $ ExitOther "timeout") (testUnsafeControlledTimeout $ wrap server))
-          , testCase "unhandled input when policy = Terminate"
-            (delayedAssertion
-             "expected the server to stop upon receiving unhandled input"
-             localNode (Just $ ExitOther "UnhandledInput")
-             (testTerminatePolicy $ wrap server))
-          , testCase "(unsafe) unhandled input when policy = Terminate"
-            (delayedAssertion
-             "expected the server to stop upon receiving unhandled input"
-             localNode (Just $ ExitOther "UnhandledInput")
-             (testUnsafeTerminatePolicy $ wrap server))
-          , testCase "unhandled input when policy = Drop"
-            (delayedAssertion
-             "expected the server to ignore unhandled input and exit normally"
-             localNode Nothing (testDropPolicy $ wrap (mkServer Drop)))
-          , testCase "(unsafe) unhandled input when policy = Drop"
-            (delayedAssertion
-             "expected the server to ignore unhandled input and exit normally"
-             localNode Nothing (testUnsafeDropPolicy $ wrap (mkServer Drop)))
-          , testCase "unhandled input when policy = DeadLetter"
-            (delayedAssertion
-             "expected the server to forward unhandled messages"
-             localNode (Just ("UNSOLICITED_MAIL", 500 :: Int))
-             (testDeadLetterPolicy $ \p -> mkServer (DeadLetter p)))
-          , testCase "(unsafe) unhandled input when policy = DeadLetter"
-            (delayedAssertion
-             "expected the server to forward unhandled messages"
-             localNode (Just ("UNSOLICITED_MAIL", 500 :: Int))
-             (testUnsafeDeadLetterPolicy $ \p -> mkServer (DeadLetter p)))
-          , testCase "incoming messages are ignored whilst hibernating"
-            (delayedAssertion
-             "expected the server to remain in hibernation"
-             localNode True (testHibernation $ wrap server))
-          , testCase "(unsafe) incoming messages are ignored whilst hibernating"
-            (delayedAssertion
-             "expected the server to remain in hibernation"
-             localNode True (testUnsafeHibernation $ wrap server))
-          , testCase "long running call cancellation"
-            (delayedAssertion "expected to get AsyncCancelled"
-             localNode True (testKillMidCall $ wrap server))
-          , testCase "(unsafe) long running call cancellation"
-            (delayedAssertion "expected to get AsyncCancelled"
-             localNode True (testUnsafeKillMidCall $ wrap server))
-          , testCase "simple exit handling"
-            (delayedAssertion "expected handler to catch exception and continue"
-             localNode Nothing (testSimpleErrorHandling $ explodingServer))
-          , testCase "(unsafe) simple exit handling"
-            (delayedAssertion "expected handler to catch exception and continue"
-             localNode Nothing (testUnsafeSimpleErrorHandling $ explodingServer))
-          , testCase "alternative exit handlers"
-            (delayedAssertion "expected handler to catch exception and continue"
-             localNode Nothing (testAlternativeErrorHandling $ explodingServer))
-          , testCase "(unsafe) alternative exit handlers"
-            (delayedAssertion "expected handler to catch exception and continue"
-             localNode Nothing (testUnsafeAlternativeErrorHandling $ explodingServer))
           ]
         , testGroup "math server examples" [
             testCase "error (Left) returned from x / 0"

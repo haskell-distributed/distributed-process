@@ -1,5 +1,6 @@
 {-# LANGUAGE ExistentialQuantification  #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE LiberalTypeSynonyms        #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -178,4 +179,3 @@ syncSafeCallChan :: forall s a b . (Addressable s, NFSerializable a, NFSerializa
 syncSafeCallChan server msg = do
   rp <- callChan server msg
   awaitResponse server [ matchChan rp (return . Right) ]
-

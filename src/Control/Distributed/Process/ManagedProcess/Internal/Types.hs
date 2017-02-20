@@ -50,7 +50,7 @@ module Control.Distributed.Process.ManagedProcess.Internal.Types
   , waitResponse
   ) where
 
-import Control.Concurrent.STM (STM)
+import Control.Concurrent.STM (STM, atomically)
 import Control.Distributed.Process hiding (Message, finally)
 import Control.Monad.Catch (finally)
 import qualified Control.Distributed.Process as P (Message)
@@ -273,6 +273,12 @@ data Dispatcher s =
       stmAction   :: STM a
     , stmDispatch :: s -> a -> Process (ProcessAction s)
     }
+  | forall a .
+    DispatchExtern
+    {
+      stmAction   :: STM a
+    , stmDispatch :: s -> a -> Process (ProcessAction s)
+    }
 
 -- | Provides dispatch for any input, returns 'Nothing' for unhandled messages.
 data DeferredDispatcher s =
@@ -297,10 +303,11 @@ class MessageMatcher d where
   matchDispatch :: UnhandledMessagePolicy -> s -> d s -> Match (ProcessAction s)
 
 instance MessageMatcher Dispatcher where
-  matchDispatch _ s (Dispatch    d)      = match (d s)
-  matchDispatch _ s (DispatchIf  d cond) = matchIf (cond s) (d s)
-  matchDispatch _ s (DispatchCC  c d)    = matchChan c (d s)
-  matchDispatch _ s (DispatchSTM c d)    = matchSTM  c (d s)
+  matchDispatch _ s (Dispatch    d)        = match (d s)
+  matchDispatch _ s (DispatchIf  d cond)   = matchIf (cond s) (d s)
+  matchDispatch _ s (DispatchCC  c d)      = matchChan c (d s)
+  matchDispatch _ s (DispatchSTM c d)      = matchSTM c (d s)
+  matchDispatch _ s (DispatchExtern r d)   = matchSTM r (d s)
 
 class DynMessageHandler d where
   dynHandleMessage :: UnhandledMessagePolicy
@@ -310,10 +317,11 @@ class DynMessageHandler d where
                    -> Process (Maybe (ProcessAction s))
 
 instance DynMessageHandler Dispatcher where
-  dynHandleMessage _ s (Dispatch    d)   msg = handleMessage   msg (d s)
-  dynHandleMessage _ s (DispatchIf  d c) msg = handleMessageIf msg (c s) (d s)
-  dynHandleMessage _ _ (DispatchCC  _ _) _   = error "ThisCanNeverHappen"
-  dynHandleMessage _ _ (DispatchSTM _ _) _   = error "ThisCanNeverHappen"
+  dynHandleMessage _ s (Dispatch       d)   msg = handleMessage   msg (d s)
+  dynHandleMessage _ s (DispatchIf     d c) msg = handleMessageIf msg (c s) (d s)
+  dynHandleMessage _ _ (DispatchCC     _ _) _   = error "ThisCanNeverHappen"
+  dynHandleMessage _ _ (DispatchSTM    _ _) _   = error "ThisCanNeverHappen"
+  dynHandleMessage _ _ (DispatchExtern _ _) _   = error "ThisCanNeverHappen"
 
 instance DynMessageHandler DeferredDispatcher where
   dynHandleMessage _ s (DeferredDispatcher d) = d s
