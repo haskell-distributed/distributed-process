@@ -10,7 +10,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  Control.Distributed.Process.Extras.SystemLog
--- Copyright   :  (c) Tim Watson 2013 - 2014
+-- Copyright   :  (c) Tim Watson 2013 - 2017
 -- License     :  BSD3 (see the file LICENSE)
 --
 -- Maintainer  :  Tim Watson <watson.timothy@gmail.com>

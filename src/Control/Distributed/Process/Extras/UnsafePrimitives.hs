@@ -1,7 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  Control.Distributed.Process.Extras.UnsafePrimitives
--- Copyright   :  (c) Tim Watson 2013
+-- Copyright   :  (c) Tim Watson 2013 - 2017
 -- License     :  BSD3 (see the file LICENSE)
 --
 -- Maintainer  :  Tim Watson <watson.timothy@gmail.com>

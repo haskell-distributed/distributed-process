@@ -9,7 +9,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  Control.Distributed.Process.Extras.Internal.Primitives
--- Copyright   :  (c) Tim Watson 2013, Parallel Scientific (Jeff Epstein) 2012
+-- Copyright   :  (c) Tim Watson 2013 - 2017, Parallel Scientific (Jeff Epstein) 2012
 -- License     :  BSD3 (see the file LICENSE)
 --
 -- Maintainers :  Jeff Epstein, Tim Watson

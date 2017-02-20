@@ -66,7 +66,7 @@ testCancelTimer result = do
   pid <- periodically delay noop
   ref <- monitor pid
   _ <- getProcessInfo pid
-  
+
   cancelTimer pid
 
   _ <- receiveWait [
