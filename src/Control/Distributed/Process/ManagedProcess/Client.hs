@@ -74,7 +74,7 @@ call sid msg = initCall sid msg >>= waitResponse Nothing >>= decodeResult
 -- will be stashed away as @(ExitOther String)@.
 safeCall :: forall s a b . (Addressable s, Serializable a, Serializable b)
                  => s -> a -> Process (Either ExitReason b)
-safeCall s m = initCall s m >>= waitResponse Nothing >>= return . fromJust
+safeCall s m = fmap fromJust (initCall s m >>= waitResponse Nothing)
 
 -- | Version of 'safeCall' that returns 'Nothing' if the operation fails. If
 -- you need information about *why* a call has failed then you should use
@@ -117,7 +117,7 @@ flushPendingCalls :: forall b . (Serializable b)
                   => TimeInterval
                   -> (b -> Process b)
                   -> Process (Maybe b)
-flushPendingCalls d proc = do
+flushPendingCalls d proc =
   receiveTimeout (asTimeout d) [
       match (\(CallResponse (m :: b) _) -> proc m)
     ]
@@ -135,7 +135,7 @@ callAsync server msg = async $ task $ call server msg
 --
 cast :: forall a m . (Addressable a, Serializable m)
                  => a -> m -> Process ()
-cast server msg = sendTo server ((CastMessage msg) :: T.Message m ())
+cast server msg = sendTo server (CastMessage msg :: T.Message m ())
 
 -- | Sends a /channel/ message to the server and returns a @ReceivePort@ on
 -- which the reponse can be delivered, if the server so chooses (i.e., the
@@ -144,7 +144,7 @@ callChan :: forall s a b . (Addressable s, Serializable a, Serializable b)
          => s -> a -> Process (ReceivePort b)
 callChan server msg = do
   (sp, rp) <- newChan
-  sendTo server ((ChanMessage msg sp) :: T.Message a b)
+  sendTo server (ChanMessage msg sp :: T.Message a b)
   return rp
 
 -- | A synchronous version of 'callChan'.
