@@ -179,14 +179,23 @@ testExternalCallHaltingServer result = do
 
 -- MathDemo tests
 
-testAdd :: ProcessId -> TestResult Double -> Process ()
-testAdd pid result = add pid 10 10 >>= stash result
+testAdd :: TestResult Double -> Process ()
+testAdd result = do
+  pid <- launchMathServer
+  add pid 10 10 >>= stash result
+  kill pid "done"
 
-testBadAdd :: ProcessId -> TestResult (Either ExitReason Int) -> Process ()
-testBadAdd pid result = safeCall pid (Add 10 10) >>= stash result
+testBadAdd :: TestResult Bool -> Process ()
+testBadAdd result = do
+  pid <- launchMathServer
+  res <- safeCall pid (Add 10 10) :: Process (Either ExitReason Int)
+  stash result (res == (Left $ ExitOther $ "DiedException \"exit-from=" ++ (show pid) ++ "\""))
 
-testDivByZero :: ProcessId -> TestResult (Either DivByZero Double) -> Process ()
-testDivByZero pid result = divide pid 125 0 >>= stash result
+testDivByZero :: TestResult (Either DivByZero Double) -> Process ()
+testDivByZero result = do
+  pid <- launchMathServer
+  divide pid 125 0 >>= stash result
+  kill pid "done"
 
 -- SafeCounter tests
 
@@ -238,9 +247,6 @@ testCounterExceedsLimit result = do
 tests :: NT.Transport  -> IO [Test]
 tests transport = do
   localNode <- newLocalNode transport initRemoteTable
-  mpid <- newEmptyMVar
-  _ <- forkProcess localNode $ launchMathServer >>= stash mpid
-  pid <- takeMVar mpid
   scpid <- newEmptyMVar
   _ <- forkProcess localNode $ SafeCounter.startCounter 5 >>= stash scpid
   safeCounter <- takeMVar scpid
@@ -363,17 +369,15 @@ tests transport = do
             testCase "error (Left) returned from x / 0"
               (delayedAssertion
                "expected the server to return DivByZero"
-               localNode (Left DivByZero) (testDivByZero pid))
+               localNode (Left DivByZero) testDivByZero)
           , testCase "10 + 10 = 20"
               (delayedAssertion
                "expected the server to return DivByZero"
-               localNode 20 (testAdd pid))
+               localNode 20 testAdd)
           , testCase "10 + 10 does not evaluate to 10 :: Int at all!"
             (delayedAssertion
              "expected the server to return ExitOther..."
-             localNode
-             (Left $ ExitOther $ "DiedException \"exit-from=" ++ (show pid) ++ "\"")
-             (testBadAdd pid))
+             localNode True testBadAdd)
           ]
         , testGroup "counter server examples" [
             testCase "initial counter state = 5"
