@@ -266,4 +266,3 @@ runRestricted state proc = ST.runStateT (unRestricted proc) state
 -- | TODO MonadTrans instance? lift :: (Monad m) => m a -> t m a
 lift :: Process a -> RestrictedProcess s a
 lift p = RestrictedProcess $ ST.lift p
-
