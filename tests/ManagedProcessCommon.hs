@@ -1,11 +1,13 @@
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE FlexibleInstances   #-}
 
 module ManagedProcessCommon where
 
 import Control.Concurrent.MVar (MVar)
 import Control.Distributed.Process hiding (call, send)
 import Control.Distributed.Process.Extras hiding (monitor)
-import Control.Distributed.Process.Tests.Internal.Utils
+import qualified Control.Distributed.Process as P
+import Control.Distributed.Process.SysTest.Utils
 import Control.Distributed.Process.Extras.Time
 import Control.Distributed.Process.Extras.Timer
 import Control.Distributed.Process.Async
@@ -34,7 +36,7 @@ explodingTestProcess pid =
        handleExit  (\s _ (m :: String) -> send pid (m :: String) >>
                                           continue s)
      , handleExit  (\s _ m@((_ :: ProcessId),
-                            (_ :: Int)) -> send pid m >> continue s)
+                            (_ :: Int)) -> P.send pid m >> continue s)
      ]
   }
 
@@ -310,4 +312,3 @@ testUnsafeAlternativeErrorHandling launch result = do
 
   Unsafe.shutdown pid
   waitForExit exitReason >>= stash result
-

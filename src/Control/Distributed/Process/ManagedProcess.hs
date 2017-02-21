@@ -1,8 +1,5 @@
-{-# LANGUAGE DeriveDataTypeable         #-}
 {-# LANGUAGE ExistentialQuantification  #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
-{-# LANGUAGE TemplateHaskell            #-}
-{-# LANGUAGE RecordWildCards            #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -229,6 +226,13 @@
 -- Using a prioritised process is as simple as calling 'pserve' instead of
 -- 'serve', and passing an initialised 'PrioritisedProcessDefinition'.
 --
+-- Note that prioritised process definitions cannot utilise control channels,
+-- nor can the @handleExternal@ family of expressions be used with them. This
+-- constraint is currenly not enforced by the compiler, and calling @pserve@
+-- with a @ProcessDefinition@ containing any of these items will fail with
+-- either @ExitOther "IllegalControlChannel"@ or @ExitOther "IllegalSTMAction"@
+-- at runtime.
+--
 -- [Control Channels]
 --
 -- For advanced users and those requiring very low latency, a prioritised
@@ -300,6 +304,98 @@
 -- >   (sp, rp) <- newChan
 -- >   sendControlMessage cp $ Request str sp
 -- >   receiveChan rp
+--
+-- [External (STM) Input Channels]
+--
+-- Both client and server APIs provide a mechanism for interacting with a running
+-- server process via STM. This is primarily intended for code that runs outside
+-- of Cloud Haskell's /Process/ monad, but can also be used as a channel for
+-- sending and/or receiving non-serializable data to or from a managed process.
+-- Obviously if you attempt to do this across a remote boundary, things will go
+-- spectacularly wrong. The APIs provided do not attempt to restrain this, or
+-- to impose any particular scheme on the programmer, therefore you're on your
+-- own when it comes to writing the /STM/ code for reading and writing data
+-- between client and server.
+--
+-- For code running inside the /Process/ monad and passing Serializable thunks,
+-- there is no real advantage to this approach, and indeed there are several
+-- serious disadvantages - none of Cloud Haskell's ordering guarantees will hold
+-- when passing data to and from server processes in this fashion, nor are there
+-- any guarantees the runtime system can make with regards interleaving between
+-- messages passed across Cloud Haskell's communication fabric vs. data shared
+-- via STM. This is true even when client(s) and server(s) reside on the same
+-- local node.
+--
+--
+-- A server wishing to receive data via STM can do so using the @handleExternal@
+-- API. By way of example, here is a simple echo server implemented using STM:
+--
+-- > demoExternal = do
+-- >   inChan <- liftIO newTQueueIO
+-- >   replyQ <- liftIO newTQueueIO
+-- >   let procDef = statelessProcess {
+-- >                     apiHandlers = [
+-- >                       handleExternal
+-- >                         (readTQueue inChan)
+-- >                         (\s (m :: String) -> do
+-- >                             liftIO $ atomically $ writeTQueue replyQ m
+-- >                             continue s)
+-- >                     ]
+-- >                     }
+-- >   let txt = "hello 2-way stm foo"
+-- >   pid <- spawnLocal $ serve () (statelessInit Infinity) procDef
+-- >   echoTxt <- liftIO $ do
+-- >     -- firstly we write something that the server can receive
+-- >     atomically $ writeTQueue inChan txt
+-- >     -- then sit and wait for it to write something back to us
+-- >     atomically $ readTQueue replyQ
+-- >
+-- >   say (show $ echoTxt == txt)
+--
+-- For request/reply channels such as this, a convenience based on the call API
+-- is also provided, which allows the server author to write an ordinary call
+-- handler, and the client author to utilise an API that monitors the server and
+-- does the usual stuff you'd expect an RPC style client to do. Here is another
+-- example of this in use, demonstrating the @callSTM@ and @handleCallExternal@
+-- APIs in practise.
+--
+-- > data StmServer = StmServer { serverPid  :: ProcessId
+-- >                            , writerChan :: TQueue String
+-- >                            , readerChan :: TQueue String
+-- >                            }
+-- >
+-- > instance Resolvable StmServer where
+-- >   resolve = return . Just . serverPid
+-- >
+-- > echoStm :: StmServer -> String -> Process (Either ExitReason String)
+-- > echoStm StmServer{..} = callSTM serverPid
+-- >                                 (writeTQueue writerChan)
+-- >                                 (readTQueue  readerChan)
+-- >
+-- > launchEchoServer :: CallHandler () String String -> Process StmServer
+-- > launchEchoServer handler = do
+-- >   (inQ, replyQ) <- liftIO $ do
+-- >     cIn <- newTQueueIO
+-- >     cOut <- newTQueueIO
+-- >     return (cIn, cOut)
+-- >
+-- >   let procDef = statelessProcess {
+-- >                   apiHandlers = [
+-- >                     handleCallExternal
+-- >                       (readTQueue inQ)
+-- >                       (writeTQueue replyQ)
+-- >                       handler
+-- >                   ]
+-- >                 }
+-- >
+-- >   pid <- spawnLocal $ serve () (statelessInit Infinity) procDef
+-- >   return $ StmServer pid inQ replyQ
+-- >
+-- > testExternalCall :: TestResult Bool -> Process ()
+-- > testExternalCall result = do
+-- >   let txt = "hello stm-call foo"
+-- >   srv <- launchEchoServer (\st (msg :: String) -> reply msg st)
+-- >   echoStm srv txt >>= stash result . (== Right txt)
 --
 -- [Performance Considerations]
 --
@@ -386,6 +482,10 @@ module Control.Distributed.Process.ManagedProcess
   , channelControlPort
   , handleControlChan
   , handleControlChan_
+    -- * Arbitrary STM actions
+  , handleExternal
+  , handleExternal_
+  , handleCallExternal
     -- * Prioritised mailboxes
   , module Control.Distributed.Process.ManagedProcess.Server.Priority
     -- * Constructing handler results
@@ -522,4 +622,3 @@ statelessProcess = defaultProcess :: ProcessDefinition ()
 -- state (i.e., unit) and the given 'Delay'.
 statelessInit :: Delay -> InitHandler () ()
 statelessInit d () = return $ InitOk () d
-

@@ -1,6 +1,5 @@
 {-# LANGUAGE ExistentialQuantification  #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
-{-# LANGUAGE ViewPatterns               #-}
 {-# LANGUAGE PatternGuards              #-}
 
 -- | This is the @Process@ implementation of a /managed process/
@@ -40,6 +39,9 @@ import Prelude hiding (init)
 -- Priority Mailbox Handling                                                  --
 --------------------------------------------------------------------------------
 
+-- TODO: we need to actually utilise recvTimeout on the prioritised pdef, such
+-- that a busy mailbox can't prevent us from operating normally.
+
 type Queue = PriorityQ Int P.Message
 type TimeoutSpec = (Delay, Maybe (TimerRef, (STM ())))
 data TimeoutAction s = Stop s ExitReason | Go Delay s
@@ -52,8 +54,10 @@ precvLoop ppDef pState recvDelay = do
   where
     verify pDef = mapM_ disallowCC $ apiHandlers pDef
 
-    disallowCC (DispatchCC _ _) = die $ ExitOther "IllegalControlChannel"
-    disallowCC _                = return ()
+    -- TODO: better failure messages here!
+    disallowCC (DispatchCC _ _)     = die $ ExitOther "IllegalControlChannel"
+    disallowCC (DispatchSTM _ _)    = die $ ExitOther "IllegalSTMAction"
+    disallowCC _                    = return ()
 
 recvQueue :: PrioritisedProcessDefinition s
           -> s
@@ -325,4 +329,3 @@ applyPolicy p s m =
   where
     logIt =
       Log.report Log.info Log.logChannel $ "Unhandled Gen Input Message: " ++ (show m)
-

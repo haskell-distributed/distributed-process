@@ -64,8 +64,13 @@ module Control.Distributed.Process.ManagedProcess.Server
     -- * Working with Control Channels
   , handleControlChan
   , handleControlChan_
+    -- * Working with external/STM actions
+  , handleExternal
+  , handleExternal_
+  , handleCallExternal
   ) where
 
+import Control.Concurrent.STM (STM, atomically)
 import Control.Distributed.Process hiding (call, Message)
 import qualified Control.Distributed.Process as P (Message)
 import Control.Distributed.Process.Serializable
@@ -80,6 +85,11 @@ import Prelude hiding (init)
 --------------------------------------------------------------------------------
 -- Producing ProcessAction and ProcessReply from inside handler expressions   --
 --------------------------------------------------------------------------------
+
+-- note [Message type]: Since we own both client and server portions of the
+-- codebase, we know for certain which types will be passed to which kinds
+-- of handler, so the catch-all cases that @die $ "THIS_CAN_NEVER_HAPPEN"@ and
+-- such, are relatively sane despite appearances!
 
 -- | Creates a 'Condition' from a function that takes a process state @a@ and
 -- an input message @b@ and returns a 'Bool' indicating whether the associated
@@ -404,6 +414,56 @@ handleCastIf cond h
     , dispatchIf = checkCast cond
     }
 
+-- | Creates a generic input handler for @STM@ actions, from an ordinary
+-- function in the 'Process' monad. The @STM a@ action tells the server how
+-- to read inputs, which when presented are passed to the handler in the same
+-- manner as @handleInfo@ messages would be.
+--
+-- Note that messages sent to the server's mailbox will never match this
+-- handler, only data arriving via the @STM a@ action will.
+--
+-- Notably, this kind of handler can be used to pass non-serialisable data to
+-- a server process. In such situations, the programmer is responsible for
+-- managing the underlying @STM@ infrastructure, and the server simply composes
+-- the @STM a@ action with the other reads on its mailbox, using the underlying
+-- @matchSTM@ API from distributed-process.
+--
+-- NB: this function cannot be used with a prioristised process definition.
+--
+handleExternal :: forall s a .
+       STM a
+    -> (s -> a -> Process (ProcessAction s))
+    -> Dispatcher s
+handleExternal = DispatchSTM
+
+-- | Version of @handleExternal@ that ignores state.
+handleExternal_ :: forall s a .
+       STM a
+    -> (a -> (s -> Process (ProcessAction s)))
+    -> Dispatcher s
+handleExternal_ a h = DispatchSTM a (\s m -> (h m) s)
+
+-- | Handle @call@ style API interactions using arbitrary /STM/ actions.
+--
+-- The usual @CallHandler@ is preceded by an stm action that, when evaluated,
+-- yields a value, and a second expression that is used to send a reply back
+-- to the /caller/. The corrolary client API is /callSTM/.
+--
+handleCallExternal :: forall s r w .
+                      STM r
+                   -> (w -> STM ())
+                   -> CallHandler s r w
+                   -> Dispatcher s
+handleCallExternal reader writer handler
+  = DispatchSTM { stmAction   = reader
+                , stmDispatch = doStmReply handler
+                }
+  where
+    doStmReply d s m = d s m >>= doXfmReply writer
+
+    doXfmReply _ (NoReply a)         = return a
+    doXfmReply w (ProcessReply r' a) = liftIO (atomically $ w r') >> return a
+
 -- | Constructs a /control channel/ handler from a function in the
 -- 'Process' monad. The handler expression returns no reply, and the
 -- /control message/ is treated in the same fashion as a 'cast'.
@@ -597,4 +657,3 @@ decode :: Message a b -> a
 decode (CallMessage a _) = a
 decode (CastMessage a)   = a
 decode (ChanMessage a _) = a
-

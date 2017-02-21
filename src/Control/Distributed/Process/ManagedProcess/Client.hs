@@ -28,15 +28,19 @@ module Control.Distributed.Process.ManagedProcess.Client
   , callChan
   , syncCallChan
   , syncSafeCallChan
+  , callSTM
   ) where
 
-import Control.Distributed.Process hiding (call)
+import Control.Concurrent.STM (atomically, STM)
+import Control.Distributed.Process hiding (call, finally)
 import Control.Distributed.Process.Serializable
 import Control.Distributed.Process.Async hiding (check)
 import Control.Distributed.Process.ManagedProcess.Internal.Types
 import qualified Control.Distributed.Process.ManagedProcess.Internal.Types as T
+import Control.Distributed.Process.Extras.Internal.Types (resolveOrDie)
 import Control.Distributed.Process.Extras hiding (monitor, sendChan)
 import Control.Distributed.Process.Extras.Time
+import Control.Monad.Catch (finally)
 import Data.Maybe (fromJust)
 
 import Prelude hiding (init)
@@ -72,7 +76,7 @@ call sid msg = initCall sid msg >>= waitResponse Nothing >>= decodeResult
 -- will be stashed away as @(ExitOther String)@.
 safeCall :: forall s a b . (Addressable s, Serializable a, Serializable b)
                  => s -> a -> Process (Either ExitReason b)
-safeCall s m = initCall s m >>= waitResponse Nothing >>= return . fromJust
+safeCall s m = fmap fromJust (initCall s m >>= waitResponse Nothing)
 
 -- | Version of 'safeCall' that returns 'Nothing' if the operation fails. If
 -- you need information about *why* a call has failed then you should use
@@ -115,7 +119,7 @@ flushPendingCalls :: forall b . (Serializable b)
                   => TimeInterval
                   -> (b -> Process b)
                   -> Process (Maybe b)
-flushPendingCalls d proc = do
+flushPendingCalls d proc =
   receiveTimeout (asTimeout d) [
       match (\(CallResponse (m :: b) _) -> proc m)
     ]
@@ -133,7 +137,7 @@ callAsync server msg = async $ task $ call server msg
 --
 cast :: forall a m . (Addressable a, Serializable m)
                  => a -> m -> Process ()
-cast server msg = sendTo server ((CastMessage msg) :: T.Message m ())
+cast server msg = sendTo server (CastMessage msg :: T.Message m ())
 
 -- | Sends a /channel/ message to the server and returns a @ReceivePort@ on
 -- which the reponse can be delivered, if the server so chooses (i.e., the
@@ -142,7 +146,7 @@ callChan :: forall s a b . (Addressable s, Serializable a, Serializable b)
          => s -> a -> Process (ReceivePort b)
 callChan server msg = do
   (sp, rp) <- newChan
-  sendTo server ((ChanMessage msg sp) :: T.Message a b)
+  sendTo server (ChanMessage msg sp :: T.Message a b)
   return rp
 
 -- | A synchronous version of 'callChan'.
@@ -162,3 +166,58 @@ syncSafeCallChan server msg = do
   rp <- callChan server msg
   awaitResponse server [ matchChan rp (return . Right) ]
 
+-- | Manages an rpc-style interaction with a server process, using @STM@ actions
+-- to read/write data. The server process is monitored for the duration of the
+-- /call/. The stm write expression is passed the input, and the read expression
+-- is evaluated and the result given as @Right b@ or @Left ExitReason@ if a
+-- monitor signal is detected whilst waiting.
+--
+-- Note that the caller will exit (with @ExitOther String@) if the server
+-- address is un-resolvable.
+--
+-- A note about scheduling and timing guarantees (or lack thereof): It is not
+-- possibly to guarantee the contents of @ExitReason@ in cases where this API
+-- fails due to server exits/crashes. We establish a monitor prior to evaluating
+-- the stm writer action, however @monitor@ is asychronous and we've no way to
+-- know whether or not the scheduler will allow monitor establishment to proceed
+-- first, or the stm transaction. As a result, assuming that your server process
+-- can die/fail/exit on evaluating the read end of the STM write we perform here
+-- (and we assume this is very likely, since we apply no safety rules and do not
+-- even worry about serializing thunks passed from the client's thread), it is
+-- just as likely that in the case of failure you will see a reason such as
+-- @ExitOther "DiedUnknownId"@ due to the server process crashing before the node
+-- controller can establish a monitor.
+--
+-- As unpleasant as this is, there's little we can do about it without making
+-- false assumptions about the runtime. Cloud Haskell's semantics guarantee us
+-- only that we will see /some/ monitor signal in the event of a failure here.
+-- To provide a more robust error handling, you can catch/trap failures in the
+-- server process and return a wrapper reponse datum here instead. This will
+-- /still/ be subject to the failure modes described above in cases where the
+-- server process exits abnormally, but that will at least allow the caller to
+-- differentiate between expected and exceptional failure conditions.
+--
+callSTM :: forall s a b . (Addressable s)
+         => s
+         -> (a -> STM ())
+         -> STM b
+         -> a
+         -> Process (Either ExitReason b)
+callSTM server writeAction readAction input = do
+    -- NB: we must establish the monitor before writing, to ensure we have
+    -- a valid ref such that server failure gets reported properly
+    pid <- resolveOrDie server "callSTM: unresolveable address "
+    mRef <- monitor pid
+
+    liftIO $ atomically $ writeAction input
+
+    finally (receiveWait [ matchRef mRef
+                         , matchSTM readAction (return . Right)
+                         ])
+            (unmonitor mRef)
+
+  where
+    matchRef :: MonitorRef -> Match (Either ExitReason b)
+    matchRef r = matchIf (\(ProcessMonitorNotification r' _ _) -> r == r')
+                         (\(ProcessMonitorNotification _ _ d) ->
+                            return (Left (ExitOther (show d))))

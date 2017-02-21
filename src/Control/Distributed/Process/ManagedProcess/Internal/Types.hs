@@ -1,11 +1,10 @@
 {-# LANGUAGE DeriveDataTypeable         #-}
 {-# LANGUAGE ExistentialQuantification  #-}
-{-# LANGUAGE StandaloneDeriving         #-}
-{-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE StandaloneDeriving         #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LiberalTypeSynonyms        #-}
 
 -- | Types used throughout the ManagedProcess framework
 module Control.Distributed.Process.ManagedProcess.Internal.Types
@@ -49,6 +48,7 @@ module Control.Distributed.Process.ManagedProcess.Internal.Types
   , waitResponse
   ) where
 
+import Control.Concurrent.STM (STM)
 import Control.Distributed.Process hiding (Message, finally)
 import Control.Monad.Catch (finally)
 import qualified Control.Distributed.Process as P (Message)
@@ -88,13 +88,6 @@ instance NFData (CallRef a) where rnf (CallRef x) = rnf x `seq` ()
 makeRef :: Recipient -> CallId -> CallRef a
 makeRef r c = CallRef (r, c)
 
-instance Resolvable (CallRef a) where
-  resolve (CallRef (r, _)) = resolve r
-
-instance Routable (CallRef a) where
-  sendTo  (CallRef (client, tag)) msg = sendTo client (CallResponse msg tag)
-  unsafeSendTo (CallRef (c, tag)) msg = unsafeSendTo c (CallResponse msg tag)
-
 data Message a b =
     CastMessage a
   | CallMessage a (CallRef b)
@@ -117,6 +110,13 @@ instance NFSerializable a => NFData (CallResponse a) where
   rnf (CallResponse a c) = rnf a `seq` rnf c `seq` ()
 deriving instance Eq a => Eq (CallResponse a)
 deriving instance Show a => Show (CallResponse a)
+
+instance Resolvable (CallRef a) where
+  resolve (CallRef (r, _)) = resolve r
+
+instance Routable (CallRef a) where
+  sendTo  (CallRef (client, tag)) msg = sendTo client (CallResponse msg tag)
+  unsafeSendTo (CallRef (c, tag)) msg = unsafeSendTo c (CallResponse msg tag)
 
 -- | Return type for and 'InitHandler' expression.
 data InitResult s =
@@ -220,7 +220,7 @@ newtype ControlChannel m =
 
 -- | Creates a new 'ControlChannel'.
 newControlChan :: (Serializable m) => Process (ControlChannel m)
-newControlChan = newChan >>= return . ControlChannel
+newControlChan = fmap ControlChannel newChan
 
 -- | The writable end of a 'ControlChannel'.
 --
@@ -257,6 +257,12 @@ data Dispatcher s =
       channel  :: ReceivePort (Message a b)
     , dispatch :: s -> Message a b -> Process (ProcessAction s)
     }
+  | forall a .
+    DispatchSTM -- arbitrary STM actions
+    {
+      stmAction   :: STM a
+    , stmDispatch :: s -> a -> Process (ProcessAction s)
+    }
 
 -- | Provides dispatch for any input, returns 'Nothing' for unhandled messages.
 data DeferredDispatcher s =
@@ -281,9 +287,10 @@ class MessageMatcher d where
   matchDispatch :: UnhandledMessagePolicy -> s -> d s -> Match (ProcessAction s)
 
 instance MessageMatcher Dispatcher where
-  matchDispatch _ s (Dispatch   d)      = match (d s)
-  matchDispatch _ s (DispatchIf d cond) = matchIf (cond s) (d s)
-  matchDispatch _ s (DispatchCC c d)    = matchChan c (d s)
+  matchDispatch _ s (Dispatch    d)        = match (d s)
+  matchDispatch _ s (DispatchIf  d cond)   = matchIf (cond s) (d s)
+  matchDispatch _ s (DispatchCC  c d)      = matchChan c (d s)
+  matchDispatch _ s (DispatchSTM c d)      = matchSTM c (d s)
 
 class DynMessageHandler d where
   dynHandleMessage :: UnhandledMessagePolicy
@@ -293,9 +300,10 @@ class DynMessageHandler d where
                    -> Process (Maybe (ProcessAction s))
 
 instance DynMessageHandler Dispatcher where
-  dynHandleMessage _ s (Dispatch   d)   msg = handleMessage   msg (d s)
-  dynHandleMessage _ s (DispatchIf d c) msg = handleMessageIf msg (c s) (d s)
-  dynHandleMessage _ _ (DispatchCC _ _) _   = error "ThisCanNeverHappen"
+  dynHandleMessage _ s (Dispatch       d)   msg = handleMessage   msg (d s)
+  dynHandleMessage _ s (DispatchIf     d c) msg = handleMessageIf msg (c s) (d s)
+  dynHandleMessage _ _ (DispatchCC     _ _) _   = error "ThisCanNeverHappen"
+  dynHandleMessage _ _ (DispatchSTM    _ _) _   = error "ThisCanNeverHappen"
 
 instance DynMessageHandler DeferredDispatcher where
   dynHandleMessage _ s (DeferredDispatcher d) = d s
@@ -391,8 +399,10 @@ initCall sid msg = do
     sendTo pid (CallMessage msg cRef :: Message a b)
     return cRef
 
-unsafeInitCall :: forall s a b . (Addressable s,
-                                  NFSerializable a, NFSerializable b)
+unsafeInitCall :: forall s a b . ( Addressable s
+                                 , NFSerializable a
+                                 , NFSerializable b
+                                 )
          => s -> a -> Process (CallRef b)
 unsafeInitCall sid msg = do
   pid <- resolveOrDie sid "unsafeInitCall: unresolveable address "
@@ -416,5 +426,4 @@ waitResponse mTimeout cRef =
       err r     = ExitOther $ show r in
     case mTimeout of
       (Just ti) -> finally (receiveTimeout (asTimeout ti) matchers) (unmonitor mRef)
-      Nothing   -> finally (receiveWait matchers >>= return . Just) (unmonitor mRef)
-
+      Nothing   -> finally (fmap Just (receiveWait matchers)) (unmonitor mRef)

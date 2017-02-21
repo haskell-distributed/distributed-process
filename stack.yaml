@@ -1,0 +1,18 @@
+resolver: nightly-2017-02-03
+
+packages:
+- '.'
+- location:
+    git: https://github.com/haskell-distributed/distributed-process-async.git
+    commit: 7c353e52b183519c6273ef62639e55eb859cc5c8
+  extra-dep: true
+- location:
+    git: https://github.com/haskell-distributed/distributed-process-extras.git
+    commit: e89c17b46225aea26634090320b2fe0926eadc77
+  extra-dep: true
+
+extra-deps:
+- network-transport-inmemory-0.5.1  # snapshot 0.5.2 in lts-7.18
+- distributed-process-0.6.6         # missing snapshot
+- distributed-process-systest-0.1.1 # missing prior to Jan-2017
+- rematch-0.2.0.0
