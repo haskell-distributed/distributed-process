@@ -72,15 +72,44 @@ call sid msg = initCall sid msg >>= waitResponse Nothing >>= decodeResult
         decodeResult Nothing {- the impossible happened -} = terminate
 
 -- | Safe version of 'call' that returns information about the error
--- if the operation fails. If an error occurs then the explanation will be
--- will be stashed away as @(ExitOther String)@.
+-- if the operation fails. If the calling process dies (that is, forces itself
+-- to exit such that an exit signal arises with @ExitOther String@) then
+-- evaluation will return @Left exitReason@ and the explanation will be
+-- stashed away as @(ExitOther String)@.
+--
+-- __NOTE: this function does not catch exceptions!__
+--
+-- The /safety/ of the name, comes from carefully handling situations in which
+-- the server dies while we're waiting for a reply. Notably, exit signals from
+-- other processes, kill signals, and both synchronous and asynchronous
+-- exceptions can still terminate the caller abruptly. To avoid this consider
+-- masking or evaluating within your own exception handling code.
+--
 safeCall :: forall s a b . (Addressable s, Serializable a, Serializable b)
                  => s -> a -> Process (Either ExitReason b)
-safeCall s m = fmap fromJust (initCall s m >>= waitResponse Nothing)
+safeCall s m = do
+  us <- getSelfPid
+  (fmap fromJust (initCall s m >>= waitResponse Nothing) :: Process (Either ExitReason b))
+    `catchesExit` [(\pid msg -> handleMessageIf msg (weFailed pid us)
+                                                    (return . Left))]
+
+  where
+
+    weFailed a b (ExitOther _) = a == b
+    weFailed _ _ _             = False
 
 -- | Version of 'safeCall' that returns 'Nothing' if the operation fails. If
 -- you need information about *why* a call has failed then you should use
 -- 'safeCall' or combine @catchExit@ and @call@ instead.
+--
+-- __NOTE: this function does not catch exceptions!__
+--
+-- In fact, this API handles fewer exceptions than it's relative, "safeCall".
+-- Notably, exit signals, kill signals, and both synchronous and asynchronous
+-- exceptions can still terminate the caller abruptly. To avoid this consider
+-- masking or evaluating within your own exception handling code (as mentioned
+-- above).
+--
 tryCall :: forall s a b . (Addressable s, Serializable a, Serializable b)
                  => s -> a -> Process (Maybe b)
 tryCall s m = initCall s m >>= waitResponse Nothing >>= decodeResult
