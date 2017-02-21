@@ -27,7 +27,6 @@ source-repository head
 library
   build-depends:
                    base >= 4.4 && < 5,
-                   data-accessor >= 0.2.2.3,
                    distributed-process >= 0.6.6 && < 0.7,
                    distributed-process-extras >= 0.3.1 && < 0.4,
                    distributed-process-async >= 0.2.4 && < 0.3,
