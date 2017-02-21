@@ -82,7 +82,9 @@ import Control.Exception
   , throwIO
   , mask_
   , mask
-  , finally)
+  , finally
+  , onException
+  )
 
 import Control.Applicative ((<$>), (<*>))
 import Data.Word (Word32)
@@ -161,12 +163,10 @@ encodeConnectionRequestResponse crr = case crr of
 -- This exception may occur because of a call to 'N.accept', or because the
 -- thread was explicitly killed.
 --
--- If Right is given for the request handler, then it's not responsible for
--- closing the socket. It will be closed once that handler returns. Take care
--- to ensure that the socket is not used after the handler returns, or you will
--- get undefined behavior (the file descriptor may be re-used).
---
--- Use Left if you want to take care of closing it.
+-- The request handler is not responsible for closing the socket. It will be
+-- closed once that handler returns. Take care to ensure that the socket is not
+-- used after the handler returns, or you will get undefined behavior
+-- (the file descriptor may be re-used).
 --
 -- The return value includes the port was bound to. This is not always the same
 -- port as that given in the argument. For example, binding to port 0 actually
@@ -176,9 +176,7 @@ forkServer :: N.HostName                     -- ^ Host
            -> Int                            -- ^ Backlog (maximum number of queued connections)
            -> Bool                           -- ^ Set ReuseAddr option?
            -> (SomeException -> IO ())       -- ^ Termination handler
-           -> Either (N.Socket -> IO ()) (IO () -> N.Socket -> IO ())
-              -- ^ Request handler. If you give Left, we won't close the
-              --   socket for you.
+           -> (IO () -> N.Socket -> IO ())   -- ^ Request handler.
            -> IO (N.ServiceName, ThreadId)
 forkServer host port backlog reuseAddr terminationHandler requestHandler = do
     -- Resolve the specified address. By specification, getAddrInfo will never
@@ -196,20 +194,27 @@ forkServer host port backlog reuseAddr terminationHandler requestHandler = do
           release ((sock, _), socketClosed) =
             N.sClose sock `finally` putMVar socketClosed ()
 
-      -- Accept connections and handle them in separate threads, taking care
-      -- to close the socket when its handler is finished.
+      -- Run the request handler.
+      let act :: (N.Socket, N.SockAddr) -> IO ()
+          act (sock, sockAddr) = do
+            socketClosed <- newEmptyMVar
+            void $ forkIO $ do
+              requestHandler (readMVar socketClosed) sock
+              `finally`
+              release ((sock, sockAddr), socketClosed)
+
       let acceptRequest :: IO ()
-          acceptRequest = do
+          acceptRequest = mask $ \restore -> do
+            -- Async exceptions are masked so that, if accept does give a
+            -- socket, we'll always deliver it to the handler before the
+            -- exception is raised.
+            -- If it's a Right handler then it will eventually be closed.
+            -- If it's a Left handler then we assume the handler itself will
+            -- close it.
             (sock, sockAddr) <- N.accept sock
-            case requestHandler of
-              Left handleNoClose -> void $ mask $ \restore -> forkIO $ do
-                restore (handleNoClose sock)
-              Right handleClose -> do
-                socketClosed <- newEmptyMVar
-                void $ mask $ \restore -> forkIO $ do
-                  restore (handleClose (readMVar socketClosed) sock)
-                  `finally`
-                  release ((sock, sockAddr), socketClosed)
+            -- Looks like 'act' will never throw an exception, but to be
+            -- safe we'll close the socket if it does.
+            restore (act (sock, sockAddr)) `onException` N.sClose sock
 
       -- We start listening for incoming requests in a separate thread. When
       -- that thread is killed, we close the server socket and the termination

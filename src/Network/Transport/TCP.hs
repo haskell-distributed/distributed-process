@@ -566,7 +566,7 @@ createTransportExposeInternals bindHost bindPort mkExternal params = do
                              (tcpBacklog params)
                              (tcpReuseServerAddr params)
                              (terminationHandler transport)
-                             (Right (handleConnectionRequest transport)))
+                             (handleConnectionRequest transport))
                       (\(_port', tid) -> killThread tid)
                       (\(port'', tid) -> (port'',) <$> mkTransport transport tid)
        return result
