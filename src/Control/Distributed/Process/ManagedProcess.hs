@@ -227,7 +227,7 @@
 -- 'serve', and passing an initialised 'PrioritisedProcessDefinition'.
 --
 -- Note that prioritised process definitions cannot utilise control channels,
--- not can the @handleExternal@ family of expressions be used with them. This
+-- nor can the @handleExternal@ family of expressions be used with them. This
 -- constraint is currenly not enforced by the compiler, and calling @pserve@
 -- with a @ProcessDefinition@ containing any of these items will fail with
 -- either @ExitOther "IllegalControlChannel"@ or @ExitOther "IllegalSTMAction"@
@@ -312,7 +312,7 @@
 -- of Cloud Haskell's /Process/ monad, but can also be used as a channel for
 -- sending and/or receiving non-serializable data to or from a managed process.
 -- Obviously if you attempt to do this across a remote boundary, things will go
--- spectacularly wrong. The APIs provided to not attempt to restrain this, or
+-- spectacularly wrong. The APIs provided do not attempt to restrain this, or
 -- to impose any particular scheme on the programmer, therefore you're on your
 -- own when it comes to writing the /STM/ code for reading and writing data
 -- between client and server.

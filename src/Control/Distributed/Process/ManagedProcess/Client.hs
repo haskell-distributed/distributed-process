@@ -183,14 +183,14 @@ syncSafeCallChan server msg = do
 -- first, or the stm transaction. As a result, assuming that your server process
 -- can die/fail/exit on evaluating the read end of the STM write we perform here
 -- (and we assume this is very likely, since we apply no safety rules and do not
--- even worry about serialisating thunks passed from the client's thread), it is
+-- even worry about serializing thunks passed from the client's thread), it is
 -- just as likely that in the case of failure you will see a reason such as
 -- @ExitOther "DiedUnknownId"@ due to the server process crashing before the node
 -- controller can establish a monitor.
 --
 -- As unpleasant as this is, there's little we can do about it without making
 -- false assumptions about the runtime. Cloud Haskell's semantics guarantee us
--- only that we will see /some/ monitor signal in the even of a failure here.
+-- only that we will see /some/ monitor signal in the event of a failure here.
 -- To provide a more robust error handling, you can catch/trap failures in the
 -- server process and return a wrapper reponse datum here instead. This will
 -- /still/ be subject to the failure modes described above in cases where the
