@@ -62,6 +62,9 @@ import Control.Distributed.Process
   , terminate
   , receiveTimeout
   , unsafeSendChan
+  , getSelfPid
+  , catchesExit
+  , handleMessageIf
   )
 import Control.Distributed.Process.Async
   ( Async
@@ -73,7 +76,7 @@ import Control.Distributed.Process.Extras
   , Addressable
   , Routable(..)
   , NFSerializable
-  , ExitReason
+  , ExitReason(..)
   , Shutdown(..)
   )
 import Control.Distributed.Process.ManagedProcess.Internal.Types
@@ -113,7 +116,16 @@ call sid msg = unsafeInitCall sid msg >>= waitResponse Nothing >>= decodeResult
 -- if the operation fails - uses /unsafe primitives/.
 safeCall :: forall s a b . (Addressable s, NFSerializable a, NFSerializable b)
                  => s -> a -> Process (Either ExitReason b)
-safeCall s m = unsafeInitCall s m >>= waitResponse Nothing >>= return . fromJust
+safeCall s m = do
+  us <- getSelfPid
+  (fmap fromJust (unsafeInitCall s m >>= waitResponse Nothing) :: Process (Either ExitReason b))
+    `catchesExit` [(\pid msg -> handleMessageIf msg (weFailed pid us)
+                                                    (return . Left))]
+
+  where
+
+    weFailed a b (ExitOther _) = a == b
+    weFailed _ _ _             = False
 
 -- | Version of 'safeCall' that returns 'Nothing' if the operation fails.
 --  Uses /unsafe primitives/.
