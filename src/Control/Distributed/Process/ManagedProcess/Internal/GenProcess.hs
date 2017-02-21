@@ -57,7 +57,6 @@ precvLoop ppDef pState recvDelay = do
     -- TODO: better failure messages here!
     disallowCC (DispatchCC _ _)     = die $ ExitOther "IllegalControlChannel"
     disallowCC (DispatchSTM _ _)    = die $ ExitOther "IllegalSTMAction"
-    disallowCC (DispatchExtern _ _) = die $ ExitOther "IllegalSTMAction"
     disallowCC _                    = return ()
 
 recvQueue :: PrioritisedProcessDefinition s

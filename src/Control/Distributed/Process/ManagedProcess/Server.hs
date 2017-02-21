@@ -455,9 +455,9 @@ handleCallExternal :: forall s r w .
                    -> CallHandler s r w
                    -> Dispatcher s
 handleCallExternal reader writer handler
-  = DispatchExtern { stmAction   = reader
-                   , stmDispatch = doStmReply handler
-                   }
+  = DispatchSTM { stmAction   = reader
+                , stmDispatch = doStmReply handler
+                }
   where
     doStmReply d s m = d s m >>= doXfmReply writer
 

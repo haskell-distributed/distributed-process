@@ -220,7 +220,7 @@ newtype ControlChannel m =
 
 -- | Creates a new 'ControlChannel'.
 newControlChan :: (Serializable m) => Process (ControlChannel m)
-newControlChan = newChan >>= return . ControlChannel
+newControlChan = fmap ControlChannel newChan
 
 -- | The writable end of a 'ControlChannel'.
 --
@@ -263,12 +263,6 @@ data Dispatcher s =
       stmAction   :: STM a
     , stmDispatch :: s -> a -> Process (ProcessAction s)
     }
-  | forall a .
-    DispatchExtern
-    {
-      stmAction   :: STM a
-    , stmDispatch :: s -> a -> Process (ProcessAction s)
-    }
 
 -- | Provides dispatch for any input, returns 'Nothing' for unhandled messages.
 data DeferredDispatcher s =
@@ -297,7 +291,6 @@ instance MessageMatcher Dispatcher where
   matchDispatch _ s (DispatchIf  d cond)   = matchIf (cond s) (d s)
   matchDispatch _ s (DispatchCC  c d)      = matchChan c (d s)
   matchDispatch _ s (DispatchSTM c d)      = matchSTM c (d s)
-  matchDispatch _ s (DispatchExtern r d)   = matchSTM r (d s)
 
 class DynMessageHandler d where
   dynHandleMessage :: UnhandledMessagePolicy
@@ -311,7 +304,6 @@ instance DynMessageHandler Dispatcher where
   dynHandleMessage _ s (DispatchIf     d c) msg = handleMessageIf msg (c s) (d s)
   dynHandleMessage _ _ (DispatchCC     _ _) _   = error "ThisCanNeverHappen"
   dynHandleMessage _ _ (DispatchSTM    _ _) _   = error "ThisCanNeverHappen"
-  dynHandleMessage _ _ (DispatchExtern _ _) _   = error "ThisCanNeverHappen"
 
 instance DynMessageHandler DeferredDispatcher where
   dynHandleMessage _ s (DeferredDispatcher d) = d s
@@ -434,4 +426,4 @@ waitResponse mTimeout cRef =
       err r     = ExitOther $ show r in
     case mTimeout of
       (Just ti) -> finally (receiveTimeout (asTimeout ti) matchers) (unmonitor mRef)
-      Nothing   -> finally (receiveWait matchers >>= return . Just) (unmonitor mRef)
+      Nothing   -> finally (fmap Just (receiveWait matchers)) (unmonitor mRef)
