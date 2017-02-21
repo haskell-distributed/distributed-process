@@ -854,6 +854,7 @@ apiCloseEndPoint transport evs ourEndPoint =
                 [ encodeWord32 (encodeControlHeader CloseEndPoint) ]
               -- Release probing resources if probing.
               forM_ (remoteProbing vst) id
+              tryShutdownSocketBoth (remoteSocket vst)
               remoteSocketClosed vst
             return closed
           RemoteEndPointClosing resolved vst -> do
@@ -865,7 +866,9 @@ apiCloseEndPoint transport evs ourEndPoint =
             -- Since we replace the state in this MVar with 'closed', it's
             -- guaranteed that no other actions will be scheduled after this
             -- one.
-            sched theirEndPoint $ remoteSocketClosed vst
+            sched theirEndPoint $ do
+              tryShutdownSocketBoth (remoteSocket vst)
+              remoteSocketClosed vst
             return closed
           RemoteEndPointClosed ->
             return st
