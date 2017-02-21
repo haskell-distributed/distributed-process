@@ -33,9 +33,9 @@ explodingTestProcess pid =
                      getSelfPid >>= \p -> die (p, i))
      ]
   , exitHandlers = [
-       handleExit  (\s _ (m :: String) -> send pid (m :: String) >>
+       handleExit  (\_ s (m :: String) -> send pid (m :: String) >>
                                           continue s)
-     , handleExit  (\s _ m@((_ :: ProcessId),
+     , handleExit  (\_ s m@((_ :: ProcessId),
                             (_ :: Int)) -> P.send pid m >> continue s)
      ]
   }

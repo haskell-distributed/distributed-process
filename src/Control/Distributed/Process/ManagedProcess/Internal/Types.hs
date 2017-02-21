@@ -13,8 +13,12 @@ module Control.Distributed.Process.ManagedProcess.Internal.Types
   , Condition(..)
   , ProcessAction(..)
   , ProcessReply(..)
+  , Action
+  , Reply
+  , ActionHandler
   , CallHandler
   , CastHandler
+  , StatelessHandler
   , DeferredCallHandler
   , StatelessCallHandler
   , InfoHandler
@@ -157,58 +161,52 @@ data Condition s m =
   | State     (s -> Bool)       -- ^ predicated on the process state only
   | Input     (m -> Bool)       -- ^ predicated on the input message only
 
--- | An expression used to handle a /call/ message.
-type CallHandler s a b = s -> a -> Process (ProcessReply b s)
+
+-- | Yielding an action (server state transition) in the @Process@ monad
+type Action s = Process (ProcessAction s)
+
+-- | Yielding an action (server state transition) whilst also replying to a
+-- caller, in the @Process@ monad
+type Reply b s = Process (ProcessReply b s)
+
+-- | An expression used to handle a message
+type ActionHandler s a = s -> a -> Action s
+
+-- | An expression used to handle a message and providing a reply
+type CallHandler s a b = s -> a -> Reply b s
+
+-- | An expression used to ignore server state during handling
+type StatelessHandler s a = a -> (s -> Action s)
 
 -- | An expression used to handle a /call/ message where the reply is deferred
--- via the 'CallRef'.
-type DeferredCallHandler s a b = s -> CallRef b -> a -> Process (ProcessReply b s)
+-- via the 'CallRef'
+type DeferredCallHandler s a b = CallRef b -> CallHandler s a b
 
--- | An expression used to handle a /call/ message in a stateless process.
-type StatelessCallHandler a b = a -> CallRef b -> Process (ProcessReply b ())
+-- | An expression used to handle a /call/ message ignoring server state
+type StatelessCallHandler s a b = CallRef b -> a -> Reply b s
 
--- | An expression used to handle a /cast/ message.
-type CastHandler s a = s -> a -> Process (ProcessAction s)
+-- | An expression used to handle a /cast/ message
+type CastHandler s a = ActionHandler s a
 
--- | An expression used to handle an /info/ message.
-type InfoHandler s a = s -> a -> Process (ProcessAction s)
+-- | An expression used to handle an /info/ message
+type InfoHandler s a = ActionHandler s a
 
--- | An expression used to handle a /channel/ message.
-type ChannelHandler s a b = s -> SendPort b -> a -> Process (ProcessAction s)
+-- | An expression used to handle a /channel/ message
+type ChannelHandler s a b = SendPort b -> ActionHandler s a
 
--- | An expression used to handle a /channel/ message in a stateless process.
-type StatelessChannelHandler a b = SendPort b -> a -> Process (ProcessAction ())
+-- | An expression used to handle a /channel/ message in a stateless process
+type StatelessChannelHandler s a b = SendPort b -> StatelessHandler s a
 
--- | An expression used to initialise a process with its state.
+-- | An expression used to initialise a process with its state
 type InitHandler a s = a -> Process (InitResult s)
 
--- | An expression used to handle process termination.
+-- | An expression used to handle process termination
 type ShutdownHandler s = s -> ExitReason -> Process ()
 
--- | An expression used to handle process timeouts.
-type TimeoutHandler s = s -> Delay -> Process (ProcessAction s)
+-- | An expression used to handle process timeouts
+type TimeoutHandler s = ActionHandler s Delay
 
 -- dispatching to implementation callbacks
-
--- TODO: Now that we've got matchSTM available, we can have two kinds of CC.
--- The easiest approach would be to add an StmControlChannel newtype, since
--- that can't be Serializable (and will have to rely on PCopy for delivery).
--- Rather than write stmChanServe in terms of creating that channel object
--- ourselves (which is necessary for the TypedChannel based approach we
--- currently offer), I think it should accept the (STM a) "read" action and
--- leave the PCopy based delivery nonsense to the user, since we don't want
--- to /encourage/ that sort of thing outside of this codebase.
-
-{-
-
-data InputChannelDispatcher =
-  InputChannelDispatcher { chan :: InputChannel s
-                         , dispatch :: s -> Message a b -> Process (ProcessAction s)
-                         }
-
-instance MessageMatcher Dispatcher where
-  matchDispatch _ _ (DispatchInputChannelDispatcher c d) = matchInputChan (d s)
--}
 
 -- | Provides a means for servers to listen on a separate, typed /control/
 -- channel, thereby segregating the channel from their regular

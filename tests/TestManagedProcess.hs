@@ -90,7 +90,7 @@ testChannelBasedService :: TestResult Bool -> Process ()
 testChannelBasedService result =
   let procDef = statelessProcess {
                     apiHandlers = [
-                      handleRpcChan (\s p (m :: String) ->
+                      handleRpcChan (\p s (m :: String) ->
                                    replyChan p m >> continue s)
                     ]
                     } in do
