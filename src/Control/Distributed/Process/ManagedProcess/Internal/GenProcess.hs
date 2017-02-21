@@ -1,6 +1,8 @@
 {-# LANGUAGE ExistentialQuantification  #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE PatternGuards              #-}
+{-# LANGUAGE TupleSections              #-}
+{-# LANGUAGE DeriveDataTypeable         #-}
 
 -- | This is the @Process@ implementation of a /managed process/
 module Control.Distributed.Process.ManagedProcess.Internal.GenProcess
@@ -33,6 +35,7 @@ import Control.Distributed.Process.Extras.Timer
   , TimerRef
   )
 import Control.Monad (void)
+import Data.Typeable (Typeable)
 import Prelude hiding (init)
 
 --------------------------------------------------------------------------------
@@ -43,14 +46,16 @@ import Prelude hiding (init)
 -- that a busy mailbox can't prevent us from operating normally.
 
 type Queue = PriorityQ Int P.Message
-type TimeoutSpec = (Delay, Maybe (TimerRef, (STM ())))
+type TimeoutSpec = (Delay, Maybe (TimerRef, STM ()))
 data TimeoutAction s = Stop s ExitReason | Go Delay s
+
+data CancelTimer = CancelTimer deriving (Eq, Show, Typeable)
 
 precvLoop :: PrioritisedProcessDefinition s -> s -> Delay -> Process ExitReason
 precvLoop ppDef pState recvDelay = do
     void $ verify $ processDef ppDef
     tref <- startTimer recvDelay
-    recvQueue ppDef pState tref $ PriorityQ.empty
+    recvQueue ppDef pState tref PriorityQ.empty
   where
     verify pDef = mapM_ disallowCC $ apiHandlers pDef
 
@@ -81,10 +86,11 @@ recvQueue p s t q =
       | otherwise {- compiler foo -} = die "IllegalState"
 
     recvQueueAux ppDef prioritizers pState delay queue =
-      let ex = (trapExit:(exitHandlers $ processDef ppDef))
+      let ex = trapExit:(exitHandlers $ processDef ppDef)
           eh = map (\d' -> (dispatchExit d') pState) ex
+          mx = recvTimeout ppDef
       in (do t' <- startTimer delay
-             mq <- drainMessageQueue pState prioritizers queue
+             mq <- drainMessageQueue mx pState prioritizers queue
              recvQueue ppDef pState t' mq)
          `catchExit`
          (\pid (reason :: ExitReason) -> do
@@ -114,23 +120,23 @@ recvQueue p s t q =
         Just pa -> return (pa, Infinity, pq)
 
     processNext def ps' pState tSpec queue =
-      let ex = (trapExit:(exitHandlers def))
+      let ex = trapExit:(exitHandlers def)
           h  = timeoutHandler def in do
         -- as a side effect, this check will cancel the timer
         timedOut <- checkTimer pState tSpec h
         case timedOut of
-          Stop s' r -> return $ (ProcessStopping s' r, (fst tSpec), queue)
-          Go t' s'  -> do
+          Stop s' r -> return (ProcessStopping s' r, (fst tSpec), queue)
+          Go t' s'  ->
             -- checkTimer could've run our timeoutHandler, which changes "s"
-            case (dequeue queue) of
-              Nothing -> do
+            case dequeue queue of
+              Nothing ->
                 -- if the internal queue is empty, we fall back to reading the
                 -- actual mailbox, however if /that/ times out, then we need
                 -- to let the timeout handler kick in again and make a decision
                 drainOrTimeout s' t' queue ps' h
               Just (m', q') -> do
                 act <- catchesExit (processApply def s' m')
-                                   (map (\d' -> (dispatchExit d') s') ex)
+                                   (map (\d' -> dispatchExit d' s') ex)
                 return (act, t', q')
 
     processApply def pState msg =
@@ -148,30 +154,60 @@ recvQueue p s t q =
         Nothing  -> processApplyAux hs p' s' m'
         Just act -> return act
 
-    drainOrTimeout pState delay queue ps' h = do
+    drainOrTimeout pState delay queue ps' h =
       let matches = [ matchMessage return ]
           recv    = case delay of
-                      Infinity -> receiveWait matches >>= return . Just
+                      Infinity -> fmap Just (receiveWait matches)
                       NoDelay  -> receiveTimeout 0 matches
                       Delay i  -> receiveTimeout (asTimeout i) matches in do
         r <- recv
         case r of
-          Nothing -> h pState delay >>= \act -> return $ (act, delay, queue)
+          Nothing -> h pState delay >>= \act -> return (act, delay, queue)
           Just m  -> do
             queue' <- enqueueMessage pState ps' m queue
             -- Returning @ProcessContinue@ simply causes the main loop to go
             -- into 'recvQueueAux', which ends up in 'drainMessageQueue'.
             -- In other words, we continue draining the /real/ mailbox.
-            return $ (ProcessContinue pState, delay, queue')
+            return (ProcessContinue pState, delay, queue')
 
-drainMessageQueue :: s -> [DispatchPriority s] -> Queue -> Process Queue
-drainMessageQueue pState priorities' queue = do
-  m <- receiveTimeout 0 [ matchMessage return ]
-  case m of
-    Nothing -> return queue
-    Just m' -> do
-      queue' <- enqueueMessage pState priorities' m' queue
-      drainMessageQueue pState priorities' queue'
+drainMessageQueue :: RecvTimeoutPolicy
+                  -> s
+                  -> [DispatchPriority s]
+                  -> Queue
+                  -> Process Queue
+drainMessageQueue limit pState priorities' queue = do
+    timerAcc <- case limit of
+                  RecvTimer   tm  -> setupTimer tm
+                  RecvCounter cnt -> return $ Right cnt
+    drainMessageQueueAux timerAcc pState priorities' queue
+
+  where
+
+    drainMessageQueueAux acc st ps q = do
+      (acc', m) <- drainIt acc
+      -- say $ "drained " ++ show m
+      case m of
+        Nothing                 -> return q
+        Just (Left CancelTimer) -> return q
+        Just (Right m')         -> do
+          queue' <- enqueueMessage st ps m' q
+          drainMessageQueueAux acc' st ps queue'
+
+    drainIt :: Either (STM CancelTimer) Int
+            -> Process (Either (STM CancelTimer) Int,
+                        Maybe (Either CancelTimer P.Message))
+    drainIt e@(Right 0)  = return (e, Just (Left CancelTimer))
+    drainIt (Right cnt)  = fmap (Right $ cnt - 1, )
+                                (receiveTimeout 0 [ matchAny (return . Right) ])
+    drainIt a@(Left stm) = fmap (a, )
+                                (receiveTimeout 0 [ matchSTM stm (return . Left)
+                                                  , matchAny     (return . Right)
+                                                  ])
+
+    setupTimer intv = do
+      chan <- liftIO newTChanIO
+      void $ runAfter intv $ liftIO $ atomically $ writeTChan chan CancelTimer
+      return $ Left (readTChan chan)
 
 enqueueMessage :: s
                -> [DispatchPriority s]

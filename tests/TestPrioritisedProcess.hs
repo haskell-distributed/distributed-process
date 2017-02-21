@@ -66,7 +66,7 @@ explodingServer pid =
   let srv = explodingTestProcess pid
       pSrv = srv `prioritised` ([] :: [DispatchPriority s])
   in do
-    exitReason <- liftIO $ newEmptyMVar
+    exitReason <- liftIO newEmptyMVar
     spid <- spawnLocal $ do
        catch  (pserve () (statelessInit Infinity) pSrv >> stash exitReason ExitNormal)
               (\(e :: SomeException) -> stash exitReason $ ExitOther (show e))
@@ -113,7 +113,57 @@ mkPrioritisedServer =
           , timeoutHandler         = \_ _ -> stop $ ExitOther "timeout"
           } :: ProcessDefinition [(Either MyAlarmSignal String)]
 
--- test cases
+mkOverflowHandlingServer :: (PrioritisedProcessDefinition Int ->
+                             PrioritisedProcessDefinition Int)
+                         -> Process ProcessId
+mkOverflowHandlingServer modIt =
+  let p = procDef `prioritised` ([
+               prioritiseCall_ (\GetState -> setPriority 99 :: Priority Int)
+             , prioritiseCast_ (\(_ :: String) -> setPriority 1)
+             ] :: [DispatchPriority Int]
+          ) :: PrioritisedProcessDefinition Int
+  in spawnLocal $ pserve () (initWait Infinity) (modIt p)
+  where
+    initWait :: Delay
+             -> InitHandler () Int
+    initWait d () = return $ InitOk 0 d
+
+    procDef :: ProcessDefinition Int
+    procDef =
+      defaultProcess {
+            apiHandlers = [
+               handleCall (\s GetState -> reply s s)
+             , handleCast (\s (_ :: String) -> continue $ s + 1)
+            ]
+          } :: ProcessDefinition Int
+
+testTimedOverflowHandling :: TestResult Bool -> Process ()
+testTimedOverflowHandling result = do
+  pid <- mkOverflowHandlingServer (\s -> s { recvTimeout = RecvTimer $ within 3 Seconds })
+  wrk <- spawnLocal $ mapM_ (cast pid . show) ([1..500000] :: [Int])
+
+  sleep $ seconds 1 -- give the worker time to start spamming us...
+  cast pid "abc" -- just getting in line here...
+
+  st <- call pid GetState :: Process Int
+  -- the result of GetState is a list of messages in reverse insertion order
+  stash result $ st > 0
+  kill wrk "done"
+  kill pid "done"
+
+testOverflowHandling :: TestResult Bool -> Process ()
+testOverflowHandling result = do
+  pid <- mkOverflowHandlingServer (\s -> s { recvTimeout = RecvCounter 100 })
+  wrk <- spawnLocal $ mapM_ (cast pid . show) ([1..50000] :: [Int])
+
+  sleep $ seconds 1
+  cast pid "abc" -- just getting in line here...
+
+  st <- call pid GetState :: Process Int
+  -- the result of GetState is a list of messages in reverse insertion order
+  stash result $ st > 0
+  kill wrk "done"
+  kill pid "done"
 
 testInfoPrioritisation :: TestResult Bool -> Process ()
 testInfoPrioritisation result = do
@@ -149,7 +199,7 @@ testCallPrioritisation result = do
   -- is undefined (and in practise, paritally depenendent on the scheduler)
   sleep $ seconds 1
   send pid ()
-  mapM wait asyncRefs :: Process [AsyncResult ()]
+  _ <- mapM wait asyncRefs :: Process [AsyncResult ()]
   st <- call pid GetState :: Process [Either MyAlarmSignal String]
   let ms = rights st
   stash result $ ms == ["we do prioritise", "the longest", "commands", "first"]
@@ -210,6 +260,12 @@ tests transport = do
           , testCase "Call Message Prioritisation"
             (delayedAssertion "expected the longest strings to be prioritised"
              localNode True testCallPrioritisation)
+          , testCase "Size-Based Mailbox Overload Management"
+            (delayedAssertion "expected the server loop to stop reading the mailbox"
+             localNode True testOverflowHandling)
+          , testCase "Timeout-Based Mailbox Overload Management"
+            (delayedAssertion "expected the server loop to stop reading the mailbox"
+             localNode True testTimedOverflowHandling)
           ]
       ]
 
