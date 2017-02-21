@@ -4,7 +4,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  Control.Distributed.Process.ManagedProcess
--- Copyright   :  (c) Tim Watson 2012
+-- Copyright   :  (c) Tim Watson 2012 - 2017
 -- License     :  BSD3 (see the file LICENSE)
 --
 -- Maintainer  :  Tim Watson <watson.timothy@gmail.com>
