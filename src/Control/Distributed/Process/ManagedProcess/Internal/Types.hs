@@ -81,17 +81,21 @@ import GHC.Generics
 -- API                                                                        --
 --------------------------------------------------------------------------------
 
+-- | wrapper for a @MonitorRef@
 type CallId = MonitorRef
 
+-- | Wraps a consumer of the call API
 newtype CallRef a = CallRef { unCaller :: (Recipient, CallId) }
   deriving (Eq, Show, Typeable, Generic)
 
 instance Binary (CallRef a) where
 instance NFData (CallRef a) where rnf (CallRef x) = rnf x `seq` ()
 
+-- | Creates a @CallRef@ for the given @Recipient@ and @CallId@
 makeRef :: Recipient -> CallId -> CallRef a
 makeRef r c = CallRef (r, c)
 
+-- | @Message@ type used internally by the call, cast, and rpcChan APIs.
 data Message a b =
     CastMessage a
   | CallMessage a (CallRef b)
@@ -106,6 +110,7 @@ instance (NFSerializable a, NFSerializable b) => NFData (Message a b) where
 deriving instance (Eq a, Eq b) => Eq (Message a b)
 deriving instance (Show a, Show b) => Show (Message a b)
 
+-- | Response type for the call API
 data CallResponse a = CallResponse a CallId
   deriving (Typeable, Generic)
 
@@ -162,11 +167,11 @@ data Condition s m =
   | Input     (m -> Bool)       -- ^ predicated on the input message only
 
 
--- | Yielding an action (server state transition) in the @Process@ monad
+-- | An action (server state transition) in the @Process@ monad
 type Action s = Process (ProcessAction s)
 
--- | Yielding an action (server state transition) whilst also replying to a
--- caller, in the @Process@ monad
+-- | An action (server state transition) causing a reply to a  caller, in the
+-- @Process@ monad
 type Reply b s = Process (ProcessReply b s)
 
 -- | An expression used to handle a message
@@ -281,6 +286,7 @@ data ExitSignalDispatcher s =
                  -> Process (Maybe (ProcessAction s))
   }
 
+-- | Defines the means of dispatching inbound messages to a handler
 class MessageMatcher d where
   matchDispatch :: UnhandledMessagePolicy -> s -> d s -> Match (ProcessAction s)
 
@@ -290,6 +296,8 @@ instance MessageMatcher Dispatcher where
   matchDispatch _ s (DispatchCC  c d)      = matchChan c (d s)
   matchDispatch _ s (DispatchSTM c d)      = matchSTM c (d s)
 
+-- | Maps handlers to a dynamic action that can take place outside of a
+-- expect/recieve block.
 class DynMessageHandler d where
   dynHandleMessage :: UnhandledMessagePolicy
                    -> s
@@ -306,8 +314,10 @@ instance DynMessageHandler Dispatcher where
 instance DynMessageHandler DeferredDispatcher where
   dynHandleMessage _ s (DeferredDispatcher d) = d s
 
+-- | Priority of a message, encoded as an @Int@
 newtype Priority a = Priority { getPrio :: Int }
 
+-- | Dispatcher for prioritised handlers
 data DispatchPriority s =
     PrioritiseCall
     {

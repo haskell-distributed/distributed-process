@@ -111,7 +111,7 @@ data RestrictedAction =
 
 -- | Log a trace message using the underlying Process's @say@
 say :: String -> RestrictedProcess s ()
-say msg = lift . P.say $ msg
+say = lift . P.say
 
 -- | Get the current process state
 getState :: RestrictedProcess s s
@@ -138,7 +138,7 @@ reply = return . Reply
 noReply :: forall s r . (Serializable r)
            => Result r
            -> RestrictedProcess s (Result r)
-noReply r = return r
+noReply = return
 
 -- | Halt process execution during a call handler, without paying any attention
 -- to the expected return type.
@@ -187,7 +187,7 @@ handleCall = handleCallIf $ Server.state (const True)
 -- that takes a handler which executes in 'RestrictedProcess'.
 --
 handleCallIf :: forall s a b . (Serializable a, Serializable b)
-             => (Condition s a)
+             => Condition s a
              -> (a -> RestrictedProcess s (Result b))
              -> Dispatcher s
 handleCallIf cond h = Server.handleCallIf cond (wrapCall h)
@@ -219,11 +219,13 @@ handleInfo :: forall s a. (Serializable a)
 -- cast and info look the same to a restricted process
 handleInfo h = Server.handleInfo (wrapHandler h)
 
+-- | Handle exit signals
 handleExit :: forall s a. (Serializable a)
            => (a -> RestrictedProcess s RestrictedAction)
            -> ExitSignalDispatcher s
-handleExit h = Server.handleExit $ \_ s a -> (wrapHandler h) s a
+handleExit h = Server.handleExit $ \_ s a -> wrapHandler h s a
 
+-- | Handle timeouts
 handleTimeout :: forall s . (Delay -> RestrictedProcess s RestrictedAction)
                          -> TimeoutHandler s
 handleTimeout h = \s d -> do

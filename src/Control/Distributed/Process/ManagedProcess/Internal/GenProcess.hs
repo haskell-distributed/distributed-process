@@ -51,6 +51,16 @@ data TimeoutAction s = Stop s ExitReason | Go Delay s
 
 data CancelTimer = CancelTimer deriving (Eq, Show, Typeable)
 
+-- | Prioritised process loop.
+--
+-- Evaluating this function will cause the caller to enter a server loop,
+-- constantly reading messages from its mailbox (and/or other supplied control
+-- planes) and passing these to handler functions in the supplied process
+-- definition. Only when it is determined that the server process should
+-- terminate - either by the handlers deciding to stop the process, or by an
+-- unhandled exit signal or other form of failure condition (e.g. synchronous or
+-- asynchronous exceptions).
+--
 precvLoop :: PrioritisedProcessDefinition s -> s -> Delay -> Process ExitReason
 precvLoop ppDef pState recvDelay = do
     void $ verify $ processDef ppDef
@@ -231,6 +241,16 @@ enqueueMessage s (p:ps) m' q = let checkPrio = prioritise p s in do
 -- Ordinary/Blocking Mailbox Handling                                         --
 --------------------------------------------------------------------------------
 
+-- | Managed process loop.
+--
+-- Evaluating this function will cause the caller to enter a server loop,
+-- constantly reading messages from its mailbox (and/or other supplied control
+-- planes) and passing these to handler functions in the supplied process
+-- definition. Only when it is determined that the server process should
+-- terminate - either by the handlers deciding to stop the process, or by an
+-- unhandled exit signal or other form of failure condition (e.g. synchronous or
+-- asynchronous exceptions).
+--
 recvLoop :: ProcessDefinition s -> s -> Delay -> Process ExitReason
 recvLoop pDef pState recvDelay =
   let p             = unhandledMessagePolicy pDef

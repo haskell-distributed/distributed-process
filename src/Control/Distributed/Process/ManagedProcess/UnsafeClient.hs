@@ -119,8 +119,8 @@ safeCall :: forall s a b . (Addressable s, NFSerializable a, NFSerializable b)
 safeCall s m = do
   us <- getSelfPid
   (fmap fromJust (unsafeInitCall s m >>= waitResponse Nothing) :: Process (Either ExitReason b))
-    `catchesExit` [(\pid msg -> handleMessageIf msg (weFailed pid us)
-                                                    (return . Left))]
+    `catchesExit` [\pid msg -> handleMessageIf msg (weFailed pid us)
+                                                   (return . Left)]
 
   where
 
@@ -148,11 +148,12 @@ callTimeout s m d = unsafeInitCall s m >>= waitResponse (Just d) >>= decodeResul
         decodeResult (Just (Right result)) = return $ Just result
         decodeResult (Just (Left reason))  = die reason
 
+-- | Block for @TimeInterval@ waiting for any matching @CallResponse@
 flushPendingCalls :: forall b . (NFSerializable b)
                   => TimeInterval
                   -> (b -> Process b)
                   -> Process (Maybe b)
-flushPendingCalls d proc = do
+flushPendingCalls d proc =
   receiveTimeout (asTimeout d) [
       match (\(CallResponse (m :: b) _) -> proc m)
     ]
@@ -178,7 +179,7 @@ callChan server msg = do
   unsafeSendTo server ((ChanMessage msg sp) :: Message a b)
   return rp
 
-  -- | A synchronous version of 'callChan'.
+-- | A synchronous version of 'callChan'.
 syncCallChan :: forall s a b . (Addressable s, NFSerializable a, NFSerializable b)
          => s -> a -> Process b
 syncCallChan server msg = do

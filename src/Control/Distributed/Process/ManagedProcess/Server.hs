@@ -232,17 +232,10 @@ handleCallIf_ :: forall s a b . (Serializable a, Serializable b)
     -> Dispatcher s
 handleCallIf_ cond handler
   = DispatchIf {
-      dispatch   = doHandle handler
+      dispatch   = \s (CallMessage p c) -> handler p >>= mkCallReply c s
     , dispatchIf = checkCall cond
     }
-  where doHandle :: (Serializable a, Serializable b)
-                 => (a -> Process b)
-                 -> s
-                 -> Message a b
-                 -> Process (ProcessAction s)
-        doHandle h s (CallMessage p c) = h p >>= mkCallReply c s
-        doHandle _ _ _ = die "CALL_HANDLER_TYPE_MISMATCH" -- note [Message type]
-
+  where
         -- handling 'reply-to' in the main process loop is awkward at best,
         -- so we handle it here instead and return the 'action' to the loop
         mkCallReply :: (Serializable b)
@@ -274,17 +267,10 @@ handleCallIf :: forall s a b . (Serializable a, Serializable b)
         -- ^ a reply yielding function over the process state and input message
     -> Dispatcher s
 handleCallIf cond handler
-  = DispatchIf {
-      dispatch   = doHandle handler
+  = DispatchIf
+    { dispatch   = \s (CallMessage p c) -> handler s p >>= mkReply c
     , dispatchIf = checkCall cond
     }
-  where doHandle :: (Serializable a, Serializable b)
-                 => CallHandler s a b
-                 -> s
-                 -> Message a b
-                 -> Process (ProcessAction s)
-        doHandle h s (CallMessage p c) = h s p >>= mkReply c
-        doHandle _ _ _ = die "CALL_HANDLER_TYPE_MISMATCH" -- note [Message type]
 
 -- | A variant of 'handleCallFrom_' that ignores the state argument.
 --
@@ -299,18 +285,11 @@ handleCallFromIf_ :: forall s a b . (Serializable a, Serializable b)
                   => Condition s a
                   -> StatelessCallHandler s a b
                   -> Dispatcher s
-handleCallFromIf_ c h =
+handleCallFromIf_ cond handler =
   DispatchIf {
-      dispatch   = doHandle h
-    , dispatchIf = checkCall c
+      dispatch   = \_ (CallMessage p c) -> handler c p >>= mkReply c
+    , dispatchIf = checkCall cond
     }
-  where doHandle :: (Serializable a, Serializable b)
-                 => (CallRef b -> a -> Process (ProcessReply b s))
-                 -> s
-                 -> Message a b
-                 -> Process (ProcessAction s)
-        doHandle h' _ (CallMessage p c') = h' c' p >>= mkReply c'
-        doHandle _  _ _ = die "CALL_HANDLER_TYPE_MISMATCH" -- note [Message type]
 
 -- | As 'handleCall' but passes the 'CallRef' to the handler function.
 -- This can be useful if you wish to /reply later/ to the caller by, e.g.,
@@ -333,16 +312,9 @@ handleCallFromIf :: forall s a b . (Serializable a, Serializable b)
     -> Dispatcher s
 handleCallFromIf cond handler
   = DispatchIf {
-      dispatch   = doHandle handler
+      dispatch   = \s (CallMessage p c) -> handler c s p >>= mkReply c
     , dispatchIf = checkCall cond
     }
-  where doHandle :: (Serializable a, Serializable b)
-                 => (CallRef b -> CallHandler s a b)
-                 -> s
-                 -> Message a b
-                 -> Process (ProcessAction s)
-        doHandle h s (CallMessage p c) = h c s p >>= mkReply c
-        doHandle _ _ _ = die "CALL_HANDLER_TYPE_MISMATCH" -- note [Message type]
 
 -- | Creates a handler for a /typed channel/ RPC style interaction. The
 -- handler takes a @SendPort b@ to reply to, the initial input and evaluates
@@ -361,18 +333,11 @@ handleRpcChanIf :: forall s a b . (Serializable a, Serializable b)
                 => Condition s a
                 -> ChannelHandler s a b
                 -> Dispatcher s
-handleRpcChanIf c h
+handleRpcChanIf cond handler
   = DispatchIf {
-      dispatch   = doHandle h
-    , dispatchIf = checkRpc c
+      dispatch   = \s (ChanMessage p c) -> handler c s p
+    , dispatchIf = checkRpc cond
     }
-  where doHandle :: (Serializable a, Serializable b)
-                 => ChannelHandler s a b
-                 -> s
-                 -> Message a b
-                 -> Process (ProcessAction s)
-        doHandle h' s (ChanMessage p c') = h' c' s p
-        doHandle _  _ _ = die "RPC_HANDLER_TYPE_MISMATCH" -- node [Message type]
 
 -- | A variant of 'handleRpcChan' that ignores the state argument.
 --
@@ -600,6 +565,7 @@ handleExit h = ExitSignalDispatcher { dispatchExit = doHandleExit h }
                  -> Process (Maybe (ProcessAction s))
     doHandleExit h' s p msg = handleMessage msg (h' p s)
 
+-- | Conditional version of @handleExit@
 handleExitIf :: forall s a . (Serializable a)
              => (s -> a -> Bool)
              -> (ProcessId -> ActionHandler s a)

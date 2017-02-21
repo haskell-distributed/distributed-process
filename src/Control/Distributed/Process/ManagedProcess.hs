@@ -444,8 +444,17 @@ module Control.Distributed.Process.ManagedProcess
   , ProcessAction(..)
   , ProcessReply
   , Condition
+  , Action
+  , Reply
+  , ActionHandler
   , CallHandler
   , CastHandler
+  , StatelessHandler
+  , DeferredCallHandler
+  , StatelessCallHandler
+  , InfoHandler
+  , ChannelHandler
+  , StatelessChannelHandler
   , UnhandledMessagePolicy(..)
   , CallRef
   , ControlChannel()
