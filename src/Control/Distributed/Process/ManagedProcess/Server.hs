@@ -399,18 +399,20 @@ handleCastIf cond h
 --
 -- NB: this function cannot be used with a prioristised process definition.
 --
-handleExternal :: forall s a .
-       STM a
-    -> ActionHandler s a
-    -> Dispatcher s
-handleExternal = DispatchSTM
+handleExternal :: forall s a . (Serializable a)
+               => STM a
+               -> ActionHandler s a
+               -> ExternDispatcher s
+handleExternal a h =
+  DispatchSTM a h (matchSTM a (\(m :: r) -> return $ unsafeWrapMessage m))
 
 -- | Version of @handleExternal@ that ignores state.
-handleExternal_ :: forall s a .
-       STM a
-    -> StatelessHandler s a
-    -> Dispatcher s
-handleExternal_ a h = DispatchSTM a $ flip h
+handleExternal_ :: forall s a . (Serializable a)
+                => STM a
+                -> StatelessHandler s a
+                -> ExternDispatcher s
+handleExternal_ a h =
+  DispatchSTM a (flip h) (matchSTM a (\(m :: r) -> return $ unsafeWrapMessage m))
 
 -- | Handle @call@ style API interactions using arbitrary /STM/ actions.
 --
@@ -418,15 +420,17 @@ handleExternal_ a h = DispatchSTM a $ flip h
 -- yields a value, and a second expression that is used to send a reply back
 -- to the /caller/. The corrolary client API is /callSTM/.
 --
-handleCallExternal :: forall s r w .
-                      STM r
+handleCallExternal :: forall s r w . (Serializable r)
+                   => STM r
                    -> (w -> STM ())
                    -> CallHandler s r w
-                   -> Dispatcher s
+                   -> ExternDispatcher s
 handleCallExternal reader writer handler
-  = DispatchSTM { stmAction   = reader
-                , stmDispatch = doStmReply handler
-                }
+  = DispatchSTM
+    { stmAction   = reader
+    , dispatchStm = doStmReply handler
+    , matchStm    = matchSTM reader (\(m :: r) -> return $ unsafeWrapMessage m)
+    }
   where
     doStmReply d s m = d s m >>= doXfmReply writer
 
@@ -443,10 +447,10 @@ handleControlChan :: forall s a . (Serializable a)
     => ControlChannel a -- ^ the receiving end of the control channel
     -> ActionHandler s a
        -- ^ an action yielding function over the process state and input message
-    -> Dispatcher s
+    -> ExternDispatcher s
 handleControlChan chan h
-  = DispatchCC { channel  = snd $ unControl chan
-               , dispatch = \s ((CastMessage p) :: Message a ()) -> h s p
+  = DispatchCC { channel      = snd $ unControl chan
+               , dispatchChan = \s ((CastMessage p) :: Message a ()) -> h s p
                }
 
 -- | Version of 'handleControlChan' that ignores the server state.
@@ -454,10 +458,10 @@ handleControlChan chan h
 handleControlChan_ :: forall s a. (Serializable a)
            => ControlChannel a
            -> StatelessHandler s a
-           -> Dispatcher s
+           -> ExternDispatcher s
 handleControlChan_ chan h
-  = DispatchCC { channel    = snd $ unControl chan
-               , dispatch   = \s ((CastMessage p) :: Message a ()) -> h p s
+  = DispatchCC { channel      = snd $ unControl chan
+               , dispatchChan = \s ((CastMessage p) :: Message a ()) -> h p s
                }
 
 -- | Version of 'handleCast' that ignores the server state.

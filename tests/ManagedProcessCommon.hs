@@ -1,9 +1,16 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleInstances   #-}
+{-# LANGUAGE RecordWildCards     #-}
 
 module ManagedProcessCommon where
 
 import Control.Concurrent.MVar (MVar)
+import Control.Concurrent.STM.TQueue
+ ( newTQueueIO
+ , readTQueue
+ , writeTQueue
+ , TQueue
+ )
 import Control.Distributed.Process hiding (call, send)
 import Control.Distributed.Process.Extras hiding (monitor)
 import qualified Control.Distributed.Process as P
@@ -66,6 +73,38 @@ standardTestServer policy =
 
 wrap :: (Process (ProcessId, MVar ExitReason)) -> Launcher a
 wrap it = \_ -> do it
+
+data StmServer = StmServer { serverPid  :: ProcessId
+                           , writerChan :: TQueue String
+                           , readerChan :: TQueue String
+                           }
+
+instance Resolvable StmServer where
+  resolve = return . Just . serverPid
+
+echoStm :: StmServer -> String -> Process (Either ExitReason String)
+echoStm StmServer{..} = callSTM serverPid
+                                (writeTQueue writerChan)
+                                (readTQueue  readerChan)
+
+launchEchoServer :: CallHandler () String String -> Process StmServer
+launchEchoServer handler = do
+  (inQ, replyQ) <- liftIO $ do
+    cIn <- newTQueueIO
+    cOut <- newTQueueIO
+    return (cIn, cOut)
+
+  let procDef = statelessProcess {
+                  externHandlers = [
+                    handleCallExternal
+                      (readTQueue inQ)
+                      (writeTQueue replyQ)
+                      handler
+                  ]
+                }
+
+  pid <- spawnLocal $ serve () (statelessInit Infinity) procDef
+  return $ StmServer pid inQ replyQ
 
 -- common test cases
 

@@ -8,7 +8,6 @@ import Control.Concurrent.STM.TQueue
  ( newTQueueIO
  , readTQueue
  , writeTQueue
- , TQueue
  )
 import Control.Concurrent.MVar
 import Control.Exception (SomeException)
@@ -104,7 +103,7 @@ testExternalService result = do
   inChan <- liftIO newTQueueIO
   replyQ <- liftIO newTQueueIO
   let procDef = statelessProcess {
-                    apiHandlers = [
+                    externHandlers = [
                       handleExternal
                         (readTQueue inChan)
                         (\s (m :: String) -> do
@@ -122,38 +121,6 @@ testExternalService result = do
 
   stash result (echoTxt == txt)
   kill pid "done"
-
-data StmServer = StmServer { serverPid  :: ProcessId
-                           , writerChan :: TQueue String
-                           , readerChan :: TQueue String
-                           }
-
-instance Resolvable StmServer where
-  resolve = return . Just . serverPid
-
-echoStm :: StmServer -> String -> Process (Either ExitReason String)
-echoStm StmServer{..} = callSTM serverPid
-                                (writeTQueue writerChan)
-                                (readTQueue  readerChan)
-
-launchEchoServer :: CallHandler () String String -> Process StmServer
-launchEchoServer handler = do
-  (inQ, replyQ) <- liftIO $ do
-    cIn <- newTQueueIO
-    cOut <- newTQueueIO
-    return (cIn, cOut)
-
-  let procDef = statelessProcess {
-                  apiHandlers = [
-                    handleCallExternal
-                      (readTQueue inQ)
-                      (writeTQueue replyQ)
-                      handler
-                  ]
-                }
-
-  pid <- spawnLocal $ serve () (statelessInit Infinity) procDef
-  return $ StmServer pid inQ replyQ
 
 testExternalCall :: TestResult Bool -> Process ()
 testExternalCall result = do

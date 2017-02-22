@@ -38,9 +38,11 @@ module Control.Distributed.Process.ManagedProcess.Internal.Types
   , ControlPort(..)
   , channelControlPort
   , Dispatcher(..)
+  , ExternDispatcher(..)
   , DeferredDispatcher(..)
   , ExitSignalDispatcher(..)
   , MessageMatcher(..)
+  , ExternMatcher(..)
   , DynMessageHandler(..)
   , Message(..)
   , CallResponse(..)
@@ -166,7 +168,6 @@ data Condition s m =
   | State     (s -> Bool)       -- ^ predicated on the process state only
   | Input     (m -> Bool)       -- ^ predicated on the input message only
 
-
 -- | An action (server state transition) in the @Process@ monad
 type Action s = Process (ProcessAction s)
 
@@ -254,17 +255,21 @@ data Dispatcher s =
       dispatch   :: s -> Message a b -> Process (ProcessAction s)
     , dispatchIf :: s -> Message a b -> Bool
     }
-  | forall a b . (Serializable a, Serializable b) =>
+
+-- | Provides dispatch for channels and STM actions
+data ExternDispatcher s =
+    forall a b . (Serializable a, Serializable b) =>
     DispatchCC  -- control channel dispatch
     {
-      channel  :: ReceivePort (Message a b)
-    , dispatch :: s -> Message a b -> Process (ProcessAction s)
+      channel      :: ReceivePort (Message a b)
+    , dispatchChan :: s -> Message a b -> Process (ProcessAction s)
     }
-  | forall a .
+  | forall a . (Serializable a) =>
     DispatchSTM -- arbitrary STM actions
     {
       stmAction   :: STM a
-    , stmDispatch :: s -> a -> Process (ProcessAction s)
+    , dispatchStm :: s -> a -> Process (ProcessAction s)
+    , matchStm    :: Match P.Message
     }
 
 -- | Provides dispatch for any input, returns 'Nothing' for unhandled messages.
@@ -291,10 +296,19 @@ class MessageMatcher d where
   matchDispatch :: UnhandledMessagePolicy -> s -> d s -> Match (ProcessAction s)
 
 instance MessageMatcher Dispatcher where
-  matchDispatch _ s (Dispatch    d)        = match (d s)
-  matchDispatch _ s (DispatchIf  d cond)   = matchIf (cond s) (d s)
-  matchDispatch _ s (DispatchCC  c d)      = matchChan c (d s)
-  matchDispatch _ s (DispatchSTM c d)      = matchSTM c (d s)
+  matchDispatch _ s (Dispatch    d)      = match   (d s)
+  matchDispatch _ s (DispatchIf  d cond) = matchIf (cond s) (d s)
+
+instance MessageMatcher ExternDispatcher where
+  matchDispatch _ s (DispatchCC  c d)   = matchChan c (d s)
+  matchDispatch _ s (DispatchSTM c d _) = matchSTM  c (d s)
+
+class ExternMatcher d where
+  matchExtern :: UnhandledMessagePolicy -> s -> d s -> Match P.Message
+
+instance ExternMatcher ExternDispatcher where
+  matchExtern _ _ (DispatchCC  c _)   = matchChan c (return . unsafeWrapMessage)
+  matchExtern _ _ (DispatchSTM _ _ m) = m
 
 -- | Maps handlers to a dynamic action that can take place outside of a
 -- expect/recieve block.
@@ -308,8 +322,10 @@ class DynMessageHandler d where
 instance DynMessageHandler Dispatcher where
   dynHandleMessage _ s (Dispatch       d)   msg = handleMessage   msg (d s)
   dynHandleMessage _ s (DispatchIf     d c) msg = handleMessageIf msg (c s) (d s)
-  dynHandleMessage _ _ (DispatchCC     _ _) _   = error "ThisCanNeverHappen"
-  dynHandleMessage _ _ (DispatchSTM    _ _) _   = error "ThisCanNeverHappen"
+
+instance DynMessageHandler ExternDispatcher where
+  dynHandleMessage _ s (DispatchCC  _ d)   msg = handleMessage msg (d s)
+  dynHandleMessage _ s (DispatchSTM _ d _) msg = handleMessage msg (d s)
 
 instance DynMessageHandler DeferredDispatcher where
   dynHandleMessage _ s (DeferredDispatcher d) = d s
@@ -368,9 +384,10 @@ data UnhandledMessagePolicy =
 -- | Stores the functions that determine runtime behaviour in response to
 -- incoming messages and a policy for responding to unhandled messages.
 data ProcessDefinition s = ProcessDefinition {
-    apiHandlers  :: [Dispatcher s]     -- ^ functions that handle call/cast messages
-  , infoHandlers :: [DeferredDispatcher s] -- ^ functions that handle non call/cast messages
-  , exitHandlers :: [ExitSignalDispatcher s] -- ^ functions that handle exit signals
+    apiHandlers    :: [Dispatcher s]       -- ^ functions that handle call/cast messages
+  , infoHandlers   :: [DeferredDispatcher s] -- ^ functions that handle non call/cast messages
+  , externHandlers :: [ExternDispatcher s] -- ^ functions that handle control channel and STM inputs
+  , exitHandlers   :: [ExitSignalDispatcher s] -- ^ functions that handle exit signals
   , timeoutHandler :: TimeoutHandler s   -- ^ a function that handles timeouts
   , shutdownHandler :: ShutdownHandler s -- ^ a function that is run just before the process exits
   , unhandledMessagePolicy :: UnhandledMessagePolicy -- ^ how to deal with unhandled messages

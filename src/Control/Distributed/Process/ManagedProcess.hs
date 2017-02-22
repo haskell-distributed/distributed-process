@@ -438,6 +438,7 @@ module Control.Distributed.Process.ManagedProcess
   , Priority(..)
   , DispatchPriority()
   , Dispatcher()
+  , ExternDispatcher()
   , DeferredDispatcher()
   , ShutdownHandler
   , TimeoutHandler
@@ -598,6 +599,7 @@ defaultProcess :: ProcessDefinition s
 defaultProcess = ProcessDefinition {
     apiHandlers      = []
   , infoHandlers     = []
+  , externHandlers   = []
   , exitHandlers     = []
   , timeoutHandler   = \s _ -> continue s
   , shutdownHandler  = \_ _ -> return ()
@@ -607,10 +609,15 @@ defaultProcess = ProcessDefinition {
 -- | Turns a standard 'ProcessDefinition' into a 'PrioritisedProcessDefinition',
 -- by virtue of the supplied list of 'DispatchPriority' expressions.
 --
+-- Terminates the caller with an exit signal if the supplied process definition
+-- contains any externHandlers, since these are not supported by prioritised
+-- process definitions.
+--
 prioritised :: ProcessDefinition s
             -> [DispatchPriority s]
             -> PrioritisedProcessDefinition s
-prioritised def ps = PrioritisedProcessDefinition def ps defaultRecvTimeoutPolicy
+prioritised def ps =
+  PrioritisedProcessDefinition def ps defaultRecvTimeoutPolicy
 
 -- | Sets the default 'recvTimeoutPolicy', which gives up after 10k reads.
 defaultRecvTimeoutPolicy :: RecvTimeoutPolicy
@@ -619,7 +626,7 @@ defaultRecvTimeoutPolicy = RecvCounter 10000
 -- | Creates a default 'PrioritisedProcessDefinition' from a list of
 -- 'DispatchPriority'. See 'defaultProcess' for the underlying definition.
 defaultProcessWithPriorities :: [DispatchPriority s] -> PrioritisedProcessDefinition s
-defaultProcessWithPriorities dps = prioritised defaultProcess dps
+defaultProcessWithPriorities = prioritised defaultProcess
 
 -- | A basic, stateless 'ProcessDefinition'. See 'defaultProcess' for the
 -- default field values.

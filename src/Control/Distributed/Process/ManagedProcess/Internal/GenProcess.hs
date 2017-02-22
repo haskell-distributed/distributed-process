@@ -63,16 +63,8 @@ data CancelTimer = CancelTimer deriving (Eq, Show, Typeable)
 --
 precvLoop :: PrioritisedProcessDefinition s -> s -> Delay -> Process ExitReason
 precvLoop ppDef pState recvDelay = do
-    void $ verify $ processDef ppDef
     tref <- startTimer recvDelay
     recvQueue ppDef pState tref PriorityQ.empty
-  where
-    verify pDef = mapM_ disallowCC $ apiHandlers pDef
-
-    -- TODO: better failure messages here!
-    disallowCC (DispatchCC _ _)     = die $ ExitOther "IllegalControlChannel"
-    disallowCC (DispatchSTM _ _)    = die $ ExitOther "IllegalSTMAction"
-    disallowCC _                    = return ()
 
 recvQueue :: PrioritisedProcessDefinition s
           -> s
@@ -143,7 +135,7 @@ recvQueue p s t q =
                 -- if the internal queue is empty, we fall back to reading the
                 -- actual mailbox, however if /that/ times out, then we need
                 -- to let the timeout handler kick in again and make a decision
-                drainOrTimeout s' t' queue ps' h
+                drainOrTimeout def s' t' queue ps' h
               Just (m', q') -> do
                 act <- catchesExit (processApply def s' m')
                                    (map (\d' -> dispatchExit d' s') ex)
@@ -153,8 +145,9 @@ recvQueue p s t q =
       let pol          = unhandledMessagePolicy def
           apiMatchers  = map (dynHandleMessage pol pState) (apiHandlers def)
           infoMatchers = map (dynHandleMessage pol pState) (infoHandlers def)
+          extMatchers  = map (dynHandleMessage pol pState) (externHandlers def)
           shutdown'    = dynHandleMessage pol pState shutdownHandler'
-          ms'          = (shutdown':apiMatchers) ++ infoMatchers
+          ms'          = (shutdown':apiMatchers) ++ infoMatchers ++ extMatchers
       in processApplyAux ms' pol pState msg
 
     processApplyAux []     p' s' m' = applyPolicy p' s' m'
@@ -164,8 +157,9 @@ recvQueue p s t q =
         Nothing  -> processApplyAux hs p' s' m'
         Just act -> return act
 
-    drainOrTimeout pState delay queue ps' h =
-      let matches = [ matchMessage return ]
+    drainOrTimeout pDef pState delay queue ps' h =
+      let p'       = unhandledMessagePolicy pDef
+          matches = ((matchMessage return):(map (matchExtern p' pState) (externHandlers pDef)))
           recv    = case delay of
                       Infinity -> fmap Just (receiveWait matches)
                       NoDelay  -> receiveTimeout 0 matches
@@ -257,7 +251,8 @@ recvLoop pDef pState recvDelay =
       handleTimeout = timeoutHandler pDef
       handleStop    = shutdownHandler pDef
       shutdown'     = matchDispatch p pState shutdownHandler'
-      matchers      = map (matchDispatch p pState) (apiHandlers pDef)
+      extMatchers   = map (matchDispatch p pState) (externHandlers pDef)
+      matchers      = extMatchers ++ (map (matchDispatch p pState) (apiHandlers pDef))
       ex'           = (trapExit:(exitHandlers pDef))
       ms' = (shutdown':matchers) ++ matchAux p pState (infoHandlers pDef)
   in do

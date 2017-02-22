@@ -5,6 +5,11 @@
 module Main where
 
 import Control.Concurrent.MVar
+import Control.Concurrent.STM.TQueue
+ ( newTQueueIO
+ , readTQueue
+ , writeTQueue
+ )
 import Control.Exception (SomeException)
 import Control.DeepSeq (NFData)
 import Control.Distributed.Process hiding (call, send, catch)
@@ -137,6 +142,41 @@ mkOverflowHandlingServer modIt =
             ]
           } :: ProcessDefinition Int
 
+launchStmServer :: CallHandler () String String -> Process StmServer
+launchStmServer handler = do
+  (inQ, replyQ) <- liftIO $ do
+    cIn <- newTQueueIO
+    cOut <- newTQueueIO
+    return (cIn, cOut)
+
+  let procDef = statelessProcess {
+                  externHandlers = [
+                    handleCallExternal
+                      (readTQueue inQ)
+                      (writeTQueue replyQ)
+                      handler
+                  ]
+                , apiHandlers = [
+                    action (\() -> stop_ ExitNormal)
+                  ]
+                }
+
+  let p = procDef `prioritised` ([
+               prioritiseCast_ (\() -> setPriority 99 :: Priority ())
+             , prioritiseCast_ (\(_ :: String) -> setPriority 100)
+             ] :: [DispatchPriority ()]
+          ) :: PrioritisedProcessDefinition ()
+
+  pid <- spawnLocal $ pserve () (statelessInit Infinity) p
+  return $ StmServer pid inQ replyQ
+
+testExternalCall :: TestResult Bool -> Process ()
+testExternalCall result = do
+  let txt = "hello stm-call foo"
+  srv <- launchStmServer (\st (msg :: String) -> reply msg st)
+  echoStm srv txt >>= stash result . (== Right txt)
+  killProc srv "done"
+
 testTimedOverflowHandling :: TestResult Bool -> Process ()
 testTimedOverflowHandling result = do
   pid <- mkOverflowHandlingServer (\s -> s { recvTimeout = RecvTimer $ within 3 Seconds })
@@ -267,6 +307,12 @@ tests transport = do
             (delayedAssertion "expected the server loop to stop reading the mailbox"
              localNode True testTimedOverflowHandling)
           ]
+          , testGroup "Advanced Server Interactions" [
+              testCase "using callSTM to manage non-CH interactions"
+              (delayedAssertion
+               "expected the server to reply back via the TQueue"
+               localNode True testExternalCall)
+            ]
       ]
 
 main :: IO ()
