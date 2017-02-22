@@ -120,7 +120,7 @@ import Control.Concurrent.MVar
   , withMVar
   )
 import Control.Category ((>>>))
-import Control.Applicative ((<$>))
+import Control.Applicative ((<$>), (<*))
 import Control.Monad (when, unless, join, mplus, (<=<))
 import Control.Exception
   ( IOException
@@ -137,6 +137,8 @@ import Control.Exception
   , catch
   , bracket
   , mask_
+  , mask
+  , Exception
   )
 import Data.IORef (IORef, newIORef, writeIORef, readIORef, writeIORef)
 import Data.ByteString (ByteString)
@@ -899,10 +901,17 @@ handleConnectionRequest transport socketClosed sock = handle handleException $ d
       N.setSocketOption sock N.KeepAlive 1
     forM_ (tcpUserTimeout $ transportParams transport) $
       N.setSocketOption sock N.UserTimeout
-    ourEndPointId <- recvWord32 sock
-    let maxAddressLength = tcpMaxAddressLength $ transportParams transport
-    theirAddress  <- EndPointAddress . BS.concat <$>
-      recvWithLength maxAddressLength sock
+    let connTimeout = transportConnectTimeout (transportParams transport)
+    -- The peer must send our identifier and their address promptly, if a
+    -- timeout is set.
+    addrInfo <- maybe id (withTimeout (userError "handleConnectionRequest: timed out")) connTimeout $ do
+      ourEndPointId <- recvWord32 sock
+      let maxAddressLength = tcpMaxAddressLength $ transportParams transport
+      theirAddress <- EndPointAddress . BS.concat <$>
+        recvWithLength maxAddressLength sock
+      return (ourEndPointId, theirAddress)
+    let theirAddress = snd addrInfo
+    let ourEndPointId = fst addrInfo
     let ourAddress = encodeEndPointAddress (transportHost transport)
                                            (transportPort transport)
                                            ourEndPointId
@@ -1814,6 +1823,26 @@ withScheduledAction ourEndPoint f =
   bracket (newIORef Nothing)
           (traverse (\(tp, a) -> runScheduledAction (ourEndPoint, tp) a) <=< readIORef)
           (\ref -> f (\rp g -> mask_ $ schedule rp g >>= \x -> writeIORef ref (Just (rp,x)) ))
+
+-- | Run an IO but kill it after an optional timeout in microseconds.
+withTimeout :: Exception e => e -> Int -> IO t -> IO t
+withTimeout e timeout io = mask $ \unmask -> do
+  var <- newEmptyMVar
+  rec {
+      tidTimeout <- forkIO $ do
+        unmask (threadDelay timeout >> killThread tidAction)
+        putMVar var Nothing
+    ; tidAction  <- forkIO $ do
+        -- If there's an exception, it'll be thrown up top when we takeMVar
+        -- and pattern-match on the value within.
+        outcome <- unmask $
+          (io `catch` (throw :: SomeException -> IO t)) <* killThread tidTimeout
+        putMVar var (Just outcome)
+    }
+  outcome <- takeMVar var
+  case outcome of
+    Nothing -> throwIO e
+    Just t -> return t
 
 --------------------------------------------------------------------------------
 -- "Stateless" (MVar free) functions                                          --
