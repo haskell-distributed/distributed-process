@@ -12,7 +12,7 @@ import Control.Concurrent.STM.TQueue
  )
 import Control.Exception (SomeException)
 import Control.DeepSeq (NFData)
-import Control.Distributed.Process hiding (call, send, catch)
+import Control.Distributed.Process hiding (call, send, catch, sendChan)
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Extras hiding (__remoteTable)
 import Control.Distributed.Process.Async
@@ -170,6 +170,52 @@ launchStmServer handler = do
   pid <- spawnLocal $ pserve () (statelessInit Infinity) p
   return $ StmServer pid inQ replyQ
 
+launchStmOverloadServer :: Process (ProcessId, ControlPort String)
+launchStmOverloadServer = do
+  cc <- newControlChan :: Process (ControlChannel String)
+  let cp = channelControlPort cc
+
+  let procDef = statelessProcess {
+                  externHandlers = [
+                    handleControlChan_ cc (\(_ :: String) -> continue_)
+                  ]
+                , apiHandlers = [
+                    handleCast (\s sp -> sendChan sp () >> continue s)
+                  ]
+                }
+
+  let p = procDef `prioritised` ([
+               prioritiseCast_ (\() -> setPriority 99 :: Priority ())
+             ] :: [DispatchPriority ()]
+          ) :: PrioritisedProcessDefinition ()
+
+  pid <- spawnLocal $ pserve () (statelessInit Infinity) p
+  return (pid, cp)
+
+testExternalTimedOverflowHandling :: TestResult Bool -> Process ()
+testExternalTimedOverflowHandling result = do
+  (pid, cp) <- launchStmOverloadServer -- default 10k mailbox drain limit
+  wrk <- spawnLocal $ mapM_ (sendControlMessage cp . show) ([1..500000] :: [Int])
+
+  sleep $ milliSeconds 250 -- give the worker time to start spamming the server...
+
+  (sp, rp) <- newChan
+  cast pid sp -- tell the server we're expecting a reply
+
+  -- it might take "a while" for us to get through the first 10k messages
+  -- from our chatty friend wrk, before we finally get our control message seen
+  -- by the reader/listener loop, and in fact timing wise we don't even know when
+  -- our message will arrive, since we're racing with wrk to communicate with
+  -- the server. It's important therefore to give sufficient time for the right
+  -- conditions to occur so that our message is finally received and processed,
+  -- yet we don't want to lock up the build for 10-20 mins either. This value
+  -- of 30 seconds seems like a reasonable compromise.
+  answer <- receiveChanTimeout (asTimeout $ seconds 30) rp
+
+  stash result $ answer == Just ()
+  kill wrk "done"
+  kill pid "done"
+
 testExternalCall :: TestResult Bool -> Process ()
 testExternalCall result = do
   let txt = "hello stm-call foo"
@@ -307,12 +353,15 @@ tests transport = do
             (delayedAssertion "expected the server loop to stop reading the mailbox"
              localNode True testTimedOverflowHandling)
           ]
-          , testGroup "Advanced Server Interactions" [
-              testCase "using callSTM to manage non-CH interactions"
-              (delayedAssertion
-               "expected the server to reply back via the TQueue"
-               localNode True testExternalCall)
-            ]
+       , testGroup "Advanced Server Interactions" [
+            testCase "using callSTM to manage non-CH interactions"
+            (delayedAssertion
+             "expected the server to reply back via the TQueue"
+             localNode True testExternalCall)
+          , testCase "Timeout-Based Overload Management with Control Channels"
+            (delayedAssertion "expected the server loop to reply"
+             localNode True testExternalTimedOverflowHandling)
+         ]
       ]
 
 main :: IO ()

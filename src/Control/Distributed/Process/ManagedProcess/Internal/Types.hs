@@ -5,6 +5,7 @@
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LiberalTypeSynonyms        #-}
+{-# LANGUAGE Rank2Types                 #-}
 
 -- | Types used throughout the ManagedProcess framework
 module Control.Distributed.Process.ManagedProcess.Internal.Types
@@ -270,6 +271,7 @@ data ExternDispatcher s =
       stmAction   :: STM a
     , dispatchStm :: s -> a -> Process (ProcessAction s)
     , matchStm    :: Match P.Message
+    , matchAnyStm :: forall m . (P.Message -> m) -> Match m
     }
 
 -- | Provides dispatch for any input, returns 'Nothing' for unhandled messages.
@@ -300,15 +302,21 @@ instance MessageMatcher Dispatcher where
   matchDispatch _ s (DispatchIf  d cond) = matchIf (cond s) (d s)
 
 instance MessageMatcher ExternDispatcher where
-  matchDispatch _ s (DispatchCC  c d)   = matchChan c (d s)
-  matchDispatch _ s (DispatchSTM c d _) = matchSTM  c (d s)
+  matchDispatch _ s (DispatchCC  c d)     = matchChan c (d s)
+  matchDispatch _ s (DispatchSTM c d _ _) = matchSTM  c (d s)
 
 class ExternMatcher d where
   matchExtern :: UnhandledMessagePolicy -> s -> d s -> Match P.Message
 
+  matchMapExtern :: forall m s . UnhandledMessagePolicy
+                 -> s -> (P.Message -> m) -> d s -> Match m
+
 instance ExternMatcher ExternDispatcher where
-  matchExtern _ _ (DispatchCC  c _)   = matchChan c (return . unsafeWrapMessage)
-  matchExtern _ _ (DispatchSTM _ _ m) = m
+  matchExtern _ _ (DispatchCC  c _)     = matchChan c (return . unsafeWrapMessage)
+  matchExtern _ _ (DispatchSTM _ _ m _) = m
+
+  matchMapExtern _ _ f (DispatchCC c _)      = matchChan c (return . f . unsafeWrapMessage)
+  matchMapExtern _ _ f (DispatchSTM _ _ _ p) = p f
 
 -- | Maps handlers to a dynamic action that can take place outside of a
 -- expect/recieve block.
@@ -324,8 +332,8 @@ instance DynMessageHandler Dispatcher where
   dynHandleMessage _ s (DispatchIf     d c) msg = handleMessageIf msg (c s) (d s)
 
 instance DynMessageHandler ExternDispatcher where
-  dynHandleMessage _ s (DispatchCC  _ d)   msg = handleMessage msg (d s)
-  dynHandleMessage _ s (DispatchSTM _ d _) msg = handleMessage msg (d s)
+  dynHandleMessage _ s (DispatchCC  _ d)     msg = handleMessage msg (d s)
+  dynHandleMessage _ s (DispatchSTM _ d _ _) msg = handleMessage msg (d s)
 
 instance DynMessageHandler DeferredDispatcher where
   dynHandleMessage _ s (DeferredDispatcher d) = d s

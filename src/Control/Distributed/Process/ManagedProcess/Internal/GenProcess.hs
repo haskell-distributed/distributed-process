@@ -88,11 +88,12 @@ recvQueue p s t q =
       | otherwise {- compiler foo -} = die "IllegalState"
 
     recvQueueAux ppDef prioritizers pState delay queue =
-      let ex = trapExit:(exitHandlers $ processDef ppDef)
-          eh = map (\d' -> (dispatchExit d') pState) ex
-          mx = recvTimeout ppDef
+      let pDef = processDef ppDef
+          ex   = trapExit:(exitHandlers $ pDef)
+          eh   = map (\d' -> (dispatchExit d') pState) ex
+          mx   = recvTimeout ppDef
       in (do t' <- startTimer delay
-             mq <- drainMessageQueue mx pState prioritizers queue
+             mq <- drainMessageQueue mx pDef pState prioritizers queue
              recvQueue ppDef pState t' mq)
          `catchExit`
          (\pid (reason :: ExitReason) -> do
@@ -157,9 +158,17 @@ recvQueue p s t q =
         Nothing  -> processApplyAux hs p' s' m'
         Just act -> return act
 
+    -- This is the only place where it is sanely possible to apply external
+    -- handlers (i.e. control channel and stm handlers) without overcomplicating
+    -- the loop too much. What we sacrifice is the ability to read from these
+    -- channels whilst draining our mailbox, which means that conversely with
+    -- an ordinary server loop, external handlers could well be de-prioritised
+    -- here! There are, however, no guarantees about this, therefore it is
+    -- probably best to simply document this infelicity and leave it to the
+    -- programmer to decide if they wish to punt on such matters at runtime.
     drainOrTimeout pDef pState delay queue ps' h =
       let p'       = unhandledMessagePolicy pDef
-          matches = ((matchMessage return):(map (matchExtern p' pState) (externHandlers pDef)))
+          matches = ((matchMessage return):map (matchExtern p' pState) (externHandlers pDef))
           recv    = case delay of
                       Infinity -> fmap Just (receiveWait matches)
                       NoDelay  -> receiveTimeout 0 matches
@@ -175,38 +184,57 @@ recvQueue p s t q =
             return (ProcessContinue pState, delay, queue')
 
 drainMessageQueue :: RecvTimeoutPolicy
+                  -> ProcessDefinition s
                   -> s
                   -> [DispatchPriority s]
                   -> Queue
                   -> Process Queue
-drainMessageQueue limit pState priorities' queue = do
+drainMessageQueue limit pDef pState priorities' queue = do
     timerAcc <- case limit of
                   RecvTimer   tm  -> setupTimer tm
                   RecvCounter cnt -> return $ Right cnt
-    drainMessageQueueAux timerAcc pState priorities' queue
+    drainMessageQueueAux pDef timerAcc pState priorities' queue
 
   where
 
-    drainMessageQueueAux acc st ps q = do
-      (acc', m) <- drainIt acc
+    drainMessageQueueAux pd acc st ps q = do
+      (acc', m) <- drainIt st pd acc
       -- say $ "drained " ++ show m
       case m of
         Nothing                 -> return q
         Just (Left CancelTimer) -> return q
         Just (Right m')         -> do
           queue' <- enqueueMessage st ps m' q
-          drainMessageQueueAux acc' st ps queue'
+          drainMessageQueueAux pd acc' st ps queue'
 
-    drainIt :: Either (STM CancelTimer) Int
+    drainIt :: s
+            -> ProcessDefinition s
+            -> Either (STM CancelTimer) Int
             -> Process (Either (STM CancelTimer) Int,
                         Maybe (Either CancelTimer P.Message))
-    drainIt e@(Right 0)  = return (e, Just (Left CancelTimer))
-    drainIt (Right cnt)  = fmap (Right $ cnt - 1, )
-                                (receiveTimeout 0 [ matchAny (return . Right) ])
-    drainIt a@(Left stm) = fmap (a, )
-                                (receiveTimeout 0 [ matchSTM stm (return . Left)
-                                                  , matchAny     (return . Right)
-                                                  ])
+    drainIt _  _  e@(Right 0)  = return (e, Just (Left CancelTimer))
+    drainIt s' d' (Right cnt)  =
+      fmap (Right (cnt - 1), )
+           (receiveTimeout 0 (matchAny (return . Right): mkMatchers s' d'))
+    drainIt s' d' a@(Left stm) =
+      fmap (a, )
+           (receiveTimeout 0 ([ matchSTM stm (return . Left)
+                              , matchAny     (return . Right)
+                              ]  ++ mkMatchers s' d'))
+
+    mkMatchers :: s
+               -> ProcessDefinition s
+               -> [Match (Either CancelTimer P.Message)]
+    mkMatchers st df =
+      map (matchMapExtern (unhandledMessagePolicy df) st toRight)
+          (externHandlers df)
+
+    toRight :: P.Message -> Either CancelTimer P.Message
+    toRight = Right
+
+    -- pass the s' and the p' here and do our thing with matchMapExtern
+    -- matches = ((matchMessage return):(map (matchExtern p' pState) (externHandlers pDef)))
+    -- matchMapExtern
 
     setupTimer intv = do
       chan <- liftIO newTChanIO

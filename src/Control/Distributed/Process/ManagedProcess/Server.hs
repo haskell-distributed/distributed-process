@@ -404,15 +404,21 @@ handleExternal :: forall s a . (Serializable a)
                -> ActionHandler s a
                -> ExternDispatcher s
 handleExternal a h =
-  DispatchSTM a h (matchSTM a (\(m :: r) -> return $ unsafeWrapMessage m))
+  let matchMsg'   = matchSTM a (\(m :: r) -> return $ unsafeWrapMessage m)
+      matchAny' f = matchSTM a (\(m :: r) -> return $ f (unsafeWrapMessage m)) in
+  DispatchSTM
+    { stmAction   = a
+    , dispatchStm = h
+    , matchStm    = matchMsg'
+    , matchAnyStm = matchAny'
+    }
 
 -- | Version of @handleExternal@ that ignores state.
 handleExternal_ :: forall s a . (Serializable a)
                 => STM a
                 -> StatelessHandler s a
                 -> ExternDispatcher s
-handleExternal_ a h =
-  DispatchSTM a (flip h) (matchSTM a (\(m :: r) -> return $ unsafeWrapMessage m))
+handleExternal_ a h = handleExternal a (flip h)
 
 -- | Handle @call@ style API interactions using arbitrary /STM/ actions.
 --
@@ -425,11 +431,14 @@ handleCallExternal :: forall s r w . (Serializable r)
                    -> (w -> STM ())
                    -> CallHandler s r w
                    -> ExternDispatcher s
-handleCallExternal reader writer handler
-  = DispatchSTM
+handleCallExternal reader writer handler =
+  let matchMsg'   = matchSTM reader (\(m :: r) -> return $ unsafeWrapMessage m)
+      matchAny' f = matchSTM reader (\(m :: r) -> return $ f $ unsafeWrapMessage m) in
+  DispatchSTM
     { stmAction   = reader
     , dispatchStm = doStmReply handler
-    , matchStm    = matchSTM reader (\(m :: r) -> return $ unsafeWrapMessage m)
+    , matchStm    = matchMsg'
+    , matchAnyStm = matchAny'
     }
   where
     doStmReply d s m = d s m >>= doXfmReply writer
@@ -479,7 +488,7 @@ handleCastIf_ :: forall s a . (Serializable a)
         -- ^ a function from the input message to a /stateless action/, cf 'continue_'
     -> Dispatcher s
 handleCastIf_ cond h
-  = DispatchIf { dispatch   = \s ((CastMessage p) :: Message a ()) -> h p s
+  = DispatchIf { dispatch   = \s ((CastMessage p) :: Message a ()) -> h p $ s
                , dispatchIf = checkCast cond
                }
 
