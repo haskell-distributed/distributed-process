@@ -1,10 +1,14 @@
 -- | Internal functions
 module Network.Transport.Internal
   ( -- * Encoders/decoders
-    encodeInt32
-  , decodeInt32
-  , encodeInt16
-  , decodeInt16
+    encodeWord32
+  , decodeWord32
+  , encodeEnum32
+  , decodeNum32
+  , encodeWord16
+  , decodeWord16
+  , encodeEnum16
+  , decodeNum16
   , prependLength
     -- * Miscellaneous abstractions
   , mapIOException
@@ -24,7 +28,6 @@ import Prelude hiding (catch)
 #endif
 
 import Foreign.Storable (pokeByteOff, peekByteOff)
-import Foreign.C (CInt(..), CShort(..))
 import Foreign.ForeignPtr (withForeignPtr)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (length)
@@ -33,6 +36,7 @@ import qualified Data.ByteString.Internal as BSI
   , toForeignPtr
   , inlinePerformIO
   )
+import Data.Word (Word32, Word16)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Exception
   ( IOException
@@ -53,57 +57,73 @@ import System.Timeout (timeout)
 
 #ifdef mingw32_HOST_OS
 
-foreign import stdcall unsafe "htonl" htonl :: CInt -> CInt
-foreign import stdcall unsafe "ntohl" ntohl :: CInt -> CInt
-foreign import stdcall unsafe "htons" htons :: CShort -> CShort
-foreign import stdcall unsafe "ntohs" ntohs :: CShort -> CShort
+foreign import stdcall unsafe "htonl" htonl :: Word32 -> Word32
+foreign import stdcall unsafe "ntohl" ntohl :: Word32 -> Word32
+foreign import stdcall unsafe "htons" htons :: Word16 -> Word16
+foreign import stdcall unsafe "ntohs" ntohs :: Word16 -> Word16
 
 #else
 
-foreign import ccall unsafe "htonl" htonl :: CInt -> CInt
-foreign import ccall unsafe "ntohl" ntohl :: CInt -> CInt
-foreign import ccall unsafe "htons" htons :: CShort -> CShort
-foreign import ccall unsafe "ntohs" ntohs :: CShort -> CShort
+foreign import ccall unsafe "htonl" htonl :: Word32 -> Word32
+foreign import ccall unsafe "ntohl" ntohl :: Word32 -> Word32
+foreign import ccall unsafe "htons" htons :: Word16 -> Word16
+foreign import ccall unsafe "ntohs" ntohs :: Word16 -> Word16
 
 #endif
 
 -- | Serialize 32-bit to network byte order
-encodeInt32 :: Enum a => a -> ByteString
-encodeInt32 i32 =
+encodeWord32 :: Word32 -> ByteString
+encodeWord32 w32 =
   BSI.unsafeCreate 4 $ \p ->
-    pokeByteOff p 0 (htonl . fromIntegral . fromEnum $ i32)
+    pokeByteOff p 0 (htonl w32)
 
 -- | Deserialize 32-bit from network byte order
--- Throws an IO exception if this is not a valid integer.
-decodeInt32 :: Num a => ByteString -> a
-decodeInt32 bs
-  | BS.length bs /= 4 = throw $ userError "decodeInt32: Invalid length"
+-- Throws an IO exception if this is not exactly 32 bits.
+decodeWord32 :: ByteString -> Word32
+decodeWord32 bs
+  | BS.length bs /= 4 = throw $ userError "decodeWord32: not 4 bytes"
   | otherwise         = BSI.inlinePerformIO $ do
       let (fp, offset, _) = BSI.toForeignPtr bs
-      withForeignPtr fp $ \p -> do
-        w32 <- peekByteOff p offset
-        return (fromIntegral . ntohl $ w32)
+      withForeignPtr fp $ \p -> ntohl <$> peekByteOff p offset
 
 -- | Serialize 16-bit to network byte order
-encodeInt16 :: Enum a => a -> ByteString
-encodeInt16 i16 =
+encodeWord16 :: Word16 -> ByteString
+encodeWord16 w16 =
   BSI.unsafeCreate 2 $ \p ->
-    pokeByteOff p 0 (htons . fromIntegral . fromEnum $ i16)
+    pokeByteOff p 0 (htons w16)
 
 -- | Deserialize 16-bit from network byte order
--- Throws an IO exception if this is not a valid integer
-decodeInt16 :: Num a => ByteString -> a
-decodeInt16 bs
-  | BS.length bs /= 2 = throw $ userError "decodeInt16: Invalid length"
+-- Throws an IO exception if this is not exactly 16 bits.
+decodeWord16 :: ByteString -> Word16
+decodeWord16 bs
+  | BS.length bs /= 2 = throw $ userError "decodeWord16: not 2 bytes"
   | otherwise         = BSI.inlinePerformIO $ do
       let (fp, offset, _) = BSI.toForeignPtr bs
-      withForeignPtr fp $ \p -> do
-        w16 <- peekByteOff p offset
-        return (fromIntegral . ntohs $ w16)
+      withForeignPtr fp $ \p -> ntohs <$> peekByteOff p offset
+
+-- | Encode an Enum in 32 bits by encoding its signed Int equivalent (beware
+-- of truncation, an Enum may contain more than 2^32 points).
+encodeEnum32 :: Enum a => a -> ByteString
+encodeEnum32 = encodeWord32 . fromIntegral . fromEnum
+
+-- | Decode any Num type from 32 bits by using fromIntegral to convert from
+--   a Word32.
+decodeNum32 :: Num a => ByteString -> a
+decodeNum32 = fromIntegral . decodeWord32
+
+-- | Encode an Enum in 16 bits by encoding its signed Int equivalent (beware
+-- of truncation, an Enum may contain more than 2^16 points).
+encodeEnum16 :: Enum a => a -> ByteString
+encodeEnum16 = encodeWord16 . fromIntegral . fromEnum
+
+-- | Decode any Num type from 16 bits by using fromIntegral to convert from
+-- a Word16.
+decodeNum16 :: Num a => ByteString -> a
+decodeNum16 = fromIntegral . decodeWord16
 
 -- | Prepend a list of bytestrings with their total length
 prependLength :: [ByteString] -> [ByteString]
-prependLength bss = encodeInt32 (sum . map BS.length $ bss) : bss
+prependLength bss = encodeWord32 (fromIntegral . sum . map BS.length $ bss) : bss
 
 -- | Translate exceptions that arise in IO computations
 mapIOException :: Exception e => (IOException -> e) -> IO a -> IO a
