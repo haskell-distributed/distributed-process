@@ -483,8 +483,14 @@ data TCPParameters = TCPParameters {
     -- | Create a QDisc for an EndPoint.
   , tcpNewQDisc :: forall t . IO (QDisc t)
     -- | Optional maximum length (in bytes) for a peer's address.
+    -- If a peer attempts to send an address of length exceeding the limit,
+    -- the connection will be refused (socket will close).
   , tcpMaxAddressLength :: Maybe Word32
     -- | Optional maximum length (in bytes) to receive from a peer.
+    -- If a peer attempts to send data on a lightweight connection exceeding
+    -- the limit, the heavyweight connection which carries that lightweight
+    -- connection will go down. The peer and the local node will get an
+    -- EventConnectionLost.
   , tcpMaxReceiveLength :: Maybe Word32
   }
 
