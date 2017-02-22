@@ -66,6 +66,72 @@ precvLoop ppDef pState recvDelay = do
     tref <- startTimer recvDelay
     recvQueue ppDef pState tref PriorityQ.empty
 
+{- note [flow control]
+
+This "receive loop" is a bit daunting, so we'll walk through it bit by bit.
+
+TL;DR we have a recursive structure of
+
+recvQueue >> processNext >>= nextAction
+      >>= recvQueueAux | return
+          recvQueueAux -> drainMessageQueue >>= recvQueue
+
+First recvQueue attempts to processNext, catching exits and returning
+ProcessStop ExitReason if they arrive. The result of processNext will be
+a triple of (ProcessAction state, delay, mailQueue).
+
+processNext checks to see if we've timed out, and if we have does the
+corresponding work (calling handlers, checks if we're stopping or continuing, etc.)
+If we're still running, it tries to dequeue the next message from the Internal
+mailQueue (a priority queue of messages) and if this succeeds, evaluates a
+handler and yields the resulting ProcessAction.
+
+If the internal mailQueue is empty, processNext evalutes drainOrTimeout, which
+performs a real 'receiveTimeout' and yields the next action (possibly enqueueing
+any received <<single>> message into mailQueue beforehand).
+
+When nextAction evaluates recvQueueAux, this uses drainMessageQueue to loop over
+the process mailbox (and any external matches, such as matchChan or matchSTM
+actions), enqueueing messages into mailQueue until no further mail is available,
+at which point it gives back the mailQueue.
+
+To prevent a DOS vector - and quite a likely accidental one at that - we do not
+sit draining the mailbox indefinitely, since a continuous stream of messages would
+leave us unable to process any inputs and we'd eventually run out of memory.
+Instead, the PrioritisedProcessDefinition holds a RecvTimeoutPolicy which can
+hold either a max-messages-processed limit or a timeout value. Using whichever
+policy is provided, drainMessageQueue will stop attempting to receive new mail
+either once the message count limit is exceeded or the timer expires, at which
+point we go back to processNext.
+
+A note on timeout handling (see the section, Simulated Receive Timeouts later):
+we utilise a combination of the Timer module (from -extras) and STM channels to
+handle timeouts in the mailbox draining loops. This means that for every time we
+go into the mailbox draining loop, we launch a peer process. The overheads are
+actually pretty low, but given the variety of work that we do here to handle
+prioritisation, the runtime profile of a process using this loop will differ
+/significantly/ from an ordinary recvLoop process.
+
+TODO: We have two timers for two different purposes - one that the handlers can
+specify as the [max time we should wait for mail before running a timeout
+handler], and another that ensures we don't get stuck draining messages forever.
+We should leverage just the one timer for this purpose, when the
+RecvTimeoutPolicy specifies one, and save ourselves two timers...
+
+TODO: ALSO! The timeout handling here is broken, because we don't listen for
+the server's timeout-spec channel in the drain mailbox implementation, which
+means we can arrive in processNext /long after the timeout should've expired/
+and then notice we'd hit it, and have to continue out of step...
+
+TODO: see nextAction for details on the two things above.
+
+NB: I THINK we can implement both timers using a single control plane, if we
+simply hold a broadcastTChan for writing and the readers dupTChan when they
+want to receive notifications. The channel can be polled easily during mailbox
+draining and written to safely by multiple writers that have dupTChan'd it
+
+-}
+
 recvQueue :: PrioritisedProcessDefinition s
           -> s
           -> TimeoutSpec
@@ -79,7 +145,22 @@ recvQueue p s t q =
                                    return (ProcessStop r, Infinity, q))
         nextAction ac d q'
   where
+{-
+REMOVED COMMENT FROM ABOVE ESSAY UNTIL IMPLEMENTED PROPERLY
+
+Also note that recvQueueAux will immediately pass control to processNext if the
+internal queue is non-empty, such that we favour processing message we've
+already received over reading our mailbox until we've emptied our internal
+queue, at which point our preference switches over to draining the real mailbox
+(and other input vectors) until we time out or hit the read size limit.
+
+-}
+
     nextAction ac d q'
+      -- TODO: if PQ.isEmpty q' == False, should we not continue working on
+      -- the mail we've already got?
+      -- that would mean evaluating something like
+      -- recvQueue ppDef pState (delay, Nothing) queue
       | ProcessContinue  s'    <- ac = recvQueueAux p (priorities p) s' d  q'
       | ProcessTimeout   t' s' <- ac = recvQueueAux p (priorities p) s' t' q'
       | ProcessHibernate d' s' <- ac = block d' >> recvQueueAux p (priorities p) s' d q'
@@ -88,21 +169,21 @@ recvQueue p s t q =
       | otherwise {- compiler foo -} = die "IllegalState"
 
     recvQueueAux ppDef prioritizers pState delay queue =
-      let pDef = processDef ppDef
-          ex   = trapExit:(exitHandlers $ pDef)
-          eh   = map (\d' -> (dispatchExit d') pState) ex
-          mx   = recvTimeout ppDef
-      in (do t' <- startTimer delay
-             mq <- drainMessageQueue mx pDef pState prioritizers queue
-             recvQueue ppDef pState t' mq)
-         `catchExit`
-         (\pid (reason :: ExitReason) -> do
-             let pd = processDef ppDef
-             let ps = pState
-             let pq = queue
-             let em = unsafeWrapMessage reason
-             (a, d, q') <- findExitHandlerOrStop pd ps pq eh pid em
-             nextAction a d q')
+        let pDef = processDef ppDef
+            ex   = trapExit:(exitHandlers $ pDef)
+            eh   = map (\d' -> (dispatchExit d') pState) ex
+            mx   = recvTimeout ppDef
+        in (do t' <- startTimer delay
+               mq <- drainMessageQueue mx pDef pState prioritizers queue
+               recvQueue ppDef pState t' mq)
+           `catchExit`
+           (\pid (reason :: ExitReason) -> do
+               let pd = processDef ppDef
+               let ps = pState
+               let pq = queue
+               let em = unsafeWrapMessage reason
+               (a, d, q') <- findExitHandlerOrStop pd ps pq eh pid em
+               nextAction a d q')
 
     findExitHandlerOrStop :: ProcessDefinition s
                           -> s
@@ -158,14 +239,6 @@ recvQueue p s t q =
         Nothing  -> processApplyAux hs p' s' m'
         Just act -> return act
 
-    -- This is the only place where it is sanely possible to apply external
-    -- handlers (i.e. control channel and stm handlers) without overcomplicating
-    -- the loop too much. What we sacrifice is the ability to read from these
-    -- channels whilst draining our mailbox, which means that conversely with
-    -- an ordinary server loop, external handlers could well be de-prioritised
-    -- here! There are, however, no guarantees about this, therefore it is
-    -- probably best to simply document this infelicity and leave it to the
-    -- programmer to decide if they wish to punt on such matters at runtime.
     drainOrTimeout pDef pState delay queue ps' h =
       let p'       = unhandledMessagePolicy pDef
           matches = ((matchMessage return):map (matchExtern p' pState) (externHandlers pDef))
@@ -231,10 +304,6 @@ drainMessageQueue limit pDef pState priorities' queue = do
 
     toRight :: P.Message -> Either CancelTimer P.Message
     toRight = Right
-
-    -- pass the s' and the p' here and do our thing with matchMapExtern
-    -- matches = ((matchMessage return):(map (matchExtern p' pState) (externHandlers pDef)))
-    -- matchMapExtern
 
     setupTimer intv = do
       chan <- liftIO newTChanIO
