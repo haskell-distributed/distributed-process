@@ -26,7 +26,7 @@ Flag use-mock-network
 
 Library
   Build-Depends:   base >= 4.3 && < 5,
-                   network-transport >= 0.4.1.0 && < 0.5,
+                   network-transport >= 0.5 && < 0.6,
                    data-accessor >= 0.2 && < 0.3,
                    containers >= 0.4 && < 0.6,
                    bytestring >= 0.9 && < 0.11,
@@ -49,7 +49,7 @@ Test-Suite TestTCP
   Build-Depends:   base >= 4.3 && < 5,
                    network-transport-tests >= 0.2.1.0 && < 0.3,
                    network >= 2.3 && < 2.7,
-                   network-transport >= 0.4.1.0 && < 0.5,
+                   network-transport,
                    network-transport-tcp
   ghc-options:     -threaded -rtsopts -with-rtsopts=-N
   HS-Source-Dirs:  tests

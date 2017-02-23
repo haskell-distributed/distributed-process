@@ -1,9 +1,16 @@
 -- | Utility functions for TCP sockets
 module Network.Transport.TCP.Internal
-  ( forkServer
+  ( ControlHeader(..)
+  , encodeControlHeader
+  , decodeControlHeader
+  , ConnectionRequestResponse(..)
+  , encodeConnectionRequestResponse
+  , decodeConnectionRequestResponse
+  , forkServer
   , recvWithLength
   , recvExact
-  , recvInt32
+  , recvWord32
+  , encodeWord32
   , tryCloseSocket
   ) where
 
@@ -11,7 +18,13 @@ module Network.Transport.TCP.Internal
 import Prelude hiding (catch)
 #endif
 
-import Network.Transport.Internal (decodeInt32, void, tryIO, forkIOWithUnmask)
+import Network.Transport.Internal
+  ( decodeWord32
+  , encodeWord32
+  , void
+  , tryIO
+  , forkIOWithUnmask
+  )
 
 #ifdef USE_MOCK_NETWORK
 import qualified Network.Transport.TCP.Mock.Socket as N
@@ -44,13 +57,72 @@ import qualified Network.Socket.ByteString as NBS (recv)
 #endif
 
 import Control.Concurrent (ThreadId)
+import Data.Word (Word32)
+
 import Control.Monad (forever, when)
 import Control.Exception (SomeException, catch, bracketOnError, throwIO, mask_)
 import Control.Applicative ((<$>), (<*>))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (length, concat, null)
-import Data.Int (Int32)
 import Data.ByteString.Lazy.Internal (smallChunkSize)
+
+-- | Control headers
+data ControlHeader =
+    -- | Tell the remote endpoint that we created a new connection
+    CreatedNewConnection
+    -- | Tell the remote endpoint we will no longer be using a connection
+  | CloseConnection
+    -- | Request to close the connection (see module description)
+  | CloseSocket
+    -- | Sent by an endpoint when it is closed.
+  | CloseEndPoint
+    -- | Message sent to probe a socket
+  | ProbeSocket
+    -- | Acknowledgement of the ProbeSocket message
+  | ProbeSocketAck
+  deriving (Show)
+
+decodeControlHeader :: Word32 -> Maybe ControlHeader
+decodeControlHeader w32 = case w32 of
+  0 -> Just CreatedNewConnection
+  1 -> Just CloseConnection
+  2 -> Just CloseSocket
+  3 -> Just CloseEndPoint
+  4 -> Just ProbeSocket
+  5 -> Just ProbeSocketAck
+  _ -> Nothing
+
+encodeControlHeader :: ControlHeader -> Word32
+encodeControlHeader ch = case ch of
+  CreatedNewConnection -> 0
+  CloseConnection      -> 1
+  CloseSocket          -> 2
+  CloseEndPoint        -> 3
+  ProbeSocket          -> 4
+  ProbeSocketAck       -> 5
+
+-- | Response sent by /B/ to /A/ when /A/ tries to connect
+data ConnectionRequestResponse =
+    -- | /B/ accepts the connection
+    ConnectionRequestAccepted
+    -- | /A/ requested an invalid endpoint
+  | ConnectionRequestInvalid
+    -- | /A/s request crossed with a request from /B/ (see protocols)
+  | ConnectionRequestCrossed
+  deriving (Show)
+
+decodeConnectionRequestResponse :: Word32 -> Maybe ConnectionRequestResponse
+decodeConnectionRequestResponse w32 = case w32 of
+  0 -> Just ConnectionRequestAccepted
+  1 -> Just ConnectionRequestInvalid
+  2 -> Just ConnectionRequestCrossed
+  _ -> Nothing
+
+encodeConnectionRequestResponse :: ConnectionRequestResponse -> Word32
+encodeConnectionRequestResponse crr = case crr of
+  ConnectionRequestAccepted -> 0
+  ConnectionRequestInvalid  -> 1
+  ConnectionRequestCrossed  -> 2
 
 -- | Start a server at the specified address.
 --
@@ -109,13 +181,13 @@ forkServer host port backlog reuseAddr terminationHandler requestHandler = do
 
 -- | Read a length and then a payload of that length
 recvWithLength :: N.Socket -> IO [ByteString]
-recvWithLength sock = recvInt32 sock >>= recvExact sock
+recvWithLength sock = recvWord32 sock >>= recvExact sock
 
--- | Receive a 32-bit integer
-recvInt32 :: Num a => N.Socket -> IO a
-recvInt32 sock = decodeInt32 . BS.concat <$> recvExact sock 4
+-- | Receive a 32-bit unsigned integer
+recvWord32 :: N.Socket -> IO Word32
+recvWord32 = fmap (decodeWord32 . BS.concat) . flip recvExact 4
 
--- | Close a socket, ignoring I/O exceptions
+-- | Close a socket, ignoring I/O exceptions.
 tryCloseSocket :: N.Socket -> IO ()
 tryCloseSocket sock = void . tryIO $
   N.sClose sock
@@ -125,12 +197,12 @@ tryCloseSocket sock = void . tryIO $
 -- Throws an I/O exception if the socket closes before the specified
 -- number of bytes could be read
 recvExact :: N.Socket                -- ^ Socket to read from
-          -> Int32                   -- ^ Number of bytes to read
+          -> Word32                  -- ^ Number of bytes to read
           -> IO [ByteString]
 recvExact _ len | len < 0 = throwIO (userError "recvExact: Negative length")
 recvExact sock len = go [] len
   where
-    go :: [ByteString] -> Int32 -> IO [ByteString]
+    go :: [ByteString] -> Word32 -> IO [ByteString]
     go acc 0 = return (reverse acc)
     go acc l = do
       bs <- NBS.recv sock (fromIntegral l `min` smallChunkSize)
