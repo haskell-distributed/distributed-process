@@ -8,7 +8,6 @@ module Network.Transport.TCP.Internal
   , decodeConnectionRequestResponse
   , forkServer
   , recvWithLength
-  , recvWithLengthLimited
   , recvExact
   , recvWord32
   , encodeWord32
@@ -181,19 +180,15 @@ forkServer host port backlog reuseAddr terminationHandler requestHandler = do
                                         (tryCloseSocket . fst)
                                         (requestHandler . fst)
 
--- | Read a length and then a payload of that length
-recvWithLength :: N.Socket -> IO [ByteString]
-recvWithLength sock = recvWord32 sock >>= recvExact sock
-
--- | Read a length and then a payload of that length, subject to a limit on
---   the length.
-recvWithLengthLimited :: Maybe Word32 -> N.Socket -> IO [ByteString]
-recvWithLengthLimited mlimit sock = case mlimit of
-  Nothing -> recvWithLength sock
+-- | Read a length and then a payload of that length, subject to an optional
+--   limit on the length.
+recvWithLength :: Maybe Word32 -> N.Socket -> IO [ByteString]
+recvWithLength mlimit sock = case mlimit of
+  Nothing -> recvWord32 sock >>= recvExact sock
   Just limit -> do
     length <- recvWord32 sock
     when (length > limit) $
-      throwIO (userError "recvWithLengthLimit: limit exceeded")
+      throwIO (userError "recvWithLength: limit exceeded")
     recvExact sock length
 
 -- | Receive a 32-bit unsigned integer

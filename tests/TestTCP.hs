@@ -165,7 +165,7 @@ testEarlyDisconnect = do
       (clientPort, _) <- forkServer "127.0.0.1" "0" 5 True throwIO $ \sock -> do
         -- Initial setup
         0 <- recvWord32 sock
-        _ <- recvWithLength sock
+        _ <- recvWithLength Nothing sock
         sendMany sock [encodeWord32 (encodeConnectionRequestResponse ConnectionRequestAccepted)]
 
         -- Server opens  a logical connection
@@ -174,7 +174,7 @@ testEarlyDisconnect = do
 
         -- Server sends a message
         1024 <- recvWord32 sock
-        ["ping"] <- recvWithLength sock
+        ["ping"] <- recvWithLength Nothing sock
 
         -- Reply
         sendMany sock [
@@ -277,7 +277,7 @@ testEarlyCloseSocket = do
       (clientPort, _) <- forkServer "127.0.0.1" "0" 5 True throwIO $ \sock -> do
         -- Initial setup
         0 <- recvWord32 sock
-        _ <- recvWithLength sock
+        _ <- recvWithLength Nothing sock
         sendMany sock [encodeWord32 (encodeConnectionRequestResponse ConnectionRequestAccepted)]
 
         -- Server opens a logical connection
@@ -286,7 +286,7 @@ testEarlyCloseSocket = do
 
         -- Server sends a message
         1024 <- recvWord32 sock
-        ["ping"] <- recvWithLength sock
+        ["ping"] <- recvWithLength Nothing sock
 
         -- Reply
         sendMany sock [
@@ -620,7 +620,7 @@ testReconnect = do
   (serverPort, _) <- forkServer "127.0.0.1" "0" 5 True throwIO $ \sock -> do
     -- Accept the connection
     Right 0  <- tryIO $ recvWord32 sock
-    Right _  <- tryIO $ recvWithLength sock
+    Right _  <- tryIO $ recvWithLength Nothing sock
 
     -- The first time we close the socket before accepting the logical connection
     count <- modifyMVar counter $ \i -> return (i + 1, i)
@@ -639,7 +639,7 @@ testReconnect = do
           -- Client sends a message
           Right connId' <- tryIO $ (recvWord32 sock :: IO LightweightConnectionId)
           True <- return $ connId == connId'
-          Right ["ping"] <- tryIO $ recvWithLength sock
+          Right ["ping"] <- tryIO $ recvWithLength Nothing sock
           putMVar serverDone ()
 
     Right () <- tryIO $ N.sClose sock
@@ -712,7 +712,7 @@ testUnidirectionalError = do
     -- would shutdown the socket in the other direction)
     void . (try :: IO () -> IO (Either SomeException ())) $ do
       0 <- recvWord32 sock
-      _ <- recvWithLength sock
+      _ <- recvWithLength Nothing sock
       () <- sendMany sock [encodeWord32 (encodeConnectionRequestResponse ConnectionRequestAccepted)]
 
       Just CreatedNewConnection <- decodeControlHeader <$> recvWord32 sock
@@ -720,7 +720,7 @@ testUnidirectionalError = do
 
       connId' <- recvWord32 sock :: IO LightweightConnectionId
       True <- return $ connId == connId'
-      ["ping"] <- recvWithLength sock
+      ["ping"] <- recvWithLength Nothing sock
       putMVar serverGotPing ()
 
   -- Client

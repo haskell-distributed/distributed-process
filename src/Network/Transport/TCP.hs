@@ -55,7 +55,7 @@ import Network.Transport.TCP.Internal
   , encodeConnectionRequestResponse
   , decodeConnectionRequestResponse
   , forkServer
-  , recvWithLengthLimited
+  , recvWithLength
   , recvWord32
   , encodeWord32
   , tryCloseSocket
@@ -878,7 +878,7 @@ handleConnectionRequest transport sock = handle handleException $ do
     ourEndPointId <- recvWord32 sock
     let maxAddressLength = tcpMaxAddressLength $ transportParams transport
     theirAddress  <- EndPointAddress . BS.concat <$>
-      recvWithLengthLimited maxAddressLength sock
+      recvWithLength maxAddressLength sock
     let ourAddress = encodeEndPointAddress (transportHost transport)
                                            (transportPort transport)
                                            ourEndPointId
@@ -1189,7 +1189,7 @@ handleIncomingMessages params (ourEndPoint, theirEndPoint) = do
     -- overhead
     readMessage :: N.Socket -> LightweightConnectionId -> IO ()
     readMessage sock lcid =
-      recvWithLengthLimited recvLimit sock >>=
+      recvWithLength recvLimit sock >>=
         qdiscEnqueue' ourQueue theirAddr . Received (connId lcid)
 
     -- Stop probing a connection as a result of receiving a probe ack.
