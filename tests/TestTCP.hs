@@ -35,6 +35,7 @@ import Control.Concurrent.MVar ( MVar
                                , newMVar
                                , modifyMVar
                                , modifyMVar_
+                               , swapMVar
                                )
 import Control.Monad (replicateM, guard, forM_, replicateM_, when)
 import Control.Applicative ((<$>))
@@ -615,6 +616,11 @@ testBreakTransport = do
 
   return ()
 
+newtype WaitSocketFree = WaitSocketFree (IO ())
+
+instance Traceable WaitSocketFree where
+  trace = const Nothing
+
 -- | Test that a second call to 'connect' might succeed even if the first
 -- failed. This is a TCP specific test rather than an endpoint specific test
 -- because we must manually create the endpoint address to match an endpoint we
@@ -626,6 +632,9 @@ testReconnect :: IO ()
 testReconnect = do
   serverDone      <- newEmptyMVar
   endpointCreated <- newEmptyMVar
+  -- The server will put the 'socketFree' IO in here, so that the client can
+  -- block until the server has closed the socket.
+  socketClosed    <- newEmptyMVar
 
   counter <- newMVar (0 :: Int)
 
@@ -638,18 +647,29 @@ testReconnect = do
     -- The first time we close the socket before accepting the logical connection
     count <- modifyMVar counter $ \i -> return (i + 1, i)
 
+    if count == 0
+    then putMVar socketClosed (WaitSocketFree socketFree)
+    else void $ swapMVar socketClosed (WaitSocketFree socketFree)
+
     when (count > 0) $ do
+      -- The second, third, and fourth connections are accepted according to the
+      -- protocol.
+      -- On the second request, the socket then closes.
       Right () <- tryIO $ sendMany sock [
           encodeWord32 (encodeConnectionRequestResponse ConnectionRequestAccepted)
         ]
       -- Client requests a logical connection
       when (count > 1) $ do
+        -- On the third and fourth requests, a new logical connection is
+        -- accepted.
+        -- On the third request the socket then closes.
         Right (Just CreatedNewConnection) <- tryIO $ decodeControlHeader <$> recvWord32 sock
         connId <- recvWord32 sock :: IO LightweightConnectionId
         return ()
 
         when (count > 2) $ do
-          -- Client sends a message
+          -- On the fourth request, a message is received and then the socket
+          -- is closed.
           Right connId' <- tryIO $ (recvWord32 sock :: IO LightweightConnectionId)
           True <- return $ connId == connId'
           Right ["ping"] <- tryIO $ recvWithLength maxBound sock
@@ -676,12 +696,17 @@ testReconnect = do
       Just (Left err) -> throwIO err
       Just (Right _) -> throwIO $ userError "testConnect: unexpected connect success"
 
+    -- Second attempt: server accepts but then closes the socket. We expect
+    -- either a failed connection, or a subsequent send to fail.
     resultConnect <- timeout 500000 $ connect endpoint theirAddr ReliableOrdered defaultConnectHints
     case resultConnect of
       Nothing -> return ()
       Just (Left (TransportError ConnectFailed _)) -> return ()
       Just (Left err) -> throwIO err
       Just (Right c) -> do
+        -- Here we must be sure that the socket has closed.
+        WaitSocketFree wait <- readMVar socketClosed
+        wait
         ev <- send c ["foo"]
         case ev of
           Left _ -> return ()
