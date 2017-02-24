@@ -565,6 +565,7 @@ createTransportExposeInternals bindHost bindPort mkExternal params = do
                              bindPort
                              (tcpBacklog params)
                              (tcpReuseServerAddr params)
+                             (errorHandler transport)
                              (terminationHandler transport)
                              (handleConnectionRequest transport))
                       (\(_port', tid) -> killThread tid)
@@ -588,6 +589,9 @@ createTransportExposeInternals bindHost bindPort mkExternal params = do
             , socketBetween   = internalSocketBetween transport
             }
         )
+
+    errorHandler :: TCPTransport -> SomeException -> IO ()
+    errorHandler _ = throwIO
 
     terminationHandler :: TCPTransport -> SomeException -> IO ()
     terminationHandler transport ex = do

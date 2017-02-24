@@ -175,10 +175,15 @@ forkServer :: N.HostName                     -- ^ Host
            -> N.ServiceName                  -- ^ Port
            -> Int                            -- ^ Backlog (maximum number of queued connections)
            -> Bool                           -- ^ Set ReuseAddr option?
-           -> (SomeException -> IO ())       -- ^ Termination handler
+           -> (SomeException -> IO ())       -- ^ Error handler. Called with an
+                                             --   exception raised when
+                                             --   accepting a connection.
+           -> (SomeException -> IO ())       -- ^ Termination handler. Called
+                                             --   when the error handler throws
+                                             --   an exception.
            -> (IO () -> N.Socket -> IO ())   -- ^ Request handler.
            -> IO (N.ServiceName, ThreadId)
-forkServer host port backlog reuseAddr terminationHandler requestHandler = do
+forkServer host port backlog reuseAddr errorHandler terminationHandler requestHandler = do
     -- Resolve the specified address. By specification, getAddrInfo will never
     -- return an empty list (but will throw an exception instead) and will return
     -- the "best" address first, whatever that means
@@ -214,7 +219,9 @@ forkServer host port backlog reuseAddr terminationHandler requestHandler = do
             (sock, sockAddr) <- N.accept sock
             -- Looks like 'act' will never throw an exception, but to be
             -- safe we'll close the socket if it does.
-            restore (act (sock, sockAddr)) `onException` N.sClose sock
+            let handler :: SomeException -> IO ()
+                handler _ = N.sClose sock
+            catch (restore (act (sock, sockAddr))) handler
 
       -- We start listening for incoming requests in a separate thread. When
       -- that thread is killed, we close the server socket and the termination
@@ -224,7 +231,7 @@ forkServer host port backlog reuseAddr terminationHandler requestHandler = do
       -- unmask only inside the catch.
       (,) <$> fmap show (N.socketPort sock) <*>
         (mask_ $ forkIOWithUnmask $ \unmask ->
-          catch (unmask (forever acceptRequest)) $ \ex -> do
+          catch (unmask (forever (catch acceptRequest errorHandler))) $ \ex -> do
             tryCloseSocket sock
             terminationHandler ex)
 
