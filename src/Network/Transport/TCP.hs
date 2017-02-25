@@ -275,10 +275,12 @@ import qualified Data.ByteString as BS (length)
 --   ValidRemoteEndPointState).
 
 data TCPTransport = TCPTransport
-  { transportHost   :: !N.HostName
-  , transportPort   :: !N.ServiceName
-  , transportState  :: !(MVar TransportState)
-  , transportParams :: !TCPParameters
+  { transportHost     :: !N.HostName
+  , transportPort     :: !N.ServiceName
+  , transportBindHost :: !N.HostName
+  , transportBindPort :: !N.ServiceName
+  , transportState    :: !(MVar TransportState)
+  , transportParams   :: !TCPParameters
   }
 
 data TransportState =
@@ -497,20 +499,25 @@ data TransportInternals = TransportInternals
 --------------------------------------------------------------------------------
 
 -- | Create a TCP transport
-createTransport :: N.HostName
-                -> N.ServiceName
+createTransport :: N.HostName    -- ^ Bind host name.
+                -> N.ServiceName -- ^ Bind port.
+                -> (N.ServiceName -> (N.HostName, N.ServiceName))
+                   -- ^ External address host name and port, computed from the
+                   --   actual bind port.
                 -> TCPParameters
                 -> IO (Either IOException Transport)
-createTransport host port params =
-  either Left (Right . fst) <$> createTransportExposeInternals host port params
+createTransport bindHost bindPort mkExternal params =
+  either Left (Right . fst) <$>
+    createTransportExposeInternals bindHost bindPort mkExternal params
 
 -- | You should probably not use this function (used for unit testing only)
 createTransportExposeInternals
   :: N.HostName
   -> N.ServiceName
+  -> (N.ServiceName -> (N.HostName, N.ServiceName))
   -> TCPParameters
   -> IO (Either IOException (Transport, TransportInternals))
-createTransportExposeInternals host port params = do
+createTransportExposeInternals bindHost bindPort mkExternal params = do
     state <- newMVar . TransportValid $ ValidTransportState
       { _localEndPoints = Map.empty
       , _nextEndPointId = 0
@@ -526,14 +533,17 @@ createTransportExposeInternals host port params = do
        -- completes (see description of 'forkServer'), yet we need the port to
        -- construct a transport. So we tie a recursive knot.
        (port', result) <- do
-         let transport = TCPTransport { transportState  = state
-                                      , transportHost   = host
-                                      , transportPort   = port'
-                                      , transportParams = params
+         let (externalHost, externalPort) = mkExternal port'
+         let transport = TCPTransport { transportState    = state
+                                      , transportHost     = externalHost
+                                      , transportPort     = externalPort
+                                      , transportBindHost = bindHost
+                                      , transportBindPort = port'
+                                      , transportParams   = params
                                       }
          bracketOnError (forkServer
-                             host
-                             port
+                             bindHost
+                             bindPort
                              (tcpBacklog params)
                              (tcpReuseServerAddr params)
                              (terminationHandler transport)
