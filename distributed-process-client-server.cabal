@@ -26,7 +26,7 @@ source-repository head
 
 library
   build-depends:
-                   base >= 4.4 && < 5,
+                   base >= 4.8.2.0 && < 5,
                    distributed-process >= 0.6.6 && < 0.7,
                    distributed-process-extras >= 0.3.1 && < 0.4,
                    distributed-process-async >= 0.2.4 && < 0.3,
@@ -55,7 +55,8 @@ library
                    Control.Distributed.Process.ManagedProcess.UnsafeClient,
                    Control.Distributed.Process.ManagedProcess.Server,
                    Control.Distributed.Process.ManagedProcess.Server.Priority,
-                   Control.Distributed.Process.ManagedProcess.Server.Restricted
+                   Control.Distributed.Process.ManagedProcess.Server.Restricted,
+                   Control.Distributed.Process.ManagedProcess.Timer
   other-modules:
                    Control.Distributed.Process.ManagedProcess.Internal.Types,
                    Control.Distributed.Process.ManagedProcess.Internal.GenProcess
@@ -87,6 +88,11 @@ test-suite ManagedProcessTests
                    rematch >= 0.2.0.0,
                    ghc-prim,
                    exceptions >= 0.5
+  other-modules:   Counter,
+                   ManagedProcessCommon,
+                   MathsDemo,
+                   SafeCounter,
+                   TestUtils
   hs-source-dirs:
                    tests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
@@ -120,6 +126,8 @@ test-suite PrioritisedProcessTests
                    rematch >= 0.2.0.0,
                    ghc-prim,
                    exceptions >= 0.5
+  other-modules:   ManagedProcessCommon,
+                   TestUtils
   hs-source-dirs:
                    tests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind

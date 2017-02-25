@@ -64,6 +64,9 @@ shutdown pid = cast pid Shutdown
 
 -- | Make a synchronous call - will block until a reply is received.
 -- The calling process will exit with 'ExitReason' if the calls fails.
+--
+-- __NOTE: this function does not catch exceptions!__
+--
 call :: forall s a b . (Addressable s, Serializable a, Serializable b)
                  => s -> a -> Process b
 call sid msg = initCall sid msg >>= waitResponse Nothing >>= decodeResult

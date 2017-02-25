@@ -1,27 +1,69 @@
 {-# LANGUAGE ExistentialQuantification  #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE PatternGuards              #-}
+{-# LANGUAGE BangPatterns               #-}
+{-# LANGUAGE RecordWildCards            #-}
 {-# LANGUAGE TupleSections              #-}
 {-# LANGUAGE DeriveDataTypeable         #-}
+{-# LANGUAGE DeriveGeneric              #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MultiParamTypeClasses      #-}
+{-# LANGUAGE Rank2Types                 #-}
 
 -- | This is the @Process@ implementation of a /managed process/
 module Control.Distributed.Process.ManagedProcess.Internal.GenProcess
-  (recvLoop, precvLoop) where
+  ( recvLoop
+  , precvLoop
+  , getState
+  , currentTimeout
+  , systemTimeout
+  , drainTimeout
+  , resetTimer
+  , GenProcess
+  ) where
 
-import Control.Applicative ((<$>))
-import Control.Concurrent (threadDelay)
-import Control.Concurrent.STM hiding (check)
-import Control.Distributed.Process hiding (call, Message)
-import qualified Control.Distributed.Process as P (Message)
+import Control.Distributed.Process
+  ( match
+  , matchAny
+  , matchMessage
+  , receiveTimeout
+  , receiveWait
+  , forward
+  , catchesExit
+  , Process
+  , ProcessId
+  , Match
+  )
+import qualified Control.Distributed.Process as P
+  ( liftIO
+  )
+import Control.Distributed.Process.Internal.Types
+  ( Message(..)
+  , ProcessExitException(..)
+  )
 import Control.Distributed.Process.ManagedProcess.Server
-import Control.Distributed.Process.ManagedProcess.Internal.Types
+  ( handleCast
+  , handleExitIf
+  , stop
+  , continue
+  )
+import Control.Distributed.Process.ManagedProcess.Timer
+  ( Timer(timerDelay)
+  , delayTimer
+  , startTimer
+  , stopTimer
+  , resetTimer
+  , matchTimeout
+  , TimedOut(..)
+  )
+import Control.Distributed.Process.ManagedProcess.Internal.Types hiding (Message)
 import Control.Distributed.Process.Extras.Internal.Queue.PriorityQ
   ( PriorityQ
-  , enqueue
-  , dequeue
   )
-import qualified Control.Distributed.Process.Extras.Internal.Queue.PriorityQ as PriorityQ
+import qualified Control.Distributed.Process.Extras.Internal.Queue.PriorityQ as Q
   ( empty
+  , dequeue
+  , enqueue
   )
 import Control.Distributed.Process.Extras
   ( ExitReason(..)
@@ -29,27 +71,198 @@ import Control.Distributed.Process.Extras
   )
 import qualified Control.Distributed.Process.Extras.SystemLog as Log
 import Control.Distributed.Process.Extras.Time
-import Control.Distributed.Process.Extras.Timer
-  ( cancelTimer
-  , runAfter
-  , TimerRef
-  )
 import Control.Monad (void)
+import Control.Monad.Fix (MonadFix)
+import Control.Monad.Catch
+  ( mask_
+  , catch
+  , throwM
+  , uninterruptibleMask
+  , mask
+  , SomeException
+  , MonadThrow
+  , MonadCatch
+  , MonadMask
+  )
+import qualified Control.Monad.Catch as Catch
+  ( catch
+  , throwM
+  )
+import Control.Monad.IO.Class (MonadIO)
+import qualified Control.Monad.State.Strict as ST
+  ( MonadState
+  , StateT
+  , get
+  , lift
+  , runStateT
+  )
+import Data.IORef (IORef, newIORef, atomicModifyIORef')
 import Data.Typeable (Typeable)
-import Prelude hiding (init)
 
 --------------------------------------------------------------------------------
 -- Priority Mailbox Handling                                                  --
 --------------------------------------------------------------------------------
 
--- TODO: we need to actually utilise recvTimeout on the prioritised pdef, such
--- that a busy mailbox can't prevent us from operating normally.
+-- represent a max-backlog from RecvTimeoutPolicy
+type Limit = Maybe Int
 
-type Queue = PriorityQ Int P.Message
-type TimeoutSpec = (Delay, Maybe (TimerRef, STM ()))
-data TimeoutAction s = Stop s ExitReason | Go Delay s
+-- our priority queue
+type Queue = PriorityQ Int Message
 
-data CancelTimer = CancelTimer deriving (Eq, Show, Typeable)
+data ProcessState s = ProcessState { timeoutSpec :: RecvTimeoutPolicy
+                                   , sysTimeout  :: Timer
+                                   , usrTimeout  :: Delay
+                                   , internalQ   :: Queue
+                                   , procState   :: s
+                                   , procDef     :: ProcessDefinition s
+                                   , procPrio    :: [DispatchPriority s]
+                                   }
+type State s = IORef (ProcessState s)
+
+newtype GenProcess s a = GenProcess {
+   unManaged :: ST.StateT (State s) Process a
+ }
+ deriving ( Functor
+          , Monad
+          , ST.MonadState (State s)
+          , MonadIO
+          , MonadFix
+          , Typeable
+          , Applicative
+          )
+
+instance forall s . MonadThrow (GenProcess s) where
+  throwM = lift . Catch.throwM
+
+instance forall s . MonadCatch (GenProcess s) where
+  catch p h = do
+    pSt <- ST.get
+    -- we can throw away our state since it is always accessed via an IORef
+    (a, _) <- lift $ Catch.catch (runProcess pSt p) (runProcess pSt . h)
+    return a
+
+instance forall s . MonadMask (GenProcess s) where
+  mask p = do
+      pSt <- ST.get
+      lift $ mask $ \restore -> do
+        (a, _) <- runProcess pSt (p (liftRestore restore))
+        return a
+    where
+      liftRestore restoreP = \p2 -> do
+        ourSTate <- ST.get
+        (a', _) <- lift $ restoreP $ runProcess ourSTate p2
+        return a'
+
+  uninterruptibleMask p = do
+      pSt <- ST.get
+      (a, _) <- lift $ uninterruptibleMask $ \restore ->
+        runProcess pSt (p (liftRestore restore))
+      return a
+    where
+      liftRestore restoreP = \p2 -> do
+        ourSTate <- ST.get
+        (a', _) <- lift $ restoreP $ runProcess ourSTate p2
+        return a'
+
+runProcess :: State s -> GenProcess s a -> Process (a, State s)
+runProcess state proc = ST.runStateT (unManaged proc) state
+
+lift :: Process a -> GenProcess s a
+lift p = GenProcess $ ST.lift p
+
+liftIO :: IO a -> GenProcess s a
+liftIO = lift . P.liftIO
+
+-- | Get the current process state
+getState :: forall s . GenProcess s (ProcessState s)
+getState = ST.get >>= \(s :: State s) -> liftIO $ do
+  atomicModifyIORef' s $ \(s' :: ProcessState s) -> (s', s')
+
+gets :: forall s a . (ProcessState s -> a) -> GenProcess s a
+gets f = ST.get >>= \(s :: State s) -> liftIO $ do
+  atomicModifyIORef' s $ \(s' :: ProcessState s) -> (s', f s' :: a)
+
+modifyState :: (ProcessState s -> ProcessState s) -> GenProcess s ()
+modifyState f =
+  ST.get >>= \s -> liftIO $ mask_ $ do
+    atomicModifyIORef' s $ \s' -> (f s', ())
+
+getAndModifyState :: (ProcessState s
+                  -> (ProcessState s, a)) -> GenProcess s a
+getAndModifyState f =
+  ST.get >>= \s -> liftIO $ mask_ $ do
+    atomicModifyIORef' s $ \s' -> f s'
+
+setProcessState :: s -> GenProcess s ()
+setProcessState st' =
+  modifyState $ \st@ProcessState{..} -> st { procState = st' }
+
+setDrainTimeout :: Timer -> GenProcess s ()
+setDrainTimeout t = modifyState $ \st@ProcessState{..} -> st { sysTimeout = t }
+
+setUserTimeout :: Delay -> GenProcess s ()
+setUserTimeout d =
+  modifyState $ \st@ProcessState{..} -> st { usrTimeout = d }
+
+processDefinition :: GenProcess s (ProcessDefinition s)
+processDefinition = gets procDef
+
+processPriorities :: GenProcess s ([DispatchPriority s])
+processPriorities = gets procPrio
+
+processState :: GenProcess s s
+processState = gets procState
+
+systemTimeout :: GenProcess s Timer
+systemTimeout = gets sysTimeout
+
+timeoutPolicy :: GenProcess s RecvTimeoutPolicy
+timeoutPolicy = gets timeoutSpec
+
+drainTimeout :: GenProcess s Delay
+drainTimeout = gets (timerDelay . sysTimeout)
+
+currentTimeout :: GenProcess s Delay
+currentTimeout = gets usrTimeout
+
+updateQueue :: (Queue -> Queue) -> GenProcess s ()
+updateQueue f =
+  modifyState $ \st@ProcessState{..} -> st { internalQ = f internalQ }
+
+--------------------------------------------------------------------------------
+-- Internal Priority Queue                                                    --
+--------------------------------------------------------------------------------
+
+dequeue :: GenProcess s (Maybe Message)
+dequeue =
+  getAndModifyState $ \st -> do
+    let pq = internalQ st
+    case Q.dequeue pq of
+      Nothing      -> (st, Nothing)
+      Just (m, q') -> (st { internalQ = q' }, Just m)
+
+enqueueMessage :: forall s . s
+               -> [DispatchPriority s]
+               -> Message
+               -> GenProcess s ()
+enqueueMessage s [] m' =
+  enqueueMessage s [ PrioritiseInfo {
+    prioritise = (\_ m ->
+      return $ Just ((-1 :: Int), m)) :: s -> Message -> Process (Maybe (Int, Message)) } ] m'
+enqueueMessage s (p:ps) m' = let checkPrio = prioritise p s in do
+    (lift $ checkPrio m') >>= doEnqueue s ps m'
+  where
+    doEnqueue :: s
+              -> [DispatchPriority s]
+              -> Message
+              -> Maybe (Int, Message)
+              -> GenProcess s ()
+    doEnqueue s' ps' msg Nothing       = enqueueMessage s' ps' msg
+    doEnqueue _  _   _   (Just (i, m)) = updateQueue (Q.enqueue (i * (-1 :: Int)) m)
+
+--------------------------------------------------------------------------------
+-- Process Loop Implementations                                               --
+--------------------------------------------------------------------------------
 
 -- | Prioritised process loop.
 --
@@ -61,276 +274,278 @@ data CancelTimer = CancelTimer deriving (Eq, Show, Typeable)
 -- unhandled exit signal or other form of failure condition (e.g. synchronous or
 -- asynchronous exceptions).
 --
-precvLoop :: PrioritisedProcessDefinition s -> s -> Delay -> Process ExitReason
-precvLoop ppDef pState recvDelay = do
-    tref <- startTimer recvDelay
-    recvQueue ppDef pState tref PriorityQ.empty
-
-{- note [flow control]
-
-This "receive loop" is a bit daunting, so we'll walk through it bit by bit.
-
-TL;DR we have a recursive structure of
-
-recvQueue >> processNext >>= nextAction
-      >>= recvQueueAux | return
-          recvQueueAux -> drainMessageQueue >>= recvQueue
-
-First recvQueue attempts to processNext, catching exits and returning
-ProcessStop ExitReason if they arrive. The result of processNext will be
-a triple of (ProcessAction state, delay, mailQueue).
-
-processNext checks to see if we've timed out, and if we have does the
-corresponding work (calling handlers, checks if we're stopping or continuing, etc.)
-If we're still running, it tries to dequeue the next message from the Internal
-mailQueue (a priority queue of messages) and if this succeeds, evaluates a
-handler and yields the resulting ProcessAction.
-
-If the internal mailQueue is empty, processNext evalutes drainOrTimeout, which
-performs a real 'receiveTimeout' and yields the next action (possibly enqueueing
-any received <<single>> message into mailQueue beforehand).
-
-When nextAction evaluates recvQueueAux, this uses drainMessageQueue to loop over
-the process mailbox (and any external matches, such as matchChan or matchSTM
-actions), enqueueing messages into mailQueue until no further mail is available,
-at which point it gives back the mailQueue.
-
-To prevent a DOS vector - and quite a likely accidental one at that - we do not
-sit draining the mailbox indefinitely, since a continuous stream of messages would
-leave us unable to process any inputs and we'd eventually run out of memory.
-Instead, the PrioritisedProcessDefinition holds a RecvTimeoutPolicy which can
-hold either a max-messages-processed limit or a timeout value. Using whichever
-policy is provided, drainMessageQueue will stop attempting to receive new mail
-either once the message count limit is exceeded or the timer expires, at which
-point we go back to processNext.
-
-A note on timeout handling (see the section, Simulated Receive Timeouts later):
-we utilise a combination of the Timer module (from -extras) and STM channels to
-handle timeouts in the mailbox draining loops. This means that for every time we
-go into the mailbox draining loop, we launch a peer process. The overheads are
-actually pretty low, but given the variety of work that we do here to handle
-prioritisation, the runtime profile of a process using this loop will differ
-/significantly/ from an ordinary recvLoop process.
-
-TODO: We have two timers for two different purposes - one that the handlers can
-specify as the [max time we should wait for mail before running a timeout
-handler], and another that ensures we don't get stuck draining messages forever.
-We should leverage just the one timer for this purpose, when the
-RecvTimeoutPolicy specifies one, and save ourselves two timers...
-
-TODO: ALSO! The timeout handling here is broken, because we don't listen for
-the server's timeout-spec channel in the drain mailbox implementation, which
-means we can arrive in processNext /long after the timeout should've expired/
-and then notice we'd hit it, and have to continue out of step...
-
-TODO: see nextAction for details on the two things above.
-
-NB: I THINK we can implement both timers using a single control plane, if we
-simply hold a broadcastTChan for writing and the readers dupTChan when they
-want to receive notifications. The channel can be polled easily during mailbox
-draining and written to safely by multiple writers that have dupTChan'd it
-
--}
-
-recvQueue :: PrioritisedProcessDefinition s
+-- ensureIOManagerIsRunning before evaluating this loop...
+--
+precvLoop :: PrioritisedProcessDefinition s
           -> s
-          -> TimeoutSpec
-          -> Queue
+          -> Delay
           -> Process ExitReason
-recvQueue p s t q =
-  let pDef = processDef p
-      ps   = priorities p
-  in do (ac, d, q') <- catchExit (processNext pDef ps s t q)
-                                 (\_ (r :: ExitReason) ->
-                                   return (ProcessStop r, Infinity, q))
-        nextAction ac d q'
+precvLoop ppDef pState recvDelay = do
+  st <- P.liftIO $ newIORef $ ProcessState { timeoutSpec = recvTimeout ppDef
+                                           , sysTimeout  = delayTimer Infinity
+                                           , usrTimeout  = recvDelay
+                                           , internalQ   = Q.empty
+                                           , procState   = pState
+                                           , procDef     = processDef ppDef
+                                           , procPrio    = priorities ppDef
+                                           }
+
+  -- Rewrite this code when this is fixed:
+  -- https://ghc.haskell.org/trac/ghc/ticket/10149
+  mask $ \restore -> do
+    res <- catch (fmap Right $ restore $ runProcess st recvQueue)
+                 (\(e :: SomeException) -> return $ Left e)
+
+    -- res could be (Left ex), so we restore process state & def from our IORef
+    ps <- P.liftIO $ atomicModifyIORef' st $ \s' -> (s', s')
+    let st' = procState ps
+        pd = procDef ps
+        sh = shutdownHandler pd
+    case res of
+      Right (exitReason, _) -> do
+        restore $ sh (CleanShutdown st') exitReason
+        return exitReason
+      Left ex -> do
+        -- we'll attempt to run the exit handler with the original state
+        restore $ sh (LastKnown st') (ExitOther $ show ex)
+        throwM ex
+
+recvQueue :: GenProcess s ExitReason
+recvQueue = do
+  pd <- processDefinition
+  let ex = trapExit:(exitHandlers $ pd)
+  let exHandlers = map (\d' -> (dispatchExit d')) ex
+
+  catch (drainMailbox >> processNext >>= nextAction)
+        (\(e :: ProcessExitException) ->
+            handleExit exHandlers e >>= nextAction)
   where
-{-
-REMOVED COMMENT FROM ABOVE ESSAY UNTIL IMPLEMENTED PROPERLY
 
-Also note that recvQueueAux will immediately pass control to processNext if the
-internal queue is non-empty, such that we favour processing message we've
-already received over reading our mailbox until we've emptied our internal
-queue, at which point our preference switches over to draining the real mailbox
-(and other input vectors) until we time out or hit the read size limit.
+    handleExit :: [(s -> ProcessId -> Message -> Process (Maybe (ProcessAction s)))]
+               -> ProcessExitException
+               -> GenProcess s (ProcessAction s)
+    handleExit []     ex                                 = throwM ex
+    handleExit (h:hs) ex@(ProcessExitException pid msg) = do
+      r <- processState >>= \s -> lift $ h s pid msg
+      case r of
+        Nothing -> handleExit hs ex
+        Just p  -> return p
 
--}
+    nextAction :: ProcessAction s -> GenProcess s ExitReason
+    nextAction ac
+      | ProcessSkip              <- ac = recvQueue
+      | ProcessContinue  ps'     <- ac = recvQueueAux ps'
+      | ProcessTimeout   d   ps' <- ac = setUserTimeout d >> recvQueueAux ps'
+      | ProcessStop      xr      <- ac = return xr
+      | ProcessStopping  ps' xr  <- ac = setProcessState ps' >> return xr
+      | ProcessHibernate d' s'   <- ac = (lift $ block d') >> recvQueueAux s'
+      | otherwise {- compiler foo -}   = return $ ExitOther "IllegalState"
 
-    nextAction ac d q'
-      -- TODO: if PQ.isEmpty q' == False, should we not continue working on
-      -- the mail we've already got?
-      -- that would mean evaluating something like
-      -- recvQueue ppDef pState (delay, Nothing) queue
-      | ProcessContinue  s'    <- ac = recvQueueAux p (priorities p) s' d  q'
-      | ProcessTimeout   t' s' <- ac = recvQueueAux p (priorities p) s' t' q'
-      | ProcessHibernate d' s' <- ac = block d' >> recvQueueAux p (priorities p) s' d q'
-      | ProcessStop      r     <- ac = (shutdownHandler $ processDef p) s r >> return r
-      | ProcessStopping  s' r  <- ac = (shutdownHandler $ processDef p) s' r >> return r
-      | otherwise {- compiler foo -} = die "IllegalState"
+    recvQueueAux st = setProcessState st >> recvQueue
 
-    recvQueueAux ppDef prioritizers pState delay queue =
-        let pDef = processDef ppDef
-            ex   = trapExit:(exitHandlers $ pDef)
-            eh   = map (\d' -> (dispatchExit d') pState) ex
-            mx   = recvTimeout ppDef
-        in (do t' <- startTimer delay
-               mq <- drainMessageQueue mx pDef pState prioritizers queue
-               recvQueue ppDef pState t' mq)
-           `catchExit`
-           (\pid (reason :: ExitReason) -> do
-               let pd = processDef ppDef
-               let ps = pState
-               let pq = queue
-               let em = unsafeWrapMessage reason
-               (a, d, q') <- findExitHandlerOrStop pd ps pq eh pid em
-               nextAction a d q')
+      -- TODO: at some point we should re-implement our state monad in terms of
+      -- mkWeakIORef instead of a full IORef. At that point, we can implement hiberation
+      -- in the following terms:
+      -- 1. the user defines (at some level, perhaps outside of this API) some
+      --    means for writing a process' state to a backing store
+      --    NB: this could be /persistent/, or a file, or database, etc...
+      -- 2. when we enter hibernation, we do the following:
+      --    (a) write the process state to the chosen backing store
+      --    (b) evaluate yield (telling the RTS we're willing to give up our time slice)
+      --    (c) enter a blocking receiveWait with no state on our stack...
+      --        [NB] presumably at this point our state will be eligible for GC
+      --    (d) when we finally receive a message, reboot the process thus:
+      --        (i)   read our state back from the given backing store
+      --        (ii)  call a user defined function to rebuild the state if custom
+      --              actions need to be taken (e.g. they might've stored something
+      --              like an STM TVar and need to request a new one from some
+      --              well known service or registry - alt. they might want to
+      --              /replay/ actions to rebuild their state as an FSM might)
+      --        (iii) re-enter the recv loop and immediately processNext
+      --
+      -- This will give roughly the same semantics as erlang's hibernate/3, although
+      -- the RTS does GC globally rather than per-thread, but that might change in
+      -- some future release (who knows!?).
+      --
+      -- Also, this gives us the ability to migrate process state across remote
+      -- boundaries. Not only can a process be moved in this way, if we generalise
+      -- the mechanism to move a serialised closure, we can migrate the whole process
+      -- and its state as well. The main difference here (with ordinary use of
+      -- @Closure@ et al for moving processes around, is that we do not insist
+      -- on the process state being serializable, simply that they provide a
+      -- function to read+write the state, and a (state -> state) function to be
+      -- called during rehydration if custom actions need to be taken.
+      --
 
-    findExitHandlerOrStop :: ProcessDefinition s
-                          -> s
-                          -> Queue
-                          -> [ProcessId -> P.Message -> Process (Maybe (ProcessAction s))]
-                          -> ProcessId
-                          -> P.Message
-                          -> Process (ProcessAction s, Delay, Queue)
-    findExitHandlerOrStop _ _ pq [] _ er = do
-      mEr <- unwrapMessage er :: Process (Maybe ExitReason)
-      case mEr of
-        Nothing -> die "InvalidExitHandler"  -- TODO: better error message?
-        Just er' -> return (ProcessStop er', Infinity, pq)
-    findExitHandlerOrStop pd ps pq (eh:ehs) pid er = do
-      mAct <- eh pid er
-      case mAct of
-        Nothing -> findExitHandlerOrStop pd ps pq ehs pid er
-        Just pa -> return (pa, Infinity, pq)
-
-    processNext def ps' pState tSpec queue =
-      let ex = trapExit:(exitHandlers def)
-          h  = timeoutHandler def in do
-        -- as a side effect, this check will cancel the timer
-        timedOut <- checkTimer pState tSpec h
-        case timedOut of
-          Stop s' r -> return (ProcessStopping s' r, (fst tSpec), queue)
-          Go t' s'  ->
-            -- checkTimer could've run our timeoutHandler, which changes "s"
-            case dequeue queue of
-              Nothing ->
-                -- if the internal queue is empty, we fall back to reading the
-                -- actual mailbox, however if /that/ times out, then we need
-                -- to let the timeout handler kick in again and make a decision
-                drainOrTimeout def s' t' queue ps' h
-              Just (m', q') -> do
-                act <- catchesExit (processApply def s' m')
-                                   (map (\d' -> dispatchExit d' s') ex)
-                return (act, t', q')
+    processNext :: GenProcess s (ProcessAction s)
+    processNext = do
+      next <- dequeue
+      case next of
+        Nothing -> drainOrTimeout
+        Just msg -> do
+          pd <- processDefinition
+          ps <- processState
+          processApply pd ps msg
 
     processApply def pState msg =
-      let pol          = unhandledMessagePolicy def
-          apiMatchers  = map (dynHandleMessage pol pState) (apiHandlers def)
-          infoMatchers = map (dynHandleMessage pol pState) (infoHandlers def)
-          extMatchers  = map (dynHandleMessage pol pState) (externHandlers def)
-          shutdown'    = dynHandleMessage pol pState shutdownHandler'
-          ms'          = (shutdown':apiMatchers) ++ infoMatchers ++ extMatchers
-      in processApplyAux ms' pol pState msg
+     let pol          = unhandledMessagePolicy def
+         apiMatchers  = map (dynHandleMessage pol pState) (apiHandlers def)
+         infoMatchers = map (dynHandleMessage pol pState) (infoHandlers def)
+         extMatchers  = map (dynHandleMessage pol pState) (externHandlers def)
+         shutdown'    = dynHandleMessage pol pState shutdownHandler'
+         ms'          = (shutdown':extMatchers) ++ apiMatchers ++ infoMatchers
+     in processApplyAux ms' pol pState msg
 
-    processApplyAux []     p' s' m' = applyPolicy p' s' m'
+    processApplyAux []     p' s' m' = lift $ applyPolicy p' s' m'
     processApplyAux (h:hs) p' s' m' = do
-      attempt <- h m'
-      case attempt of
-        Nothing  -> processApplyAux hs p' s' m'
-        Just act -> return act
+     attempt <- lift $ h m'
+     case attempt of
+       Nothing  -> processApplyAux hs p' s' m'
+       Just act -> return act
 
-    drainOrTimeout pDef pState delay queue ps' h =
-      let p'       = unhandledMessagePolicy pDef
-          matches = ((matchMessage return):map (matchExtern p' pState) (externHandlers pDef))
-          recv    = case delay of
-                      Infinity -> fmap Just (receiveWait matches)
-                      NoDelay  -> receiveTimeout 0 matches
-                      Delay i  -> receiveTimeout (asTimeout i) matches in do
-        r <- recv
-        case r of
-          Nothing -> h pState delay >>= \act -> return (act, delay, queue)
-          Just m  -> do
-            queue' <- enqueueMessage pState ps' m queue
-            -- Returning @ProcessContinue@ simply causes the main loop to go
-            -- into 'recvQueueAux', which ends up in 'drainMessageQueue'.
-            -- In other words, we continue draining the /real/ mailbox.
-            return (ProcessContinue pState, delay, queue')
+    drainMailbox :: GenProcess s ()
+    drainMailbox = do
+      -- see note [timer handling whilst draining the process' mailbox]
+      ps <- processState
+      pd <- processDefinition
+      pp <- processPriorities
+      let ms = matchAny (return . Right) : (mkMatchers ps pd)
+      timerAcc <- timeoutPolicy >>= \spec -> case spec of
+                                               RecvTimer      _   -> return Nothing
+                                               RecvMaxBacklog cnt -> return $ Just cnt
+      -- see note [handling async exceptions during non-blocking reads]
+      -- Also note that we only use the system timeout here, dropping into the
+      -- user timeout only if we end up in a blocking read on the mailbox.
+      --
+      mask_ $ do
+        tt <- maybeStartTimer
+        drainAux ps pp timerAcc (ms ++ matchTimeout tt)
+        (lift $ stopTimer tt) >>= setDrainTimeout
 
-drainMessageQueue :: RecvTimeoutPolicy
-                  -> ProcessDefinition s
-                  -> s
-                  -> [DispatchPriority s]
-                  -> Queue
-                  -> Process Queue
-drainMessageQueue limit pDef pState priorities' queue = do
-    timerAcc <- case limit of
-                  RecvTimer   tm  -> setupTimer tm
-                  RecvCounter cnt -> return $ Right cnt
-    drainMessageQueueAux pDef timerAcc pState priorities' queue
-
-  where
-
-    drainMessageQueueAux pd acc st ps q = do
-      (acc', m) <- drainIt st pd acc
-      -- say $ "drained " ++ show m
+    drainAux :: s
+             -> [DispatchPriority s]
+             -> Limit
+             -> [Match (Either TimedOut Message)]
+             -> GenProcess s ()
+    drainAux ps' pp' maxbq ms = do
+      (cnt, m) <- scanMailbox maxbq ms
       case m of
-        Nothing                 -> return q
-        Just (Left CancelTimer) -> return q
-        Just (Right m')         -> do
-          queue' <- enqueueMessage st ps m' q
-          drainMessageQueueAux pd acc' st ps queue'
+        Nothing                     -> return ()
+        Just (Left (_ :: TimedOut)) -> return ()
+        Just (Right m')             -> do enqueueMessage ps' pp' m'
+                                          drainAux ps' pp' cnt ms
 
-    drainIt :: s
-            -> ProcessDefinition s
-            -> Either (STM CancelTimer) Int
-            -> Process (Either (STM CancelTimer) Int,
-                        Maybe (Either CancelTimer P.Message))
-    drainIt _  _  e@(Right 0)  = return (e, Just (Left CancelTimer))
-    drainIt s' d' (Right cnt)  =
-      fmap (Right (cnt - 1), )
-           (receiveTimeout 0 (matchAny (return . Right): mkMatchers s' d'))
-    drainIt s' d' a@(Left stm) =
-      fmap (a, )
-           (receiveTimeout 0 ([ matchSTM stm (return . Left)
-                              , matchAny     (return . Right)
-                              ]  ++ mkMatchers s' d'))
+    maybeStartTimer :: GenProcess s Timer
+    maybeStartTimer = do
+      tp <- timeoutPolicy
+      t <- case tp of
+             RecvTimer d -> (lift $ startTimer $ Delay d)
+             _           -> return $ delayTimer Infinity
+      setDrainTimeout t
+      return t
+
+    scanMailbox :: Limit
+                -> [Match (Either TimedOut Message)]
+                -> GenProcess s (Limit, Maybe (Either TimedOut Message))
+    scanMailbox lim ms
+      | Just 0 <- lim = return (lim, Just $ Left TimedOut)
+      | Just c <- lim = do {- non-blocking read on our mailbox, any external inputs,
+                              plus whatever match specs the TimeoutManager gives -}
+                        lift $ fmap (Just (c - 1), ) (receiveTimeout 0 ms)
+      | otherwise     = lift $ fmap (lim, ) (receiveTimeout 0 ms)
+
+    -- see note [timer handling whilst draining the process' mailbox]
+    drainOrTimeout :: GenProcess s (ProcessAction s)
+    drainOrTimeout = do
+      pd <- processDefinition
+      ps <- processState
+      ud <- currentTimeout
+      let ump     = unhandledMessagePolicy pd
+          hto     = timeoutHandler pd
+          matches = ((matchMessage return):map (matchExtern ump ps) (externHandlers pd))
+          recv    = case ud of
+                      Infinity -> lift $ fmap Just (receiveWait matches)
+                      NoDelay  -> lift $ receiveTimeout 0 matches
+                      Delay i  -> lift $ receiveTimeout (asTimeout i) matches
+
+      -- see note [masking async exceptions during recv]
+      mask $ \restore -> recv >>= \r ->
+        case r of
+          Nothing -> restore $ lift $ hto ps ud
+          Just m  -> do
+            pp <- processPriorities
+            enqueueMessage ps pp m
+            -- Returning @ProcessSkip@ simply causes us to go back into
+            -- listening mode until we hit RecvTimeoutPolicy
+            restore $ return ProcessSkip
 
     mkMatchers :: s
-               -> ProcessDefinition s
-               -> [Match (Either CancelTimer P.Message)]
+                -> ProcessDefinition s
+                -> [Match (Either TimedOut Message)]
     mkMatchers st df =
       map (matchMapExtern (unhandledMessagePolicy df) st toRight)
           (externHandlers df)
 
-    toRight :: P.Message -> Either CancelTimer P.Message
+    toRight :: Message -> Either TimedOut Message
     toRight = Right
 
-    setupTimer intv = do
-      chan <- liftIO newTChanIO
-      void $ runAfter intv $ liftIO $ atomically $ writeTChan chan CancelTimer
-      return $ Left (readTChan chan)
+-- note [handling async exceptions during non-blocking reads]
+-- Our golden rule is that if we've dequeued any kind of Message at all
+-- from the process mailbox (or input channels), we must not /lose/ it
+-- if an asynchronous exception arrives. We therefore mask  when we perform a
+-- non-blocking scan on the mailbox, and whilst we enqueue messages.
+--
+-- If an initial scan of the mailbox yields no data, we fall back to making
+-- a blocking read; See note [masking async exceptions during recv].
+--
+-- Once messages have been safely moved from the mailbox to our priority queue,
+-- we restore the masking state whilst running handlers.
+--
 
-enqueueMessage :: s
-               -> [DispatchPriority s]
-               -> P.Message
-               -> Queue
-               -> Process Queue
-enqueueMessage _ []     m' q = return $ enqueue (-1 :: Int) m' q
-enqueueMessage s (p:ps) m' q = let checkPrio = prioritise p s in do
-  checkPrio m' >>= maybeEnqueue s m' q ps
-  where
-    maybeEnqueue :: s
-                 -> P.Message
-                 -> Queue
-                 -> [DispatchPriority s]
-                 -> Maybe (Int, P.Message)
-                 -> Process Queue
-    maybeEnqueue s' msg q' ps' Nothing       = enqueueMessage s' ps' msg q'
-    maybeEnqueue _  _   q' _   (Just (i, m)) = return $ enqueue (i * (-1 :: Int)) m q'
+-- note [timer handling whilst draining the process' mailbox]
+-- To prevent a DOS vector - and quite a likely accidental one at that - we do not
+-- sit draining the mailbox indefinitely, since continuous reading would thus
+-- leave us unable to process any inputs and we'd eventually run out of memory.
+-- Instead, the PrioritisedProcessDefinition holds a RecvTimeoutPolicy which can
+-- hold either a max-messages-processed limit or a timeout value. Using whichever
+-- policy is provided, drainMessageQueue will stop attempting to receive new mail
+-- either once the message count limit is exceeded or the timer expires, at which
+-- point we go back to processNext.
+
+-- note [masking async exceptions during recv]
+-- Reading the process' mailbox is mask'ed anyway, however this only
+-- covers dequeue on the underlying CQueue, such that either before
+-- the dequeue takes place, or after (during evaluation of the result,
+-- or execution of the discovered @Match@ for the message), we can still
+-- be terminated by an asynchronous exception. This is wrong, from the
+-- perspective of a managed process, since in the case of an exit signal
+-- we might handle the exception, at which point we've dequeued and
+-- subsequently lost a message.
+--
+-- Masking recv then, prevents this from happening, and is relatively
+-- safe, because we know the following (having written all the handlers
+-- explicitly ourselves):
+--
+-- 1. each handler does nothing more than return the underlying message
+-- 2. in the most complex case, we have @Left . unsafeWrapMessage@ or
+--    @fmap Right readSTM thing@ inside of @matchSTM@
+-- 3. We should not, therefore, introduce any uninterruptible behaviour
+-- 4. We cannot, however, be certain that this holds true for decoding
+--    (and subsequent calls into Binary and/or Bytestrings), so at best
+--    we can mask, but not uninterruptibleMask
+--
+-- NB: According to /qnikst/, atomicModifyIORef' does not require us to
+-- use uninterruptibleMask anyway, so this is fine...
+--
 
 --------------------------------------------------------------------------------
 -- Ordinary/Blocking Mailbox Handling                                         --
 --------------------------------------------------------------------------------
+
+-- TODO: wrap recvLoop in the same exception handling as precvLoop
+--       notably, we need to ensure the shutdownHandler runs even in the face
+--       of exceptions, and it would be useful/good IMO to pass an IORef for
+--       the state, so we can have a decent LastKnown value for it
 
 -- | Managed process loop.
 --
@@ -356,11 +571,12 @@ recvLoop pDef pState recvDelay =
     ac <- catchesExit (processReceive ms' handleTimeout pState recvDelay)
                       (map (\d' -> (dispatchExit d') pState) ex')
     case ac of
+        ProcessSkip              -> recvLoop pDef pState recvDelay -- TODO: handle differently...
         (ProcessContinue s')     -> recvLoop pDef s' recvDelay
         (ProcessTimeout t' s')   -> recvLoop pDef s' t'
         (ProcessHibernate d' s') -> block d' >> recvLoop pDef s' recvDelay
-        (ProcessStop r) -> handleStop pState r >> return (r :: ExitReason)
-        (ProcessStopping s' r)   -> handleStop s' r >> return (r :: ExitReason)
+        (ProcessStop r) -> handleStop (LastKnown pState) r >> return (r :: ExitReason)
+        (ProcessStopping s' r)   -> handleStop (LastKnown s') r >> return (r :: ExitReason)
   where
     matchAux :: UnhandledMessagePolicy
              -> s
@@ -368,10 +584,10 @@ recvLoop pDef pState recvDelay =
              -> [Match (ProcessAction s)]
     matchAux p ps ds = [matchAny (auxHandler (applyPolicy p ps) ps ds)]
 
-    auxHandler :: (P.Message -> Process (ProcessAction s))
+    auxHandler :: (Message -> Process (ProcessAction s))
                -> s
                -> [DeferredDispatcher s]
-               -> P.Message
+               -> Message
                -> Process (ProcessAction s)
     auxHandler policy _  [] msg = policy msg
     auxHandler policy st (d:ds :: [DeferredDispatcher s]) msg
@@ -410,46 +626,6 @@ recvLoop pDef pState recvDelay =
         Delay t' -> receiveTimeout (asTimeout t') matches
 
 --------------------------------------------------------------------------------
--- Simulated Receive Timeouts                                                 --
---------------------------------------------------------------------------------
-
-startTimer :: Delay -> Process TimeoutSpec
-startTimer d
-  | Delay t <- d = do sig <- liftIO $ newEmptyTMVarIO
-                      tref <- runAfter t $ liftIO $ atomically $ putTMVar sig ()
-                      return (d, Just (tref, (readTMVar sig)))
-  | otherwise    = return (d, Nothing)
-
-checkTimer :: s
-           -> TimeoutSpec
-           -> TimeoutHandler s
-           -> Process (TimeoutAction s)
-checkTimer pState spec handler = let delay = fst spec in do
-  timedOut <- pollTimer spec  -- this will cancel the timer
-  case timedOut of
-    False -> go spec pState
-    True  -> do
-      act <- handler pState delay
-      case act of
-        ProcessTimeout   t' s' -> return $ Go t' s'
-        ProcessStop      r     -> return $ Stop pState r
-        ProcessStopping  s' r  -> return $ Stop s' r
-        ProcessHibernate d' s' -> block d' >> go spec s'
-        ProcessContinue  s'    -> go spec s'
-  where
-    go d s = return $ Go (fst d) s
-
-pollTimer :: TimeoutSpec -> Process Bool
-pollTimer (_, Nothing         ) = return False
-pollTimer (_, Just (tref, sig)) = do
-  cancelTimer tref  -- cancelling a dead/completed timer is a no-op
-  gotSignal <- liftIO $ atomically $ pollSTM sig
-  return $ maybe False (const True) gotSignal
-  where
-    pollSTM :: (STM ()) -> STM (Maybe ())
-    pollSTM sig' = (Just <$> sig') `orElse` return Nothing
-
---------------------------------------------------------------------------------
 -- Utilities                                                                  --
 --------------------------------------------------------------------------------
 
@@ -459,14 +635,16 @@ shutdownHandler' = handleCast (\_ Shutdown -> stop $ ExitNormal)
 
 -- @(ProcessExitException from ExitShutdown)@ will stop the server gracefully
 trapExit :: ExitSignalDispatcher s
-trapExit = handleExit (\_ _ (r :: ExitReason) -> stop r)
+trapExit = handleExitIf (\_ e -> e == ExitShutdown)
+                        (\_ _ (r :: ExitReason) -> stop r)
 
 block :: TimeInterval -> Process ()
-block i = liftIO $ threadDelay (asTimeout i)
+block i =
+  void $ receiveTimeout (asTimeout i) [ match (\(_ :: TimedOut) -> return ()) ]
 
 applyPolicy :: UnhandledMessagePolicy
             -> s
-            -> P.Message
+            -> Message
             -> Process (ProcessAction s)
 applyPolicy p s m =
   case p of

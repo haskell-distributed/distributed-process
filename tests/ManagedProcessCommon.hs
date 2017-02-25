@@ -40,8 +40,8 @@ explodingTestProcess pid =
                      getSelfPid >>= \p -> die (p, i))
      ]
   , exitHandlers = [
-       handleExit  (\_ s (m :: String) -> send pid (m :: String) >>
-                                          continue s)
+       handleExit  (\_ s (m :: String) -> do send pid (m :: String)
+                                             continue s)
      , handleExit  (\_ s m@((_ :: ProcessId),
                             (_ :: Int)) -> P.send pid m >> continue s)
      ]
@@ -296,10 +296,16 @@ testSimpleErrorHandling :: Launcher ProcessId
 testSimpleErrorHandling launch result = do
   self <- getSelfPid
   (pid, exitReason) <- launch self
+  register "SUT" pid
+  sleep $ seconds 2
 
   -- this should be *altered* because of the exit handler
   Nothing <- callTimeout pid "foobar" (within 1 Seconds) :: Process (Maybe String)
-  "foobar" <- expect
+
+  Right s <- awaitResponse pid [
+      matchIf (\(s :: String) -> s == "foobar")
+              (\s -> return (Right s) :: Process (Either ExitReason String))
+    ]
 
   shutdown pid
   waitForExit exitReason >>= stash result

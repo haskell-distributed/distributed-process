@@ -150,6 +150,10 @@ continue_ = return . ProcessContinue
 -- is exceeded. If no messages are handled during this period, the /timeout/
 -- handler will be called. Note that this alters the process timeout permanently
 -- such that the given @Delay@ will remain in use until changed.
+--
+-- Note that @timeoutAfter NoDelay@ will cause the timeout handler to execute
+-- immediately if no messages are present in the process' mailbox.
+--
 timeoutAfter :: Delay -> s -> Action s
 timeoutAfter d s = return $ ProcessTimeout d s
 

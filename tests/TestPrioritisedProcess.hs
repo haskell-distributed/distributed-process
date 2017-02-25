@@ -74,7 +74,9 @@ explodingServer pid =
     exitReason <- liftIO newEmptyMVar
     spid <- spawnLocal $ do
        catch  (pserve () (statelessInit Infinity) pSrv >> stash exitReason ExitNormal)
-              (\(e :: SomeException) -> stash exitReason $ ExitOther (show e))
+              (\(e :: SomeException) -> do
+                -- say "died in handler..."
+                stash exitReason $ ExitOther (show e))
     return (spid, exitReason)
 
 data GetState = GetState
@@ -239,7 +241,7 @@ testTimedOverflowHandling result = do
 
 testOverflowHandling :: TestResult Bool -> Process ()
 testOverflowHandling result = do
-  pid <- mkOverflowHandlingServer (\s -> s { recvTimeout = RecvCounter 100 })
+  pid <- mkOverflowHandlingServer (\s -> s { recvTimeout = RecvMaxBacklog 100 })
   wrk <- spawnLocal $ mapM_ (cast pid . show) ([1..50000] :: [Int])
 
   sleep $ seconds 1
