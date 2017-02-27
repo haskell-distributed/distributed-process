@@ -17,10 +17,10 @@ import Network.Transport.TCP ( createTransport
                              , createTransportExposeInternals
                              , TransportInternals(..)
                              , TCPParameters(..)
-                             , encodeEndPointAddress
-                             , decodeEndPointAddress
                              , defaultTCPParameters
                              , LightweightConnectionId
+                             , encodeEndPointAddress
+                             , decodeEndPointAddress
                              )
 import Control.Concurrent (threadDelay, killThread)
 import Control.Concurrent.MVar ( MVar
@@ -173,7 +173,7 @@ testEarlyDisconnect = do
       tlog "Client"
 
       -- Listen for incoming messages
-      (clientPort, _) <- forkServer "127.0.0.1" "0" 5 True throwIO throwIO $ \socketFree sock -> do
+      (clientPort, _) <- forkServer "127.0.0.1" "0" 5 True throwIO throwIO $ \socketFree (sock, _) -> do
         -- Initial setup
         0 <- recvWord32 sock
         _ <- recvWithLength maxBound sock
@@ -285,7 +285,7 @@ testEarlyCloseSocket = do
       tlog "Client"
 
       -- Listen for incoming messages
-      (clientPort, _) <- forkServer "127.0.0.1" "0" 5 True throwIO throwIO $ \socketFree sock -> do
+      (clientPort, _) <- forkServer "127.0.0.1" "0" 5 True throwIO throwIO $ \socketFree (sock, _) -> do
         -- Initial setup
         0 <- recvWord32 sock
         _ <- recvWithLength maxBound sock
@@ -638,8 +638,7 @@ testReconnect = do
   counter <- newMVar (0 :: Int)
 
   -- Server
-  (serverPort, _) <- forkServer "127.0.0.1" "0" 5 True throwIO throwIO $ \socketFree sock -> do
-
+  (serverPort, _) <- forkServer "127.0.0.1" "0" 5 True throwIO throwIO $ \socketFree (sock, _) -> do
     -- Accept the connection
     Right 0  <- tryIO $ recvWord32 sock
     Right _  <- tryIO $ recvWithLength maxBound sock
@@ -760,7 +759,7 @@ testUnidirectionalError = do
   serverGotPing <- newEmptyMVar
 
   -- Server
-  (serverPort, _) <- forkServer "127.0.0.1" "0" 5 True throwIO throwIO $ \socketFree sock -> do
+  (serverPort, _) <- forkServer "127.0.0.1" "0" 5 True throwIO throwIO $ \socketFree (sock, _) -> do
     -- We accept connections, but when an exception occurs we don't do
     -- anything (in particular, we don't close the socket). This is important
     -- because when we shutdown one direction of the socket a recv here will

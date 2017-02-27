@@ -91,6 +91,7 @@ import qualified Network.Socket as N
   , connect
   , sOMAXCONN
   , AddrInfo
+  , SockAddr(..)
   )
 
 #ifdef USE_MOCK_NETWORK
@@ -894,8 +895,8 @@ apiCloseEndPoint transport evs ourEndPoint =
 -- the transport down. We must be careful to close the socket when a (possibly
 -- asynchronous, ThreadKilled) exception occurs. (If an exception escapes from
 -- handleConnectionRequest the transport will be shut down.)
-handleConnectionRequest :: TCPTransport -> IO () -> N.Socket -> IO ()
-handleConnectionRequest transport socketClosed sock = handle handleException $ do
+handleConnectionRequest :: TCPTransport -> IO () -> (N.Socket, N.SockAddr) -> IO ()
+handleConnectionRequest transport socketClosed (sock, sockAddr) = handle handleException $ do
     when (tcpNoDelay $ transportParams transport) $
       N.setSocketOption sock N.NoDelay 1
     when (tcpKeepAlive $ transportParams transport) $

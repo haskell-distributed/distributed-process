@@ -178,7 +178,8 @@ forkServer :: N.HostName                     -- ^ Host
            -> (SomeException -> IO ())       -- ^ Termination handler. Called
                                              --   when the error handler throws
                                              --   an exception.
-           -> (IO () -> N.Socket -> IO ())   -- ^ Request handler. Gets an
+           -> (IO () -> (N.Socket, N.SockAddr) -> IO ())
+                                             -- ^ Request handler. Gets an
                                              --   action which completes when
                                              --   the socket is closed.
            -> IO (N.ServiceName, ThreadId)
@@ -202,7 +203,7 @@ forkServer host port backlog reuseAddr errorHandler terminationHandler requestHa
       let act restore (sock, sockAddr) = do
             socketClosed <- newEmptyMVar
             void $ forkIO $ restore $ do
-              requestHandler (readMVar socketClosed) sock
+              requestHandler (readMVar socketClosed) (sock, sockAddr)
               `finally`
               release ((sock, sockAddr), socketClosed)
 
