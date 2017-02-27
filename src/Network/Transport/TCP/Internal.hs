@@ -13,6 +13,10 @@ module Network.Transport.TCP.Internal
   , encodeWord32
   , tryCloseSocket
   , tryShutdownSocketBoth
+  , decodeSockAddr
+  , EndPointId
+  , encodeEndPointAddress
+  , decodeEndPointAddress
   ) where
 
 #if ! MIN_VERSION_base(4,6,0)
@@ -26,6 +30,8 @@ import Network.Transport.Internal
   , tryIO
   , forkIOWithUnmask
   )
+
+import Network.Transport ( EndPointAddress(..) )
 
 #ifdef USE_MOCK_NETWORK
 import qualified Network.Transport.TCP.Mock.Socket as N
@@ -51,7 +57,8 @@ import qualified Network.Socket as N
   , socketPort
   , shutdown
   , ShutdownCmd(ShutdownBoth)
-  , SockAddr
+  , SockAddr(..)
+  , inet_ntoa
   )
 
 #ifdef USE_MOCK_NETWORK
@@ -88,6 +95,10 @@ import Data.Word (Word32)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (length, concat, null)
 import Data.ByteString.Lazy.Internal (smallChunkSize)
+import qualified Data.ByteString.Char8 as BSC (unpack, pack)
+
+-- | Local identifier for an endpoint within this transport
+type EndPointId = Word32
 
 -- | Control headers
 data ControlHeader =
@@ -275,3 +286,47 @@ recvExact sock len = go [] len
       if BS.null bs
         then throwIO (userError "recvExact: Socket closed")
         else go (bs : acc) (l - fromIntegral (BS.length bs))
+
+-- | Produce a HostName and ServiceName from a SockAddr. Only gives 'Just' for
+-- IPv4 addresses.
+decodeSockAddr :: N.SockAddr -> IO (Maybe (N.HostName, N.ServiceName))
+decodeSockAddr sockAddr = case sockAddr of
+  N.SockAddrInet port host -> do
+    hostString <- N.inet_ntoa host
+    return $ Just (hostString, show port)
+  _ -> return Nothing
+
+-- | Encode end point address
+encodeEndPointAddress :: N.HostName
+                      -> N.ServiceName
+                      -> EndPointId
+                      -> EndPointAddress
+encodeEndPointAddress host port ix = EndPointAddress . BSC.pack $
+  host ++ ":" ++ port ++ ":" ++ show ix
+
+-- | Decode end point address
+decodeEndPointAddress :: EndPointAddress
+                      -> Maybe (N.HostName, N.ServiceName, EndPointId)
+decodeEndPointAddress (EndPointAddress bs) =
+  case splitMaxFromEnd (== ':') 2 $ BSC.unpack bs of
+    [host, port, endPointIdStr] ->
+      case reads endPointIdStr of
+        [(endPointId, "")] -> Just (host, port, endPointId)
+        _                  -> Nothing
+    _ ->
+      Nothing
+
+-- | @spltiMaxFromEnd p n xs@ splits list @xs@ at elements matching @p@,
+-- returning at most @p@ segments -- counting from the /end/
+--
+-- > splitMaxFromEnd (== ':') 2 "ab:cd:ef:gh" == ["ab:cd", "ef", "gh"]
+splitMaxFromEnd :: (a -> Bool) -> Int -> [a] -> [[a]]
+splitMaxFromEnd p = \n -> go [[]] n . reverse
+  where
+    -- go :: [[a]] -> Int -> [a] -> [[a]]
+    go accs         _ []     = accs
+    go ([]  : accs) 0 xs     = reverse xs : accs
+    go (acc : accs) n (x:xs) =
+      if p x then go ([] : acc : accs) (n - 1) xs
+             else go ((x : acc) : accs) n xs
+    go _ _ _ = error "Bug in splitMaxFromEnd"

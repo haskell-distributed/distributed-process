@@ -19,8 +19,6 @@ import Network.Transport.TCP ( createTransport
                              , TCPParameters(..)
                              , defaultTCPParameters
                              , LightweightConnectionId
-                             , encodeEndPointAddress
-                             , decodeEndPointAddress
                              )
 import Control.Concurrent (threadDelay, killThread)
 import Control.Concurrent.MVar ( MVar
@@ -54,6 +52,8 @@ import Network.Transport.TCP.Internal
   , recvWord32
   , forkServer
   , recvWithLength
+  , encodeEndPointAddress
+  , decodeEndPointAddress
   )
 
 #ifdef USE_MOCK_NETWORK
@@ -544,13 +544,18 @@ testUnnecessaryConnect numThreads = do
   serverAddr <- newEmptyMVar
 
   forkTry $ do
-    Right transport <- createTransport "127.0.0.1" "0" ((,) "127.0.0.1") defaultTCPParameters
+    Right transport <- createTransport "127.0.0.1" "0" ((,) "128.0.0.1") defaultTCPParameters
     Right endpoint <- newEndPoint transport
-    putMVar serverAddr (address endpoint)
+    -- Since we're lying about the server's address, we have to manually
+    -- construct the proper address. If we used its actual address, the clients
+    -- would try to resolve "128.0.0.1" and then would fail due to invalid
+    -- address.
+    Just (_, port, epid) <- return $ decodeEndPointAddress (address endpoint)
+    putMVar serverAddr $ encodeEndPointAddress "127.0.0.1" port epid
 
   forkTry $ do
-    -- We pick an address < 127.0.0.1 so that this is not rejected purely because of the "crossed" check
-    let ourAddress = EndPointAddress "126.0.0.1"
+    -- We pick an address < 128.0.0.1 so that this is not rejected purely because of the "crossed" check
+    let ourAddress = encodeEndPointAddress "127.0.0.1" "1234" 0
 
     -- We should only get a single 'Accepted' reply
     gotAccepted <- newEmptyMVar
