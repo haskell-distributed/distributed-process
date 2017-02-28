@@ -1229,6 +1229,7 @@ handleIncomingMessages params (ourEndPoint, theirEndPoint) = do
 
     -- Arguments
     ourQueue    = localQueue ourEndPoint
+    ourState    = localState ourEndPoint
     theirState  = remoteState theirEndPoint
     theirAddr   = remoteAddress theirEndPoint
     recvLimit   = tcpMaxReceiveLength params
@@ -1259,7 +1260,19 @@ handleIncomingMessages params (ourEndPoint, theirEndPoint) = do
           RemoteEndPointClosed ->
             relyViolation (ourEndPoint, theirEndPoint)
               "handleIncomingMessages:prematureExit"
-          RemoteEndPointFailed err' ->
+          RemoteEndPointFailed err' -> do
+            -- Here we post a connection-lost event, but only if the
+            -- local endpoint is not closed; if it's closed, the EndPointClosed
+            -- event will be posted without connection-lost events, and this is
+            -- part of the network-transport specification (there's a test
+            -- case for it).
+            modifyMVar_ ourState $ \st' -> case st' of
+              LocalEndPointClosed -> return st'
+              LocalEndPointValid _ -> do
+                let code = EventConnectionLost (remoteAddress theirEndPoint)
+                    err  = TransportError code (show err')
+                qdiscEnqueue' ourQueue theirAddr (ErrorEvent err)
+                return st'
             return (RemoteEndPointFailed err')
 
     -- Construct a connection ID
@@ -1774,9 +1787,8 @@ runScheduledAction (ourEndPoint, theirEndPoint) mvar = do
       -- Must shut down the socket here, so that the other end will realize
       -- we lost the connection
       tryShutdownSocketBoth (remoteSocket vst)
-      let code     = EventConnectionLost (remoteAddress theirEndPoint)
-          err      = TransportError code (show ex)
-      qdiscEnqueue' (localQueue ourEndPoint) (localAddress ourEndPoint) $ ErrorEvent err
+      -- Eventually, handleIncomingMessages will fail while trying to
+      -- receive, and ultimately enqueue the 'EventConnectionLost'.
       return (RemoteEndPointFailed ex)
 
 -- | Use 'schedule' action 'runScheduled' action in a safe way, it's assumed that
