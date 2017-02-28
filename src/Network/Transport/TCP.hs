@@ -487,6 +487,9 @@ data TCPParameters = TCPParameters {
     --
     -- This can be overriden for each connect call with
     -- 'ConnectHints'.'connectTimeout'.
+    --
+    -- Connection requests to this transport will also timeout if they don't
+    -- send the required data before this many microseconds.
   , transportConnectTimeout :: Maybe Int
     -- | Create a QDisc for an EndPoint.
   , tcpNewQDisc :: forall t . IO (QDisc t)
