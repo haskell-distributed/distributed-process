@@ -56,6 +56,7 @@ import Network.Transport.TCP.Internal
   , decodeConnectionRequestResponse
   , forkServer
   , recvWithLength
+  , recvWithLengthFold
   , recvWord32
   , encodeWord32
   , tryCloseSocket
@@ -482,16 +483,18 @@ data TCPParameters = TCPParameters {
   , transportConnectTimeout :: Maybe Int
     -- | Create a QDisc for an EndPoint.
   , tcpNewQDisc :: forall t . IO (QDisc t)
-    -- | Optional maximum length (in bytes) for a peer's address.
+    -- | Maximum length (in bytes) for a peer's address.
     -- If a peer attempts to send an address of length exceeding the limit,
     -- the connection will be refused (socket will close).
-  , tcpMaxAddressLength :: Maybe Word32
-    -- | Optional maximum length (in bytes) to receive from a peer.
+  , tcpMaxAddressLength :: Word32
+    -- | Maximum length (in bytes) to receive from a peer.
     -- If a peer attempts to send data on a lightweight connection exceeding
     -- the limit, the heavyweight connection which carries that lightweight
     -- connection will go down. The peer and the local node will get an
     -- EventConnectionLost.
-  , tcpMaxReceiveLength :: Maybe Word32
+  , tcpMaxReceiveLength :: Word32
+    -- | Maximum length (in bytes) of a 'Received' event payload.
+  , tcpMaxChunkSize :: Word32
   }
 
 -- | Internal functionality we expose for unit testing
@@ -598,8 +601,9 @@ defaultTCPParameters = TCPParameters {
   , tcpUserTimeout     = Nothing
   , tcpNewQDisc        = simpleUnboundedQDisc
   , transportConnectTimeout = Nothing
-  , tcpMaxAddressLength = Nothing
-  , tcpMaxReceiveLength = Nothing
+  , tcpMaxAddressLength = maxBound
+  , tcpMaxReceiveLength = maxBound
+  , tcpMaxChunkSize     = maxBound
   }
 
 --------------------------------------------------------------------------------
@@ -1189,8 +1193,8 @@ handleIncomingMessages params (ourEndPoint, theirEndPoint) = do
     -- overhead
     readMessage :: N.Socket -> LightweightConnectionId -> IO ()
     readMessage sock lcid =
-      recvWithLength recvLimit sock >>=
-        qdiscEnqueue' ourQueue theirAddr . Received (connId lcid)
+      recvWithLengthFold recvLimit chunkLimit sock () $ \bs _ ->
+        qdiscEnqueue' ourQueue theirAddr (Received (connId lcid) bs)
 
     -- Stop probing a connection as a result of receiving a probe ack.
     stopProbing :: IO ()
@@ -1206,6 +1210,7 @@ handleIncomingMessages params (ourEndPoint, theirEndPoint) = do
     theirState  = remoteState theirEndPoint
     theirAddr   = remoteAddress theirEndPoint
     recvLimit   = tcpMaxReceiveLength params
+    chunkLimit  = tcpMaxChunkSize params
 
     -- Deal with a premature exit
     prematureExit :: N.Socket -> IOException -> IO ()

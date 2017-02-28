@@ -1,3 +1,5 @@
+{-# LANGUAGE BangPatterns #-}
+
 -- | Utility functions for TCP sockets
 module Network.Transport.TCP.Internal
   ( ControlHeader(..)
@@ -8,6 +10,7 @@ module Network.Transport.TCP.Internal
   , decodeConnectionRequestResponse
   , forkServer
   , recvWithLength
+  , recvWithLengthFold
   , recvExact
   , recvWord32
   , encodeWord32
@@ -59,7 +62,7 @@ import qualified Network.Socket.ByteString as NBS (recv)
 import Control.Concurrent (ThreadId)
 import Data.Word (Word32)
 
-import Control.Monad (forever, when)
+import Control.Monad (forever, when, unless)
 import Control.Exception (SomeException, catch, bracketOnError, throwIO, mask_)
 import Control.Applicative ((<$>), (<*>))
 import Data.Word (Word32)
@@ -180,20 +183,44 @@ forkServer host port backlog reuseAddr terminationHandler requestHandler = do
                                         (tryCloseSocket . fst)
                                         (requestHandler . fst)
 
--- | Read a length and then a payload of that length, subject to an optional
---   limit on the length.
-recvWithLength :: Maybe Word32 -> N.Socket -> IO [ByteString]
-recvWithLength mlimit sock = case mlimit of
-  Nothing -> recvWord32 sock >>= recvExact sock
-  Just limit -> do
-    length <- recvWord32 sock
-    when (length > limit) $
-      throwIO (userError "recvWithLength: limit exceeded")
-    recvExact sock length
+-- | Read a length, then 1 or more payloads each less than some maximum
+-- length in bytes, such that the sum of their lengths is the length that was
+-- read.
+recvWithLengthFold
+  :: Word32                      -- ^ Maximum total size.
+  -> Word32                      -- ^ Maximum chunk size.
+  -> N.Socket
+  -> t                           -- ^ Start element for the fold.
+  -> ([ByteString] -> t -> IO t) -- ^ Run this every time we get data of at
+                                 -- most the maximum size.
+  -> IO t
+recvWithLengthFold maxSize maxChunk sock base folder = do
+  len <- recvWord32 sock
+  when (len > maxSize) $
+    throwIO (userError "recvWithLengthFold: limit exceeded")
+  loop base len
+  where
+  loop !base !total = do
+    (bs, received) <- recvExact sock (min maxChunk total)
+    base' <- folder bs base
+    let remaining = total - received
+    when (received > total) $ throwIO (userError "recvWithLengthFold: got more bytes than requested")
+    if remaining == 0
+    then return base'
+    else loop base' remaining
+
+-- | Read a length and then a payload of that length
+recvWithLength
+  :: Word32          -- ^ Maximum total size.
+  -> N.Socket
+  -> IO [ByteString]
+recvWithLength maxSize sock = fmap (concat . reverse) $
+  recvWithLengthFold maxSize maxBound sock [] $
+    \bs lst -> return (bs : lst)
 
 -- | Receive a 32-bit unsigned integer
 recvWord32 :: N.Socket -> IO Word32
-recvWord32 = fmap (decodeWord32 . BS.concat) . flip recvExact 4
+recvWord32 = fmap (decodeWord32 . BS.concat . fst) . flip recvExact 4
 
 -- | Close a socket, ignoring I/O exceptions.
 tryCloseSocket :: N.Socket -> IO ()
@@ -204,16 +231,22 @@ tryCloseSocket sock = void . tryIO $
 --
 -- Throws an I/O exception if the socket closes before the specified
 -- number of bytes could be read
-recvExact :: N.Socket                -- ^ Socket to read from
-          -> Word32                  -- ^ Number of bytes to read
-          -> IO [ByteString]
+recvExact :: N.Socket                  -- ^ Socket to read from
+          -> Word32                    -- ^ Number of bytes to read
+          -> IO ([ByteString], Word32) -- ^ Data and number of bytes read
 recvExact _ len | len < 0 = throwIO (userError "recvExact: Negative length")
-recvExact sock len = go [] len
+recvExact sock len = go [] 0 len
   where
-    go :: [ByteString] -> Word32 -> IO [ByteString]
-    go acc 0 = return (reverse acc)
-    go acc l = do
+    go :: [ByteString] -> Word32 -> Word32 -> IO ([ByteString], Word32)
+    go acc !n 0 = return (reverse acc, n)
+    go acc !n l = do
       bs <- NBS.recv sock (fromIntegral l `min` smallChunkSize)
       if BS.null bs
         then throwIO (userError "recvExact: Socket closed")
-        else go (bs : acc) (l - fromIntegral (BS.length bs))
+        else do
+          let received  = fromIntegral (BS.length bs)
+              remaining = l - received
+              total     = n + received
+          -- Check for underflow. Shouldn't be possible but let's make sure.
+          when (received > l) $ throwIO (userError "recvExact: got more bytes than requested")
+          go (bs : acc) total remaining

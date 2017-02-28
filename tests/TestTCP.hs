@@ -165,7 +165,7 @@ testEarlyDisconnect = do
       (clientPort, _) <- forkServer "127.0.0.1" "0" 5 True throwIO $ \sock -> do
         -- Initial setup
         0 <- recvWord32 sock
-        _ <- recvWithLength Nothing sock
+        _ <- recvWithLength maxBound sock
         sendMany sock [encodeWord32 (encodeConnectionRequestResponse ConnectionRequestAccepted)]
 
         -- Server opens  a logical connection
@@ -174,7 +174,7 @@ testEarlyDisconnect = do
 
         -- Server sends a message
         1024 <- recvWord32 sock
-        ["ping"] <- recvWithLength Nothing sock
+        ["ping"] <- recvWithLength maxBound sock
 
         -- Reply
         sendMany sock [
@@ -277,7 +277,7 @@ testEarlyCloseSocket = do
       (clientPort, _) <- forkServer "127.0.0.1" "0" 5 True throwIO $ \sock -> do
         -- Initial setup
         0 <- recvWord32 sock
-        _ <- recvWithLength Nothing sock
+        _ <- recvWithLength maxBound sock
         sendMany sock [encodeWord32 (encodeConnectionRequestResponse ConnectionRequestAccepted)]
 
         -- Server opens a logical connection
@@ -286,7 +286,7 @@ testEarlyCloseSocket = do
 
         -- Server sends a message
         1024 <- recvWord32 sock
-        ["ping"] <- recvWithLength Nothing sock
+        ["ping"] <- recvWithLength maxBound sock
 
         -- Reply
         sendMany sock [
@@ -620,7 +620,7 @@ testReconnect = do
   (serverPort, _) <- forkServer "127.0.0.1" "0" 5 True throwIO $ \sock -> do
     -- Accept the connection
     Right 0  <- tryIO $ recvWord32 sock
-    Right _  <- tryIO $ recvWithLength Nothing sock
+    Right _  <- tryIO $ recvWithLength maxBound sock
 
     -- The first time we close the socket before accepting the logical connection
     count <- modifyMVar counter $ \i -> return (i + 1, i)
@@ -639,7 +639,7 @@ testReconnect = do
           -- Client sends a message
           Right connId' <- tryIO $ (recvWord32 sock :: IO LightweightConnectionId)
           True <- return $ connId == connId'
-          Right ["ping"] <- tryIO $ recvWithLength Nothing sock
+          Right ["ping"] <- tryIO $ recvWithLength maxBound sock
           putMVar serverDone ()
 
     Right () <- tryIO $ N.sClose sock
@@ -712,7 +712,7 @@ testUnidirectionalError = do
     -- would shutdown the socket in the other direction)
     void . (try :: IO () -> IO (Either SomeException ())) $ do
       0 <- recvWord32 sock
-      _ <- recvWithLength Nothing sock
+      _ <- recvWithLength maxBound sock
       () <- sendMany sock [encodeWord32 (encodeConnectionRequestResponse ConnectionRequestAccepted)]
 
       Just CreatedNewConnection <- decodeControlHeader <$> recvWord32 sock
@@ -720,7 +720,7 @@ testUnidirectionalError = do
 
       connId' <- recvWord32 sock :: IO LightweightConnectionId
       True <- return $ connId == connId'
-      ["ping"] <- recvWithLength Nothing sock
+      ["ping"] <- recvWithLength maxBound sock
       putMVar serverGotPing ()
 
   -- Client
@@ -843,8 +843,8 @@ testMaxLength = do
       -- Port is at most 5 bytes (65536) and id is a base-10 Word32 so
       -- at most 10 bytes. We'll have one client with a 5-byte port to push it
       -- over the chosen limit of 16
-      tcpMaxAddressLength = Just 16
-    , tcpMaxReceiveLength = Just 8
+      tcpMaxAddressLength = 16
+    , tcpMaxReceiveLength = 8
     }
   Right goodClientTransport <- createTransport "127.0.0.1" "9999" ((,) "127.0.0.1") defaultTCPParameters
   Right badClientTransport <- createTransport "127.0.0.1" "10000" ((,) "127.0.0.1") defaultTCPParameters
