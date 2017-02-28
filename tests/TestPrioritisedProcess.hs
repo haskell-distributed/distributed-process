@@ -334,6 +334,9 @@ tests transport = do
           , testCase "long running call cancellation"
             (delayedAssertion "expected to get AsyncCancelled"
              localNode True (testKillMidCall $ wrap server))
+          , testCase "server rejects call"
+             (delayedAssertion "expected server to send CallRejected"
+              localNode (ExitOther "invalid-call") (testServerRejectsMessage $ wrap server))             
           , testCase "simple exit handling"
             (delayedAssertion "expected handler to catch exception and continue"
              localNode Nothing (testSimpleErrorHandling $ explodingServer))

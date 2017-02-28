@@ -60,6 +60,8 @@ standardTestServer policy =
             , handleCall    (\s' (m :: String) -> reply m s')
             , handleCall_   (\(n :: Int) -> return (n * 2))    -- "stateless"
 
+            , handleCall    (\s' (_ :: Delay) -> (reject s' "invalid-call") :: Reply () ())
+
             , handleCast    (\s' ("ping", pid :: ProcessId) ->
                                  send pid "pong" >> continue s')
             , handleCastIf_ (input (\(c :: String, _ :: Delay) -> c == "timeout"))
@@ -357,3 +359,15 @@ testUnsafeAlternativeErrorHandling launch result = do
 
   Unsafe.shutdown pid
   waitForExit exitReason >>= stash result
+
+testServerRejectsMessage :: Launcher ProcessId
+                         -> TestResult ExitReason
+                         -> Process ()
+testServerRejectsMessage launch result = do
+  self <- getSelfPid
+  (pid, _) <- launch self
+
+  -- server is configured to reject (m :: Delay)
+  Left res <- safeCall pid Infinity :: Process (Either ExitReason ())
+  say $ show res
+  stash result res

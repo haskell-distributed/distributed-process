@@ -319,6 +319,9 @@ tests transport = do
           , testCase "(unsafe) long running call cancellation"
             (delayedAssertion "expected to get AsyncCancelled"
             localNode True (testUnsafeKillMidCall $ wrap server))
+          , testCase "server rejects call"
+              (delayedAssertion "expected server to send CallRejected"
+              localNode (ExitOther "invalid-call") (testServerRejectsMessage $ wrap server))
           , testCase "invalid return type handling"
             (delayedAssertion
              "expected response to fail on runtime type verification"

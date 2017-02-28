@@ -52,6 +52,7 @@ module Control.Distributed.Process.ManagedProcess.Internal.Types
   , CallResponse(..)
   , CallId
   , CallRef(..)
+  , CallRejected(..)
   , makeRef
   , initCall
   , unsafeInitCall
@@ -126,6 +127,11 @@ instance NFSerializable a => NFData (CallResponse a) where
 deriving instance Eq a => Eq (CallResponse a)
 deriving instance Show a => Show (CallResponse a)
 
+data CallRejected = CallRejected String CallId
+  deriving (Typeable, Generic, Show, Eq)
+instance Binary CallRejected where
+instance NFData CallRejected where
+
 instance Resolvable (CallRef a) where
   resolve (CallRef (r, _)) = resolve r
 
@@ -163,6 +169,7 @@ data ProcessAction s =
 -- can return @NoReply@ if they wish to ignore the call.
 data ProcessReply r s =
     ProcessReply r (ProcessAction s)
+  | ProcessReject String (ProcessAction s)
   | NoReply (ProcessAction s)
 
 -- | Wraps a predicate that is used to determine whether or not a handler
@@ -471,6 +478,8 @@ waitResponse mTimeout cRef =
   let (_, mRef) = unCaller cRef
       matchers  = [ matchIf (\((CallResponse _ ref) :: CallResponse b) -> ref == mRef)
                             (\((CallResponse m _) :: CallResponse b) -> return (Right m))
+                  , matchIf (\((CallRejected _ ref)) -> ref == mRef)
+                            (\(CallRejected s _) -> return (Left $ ExitOther $ s))
                   , matchIf (\(ProcessMonitorNotification ref _ _) -> ref == mRef)
                       (\(ProcessMonitorNotification _ _ r) -> return (Left (err r)))
                   ]

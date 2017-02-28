@@ -1,5 +1,6 @@
 {-# LANGUAGE ExistentialQuantification  #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE PatternGuards              #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -29,6 +30,8 @@ module Control.Distributed.Process.ManagedProcess.Server
   , stopWith
   , replyTo
   , replyChan
+  , reject
+  , rejectWith
     -- * Stateless actions
   , noReply_
   , haltNoReply_
@@ -78,8 +81,10 @@ import Control.Distributed.Process.ManagedProcess.Internal.Types
 import Control.Distributed.Process.Extras
   ( ExitReason(..)
   , Routable(..)
+  , Resolvable(..)
   )
 import Control.Distributed.Process.Extras.Time
+import Data.Maybe (fromJust)
 import Prelude hiding (init)
 
 --------------------------------------------------------------------------------
@@ -111,6 +116,12 @@ state = State
 --
 input :: forall s m. (Serializable m) => (m -> Bool) -> Condition s m
 input = Input
+
+reject :: forall r s . s -> String -> Reply r s
+reject st rs = continue st >>= \s -> return $ ProcessReject rs s
+
+rejectWith :: forall r m s . (Show m) => s -> m -> Reply r s
+rejectWith st rs = continue st >>= \s -> return $ ProcessReject (show rs) s
 
 -- | Instructs the process to send a reply and continue running.
 reply :: (Serializable r) => r -> s -> Reply r s
@@ -448,6 +459,7 @@ handleCallExternal reader writer handler =
     doStmReply d s m = d s m >>= doXfmReply writer
 
     doXfmReply _ (NoReply a)         = return a
+    doXfmReply _ (ProcessReject _ a) = return a
     doXfmReply w (ProcessReply r' a) = liftIO (atomically $ w r') >> return a
 
 -- | Constructs a /control channel/ handler from a function in the
@@ -603,8 +615,13 @@ mkReply :: (Serializable b)
         => CallRef b
         -> ProcessReply b s
         -> Process (ProcessAction s)
-mkReply _ (NoReply a)         = return a
-mkReply c (ProcessReply r' a) = sendTo c r' >> return a
+mkReply cRef act
+  | (NoReply a)          <- act   = return a
+  | (ProcessReply  r' a) <- act   = sendTo cRef r' >> return a
+  | (CallRef (_, tag))   <- cRef
+  , (ProcessReject s' a) <- act   = resolve cRef >>= \p ->
+      send (fromJust p) (CallRejected s' tag) >> return a
+  | otherwise                     = die $ ExitOther "mkReply.InvalidState"
 
 -- these functions are the inverse of 'condition', 'state' and 'input'
 
