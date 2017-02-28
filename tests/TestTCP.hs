@@ -16,12 +16,9 @@ import Network.Transport
 import Network.Transport.TCP ( createTransport
                              , createTransportExposeInternals
                              , TransportInternals(..)
-                             , encodeEndPointAddress
-<<<<<<< 0ea96b4d1f2d1c02e14c632cae0d36f8196d8e1b
                              , TCPParameters(..)
-=======
+                             , encodeEndPointAddress
                              , decodeEndPointAddress
->>>>>>> Try to shutdown sockets when closing endpoints
                              , defaultTCPParameters
                              , LightweightConnectionId
                              )
@@ -951,7 +948,7 @@ testCloseEndPoint = do
   -- A server which accepts one connection and then attempts to close the
   -- end point.
   forkTry $ do
-    Right transport <- createTransport "127.0.0.1" "0" defaultTCPParameters
+    Right transport <- createTransport "127.0.0.1" "0" ((,) "127.0.0.1") defaultTCPParameters
     Right ep <- newEndPoint transport
     putMVar serverAddress (address ep)
     ConnectionOpened _ _ _ <- receive ep
