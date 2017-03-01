@@ -200,10 +200,9 @@ forkServer host port backlog reuseAddr errorHandler terminationHandler requestHa
             N.sClose sock `finally` putMVar socketClosed ()
 
       -- Run the request handler.
-      let act :: (N.Socket, N.SockAddr) -> IO ()
-          act (sock, sockAddr) = do
+      let act restore (sock, sockAddr) = do
             socketClosed <- newEmptyMVar
-            void $ forkIO $ do
+            void $ forkIO $ restore $ do
               requestHandler (readMVar socketClosed) sock
               `finally`
               release ((sock, sockAddr), socketClosed)
@@ -221,7 +220,7 @@ forkServer host port backlog reuseAddr errorHandler terminationHandler requestHa
             -- safe we'll close the socket if it does.
             let handler :: SomeException -> IO ()
                 handler _ = N.sClose sock
-            catch (restore (act (sock, sockAddr))) handler
+            catch (act restore (sock, sockAddr)) handler
 
       -- We start listening for incoming requests in a separate thread. When
       -- that thread is killed, we close the server socket and the termination
