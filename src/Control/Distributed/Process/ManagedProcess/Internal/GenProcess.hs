@@ -22,6 +22,7 @@ module Control.Distributed.Process.ManagedProcess.Internal.GenProcess
   , GenProcess
   ) where
 
+import Control.Applicative (liftA3)
 import Control.Distributed.Process
   ( match
   , matchAny
@@ -64,6 +65,7 @@ import qualified Control.Distributed.Process.Extras.Internal.Queue.PriorityQ as 
   ( empty
   , dequeue
   , enqueue
+  , peek
   )
 import Control.Distributed.Process.Extras
   ( ExitReason(..)
@@ -97,6 +99,7 @@ import qualified Control.Monad.State.Strict as ST
   , runStateT
   )
 import Data.IORef (IORef, newIORef, atomicModifyIORef')
+import Data.Maybe (fromJust)
 import Data.Typeable (Typeable)
 
 --------------------------------------------------------------------------------
@@ -116,6 +119,7 @@ data ProcessState s = ProcessState { timeoutSpec :: RecvTimeoutPolicy
                                    , procState   :: s
                                    , procDef     :: ProcessDefinition s
                                    , procPrio    :: [DispatchPriority s]
+                                   , procFilters :: [DispatchFilter s]
                                    }
 type State s = IORef (ProcessState s)
 
@@ -210,8 +214,14 @@ processDefinition = gets procDef
 processPriorities :: GenProcess s ([DispatchPriority s])
 processPriorities = gets procPrio
 
+processFilters :: GenProcess s ([DispatchFilter s])
+processFilters = gets procFilters
+
 processState :: GenProcess s s
 processState = gets procState
+
+processUnhandledMsgPolicy :: GenProcess s UnhandledMessagePolicy
+processUnhandledMsgPolicy = gets (unhandledMessagePolicy . procDef)
 
 systemTimeout :: GenProcess s Timer
 systemTimeout = gets sysTimeout
@@ -234,12 +244,16 @@ updateQueue f =
 --------------------------------------------------------------------------------
 
 dequeue :: GenProcess s (Maybe Message)
-dequeue =
-  getAndModifyState $ \st -> do
-    let pq = internalQ st
-    case Q.dequeue pq of
-      Nothing      -> (st, Nothing)
-      Just (m, q') -> (st { internalQ = q' }, Just m)
+dequeue = getAndModifyState $ \st -> do
+            let pq = internalQ st
+            case Q.dequeue pq of
+              Nothing      -> (st, Nothing)
+              Just (m, q') -> (st { internalQ = q' }, Just m)
+
+peek :: GenProcess s (Maybe Message)
+peek = getAndModifyState $ \st -> do
+         let pq = internalQ st
+         (st, Q.peek pq)
 
 enqueueMessage :: forall s . s
                -> [DispatchPriority s]
@@ -288,6 +302,7 @@ precvLoop ppDef pState recvDelay = do
                                            , procState   = pState
                                            , procDef     = processDef ppDef
                                            , procPrio    = priorities ppDef
+                                           , procFilters = filters    ppDef
                                            }
 
   -- Rewrite this code when this is fixed:
@@ -379,22 +394,56 @@ recvQueue = do
 
     processNext :: GenProcess s (ProcessAction s)
     processNext = do
-      next <- dequeue
-      case next of
-        Nothing -> drainOrTimeout
-        Just msg -> do
-          pd <- processDefinition
-          ps <- processState
-          processApply pd ps msg
+      (up, fs, ps) <- gets (liftA3 (,,) (unhandledMessagePolicy . procDef)
+                                         procFilters
+                                         procState)
+      case fs of
+        [] -> consumeMessage
+        _  -> filterMessage  (filterNext up fs Nothing)
 
-    processApply def pState msg =
-     let pol          = unhandledMessagePolicy def
-         apiMatchers  = map (dynHandleMessage pol pState) (apiHandlers def)
-         infoMatchers = map (dynHandleMessage pol pState) (infoHandlers def)
-         extMatchers  = map (dynHandleMessage pol pState) (externHandlers def)
-         shutdown'    = dynHandleMessage pol pState shutdownHandler'
-         ms'          = (shutdown':extMatchers) ++ apiMatchers ++ infoMatchers
-     in processApplyAux ms' pol pState msg
+    consumeMessage = applyNext dequeue processApply
+    filterMessage = applyNext peek
+
+    filterNext :: UnhandledMessagePolicy
+               -> [DispatchFilter s]
+               -> Maybe (Filter s)
+               -> Message
+               -> GenProcess s (ProcessAction s)
+    filterNext mp' fs act msg
+      | Just (FilterSkip s') <- act = {- state!!!!! -} dequeue >> return ProcessSkip
+      | Just (FilterOk s')   <- act
+      , []                   <- fs = setProcessState s' >> applyNext dequeue processApply
+      | Nothing <- act, []   <- fs = applyNext dequeue processApply
+      | Just (FilterOk s')   <- act
+      , (f:fs')              <- fs = do
+          setProcessState s'
+          act' <- lift $ dynHandleFilter s' f msg
+          filterNext mp' fs' act' msg
+      | Just (FilterReject s') <- act = do
+          setProcessState s' >> dequeue >>= lift . applyPolicy mp' s' . fromJust
+      | Nothing <- act {- filter didn't apply to the input type -}
+      , (f:fs') <- fs = processState >>= \s' -> do
+          lift (dynHandleFilter s' f msg) >>= \a -> filterNext mp' fs' a msg
+
+    applyNext :: (GenProcess s (Maybe Message))
+              -> (Message -> GenProcess s (ProcessAction s))
+              -> GenProcess s (ProcessAction s)
+    applyNext queueOp handler = do
+      next <- queueOp
+      case next of
+        Nothing  -> drainOrTimeout
+        Just msg -> handler msg
+
+    processApply msg = do
+      def <- processDefinition
+      pState <- processState
+      let pol          = unhandledMessagePolicy def
+          apiMatchers  = map (dynHandleMessage pol pState) (apiHandlers def)
+          infoMatchers = map (dynHandleMessage pol pState) (infoHandlers def)
+          extMatchers  = map (dynHandleMessage pol pState) (externHandlers def)
+          shutdown'    = dynHandleMessage pol pState shutdownHandler'
+          ms'          = (shutdown':extMatchers) ++ apiMatchers ++ infoMatchers
+      processApplyAux ms' pol pState msg
 
     processApplyAux []     p' s' m' = lift $ applyPolicy p' s' m'
     processApplyAux (h:hs) p' s' m' = do
@@ -571,12 +620,12 @@ recvLoop pDef pState recvDelay =
     ac <- catchesExit (processReceive ms' handleTimeout pState recvDelay)
                       (map (\d' -> (dispatchExit d') pState) ex')
     case ac of
-        ProcessSkip              -> recvLoop pDef pState recvDelay -- TODO: handle differently...
-        (ProcessContinue s')     -> recvLoop pDef s' recvDelay
-        (ProcessTimeout t' s')   -> recvLoop pDef s' t'
-        (ProcessHibernate d' s') -> block d' >> recvLoop pDef s' recvDelay
+        ProcessSkip               -> recvLoop pDef pState recvDelay -- TODO: handle differently...
+        (ProcessContinue s')      -> recvLoop pDef s' recvDelay
+        (ProcessTimeout t' s')    -> recvLoop pDef s' t'
+        (ProcessHibernate d' s')  -> block d' >> recvLoop pDef s' recvDelay
         (ProcessStop r) -> handleStop (LastKnown pState) r >> return (r :: ExitReason)
-        (ProcessStopping s' r)   -> handleStop (LastKnown s') r >> return (r :: ExitReason)
+        (ProcessStopping s' r)    -> handleStop (LastKnown s') r >> return (r :: ExitReason)
   where
     matchAux :: UnhandledMessagePolicy
              -> s

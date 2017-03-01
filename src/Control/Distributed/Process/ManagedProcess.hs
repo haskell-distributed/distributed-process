@@ -702,7 +702,7 @@ prioritised :: ProcessDefinition s
             -> [DispatchPriority s]
             -> PrioritisedProcessDefinition s
 prioritised def ps =
-  PrioritisedProcessDefinition def ps defaultRecvTimeoutPolicy
+  PrioritisedProcessDefinition def ps [] defaultRecvTimeoutPolicy
 
 -- | Sets the default 'recvTimeoutPolicy', which gives up after 10k reads.
 defaultRecvTimeoutPolicy :: RecvTimeoutPolicy

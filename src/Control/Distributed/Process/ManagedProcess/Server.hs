@@ -118,10 +118,10 @@ input :: forall s m. (Serializable m) => (m -> Bool) -> Condition s m
 input = Input
 
 reject :: forall r s . s -> String -> Reply r s
-reject st rs = continue st >>= \s -> return $ ProcessReject rs s
+reject st rs = continue st >>= return . ProcessReject rs
 
-rejectWith :: forall r m s . (Show m) => s -> m -> Reply r s
-rejectWith st rs = continue st >>= \s -> return $ ProcessReject (show rs) s
+rejectWith :: forall r m s . (Show r) => s -> r -> Reply m s
+rejectWith st rs = reject st (show rs)
 
 -- | Instructs the process to send a reply and continue running.
 reply :: (Serializable r) => r -> s -> Reply r s
@@ -616,12 +616,12 @@ mkReply :: (Serializable b)
         -> ProcessReply b s
         -> Process (ProcessAction s)
 mkReply cRef act
-  | (NoReply a)          <- act   = return a
-  | (ProcessReply  r' a) <- act   = sendTo cRef r' >> return a
+  | (NoReply a)          <- act  = return a
   | (CallRef (_, tag))   <- cRef
-  , (ProcessReject s' a) <- act   = resolve cRef >>= \p ->
-      send (fromJust p) (CallRejected s' tag) >> return a
-  | otherwise                     = die $ ExitOther "mkReply.InvalidState"
+  , (ProcessReply  r' a) <- act  = sendTo cRef (CallResponse r' tag) >> return a
+  | (CallRef (_, tag))   <- cRef
+  , (ProcessReject r' a) <- act  = sendTo cRef (CallRejected r' tag) >> return a
+  | otherwise                    = die $ ExitOther "mkReply.InvalidState"
 
 -- these functions are the inverse of 'condition', 'state' and 'input'
 

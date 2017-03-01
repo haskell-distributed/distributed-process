@@ -369,5 +369,4 @@ testServerRejectsMessage launch result = do
 
   -- server is configured to reject (m :: Delay)
   Left res <- safeCall pid Infinity :: Process (Either ExitReason ())
-  say $ show res
   stash result res

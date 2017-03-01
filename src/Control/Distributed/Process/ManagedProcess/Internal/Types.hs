@@ -35,6 +35,8 @@ module Control.Distributed.Process.ManagedProcess.Internal.Types
   , ProcessDefinition(..)
   , Priority(..)
   , DispatchPriority(..)
+  , DispatchFilter(..)
+  , Filter(..)
   , PrioritisedProcessDefinition(..)
   , RecvTimeoutPolicy(..)
   , ControlChannel(..)
@@ -48,12 +50,16 @@ module Control.Distributed.Process.ManagedProcess.Internal.Types
   , MessageMatcher(..)
   , ExternMatcher(..)
   , DynMessageHandler(..)
+  , DynFilterHandler(..)
   , Message(..)
   , CallResponse(..)
   , CallId
   , CallRef(..)
   , CallRejected(..)
   , makeRef
+  , caller
+  , recipient
+  , tag
   , initCall
   , unsafeInitCall
   , waitResponse
@@ -95,6 +101,12 @@ type CallId = MonitorRef
 newtype CallRef a = CallRef { unCaller :: (Recipient, CallId) }
   deriving (Eq, Show, Typeable, Generic)
 
+recipient :: CallRef a -> Recipient
+recipient = fst . unCaller
+
+tag :: CallRef a -> CallId
+tag = snd . unCaller
+
 instance Binary (CallRef a) where
 instance NFData (CallRef a) where rnf (CallRef x) = rnf x `seq` ()
 
@@ -108,6 +120,10 @@ data Message a b =
   | CallMessage a (CallRef b)
   | ChanMessage a (SendPort b)
   deriving (Typeable, Generic)
+
+caller :: Message a b -> Maybe (CallRef b)
+caller (CallMessage _ ref) = Just ref
+caller _                   = Nothing
 
 instance (Serializable a, Serializable b) => Binary (Message a b) where
 instance (NFSerializable a, NFSerializable b) => NFData (Message a b) where
@@ -136,8 +152,8 @@ instance Resolvable (CallRef a) where
   resolve (CallRef (r, _)) = resolve r
 
 instance Routable (CallRef a) where
-  sendTo  (CallRef (client, tag)) msg = sendTo client (CallResponse msg tag)
-  unsafeSendTo (CallRef (c, tag)) msg = unsafeSendTo c (CallResponse msg tag)
+  sendTo (CallRef (c, _)) = sendTo c
+  unsafeSendTo (CallRef (c, _)) = unsafeSendTo c
 
 -- | Return type for and 'InitHandler' expression.
 data InitResult s =
@@ -169,7 +185,7 @@ data ProcessAction s =
 -- can return @NoReply@ if they wish to ignore the call.
 data ProcessReply r s =
     ProcessReply r (ProcessAction s)
-  | ProcessReject String (ProcessAction s)
+  | ProcessReject String (ProcessAction s)  -- TODO: can we use a functional dependency here?
   | NoReply (ProcessAction s)
 
 -- | Wraps a predicate that is used to determine whether or not a handler
@@ -282,6 +298,30 @@ data Dispatcher s =
     , dispatchIf :: s -> Message a b -> Bool
     }
 
+data Filter s = FilterOk s
+              | FilterReject s
+              | FilterSkip s
+
+data DispatchFilter s =
+    forall a b . (Serializable a, Serializable b) =>
+    FilterApi
+    {
+      apiFilter :: s -> Message a b -> Process (Filter s)
+    }
+  | forall a . (Serializable a) =>
+    FilterAny
+    {
+      anyFilter :: s -> a -> Process (Filter s)
+    }
+  | FilterRaw
+    {
+      rawFilter :: s -> P.Message -> Process (Maybe (Filter s))
+    }
+  | FilterState
+    {
+      stateFilter :: s -> Process (Maybe (Filter s))
+    }
+
 -- | Provides dispatch for channels and STM actions
 data ExternDispatcher s =
     forall a b . (Serializable a, Serializable b) =>
@@ -363,6 +403,20 @@ instance DynMessageHandler ExternDispatcher where
 instance DynMessageHandler DeferredDispatcher where
   dynHandleMessage _ s (DeferredDispatcher d) = d s
 
+-- | Maps filters to an action that can take place outside of a
+-- expect/recieve block.
+class DynFilterHandler d where
+  dynHandleFilter :: s
+                  -> d s
+                  -> P.Message
+                  -> Process (Maybe (Filter s))
+
+instance DynFilterHandler DispatchFilter where
+  dynHandleFilter s (FilterApi d)   msg = handleMessage msg (d s)
+  dynHandleFilter s (FilterAny d)   msg = handleMessage msg (d s)
+  dynHandleFilter s (FilterRaw d)   msg = d s msg
+  dynHandleFilter s (FilterState d) _   = d s
+
 -- | Priority of a message, encoded as an @Int@
 newtype Priority a = Priority { getPrio :: Int }
 
@@ -402,6 +456,7 @@ data PrioritisedProcessDefinition s =
   {
     processDef  :: ProcessDefinition s
   , priorities  :: [DispatchPriority s]
+  , filters     :: [DispatchFilter s]
   , recvTimeout :: RecvTimeoutPolicy
   }
 
