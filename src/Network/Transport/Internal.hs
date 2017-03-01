@@ -34,7 +34,6 @@ import qualified Data.ByteString as BS (length)
 import qualified Data.ByteString.Internal as BSI
   ( unsafeCreate
   , toForeignPtr
-  , inlinePerformIO
   )
 import Data.Word (Word32, Word16)
 import Control.Applicative ((<$>))
@@ -53,6 +52,7 @@ import Control.Exception
 import Control.Concurrent (ThreadId, forkIO)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, takeMVar, putMVar)
 import GHC.IO (unsafeUnmask)
+import System.IO.Unsafe (unsafeDupablePerformIO)
 import System.Timeout (timeout)
 --import Control.Concurrent (myThreadId)
 
@@ -83,7 +83,7 @@ encodeWord32 w32 =
 decodeWord32 :: ByteString -> Word32
 decodeWord32 bs
   | BS.length bs /= 4 = throw $ userError "decodeWord32: not 4 bytes"
-  | otherwise         = BSI.inlinePerformIO $ do
+  | otherwise         = unsafeDupablePerformIO $ do
       let (fp, offset, _) = BSI.toForeignPtr bs
       withForeignPtr fp $ \p -> ntohl <$> peekByteOff p offset
 
@@ -98,7 +98,7 @@ encodeWord16 w16 =
 decodeWord16 :: ByteString -> Word16
 decodeWord16 bs
   | BS.length bs /= 2 = throw $ userError "decodeWord16: not 2 bytes"
-  | otherwise         = BSI.inlinePerformIO $ do
+  | otherwise         = unsafeDupablePerformIO $ do
       let (fp, offset, _) = BSI.toForeignPtr bs
       withForeignPtr fp $ \p -> ntohs <$> peekByteOff p offset
 
