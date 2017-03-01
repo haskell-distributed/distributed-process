@@ -605,13 +605,14 @@ module Control.Distributed.Process.ManagedProcess
   , newControlChan
   , channelControlPort
     -- * Prioritised mailboxes
-  , module Control.Distributed.Process.ManagedProcess.Server.Priority
+  , module P
   ) where
 
 import Control.Distributed.Process hiding (call, Message)
 import Control.Distributed.Process.ManagedProcess.Client
 import Control.Distributed.Process.ManagedProcess.Server
 import Control.Distributed.Process.ManagedProcess.Server.Priority
+import qualified Control.Distributed.Process.ManagedProcess.Server.Priority as P hiding (reject)
 import Control.Distributed.Process.ManagedProcess.Internal.GenProcess
 import Control.Distributed.Process.ManagedProcess.Internal.Types
 import Control.Distributed.Process.Extras (ExitReason(..))

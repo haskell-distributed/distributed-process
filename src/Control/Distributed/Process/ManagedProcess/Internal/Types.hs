@@ -6,6 +6,11 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LiberalTypeSynonyms        #-}
 {-# LANGUAGE Rank2Types                 #-}
+{-# LANGUAGE UndecidableInstances       #-}
+{-# LANGUAGE FlexibleInstances          #-}
+{-# LANGUAGE TypeFamilies               #-}
+{-# LANGUAGE MultiParamTypeClasses      #-}
+{-# LANGUAGE FunctionalDependencies     #-}
 
 -- | Types used throughout the ManagedProcess framework
 module Control.Distributed.Process.ManagedProcess.Internal.Types
@@ -37,6 +42,7 @@ module Control.Distributed.Process.ManagedProcess.Internal.Types
   , DispatchPriority(..)
   , DispatchFilter(..)
   , Filter(..)
+--   , Check(..)
   , PrioritisedProcessDefinition(..)
   , RecvTimeoutPolicy(..)
   , ControlChannel(..)
@@ -58,6 +64,7 @@ module Control.Distributed.Process.ManagedProcess.Internal.Types
   , CallRejected(..)
   , makeRef
   , caller
+  , rejectToCaller
   , recipient
   , tag
   , initCall
@@ -65,6 +72,7 @@ module Control.Distributed.Process.ManagedProcess.Internal.Types
   , waitResponse
   ) where
 
+import Control.Arrow (Arrow, arr)
 import Control.Concurrent.STM (STM)
 import Control.Distributed.Process hiding (Message, finally)
 import Control.Monad.Catch (finally)
@@ -121,9 +129,14 @@ data Message a b =
   | ChanMessage a (SendPort b)
   deriving (Typeable, Generic)
 
-caller :: Message a b -> Maybe (CallRef b)
-caller (CallMessage _ ref) = Just ref
+caller :: forall a b . Message a b -> Maybe Recipient
+caller (CallMessage _ ref) = Just $ recipient ref
 caller _                   = Nothing
+
+rejectToCaller :: forall a b .
+                  Message a b -> String -> Process ()
+rejectToCaller (CallMessage _ ref) m = sendTo ref (CallRejected m (tag ref))
+rejectToCaller _                   _ = return ()
 
 instance (Serializable a, Serializable b) => Binary (Message a b) where
 instance (NFSerializable a, NFSerializable b) => NFData (Message a b) where
@@ -195,6 +208,24 @@ data Condition s m =
     Condition (s -> m -> Bool)  -- ^ predicated on the process state /and/ the message
   | State     (s -> Bool)       -- ^ predicated on the process state only
   | Input     (m -> Bool)       -- ^ predicated on the input message only
+
+{-
+
+class Check c s m | s m -> c where
+  -- data Checker c :: * -> * -> *
+  -- apply :: s -> m -> Checker c s m -> Bool
+  apply :: s -> m -> c -> Bool
+
+instance Check (Condition s m) s m where
+  -- data Checker (Condition s m) s m = CheckCond (Condition s m)
+  apply s m (Condition f) = f s m
+  apply s _ (State f)     = f s
+  apply _ m (Input f)     = f m
+
+instance Check (s -> m -> Bool) s m where
+   -- data Checker (s -> m -> Bool) s m = CheckF (s -> m -> Bool)
+   apply s m f = f s m
+-}
 
 -- | Informs a /shutdown handler/ of whether it is running due to a clean
 -- shutdown, or in response to an unhandled exception.
@@ -298,30 +329,6 @@ data Dispatcher s =
     , dispatchIf :: s -> Message a b -> Bool
     }
 
-data Filter s = FilterOk s
-              | FilterReject s
-              | FilterSkip s
-
-data DispatchFilter s =
-    forall a b . (Serializable a, Serializable b) =>
-    FilterApi
-    {
-      apiFilter :: s -> Message a b -> Process (Filter s)
-    }
-  | forall a . (Serializable a) =>
-    FilterAny
-    {
-      anyFilter :: s -> a -> Process (Filter s)
-    }
-  | FilterRaw
-    {
-      rawFilter :: s -> P.Message -> Process (Maybe (Filter s))
-    }
-  | FilterState
-    {
-      stateFilter :: s -> Process (Maybe (Filter s))
-    }
-
 -- | Provides dispatch for channels and STM actions
 data ExternDispatcher s =
     forall a b . (Serializable a, Serializable b) =>
@@ -403,6 +410,30 @@ instance DynMessageHandler ExternDispatcher where
 instance DynMessageHandler DeferredDispatcher where
   dynHandleMessage _ s (DeferredDispatcher d) = d s
 
+data Filter s = FilterOk s
+              | forall m . (Show m) => FilterReject m s
+              | FilterSkip s
+
+data DispatchFilter s =
+    forall a b . (Serializable a, Serializable b) =>
+    FilterApi
+    {
+      apiFilter :: s -> Message a b -> Process (Filter s)
+    }
+  | forall a . (Serializable a) =>
+    FilterAny
+    {
+      anyFilter :: s -> a -> Process (Filter s)
+    }
+  | FilterRaw
+    {
+      rawFilter :: s -> P.Message -> Process (Maybe (Filter s))
+    }
+  | FilterState
+    {
+      stateFilter :: s -> Process (Maybe (Filter s))
+    }
+
 -- | Maps filters to an action that can take place outside of a
 -- expect/recieve block.
 class DynFilterHandler d where
@@ -468,6 +499,7 @@ data UnhandledMessagePolicy =
   | DeadLetter ProcessId -- ^ forward the message to the given recipient
   | Log                  -- ^ log messages, then behave identically to @Drop@
   | Drop                 -- ^ dequeue and then drop/ignore the message
+  deriving (Show, Eq)
 
 -- | Stores the functions that determine runtime behaviour in response to
 -- incoming messages and a policy for responding to unhandled messages.

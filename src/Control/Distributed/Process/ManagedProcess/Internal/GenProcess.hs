@@ -37,6 +37,7 @@ import Control.Distributed.Process
   )
 import qualified Control.Distributed.Process as P
   ( liftIO
+  , say
   )
 import Control.Distributed.Process.Internal.Types
   ( Message(..)
@@ -113,13 +114,13 @@ type Limit = Maybe Int
 type Queue = PriorityQ Int Message
 
 data ProcessState s = ProcessState { timeoutSpec :: RecvTimeoutPolicy
-                                   , sysTimeout  :: Timer
-                                   , usrTimeout  :: Delay
-                                   , internalQ   :: Queue
-                                   , procState   :: s
                                    , procDef     :: ProcessDefinition s
                                    , procPrio    :: [DispatchPriority s]
                                    , procFilters :: [DispatchFilter s]
+                                   , usrTimeout  :: Delay
+                                   , sysTimeout  :: Timer
+                                   , internalQ   :: Queue
+                                   , procState   :: s
                                    }
 type State s = IORef (ProcessState s)
 
@@ -305,8 +306,6 @@ precvLoop ppDef pState recvDelay = do
                                            , procFilters = filters    ppDef
                                            }
 
-  -- Rewrite this code when this is fixed:
-  -- https://ghc.haskell.org/trac/ghc/ticket/10149
   mask $ \restore -> do
     res <- catch (fmap Right $ restore $ runProcess st recvQueue)
                  (\(e :: SomeException) -> return $ Left e)
@@ -394,12 +393,12 @@ recvQueue = do
 
     processNext :: GenProcess s (ProcessAction s)
     processNext = do
-      (up, fs, ps) <- gets (liftA3 (,,) (unhandledMessagePolicy . procDef)
+      (up, pf, ps) <- gets (liftA3 (,,) (unhandledMessagePolicy . procDef)
                                          procFilters
                                          procState)
-      case fs of
+      case pf of
         [] -> consumeMessage
-        _  -> filterMessage  (filterNext up fs Nothing)
+        _  -> filterMessage  (filterNext up pf Nothing)
 
     consumeMessage = applyNext dequeue processApply
     filterMessage = applyNext peek
@@ -419,7 +418,7 @@ recvQueue = do
           setProcessState s'
           act' <- lift $ dynHandleFilter s' f msg
           filterNext mp' fs' act' msg
-      | Just (FilterReject s') <- act = do
+      | Just (FilterReject _ s') <- act = do
           setProcessState s' >> dequeue >>= lift . applyPolicy mp' s' . fromJust
       | Nothing <- act {- filter didn't apply to the input type -}
       , (f:fs') <- fs = processState >>= \s' -> do

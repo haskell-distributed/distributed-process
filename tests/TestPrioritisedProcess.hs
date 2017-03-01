@@ -4,6 +4,7 @@
 
 module Main where
 
+import Control.Applicative
 import Control.Concurrent.MVar
 import Control.Concurrent.STM.TQueue
  ( newTQueueIO
@@ -14,17 +15,21 @@ import Control.Exception (SomeException)
 import Control.DeepSeq (NFData)
 import Control.Distributed.Process hiding (call, send, catch, sendChan)
 import Control.Distributed.Process.Node
-import Control.Distributed.Process.Extras hiding (__remoteTable)
-import Control.Distributed.Process.Async
-import Control.Distributed.Process.ManagedProcess
+import Control.Distributed.Process.Extras hiding (__remoteTable, monitor)
+import Control.Distributed.Process.Async hiding (check)
+import Control.Distributed.Process.ManagedProcess hiding (reject)
+import qualified Control.Distributed.Process.ManagedProcess.Server.Priority as P (Message)
+import Control.Distributed.Process.ManagedProcess.Server.Priority (reject)
 import Control.Distributed.Process.SysTest.Utils
 import Control.Distributed.Process.Extras.Time
 import Control.Distributed.Process.Extras.Timer
 import Control.Distributed.Process.Serializable()
+import Control.Monad
 import Control.Monad.Catch (catch)
 
 import Data.Binary
 import Data.Either (rights)
+import Data.List (isInfixOf)
 import Data.Typeable (Typeable)
 
 #if ! MIN_VERSION_base(4,6,0)
@@ -194,6 +199,75 @@ launchStmOverloadServer = do
   pid <- spawnLocal $ pserve () (statelessInit Infinity) p
   return (pid, cp)
 
+data Foo = Foo deriving (Show)
+
+launchFilteredServer :: ProcessId -> Process (ProcessId, ControlPort (SendPort Int))
+launchFilteredServer us = do
+  cc <- newControlChan :: Process (ControlChannel (SendPort Int))
+  let cp = channelControlPort cc
+
+  let procDef = defaultProcess {
+                  externHandlers = [
+                    handleControlChan cc (\s (p :: SendPort Int) -> sendChan p s >> continue s)
+                  ]
+                , apiHandlers = [
+                    handleCast (\s sp -> sendChan sp () >> continue s)
+                  , handleCall_ (\(s :: String) -> return s)
+                  ]
+                , unhandledMessagePolicy = DeadLetter us
+                } :: ProcessDefinition Int
+
+  let p = procDef `prioritised` ([
+               prioritiseCast_ (\() -> setPriority 1 :: Priority ())
+             , prioritiseCall_ (\(_ :: String) -> setPriority 100 :: Priority String)
+             ] :: [DispatchPriority Int]
+          ) :: PrioritisedProcessDefinition Int
+
+  let rejectUnchecked =
+        rejectApi Foo :: Int -> P.Message String String -> Process (Filter Int)
+
+  let p' = p {
+    filters = [
+      store $ (+1)
+    , check $ api_ (\(s :: String) -> return $ "checked-" `isInfixOf` s) rejectUnchecked
+    , check $ message (\_ m@(_ :: MonitorRef, _ :: ProcessId) -> return False) $ reject Foo
+    , refuse ((> 10) :: Int -> Bool)
+    ]
+  }
+
+  pid <- spawnLocal $ pserve 0 (\c -> return $ InitOk c Infinity) p'
+  return (pid, cp)
+
+testFilteringBehavior :: TestResult Bool -> Process ()
+testFilteringBehavior result = do
+  us <- getSelfPid
+  (sp, rp) <- newChan
+  (pid, cp) <- launchFilteredServer us
+  mRef <- monitor pid
+
+  sendControlMessage cp sp
+
+  r <- receiveChan rp :: Process Int
+  when (r > 1) $ stash result False >> die "we're done..."
+
+  Left res <- safeCall pid "bad-input" :: Process (Either ExitReason String)
+
+  send pid (mRef, us)  -- server doesn't like this, dead letters it...
+  -- back to us
+  mrp <- receiveWait [ matchIf (\(m, p) -> m == mRef && p == us) return ]
+
+  sendControlMessage cp sp
+
+  r2 <- receiveChan rp :: Process Int
+  when (r2 < 3) $ stash result False >> die "we're done again..."
+
+  -- server also doesn't like this, and sends it right back (via \DeadLetter us/)
+  send pid (25 :: Int)
+
+  m <- receiveWait [ matchIf (== 25) return ] :: Process Int
+  stash result True
+  kill pid "done"
+
 testExternalTimedOverflowHandling :: TestResult Bool -> Process ()
 testExternalTimedOverflowHandling result = do
   (pid, cp) <- launchStmOverloadServer -- default 10k mailbox drain limit
@@ -336,7 +410,7 @@ tests transport = do
              localNode True (testKillMidCall $ wrap server))
           , testCase "server rejects call"
              (delayedAssertion "expected server to send CallRejected"
-              localNode (ExitOther "invalid-call") (testServerRejectsMessage $ wrap server))             
+              localNode (ExitOther "invalid-call") (testServerRejectsMessage $ wrap server))
           , testCase "simple exit handling"
             (delayedAssertion "expected handler to catch exception and continue"
              localNode Nothing (testSimpleErrorHandling $ explodingServer))
@@ -366,6 +440,9 @@ tests transport = do
           , testCase "Timeout-Based Overload Management with Control Channels"
             (delayedAssertion "expected the server loop to reply"
              localNode True testExternalTimedOverflowHandling)
+          , testCase "Complex pre/before filters"
+             (delayedAssertion "expected verifiable filter actions"
+              localNode True testFilteringBehavior)
          ]
       ]
 
