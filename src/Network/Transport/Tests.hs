@@ -494,6 +494,7 @@ testCloseTwice transport numRepeats = do
 testConnectToSelf :: Transport -> Int -> IO ()
 testConnectToSelf transport numPings = do
   done <- newEmptyMVar
+  reconnect <- newEmptyMVar
   Right endpoint <- newEndPoint transport
 
   tlog "Creating self-connection"
@@ -510,13 +511,17 @@ testConnectToSelf transport numPings = do
 
     tlog $ "Closing connection"
     close conn
+    readMVar reconnect
+    ConnectionOpened cid' _ _ <- receive endpoint
+    ConnectionClosed cid'' <- receive endpoint ; True <- return $ cid' == cid''
+    return ()
 
   -- And one thread to read
   forkTry $ do
     tlog $ "reading"
 
     tlog "Waiting for ConnectionOpened"
-    ConnectionOpened cid _ addr <- receive endpoint ; True <- return $ addr == address endpoint
+    ConnectionOpened cid _ addr <- receive endpoint
 
     tlog "Waiting for Received"
     replicateM_ numPings $ do
@@ -525,6 +530,13 @@ testConnectToSelf transport numPings = do
 
     tlog "Waiting for ConnectionClosed"
     ConnectionClosed cid' <- receive endpoint ; True <- return $ cid == cid'
+
+    putMVar reconnect ()
+
+    -- Check that the addr supplied also connects to self.
+    -- The other thread verifies this.
+    Right conn <- connect endpoint addr ReliableOrdered defaultConnectHints
+    close conn
 
     tlog "Done"
     putMVar done ()
@@ -643,12 +655,10 @@ testCloseEndPoint transport _ = do
     -- First test (see client)
     do
       theirAddr <- readMVar clientAddr1
-      ev <- receive endpoint
-      True <- case ev of
-        ConnectionOpened cid ReliableOrdered addr
-          | addr == theirAddr -> return True
-        _ -> print ev >> return False
-      ConnectionOpened cid _ _ <- return ev
+      ConnectionOpened cid ReliableOrdered addr <- receive endpoint
+      -- Ensure that connecting to the supplied address reaches the peer.
+      Right conn <- connect endpoint addr ReliableOrdered defaultConnectHints
+      close conn
       putMVar serverFirstTestDone ()
       ConnectionClosed cid' <- receive endpoint ; True <- return $ cid == cid'
       return ()
@@ -657,7 +667,10 @@ testCloseEndPoint transport _ = do
     do
       theirAddr <- readMVar clientAddr2
 
-      ConnectionOpened cid ReliableOrdered addr <- receive endpoint ; True <- return $ addr == theirAddr
+      ConnectionOpened cid ReliableOrdered addr <- receive endpoint
+      -- Ensure that connecting to the supplied address reaches the peer.
+      Right conn <- connect endpoint addr ReliableOrdered defaultConnectHints
+      close conn
       Received cid' ["ping"] <- receive endpoint ; True <- return $ cid == cid'
 
       Right conn <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
@@ -683,6 +696,8 @@ testCloseEndPoint transport _ = do
 
       -- Connect to the server, then close the endpoint without disconnecting explicitly
       Right _ <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
+      ConnectionOpened cid _ _ <- receive endpoint
+      ConnectionClosed cid' <- receive endpoint ; True <- return $ cid == cid'
       -- Don't close before the remote server had a chance to digest the
       -- connection.
       readMVar serverFirstTestDone
@@ -696,10 +711,12 @@ testCloseEndPoint transport _ = do
       putMVar clientAddr2 (address endpoint)
 
       Right conn <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
+      ConnectionOpened cid _ _ <- receive endpoint
+      ConnectionClosed cid' <- receive endpoint ; True <- return $ cid == cid'
       send conn ["ping"]
 
       -- Reply from the server
-      ConnectionOpened cid ReliableOrdered addr <- receive endpoint ; True <- return $ addr == theirAddr
+      ConnectionOpened cid ReliableOrdered addr <- receive endpoint
       Received cid' ["pong"] <- receive endpoint ; True <- return $ cid == cid'
 
       -- Close the endpoint
@@ -740,15 +757,26 @@ testCloseTransport newTransport = do
 
     -- Client sets up first endpoint
     theirAddr1 <- readMVar clientAddr1
-    ConnectionOpened cid1 ReliableOrdered addr <- receive endpoint ; True <- return $ addr == theirAddr1
+    ConnectionOpened cid1 ReliableOrdered addr <- receive endpoint
+    -- Test that the address given does indeed point back to the client
+    Right conn <- connect endpoint theirAddr1 ReliableOrdered defaultConnectHints
+    close conn
+    Right conn <- connect endpoint addr ReliableOrdered defaultConnectHints
+    close conn
 
     -- Client sets up second endpoint
     theirAddr2 <- readMVar clientAddr2
 
-    ConnectionOpened cid2 ReliableOrdered addr' <- receive endpoint ; True <- return $ addr' == theirAddr2
+    ConnectionOpened cid2 ReliableOrdered addr' <- receive endpoint
+    -- We're going to use addr' to connect back to the server, which tests
+    -- that it's a valid address (but not *necessarily* == to theirAddr2
+
     Received cid2' ["ping"] <- receive endpoint ; True <- return $ cid2' == cid2
 
     Right conn <- connect endpoint theirAddr2 ReliableOrdered defaultConnectHints
+    send conn ["pong"]
+    close conn
+    Right conn <- connect endpoint addr' ReliableOrdered defaultConnectHints
     send conn ["pong"]
 
     -- Client now closes down its transport. We should receive connection closed messages (we don't know the precise order, however)
@@ -757,7 +785,7 @@ testCloseTransport newTransport = do
     let expected = [ ConnectionClosed cid1
                    , ConnectionClosed cid2
                    -- , ErrorEvent (TransportError (EventConnectionLost theirAddr1) "")
-                   , ErrorEvent (TransportError (EventConnectionLost theirAddr2) "")
+                   , ErrorEvent (TransportError (EventConnectionLost addr') "")
                    ]
     True <- return $ expected `elem` permutations evs
 
@@ -777,16 +805,27 @@ testCloseTransport newTransport = do
 
     -- Connect to the server, then close the endpoint without disconnecting explicitly
     Right _ <- connect endpoint1 theirAddr ReliableOrdered defaultConnectHints
+    -- Server connects back to verify that both addresses they have for us
+    -- are suitable to reach us.
+    ConnectionOpened cid ReliableOrdered _ <- receive endpoint1
+    ConnectionClosed cid' <- receive endpoint1 ; True <- return $ cid == cid'
+    ConnectionOpened cid ReliableOrdered _ <- receive endpoint1
+    ConnectionClosed cid' <- receive endpoint1 ; True <- return $ cid == cid'
 
-    -- Set up an endpoint with one outgoing and out incoming connection
+    -- Set up an endpoint with one outgoing and one incoming connection
     Right endpoint2 <- newEndPoint transport
     putMVar clientAddr2 (address endpoint2)
 
+    -- The outgoing connection.
     Right conn <- connect endpoint2 theirAddr ReliableOrdered defaultConnectHints
     send conn ["ping"]
 
-    -- Reply from the server
-    ConnectionOpened cid ReliableOrdered addr <- receive endpoint2 ; True <- return $ addr == theirAddr
+    -- Reply from the server. It will connect twice, using both addresses
+    -- (the one that the client sees, and the one that the server sees).
+    ConnectionOpened cid ReliableOrdered _ <- receive endpoint2
+    Received cid' ["pong"] <- receive endpoint2 ; True <- return $ cid == cid'
+    ConnectionClosed cid'' <- receive endpoint2 ; True <- return $ cid == cid''
+    ConnectionOpened cid ReliableOrdered _ <- receive endpoint2
     Received cid' ["pong"] <- receive endpoint2 ; True <- return $ cid == cid'
 
     -- Now shut down the entire transport
