@@ -54,6 +54,7 @@ import Network.Transport.TCP.Internal
   , decodeConnectionRequestResponse
   , forkServer
   , recvWithLength
+  , recvExact
   , recvWord32
   , encodeWord32
   , tryCloseSocket
@@ -909,7 +910,24 @@ handleConnectionRequest transport socketClosed (sock, sockAddr) = handle handleE
       N.setSocketOption sock N.KeepAlive 1
     forM_ (tcpUserTimeout $ transportParams transport) $
       N.setSocketOption sock N.UserTimeout
-    let handleVersioned = handleConnectionRequestV0 (sock, sockAddr)
+    let handleVersioned = do
+          -- Always receive the protocol version and a handshake (content of the
+          -- handshake is version-dependent, but the length is always sent,
+          -- regardless of the version).
+          protocolVersion <- recvWord32 sock
+          handshakeLength <- recvWord32 sock
+          -- For now we support only version 0.0.0.0.
+          case protocolVersion of
+            0x00000000 -> handleConnectionRequestV0 (sock, sockAddr)
+            _ -> do
+              -- Inform the peer that we want version 0x00000000
+              sendMany sock [
+                  encodeWord32 (encodeConnectionRequestResponse ConnectionRequestUnsupportedVersion)
+                , encodeWord32 0x00000000
+                ]
+              -- Clear the socket of the unsupported handshake data.
+              _ <- recvExact sock handshakeLength
+              handleVersioned
     handleVersioned
 
   where
@@ -1470,7 +1488,13 @@ setupRemoteEndPoint params (ourEndPoint, theirEndPoint) connTimeout = do
                     }
         resolveInit (ourEndPoint, theirEndPoint) (RemoteEndPointValid vst)
         return (Just (socketClosedVar, sock))
-      -- If it's an invalid request, we can close up right away.
+      Right (socketClosedVar, sock, ConnectionRequestUnsupportedVersion) -> do
+        -- If the peer doesn't support V0 then there's nothing we can do, for
+        -- it's the only version we support.
+        let err = connectFailed "setupRemoteEndPoint: unsupported version"
+        resolveInit (ourEndPoint, theirEndPoint) (RemoteEndPointInvalid err)
+        tryCloseSocket sock `finally` putMVar socketClosedVar ()
+        return Nothing
       Right (socketClosedVar, sock, ConnectionRequestInvalid) -> do
         let err = invalidAddress "setupRemoteEndPoint: Invalid endpoint"
         resolveInit (ourEndPoint, theirEndPoint) (RemoteEndPointInvalid err)
@@ -1510,6 +1534,7 @@ setupRemoteEndPoint params (ourEndPoint, theirEndPoint) connTimeout = do
     ourAddress      = localAddress ourEndPoint
     theirAddress    = remoteAddress theirEndPoint
     invalidAddress  = TransportError ConnectNotFound
+    connectFailed   = TransportError ConnectFailed
 
 -- | Send a CloseSocket request if the remote endpoint is unused
 closeIfUnused :: EndPointPair -> IO ()
@@ -1914,8 +1939,11 @@ socketToEndPoint (EndPointAddress ourAddress) theirAddress reuseAddr noDelay kee
         mapIOException invalidAddress $
           N.connect sock (N.addrAddress addr)
         mapIOException failed $ do
-          sendMany sock
-                   (encodeWord32 theirEndPointId : prependLength [ourAddress])
+          sendMany sock $
+              -- The version.
+              encodeWord32 0x000000
+              -- The V0 handshake data with the length prepended.
+            : prependLength (encodeWord32 theirEndPointId : prependLength [ourAddress])
           recvWord32 sock
       case decodeConnectionRequestResponse response of
         Nothing -> throwIO (failed . userError $ "Unexpected response")

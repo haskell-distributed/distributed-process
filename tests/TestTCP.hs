@@ -989,7 +989,12 @@ testCloseEndPoint = do
     sock <- N.socket (N.addrFamily addr) N.Stream N.defaultProtocol
     N.connect sock (N.addrAddress addr)
     sendMany sock [
-        encodeWord32 endPointId
+        -- First send the version and length of the handshake.
+        -- 4 bytes for the endpoint id, 13 for the address.
+        encodeWord32 0x00000000
+      , encodeWord32 17
+        -- Version 0x00000000 handshake data.
+      , encodeWord32 endPointId
       , encodeWord32 13
       , "127.0.0.1:0:0"
       -- Create a lightweight connection.
