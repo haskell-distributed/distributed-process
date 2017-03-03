@@ -204,9 +204,9 @@ tryCloseSocket sock = void . tryIO $
 --
 -- Throws an I/O exception if the socket closes before the specified
 -- number of bytes could be read
-recvExact :: N.Socket          -- ^ Socket to read from
-          -> Word32            -- ^ Number of bytes to read
-          -> IO ([ByteString]) -- ^ Data and number of bytes read
+recvExact :: N.Socket        -- ^ Socket to read from
+          -> Word32          -- ^ Number of bytes to read
+          -> IO [ByteString] -- ^ Data read
 recvExact sock len = go [] len
   where
     go :: [ByteString] -> Word32 -> IO [ByteString]
