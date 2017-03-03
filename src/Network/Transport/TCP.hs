@@ -1119,17 +1119,29 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
             forM_ (Set.elems $ vst ^. remoteIncoming) $
               qdiscEnqueue' ourQueue theirAddr . ConnectionClosed . connId
             let vst' = remoteIncoming ^= Set.empty $ vst
-            -- If we still have outgoing connections then we ignore the
-            -- CloseSocket request (we sent a ConnectionCreated message to the
-            -- remote endpoint, but it did not receive it before sending the
-            -- CloseSocket request). Similarly, if lastReceivedId < lastSentId
-            -- then we sent a ConnectionCreated *AND* a ConnectionClosed
-            -- message to the remote endpoint, *both of which* it did not yet
-            -- receive before sending the CloseSocket request.
-            if vst' ^. remoteOutgoing > 0 || lastReceivedId < lastSentId vst
+            -- The peer sends the connection id of the last connection which
+            -- they accepted from us.
+            --
+            -- If it's not the same as the id of the last connection that we
+            -- have made to them (assuming we haven't cycled through all
+            -- identifiers so fast) then they hadn't seen the request before
+            -- they tried to close the socket. In that case, we don't close the
+            -- socket. They'll see our in-flight connection request and then
+            -- abandon their attempt to close the socket.
+            --
+            -- If it *is* the same then we can close the socket. However, if
+            -- our remoteOutgoing is nonzero, then the peer has made an error:
+            -- we haven't closed all of our lightweight connections to them, so
+            -- they should not send us CloseSocket.
+            -- In this case, we must enqueue EventConnectionLost.
+            if lastReceivedId /= lastSentId vst
               then
                 return (RemoteEndPointValid vst', Nothing)
               else do
+                when (vst' ^. remoteOutgoing > 0) $ do
+                  let code = EventConnectionLost (remoteAddress theirEndPoint)
+                  let msg  = "socket closed prematurely by peer"
+                  qdiscEnqueue' ourQueue theirAddr . ErrorEvent $ TransportError code msg
                 -- Release probing resources if probing.
                 forM_ (remoteProbing vst) id
                 removeRemoteEndPoint (ourEndPoint, theirEndPoint)
@@ -1147,13 +1159,21 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
             -- received. However, since we are in 'closing' state, the only
             -- way this may happen is when we sent a ConnectionCreated,
             -- ConnectionClosed, and CloseSocket message, none of which have
-            -- yet been received. We leave the endpoint in closing state in
-            -- that case.
-            if lastReceivedId < lastSentId vst
+            -- yet been received. It's sufficient to check that the peer has
+            -- not seen the ConnectionCreated message. In case they have seen
+            -- it (so that lastReceivedId == lastSendId vst) then they must
+            -- have seen the other messages or else they would not have sent
+            -- CloseSocket.
+            -- We leave the endpoint in closing state in that case.
+            if lastReceivedId /= lastSentId vst
               then do
                 return (RemoteEndPointClosing resolved vst, Nothing)
               else do
                 -- Release probing resources if probing.
+                when (vst ^. remoteOutgoing > 0) $ do
+                  let code = EventConnectionLost (remoteAddress theirEndPoint)
+                  let msg  = "socket closed prematurely by peer"
+                  qdiscEnqueue' ourQueue theirAddr . ErrorEvent $ TransportError code msg
                 forM_ (remoteProbing vst) id
                 removeRemoteEndPoint (ourEndPoint, theirEndPoint)
                 act <- schedule theirEndPoint $ tryCloseSocket sock
