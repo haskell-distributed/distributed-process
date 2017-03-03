@@ -56,6 +56,7 @@ import Network.Transport.TCP.Internal
   , decodeConnectionRequestResponse
   , forkServer
   , recvWithLength
+  , recvWithLengthFold
   , recvWord32
   , encodeWord32
   , tryCloseSocket
@@ -482,6 +483,18 @@ data TCPParameters = TCPParameters {
   , transportConnectTimeout :: Maybe Int
     -- | Create a QDisc for an EndPoint.
   , tcpNewQDisc :: forall t . IO (QDisc t)
+    -- | Maximum length (in bytes) for a peer's address.
+    -- If a peer attempts to send an address of length exceeding the limit,
+    -- the connection will be refused (socket will close).
+  , tcpMaxAddressLength :: Word32
+    -- | Maximum length (in bytes) to receive from a peer.
+    -- If a peer attempts to send data on a lightweight connection exceeding
+    -- the limit, the heavyweight connection which carries that lightweight
+    -- connection will go down. The peer and the local node will get an
+    -- EventConnectionLost.
+  , tcpMaxReceiveLength :: Word32
+    -- | Maximum length (in bytes) of a 'Received' event payload.
+  , tcpMaxChunkSize :: Word32
   }
 
 -- | Internal functionality we expose for unit testing
@@ -588,6 +601,9 @@ defaultTCPParameters = TCPParameters {
   , tcpUserTimeout     = Nothing
   , tcpNewQDisc        = simpleUnboundedQDisc
   , transportConnectTimeout = Nothing
+  , tcpMaxAddressLength = maxBound
+  , tcpMaxReceiveLength = maxBound
+  , tcpMaxChunkSize     = maxBound
   }
 
 --------------------------------------------------------------------------------
@@ -864,7 +880,9 @@ handleConnectionRequest transport sock = handle handleException $ do
     forM_ (tcpUserTimeout $ transportParams transport) $
       N.setSocketOption sock N.UserTimeout
     ourEndPointId <- recvWord32 sock
-    theirAddress  <- EndPointAddress . BS.concat <$> recvWithLength sock
+    let maxAddressLength = tcpMaxAddressLength $ transportParams transport
+    theirAddress  <- EndPointAddress . BS.concat <$>
+      recvWithLength maxAddressLength sock
     let ourAddress = encodeEndPointAddress (transportHost transport)
                                            (transportPort transport)
                                            ourEndPointId
@@ -914,7 +932,7 @@ handleConnectionRequest transport sock = handle handleException $ do
       -- been recorded as part of the remote endpoint. Either way, we no longer
       -- have to worry about closing the socket on receiving an asynchronous
       -- exception from this point forward.
-      forM_ mEndPoint $ handleIncomingMessages . (,) ourEndPoint
+      forM_ mEndPoint $ handleIncomingMessages (transportParams transport) . (,) ourEndPoint
 
     handleException :: SomeException -> IO ()
     handleException ex = do
@@ -957,8 +975,8 @@ handleConnectionRequest transport sock = handle handleException $ do
 --
 -- Returns only if the remote party closes the socket or if an error occurs.
 -- This runs in a thread that will never be killed.
-handleIncomingMessages :: EndPointPair -> IO ()
-handleIncomingMessages (ourEndPoint, theirEndPoint) = do
+handleIncomingMessages :: TCPParameters -> EndPointPair -> IO ()
+handleIncomingMessages params (ourEndPoint, theirEndPoint) = do
     mSock <- withMVar theirState $ \st ->
       case st of
         RemoteEndPointInvalid _ ->
@@ -1175,7 +1193,8 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
     -- overhead
     readMessage :: N.Socket -> LightweightConnectionId -> IO ()
     readMessage sock lcid =
-      recvWithLength sock >>= qdiscEnqueue' ourQueue theirAddr . Received (connId lcid)
+      recvWithLengthFold recvLimit chunkLimit sock () $ \bs _ ->
+        qdiscEnqueue' ourQueue theirAddr (Received (connId lcid) bs)
 
     -- Stop probing a connection as a result of receiving a probe ack.
     stopProbing :: IO ()
@@ -1190,6 +1209,8 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
     ourQueue    = localQueue ourEndPoint
     theirState  = remoteState theirEndPoint
     theirAddr   = remoteAddress theirEndPoint
+    recvLimit   = tcpMaxReceiveLength params
+    chunkLimit  = tcpMaxChunkSize params
 
     -- Deal with a premature exit
     prematureExit :: N.Socket -> IOException -> IO ()
@@ -1365,7 +1386,7 @@ setupRemoteEndPoint params (ourEndPoint, theirEndPoint) connTimeout = do
         return False
 
     when didAccept $ void $ forkIO $
-      handleIncomingMessages (ourEndPoint, theirEndPoint)
+      handleIncomingMessages params (ourEndPoint, theirEndPoint)
     return $ either (const Nothing) (Just . snd) result
   where
     ourAddress      = localAddress ourEndPoint
