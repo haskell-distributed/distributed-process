@@ -31,4 +31,4 @@ install:
   - cabal install --only-dependencies --enable-tests
 
 script:
-  - cabal test
+  - cabal test --show-details=streaming
