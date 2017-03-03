@@ -182,6 +182,8 @@ forkServer host port backlog reuseAddr terminationHandler requestHandler = do
 
 -- | Read a length and then a payload of that length, subject to a limit
 --   on the length.
+--   If the length (first 'Word32' received) is greater than the limit then
+--   an exception is thrown.
 recvWithLength :: Word32 -> N.Socket -> IO [ByteString]
 recvWithLength limit sock = do
   len <- recvWord32 sock
