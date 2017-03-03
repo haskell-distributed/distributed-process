@@ -56,7 +56,6 @@ import Network.Transport.TCP.Internal
   , decodeConnectionRequestResponse
   , forkServer
   , recvWithLength
-  , recvWithLengthFold
   , recvWord32
   , encodeWord32
   , tryCloseSocket
@@ -493,8 +492,6 @@ data TCPParameters = TCPParameters {
     -- connection will go down. The peer and the local node will get an
     -- EventConnectionLost.
   , tcpMaxReceiveLength :: Word32
-    -- | Maximum length (in bytes) of a 'Received' event payload.
-  , tcpMaxChunkSize :: Word32
   }
 
 -- | Internal functionality we expose for unit testing
@@ -603,7 +600,6 @@ defaultTCPParameters = TCPParameters {
   , transportConnectTimeout = Nothing
   , tcpMaxAddressLength = maxBound
   , tcpMaxReceiveLength = maxBound
-  , tcpMaxChunkSize     = maxBound
   }
 
 --------------------------------------------------------------------------------
@@ -1193,8 +1189,8 @@ handleIncomingMessages params (ourEndPoint, theirEndPoint) = do
     -- overhead
     readMessage :: N.Socket -> LightweightConnectionId -> IO ()
     readMessage sock lcid =
-      recvWithLengthFold recvLimit chunkLimit sock () $ \bs _ ->
-        qdiscEnqueue' ourQueue theirAddr (Received (connId lcid) bs)
+      recvWithLength recvLimit sock >>=
+        qdiscEnqueue' ourQueue theirAddr . Received (connId lcid)
 
     -- Stop probing a connection as a result of receiving a probe ack.
     stopProbing :: IO ()
@@ -1210,7 +1206,6 @@ handleIncomingMessages params (ourEndPoint, theirEndPoint) = do
     theirState  = remoteState theirEndPoint
     theirAddr   = remoteAddress theirEndPoint
     recvLimit   = tcpMaxReceiveLength params
-    chunkLimit  = tcpMaxChunkSize params
 
     -- Deal with a premature exit
     prematureExit :: N.Socket -> IOException -> IO ()
