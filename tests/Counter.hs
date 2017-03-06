@@ -86,10 +86,9 @@ serverDefinition = defaultProcess {
         ]
     } :: ProcessDefinition State
 
-haltMaxCount :: Process (ProcessReply Int State)
+haltMaxCount :: Reply Int State
 haltMaxCount = haltNoReply_ (ExitOther "Count > 10")
 
-handleIncrement :: State -> Increment -> Process (ProcessReply Int State)
+handleIncrement :: CallHandler State Increment Int 
 handleIncrement count Increment =
     let next = count + 1 in continue next >>= replyWith next
-

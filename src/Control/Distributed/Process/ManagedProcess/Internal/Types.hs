@@ -27,6 +27,9 @@ module Control.Distributed.Process.ManagedProcess.Internal.Types
   , StatelessChannelHandler
   , InitHandler
   , ShutdownHandler
+  , ExitState(..)
+  , isCleanShutdown
+  , exitState
   , TimeoutHandler
   , UnhandledMessagePolicy(..)
   , ProcessDefinition(..)
@@ -141,14 +144,15 @@ data InitResult s =
   deriving (Typeable)
 
 -- | The action taken by a process after a handler has run and its updated state.
--- See 'continue'
---     'timeoutAfter'
---     'hibernate'
---     'stop'
---     'stopWith'
+-- See "Control.Distributed.Process.ManagedProcess.Server.continue"
+--     "Control.Distributed.Process.ManagedProcess.Server.timeoutAfter"
+--     "Control.Distributed.Process.ManagedProcess.Server.hibernate"
+--     "Control.Distributed.Process.ManagedProcess.Server.stop"
+--     "Control.Distributed.Process.ManagedProcess.Server.stopWith"
 --
 data ProcessAction s =
-    ProcessContinue  s              -- ^ continue with (possibly new) state
+    ProcessSkip
+  | ProcessContinue  s              -- ^ continue with (possibly new) state
   | ProcessTimeout   Delay        s -- ^ timeout if no messages are received
   | ProcessHibernate TimeInterval s -- ^ hibernate for /delay/
   | ProcessStop      ExitReason     -- ^ stop the process, giving @ExitReason@
@@ -168,6 +172,20 @@ data Condition s m =
     Condition (s -> m -> Bool)  -- ^ predicated on the process state /and/ the message
   | State     (s -> Bool)       -- ^ predicated on the process state only
   | Input     (m -> Bool)       -- ^ predicated on the input message only
+
+-- | Informs a /shutdown handler/ of whether it is running due to a clean
+-- shutdown, or in response to an unhandled exception.
+data ExitState s = CleanShutdown s -- ^ given when an ordered shutdown is underway
+                 | LastKnown s     {-
+                  ^ given due to an unhandled exception, passing the last known state -}
+
+isCleanShutdown :: ExitState s -> Bool
+isCleanShutdown (CleanShutdown _) = True
+isCleanShutdown _                 = False
+
+exitState :: ExitState s -> s
+exitState (CleanShutdown s) = s
+exitState (LastKnown s)     = s
 
 -- | An action (server state transition) in the @Process@ monad
 type Action s = Process (ProcessAction s)
@@ -208,7 +226,7 @@ type StatelessChannelHandler s a b = SendPort b -> StatelessHandler s a
 type InitHandler a s = a -> Process (InitResult s)
 
 -- | An expression used to handle process termination
-type ShutdownHandler s = s -> ExitReason -> Process ()
+type ShutdownHandler s = ExitState s -> ExitReason -> Process ()
 
 -- | An expression used to handle process timeouts
 type TimeoutHandler s = ActionHandler s Delay
@@ -367,7 +385,7 @@ data DispatchPriority s =
 -- will stop removing messages from its mailbox and process those it has already
 -- received.
 --
-data RecvTimeoutPolicy = RecvCounter Int | RecvTimer TimeInterval
+data RecvTimeoutPolicy = RecvMaxBacklog Int | RecvTimer TimeInterval
   deriving (Typeable)
 
 -- | A @ProcessDefinition@ decorated with @DispatchPriority@ for certain
