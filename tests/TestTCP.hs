@@ -613,6 +613,8 @@ testBreakTransport = do
 
   return ()
 
+-- Used in testReconnect to block until a socket is closed. newtype is needed
+-- for the Traceable instance.
 newtype WaitSocketFree = WaitSocketFree (IO ())
 
 instance Traceable WaitSocketFree where
@@ -637,6 +639,7 @@ testReconnect = do
 
   -- Server
   (serverPort, _) <- forkServer "127.0.0.1" "0" 5 True throwIO throwIO $ \socketFree sock -> do
+
     -- Accept the connection
     Right 0  <- tryIO $ recvWord32 sock
     Right _  <- tryIO $ recvWithLength maxBound sock
@@ -644,9 +647,9 @@ testReconnect = do
     -- The first time we close the socket before accepting the logical connection
     count <- modifyMVar counter $ \i -> return (i + 1, i)
 
-    if count == 0
-    then putMVar socketClosed (WaitSocketFree socketFree)
-    else void $ swapMVar socketClosed (WaitSocketFree socketFree)
+    -- The client is responsible for taking this MVar before trying to connect
+    -- again.
+    putMVar socketClosed (WaitSocketFree socketFree)
 
     when (count > 0) $ do
       -- The second, third, and fourth connections are accepted according to the
@@ -693,17 +696,20 @@ testReconnect = do
       Just (Left err) -> throwIO err
       Just (Right _) -> throwIO $ userError "testConnect: unexpected connect success"
 
+    WaitSocketFree wait <- takeMVar socketClosed
+    wait
+
     -- Second attempt: server accepts but then closes the socket. We expect
     -- either a failed connection, or a subsequent send to fail.
     resultConnect <- timeout 500000 $ connect endpoint theirAddr ReliableOrdered defaultConnectHints
+    -- Here we must be sure that the socket has closed.
+    WaitSocketFree wait <- takeMVar socketClosed
+    wait
     case resultConnect of
       Nothing -> return ()
       Just (Left (TransportError ConnectFailed _)) -> return ()
       Just (Left err) -> throwIO err
       Just (Right c) -> do
-        -- Here we must be sure that the socket has closed.
-        WaitSocketFree wait <- readMVar socketClosed
-        wait
         ev <- send c ["foo"]
         case ev of
           Left _ -> return ()
@@ -715,15 +721,19 @@ testReconnect = do
     Right conn1 <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
 
     -- But a send will fail because the server has closed the connection again
+    WaitSocketFree wait <- takeMVar socketClosed
+    wait
     threadDelay 100000
     Left (TransportError SendFailed _) <- send conn1 ["ping"]
-
 
     -- But a subsequent call to connect should reestablish the connection
     Right conn2 <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
 
     -- Send should now succeed
     Right () <- send conn2 ["ping"]
+
+    WaitSocketFree wait <- takeMVar socketClosed
+    wait
     return ()
 
   takeMVar serverDone
