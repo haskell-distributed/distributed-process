@@ -304,7 +304,7 @@ testSimpleErrorHandling launch result = do
   -- this should be *altered* because of the exit handler
   Nothing <- callTimeout pid "foobar" (within 1 Seconds) :: Process (Maybe String)
 
-  Right s <- awaitResponse pid [
+  Right _ <- awaitResponse pid [
       matchIf (\(s :: String) -> s == "foobar")
               (\s -> return (Right s) :: Process (Either ExitReason String))
     ]

@@ -29,13 +29,18 @@ module Control.Distributed.Process.ManagedProcess.Server.Priority
     -- * Creating Filters
   , check
   , raw
+  , raw_
   , api
   , api_
-  , message
+  , info
+  , info_
   , refuse
   , reject
   , rejectApi
   , store
+  , crash
+  , ensure
+  , ensureM
   , Filter()
   , DispatchFilter()
   , Message()
@@ -43,6 +48,9 @@ module Control.Distributed.Process.ManagedProcess.Server.Priority
 
 import Control.Distributed.Process hiding (call, Message)
 import qualified Control.Distributed.Process as P (Message)
+import Control.Distributed.Process.Extras
+  ( ExitReason(..)
+  )
 import Control.Distributed.Process.ManagedProcess.Internal.Types
 import Control.Distributed.Process.Serializable
 import Prelude hiding (init)
@@ -96,6 +104,12 @@ raw :: forall s .
     -> FilterHandler s
 raw = HandleRaw
 
+raw_ :: forall s .
+        (P.Message -> Process Bool)
+     -> (s -> P.Message -> Process (Maybe (Filter s)))
+     -> FilterHandler s
+raw_ c h = raw (const $ c) h
+
 api :: forall s m b . (Serializable m, Serializable b)
     => (s -> m -> Process Bool)
     -> (s -> Message m b -> Process (Filter s))
@@ -108,15 +122,24 @@ api_ :: forall m b s . (Serializable m, Serializable b)
      -> FilterHandler s
 api_ c h = api (const $ c) h
 
-message :: forall s m . (Serializable m)
+info :: forall s m . (Serializable m)
         => (s -> m -> Process Bool)
         -> (s -> m -> Process (Filter s))
         -> FilterHandler s
-message = HandlePure
+info = HandlePure
+
+info_ :: forall s m . (Serializable m)
+        => (m -> Process Bool)
+        -> (s -> m -> Process (Filter s))
+        -> FilterHandler s
+info_ c h = info (const $ c) h
 
 reject :: forall s m r . (Show r)
        => r -> s -> m -> Process (Filter s)
 reject r = \s _ -> do return $ FilterReject (show r) s
+
+crash :: forall s . s -> ExitReason -> Process (Filter s)
+crash s r = return $ FilterStop s r
 
 rejectApi :: forall s m b r . (Show r, Serializable m, Serializable b)
           => r -> s -> Message m b -> Process (Filter s)
@@ -130,7 +153,7 @@ store f = FilterState $ return . Just . FilterOk . f
 refuse :: forall s m . (Serializable m)
        => (m -> Bool)
        -> DispatchFilter s
-refuse c = check $ message (const $ \m -> return $ c m) (reject RejectedByServer)
+refuse c = check $ info (const $ \m -> return $ c m) (reject RejectedByServer)
 
 {-
 
@@ -142,6 +165,24 @@ apiCheck c h = checkM (\s m -> return $ c s m) h
 
 apiReject
 -}
+
+ensure :: forall s . (s -> Bool) -> DispatchFilter s
+ensure c =
+  check $ HandleState { stateHandler = (\s -> if c s
+                                                then return $ Just $ FilterOk s
+                                                else return $ Just $ FilterStop s filterFail)
+                      }
+
+ensureM :: forall s m . (Serializable m) => (s -> m -> Process Bool) -> DispatchFilter s
+ensureM c =
+  check $ HandlePure { pureCheck = c
+                     , handler = (\s _ -> return $ FilterStop s filterFail) :: s -> m -> Process (Filter s)
+                     }
+
+-- TODO: add the type rep for a more descriptive failure message
+
+filterFail :: ExitReason
+filterFail = ExitOther "Control.Distributed.Process.ManagedProcess.Priority:FilterFailed"
 
 -- | Sets an explicit priority
 setPriority :: Int -> Priority m

@@ -4,7 +4,6 @@
 
 module Main where
 
-import Control.Applicative
 import Control.Concurrent.MVar
 import Control.Concurrent.STM.TQueue
  ( newTQueueIO
@@ -213,6 +212,7 @@ launchFilteredServer us = do
                 , apiHandlers = [
                     handleCast (\s sp -> sendChan sp () >> continue s)
                   , handleCall_ (\(s :: String) -> return s)
+                  , handleCall_ (\(i :: Int) -> return i)
                   ]
                 , unhandledMessagePolicy = DeadLetter us
                 } :: ProcessDefinition Int
@@ -228,9 +228,11 @@ launchFilteredServer us = do
 
   let p' = p {
     filters = [
-      store $ (+1)
+      store  (+1)
+    , ensure (>0)  -- a bit pointless, but we're just checking the API
+
     , check $ api_ (\(s :: String) -> return $ "checked-" `isInfixOf` s) rejectUnchecked
-    , check $ message (\_ m@(_ :: MonitorRef, _ :: ProcessId) -> return False) $ reject Foo
+    , check $ info (\_ (_ :: MonitorRef, _ :: ProcessId) -> return False) $ reject Foo
     , refuse ((> 10) :: Int -> Bool)
     ]
   }
@@ -250,11 +252,11 @@ testFilteringBehavior result = do
   r <- receiveChan rp :: Process Int
   when (r > 1) $ stash result False >> die "we're done..."
 
-  Left res <- safeCall pid "bad-input" :: Process (Either ExitReason String)
+  Left _ <- safeCall pid "bad-input" :: Process (Either ExitReason String)
 
   send pid (mRef, us)  -- server doesn't like this, dead letters it...
   -- back to us
-  mrp <- receiveWait [ matchIf (\(m, p) -> m == mRef && p == us) return ]
+  void $ receiveWait [ matchIf (\(m, p) -> m == mRef && p == us) return ]
 
   sendControlMessage cp sp
 
@@ -265,7 +267,7 @@ testFilteringBehavior result = do
   send pid (25 :: Int)
 
   m <- receiveWait [ matchIf (== 25) return ] :: Process Int
-  stash result True
+  stash result $ m == 25
   kill pid "done"
 
 testExternalTimedOverflowHandling :: TestResult Bool -> Process ()

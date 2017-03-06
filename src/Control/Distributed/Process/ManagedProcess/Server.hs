@@ -81,10 +81,8 @@ import Control.Distributed.Process.ManagedProcess.Internal.Types
 import Control.Distributed.Process.Extras
   ( ExitReason(..)
   , Routable(..)
-  , Resolvable(..)
   )
 import Control.Distributed.Process.Extras.Time
-import Data.Maybe (fromJust)
 import Prelude hiding (init)
 
 --------------------------------------------------------------------------------
@@ -617,10 +615,10 @@ mkReply :: (Serializable b)
         -> Process (ProcessAction s)
 mkReply cRef act
   | (NoReply a)          <- act  = return a
-  | (CallRef (_, tag))   <- cRef
-  , (ProcessReply  r' a) <- act  = sendTo cRef (CallResponse r' tag) >> return a
-  | (CallRef (_, tag))   <- cRef
-  , (ProcessReject r' a) <- act  = sendTo cRef (CallRejected r' tag) >> return a
+  | (CallRef (_, tg'))   <- cRef
+  , (ProcessReply  r' a) <- act  = sendTo cRef (CallResponse r' tg') >> return a
+  | (CallRef (_, ct'))   <- cRef
+  , (ProcessReject r' a) <- act  = sendTo cRef (CallRejected r' ct') >> return a
   | otherwise                    = die $ ExitOther "mkReply.InvalidState"
 
 -- these functions are the inverse of 'condition', 'state' and 'input'

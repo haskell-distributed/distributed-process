@@ -14,19 +14,28 @@
 module Control.Distributed.Process.ManagedProcess.Internal.GenProcess
   ( recvLoop
   , precvLoop
-  , getState
   , currentTimeout
   , systemTimeout
   , drainTimeout
-  , resetTimer
+  , processState
+  , processDefinition
+  , processFilters
+  , processUnhandledMsgPolicy
+  , gets
+  , getAndModifyState
+  , modifyState
+  , setUserTimeout
+  , setProcessState
   , GenProcess
   ) where
 
-import Control.Applicative (liftA3)
+import Control.Applicative (liftA2  )
 import Control.Distributed.Process
   ( match
   , matchAny
   , matchMessage
+  , handleMessage
+  , handleMessageIf
   , receiveTimeout
   , receiveWait
   , forward
@@ -37,7 +46,6 @@ import Control.Distributed.Process
   )
 import qualified Control.Distributed.Process as P
   ( liftIO
-  , say
   )
 import Control.Distributed.Process.Internal.Types
   ( Message(..)
@@ -54,7 +62,6 @@ import Control.Distributed.Process.ManagedProcess.Timer
   , delayTimer
   , startTimer
   , stopTimer
-  , resetTimer
   , matchTimeout
   , TimedOut(..)
   )
@@ -178,11 +185,6 @@ lift p = GenProcess $ ST.lift p
 liftIO :: IO a -> GenProcess s a
 liftIO = lift . P.liftIO
 
--- | Get the current process state
-getState :: forall s . GenProcess s (ProcessState s)
-getState = ST.get >>= \(s :: State s) -> liftIO $ do
-  atomicModifyIORef' s $ \(s' :: ProcessState s) -> (s', s')
-
 gets :: forall s a . (ProcessState s -> a) -> GenProcess s a
 gets f = ST.get >>= \(s :: State s) -> liftIO $ do
   atomicModifyIORef' s $ \(s' :: ProcessState s) -> (s', f s' :: a)
@@ -279,6 +281,40 @@ enqueueMessage s (p:ps) m' = let checkPrio = prioritise p s in do
 -- Process Loop Implementations                                               --
 --------------------------------------------------------------------------------
 
+-- | Maps handlers to a dynamic action that can take place outside of a
+-- expect/recieve block. This is used by the prioritised process loop.
+class DynMessageHandler d where
+  dynHandleMessage :: UnhandledMessagePolicy
+                   -> s
+                   -> d s
+                   -> Message
+                   -> Process (Maybe (ProcessAction s))
+
+instance DynMessageHandler Dispatcher where
+  dynHandleMessage _ s (Dispatch   d)   msg = handleMessage msg (d s)
+  dynHandleMessage _ s (DispatchIf d c) msg = handleMessageIf msg (c s) (d s)
+
+instance DynMessageHandler ExternDispatcher where
+  dynHandleMessage _ s (DispatchCC  _ d)     msg = handleMessage msg (d s)
+  dynHandleMessage _ s (DispatchSTM _ d _ _) msg = handleMessage msg (d s)
+
+instance DynMessageHandler DeferredDispatcher where
+  dynHandleMessage _ s (DeferredDispatcher d) = d s
+
+-- | Maps filters to an action that can take place outside of a
+-- expect/recieve block.
+class DynFilterHandler d where
+  dynHandleFilter :: s
+                  -> d s
+                  -> Message
+                  -> Process (Maybe (Filter s))
+
+instance DynFilterHandler DispatchFilter where
+  dynHandleFilter s (FilterApi d)   msg = handleMessage msg (d s)
+  dynHandleFilter s (FilterAny d)   msg = handleMessage msg (d s)
+  dynHandleFilter s (FilterRaw d)   msg = d s msg
+  dynHandleFilter s (FilterState d) _   = d s
+
 -- | Prioritised process loop.
 --
 -- Evaluating this function will cause the caller to enter a server loop,
@@ -303,8 +339,8 @@ precvLoop ppDef pState recvDelay = do
                                            , procState   = pState
                                            , procDef     = processDef ppDef
                                            , procPrio    = priorities ppDef
-                                           , procFilters = filters    ppDef
-                                           }
+                                           , procFilters = filters ppDef
+                                          }
 
   mask $ \restore -> do
     res <- catch (fmap Right $ restore $ runProcess st recvQueue)
@@ -393,9 +429,7 @@ recvQueue = do
 
     processNext :: GenProcess s (ProcessAction s)
     processNext = do
-      (up, pf, ps) <- gets (liftA3 (,,) (unhandledMessagePolicy . procDef)
-                                         procFilters
-                                         procState)
+      (up, pf) <- gets $ liftA2 (,) (unhandledMessagePolicy . procDef) procFilters
       case pf of
         [] -> consumeMessage
         _  -> filterMessage  (filterNext up pf Nothing)
@@ -409,12 +443,13 @@ recvQueue = do
                -> Message
                -> GenProcess s (ProcessAction s)
     filterNext mp' fs act msg
-      | Just (FilterSkip s') <- act = {- state!!!!! -} dequeue >> return ProcessSkip
-      | Just (FilterOk s')   <- act
-      , []                   <- fs = setProcessState s' >> applyNext dequeue processApply
-      | Nothing <- act, []   <- fs = applyNext dequeue processApply
-      | Just (FilterOk s')   <- act
-      , (f:fs')              <- fs = do
+      | Just (FilterSkip s')   <- act = setProcessState s' >> dequeue >> return ProcessSkip
+      | Just (FilterStop s' r) <- act = return $ ProcessStopping s' r
+      | Just (FilterOk s')     <- act
+      , []                     <- fs = setProcessState s' >> applyNext dequeue processApply
+      | Nothing <- act, []     <- fs = applyNext dequeue processApply
+      | Just (FilterOk s')     <- act
+      , (f:fs')                <- fs = do
           setProcessState s'
           act' <- lift $ dynHandleFilter s' f msg
           filterNext mp' fs' act' msg
@@ -434,8 +469,8 @@ recvQueue = do
         Just msg -> handler msg
 
     processApply msg = do
-      def <- processDefinition
-      pState <- processState
+      (def, pState) <- gets $ liftA2 (,) procDef procState
+
       let pol          = unhandledMessagePolicy def
           apiMatchers  = map (dynHandleMessage pol pState) (apiHandlers def)
           infoMatchers = map (dynHandleMessage pol pState) (infoHandlers def)

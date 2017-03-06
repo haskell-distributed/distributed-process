@@ -55,8 +55,6 @@ module Control.Distributed.Process.ManagedProcess.Internal.Types
   , ExitSignalDispatcher(..)
   , MessageMatcher(..)
   , ExternMatcher(..)
-  , DynMessageHandler(..)
-  , DynFilterHandler(..)
   , Message(..)
   , CallResponse(..)
   , CallId
@@ -72,7 +70,6 @@ module Control.Distributed.Process.ManagedProcess.Internal.Types
   , waitResponse
   ) where
 
-import Control.Arrow (Arrow, arr)
 import Control.Concurrent.STM (STM)
 import Control.Distributed.Process hiding (Message, finally)
 import Control.Monad.Catch (finally)
@@ -315,6 +312,31 @@ channelControlPort :: ControlChannel m
                    -> ControlPort m
 channelControlPort cc = ControlPort $ fst $ unControl cc
 
+data Filter s = FilterOk s
+              | forall m . (Show m) => FilterReject m s
+              | FilterSkip s
+              | FilterStop s ExitReason
+
+data DispatchFilter s =
+    forall a b . (Serializable a, Serializable b) =>
+    FilterApi
+    {
+      apiFilter :: s -> Message a b -> Process (Filter s)
+    }
+  | forall a . (Serializable a) =>
+    FilterAny
+    {
+      anyFilter :: s -> a -> Process (Filter s)
+    }
+  | FilterRaw
+    {
+      rawFilter :: s -> P.Message -> Process (Maybe (Filter s))
+    }
+  | FilterState
+    {
+      stateFilter :: s -> Process (Maybe (Filter s))
+    }
+
 -- | Provides dispatch from cast and call messages to a typed handler.
 data Dispatcher s =
     forall a b . (Serializable a, Serializable b) =>
@@ -370,8 +392,8 @@ class MessageMatcher d where
   matchDispatch :: UnhandledMessagePolicy -> s -> d s -> Match (ProcessAction s)
 
 instance MessageMatcher Dispatcher where
-  matchDispatch _ s (Dispatch    d)      = match   (d s)
-  matchDispatch _ s (DispatchIf  d cond) = matchIf (cond s) (d s)
+  matchDispatch _ s (Dispatch         d)      = match   (d s)
+  matchDispatch _ s (DispatchIf       d cond) = matchIf (cond s) (d s)
 
 instance MessageMatcher ExternDispatcher where
   matchDispatch _ s (DispatchCC  c d)     = matchChan c (d s)
@@ -389,64 +411,6 @@ instance ExternMatcher ExternDispatcher where
 
   matchMapExtern _ _ f (DispatchCC c _)      = matchChan c (return . f . unsafeWrapMessage)
   matchMapExtern _ _ f (DispatchSTM _ _ _ p) = p f
-
--- | Maps handlers to a dynamic action that can take place outside of a
--- expect/recieve block.
-class DynMessageHandler d where
-  dynHandleMessage :: UnhandledMessagePolicy
-                   -> s
-                   -> d s
-                   -> P.Message
-                   -> Process (Maybe (ProcessAction s))
-
-instance DynMessageHandler Dispatcher where
-  dynHandleMessage _ s (Dispatch       d)   msg = handleMessage   msg (d s)
-  dynHandleMessage _ s (DispatchIf     d c) msg = handleMessageIf msg (c s) (d s)
-
-instance DynMessageHandler ExternDispatcher where
-  dynHandleMessage _ s (DispatchCC  _ d)     msg = handleMessage msg (d s)
-  dynHandleMessage _ s (DispatchSTM _ d _ _) msg = handleMessage msg (d s)
-
-instance DynMessageHandler DeferredDispatcher where
-  dynHandleMessage _ s (DeferredDispatcher d) = d s
-
-data Filter s = FilterOk s
-              | forall m . (Show m) => FilterReject m s
-              | FilterSkip s
-
-data DispatchFilter s =
-    forall a b . (Serializable a, Serializable b) =>
-    FilterApi
-    {
-      apiFilter :: s -> Message a b -> Process (Filter s)
-    }
-  | forall a . (Serializable a) =>
-    FilterAny
-    {
-      anyFilter :: s -> a -> Process (Filter s)
-    }
-  | FilterRaw
-    {
-      rawFilter :: s -> P.Message -> Process (Maybe (Filter s))
-    }
-  | FilterState
-    {
-      stateFilter :: s -> Process (Maybe (Filter s))
-    }
-
--- | Maps filters to an action that can take place outside of a
--- expect/recieve block.
-class DynFilterHandler d where
-  dynHandleFilter :: s
-                  -> d s
-                  -> P.Message
-                  -> Process (Maybe (Filter s))
-
-instance DynFilterHandler DispatchFilter where
-  dynHandleFilter s (FilterApi d)   msg = handleMessage msg (d s)
-  dynHandleFilter s (FilterAny d)   msg = handleMessage msg (d s)
-  dynHandleFilter s (FilterRaw d)   msg = d s msg
-  dynHandleFilter s (FilterState d) _   = d s
 
 -- | Priority of a message, encoded as an @Int@
 newtype Priority a = Priority { getPrio :: Int }
