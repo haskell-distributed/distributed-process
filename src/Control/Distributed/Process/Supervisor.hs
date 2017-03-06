@@ -6,7 +6,6 @@
 {-# LANGUAGE PatternGuards             #-}
 {-# LANGUAGE RecordWildCards           #-}
 {-# LANGUAGE ScopedTypeVariables       #-}
-{-# LANGUAGE OverlappingInstances      #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -274,7 +273,7 @@ module Control.Distributed.Process.Supervisor
 import Control.DeepSeq (NFData)
 
 import Control.Distributed.Process.Supervisor.Types
-import Control.Distributed.Process hiding (call)
+import Control.Distributed.Process hiding (call, catch, finally)
 import Control.Distributed.Process.Serializable()
 import Control.Distributed.Process.Extras.Internal.Primitives hiding (monitor)
 import Control.Distributed.Process.Extras.Internal.Types
@@ -296,9 +295,11 @@ import Control.Distributed.Process.ManagedProcess
   , ProcessReply
   , ProcessDefinition(..)
   , PrioritisedProcessDefinition(..)
-  , Priority(..)
+  , Priority()
   , DispatchPriority
   , UnhandledMessagePolicy(Drop)
+  , ExitState
+  , exitState
   )
 import qualified Control.Distributed.Process.ManagedProcess.UnsafeClient as Unsafe
   ( call
@@ -336,8 +337,8 @@ import Control.Distributed.Process.Extras.SystemLog
 import qualified Control.Distributed.Process.Extras.SystemLog as Log
 import Control.Distributed.Process.Extras.Time
 import Control.Exception (SomeException, throwIO)
-
-import Control.Monad.Error
+import Control.Monad.Catch (catch, finally)
+import Control.Monad (void, forM)
 
 import Data.Accessor
   ( Accessor
@@ -938,9 +939,9 @@ handleMonitorSignal state (ProcessMonitorNotification _ childPid reason) = do
 -- Child Monitoring                                                           --
 --------------------------------------------------------------------------------
 
-handleShutdown :: State -> ExitReason -> Process ()
-handleShutdown state (ExitOther reason) = terminateChildren state >> die reason
-handleShutdown state _                  = terminateChildren state
+handleShutdown :: ExitState State -> ExitReason -> Process ()
+handleShutdown state (ExitOther reason) = terminateChildren (exitState state) >> die reason
+handleShutdown state _                  = terminateChildren (exitState state)
 
 --------------------------------------------------------------------------------
 -- Child Start/Restart Handling                                               --

@@ -15,7 +15,7 @@ import Control.Concurrent.MVar
   )
 import qualified Control.Exception as Ex
 import Control.Exception (throwIO)
-import Control.Distributed.Process hiding (call, monitor)
+import Control.Distributed.Process hiding (call, monitor, finally)
 import Control.Distributed.Process.Closure
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Extras.Internal.Types
@@ -29,6 +29,7 @@ import Control.Distributed.Process.Serializable()
 
 import Control.Distributed.Static (staticLabel)
 import Control.Monad (void, forM_, forM)
+import Control.Monad.Catch (finally)
 import Control.Rematch
   ( equalTo
   , is
@@ -1363,4 +1364,3 @@ tests transport = do
 
 main :: IO ()
 main = testMain $ tests
-

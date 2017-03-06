@@ -1,5 +1,5 @@
 name:           distributed-process-supervisor
-version:        0.1.3.2
+version:        0.2.0
 cabal-version:  >=1.8
 build-type:     Simple
 license:        BSD3
@@ -21,7 +21,7 @@ description:    A part of the Cloud Haskell framework
 
                 For detailed information see "Control.Distributed.Process.Supervisor"
 category:       Control
-tested-with:    GHC == 7.4.2 GHC == 7.6.2
+tested-with:    GHC == 7.10.3 GHC == 8.0.1 GHC == 8.0.2
 data-dir:       ""
 extra-source-files: ChangeLog
 
@@ -31,12 +31,12 @@ source-repository head
 
 library
   build-depends:
-                   base >= 4.4 && < 5,
+                   base >= 4.8.2.0 && < 5,
                    data-accessor >= 0.2.2.3,
-                   distributed-process >= 0.5.3 && < 0.7,
-                   distributed-process-extras >= 0.2.0 && < 0.3,
-                   distributed-process-client-server >= 0.1.2 && < 0.2,
-                   binary >= 0.6.3.0 && < 0.8,
+                   distributed-process >= 0.6.6 && < 0.7,
+                   distributed-process-extras >= 0.3.1 && < 0.4,
+                   distributed-process-client-server >= 0.2.0 && < 0.3,
+                   binary >= 0.6.3.0 && < 0.9,
                    deepseq >= 1.3.0.1 && < 1.5,
                    mtl,
                    containers >= 0.4 && < 0.6,
@@ -44,13 +44,9 @@ library
                    unordered-containers >= 0.2.3.0 && < 0.3,
                    fingertree < 0.2,
                    stm >= 2.4 && < 2.5,
-                   time > 1.4 && < 1.6,
-                   transformers
-  if impl(ghc <= 7.5)
-    Build-Depends:   template-haskell == 2.7.0.0,
-                     derive == 2.5.5,
-                     uniplate == 1.6.12,
-                     ghc-prim
+                   time > 1.4 && < 1.7,
+                   transformers,
+                   exceptions >= 0.5
   extensions:      CPP
   hs-source-dirs:   src
   ghc-options:      -Wall
@@ -62,12 +58,12 @@ library
 test-suite SupervisorTests
   type:            exitcode-stdio-1.0
   build-depends:
-                   base >= 4.4 && < 5,
+                   base >= 4.8.2.0 && < 5,
                    ansi-terminal >= 0.5 && < 0.7,
                    containers,
                    unordered-containers,
                    hashable,
-                   distributed-process >= 0.5.3 && < 0.7,
+                   distributed-process >= 0.6.6 && < 0.7,
                    distributed-process-supervisor,
                    distributed-process-extras,
                    distributed-process-client-server,
@@ -78,17 +74,18 @@ test-suite SupervisorTests
                    network-transport >= 0.4 && < 0.5,
                    mtl,
                    network-transport-tcp >= 0.4 && < 0.6,
-                   binary >= 0.6.3.0 && < 0.8,
+                   binary >= 0.6.3.0 && < 0.9,
                    deepseq >= 1.3.0.1 && < 1.5,
                    network >= 2.3 && < 2.7,
                    HUnit >= 1.2 && < 2,
                    stm >= 2.3 && < 2.5,
-                   time > 1.4 && < 1.6,
+                   time > 1.4 && < 1.7,
                    test-framework >= 0.6 && < 0.9,
                    test-framework-hunit,
                    transformers,
                    rematch >= 0.2.0.0,
-                   ghc-prim
+                   ghc-prim,
+                   exceptions >= 0.5
   hs-source-dirs:
                    tests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind -eventlog

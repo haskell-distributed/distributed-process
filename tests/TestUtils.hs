@@ -56,7 +56,7 @@ import Control.Concurrent.MVar
   , putMVar
   )
 
-import Control.Distributed.Process
+import Control.Distributed.Process hiding (catch, finally)
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable()
 import Control.Distributed.Process.Extras.Time
@@ -65,6 +65,7 @@ import Control.Distributed.Process.Extras.Internal.Types
 import Control.Exception (SomeException)
 import qualified Control.Exception as Exception
 import Control.Monad (forever)
+import Control.Monad.Catch (catch)
 import Control.Monad.STM (atomically)
 import Control.Rematch hiding (match)
 import Control.Rematch.Run
@@ -101,7 +102,7 @@ shouldNotContain xs x = expectThat xs $ isNot (hasItem (equalTo x))
 shouldMatch :: a -> Matcher a -> Process ()
 shouldMatch = expectThat
 
-shouldExitWith :: (Addressable a) => a -> DiedReason -> Process ()
+shouldExitWith :: (Resolvable a) => a -> DiedReason -> Process ()
 shouldExitWith a r = do
   _ <- resolve a
   d <- receiveWait [ match (\(ProcessMonitorNotification _ _ r') -> return r') ]
