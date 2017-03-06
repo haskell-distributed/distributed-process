@@ -964,12 +964,8 @@ testCloseEndPoint = do
     N.connect sock (N.addrAddress addr)
     sendMany sock [
         encodeWord32 endPointId
-      -- Our addres... we'll just make it up.
-      -- TODO there are plans to verify peer addresses, and also plans to
-      -- support peers which do not know their external address (due to NAT
-      -- perhaps). Update this test to use that feature once it's here.
-      , encodeWord32 5
-      , "hello"
+      , encodeWord32 13
+      , "127.0.0.1:0:0"
       -- Create a lightweight connection.
       , encodeWord32 (encodeControlHeader CreatedNewConnection)
       , encodeWord32 1024
