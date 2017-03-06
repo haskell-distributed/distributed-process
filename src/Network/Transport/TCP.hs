@@ -909,88 +909,10 @@ handleConnectionRequest transport socketClosed (sock, sockAddr) = handle handleE
       N.setSocketOption sock N.KeepAlive 1
     forM_ (tcpUserTimeout $ transportParams transport) $
       N.setSocketOption sock N.UserTimeout
-    -- Get the OS-determined host and port.
-    (actualHost, actualPort) <-
-      decodeSockAddr sockAddr >>=
-        maybe (throwIO (userError "handleConnectionRequest: invalid socket address")) return
-    let connTimeout = transportConnectTimeout (transportParams transport)
-    -- The peer must send our identifier and their address promptly, if a
-    -- timeout is set.
-    mAddrInfo <- maybe (fmap Just) System.Timeout.timeout connTimeout $ do
-      ourEndPointId <- recvWord32 sock
-      let maxAddressLength = tcpMaxAddressLength $ transportParams transport
-      theirAddress <- EndPointAddress . BS.concat <$>
-        recvWithLength maxAddressLength sock
-      return (ourEndPointId, theirAddress)
-    (ourEndPointId, theirAddress) <- case mAddrInfo of
-      Nothing -> throwIO (userError "handleConnectionRequest: timed out")
-      Just x -> return x
-    let ourAddress = encodeEndPointAddress (transportHost transport)
-                                           (transportPort transport)
-                                           ourEndPointId
-    (theirHost, _, _)
-      <- maybe (throwIO (userError "handleConnectionRequest: peer gave malformed address"))
-               return
-               (decodeEndPointAddress theirAddress)
-    let checkPeerHost = tcpCheckPeerHost (transportParams transport)
-    if checkPeerHost && (theirHost /= actualHost)
-    then
-      -- If the OS-determined host doesn't match the host that the peer gave us,
-      -- then we have no choice but to reject the connection. It's because we
-      -- use the EndPointAddress to key the remote end points (localConnections)
-      -- and we don't want to allow a peer to deny service to other peers by
-      -- claiming to have their host and port.
-      sendMany sock $
-          encodeWord32 (encodeConnectionRequestResponse ConnectionRequestHostMismatch)
-        : prependLength [BSC.pack actualHost]
-    else do
-      ourEndPoint <- withMVar (transportState transport) $ \st -> case st of
-        TransportValid vst ->
-          case vst ^. localEndPointAt ourAddress of
-            Nothing -> do
-              sendMany sock [encodeWord32 (encodeConnectionRequestResponse ConnectionRequestInvalid)]
-              throwIO $ userError "handleConnectionRequest: Invalid endpoint"
-            Just ourEndPoint ->
-              return ourEndPoint
-        TransportClosed ->
-          throwIO $ userError "Transport closed"
-      void $ go ourEndPoint theirAddress
-  where
-    go :: LocalEndPoint -> EndPointAddress -> IO ()
-    go ourEndPoint theirAddress = do
-      -- This runs in a thread that will never be killed
-      mEndPoint <- handle ((>> return Nothing) . handleException) $ do
-        resetIfBroken ourEndPoint theirAddress
-        (theirEndPoint, isNew) <-
-          findRemoteEndPoint ourEndPoint theirAddress RequestedByThem Nothing
+    let handleVersioned = handleConnectionRequestV0 (sock, sockAddr)
+    handleVersioned
 
-        if not isNew
-          then do
-            void $ tryIO $ sendMany sock
-              [encodeWord32 (encodeConnectionRequestResponse ConnectionRequestCrossed)]
-            probeIfValid theirEndPoint
-            return Nothing
-          else do
-            sendLock <- newMVar ()
-            let vst = ValidRemoteEndPointState
-                        {  remoteSocket        = sock
-                        ,  remoteSocketClosed  = socketClosed
-                        ,  remoteProbing       = Nothing
-                        ,  remoteSendLock      = sendLock
-                        , _remoteOutgoing      = 0
-                        , _remoteIncoming      = Set.empty
-                        , _remoteLastIncoming  = 0
-                        , _remoteNextConnOutId = firstNonReservedLightweightConnectionId
-                        }
-            sendMany sock [encodeWord32 (encodeConnectionRequestResponse ConnectionRequestAccepted)]
-            resolveInit (ourEndPoint, theirEndPoint) (RemoteEndPointValid vst)
-            return (Just theirEndPoint)
-      -- If we left the scope of the exception handler with a return value of
-      -- Nothing then the socket is already closed; otherwise, the socket has
-      -- been recorded as part of the remote endpoint. Either way, we no longer
-      -- have to worry about closing the socket on receiving an asynchronous
-      -- exception from this point forward.
-      forM_ mEndPoint $ handleIncomingMessages (transportParams transport) . (,) ourEndPoint
+  where
 
     handleException :: SomeException -> IO ()
     handleException ex = do
@@ -999,33 +921,120 @@ handleConnectionRequest transport socketClosed (sock, sockAddr) = handle handleE
     rethrowIfAsync :: Maybe AsyncException -> IO ()
     rethrowIfAsync = mapM_ throwIO
 
-    probeIfValid :: RemoteEndPoint -> IO ()
-    probeIfValid theirEndPoint = modifyMVar_ (remoteState theirEndPoint) $
-      \st -> case st of
-        RemoteEndPointValid
-          vst@(ValidRemoteEndPointState { remoteProbing = Nothing }) -> do
-            tid <- forkIO $ do
-              -- send probe
-              let params = transportParams transport
-              void $ tryIO $ System.Timeout.timeout
-                  (maybe (-1) id $ transportConnectTimeout params) $ do
-                sendMany (remoteSocket vst)
-                  [encodeWord32 (encodeControlHeader ProbeSocket)]
-                threadDelay maxBound
-              -- Discard the connection if this thread is not killed (i.e. the
-              -- probe ack does not arrive on time).
-              --
-              -- The thread handling incoming messages will detect the socket is
-              -- closed and will report the failure upwards.
-              -- Waiting the probe ack and closing the socket is only needed in
-              -- platforms where TCP_USER_TIMEOUT is not available or when the
-              -- user does not set it. Otherwise the ack would be handled at the
-              -- TCP level and the the thread handling incoming messages would
-              -- get the error.
+    handleConnectionRequestV0 (sock, sockAddr) = do
+      -- Get the OS-determined host and port.
+      (actualHost, actualPort) <-
+        decodeSockAddr sockAddr >>=
+          maybe (throwIO (userError "handleConnectionRequest: invalid socket address")) return
+      let connTimeout = transportConnectTimeout (transportParams transport)
+      -- The peer must send our identifier and their address promptly, if a
+      -- timeout is set.
+      mAddrInfo <- maybe (fmap Just) System.Timeout.timeout connTimeout $ do
+        ourEndPointId <- recvWord32 sock
+        let maxAddressLength = tcpMaxAddressLength $ transportParams transport
+        theirAddress <- EndPointAddress . BS.concat <$>
+          recvWithLength maxAddressLength sock
+        return (ourEndPointId, theirAddress)
+      (ourEndPointId, theirAddress) <- case mAddrInfo of
+        Nothing -> throwIO (userError "handleConnectionRequest: timed out")
+        Just x -> return x
+      let ourAddress = encodeEndPointAddress (transportHost transport)
+                                             (transportPort transport)
+                                             ourEndPointId
+      (theirHost, _, _)
+        <- maybe (throwIO (userError "handleConnectionRequest: peer gave malformed address"))
+                 return
+                 (decodeEndPointAddress theirAddress)
+      let checkPeerHost = tcpCheckPeerHost (transportParams transport)
+      if checkPeerHost && (theirHost /= actualHost)
+      then
+        -- If the OS-determined host doesn't match the host that the peer gave us,
+        -- then we have no choice but to reject the connection. It's because we
+        -- use the EndPointAddress to key the remote end points (localConnections)
+        -- and we don't want to allow a peer to deny service to other peers by
+        -- claiming to have their host and port.
+        sendMany sock $
+            encodeWord32 (encodeConnectionRequestResponse ConnectionRequestHostMismatch)
+          : prependLength [BSC.pack actualHost]
+      else do
+        ourEndPoint <- withMVar (transportState transport) $ \st -> case st of
+          TransportValid vst ->
+            case vst ^. localEndPointAt ourAddress of
+              Nothing -> do
+                sendMany sock [encodeWord32 (encodeConnectionRequestResponse ConnectionRequestInvalid)]
+                throwIO $ userError "handleConnectionRequest: Invalid endpoint"
+              Just ourEndPoint ->
+                return ourEndPoint
+          TransportClosed ->
+            throwIO $ userError "Transport closed"
+        void $ go ourEndPoint theirAddress
 
-            return $ RemoteEndPointValid
-              vst { remoteProbing = Just (killThread tid) }
-        _                       -> return st
+      where
+
+      go :: LocalEndPoint -> EndPointAddress -> IO ()
+      go ourEndPoint theirAddress = do
+        -- This runs in a thread that will never be killed
+        mEndPoint <- handle ((>> return Nothing) . handleException) $ do
+          resetIfBroken ourEndPoint theirAddress
+          (theirEndPoint, isNew) <-
+            findRemoteEndPoint ourEndPoint theirAddress RequestedByThem Nothing
+
+          if not isNew
+            then do
+              void $ tryIO $ sendMany sock
+                [encodeWord32 (encodeConnectionRequestResponse ConnectionRequestCrossed)]
+              probeIfValid theirEndPoint
+              return Nothing
+            else do
+              sendLock <- newMVar ()
+              let vst = ValidRemoteEndPointState
+                          {  remoteSocket        = sock
+                          ,  remoteSocketClosed  = socketClosed
+                          ,  remoteProbing       = Nothing
+                          ,  remoteSendLock      = sendLock
+                          , _remoteOutgoing      = 0
+                          , _remoteIncoming      = Set.empty
+                          , _remoteLastIncoming  = 0
+                          , _remoteNextConnOutId = firstNonReservedLightweightConnectionId
+                          }
+              sendMany sock [encodeWord32 (encodeConnectionRequestResponse ConnectionRequestAccepted)]
+              resolveInit (ourEndPoint, theirEndPoint) (RemoteEndPointValid vst)
+              return (Just theirEndPoint)
+        -- If we left the scope of the exception handler with a return value of
+        -- Nothing then the socket is already closed; otherwise, the socket has
+        -- been recorded as part of the remote endpoint. Either way, we no longer
+        -- have to worry about closing the socket on receiving an asynchronous
+        -- exception from this point forward.
+        forM_ mEndPoint $ handleIncomingMessages (transportParams transport) . (,) ourEndPoint
+
+      probeIfValid :: RemoteEndPoint -> IO ()
+      probeIfValid theirEndPoint = modifyMVar_ (remoteState theirEndPoint) $
+        \st -> case st of
+          RemoteEndPointValid
+            vst@(ValidRemoteEndPointState { remoteProbing = Nothing }) -> do
+              tid <- forkIO $ do
+                -- send probe
+                let params = transportParams transport
+                void $ tryIO $ System.Timeout.timeout
+                    (maybe (-1) id $ transportConnectTimeout params) $ do
+                  sendMany (remoteSocket vst)
+                    [encodeWord32 (encodeControlHeader ProbeSocket)]
+                  threadDelay maxBound
+                -- Discard the connection if this thread is not killed (i.e. the
+                -- probe ack does not arrive on time).
+                --
+                -- The thread handling incoming messages will detect the socket is
+                -- closed and will report the failure upwards.
+                tryCloseSocket (remoteSocket vst)
+                -- Waiting the probe ack and closing the socket is only needed in
+                -- platforms where TCP_USER_TIMEOUT is not available or when the
+                -- user does not set it. Otherwise the ack would be handled at the
+                -- TCP level and the the thread handling incoming messages would
+                -- get the error.
+
+              return $ RemoteEndPointValid
+                vst { remoteProbing = Just (killThread tid) }
+          _                       -> return st
 
 -- | Handle requests from a remote endpoint.
 --
