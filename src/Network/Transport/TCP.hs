@@ -429,7 +429,7 @@ data RemoteState =
 data ValidRemoteEndPointState = ValidRemoteEndPointState
   { _remoteOutgoing      :: !Int
   , _remoteIncoming      :: !(Set LightweightConnectionId)
-  , _remoteMaxIncoming   :: !LightweightConnectionId
+  , _remoteLastIncoming  :: !LightweightConnectionId
   , _remoteNextConnOutId :: !LightweightConnectionId
   ,  remoteSocket        :: !N.Socket
      -- | When the connection is being probed, yields an IO action that can be
@@ -903,7 +903,7 @@ handleConnectionRequest transport sock = handle handleException $ do
                         ,  remoteSendLock      = sendLock
                         , _remoteOutgoing      = 0
                         , _remoteIncoming      = Set.empty
-                        , _remoteMaxIncoming   = 0
+                        , _remoteLastIncoming  = 0
                         , _remoteNextConnOutId = firstNonReservedLightweightConnectionId
                         }
             sendMany sock [encodeWord32 (encodeConnectionRequestResponse ConnectionRequestAccepted)]
@@ -1050,7 +1050,7 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
               "handleIncomingMessages:createNewConnection (init)"
           RemoteEndPointValid vst ->
             return ( (remoteIncoming ^: Set.insert lcid)
-                   $ (remoteMaxIncoming ^= lcid)
+                   $ (remoteLastIncoming ^= lcid)
                    vst
                    )
           RemoteEndPointClosing resolved vst -> do
@@ -1062,7 +1062,7 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
             -- RemoteEndPointValid
             putMVar resolved ()
             return ( (remoteIncoming ^= Set.singleton lcid)
-                   . (remoteMaxIncoming ^= lcid)
+                   . (remoteLastIncoming ^= lcid)
                    $ vst
                    )
           RemoteEndPointFailed err ->
@@ -1149,7 +1149,7 @@ handleIncomingMessages (ourEndPoint, theirEndPoint) = do
                 act <- schedule theirEndPoint $ do
                   void $ tryIO $ sendOn vst'
                     [ encodeWord32 (encodeControlHeader CloseSocket)
-                    , encodeWord32 (vst ^. remoteMaxIncoming)
+                    , encodeWord32 (vst ^. remoteLastIncoming)
                     ]
                   tryCloseSocket sock
                 return (RemoteEndPointClosed, Just act)
@@ -1360,7 +1360,7 @@ setupRemoteEndPoint params (ourEndPoint, theirEndPoint) connTimeout = do
                     ,  remoteSendLock      = sendLock
                     , _remoteOutgoing      = 0
                     , _remoteIncoming      = Set.empty
-                    , _remoteMaxIncoming   = 0
+                    , _remoteLastIncoming  = 0
                     , _remoteNextConnOutId = firstNonReservedLightweightConnectionId
                     }
         resolveInit (ourEndPoint, theirEndPoint) (RemoteEndPointValid vst)
@@ -1402,7 +1402,7 @@ closeIfUnused (ourEndPoint, theirEndPoint) = do
           resolved <- newEmptyMVar
           act <- schedule theirEndPoint $
             sendOn vst [ encodeWord32 (encodeControlHeader CloseSocket)
-                       , encodeWord32 (vst ^. remoteMaxIncoming)
+                       , encodeWord32 (vst ^. remoteLastIncoming)
                        ]
           return (RemoteEndPointClosing resolved vst, Just act)
         else
@@ -1928,8 +1928,8 @@ remoteOutgoing = accessor _remoteOutgoing (\cs conn -> conn { _remoteOutgoing = 
 remoteIncoming :: Accessor ValidRemoteEndPointState (Set LightweightConnectionId)
 remoteIncoming = accessor _remoteIncoming (\cs conn -> conn { _remoteIncoming = cs })
 
-remoteMaxIncoming :: Accessor ValidRemoteEndPointState LightweightConnectionId
-remoteMaxIncoming = accessor _remoteMaxIncoming (\lcid st -> st { _remoteMaxIncoming = lcid })
+remoteLastIncoming :: Accessor ValidRemoteEndPointState LightweightConnectionId
+remoteLastIncoming = accessor _remoteLastIncoming (\lcid st -> st { _remoteLastIncoming = lcid })
 
 remoteNextConnOutId :: Accessor ValidRemoteEndPointState LightweightConnectionId
 remoteNextConnOutId = accessor _remoteNextConnOutId (\cix st -> st { _remoteNextConnOutId = cix })
