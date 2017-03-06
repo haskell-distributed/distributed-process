@@ -18,7 +18,7 @@ import Control.Distributed.Process.Extras hiding (__remoteTable, monitor)
 import Control.Distributed.Process.Async hiding (check)
 import Control.Distributed.Process.ManagedProcess hiding (reject)
 import qualified Control.Distributed.Process.ManagedProcess.Server.Priority as P (Message)
-import Control.Distributed.Process.ManagedProcess.Server.Priority (reject)
+import Control.Distributed.Process.ManagedProcess.Server.Priority
 import Control.Distributed.Process.SysTest.Utils
 import Control.Distributed.Process.Extras.Time
 import Control.Distributed.Process.Extras.Timer

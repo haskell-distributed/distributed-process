@@ -40,6 +40,7 @@ import Control.Distributed.Process
   , receiveWait
   , forward
   , catchesExit
+  , catchExit
   , Process
   , ProcessId
   , Match
@@ -343,7 +344,7 @@ precvLoop ppDef pState recvDelay = do
                                           }
 
   mask $ \restore -> do
-    res <- catch (fmap Right $ restore $ runProcess st recvQueue)
+    res <- catch (fmap Right $ restore $ loop st)
                  (\(e :: SomeException) -> return $ Left e)
 
     -- res could be (Left ex), so we restore process state & def from our IORef
@@ -359,6 +360,9 @@ precvLoop ppDef pState recvDelay = do
         -- we'll attempt to run the exit handler with the original state
         restore $ sh (LastKnown st') (ExitOther $ show ex)
         throwM ex
+  where
+    loop st' = catchExit (runProcess st' recvQueue)
+                         (\_ (r :: ExitReason) -> return (r, st'))
 
 recvQueue :: GenProcess s ExitReason
 recvQueue = do

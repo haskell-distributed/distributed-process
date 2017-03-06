@@ -85,15 +85,19 @@ data Timer = Timer { timerDelay  :: Delay
                    , mtSignal :: Maybe (TVar Bool)
                    }
 
+-- | @True@ if a @Timer@ is currently active.
 isActive :: Timer -> Bool
 isActive = isJust . mtSignal
 
+-- | Creates a default @Timer@ which is inactive.
 delayTimer :: Delay -> Timer
 delayTimer d = Timer d noPid noTVar
   where
     noPid  = Nothing :: Maybe ProcessId
     noTVar = Nothing :: Maybe (TVar Bool)
 
+-- | Starts a @Timer@
+-- Will use the GHC @registerDelay@ API if @rtsSupportsBoundThreads == True@
 startTimer :: Delay -> Process Timer
 startTimer d
   | Delay t <- d = establishTimer t
@@ -116,6 +120,7 @@ startTimer d
                        , mtSignal = Just tSig
                        }
 
+-- | Stops a previously started @Timer@. Has no effect if the @Timer@ is inactive.
 stopTimer :: Timer -> Process Timer
 stopTimer t@Timer{..} = do
   clearTimer mtPidRef
@@ -123,20 +128,26 @@ stopTimer t@Timer{..} = do
            , mtSignal = Nothing
            }
 
+-- | Clears and restarts a @Timer@.
 resetTimer :: Timer -> Delay -> Process Timer
 resetTimer Timer{..} d = clearTimer mtPidRef >> startTimer d
 
+-- | Clears/cancels a running timer. Has no effect if the @Timer@ is inactive.
 clearTimer :: Maybe TimerRef -> Process ()
 clearTimer ref
   | isJust ref = cancelTimer (fromJust ref)
   | otherwise  = return ()
 
+-- | Creates a @Match@ for a given timer, for use with Cloud Haskell's messaging
+-- primitives for selective receives.
 matchTimeout :: Timer -> [Match (Either TimedOut Message)]
 matchTimeout t@Timer{..}
     | isActive t = [ matchSTM (readTimer $ fromJust mtSignal)
                               (return . Left) ]
     | otherwise  = []
 
+-- | Reads a given @TVar Bool@ for a timer, and returns @STM TimedOut@ once the
+-- variable is set to true. Will @retry@ in the meanwhile.
 readTimer :: TVar Bool -> STM TimedOut
 readTimer t = do
    expired <- readTVar t
