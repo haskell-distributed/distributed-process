@@ -1194,10 +1194,10 @@ handleIncomingMessages params (ourEndPoint, theirEndPoint) = do
                 -- Release probing resources if probing.
                 forM_ (remoteProbing vst) id
                 removeRemoteEndPoint (ourEndPoint, theirEndPoint)
-                putMVar resolved ()
                 -- Nothing to do, but we want to indicate that the socket
                 -- really did close.
                 act <- schedule theirEndPoint $ return ()
+                putMVar resolved ()
                 return (RemoteEndPointClosed, Just act)
           RemoteEndPointFailed err ->
             throwIO err
