@@ -28,7 +28,6 @@ module Control.Distributed.Process.Supervisor.Types
   , StaticLabel
   , SupervisorPid
   , ChildPid
-  , StarterPid
     -- * Limits and Defaults
   , MaxRestarts(..)
   , maxRestarts
@@ -53,6 +52,7 @@ module Control.Distributed.Process.Supervisor.Types
   , SupervisorStats(..)
   , StartFailure(..)
   , ChildInitFailure(..)
+  , MxSupervisor(..)
   ) where
 
 import GHC.Generics
@@ -62,18 +62,22 @@ import Data.Binary
 import Control.DeepSeq (NFData)
 import Control.Distributed.Process hiding (call)
 import Control.Distributed.Process.Serializable()
+import Control.Distributed.Process.Extras.Internal.Types
+  ( ExitReason(..)
+  )
 import Control.Distributed.Process.Extras.Time
 import Control.Distributed.Process.Extras.Internal.Primitives hiding (monitor)
 import Control.Exception (Exception)
+import Data.Hashable (Hashable)
 
 -- aliases for api documentation purposes
 type SupervisorPid = ProcessId
 type ChildPid = ProcessId
-type StarterPid = ProcessId
 
 newtype MaxRestarts = MaxR { maxNumberOfRestarts :: Int }
   deriving (Typeable, Generic, Show)
 instance Binary MaxRestarts where
+instance Hashable MaxRestarts where
 instance NFData MaxRestarts where
 
 -- | Smart constructor for @MaxRestarts@. The maximum
@@ -106,6 +110,7 @@ defaultLimits = limit (MaxR 1) (seconds 1)
 data RestartOrder = LeftToRight | RightToLeft
   deriving (Typeable, Generic, Eq, Show)
 instance Binary RestartOrder where
+instance Hashable RestartOrder where
 instance NFData RestartOrder where
 
 -- TODO: rename these, somehow...
@@ -118,12 +123,14 @@ data RestartMode =
     {- ^ stop all children in the given order, but start them in reverse -}
   deriving (Typeable, Generic, Show, Eq)
 instance Binary RestartMode where
+instance Hashable RestartMode where
 instance NFData RestartMode where
 
 data ShutdownMode = SequentialShutdown !RestartOrder
                       | ParallelShutdown
   deriving (Typeable, Generic, Show, Eq)
 instance Binary ShutdownMode where
+instance Hashable ShutdownMode where
 instance NFData ShutdownMode where
 
 -- | Strategy used by a supervisor to handle child restarts, whether due to
@@ -269,7 +276,6 @@ instance Show RegisteredName where
 data ChildStart =
     RunClosure !(Closure (Process ()))
   | CreateHandle !(Closure (SupervisorPid -> Process (ChildPid, Message)))
-  | StarterProcess !StarterPid
   deriving (Typeable, Generic, Show)
 instance Binary ChildStart where
 instance NFData ChildStart  where
@@ -290,11 +296,12 @@ data ChildSpec = ChildSpec {
 instance Binary ChildSpec where
 instance NFData ChildSpec where
 
-
 data ChildInitFailure =
     ChildInitFailure !String
   | ChildInitIgnore
   deriving (Typeable, Generic, Show)
+instance Binary ChildInitFailure where
+instance NFData ChildInitFailure where
 instance Exception ChildInitFailure where
 
 data SupervisorStats = SupervisorStats {
@@ -309,6 +316,45 @@ data SupervisorStats = SupervisorStats {
   } deriving (Typeable, Generic, Show)
 instance Binary SupervisorStats where
 instance NFData SupervisorStats where
+
+data MxSupervisor =
+    SupervisorStarted
+    { supervisorPid     :: SupervisorPid
+    , supervisorRestart :: RestartStrategy
+    , supervisorShudown :: ShutdownMode
+    }
+  | SupervisorStartFailure
+    { supervisorPid :: SupervisorPid
+    , startFailure  :: StartFailure
+    , childSpecKey  :: ChildKey
+    }
+  | SupervisedChildRestarting
+    { supervisorPid :: SupervisorPid
+    , childInScope  :: Maybe ChildPid
+    , childSpecKey  :: ChildKey
+    , exitReason    :: ExitReason
+    }
+  | SupervisedChildStarted
+    { supervisorPid :: SupervisorPid
+    , childRef      :: ChildRef
+    }
+  | SupervisedChildDied
+    { supervisorPid :: SupervisorPid
+    , exitReason    :: ExitReason
+    }
+  | SupervisedChildInitFailed
+    { supervisorPid :: SupervisorPid
+    , childPid      :: ChildPid
+    , initFailure   :: ChildInitFailure
+    }
+  | SupervisedChildStopped
+    { supervisorPid :: SupervisorPid
+    , childRef      :: ChildRef
+    , diedReason    :: DiedReason
+    }
+    deriving (Typeable, Generic, Show)
+instance Binary MxSupervisor where
+instance NFData MxSupervisor where
 
 -- | Static labels (in the remote table) are strings.
 type StaticLabel = String

@@ -181,23 +181,19 @@
 -- [Creating Child Specs]
 --
 -- The 'ToChildStart' typeclass simplifies the process of defining a 'ChildStart'
--- providing three default instances from which a 'ChildStart' datum can be
+-- providing two default instances from which a 'ChildStart' datum can be
 -- generated. The first, takes a @Closure (Process ())@, where the enclosed
 -- action (in the @Process@ monad) is the actual (long running) code that we
 -- wish to supervise. In the case of a /managed process/, this is usually the
 -- server loop, constructed by evaluating some variant of @ManagedProcess.serve@.
 --
--- The other two instances provide a means for starting children without having
--- to provide a @Closure@. Both instances wrap the supplied @Process@ action in
--- some necessary boilerplate code, which handles spawning a new process and
--- communicating its @ProcessId@ to the supervisor. The instance for
--- @Addressable a => SupervisorPid -> Process a@ is special however, since this
--- API is intended for uses where the typical interactions with a process take
--- place via an opaque handle, for which an instance of the @Addressable@
--- typeclass is provided. This latter approach requires the expression which is
--- responsible for yielding the @Addressable@ handle to handling linking the
--- target process with the supervisor, since we have delegated responsibility
--- for spawning the new process and cannot perform the link oepration ourselves.
+-- The second instance supports returning a /handle/ which can contain extra
+-- data about the child process - usually this is a newtype wrapper used by
+-- clients to communicate with the process.
+--
+-- Finally, a third instance provides a shortcut to @staticClosure@, for consumers
+-- who've manually registered with the /remote table/ and don't with to use
+-- tempate haskell (e.g. users of the Explicit closures API).
 --
 -- [Supervision Trees & Supervisor Termination]
 --
@@ -227,7 +223,6 @@ module Control.Distributed.Process.Supervisor
   , StaticLabel
   , SupervisorPid
   , ChildPid
-  , StarterPid
   , ToChildStart(..)
   , start
   , run
@@ -273,8 +268,8 @@ module Control.Distributed.Process.Supervisor
 import Control.DeepSeq (NFData)
 
 import Control.Distributed.Process.Supervisor.Types
-import Control.Distributed.Process hiding (call, catch, finally)
-import Control.Distributed.Process.Serializable()
+import Control.Distributed.Process hiding (call, catch, finally, mask)
+import Control.Distributed.Process.Management (mxNotify)
 import Control.Distributed.Process.Extras.Internal.Primitives hiding (monitor)
 import Control.Distributed.Process.Extras.Internal.Types
   ( ExitReason(..)
@@ -336,8 +331,11 @@ import Control.Distributed.Process.Extras.SystemLog
   )
 import qualified Control.Distributed.Process.Extras.SystemLog as Log
 import Control.Distributed.Process.Extras.Time
+import Control.Distributed.Static
+  ( staticClosure
+  )
 import Control.Exception (SomeException, throwIO)
-import Control.Monad.Catch (catch, finally)
+import Control.Monad.Catch (catch, finally, mask)
 import Control.Monad (void, forM)
 
 import Data.Accessor
@@ -348,7 +346,7 @@ import Data.Accessor
   , (^=)
   , (^.)
   )
-import Data.Binary
+import Data.Binary (Binary)
 import Data.Foldable (find, foldlM, toList)
 import Data.List (foldl')
 import qualified Data.List as List (delete)
@@ -396,70 +394,8 @@ instance ToChildStart (Closure (Process ())) where
 instance ToChildStart (Closure (SupervisorPid -> Process (ChildPid, Message))) where
   toChildStart = return . CreateHandle
 
-
--- StarterProcess variants of ChildStart
-
-expectTriple :: Process (SupervisorPid, ChildKey, SendPort ChildPid)
-expectTriple = expect
-
-instance ToChildStart (Process ()) where
-  toChildStart proc = do
-      starterPid <- spawnLocal $ do
-        -- note [linking]: the first time we see the supervisor's pid,
-        -- we must link to it, but only once, otherwise we simply waste
-        -- time and resources creating duplicate links
-        (supervisor, _, sendPidPort) <- expectTriple
-        link supervisor
-        spawnIt proc supervisor sendPidPort
-        tcsProcLoop proc
-      return (StarterProcess starterPid)
-    where
-      tcsProcLoop :: Process () -> Process ()
-      tcsProcLoop p = forever' $ do
-        (supervisor, _, sendPidPort) <- expectTriple
-        spawnIt p supervisor sendPidPort
-
-      spawnIt :: Process ()
-              -> SupervisorPid
-              -> SendPort ChildPid
-              -> Process ()
-      spawnIt proc' supervisor sendPidPort = do
-        supervisedPid <- spawnLocal $ do
-          link supervisor
-          self <- getSelfPid
-          (proc' `catches` [ Handler $ filterInitFailures supervisor self
-                           , Handler $ logFailure supervisor self ])
-            `catchesExit` [\_ m -> handleMessageIf m (== ExitShutdown)
-                                                    (\_ -> return ())]
-        sendChan sendPidPort supervisedPid
-
-instance (Resolvable a) => ToChildStart (SupervisorPid -> Process a) where
-  toChildStart proc = do
-      starterPid <- spawnLocal $ do
-        -- see note [linking] in the previous instance (above)
-        (supervisor, _, sendPidPort) <- expectTriple
-        link supervisor
-        injectIt proc supervisor sendPidPort >> injectorLoop proc
-      return $ StarterProcess starterPid
-    where
-      injectorLoop :: Resolvable a
-                   => (SupervisorPid -> Process a)
-                   -> Process ()
-      injectorLoop p = forever' $ do
-        (supervisor, _, sendPidPort) <- expectTriple
-        injectIt p supervisor sendPidPort
-
-      injectIt :: Resolvable a
-               => (SupervisorPid -> Process a)
-               -> SupervisorPid
-               -> SendPort ChildPid
-               -> Process ()
-      injectIt proc' supervisor sendPidPort = do
-        addr <- proc' supervisor
-        mPid <- resolve addr
-        case mPid of
-          Nothing -> die "UnresolvableAddress in startChild instance"
-          Just p  -> sendChan sendPidPort p
+instance ToChildStart (Static (Process ())) where
+  toChildStart = toChildStart . staticClosure
 
 -- internal APIs. The corresponding XxxResult types are in
 -- Control.Distributed.Process.Supervisor.Types
@@ -1019,13 +955,21 @@ tryRestartBranch rs sp dr st = -- TODO: use DiedReason for logging...
       case state of
         Nothing -> die errorMaxIntensityReached
         Just st' -> foldlM stopIt st' tree >>= \s -> do
-                     apply $ foldlM startIt s tree'
+                      apply $ foldlM startIt s tree'
 
     stopStartIt :: State -> Child -> Process State
-    stopStartIt s ch@(cr, cs) = doTerminateChild cr cs s >>= (flip startIt) ch
+    stopStartIt s ch@(cr, cs) = do
+      us <- getSelfPid
+      cPid <- resolve cr
+      mxNotify $ SupervisedChildRestarting us cPid (childKey cs) (ExitOther "RestartedBySupervisor")
+      doTerminateChild cr cs s >>= (flip startIt) ch
 
     stopIt :: State -> Child -> Process State
-    stopIt s (cr, cs) = doTerminateChild cr cs s
+    stopIt s (cr, cs) = do
+      us <- getSelfPid
+      cPid <- resolve cr
+      mxNotify $ SupervisedChildRestarting us cPid (childKey cs) (ExitOther "RestartedBySupervisor")
+      doTerminateChild cr cs s
 
     startIt :: State -> Child -> Process State
     startIt s (_, cs)
@@ -1159,7 +1103,7 @@ tryRestartChild childPid st active' spec reason
     chKey         = childKey spec
 
 doRestartChild :: ChildPid -> ChildSpec -> DiedReason -> State -> Process (ProcessAction State)
-doRestartChild _ spec _ state = do -- TODO: use ChildPid and DiedReason to log
+doRestartChild pid spec reason state = do -- TODO: use ChildPid and DiedReason to log
   state' <- addRestart state
   case state' of
     Nothing -> die errorMaxIntensityReached
@@ -1167,6 +1111,8 @@ doRestartChild _ spec _ state = do -- TODO: use ChildPid and DiedReason to log
 --        Restart _            -> die errorMaxIntensityReached
 --        DelayedRestart _ del -> doRestartDelay oldPid del spec reason state
     Just st -> do
+      sup <- getSelfPid
+      mxNotify $ SupervisedChildRestarting sup (Just pid) (childKey spec) (ExitOther $ show reason)
       start' <- doStartChild spec st
       case start' of
         Right (ref, st') -> continue $ markActive st' ref spec
@@ -1175,7 +1121,6 @@ doRestartChild _ spec _ state = do -- TODO: use ChildPid and DiedReason to log
           -- BadClosure and UnresolvableAddress from the StarterProcess
           -- variants of ChildStart, which both come back from
           -- doStartChild as (Left err).
-          sup <- getSelfPid
           if isTemporary (childRestart spec)
              then do
                logEntry Log.warning $
@@ -1271,12 +1216,11 @@ tryStartChild ChildSpec{..} =
           Left err  -> logStartFailure $ StartFailureBadClosure err
           Right fn' -> do
             wrapHandle childRegName fn' >>= return . Right
-      StarterProcess starterPid ->
-          wrapRestarterProcess childRegName starterPid
   where
     logStartFailure sf = do
       sup <- getSelfPid
-      logEntry Log.error $ mkReport "Child Start Error" sup childKey (show sf)
+      -- logEntry Log.error $ mkReport "Child Start Error" sup childKey (show sf)
+      mxNotify $ SupervisorStartFailure sup sf childKey
       return $ Left sf
 
     wrapClosure :: Maybe RegisteredName
@@ -1297,7 +1241,9 @@ tryStartChild ChildSpec{..} =
                                        (\_ -> return ()))]
       void $ monitor childPid
       send childPid ()
-      return $ ChildRunning childPid
+      let cRef = ChildRunning childPid
+      mxNotify $ SupervisedChildStarted supervisor cRef
+      return cRef
 
     wrapHandle :: Maybe RegisteredName
                -> (SupervisorPid -> Process (ChildPid, Message))
@@ -1305,33 +1251,11 @@ tryStartChild ChildSpec{..} =
     wrapHandle regName proc = do
       super <- getSelfPid
       (childPid, msg) <- proc super
-      maybeRegister regName childPid
       void $ monitor childPid
-      return $ ChildRunningExtra childPid msg
-
-    wrapRestarterProcess :: Maybe RegisteredName
-                         -> StarterPid
-                         -> Process (Either StartFailure ChildRef)
-    wrapRestarterProcess regName starterPid = do
-      sup <- getSelfPid
-      (sendPid, recvPid) <- newChan
-      ref <- monitor starterPid
-      send starterPid (sup, childKey, sendPid)
-      ePid <- receiveWait [
-                -- TODO: tighten up this contract to correct for erroneous mail
-                matchChan recvPid (\(pid :: ChildPid) -> return $ Right pid)
-              , matchIf (\(ProcessMonitorNotification mref _ dr) ->
-                           mref == ref && dr /= DiedNormal)
-                        (\(ProcessMonitorNotification _ _ dr) ->
-                           return $ Left dr)
-              ] `finally` (unmonitor ref)
-      case ePid of
-        Right pid -> do
-          maybeRegister regName pid
-          void $ monitor pid
-          return $ Right $ ChildRunning pid
-        Left dr -> return $ Left $ StartFailureDied dr
-
+      maybeRegister regName childPid
+      let cRef = ChildRunningExtra childPid msg
+      mxNotify $ SupervisedChildStarted super cRef
+      return cRef
 
     maybeRegister :: Maybe RegisteredName -> ChildPid -> Process ()
     maybeRegister Nothing                         _     = return ()
@@ -1356,7 +1280,8 @@ filterInitFailures sup childPid ex = do
       -- and matches first before the other handlers that
       -- would call logFailure.
       -- We log here to avoid silent failure in those cases.
-      logEntry Log.error $ mkReport "ChildInitFailure" sup (show childPid) (show ex)
+      -- logEntry Log.error $ mkReport "ChildInitFailure" sup (show childPid) (show ex)
+      mxNotify $ SupervisedChildInitFailed sup childPid ex
       liftIO $ throwIO ex
     ChildInitIgnore    -> Unsafe.cast sup $ IgnoreChildReq childPid
 
@@ -1408,14 +1333,16 @@ terminateChildren state = do
 
 doTerminateChild :: ChildRef -> ChildSpec -> State -> Process State
 doTerminateChild ref spec state = do
+  us <- getSelfPid
   mPid <- resolve ref
   case mPid of
     Nothing  -> return state -- an already dead child is not an error
     Just pid -> do
       stopped <- childShutdown (childStop spec) pid state
-      state' <- shutdownComplete state pid stopped
+      mxNotify $ SupervisedChildStopped us ref stopped
+      -- state' <- shutdownComplete state pid stopped
       return $ ( (active ^: Map.delete pid)
-               $ state'
+               $ updateStopped
                )
   where
     shutdownComplete :: State -> ChildPid -> DiedReason -> Process State
@@ -1430,30 +1357,31 @@ childShutdown :: ChildTerminationPolicy
               -> ChildPid
               -> State
               -> Process DiedReason
-childShutdown policy childPid st = do
+childShutdown policy childPid st = mask $ \restore -> do
   case policy of
-    (TerminateTimeout t) -> exit childPid ExitShutdown >> await childPid t st
+    (TerminateTimeout t) -> exit childPid ExitShutdown >> await restore childPid t st
     -- we ignore DiedReason for brutal kills
     TerminateImmediately -> do
       kill childPid "TerminatedBySupervisor"
-      void $ await childPid Infinity st
+      void $ await restore childPid Infinity st
       return DiedNormal
   where
-    await :: ChildPid -> Delay -> State -> Process DiedReason
-    await childPid' delay state = do
-      let monitored = (Map.member childPid' $ state ^. active)
-      let recv = case delay of
-                   Infinity -> receiveWait (matches childPid') >>= return . Just
-                   NoDelay  -> receiveTimeout 0 (matches childPid')
-                   Delay t  -> receiveTimeout (asTimeout t) (matches childPid')
+    await restore' childPid' delay state = do
       -- We require and additional monitor here when child shutdown occurs
       -- during a restart which was triggered by the /old/ monitor signal.
-      let recv' =  if monitored then recv else withMonitor childPid' recv
-      recv' >>= maybe (childShutdown TerminateImmediately childPid' state) return
+      -- Just to be safe, we monitor the child immediately to be sure it goes.
+      mRef <- monitor childPid'
+      let recv = case delay of
+                   Infinity -> receiveWait (matches mRef) >>= return . Just
+                   NoDelay  -> receiveTimeout 0 (matches mRef)
+                   Delay t  -> receiveTimeout (asTimeout t) (matches mRef)
+      -- let recv' =  if monitored then recv else withMonitor childPid' recv
+      res <- recv `finally` (unmonitor mRef)
+      restore' $ maybe (childShutdown TerminateImmediately childPid' state) return res
 
-    matches :: ChildPid -> [Match DiedReason]
-    matches p = [
-          matchIf (\(ProcessMonitorNotification _ p' _) -> p == p')
+    matches :: MonitorRef -> [Match DiedReason]
+    matches m = [
+          matchIf (\(ProcessMonitorNotification m' _ _) -> m == m')
                   (\(ProcessMonitorNotification _ _ r) -> return r)
         ]
 
