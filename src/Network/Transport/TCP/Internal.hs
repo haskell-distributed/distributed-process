@@ -178,7 +178,9 @@ forkServer :: N.HostName                     -- ^ Host
            -> (SomeException -> IO ())       -- ^ Termination handler. Called
                                              --   when the error handler throws
                                              --   an exception.
-           -> (IO () -> N.Socket -> IO ())   -- ^ Request handler.
+           -> (IO () -> N.Socket -> IO ())   -- ^ Request handler. Gets an
+                                             --   action which completes when
+                                             --   the socket is closed.
            -> IO (N.ServiceName, ThreadId)
 forkServer host port backlog reuseAddr errorHandler terminationHandler requestHandler = do
     -- Resolve the specified address. By specification, getAddrInfo will never
