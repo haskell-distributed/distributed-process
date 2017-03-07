@@ -16,8 +16,9 @@ import Network.Transport
 import Network.Transport.TCP ( createTransport
                              , createTransportExposeInternals
                              , TransportInternals(..)
-                             , encodeEndPointAddress
                              , TCPParameters(..)
+                             , encodeEndPointAddress
+                             , decodeEndPointAddress
                              , defaultTCPParameters
                              , LightweightConnectionId
                              )
@@ -31,6 +32,7 @@ import Control.Concurrent.MVar ( MVar
                                , newMVar
                                , modifyMVar
                                , modifyMVar_
+                               , swapMVar
                                )
 import Control.Monad (replicateM, guard, forM_, replicateM_, when)
 import Control.Applicative ((<$>))
@@ -65,6 +67,15 @@ import qualified Network.Socket as N
   , AddrInfo
   , shutdown
   , ShutdownCmd(ShutdownSend)
+  , SockAddr(..)
+  , SocketType(Stream)
+  , AddrInfo(..)
+  , getAddrInfo
+  , defaultHints
+  , defaultProtocol
+  , socket
+  , connect
+  , close
   )
 
 #ifdef USE_MOCK_NETWORK
@@ -162,7 +173,7 @@ testEarlyDisconnect = do
       tlog "Client"
 
       -- Listen for incoming messages
-      (clientPort, _) <- forkServer "127.0.0.1" "0" 5 True throwIO $ \sock -> do
+      (clientPort, _) <- forkServer "127.0.0.1" "0" 5 True throwIO throwIO $ \socketFree sock -> do
         -- Initial setup
         0 <- recvWord32 sock
         _ <- recvWithLength maxBound sock
@@ -190,7 +201,7 @@ testEarlyDisconnect = do
       putMVar clientAddr ourAddress
 
       -- Connect to the server
-      Right (sock, ConnectionRequestAccepted) <- readMVar serverAddr >>= \addr -> socketToEndPoint ourAddress addr True False False Nothing Nothing
+      Right (_, sock, ConnectionRequestAccepted) <- readMVar serverAddr >>= \addr -> socketToEndPoint ourAddress addr True False False Nothing Nothing
 
       -- Open a new connection
       sendMany sock [
@@ -274,7 +285,7 @@ testEarlyCloseSocket = do
       tlog "Client"
 
       -- Listen for incoming messages
-      (clientPort, _) <- forkServer "127.0.0.1" "0" 5 True throwIO $ \sock -> do
+      (clientPort, _) <- forkServer "127.0.0.1" "0" 5 True throwIO throwIO $ \socketFree sock -> do
         -- Initial setup
         0 <- recvWord32 sock
         _ <- recvWithLength maxBound sock
@@ -307,7 +318,7 @@ testEarlyCloseSocket = do
       putMVar clientAddr ourAddress
 
       -- Connect to the server
-      Right (sock, ConnectionRequestAccepted) <- readMVar serverAddr >>= \addr -> socketToEndPoint ourAddress addr True False False Nothing Nothing
+      Right (_, sock, ConnectionRequestAccepted) <- readMVar serverAddr >>= \addr -> socketToEndPoint ourAddress addr True False False Nothing Nothing
 
       -- Open a new connection
       sendMany sock [
@@ -401,7 +412,7 @@ testIgnoreCloseSocket = do
     theirAddress <- readMVar serverAddr
 
     -- Connect to the server
-    Right (sock, ConnectionRequestAccepted) <- socketToEndPoint ourAddress theirAddress True False False Nothing Nothing
+    Right (_, sock, ConnectionRequestAccepted) <- socketToEndPoint ourAddress theirAddress True False False Nothing Nothing
     putMVar connectionEstablished ()
 
     -- Server connects to us, and then closes the connection
@@ -487,7 +498,7 @@ testBlockAfterCloseSocket = do
     theirAddress <- readMVar serverAddr
 
     -- Connect to the server
-    Right (sock, ConnectionRequestAccepted) <- socketToEndPoint ourAddress theirAddress True False False Nothing Nothing
+    Right (_, sock, ConnectionRequestAccepted) <- socketToEndPoint ourAddress theirAddress True False False Nothing Nothing
     putMVar connectionEstablished ()
 
     -- Server connects to us, and then closes the connection
@@ -550,14 +561,14 @@ testUnnecessaryConnect numThreads = do
         -- immediately (depending on far the remote endpoint got with the initialization)
         response <- readMVar serverAddr >>= \addr -> socketToEndPoint ourAddress addr True False False Nothing Nothing
         case response of
-          Right (_, ConnectionRequestAccepted) ->
+          Right (_, _, ConnectionRequestAccepted) ->
             -- We don't close this socket because we want to keep this connection open
             putMVar gotAccepted ()
           -- We might get either Invalid or Crossed (the transport does not
           -- maintain enough history to be able to tell)
-          Right (sock, ConnectionRequestInvalid) ->
+          Right (_, sock, ConnectionRequestInvalid) ->
             N.sClose sock
-          Right (sock, ConnectionRequestCrossed) ->
+          Right (_, sock, ConnectionRequestCrossed) ->
             N.sClose sock
           Left _ ->
             return ()
@@ -602,6 +613,13 @@ testBreakTransport = do
 
   return ()
 
+-- Used in testReconnect to block until a socket is closed. newtype is needed
+-- for the Traceable instance.
+newtype WaitSocketFree = WaitSocketFree (IO ())
+
+instance Traceable WaitSocketFree where
+  trace = const Nothing
+
 -- | Test that a second call to 'connect' might succeed even if the first
 -- failed. This is a TCP specific test rather than an endpoint specific test
 -- because we must manually create the endpoint address to match an endpoint we
@@ -613,11 +631,15 @@ testReconnect :: IO ()
 testReconnect = do
   serverDone      <- newEmptyMVar
   endpointCreated <- newEmptyMVar
+  -- The server will put the 'socketFree' IO in here, so that the client can
+  -- block until the server has closed the socket.
+  socketClosed    <- newEmptyMVar
 
   counter <- newMVar (0 :: Int)
 
   -- Server
-  (serverPort, _) <- forkServer "127.0.0.1" "0" 5 True throwIO $ \sock -> do
+  (serverPort, _) <- forkServer "127.0.0.1" "0" 5 True throwIO throwIO $ \socketFree sock -> do
+
     -- Accept the connection
     Right 0  <- tryIO $ recvWord32 sock
     Right _  <- tryIO $ recvWithLength maxBound sock
@@ -625,24 +647,34 @@ testReconnect = do
     -- The first time we close the socket before accepting the logical connection
     count <- modifyMVar counter $ \i -> return (i + 1, i)
 
+    -- The client is responsible for taking this MVar before trying to connect
+    -- again.
+    putMVar socketClosed (WaitSocketFree socketFree)
+
     when (count > 0) $ do
+      -- The second, third, and fourth connections are accepted according to the
+      -- protocol.
+      -- On the second request, the socket then closes.
       Right () <- tryIO $ sendMany sock [
           encodeWord32 (encodeConnectionRequestResponse ConnectionRequestAccepted)
         ]
       -- Client requests a logical connection
       when (count > 1) $ do
+        -- On the third and fourth requests, a new logical connection is
+        -- accepted.
+        -- On the third request the socket then closes.
         Right (Just CreatedNewConnection) <- tryIO $ decodeControlHeader <$> recvWord32 sock
         connId <- recvWord32 sock :: IO LightweightConnectionId
         return ()
 
         when (count > 2) $ do
-          -- Client sends a message
+          -- On the fourth request, a message is received and then the socket
+          -- is closed.
           Right connId' <- tryIO $ (recvWord32 sock :: IO LightweightConnectionId)
           True <- return $ connId == connId'
           Right ["ping"] <- tryIO $ recvWithLength maxBound sock
           putMVar serverDone ()
 
-    Right () <- tryIO $ N.sClose sock
     return ()
 
   putMVar endpointCreated ()
@@ -664,7 +696,15 @@ testReconnect = do
       Just (Left err) -> throwIO err
       Just (Right _) -> throwIO $ userError "testConnect: unexpected connect success"
 
+    WaitSocketFree wait <- takeMVar socketClosed
+    wait
+
+    -- Second attempt: server accepts but then closes the socket. We expect
+    -- either a failed connection, or a subsequent send to fail.
     resultConnect <- timeout 500000 $ connect endpoint theirAddr ReliableOrdered defaultConnectHints
+    -- Here we must be sure that the socket has closed.
+    WaitSocketFree wait <- takeMVar socketClosed
+    wait
     case resultConnect of
       Nothing -> return ()
       Just (Left (TransportError ConnectFailed _)) -> return ()
@@ -681,15 +721,19 @@ testReconnect = do
     Right conn1 <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
 
     -- But a send will fail because the server has closed the connection again
+    WaitSocketFree wait <- takeMVar socketClosed
+    wait
     threadDelay 100000
     Left (TransportError SendFailed _) <- send conn1 ["ping"]
-
 
     -- But a subsequent call to connect should reestablish the connection
     Right conn2 <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
 
     -- Send should now succeed
     Right () <- send conn2 ["ping"]
+
+    WaitSocketFree wait <- takeMVar socketClosed
+    wait
     return ()
 
   takeMVar serverDone
@@ -704,7 +748,7 @@ testUnidirectionalError = do
   serverGotPing <- newEmptyMVar
 
   -- Server
-  (serverPort, _) <- forkServer "127.0.0.1" "0" 5 True throwIO $ \sock -> do
+  (serverPort, _) <- forkServer "127.0.0.1" "0" 5 True throwIO throwIO $ \socketFree sock -> do
     -- We accept connections, but when an exception occurs we don't do
     -- anything (in particular, we don't close the socket). This is important
     -- because when we shutdown one direction of the socket a recv here will
@@ -722,6 +766,10 @@ testUnidirectionalError = do
       True <- return $ connId == connId'
       ["ping"] <- recvWithLength maxBound sock
       putMVar serverGotPing ()
+
+    -- Must read the clientDone MVar so that we don't close the socket
+    -- (forkServer will close it once this action ends).
+    readMVar clientDone
 
   -- Client
   forkTry $ do
@@ -776,7 +824,7 @@ testUnidirectionalError = do
 
     putMVar clientDone  ()
 
-  takeMVar clientDone
+  readMVar clientDone
 
 testInvalidCloseConnection :: IO ()
 testInvalidCloseConnection = do
@@ -899,6 +947,44 @@ testMaxLength = do
   closeTransport goodClientTransport
   closeTransport serverTransport
 
+-- | Ensure that an end point closes up OK even if the peer disobeys the
+--   protocol.
+testCloseEndPoint :: IO ()
+testCloseEndPoint = do
+
+  serverAddress <- newEmptyMVar
+  serverFinished <- newEmptyMVar
+
+  -- A server which accepts one connection and then attempts to close the
+  -- end point.
+  forkTry $ do
+    Right transport <- createTransport "127.0.0.1" "0" ((,) "127.0.0.1") defaultTCPParameters
+    Right ep <- newEndPoint transport
+    putMVar serverAddress (address ep)
+    ConnectionOpened _ _ _ <- receive ep
+    Just () <- timeout 5000000 (closeEndPoint ep)
+    putMVar serverFinished ()
+    return ()
+
+  -- A nefarious client which connects to the server then stops responding.
+  forkTry $ do
+    Just (hostName, serviceName, endPointId) <- decodeEndPointAddress <$> readMVar serverAddress
+    addr:_ <- N.getAddrInfo (Just N.defaultHints) (Just hostName) (Just serviceName)
+    sock <- N.socket (N.addrFamily addr) N.Stream N.defaultProtocol
+    N.connect sock (N.addrAddress addr)
+    sendMany sock [
+        encodeWord32 endPointId
+      , encodeWord32 13
+      , "127.0.0.1:0:0"
+      -- Create a lightweight connection.
+      , encodeWord32 (encodeControlHeader CreatedNewConnection)
+      , encodeWord32 1024
+      ]
+    readMVar serverFinished
+    N.close sock
+
+  readMVar serverFinished
+
 main :: IO ()
 main = do
   tcpResult <- tryIO $ runTests
@@ -916,6 +1002,7 @@ main = do
            , ("UnidirectionalError",    testUnidirectionalError)
            , ("InvalidCloseConnection", testInvalidCloseConnection)
            , ("MaxLength",              testMaxLength)
+           , ("CloseEndPoint",          testCloseEndPoint)
            ]
   -- Run the generic tests even if the TCP specific tests failed..
   testTransport (either (Left . show) (Right) <$>
