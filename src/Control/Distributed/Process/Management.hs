@@ -280,7 +280,7 @@ import Control.Distributed.Process.Management.Internal.Types
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (ask)
-import Control.Monad.Catch (onException)
+import Control.Monad.Catch (finally)
 import qualified Control.Monad.State as ST
   ( get
   , modify
@@ -429,7 +429,7 @@ mxAgentWithFinalize mxId initState handlers dtor = do
              -> Process ()
     runAgent eh hs cs c s =
       runAgentWithFinalizer eh hs cs c s
-        `onException` runAgentFinalizer eh s
+        `finally` runAgentFinalizer eh s
 
     runAgentWithFinalizer :: MxAgent s ()
                           -> [MxSink s]
