@@ -18,6 +18,7 @@ module Network.Transport.TCP.Internal
   , encodeEndPointAddress
   , decodeEndPointAddress
   , ProtocolVersion
+  , currentProtocolVersion
   ) where
 
 #if ! MIN_VERSION_base(4,6,0)
@@ -101,10 +102,13 @@ import qualified Data.ByteString.Char8 as BSC (unpack, pack)
 -- | Local identifier for an endpoint within this transport
 type EndPointId = Word32
 
--- | Identifies the version of the network-transport-protocol.
+-- | Identifies the version of the network-transport-tcp protocol.
 -- It's the first piece of data sent when a new heavyweight connection is
 -- established.
 type ProtocolVersion = Word32
+
+currentProtocolVersion :: ProtocolVersion
+currentProtocolVersion = 0x00000000
 
 -- | Control headers
 data ControlHeader =
@@ -143,7 +147,7 @@ encodeControlHeader ch = case ch of
 
 -- | Response sent by /B/ to /A/ when /A/ tries to connect
 data ConnectionRequestResponse =
-    -- | /B/ does not support the version requested by /A/.
+    -- | /B/ does not support the protocol version requested by /A/.
     ConnectionRequestUnsupportedVersion
     -- | /B/ accepts the connection
   | ConnectionRequestAccepted
