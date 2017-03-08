@@ -10,6 +10,7 @@ module Main where
 
 import Control.Concurrent.MVar
   ( MVar
+  , newEmptyMVar
   , newMVar
   , putMVar
   , takeMVar
@@ -121,9 +122,27 @@ runInTestContext :: LocalNode
                  -> Assertion
 runInTestContext node lock sm rs cs proc = do
   Ex.bracket (takeMVar lock) (putMVar lock) $ \() -> runProcess node $ do
-    mon <- supervisionMonitor
     sup <- Supervisor.start rs sm cs
-    (proc sup) `finally` (exit sup ExitShutdown >> kill mon "finished" >> waitForExit mon)
+    (proc sup) `finally` (exit sup ExitShutdown)
+
+data Context = Context { sup         :: SupervisorPid
+                       , sniffer     :: Sniffer
+                       , waitTimeout :: TimeInterval
+                       }
+type Sniffer = ReceivePort MxSupervisor
+
+runInTestContext' :: LocalNode
+                  -> ShutdownMode
+                  -> RestartStrategy
+                  -> [ChildSpec]
+                  -> (Context -> Process ())
+                  -> Assertion
+runInTestContext' node sm rs cs proc = do
+  liftIO $ runProcess node $ do
+    sup <- Supervisor.start rs sm cs
+    sf <- monitorSupervisor sup
+    finally (proc $ Context sup sf (seconds 10))
+            (exit sup ExitShutdown >> unmonitorSupervisor sup)
 
 verifyChildWasRestarted :: ChildKey -> ProcessId -> ProcessId -> Process ()
 verifyChildWasRestarted key pid sup = do
@@ -899,6 +918,7 @@ restartLeftWithLeftToRightRestarts sup = do
   let templ = permChild $ RunClosure ($(mkClosure 'notifyMe) self)
   let specs = [templ { childKey = (show i) } | i <- [1..20 :: Int]]
   forM_ specs $ \s -> void $ startNewChild sup s
+
   -- assert that we saw the startup sequence working...
   let toStart = childKey $ head specs
   Just (ref, _) <- lookupChild sup toStart
@@ -955,55 +975,86 @@ restartRightWithLeftToRightRestarts sup = do
   let [c1, c2] = [map fst cs | cs <- [(fst $ splitAt 3 children), notRestarted]]
   forM_ (zip c1 c2) $ \(p1, p2) -> p1 `shouldBe` equalTo p2
 
-restartRightWithRightToLeftRestarts :: ProcessId -> Process ()
-restartRightWithRightToLeftRestarts sup = do
-  self <- getSelfPid
-  let templ = permChild $ RunClosure ($(mkClosure 'notifyMe) self)
+restartRightWithRightToLeftRestarts :: Context -> Process ()
+restartRightWithRightToLeftRestarts ctx@Context{..} = do
+  let templ = permChild $ RunClosure $(mkStaticClosure 'obedient)
   let specs = [templ { childKey = (show i) } | i <- [1..20 :: Int]]
   forM_ specs $ \s -> void $ startNewChild sup s
-  -- assert that we saw the startup sequence working...
-  let toStart = childKey $ head specs
-  Just (ref, _) <- lookupChild sup toStart
-  Just pid <- resolve ref
+
   children <- listChildren sup
-  drainChildren children pid
+
+  -- assert that we saw the startup sequence working...
+  checkStartupOrder ctx children
+
   let (_, toRestart) = splitAt 3 specs
+  let (toSurvive, restarts) = splitAt 3 children
   let toStop = childKey $ head toRestart
   Just (ref', _) <- lookupChild sup toStop
   Just stopPid <- resolve ref'
   kill stopPid "goodbye"
+
   -- wait for all the exit signals, so we know the children are restarting
-  forM_ (map fst (snd $ splitAt 3 children)) $ \cRef -> do
-    mRef <- monitor cRef
-    waitForDown mRef
+  forM_ (map fst (snd $ splitAt 3 children)) $ \cRef -> monitor cRef >>= waitForDown
+
   children' <- listChildren sup
   let (notRestarted, restarted) = splitAt 3 children'
-  -- another (technically) unsafe check
-  let firstRestart = childKey $ snd $ last restarted
-  Just (rRef, _) <- lookupChild sup firstRestart
-  Just fPid <- resolve rRef
-  drainChildren restarted fPid
+
+  let xs = zip [fst o | o <- restarts] restarted
+  verifyStopStartOrder ctx xs (reverse restarted) toStop
+
   let [c1, c2] = [map fst cs | cs <- [(fst $ splitAt 3 children), notRestarted]]
   forM_ (zip c1 c2) $ \(p1, p2) -> p1 `shouldBe` equalTo p2
 
-restartLeftWithRightToLeftRestarts :: ProcessId -> Process ()
-restartLeftWithRightToLeftRestarts sup = do
-  -- self <- getSelfPid
+verifyStopStartOrder :: Context
+                     -> [(ChildRef, Child)]
+                     -> [Child]
+                     -> ChildKey
+                     -> Process ()
+verifyStopStartOrder ctx@Context{..} xs restarted toStop = do
+  let t = asTimeout waitTimeout
+  forM_ xs $ \(oCr, c@(_, cs)) -> do
+    say $ "checking restart " ++ (show c)
+    mx <- receiveTimeout t [ matchChan sniffer return ]
+    case mx of
+      Just SupervisedChildRestarting{..} -> do
+        say $ "for restart " ++ (show childSpecKey) ++ " we're expecting " ++ (childKey cs)
+        childSpecKey `shouldBe` equalTo (childKey cs)
+        if childSpecKey /= toStop
+          then do Just SupervisedChildStopped{..} <- receiveChanTimeout t sniffer
+                  say $ "for " ++ (show childRef) ++ " we're expecting " ++ (show oCr)
+                  childRef `shouldBe` equalTo oCr
+          else return ()
+      _ -> liftIO $ assertFailure $ "Bad Restart: " ++ (show mx)
+
+  forM_ restarted $ \(cr, _) -> do
+    say $ "checking (reverse) start order for " ++ (show cr)
+    mx <- receiveTimeout t [ matchChan sniffer return ]
+    case mx of
+      Just SupervisedChildStarted{..} -> childRef `shouldBe` equalTo cr
+      _ -> liftIO $ assertFailure $ "Bad Child Start: " ++ (show mx)
+
+checkStartupOrder :: Context -> [Child] -> Process ()
+checkStartupOrder Context{..} children = do
+  -- assert that we saw the startup sequence working...
+  forM_ children $ \(cr, _) -> do
+    say $ "checking " ++ (show cr)
+    mx <- receiveTimeout (asTimeout waitTimeout) [ matchChan sniffer return ]
+    case mx of
+      Just SupervisedChildStarted{..} -> childRef `shouldBe` equalTo cr
+      _ -> liftIO $ assertFailure $ "Bad Child Start: " ++ (show mx)
+
+restartLeftWithRightToLeftRestarts :: Context -> Process ()
+restartLeftWithRightToLeftRestarts ctx@Context{..} = do
   let t =  asTimeout $ seconds 10
-  sniffer <- monitorSupervisor sup
 
   let templ = permChild $ RunClosure $(mkStaticClosure 'obedient)
   let specs = [templ { childKey = (show i) } | i <- [1..20 :: Int]]
   forM_ specs $ \s -> void $ startNewChild sup s
 
-  -- assert that we saw the startup sequence working...
   children <- listChildren sup
-  forM_ children $ \(cr, _) -> do
-    say $ "checking " ++ (show cr)
-    mx <- receiveTimeout t [ matchChan sniffer return ]
-    case mx of
-      Just SupervisedChildStarted{..} -> childRef `shouldBe` equalTo cr
-      _ -> liftIO $ assertFailure $ "Bad Child Start: " ++ (show mx)
+
+  -- assert that we saw the startup sequence working...
+  checkStartupOrder ctx children
 
   -- split off 6 children to be restarted
   let (toRestart, _) = splitAt 7 specs
@@ -1020,26 +1071,7 @@ restartLeftWithRightToLeftRestarts sup = do
   let (restarted, notRestarted) = splitAt 7 children'
   let xs = zip [fst o | o <- restarts] restarted
 
-  forM_ xs $ \(oCr, c@(_, cs)) -> do
-    say $ "checking restart " ++ (show c)
-    mx <- receiveTimeout t [ matchChan sniffer return ]
-    case mx of
-      Just SupervisedChildRestarting{..} -> do
-        say $ "for restart " ++ (show childSpecKey) ++ " we're expecting " ++ (childKey cs)
-        childSpecKey `shouldBe` equalTo (childKey cs)
-        if childSpecKey /= toStop
-          then do Just SupervisedChildStopped{..} <- receiveChanTimeout t sniffer
-                  say $ "for " ++ (show childRef) ++ " we're expecting " ++ (show oCr)
-                  childRef `shouldBe` equalTo oCr
-          else return ()
-      _ -> liftIO $ assertFailure $ "Bad Restart: " ++ (show mx)
-
-  forM_ (reverse restarted) $ \(cr, _) -> do
-    say $ "checking (reverse) start order for " ++ (show cr)
-    mx <- receiveTimeout t [ matchChan sniffer return ]
-    case mx of
-      Just SupervisedChildStarted{..} -> childRef `shouldBe` equalTo cr
-      _ -> liftIO $ assertFailure $ "Bad Child Start: " ++ (show mx)
+  verifyStopStartOrder ctx xs (reverse restarted) toStop
 
   let [c1, c2] = [map fst cs | cs <- [toSurvive, notRestarted]]
   forM_ (zip c1 c2) $ \(p1, p2) -> p1 `shouldBe` equalTo p2
@@ -1062,8 +1094,10 @@ tests transport = do
                     , "Can Fail Intermittently" ]
   localNode <- newLocalNode transport myRemoteTable
   singleTestLock <- newMVar ()
+  runProcess localNode $ void $ supervisionMonitor
   let withSup sm = runInTestContext localNode singleTestLock sm
   let withSupervisor = runInTestContext localNode singleTestLock ParallelShutdown
+  let withSupervisor' = runInTestContext' localNode ParallelShutdown
   return
     [ testGroup "Supervisor Processes"
       [
@@ -1246,11 +1280,11 @@ tests transport = do
                    (RestartLeft defaultLimits (RestartInOrder LeftToRight)) []
                     restartLeftWithLeftToRightRestarts)
             , testCase "Restart Left, Right To Left Stop, Right To Left Start"
-                  (withSupervisor
+                  (withSupervisor'
                    (RestartLeft defaultLimits (RestartInOrder RightToLeft)) []
                     restartLeftWithRightToLeftRestarts)
             , testCase "Restart Left, Left To Right Stop, Reverse Start"
-                  (withSupervisor
+                  (withSupervisor'
                    (RestartLeft defaultLimits (RestartRevOrder LeftToRight)) []
                     restartLeftWithRightToLeftRestarts)
             , testCase "Restart Left, Right To Left Stop, Reverse Start"
@@ -1273,11 +1307,11 @@ tests transport = do
                    (RestartRight defaultLimits (RestartInOrder LeftToRight)) []
                     restartRightWithLeftToRightRestarts)
             , testCase "Restart Right, Right To Left Stop, Right To Left Start"
-                  (withSupervisor
+                  (withSupervisor'
                    (RestartRight defaultLimits (RestartInOrder RightToLeft)) []
                     restartRightWithRightToLeftRestarts)
             , testCase "Restart Right, Left To Right Stop, Reverse Start"
-                  (withSupervisor
+                  (withSupervisor'
                    (RestartRight defaultLimits (RestartRevOrder LeftToRight)) []
                     restartRightWithRightToLeftRestarts)
             , testCase "Restart Right, Right To Left Stop, Reverse Start"

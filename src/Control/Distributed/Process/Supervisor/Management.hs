@@ -38,6 +38,7 @@ import Control.Distributed.Process
 import Control.Distributed.Process.Internal.Types (SendPort(..))
 import Control.Distributed.Process.Management
   ( MxAgentId(..)
+  , MxEvent(MxProcessDied)
   , mxAgent
   , mxSink
   , mxReady
@@ -105,6 +106,10 @@ supervisionMonitor = do
           st <- mxGetLocal
           mxSetLocal $ Map.filterWithKey (\k v -> if k == sup then (fst v) /= pid else True) st
           mxReady)
+      {- , (mxSunk $ \(ev :: MxEvent) -> do
+          case ev of
+            MxProcessDied
+      -}
       , (mxSink $ \(ev :: MxSupervisor) -> do
           st <- mxGetLocal
           let cs = Map.lookup (supervisorPid ev) st
