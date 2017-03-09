@@ -922,14 +922,12 @@ tryRestartBranch rs sp dr st = -- TODO: use DiedReason for logging...
                 RestartRight _ _ -> subTreeR
                 _                  -> error "IllegalState"
       proc  = case mode' of
-                RestartEach     _ -> stopStart
-                RestartInOrder  _ -> restartL
-                RestartRevOrder _ -> reverseRestart
-      dir'  = order mode' in do
-    proc tree' dir'
+                RestartEach     _ -> stopStart (order mode')
+                _                 -> restartBranch mode'
+    in proc tree'
   where
-    stopStart :: ChildSpecs -> RestartOrder -> Process (ProcessAction State)
-    stopStart tree order' = do
+    stopStart :: RestartOrder -> ChildSpecs -> Process (ProcessAction State)
+    stopStart order' tree = do
       let tree' = case order' of
                     LeftToRight -> tree
                     RightToLeft -> Seq.reverse tree
@@ -938,24 +936,21 @@ tryRestartBranch rs sp dr st = -- TODO: use DiedReason for logging...
         Nothing  -> die errorMaxIntensityReached
         Just st' -> apply (foldlM stopStartIt st' tree')
 
-    reverseRestart :: ChildSpecs
-                   -> RestartOrder
-                   -> Process (ProcessAction State)
-    reverseRestart tree LeftToRight = restartL tree RightToLeft -- force re-order
-    reverseRestart tree dir@(RightToLeft) = restartL (Seq.reverse tree) dir
-
-    -- TODO: rename me for heaven's sake - this ISN'T a left biased traversal after all!
-    restartL :: ChildSpecs -> RestartOrder -> Process (ProcessAction State)
-    restartL tree ro = do
-      let rev   = (ro == RightToLeft)
-      let tree' = case rev of
-                    False -> tree
-                    True  -> Seq.reverse tree
+    restartBranch :: RestartMode -> ChildSpecs -> Process (ProcessAction State)
+    restartBranch mode' tree = do
       state <- addRestart activeState
       case state of
-        Nothing -> die errorMaxIntensityReached
-        Just st' -> foldlM stopIt st' tree >>= \s -> do
-                      apply $ foldlM startIt s tree'
+        Nothing  -> die errorMaxIntensityReached
+        Just st' -> do
+          let (stopTree, startTree) = mkTrees mode' tree
+          foldlM stopIt st' stopTree >>= \s -> apply $ foldlM startIt s startTree
+
+    mkTrees :: RestartMode -> ChildSpecs -> (ChildSpecs, ChildSpecs)
+    mkTrees (RestartInOrder LeftToRight)  tree = (tree, tree)
+    mkTrees (RestartInOrder RightToLeft)  tree = let rev = Seq.reverse tree in (rev, rev)
+    mkTrees (RestartRevOrder LeftToRight) tree = (tree, Seq.reverse tree)
+    mkTrees (RestartRevOrder RightToLeft) tree = (Seq.reverse tree, tree)
+    mkTrees _                             _    = error "mkTrees.INVALID_STATE"
 
     stopStartIt :: State -> Child -> Process State
     stopStartIt s ch@(cr, cs) = do

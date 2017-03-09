@@ -944,39 +944,40 @@ restartLeftWithLeftToRightRestarts sup = do
   let [c1, c2] = [map fst cs | cs <- [(snd $ splitAt 7 children), notRestarted]]
   forM_ (zip c1 c2) $ \(p1, p2) -> p1 `shouldBe` equalTo p2
 
-restartRightWithLeftToRightRestarts :: ProcessId -> Process ()
-restartRightWithLeftToRightRestarts sup = do
-  self <- getSelfPid
-  let templ = permChild $ RunClosure ($(mkClosure 'notifyMe) self)
+restartRightWithLeftToRightRestarts :: Bool -> Context -> Process ()
+restartRightWithLeftToRightRestarts rev ctx@Context{..} = do
+
+  let templ = permChild $ RunClosure $(mkStaticClosure 'obedient)
   let specs = [templ { childKey = (show i) } | i <- [1..20 :: Int]]
   forM_ specs $ \s -> void $ startNewChild sup s
-  -- assert that we saw the startup sequence working...
-  let toStart = childKey $ head specs
-  Just (ref, _) <- lookupChild sup toStart
-  Just pid <- resolve ref
+
   children <- listChildren sup
-  drainChildren children pid
+
+  -- assert that we saw the startup sequence working...
+  checkStartupOrder ctx children
+
   let (_, toRestart) = splitAt 3 specs
+  let (_, restarts) = splitAt 3 children
   let toStop = childKey $ head toRestart
   Just (ref', _) <- lookupChild sup toStop
   Just stopPid <- resolve ref'
   kill stopPid "goodbye"
   -- wait for all the exit signals, so we know the children are restarting
-  forM_ (map fst (snd $ splitAt 3 children)) $ \cRef -> do
-    mRef <- monitor cRef
-    waitForDown mRef
+  forM_ (map fst (snd $ splitAt 3 children)) $ \cRef -> monitor cRef >>= waitForDown
+
   children' <- listChildren sup
   let (notRestarted, restarted) = splitAt 3 children'
-  -- another (technically) unsafe check
-  let firstRestart = childKey $ snd $ head restarted
-  Just (rRef, _) <- lookupChild sup firstRestart
-  Just fPid <- resolve rRef
-  drainChildren restarted fPid
+
+  let restarted' = if rev then reverse restarted else restarted
+  let restarts'  = if rev then reverse restarts  else restarts
+  let xs = zip [fst o | o <- restarts'] restarted'
+  verifyStopStartOrder ctx xs restarted toStop
+
   let [c1, c2] = [map fst cs | cs <- [(fst $ splitAt 3 children), notRestarted]]
   forM_ (zip c1 c2) $ \(p1, p2) -> p1 `shouldBe` equalTo p2
 
-restartRightWithRightToLeftRestarts :: Context -> Process ()
-restartRightWithRightToLeftRestarts ctx@Context{..} = do
+restartRightWithRightToLeftRestarts :: Bool -> Context -> Process ()
+restartRightWithRightToLeftRestarts rev ctx@Context{..} = do
   let templ = permChild $ RunClosure $(mkStaticClosure 'obedient)
   let specs = [templ { childKey = (show i) } | i <- [1..20 :: Int]]
   forM_ specs $ \s -> void $ startNewChild sup s
@@ -999,7 +1000,9 @@ restartRightWithRightToLeftRestarts ctx@Context{..} = do
   children' <- listChildren sup
   let (notRestarted, restarted) = splitAt 3 children'
 
-  let xs = zip [fst o | o <- restarts] restarted
+  let (restarts', restarted') = if rev then (reverse restarts, reverse restarted)
+                                       else (restarts, restarted)
+  let xs = zip [fst o | o <- restarts'] restarted'
   verifyStopStartOrder ctx xs (reverse restarted) toStop
 
   let [c1, c2] = [map fst cs | cs <- [(fst $ splitAt 3 children), notRestarted]]
@@ -1010,7 +1013,13 @@ verifyStopStartOrder :: Context
                      -> [Child]
                      -> ChildKey
                      -> Process ()
-verifyStopStartOrder ctx@Context{..} xs restarted toStop = do
+verifyStopStartOrder Context{..} xs restarted toStop = do
+  -- xs == [(oldRef, (ref, spec))] in specified/insertion order
+  -- if shutdown is LeftToRight then that's correct, otherwise we
+  -- should expect the shutdowns in reverse order
+
+  say $ "VERIFY_STOP_START:\nOLD+NEW: " ++ (show xs) ++ "\nNEW: " ++ (show restarted)
+  sleep $ seconds 5
   let t = asTimeout waitTimeout
   forM_ xs $ \(oCr, c@(_, cs)) -> do
     say $ "checking restart " ++ (show c)
@@ -1022,10 +1031,15 @@ verifyStopStartOrder ctx@Context{..} xs restarted toStop = do
         if childSpecKey /= toStop
           then do Just SupervisedChildStopped{..} <- receiveChanTimeout t sniffer
                   say $ "for " ++ (show childRef) ++ " we're expecting " ++ (show oCr)
-                  childRef `shouldBe` equalTo oCr
+                  -- childRef `shouldBe` equalTo oCr
+                  if childRef /= oCr
+                    then say $ "childRef " ++ (show childRef) ++ " /= " ++ (show oCr)
+                    else return ()
           else return ()
       _ -> liftIO $ assertFailure $ "Bad Restart: " ++ (show mx)
 
+  say "checking start order..."
+  sleep $ seconds 5
   forM_ restarted $ \(cr, _) -> do
     say $ "checking (reverse) start order for " ++ (show cr)
     mx <- receiveTimeout t [ matchChan sniffer return ]
@@ -1043,10 +1057,8 @@ checkStartupOrder Context{..} children = do
       Just SupervisedChildStarted{..} -> childRef `shouldBe` equalTo cr
       _ -> liftIO $ assertFailure $ "Bad Child Start: " ++ (show mx)
 
-restartLeftWithRightToLeftRestarts :: Context -> Process ()
-restartLeftWithRightToLeftRestarts ctx@Context{..} = do
-  let t =  asTimeout $ seconds 10
-
+restartLeftWithRightToLeftRestarts :: Bool -> Context -> Process ()
+restartLeftWithRightToLeftRestarts rev ctx@Context{..} = do
   let templ = permChild $ RunClosure $(mkStaticClosure 'obedient)
   let specs = [templ { childKey = (show i) } | i <- [1..20 :: Int]]
   forM_ specs $ \s -> void $ startNewChild sup s
@@ -1069,7 +1081,10 @@ restartLeftWithRightToLeftRestarts ctx@Context{..} = do
 
   children' <- listChildren sup
   let (restarted, notRestarted) = splitAt 7 children'
-  let xs = zip [fst o | o <- restarts] restarted
+  --let xs = zip [fst o | o <- restarts] restarted
+  let (restarts', restarted') = if rev then (reverse restarts, reverse restarted)
+                                       else (restarts, restarted)
+  let xs = zip [fst o | o <- restarts'] restarted'
 
   verifyStopStartOrder ctx xs (reverse restarted) toStop
 
@@ -1282,11 +1297,11 @@ tests transport = do
             , testCase "Restart Left, Right To Left Stop, Right To Left Start"
                   (withSupervisor'
                    (RestartLeft defaultLimits (RestartInOrder RightToLeft)) []
-                    restartLeftWithRightToLeftRestarts)
+                    (restartLeftWithRightToLeftRestarts True))
             , testCase "Restart Left, Left To Right Stop, Reverse Start"
                   (withSupervisor'
                    (RestartLeft defaultLimits (RestartRevOrder LeftToRight)) []
-                    restartLeftWithRightToLeftRestarts)
+                    (restartLeftWithRightToLeftRestarts False))
             , testCase "Restart Left, Right To Left Stop, Reverse Start"
                   (withSupervisor
                    (RestartLeft defaultLimits (RestartRevOrder RightToLeft)) []
@@ -1303,21 +1318,21 @@ tests transport = do
                     restartRightWhenRightmostChildDies
                     (RunClosure $(mkStaticClosure 'blockIndefinitely)))
             , testCase "Restart Right, Left To Right Stop, Left To Right Start"
-                  (withSupervisor
+                  (withSupervisor'
                    (RestartRight defaultLimits (RestartInOrder LeftToRight)) []
-                    restartRightWithLeftToRightRestarts)
+                    (restartRightWithLeftToRightRestarts False))
             , testCase "Restart Right, Right To Left Stop, Right To Left Start"
                   (withSupervisor'
                    (RestartRight defaultLimits (RestartInOrder RightToLeft)) []
-                    restartRightWithRightToLeftRestarts)
+                    (restartRightWithRightToLeftRestarts True))
             , testCase "Restart Right, Left To Right Stop, Reverse Start"
                   (withSupervisor'
                    (RestartRight defaultLimits (RestartRevOrder LeftToRight)) []
-                    restartRightWithRightToLeftRestarts)
+                    (restartRightWithRightToLeftRestarts False))
             , testCase "Restart Right, Right To Left Stop, Reverse Start"
-                  (withSupervisor
+                  (withSupervisor'
                    (RestartRight defaultLimits (RestartRevOrder RightToLeft)) []
-                    restartRightWithLeftToRightRestarts)
+                    (restartRightWithLeftToRightRestarts True))
             ]
           ]
         , testGroup "Restart Intensity"
@@ -1330,6 +1345,10 @@ tests transport = do
                  (RunClosure $(mkStaticClosure 'noOp)) withSupervisor)
 --          , testCase "Permanent Child Delayed Restart"
 --                (delayedRestartAfterThreeAttempts withSupervisor)
+          , testCase "Flush [NonTest]"
+            (withSupervisor'
+              (RestartRight defaultLimits (RestartInOrder LeftToRight)) []
+               (\_ -> sleep $ seconds 10))
           ]
       ]
     ]
