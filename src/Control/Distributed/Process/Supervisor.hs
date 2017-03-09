@@ -924,7 +924,10 @@ tryRestartBranch rs sp dr st = -- TODO: use DiedReason for logging...
       proc  = case mode' of
                 RestartEach     _ -> stopStart (order mode')
                 _                 -> restartBranch mode'
-    in proc tree'
+    in do us <- getSelfPid
+          a <- proc tree'
+          mxNotify $ SupervisorBranchRestarted us (childKey sp) dr rs
+          return a
   where
     stopStart :: RestartOrder -> ChildSpecs -> Process (ProcessAction State)
     stopStart order' tree = do
@@ -1129,7 +1132,6 @@ doRestartChild pid spec reason state = do -- TODO: use ChildPid and DiedReason t
                  mkReport "Unrecoverable error in child. Stopping supervisor"
                  sup (childKey spec) (show err)
                stopWith st $ ExitOther $ "Unrecoverable error in child " ++ (childKey spec)
-
   where
     chKey  = childKey spec
     chType = childType spec

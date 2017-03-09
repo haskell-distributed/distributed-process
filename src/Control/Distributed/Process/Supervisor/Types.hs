@@ -328,6 +328,13 @@ data MxSupervisor =
     , startFailure  :: StartFailure
     , childSpecKey  :: ChildKey
     }
+  | SupervisorBranchRestarted
+    {
+      supervisorPid  :: SupervisorPid
+    , childSpecKey   :: ChildKey
+    , diedReason     :: DiedReason
+    , branchStrategy :: RestartStrategy
+    }
   | SupervisedChildRestarting
     { supervisorPid :: SupervisorPid
     , childInScope  :: Maybe ChildPid

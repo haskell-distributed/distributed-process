@@ -1,6 +1,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell     #-}
 {-# LANGUAGE RecordWildCards     #-}
+{-# LANGUAGE PatternGuards       #-}
 
 -- NOTICE: Some of these tests are /unsafe/, and will fail intermittently, since
 -- they rely on ordering constraints which the Cloud Haskell runtime does not
@@ -36,7 +37,7 @@ import Control.Distributed.Process.ManagedProcess.Client (shutdown)
 import Control.Distributed.Process.Serializable()
 
 import Control.Distributed.Static (staticLabel)
-import Control.Monad (void, forM_, forM)
+import Control.Monad (void, unless, forM_, forM)
 import Control.Monad.Catch (finally)
 import Control.Rematch
   ( equalTo
@@ -667,28 +668,40 @@ restartAllWithLeftToRightSeqRestarts cs withSupervisor = do
 
 restartLeftWithLeftToRightSeqRestarts ::
      ChildStart
-  -> (RestartStrategy -> [ChildSpec] -> (ProcessId -> Process ()) -> Assertion)
+  -> (RestartStrategy -> [ChildSpec] -> (Context -> Process ()) -> Assertion)
   -> Assertion
 restartLeftWithLeftToRightSeqRestarts cs withSupervisor = do
   let templ = permChild cs
   let specs = [templ { childKey = (show i) } | i <- [1..500 :: Int]]
-  withSupervisor restartLeft specs $ \sup -> do
+  withSupervisor restartLeft specs $ \ctx@Context{..} -> do
+
+    children <- listChildren sup
+    checkStartupOrder ctx children
+
     let (toRestart, _notToRestart) = splitAt 100 specs
+    let (restarts, survivors) = splitAt 100 children
     let toStop = childKey $ last toRestart
     Just (ref, _) <- lookupChild sup toStop
     Just pid <- resolve ref
-    children <- listChildren sup
-    let (children', survivors) = splitAt 100 children
     kill pid "goodbye"
-    forM_ (map fst children') $ \cRef -> do
-      mRef <- monitor cRef
-      waitForDown mRef
+
+    forM_ (map fst restarts) $ \cRef -> monitor cRef >>= waitForDown
+
+    -- NB: this uses a separate channel to consume the Mx events...
+    waitForBranchRestartComplete sup toStop
+
+    children' <- listChildren sup
+    let (restarted', _) = splitAt 100 children'
+    let xs = zip [fst o | o <- restarts] restarted'
+    verifySeqStartOrder ctx xs toStop
+
     forM_ (map snd children') $ \cSpec -> do
       Just (ref', _) <- lookupChild sup (childKey cSpec)
       maybe (error "invalid ref") ensureProcessIsAlive =<< resolve ref'
+
     resolved <- forM (map fst survivors) resolve
     let possibleBadRestarts = catMaybes resolved
-    r <- receiveTimeout (after 1 Seconds) [
+    r <- receiveTimeout (after 5 Seconds) [
         match (\(ProcessMonitorNotification _ pid' _) -> do
           case (elem pid' possibleBadRestarts) of
             True  -> liftIO $ assertFailure $ "unexpected exit from " ++ show pid'
@@ -1008,6 +1021,51 @@ restartRightWithRightToLeftRestarts rev ctx@Context{..} = do
   let [c1, c2] = [map fst cs | cs <- [(fst $ splitAt 3 children), notRestarted]]
   forM_ (zip c1 c2) $ \(p1, p2) -> p1 `shouldBe` equalTo p2
 
+waitForBranchRestartComplete :: SupervisorPid
+                             -> ChildKey
+                             -> Process ()
+waitForBranchRestartComplete sup key = do
+  rp <- monitorSupervisor sup
+  aux 10000 rp Nothing `finally` unmonitorSupervisor sup
+  where
+    aux :: Int -> (ReceivePort MxSupervisor) -> Maybe MxSupervisor -> Process ()
+    aux n s m
+      | n < 1               = liftIO $ assertFailure $ "Never Saw Branch Restarted for " ++ (show key)
+      | Just mx <- m
+      , SupervisorBranchRestarted{..} <- mx
+      , childSpecKey == key = return ()
+      | Nothing <- m        = do say "waiting for branch restart..."
+                                 receiveTimeout (asTimeout $ milliSeconds 250)
+                                                [ matchChan s return ] >>= aux (n-1) s
+      | otherwise           = aux (n-1) s Nothing
+
+verifySeqStartOrder :: Context
+                     -> [(ChildRef, Child)]
+                     -> ChildKey
+                     -> Process ()
+verifySeqStartOrder Context{..} xs toStop = do
+  -- xs == [(oldRef, (ref, spec))] in specified/insertion order
+  -- if shutdown is LeftToRight then that's correct, otherwise we
+  -- should expect the shutdowns in reverse order
+
+  say $ "VERIFY_SEQ_START:\nOLD+NEW: " ++ (show xs)
+  sleep $ seconds 5
+  let t = asTimeout waitTimeout
+  forM_ xs $ \(oCr, c@(cr, cs)) -> do
+    say $ "checking restart " ++ (show c)
+    mx <- receiveTimeout t [ matchChan sniffer return ]
+    case mx of
+      Just SupervisedChildRestarting{..} -> do
+        say $ "for restart " ++ (show childSpecKey) ++ " we're expecting " ++ (childKey cs)
+        childSpecKey `shouldBe` equalTo (childKey cs)
+        unless (childSpecKey == toStop) $ do
+          Just SupervisedChildStopped{..} <- receiveChanTimeout t sniffer
+          say $ "for " ++ (show childRef) ++ " we're expecting " ++ (show oCr)
+          childRef `shouldBe` equalTo oCr
+        Just SupervisedChildStarted{..} <- receiveChanTimeout t sniffer
+        childRef `shouldBe` equalTo cr
+      _ -> liftIO $ assertFailure $ "Bad Restart: " ++ (show mx)
+
 verifyStopStartOrder :: Context
                      -> [(ChildRef, Child)]
                      -> [Child]
@@ -1285,7 +1343,7 @@ tests transport = do
               testCase "Restart Left, Left To Right (Sequential) Restarts"
                   (restartLeftWithLeftToRightSeqRestarts
                    (RunClosure $(mkStaticClosure 'blockIndefinitely))
-                   withSupervisor)
+                   withSupervisor')
             , testCase "Restart Left, Leftmost Child Dies"
                   (withSupervisor restartLeft [] $
                     restartLeftWhenLeftmostChildDies
@@ -1348,7 +1406,7 @@ tests transport = do
           , testCase "Flush [NonTest]"
             (withSupervisor'
               (RestartRight defaultLimits (RestartInOrder LeftToRight)) []
-               (\_ -> sleep $ seconds 10))
+               (\_ -> sleep $ seconds 20))
           ]
       ]
     ]

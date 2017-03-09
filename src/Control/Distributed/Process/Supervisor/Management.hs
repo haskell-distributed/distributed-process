@@ -106,9 +106,10 @@ supervisionMonitor = do
           st <- mxGetLocal
           mxSetLocal $ Map.filterWithKey (\k v -> if k == sup then (fst v) /= pid else True) st
           mxReady)
-      {- , (mxSunk $ \(ev :: MxEvent) -> do
+      {- , (mxSink $ \(ev :: MxEvent) -> do
           case ev of
             MxProcessDied
+            TODO: remove dead clients to avoid a space leak
       -}
       , (mxSink $ \(ev :: MxSupervisor) -> do
           st <- mxGetLocal
