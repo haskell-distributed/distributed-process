@@ -269,7 +269,7 @@ import Control.DeepSeq (NFData)
 
 import Control.Distributed.Process.Supervisor.Types
 import Control.Distributed.Process hiding (call, catch, finally, mask)
-import Control.Distributed.Process.Management (mxNotify)
+import Control.Distributed.Process.Management (mxNotify, MxEvent(MxUser))
 import Control.Distributed.Process.Extras.Internal.Primitives hiding (monitor)
 import Control.Distributed.Process.Extras.Internal.Types
   ( ExitReason(..)
@@ -926,7 +926,7 @@ tryRestartBranch rs sp dr st = -- TODO: use DiedReason for logging...
                 _                 -> restartBranch mode'
     in do us <- getSelfPid
           a <- proc tree'
-          mxNotify $ SupervisorBranchRestarted us (childKey sp) dr rs
+          report $ SupervisorBranchRestarted us (childKey sp) dr rs
           return a
   where
     stopStart :: RestartOrder -> ChildSpecs -> Process (ProcessAction State)
@@ -959,14 +959,14 @@ tryRestartBranch rs sp dr st = -- TODO: use DiedReason for logging...
     stopStartIt s ch@(cr, cs) = do
       us <- getSelfPid
       cPid <- resolve cr
-      mxNotify $ SupervisedChildRestarting us cPid (childKey cs) (ExitOther "RestartedBySupervisor")
+      report $ SupervisedChildRestarting us cPid (childKey cs) (ExitOther "RestartedBySupervisor")
       doTerminateChild cr cs s >>= (flip startIt) ch
 
     stopIt :: State -> Child -> Process State
     stopIt s (cr, cs) = do
       us <- getSelfPid
       cPid <- resolve cr
-      mxNotify $ SupervisedChildRestarting us cPid (childKey cs) (ExitOther "RestartedBySupervisor")
+      report $ SupervisedChildRestarting us cPid (childKey cs) (ExitOther "RestartedBySupervisor")
       doTerminateChild cr cs s
 
     startIt :: State -> Child -> Process State
@@ -1110,7 +1110,7 @@ doRestartChild pid spec reason state = do -- TODO: use ChildPid and DiedReason t
 --        DelayedRestart _ del -> doRestartDelay oldPid del spec reason state
     Just st -> do
       sup <- getSelfPid
-      mxNotify $ SupervisedChildRestarting sup (Just pid) (childKey spec) (ExitOther $ show reason)
+      report $ SupervisedChildRestarting sup (Just pid) (childKey spec) (ExitOther $ show reason)
       start' <- doStartChild spec st
       case start' of
         Right (ref, st') -> continue $ markActive st' ref spec
@@ -1217,7 +1217,7 @@ tryStartChild ChildSpec{..} =
     logStartFailure sf = do
       sup <- getSelfPid
       -- logEntry Log.error $ mkReport "Child Start Error" sup childKey (show sf)
-      mxNotify $ SupervisorStartFailure sup sf childKey
+      report $ SupervisorStartFailure sup sf childKey
       return $ Left sf
 
     wrapClosure :: Maybe RegisteredName
@@ -1239,7 +1239,7 @@ tryStartChild ChildSpec{..} =
       void $ monitor childPid
       send childPid ()
       let cRef = ChildRunning childPid
-      mxNotify $ SupervisedChildStarted supervisor cRef
+      report $ SupervisedChildStarted supervisor cRef
       return cRef
 
     wrapHandle :: Maybe RegisteredName
@@ -1251,7 +1251,7 @@ tryStartChild ChildSpec{..} =
       void $ monitor childPid
       maybeRegister regName childPid
       let cRef = ChildRunningExtra childPid msg
-      mxNotify $ SupervisedChildStarted super cRef
+      report $ SupervisedChildStarted super cRef
       return cRef
 
     maybeRegister :: Maybe RegisteredName -> ChildPid -> Process ()
@@ -1278,7 +1278,7 @@ filterInitFailures sup childPid ex = do
       -- would call logFailure.
       -- We log here to avoid silent failure in those cases.
       -- logEntry Log.error $ mkReport "ChildInitFailure" sup (show childPid) (show ex)
-      mxNotify $ SupervisedChildInitFailed sup childPid ex
+      report $ SupervisedChildInitFailed sup childPid ex
       liftIO $ throwIO ex
     ChildInitIgnore    -> Unsafe.cast sup $ IgnoreChildReq childPid
 
@@ -1336,7 +1336,7 @@ doTerminateChild ref spec state = do
     Nothing  -> return state -- an already dead child is not an error
     Just pid -> do
       stopped <- childShutdown (childStop spec) pid state
-      mxNotify $ SupervisedChildStopped us ref stopped
+      report $ SupervisedChildStopped us ref stopped
       -- state' <- shutdownComplete state pid stopped
       return $ ( (active ^: Map.delete pid)
                $ updateStopped
@@ -1388,6 +1388,9 @@ childShutdown policy childPid st = mask $ \restore -> do
 
 errorMaxIntensityReached :: ExitReason
 errorMaxIntensityReached = ExitOther "ReachedMaxRestartIntensity"
+
+report :: MxSupervisor -> Process ()
+report = mxNotify . MxUser . unsafeWrapMessage
 
 logShutdown :: LogSink -> ChildKey -> ChildPid -> DiedReason -> Process ()
 logShutdown log' child childPid reason = do

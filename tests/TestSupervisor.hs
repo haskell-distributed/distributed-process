@@ -23,6 +23,13 @@ import Control.Distributed.Process.Closure
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Extras.Internal.Types
 import Control.Distributed.Process.Extras.Internal.Primitives
+import Control.Distributed.Process.Extras.SystemLog
+  ( LogLevel(Debug)
+  , systemLogFile
+  , addFormatter
+  , debug
+  , logChannel
+  )
 import Control.Distributed.Process.Extras.Time
 import Control.Distributed.Process.Extras.Timer
 import Control.Distributed.Process.Supervisor hiding (start, shutdown)
@@ -231,6 +238,13 @@ runApp sg = do
   sendChan sg ()
   expect >>= say
 
+formatMxSupervisor :: Message -> Process (Maybe String)
+formatMxSupervisor msg = do
+  m <- unwrapMessage msg :: Process (Maybe MxSupervisor)
+  case m of
+    Nothing -> return Nothing
+    Just m' -> return $ Just (show m')
+
 $(remotable [ 'exitIgnore
             , 'noOp
             , 'blockIndefinitely
@@ -238,7 +252,8 @@ $(remotable [ 'exitIgnore
             , 'obedient
             , 'notifyMe
             , 'runCore
-            , 'runApp ])
+            , 'runApp
+            , 'formatMxSupervisor ])
 
 -- test cases start here...
 
@@ -846,8 +861,8 @@ expectLeftToRightRestarts sup = do
   Just pid' <- resolve ref'
   drainChildren children' pid'
 
-expectRightToLeftRestarts :: ProcessId -> Process ()
-expectRightToLeftRestarts sup = do
+expectRightToLeftRestarts :: Bool -> Context -> Process ()
+expectRightToLeftRestarts rev ctx@Context{..} = do
   self <- getSelfPid
   let templ = permChild $ RunClosure ($(mkClosure 'notifyMe) self)
   let specs = [templ { childKey = (show i) } | i <- [1..10 :: Int]]
@@ -855,31 +870,23 @@ expectRightToLeftRestarts sup = do
   forM_ specs $ \s -> do
     ChildAdded ref <- startNewChild sup s
     maybe (error "invalid ref") ensureProcessIsAlive =<< resolve ref
+
   -- assert that we saw the startup sequence working...
   let toStop = childKey $ head specs
   Just (ref, _) <- lookupChild sup toStop
   Just pid <- resolve ref
+  kill pid "fooboobarbazbub"
+
   children <- listChildren sup
-  drainChildren children pid
-  kill pid "fooboo"
+  checkStartupOrder ctx children
+
   -- wait for all the exit signals, so we know the children are restarting
-  forM_ (map fst children) $ \cRef -> do
-    Just mRef <- monitor cRef
-    receiveWait [
-        matchIf (\(ProcessMonitorNotification ref' _ _) -> ref' == mRef)
-                (\_ -> return ())
-        -- we should NOT see *any* process signalling that it has started
-        -- whilst waiting for all the children to be terminated
-      , match (\(pid' :: ProcessId) -> do
-            liftIO $ assertFailure $ "unexpected signal from " ++ (show pid'))
-      ]
-  -- ensure that both ends of the pids we've seen are in the right order...
-  -- in this case, we expect the last child to be the first notification,
-  -- since they were started in right to left order
-  children' <- listChildren sup
-  let (ref', _) = last children'
-  Just pid' <- resolve ref'
-  drainChildren children' pid'
+  forM_ (map fst children) $ \cRef -> monitor cRef >>= waitForDown
+
+  restarted' <- listChildren sup
+  let xs = zip [fst o | o <- children] restarted'
+  let xs' = if rev then reverse xs else xs
+  verifySeqStartOrder ctx xs' toStop
 
 restartLeftWhenLeftmostChildDies :: ChildStart -> ProcessId -> Process ()
 restartLeftWhenLeftmostChildDies cs sup = do
@@ -1026,6 +1033,7 @@ waitForBranchRestartComplete :: SupervisorPid
                              -> Process ()
 waitForBranchRestartComplete sup key = do
   rp <- monitorSupervisor sup
+  say "waiting for branch restart..."
   aux 10000 rp Nothing `finally` unmonitorSupervisor sup
   where
     aux :: Int -> (ReceivePort MxSupervisor) -> Maybe MxSupervisor -> Process ()
@@ -1034,9 +1042,7 @@ waitForBranchRestartComplete sup key = do
       | Just mx <- m
       , SupervisorBranchRestarted{..} <- mx
       , childSpecKey == key = return ()
-      | Nothing <- m        = do say "waiting for branch restart..."
-                                 receiveTimeout (asTimeout $ milliSeconds 250)
-                                                [ matchChan s return ] >>= aux (n-1) s
+      | Nothing <- m        = receiveTimeout 100 [ matchChan s return ] >>= aux (n-1) s
       | otherwise           = aux (n-1) s Nothing
 
 verifySeqStartOrder :: Context
@@ -1047,23 +1053,25 @@ verifySeqStartOrder Context{..} xs toStop = do
   -- xs == [(oldRef, (ref, spec))] in specified/insertion order
   -- if shutdown is LeftToRight then that's correct, otherwise we
   -- should expect the shutdowns in reverse order
-
-  say $ "VERIFY_SEQ_START:\nOLD+NEW: " ++ (show xs)
-  sleep $ seconds 5
+  sleep $ seconds 1
   let t = asTimeout waitTimeout
   forM_ xs $ \(oCr, c@(cr, cs)) -> do
-    say $ "checking restart " ++ (show c)
+    debug logChannel $ "checking restart " ++ (show c)
     mx <- receiveTimeout t [ matchChan sniffer return ]
     case mx of
       Just SupervisedChildRestarting{..} -> do
-        say $ "for restart " ++ (show childSpecKey) ++ " we're expecting " ++ (childKey cs)
+        debug logChannel $ "for restart " ++ (show childSpecKey) ++ " we're expecting " ++ (childKey cs)
         childSpecKey `shouldBe` equalTo (childKey cs)
         unless (childSpecKey == toStop) $ do
           Just SupervisedChildStopped{..} <- receiveChanTimeout t sniffer
-          say $ "for " ++ (show childRef) ++ " we're expecting " ++ (show oCr)
+          debug logChannel $ "for " ++ (show childRef) ++ " we're expecting " ++ (show oCr)
           childRef `shouldBe` equalTo oCr
-        Just SupervisedChildStarted{..} <- receiveChanTimeout t sniffer
-        childRef `shouldBe` equalTo cr
+        mx <- receiveChanTimeout t sniffer
+        case mx of
+          Just SupervisedChildStarted{..} -> childRef `shouldBe` equalTo cr
+          _                               -> do
+            liftIO $ assertFailure $ "After Stopping " ++ (show cs) ++
+                                     " received unexpected " ++ (show mx)
       _ -> liftIO $ assertFailure $ "Bad Restart: " ++ (show mx)
 
 verifyStopStartOrder :: Context
@@ -1075,31 +1083,29 @@ verifyStopStartOrder Context{..} xs restarted toStop = do
   -- xs == [(oldRef, (ref, spec))] in specified/insertion order
   -- if shutdown is LeftToRight then that's correct, otherwise we
   -- should expect the shutdowns in reverse order
-
-  say $ "VERIFY_STOP_START:\nOLD+NEW: " ++ (show xs) ++ "\nNEW: " ++ (show restarted)
-  sleep $ seconds 5
+  sleep $ seconds 1
   let t = asTimeout waitTimeout
   forM_ xs $ \(oCr, c@(_, cs)) -> do
-    say $ "checking restart " ++ (show c)
+    debug logChannel $ "checking restart " ++ (show c)
     mx <- receiveTimeout t [ matchChan sniffer return ]
     case mx of
       Just SupervisedChildRestarting{..} -> do
-        say $ "for restart " ++ (show childSpecKey) ++ " we're expecting " ++ (childKey cs)
+        debug logChannel $ "for restart " ++ (show childSpecKey) ++ " we're expecting " ++ (childKey cs)
         childSpecKey `shouldBe` equalTo (childKey cs)
         if childSpecKey /= toStop
           then do Just SupervisedChildStopped{..} <- receiveChanTimeout t sniffer
-                  say $ "for " ++ (show childRef) ++ " we're expecting " ++ (show oCr)
+                  debug logChannel $ "for " ++ (show childRef) ++ " we're expecting " ++ (show oCr)
                   -- childRef `shouldBe` equalTo oCr
                   if childRef /= oCr
-                    then say $ "childRef " ++ (show childRef) ++ " /= " ++ (show oCr)
+                    then debug logChannel $ "childRef " ++ (show childRef) ++ " /= " ++ (show oCr)
                     else return ()
           else return ()
       _ -> liftIO $ assertFailure $ "Bad Restart: " ++ (show mx)
 
-  say "checking start order..."
-  sleep $ seconds 5
+  debug logChannel "checking start order..."
+  sleep $ seconds 1
   forM_ restarted $ \(cr, _) -> do
-    say $ "checking (reverse) start order for " ++ (show cr)
+    debug logChannel $ "checking (reverse) start order for " ++ (show cr)
     mx <- receiveTimeout t [ matchChan sniffer return ]
     case mx of
       Just SupervisedChildStarted{..} -> childRef `shouldBe` equalTo cr
@@ -1109,7 +1115,7 @@ checkStartupOrder :: Context -> [Child] -> Process ()
 checkStartupOrder Context{..} children = do
   -- assert that we saw the startup sequence working...
   forM_ children $ \(cr, _) -> do
-    say $ "checking " ++ (show cr)
+    debug logChannel $ "checking " ++ (show cr)
     mx <- receiveTimeout (asTimeout waitTimeout) [ matchChan sniffer return ]
     case mx of
       Just SupervisedChildStarted{..} -> childRef `shouldBe` equalTo cr
@@ -1167,8 +1173,13 @@ tests transport = do
                     , "Can Fail Intermittently" ]
   localNode <- newLocalNode transport myRemoteTable
   singleTestLock <- newMVar ()
-  runProcess localNode $ void $ supervisionMonitor
+  runProcess localNode $ do
+    void $ supervisionMonitor
+    slog <- systemLogFile "supervisor.test.log" Debug return
+    addFormatter slog $(mkStaticClosure 'formatMxSupervisor)
+
   let withSup sm = runInTestContext localNode singleTestLock sm
+  let withSup' sm = runInTestContext' localNode sm
   let withSupervisor = runInTestContext localNode singleTestLock ParallelShutdown
   let withSupervisor' = runInTestContext' localNode ParallelShutdown
   return
@@ -1320,17 +1331,17 @@ tests transport = do
                    (RestartAll defaultLimits (RestartInOrder LeftToRight)) []
                     restartAllWithLeftToRightRestarts)
             , testCase "Restart All, Right To Left Stop, Right To Left Start"
-                  (withSup
+                  (withSup'
                    (SequentialShutdown RightToLeft)
                    (RestartAll defaultLimits (RestartInOrder RightToLeft)
                    ) []
-                    expectRightToLeftRestarts)
+                    (expectRightToLeftRestarts False))
             , testCase "Restart All, Left To Right Stop, Reverse Start"
-                  (withSup
+                  (withSup'
                    (SequentialShutdown LeftToRight)
                    (RestartAll defaultLimits (RestartRevOrder LeftToRight)
                     ) []
-                    expectRightToLeftRestarts)
+                    (expectRightToLeftRestarts True))
             , testCase "Restart All, Right To Left Stop, Reverse Start"
                   (withSup
                    (SequentialShutdown RightToLeft)
