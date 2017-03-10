@@ -582,7 +582,6 @@ terminatingChildObeysDelay sup = do
              { childStop = TerminateTimeout (Delay $ within 1 Seconds) }
   ChildAdded child <- startNewChild sup spec
   Just pid <- resolve child
-  testProcessGo pid
   void $ monitor pid
   void $ terminateChild sup (childKey spec)
   child `shouldExitWith` DiedNormal
@@ -700,6 +699,8 @@ restartLeftWithLeftToRightSeqRestarts cs withSupervisor = do
     children <- listChildren sup
     checkStartupOrder ctx children
 
+    sniff <- monitorSupervisor sup
+
     let (toRestart, _notToRestart) = splitAt 100 specs
     let (restarts, survivors) = splitAt 100 children
     let toStop = childKey $ last toRestart
@@ -710,7 +711,7 @@ restartLeftWithLeftToRightSeqRestarts cs withSupervisor = do
     forM_ (map fst restarts) $ \cRef -> monitor cRef >>= waitForDown
 
     -- NB: this uses a separate channel to consume the Mx events...
-    waitForBranchRestartComplete sup toStop
+    waitForBranchRestartComplete sup sniff toStop
 
     children' <- listChildren sup
     let (restarted', _) = splitAt 100 children'
@@ -1036,14 +1037,14 @@ restartRightWithRightToLeftRestarts rev ctx@Context{..} = do
   forM_ (zip c1 c2) $ \(p1, p2) -> p1 `shouldBe` equalTo p2
 
 waitForBranchRestartComplete :: SupervisorPid
+                             -> Sniffer
                              -> ChildKey
                              -> Process ()
-waitForBranchRestartComplete sup key = do
-  rp <- monitorSupervisor sup
+waitForBranchRestartComplete sup sniff key = do
   debug logChannel $ "waiting for branch restart..."
-  aux 10000 rp Nothing `finally` unmonitorSupervisor sup
+  aux 10000 sniff Nothing -- `finally` unmonitorSupervisor sup
   where
-    aux :: Int -> (ReceivePort MxSupervisor) -> Maybe MxSupervisor -> Process ()
+    aux :: Int -> Sniffer -> Maybe MxSupervisor -> Process ()
     aux n s m
       | n < 1               = liftIO $ assertFailure $ "Never Saw Branch Restarted for " ++ (show key)
       | Just mx <- m
@@ -1431,12 +1432,13 @@ tests transport = do
 --                (delayedRestartAfterThreeAttempts withSupervisor)
           ]
       ]
-    , testGroup "CI"
+{-    , testGroup "CI"
       [ testCase "Flush [NonTest]"
         (withSupervisor'
           (RestartRight defaultLimits (RestartInOrder LeftToRight)) []
            (\_ -> sleep $ seconds 20))
       ]
+    -}
     ]
 
 main :: IO ()

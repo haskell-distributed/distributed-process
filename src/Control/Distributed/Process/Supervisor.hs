@@ -383,7 +383,7 @@ import Data.Accessor
 import Data.Binary (Binary)
 import Data.Foldable (find, foldlM, toList)
 import Data.List (foldl')
-import qualified Data.List as List (delete, filter, lookup)
+import qualified Data.List as List (lookup)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Sequence
@@ -1251,7 +1251,7 @@ tryStartChild ChildSpec{..} =
     logStartFailure sf = do
       sup <- getSelfPid
       -- logEntry Log.error $ mkReport "Child Start Error" sup childKey (show sf)
-      report $ SupervisorStartFailure sup sf childKey
+      report $ SupervisedChildStartFailure sup sf childKey
       return $ Left sf
 
     wrapClosure :: ChildKey
@@ -1328,7 +1328,10 @@ filterInitFailures sup childPid ex = do
 
 terminateChildren :: State -> Process ()
 terminateChildren state = do
-  case (shutdownStrategy state) of
+  us <- getSelfPid
+  let strat = shutdownStrategy state
+  report $ SupervisorShutdown us strat
+  case strat of
     ParallelShutdown -> do
       let allChildren = toList $ state ^. specs
       terminatorPids <- forM allChildren $ \ch -> do

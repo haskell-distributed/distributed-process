@@ -318,17 +318,7 @@ instance Binary SupervisorStats where
 instance NFData SupervisorStats where
 
 data MxSupervisor =
-    SupervisorStarted
-    { supervisorPid     :: SupervisorPid
-    , supervisorRestart :: RestartStrategy
-    , supervisorShudown :: ShutdownMode
-    }
-  | SupervisorStartFailure
-    { supervisorPid :: SupervisorPid
-    , startFailure  :: StartFailure
-    , childSpecKey  :: ChildKey
-    }
-  | SupervisorBranchRestarted
+    SupervisorBranchRestarted
     {
       supervisorPid  :: SupervisorPid
     , childSpecKey   :: ChildKey
@@ -346,6 +336,11 @@ data MxSupervisor =
     , childRef      :: ChildRef
     , childSpecKey  :: ChildKey
     }
+  | SupervisedChildStartFailure
+    { supervisorPid :: SupervisorPid
+    , startFailure  :: StartFailure
+    , childSpecKey  :: ChildKey
+    }
   | SupervisedChildDied
     { supervisorPid :: SupervisorPid
     , childPid      :: ChildPid
@@ -360,6 +355,10 @@ data MxSupervisor =
     { supervisorPid :: SupervisorPid
     , childRef      :: ChildRef
     , diedReason    :: DiedReason
+    }
+  | SupervisorShutdown
+    { supervisorPid :: SupervisorPid
+    , shutdownMode  :: ShutdownMode
     }
     deriving (Typeable, Generic, Show)
 instance Binary MxSupervisor where

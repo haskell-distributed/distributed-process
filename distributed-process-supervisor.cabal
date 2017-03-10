@@ -96,3 +96,42 @@ test-suite SupervisorTests
   extensions:      CPP
   main-is:         TestSupervisor.hs
   other-modules:   TestUtils
+
+test-suite NonThreadedSupervisorTests
+  type:            exitcode-stdio-1.0
+  build-depends:
+                   base >= 4.8.2.0 && < 5,
+                   ansi-terminal >= 0.5 && < 0.7,
+                   containers,
+                   unordered-containers,
+                   hashable,
+                   distributed-static >= 0.3.5.0 && < 0.4,
+                   distributed-process >= 0.6.6 && < 0.7,
+                   distributed-process-supervisor,
+                   distributed-process-extras,
+                   distributed-process-client-server,
+                   distributed-static,
+                   bytestring,
+                   data-accessor,
+                   fingertree < 0.2,
+                   network-transport >= 0.4 && < 0.5,
+                   mtl,
+                   network-transport-tcp >= 0.4 && < 0.6,
+                   binary >= 0.6.3.0 && < 0.9,
+                   deepseq >= 1.3.0.1 && < 1.5,
+                   network >= 2.3 && < 2.7,
+                   HUnit >= 1.2 && < 2,
+                   stm >= 2.3 && < 2.5,
+                   time > 1.4 && < 1.7,
+                   test-framework >= 0.6 && < 0.9,
+                   test-framework-hunit,
+                   transformers,
+                   rematch >= 0.2.0.0,
+                   ghc-prim,
+                   exceptions >= 0.5
+  hs-source-dirs:
+                   tests
+  ghc-options:     -Wall -rtsopts -fno-warn-unused-do-bind
+  extensions:      CPP
+  main-is:         TestSupervisor.hs
+  other-modules:   TestUtils
