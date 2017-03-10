@@ -268,7 +268,41 @@ module Control.Distributed.Process.Supervisor
 import Control.DeepSeq (NFData)
 
 import Control.Distributed.Process.Supervisor.Types
-import Control.Distributed.Process hiding (call, catch, finally, mask)
+import Control.Distributed.Process
+  ( Process
+  , ProcessId
+  , MonitorRef
+  , DiedReason(..)
+  , Match
+  , Handler(..)
+  , Message
+  , ProcessMonitorNotification(..)
+  , Closure
+  , Static
+  , exit
+  , kill
+  , match
+  , matchIf
+  , monitor
+  , getSelfPid
+  , liftIO
+  , catchExit
+  , catchesExit
+  , catches
+  , die
+  , link
+  , send
+  , register
+  , spawnLocal
+  , unsafeWrapMessage
+  , unmonitor
+  , withMonitor
+  , expect
+  , unClosure
+  , receiveWait
+  , receiveTimeout
+  , handleMessageIf
+  )
 import Control.Distributed.Process.Management (mxNotify, MxEvent(MxUser))
 import Control.Distributed.Process.Extras.Internal.Primitives hiding (monitor)
 import Control.Distributed.Process.Extras.Internal.Types
@@ -349,7 +383,7 @@ import Data.Accessor
 import Data.Binary (Binary)
 import Data.Foldable (find, foldlM, toList)
 import Data.List (foldl')
-import qualified Data.List as List (delete)
+import qualified Data.List as List (delete, filter, lookup)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Sequence
@@ -892,7 +926,7 @@ tryRestart :: ChildPid
 tryRestart childPid state active' spec reason = do
   sup <- getSelfPid
   logEntry Log.debug $ do
-    mkReport "tryRestart" sup (childKey spec) (show reason)
+    mkReport "signalled restart" sup (childKey spec) (show reason)
   case state ^. strategy of
     RestartOne _ -> tryRestartChild childPid state active' spec reason
     strat        -> do
@@ -949,10 +983,10 @@ tryRestartBranch rs sp dr st = -- TODO: use DiedReason for logging...
           foldlM stopIt st' stopTree >>= \s -> apply $ foldlM startIt s startTree
 
     mkTrees :: RestartMode -> ChildSpecs -> (ChildSpecs, ChildSpecs)
-    mkTrees (RestartInOrder LeftToRight)  tree = (tree, tree)
-    mkTrees (RestartInOrder RightToLeft)  tree = let rev = Seq.reverse tree in (rev, rev)
-    mkTrees (RestartRevOrder LeftToRight) tree = (tree, Seq.reverse tree)
-    mkTrees (RestartRevOrder RightToLeft) tree = (Seq.reverse tree, tree)
+    mkTrees (RestartInOrder LeftToRight)  t = (t, t)
+    mkTrees (RestartInOrder RightToLeft)  t = let rev = Seq.reverse t in (rev, rev)
+    mkTrees (RestartRevOrder LeftToRight) t = (t, Seq.reverse t)
+    mkTrees (RestartRevOrder RightToLeft) t = (Seq.reverse t, t)
     mkTrees _                             _    = error "mkTrees.INVALID_STATE"
 
     stopStartIt :: State -> Child -> Process State
@@ -1205,14 +1239,14 @@ tryStartChild ChildSpec{..} =
                        (\(e :: SomeException) -> return $ Left (show e))
         case mProc of
           Left err -> logStartFailure $ StartFailureBadClosure err
-          Right p  -> wrapClosure childRegName p >>= return . Right
+          Right p  -> wrapClosure childKey childRegName p >>= return . Right
       CreateHandle fn -> do
         mFn <- catch (unClosure fn >>= return . Right)
                      (\(e :: SomeException) -> return $ Left (show e))
         case mFn of
           Left err  -> logStartFailure $ StartFailureBadClosure err
           Right fn' -> do
-            wrapHandle childRegName fn' >>= return . Right
+            wrapHandle childKey childRegName fn' >>= return . Right
   where
     logStartFailure sf = do
       sup <- getSelfPid
@@ -1220,10 +1254,11 @@ tryStartChild ChildSpec{..} =
       report $ SupervisorStartFailure sup sf childKey
       return $ Left sf
 
-    wrapClosure :: Maybe RegisteredName
+    wrapClosure :: ChildKey
+                -> Maybe RegisteredName
                 -> Process ()
                 -> Process ChildRef
-    wrapClosure regName proc = do
+    wrapClosure key regName proc = do
       supervisor <- getSelfPid
       childPid <- spawnLocal $ do
         self <- getSelfPid
@@ -1231,27 +1266,32 @@ tryStartChild ChildSpec{..} =
         maybeRegister regName self
         () <- expect    -- wait for a start signal (pid is still private)
         -- we translate `ExitShutdown' into a /normal/ exit
-        (proc `catches` [ Handler $ filterInitFailures supervisor self
-                        , Handler $ logFailure supervisor self ])
+        (proc
           `catchesExit` [
-            (\_ m -> handleMessageIf m (== ExitShutdown)
-                                       (\_ -> return ()))]
+              (\_ m -> handleMessageIf m (\r -> r == ExitShutdown)
+                                         (\_ -> return ()))
+            , (\_ m -> handleMessageIf m (\(ExitOther _) -> True)
+                                         (\r -> logExit supervisor self r))
+            ])
+           `catches` [ Handler $ filterInitFailures supervisor self
+                     , Handler $ logFailure supervisor self ]
       void $ monitor childPid
       send childPid ()
       let cRef = ChildRunning childPid
-      report $ SupervisedChildStarted supervisor cRef
+      report $ SupervisedChildStarted supervisor cRef key
       return cRef
 
-    wrapHandle :: Maybe RegisteredName
+    wrapHandle :: ChildKey
+               -> Maybe RegisteredName
                -> (SupervisorPid -> Process (ChildPid, Message))
                -> Process ChildRef
-    wrapHandle regName proc = do
+    wrapHandle key regName proc = do
       super <- getSelfPid
       (childPid, msg) <- proc super
       void $ monitor childPid
       maybeRegister regName childPid
       let cRef = ChildRunningExtra childPid msg
-      report $ SupervisedChildStarted super cRef
+      report $ SupervisedChildStarted super cRef key
       return cRef
 
     maybeRegister :: Maybe RegisteredName -> ChildPid -> Process ()
@@ -1293,9 +1333,9 @@ terminateChildren state = do
       let allChildren = toList $ state ^. specs
       terminatorPids <- forM allChildren $ \ch -> do
         pid <- spawnLocal $ void $ syncTerminate ch $ (active ^= Map.empty) state
-        void $ monitor pid
-        return pid
-      terminationErrors <- collectExits [] terminatorPids
+        mRef <- monitor pid
+        return (mRef, pid)
+      terminationErrors <- collectExits [] $ zip terminatorPids (map snd allChildren)
       -- it seems these would also be logged individually in doTerminateChild
       case terminationErrors of
         [] -> return ()
@@ -1315,18 +1355,25 @@ terminateChildren state = do
     syncTerminate (cr, cs) state' = doTerminateChild cr cs state'
 
     collectExits :: [(ProcessId, DiedReason)]
-                 -> [ChildPid]
+                 -> [((MonitorRef, ProcessId), ChildSpec)]
                  -> Process [(ProcessId, DiedReason)]
     collectExits errors []   = return errors
     collectExits errors pids = do
-      (pid, reason) <- receiveWait [
-          match (\(ProcessMonitorNotification _ pid' reason') -> do
-                    return (pid', reason'))
+      (ref, pid, reason) <- receiveWait [
+          match (\(ProcessMonitorNotification ref' pid' reason') -> do
+                    return (ref', pid', reason'))
         ]
-      let remaining = List.delete pid pids
-      case reason of
-        DiedNormal -> collectExits errors                 remaining
-        _          -> collectExits ((pid, reason):errors) remaining
+      let remaining = [p | p <- pids, (snd $ fst p) /= pid]
+      let spec = List.lookup (ref, pid) pids
+      case (reason, spec) of
+        (DiedUnknownId, _) -> collectExits errors remaining
+        (DiedNormal, _) -> collectExits errors remaining
+        (_, Nothing) -> collectExits errors remaining
+        (DiedException _, Just sp') -> do
+            if (childStop sp') == TerminateImmediately
+              then collectExits errors remaining
+              else collectExits ((pid, reason):errors) remaining
+        _ -> collectExits ((pid, reason):errors) remaining
 
 doTerminateChild :: ChildRef -> ChildSpec -> State -> Process State
 doTerminateChild ref spec state = do
@@ -1400,6 +1447,10 @@ logShutdown log' child childPid reason = do
     banner         = "Child Shutdown Complete"
     shutdownReason = (show reason) ++ ", child-key: " ++ child
 
+logExit :: SupervisorPid -> ChildPid -> ExitReason -> Process ()
+logExit sup pid er = do
+  report $ SupervisedChildDied sup pid er
+
 logFailure :: SupervisorPid -> ChildPid -> SomeException -> Process ()
 logFailure sup childPid ex = do
   logEntry Log.notice $ mkReport "Detected Child Exit" sup (show childPid) (show ex)
@@ -1409,7 +1460,7 @@ logEntry :: (LogChan -> LogText -> Process ()) -> String -> Process ()
 logEntry lg = Log.report lg Log.logChannel
 
 mkReport :: String -> SupervisorPid -> String -> String -> String
-mkReport b s c r = foldl' (\x xs -> xs ++ " " ++ x) "" items
+mkReport b s c r = foldl' (\x xs -> xs ++ " " ++ x) "" (reverse items)
   where
     items :: [String]
     items = [ "[" ++ s' ++ "]" | s' <- [ b

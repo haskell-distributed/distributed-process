@@ -11,7 +11,6 @@ module Main where
 
 import Control.Concurrent.MVar
   ( MVar
-  , newEmptyMVar
   , newMVar
   , putMVar
   , takeMVar
@@ -479,12 +478,20 @@ transientChildrenAbnormalExit cs sup = do
   kill pid "bye bye"
   verifyChildWasRestarted (childKey spec) pid sup
 
-transientChildrenExitShutdown :: ChildStart -> ProcessId -> Process ()
-transientChildrenExitShutdown cs sup = do
+transientChildrenExitShutdown :: ChildStart -> Context -> Process ()
+transientChildrenExitShutdown cs Context{..} = do
   let spec = transientWorker cs
   (ChildAdded ref) <- startNewChild sup spec
+
+  Just _ <- receiveChanTimeout (asTimeout waitTimeout) sniffer :: Process (Maybe MxSupervisor)
+
   Just pid <- resolve ref
+  mRef <- monitor pid
   exit pid ExitShutdown
+  waitForDown mRef
+
+  mx <- receiveChanTimeout 1000 sniffer :: Process (Maybe MxSupervisor)
+  expectThat mx isNothing
   verifyChildWasNotRestarted (childKey spec) pid sup
 
 intrinsicChildrenAbnormalExit :: ChildStart -> ProcessId -> Process ()
@@ -871,22 +878,23 @@ expectRightToLeftRestarts rev ctx@Context{..} = do
     ChildAdded ref <- startNewChild sup s
     maybe (error "invalid ref") ensureProcessIsAlive =<< resolve ref
 
+  children <- listChildren sup
+  checkStartupOrder ctx children
+
   -- assert that we saw the startup sequence working...
   let toStop = childKey $ head specs
   Just (ref, _) <- lookupChild sup toStop
   Just pid <- resolve ref
   kill pid "fooboobarbazbub"
 
-  children <- listChildren sup
-  checkStartupOrder ctx children
-
   -- wait for all the exit signals, so we know the children are restarting
   forM_ (map fst children) $ \cRef -> monitor cRef >>= waitForDown
 
   restarted' <- listChildren sup
   let xs = zip [fst o | o <- children] restarted'
-  let xs' = if rev then reverse xs else xs
-  verifySeqStartOrder ctx xs' toStop
+  let xs' = if rev then xs else reverse xs
+  -- say $ "xs = " ++ (show [(o, (cr, childKey cs)) | (o, (cr, cs)) <- xs])
+  verifyStopStartOrder ctx xs' (reverse restarted') toStop
 
 restartLeftWhenLeftmostChildDies :: ChildStart -> ProcessId -> Process ()
 restartLeftWhenLeftmostChildDies cs sup = do
@@ -932,35 +940,34 @@ restartRightWhenRightmostChildDies cs sup = do
   Just pid2' <- resolve ref3
   pid2 `shouldBe` equalTo pid2'
 
-restartLeftWithLeftToRightRestarts :: ProcessId -> Process ()
-restartLeftWithLeftToRightRestarts sup = do
+restartLeftWithLeftToRightRestarts :: Bool -> Context -> Process ()
+restartLeftWithLeftToRightRestarts rev ctx@Context{..} = do
   self <- getSelfPid
   let templ = permChild $ RunClosure ($(mkClosure 'notifyMe) self)
   let specs = [templ { childKey = (show i) } | i <- [1..20 :: Int]]
   forM_ specs $ \s -> void $ startNewChild sup s
 
   -- assert that we saw the startup sequence working...
-  let toStart = childKey $ head specs
-  Just (ref, _) <- lookupChild sup toStart
-  Just pid <- resolve ref
   children <- listChildren sup
-  drainChildren children pid
+  checkStartupOrder ctx children
+
   let (toRestart, _) = splitAt 7 specs
+  let (restarts, _) = splitAt 7 children
   let toStop = childKey $ last toRestart
   Just (ref', _) <- lookupChild sup toStop
   Just stopPid <- resolve ref'
   kill stopPid "goodbye"
+
   -- wait for all the exit signals, so we know the children are restarting
-  forM_ (map fst (fst $ splitAt 7 children)) $ \cRef -> do
-    mRef <- monitor cRef
-    waitForDown mRef
+  forM_ (map fst (fst $ splitAt 7 children)) $ \cRef -> monitor cRef >>= waitForDown
+
   children' <- listChildren sup
   let (restarted, notRestarted) = splitAt 7 children'
-  -- another (technically) unsafe check
-  let firstRestart = childKey $ snd $ head restarted
-  Just (rRef, _) <- lookupChild sup firstRestart
-  Just fPid <- resolve rRef
-  drainChildren restarted fPid
+  let restarted' = if rev then reverse restarted else restarted
+  let restarts'  = if rev then reverse restarts  else restarts
+  let xs = zip [fst o | o <- restarts'] restarted'
+  verifyStopStartOrder ctx xs restarted toStop
+
   let [c1, c2] = [map fst cs | cs <- [(snd $ splitAt 7 children), notRestarted]]
   forM_ (zip c1 c2) $ \(p1, p2) -> p1 `shouldBe` equalTo p2
 
@@ -1008,7 +1015,7 @@ restartRightWithRightToLeftRestarts rev ctx@Context{..} = do
   checkStartupOrder ctx children
 
   let (_, toRestart) = splitAt 3 specs
-  let (toSurvive, restarts) = splitAt 3 children
+  let (_, restarts) = splitAt 3 children
   let toStop = childKey $ head toRestart
   Just (ref', _) <- lookupChild sup toStop
   Just stopPid <- resolve ref'
@@ -1033,7 +1040,7 @@ waitForBranchRestartComplete :: SupervisorPid
                              -> Process ()
 waitForBranchRestartComplete sup key = do
   rp <- monitorSupervisor sup
-  say "waiting for branch restart..."
+  debug logChannel $ "waiting for branch restart..."
   aux 10000 rp Nothing `finally` unmonitorSupervisor sup
   where
     aux :: Int -> (ReceivePort MxSupervisor) -> Maybe MxSupervisor -> Process ()
@@ -1066,8 +1073,8 @@ verifySeqStartOrder Context{..} xs toStop = do
           Just SupervisedChildStopped{..} <- receiveChanTimeout t sniffer
           debug logChannel $ "for " ++ (show childRef) ++ " we're expecting " ++ (show oCr)
           childRef `shouldBe` equalTo oCr
-        mx <- receiveChanTimeout t sniffer
-        case mx of
+        mx' <- receiveChanTimeout t sniffer
+        case mx' of
           Just SupervisedChildStarted{..} -> childRef `shouldBe` equalTo cr
           _                               -> do
             liftIO $ assertFailure $ "After Stopping " ++ (show cs) ++
@@ -1166,6 +1173,14 @@ withClosure :: (ChildStart -> ProcessId -> Process ())
 withClosure fn clj supervisor = do
   cs <- toChildStart clj
   fn cs supervisor
+
+withClosure' :: (ChildStart -> Context -> Process ())
+             -> (Closure (Process ()))
+             -> Context
+             -> Process ()
+withClosure' fn clj ctx = do
+  cs <- toChildStart clj
+  fn cs ctx
 
 tests :: NT.Transport -> IO [Test]
 tests transport = do
@@ -1272,9 +1287,9 @@ tests transport = do
                 (withSupervisor restartOne []
                     (withClosure transientChildrenAbnormalExit
                                  $(mkStaticClosure 'blockIndefinitely)))
-          , testCase "ExitShutdown Is Considered Normal (Closure)"
-                (withSupervisor restartOne []
-                    (withClosure transientChildrenExitShutdown
+          , testCase "ExitShutdown Is Considered Normal"
+                (withSupervisor' restartOne []
+                    (withClosure' transientChildrenExitShutdown
                                  $(mkStaticClosure 'blockIndefinitely)))
           , testCase "Intrinsic Children Do Restart When Exiting Abnormally (Closure)"
                 (withSupervisor restartOne []
@@ -1360,9 +1375,9 @@ tests transport = do
                     restartLeftWhenLeftmostChildDies
                     (RunClosure $(mkStaticClosure 'blockIndefinitely)))
             , testCase "Restart Left, Left To Right Stop, Left To Right Start"
-                  (withSupervisor
+                  (withSupervisor'
                    (RestartLeft defaultLimits (RestartInOrder LeftToRight)) []
-                    restartLeftWithLeftToRightRestarts)
+                    (restartLeftWithLeftToRightRestarts False))
             , testCase "Restart Left, Right To Left Stop, Right To Left Start"
                   (withSupervisor'
                    (RestartLeft defaultLimits (RestartInOrder RightToLeft)) []
@@ -1372,9 +1387,9 @@ tests transport = do
                    (RestartLeft defaultLimits (RestartRevOrder LeftToRight)) []
                     (restartLeftWithRightToLeftRestarts False))
             , testCase "Restart Left, Right To Left Stop, Reverse Start"
-                  (withSupervisor
+                  (withSupervisor'
                    (RestartLeft defaultLimits (RestartRevOrder RightToLeft)) []
-                    restartLeftWithLeftToRightRestarts)
+                    (restartLeftWithLeftToRightRestarts True))
             ],
             testGroup "Restart Right"
             [
@@ -1414,11 +1429,13 @@ tests transport = do
                  (RunClosure $(mkStaticClosure 'noOp)) withSupervisor)
 --          , testCase "Permanent Child Delayed Restart"
 --                (delayedRestartAfterThreeAttempts withSupervisor)
-          , testCase "Flush [NonTest]"
-            (withSupervisor'
-              (RestartRight defaultLimits (RestartInOrder LeftToRight)) []
-               (\_ -> sleep $ seconds 20))
           ]
+      ]
+    , testGroup "CI"
+      [ testCase "Flush [NonTest]"
+        (withSupervisor'
+          (RestartRight defaultLimits (RestartInOrder LeftToRight)) []
+           (\_ -> sleep $ seconds 20))
       ]
     ]
 

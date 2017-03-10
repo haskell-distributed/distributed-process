@@ -344,9 +344,11 @@ data MxSupervisor =
   | SupervisedChildStarted
     { supervisorPid :: SupervisorPid
     , childRef      :: ChildRef
+    , childSpecKey  :: ChildKey
     }
   | SupervisedChildDied
     { supervisorPid :: SupervisorPid
+    , childPid      :: ChildPid
     , exitReason    :: ExitReason
     }
   | SupervisedChildInitFailed
