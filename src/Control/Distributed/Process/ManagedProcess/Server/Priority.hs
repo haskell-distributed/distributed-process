@@ -44,6 +44,8 @@ module Control.Distributed.Process.ManagedProcess.Server.Priority
   , Filter()
   , DispatchFilter()
   , Message()
+  , act
+  , runAfter
   ) where
 
 import Control.Distributed.Process hiding (call, Message)
@@ -51,8 +53,12 @@ import qualified Control.Distributed.Process as P (Message)
 import Control.Distributed.Process.Extras
   ( ExitReason(..)
   )
+import Control.Distributed.Process.Extras.Time (TimeInterval, Delay(Delay))
+import Control.Distributed.Process.ManagedProcess.Internal.GenProcess (addUserTimer)
 import Control.Distributed.Process.ManagedProcess.Internal.Types
+import Control.Distributed.Process.ManagedProcess.Timer (startTimer)
 import Control.Distributed.Process.Serializable
+import Control.Monad (void)
 import Prelude hiding (init)
 
 data RejectedByServer = RejectedByServer deriving (Show)
@@ -184,9 +190,22 @@ ensureM c =
 filterFail :: ExitReason
 filterFail = ExitOther "Control.Distributed.Process.ManagedProcess.Priority:FilterFailed"
 
--- | Sets an explicit priority
+act :: forall s . GenProcess s ()
+    -> Action s
+act = return . ProcessActivity
+
+runAfter :: forall s m . (Serializable m) => TimeInterval -> m -> Action s
+runAfter d m = act $ do
+  t <- lift $ startTimer (Delay d)
+  void $ addUserTimer t (unsafeWrapMessage m)
+
+-- | Sets an explicit priority from 1..100. Values > 100 are rounded to 100,
+-- and values < 1 are set to 0.
 setPriority :: Int -> Priority m
-setPriority = Priority
+setPriority n
+  | n < 1     = Priority 0
+  | n > 100   = Priority 100
+  | otherwise = Priority n
 
 -- | Prioritise a call handler, ignoring the server's state
 prioritiseCall_ :: forall s a b . (Serializable a, Serializable b)

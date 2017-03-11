@@ -35,7 +35,7 @@ import Control.Concurrent.STM (atomically, STM)
 import Control.Distributed.Process hiding (call, finally)
 import Control.Distributed.Process.Serializable
 import Control.Distributed.Process.Async hiding (check)
-import Control.Distributed.Process.ManagedProcess.Internal.Types
+import Control.Distributed.Process.ManagedProcess.Internal.Types hiding (liftIO)
 import qualified Control.Distributed.Process.ManagedProcess.Internal.Types as T
 import Control.Distributed.Process.Extras.Internal.Types (resolveOrDie)
 import Control.Distributed.Process.Extras hiding (monitor, sendChan)

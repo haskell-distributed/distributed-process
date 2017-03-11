@@ -21,7 +21,7 @@ import qualified Control.Distributed.Process.ManagedProcess.Server.Priority as P
 import Control.Distributed.Process.ManagedProcess.Server.Priority
 import Control.Distributed.Process.SysTest.Utils
 import Control.Distributed.Process.Extras.Time
-import Control.Distributed.Process.Extras.Timer
+import Control.Distributed.Process.Extras.Timer hiding (runAfter)
 import Control.Distributed.Process.Serializable()
 import Control.Monad
 import Control.Monad.Catch (catch)
@@ -349,6 +349,33 @@ testInfoPrioritisation result = do
     Left MyAlarmSignal -> stash result True
     _ -> stash result False
 
+testUserTimerHandling :: TestResult Bool -> Process ()
+testUserTimerHandling result = do
+  us <- getSelfPid
+  let p = (procDef us) `prioritised` ([
+               prioritiseInfo_ (\MyAlarmSignal -> setPriority 100)
+             ] :: [DispatchPriority ()]
+          ) :: PrioritisedProcessDefinition ()
+  pid <- spawnLocal $ pserve () (statelessInit Infinity) p
+  cast pid ()
+  expect >>= stash result . (== MyAlarmSignal)
+  kill pid "goodbye..."
+
+  where
+
+    procDef :: ProcessId -> ProcessDefinition ()
+    procDef us =
+      statelessProcess {
+            apiHandlers = [
+              handleCast (\s () -> runAfter (seconds 5) MyAlarmSignal)
+            ]
+          , infoHandlers = [
+               handleInfo (\s (sig :: MyAlarmSignal) -> send us sig >> continue s)
+            ]
+          , unhandledMessagePolicy = Drop
+          } :: ProcessDefinition ()
+
+
 testCallPrioritisation :: TestResult Bool -> Process ()
 testCallPrioritisation result = do
   pid <- mkPrioritisedServer
@@ -445,6 +472,9 @@ tests transport = do
           , testCase "Complex pre/before filters"
              (delayedAssertion "expected verifiable filter actions"
               localNode True testFilteringBehavior)
+          , testCase "Firing internal timeouts"
+             (delayedAssertion "expected our info handler to run after the timeout"
+              localNode True testUserTimerHandling)
          ]
       ]
 

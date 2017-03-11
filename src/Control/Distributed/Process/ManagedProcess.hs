@@ -613,7 +613,7 @@ import Control.Distributed.Process.ManagedProcess.Client
 import Control.Distributed.Process.ManagedProcess.Server
 import qualified Control.Distributed.Process.ManagedProcess.Server.Priority as P hiding (reject)
 import Control.Distributed.Process.ManagedProcess.Internal.GenProcess
-import Control.Distributed.Process.ManagedProcess.Internal.Types
+import Control.Distributed.Process.ManagedProcess.Internal.Types hiding (runProcess)
 import Control.Distributed.Process.Extras (ExitReason(..))
 import Control.Distributed.Process.Extras.Time
 import Control.Distributed.Process.Serializable

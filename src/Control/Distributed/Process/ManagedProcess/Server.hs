@@ -77,7 +77,7 @@ import Control.Concurrent.STM (STM, atomically)
 import Control.Distributed.Process hiding (call, Message)
 import qualified Control.Distributed.Process as P (Message)
 import Control.Distributed.Process.Serializable
-import Control.Distributed.Process.ManagedProcess.Internal.Types
+import Control.Distributed.Process.ManagedProcess.Internal.Types hiding (liftIO, lift)
 import Control.Distributed.Process.Extras
   ( ExitReason(..)
   , Routable(..)

@@ -27,9 +27,12 @@ module Control.Distributed.Process.ManagedProcess.Internal.GenProcess
   , setUserTimeout
   , setProcessState
   , GenProcess
+  , peek
+  , push
+  , addUserTimer
   ) where
 
-import Control.Applicative (liftA2  )
+import Control.Applicative (liftA2)
 import Control.Distributed.Process
   ( match
   , matchAny
@@ -41,6 +44,7 @@ import Control.Distributed.Process
   , forward
   , catchesExit
   , catchExit
+  , die
   , Process
   , ProcessId
   , Match
@@ -60,16 +64,16 @@ import Control.Distributed.Process.ManagedProcess.Server
   )
 import Control.Distributed.Process.ManagedProcess.Timer
   ( Timer(timerDelay)
+  , TimerKey
+  , TimedOut(..)
   , delayTimer
   , startTimer
   , stopTimer
   , matchTimeout
-  , TimedOut(..)
+  , matchKey
+  , matchRun
   )
 import Control.Distributed.Process.ManagedProcess.Internal.Types hiding (Message)
-import Control.Distributed.Process.Extras.Internal.Queue.PriorityQ
-  ( PriorityQ
-  )
 import qualified Control.Distributed.Process.Extras.Internal.Queue.PriorityQ as Q
   ( empty
   , dequeue
@@ -83,108 +87,30 @@ import Control.Distributed.Process.Extras
 import qualified Control.Distributed.Process.Extras.SystemLog as Log
 import Control.Distributed.Process.Extras.Time
 import Control.Monad (void)
-import Control.Monad.Fix (MonadFix)
 import Control.Monad.Catch
   ( mask_
   , catch
   , throwM
-  , uninterruptibleMask
   , mask
   , SomeException
-  , MonadThrow
-  , MonadCatch
-  , MonadMask
   )
-import qualified Control.Monad.Catch as Catch
-  ( catch
-  , throwM
-  )
-import Control.Monad.IO.Class (MonadIO)
 import qualified Control.Monad.State.Strict as ST
-  ( MonadState
-  , StateT
-  , get
-  , lift
-  , runStateT
+  ( get
   )
-import Data.IORef (IORef, newIORef, atomicModifyIORef')
+import Data.IORef (newIORef, atomicModifyIORef')
 import Data.Maybe (fromJust)
-import Data.Typeable (Typeable)
+import qualified Data.Map.Strict as Map
+  ( size
+  , insert
+  , delete
+  , lookup
+  , empty
+  , foldrWithKey
+  )
 
 --------------------------------------------------------------------------------
 -- Priority Mailbox Handling                                                  --
 --------------------------------------------------------------------------------
-
--- represent a max-backlog from RecvTimeoutPolicy
-type Limit = Maybe Int
-
--- our priority queue
-type Queue = PriorityQ Int Message
-
-data ProcessState s = ProcessState { timeoutSpec :: RecvTimeoutPolicy
-                                   , procDef     :: ProcessDefinition s
-                                   , procPrio    :: [DispatchPriority s]
-                                   , procFilters :: [DispatchFilter s]
-                                   , usrTimeout  :: Delay
-                                   , sysTimeout  :: Timer
-                                   , internalQ   :: Queue
-                                   , procState   :: s
-                                   }
-type State s = IORef (ProcessState s)
-
-newtype GenProcess s a = GenProcess {
-   unManaged :: ST.StateT (State s) Process a
- }
- deriving ( Functor
-          , Monad
-          , ST.MonadState (State s)
-          , MonadIO
-          , MonadFix
-          , Typeable
-          , Applicative
-          )
-
-instance forall s . MonadThrow (GenProcess s) where
-  throwM = lift . Catch.throwM
-
-instance forall s . MonadCatch (GenProcess s) where
-  catch p h = do
-    pSt <- ST.get
-    -- we can throw away our state since it is always accessed via an IORef
-    (a, _) <- lift $ Catch.catch (runProcess pSt p) (runProcess pSt . h)
-    return a
-
-instance forall s . MonadMask (GenProcess s) where
-  mask p = do
-      pSt <- ST.get
-      lift $ mask $ \restore -> do
-        (a, _) <- runProcess pSt (p (liftRestore restore))
-        return a
-    where
-      liftRestore restoreP = \p2 -> do
-        ourSTate <- ST.get
-        (a', _) <- lift $ restoreP $ runProcess ourSTate p2
-        return a'
-
-  uninterruptibleMask p = do
-      pSt <- ST.get
-      (a, _) <- lift $ uninterruptibleMask $ \restore ->
-        runProcess pSt (p (liftRestore restore))
-      return a
-    where
-      liftRestore restoreP = \p2 -> do
-        ourSTate <- ST.get
-        (a', _) <- lift $ restoreP $ runProcess ourSTate p2
-        return a'
-
-runProcess :: State s -> GenProcess s a -> Process (a, State s)
-runProcess state proc = ST.runStateT (unManaged proc) state
-
-lift :: Process a -> GenProcess s a
-lift p = GenProcess $ ST.lift p
-
-liftIO :: IO a -> GenProcess s a
-liftIO = lift . P.liftIO
 
 gets :: forall s a . (ProcessState s -> a) -> GenProcess s a
 gets f = ST.get >>= \(s :: State s) -> liftIO $ do
@@ -195,8 +121,8 @@ modifyState f =
   ST.get >>= \s -> liftIO $ mask_ $ do
     atomicModifyIORef' s $ \s' -> (f s', ())
 
-getAndModifyState :: (ProcessState s
-                  -> (ProcessState s, a)) -> GenProcess s a
+getAndModifyState :: (ProcessState s -> (ProcessState s, a))
+                  -> GenProcess s a
 getAndModifyState f =
   ST.get >>= \s -> liftIO $ mask_ $ do
     atomicModifyIORef' s $ \s' -> f s'
@@ -211,6 +137,27 @@ setDrainTimeout t = modifyState $ \st@ProcessState{..} -> st { sysTimeout = t }
 setUserTimeout :: Delay -> GenProcess s ()
 setUserTimeout d =
   modifyState $ \st@ProcessState{..} -> st { usrTimeout = d }
+
+addUserTimer :: Timer -> Message -> GenProcess s TimerKey
+addUserTimer t m =
+  getAndModifyState $ \st@ProcessState{..} ->
+    let sz = Map.size usrTimers
+        tk = sz + 1
+    in (st { usrTimers = (Map.insert tk (t, m) usrTimers) }, tk)
+
+removeUserTimer :: TimerKey -> GenProcess s ()
+removeUserTimer i =
+  modifyState $ \st@ProcessState{..} -> st { usrTimers = (Map.delete i usrTimers) }
+
+consumeTimer :: forall s a . TimerKey -> (Message -> GenProcess s a) -> GenProcess s a
+consumeTimer k f = do
+  mt <- gets usrTimers
+  let tm = Map.lookup k mt
+  let ut = Map.delete k mt
+  modifyState $ \st@ProcessState{..} -> st { usrTimers = ut }
+  case tm of
+    Nothing     -> lift $ die $ "GenProcess.consumeTimer - InvalidTimerKey"
+    Just (_, m) -> f m
 
 processDefinition :: GenProcess s (ProcessDefinition s)
 processDefinition = gets procDef
@@ -258,6 +205,13 @@ peek :: GenProcess s (Maybe Message)
 peek = getAndModifyState $ \st -> do
          let pq = internalQ st
          (st, Q.peek pq)
+
+push :: forall s . Message -> GenProcess s ()
+push m = do
+  st <- processState
+  enqueueMessage st [ PrioritiseInfo {
+    prioritise = (\_ m' ->
+      return $ Just ((-100 :: Int), m')) :: s -> Message -> Process (Maybe (Int, Message)) } ] m
 
 enqueueMessage :: forall s . s
                -> [DispatchPriority s]
@@ -341,7 +295,8 @@ precvLoop ppDef pState recvDelay = do
                                            , procDef     = processDef ppDef
                                            , procPrio    = priorities ppDef
                                            , procFilters = filters ppDef
-                                          }
+                                           , usrTimers   = Map.empty
+                                           }
 
   mask $ \restore -> do
     res <- catch (fmap Right $ restore $ loop st)
@@ -387,6 +342,7 @@ recvQueue = do
 
     nextAction :: ProcessAction s -> GenProcess s ExitReason
     nextAction ac
+      | ProcessActivity  act     <- ac = act >> recvQueue
       | ProcessSkip              <- ac = recvQueue
       | ProcessContinue  ps'     <- ac = recvQueueAux ps'
       | ProcessTimeout   d   ps' <- ac = setUserTimeout d >> recvQueueAux ps'
@@ -496,7 +452,9 @@ recvQueue = do
       ps <- processState
       pd <- processDefinition
       pp <- processPriorities
-      let ms = matchAny (return . Right) : (mkMatchers ps pd)
+      ut <- gets usrTimers
+      let ts = Map.foldrWithKey (\k (t, _) ms -> ms ++ matchKey k t) [] ut
+      let ms = matchAny (return . Right) : (mkMatchers ps pd) ++ ts
       timerAcc <- timeoutPolicy >>= \spec -> case spec of
                                                RecvTimer      _   -> return Nothing
                                                RecvMaxBacklog cnt -> return $ Just cnt
@@ -517,10 +475,15 @@ recvQueue = do
     drainAux ps' pp' maxbq ms = do
       (cnt, m) <- scanMailbox maxbq ms
       case m of
-        Nothing                     -> return ()
-        Just (Left (_ :: TimedOut)) -> return ()
-        Just (Right m')             -> do enqueueMessage ps' pp' m'
-                                          drainAux ps' pp' cnt ms
+        Nothing               -> return ()
+        Just (Right m')       -> do enqueueMessage ps' pp' m'
+                                    drainAux ps' pp' cnt ms
+        Just (Left TimedOut)  -> return ()
+        Just (Left (Yield i)) ->
+          -- we saw a user defined timer fire, and will have an associated message...
+          -- this is a bit complex, we have to enqueue the message and remove the timer
+          -- the latter part of which is handled for us by consumeTimer
+          consumeTimer i push >> drainAux ps' pp' cnt ms
 
     maybeStartTimer :: GenProcess s Timer
     maybeStartTimer = do
@@ -547,9 +510,10 @@ recvQueue = do
       pd <- processDefinition
       ps <- processState
       ud <- currentTimeout
+      mr <- mkMatchRunners
       let ump     = unhandledMessagePolicy pd
           hto     = timeoutHandler pd
-          matches = ((matchMessage return):map (matchExtern ump ps) (externHandlers pd))
+          matches = mr ++ ((matchMessage return):map (matchExtern ump ps) (externHandlers pd))
           recv    = case ud of
                       Infinity -> lift $ fmap Just (receiveWait matches)
                       NoDelay  -> lift $ receiveTimeout 0 matches
@@ -565,6 +529,20 @@ recvQueue = do
             -- Returning @ProcessSkip@ simply causes us to go back into
             -- listening mode until we hit RecvTimeoutPolicy
             restore $ return ProcessSkip
+
+    mkMatchRunners :: GenProcess s [Match Message]
+    mkMatchRunners = do
+      ut <- gets usrTimers
+      fn <- mkRunner
+      let ms = Map.foldrWithKey (\k (t, _) ms -> ms ++ matchRun fn k t) [] ut
+      return ms
+
+    mkRunner :: GenProcess s (TimerKey -> Process Message)
+    mkRunner = do
+      st <- ST.get
+      let fn = \k -> do (m, _) <- runProcess st (consumeTimer k return)
+                        return m
+      return fn
 
     mkMatchers :: s
                 -> ProcessDefinition s
@@ -664,6 +642,7 @@ recvLoop pDef pState recvDelay =
         (ProcessHibernate d' s')  -> block d' >> recvLoop pDef s' recvDelay
         (ProcessStop r) -> handleStop (LastKnown pState) r >> return (r :: ExitReason)
         (ProcessStopping s' r)    -> handleStop (LastKnown s') r >> return (r :: ExitReason)
+        (ProcessActivity _)       -> die $ "recvLoop.InvalidState - ProcessActivityNotSupported"
   where
     matchAux :: UnhandledMessagePolicy
              -> s

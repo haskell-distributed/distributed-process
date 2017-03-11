@@ -63,7 +63,7 @@ import Control.Distributed.Process hiding (call, say)
 import qualified Control.Distributed.Process as P (say)
 import Control.Distributed.Process.Extras
   (ExitReason(..))
-import Control.Distributed.Process.ManagedProcess.Internal.Types
+import Control.Distributed.Process.ManagedProcess.Internal.Types hiding (lift)
 import qualified Control.Distributed.Process.ManagedProcess.Server as Server
 import Control.Distributed.Process.Extras.Time
 import Control.Distributed.Process.Serializable

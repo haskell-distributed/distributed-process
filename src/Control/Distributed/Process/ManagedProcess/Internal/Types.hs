@@ -16,6 +16,14 @@
 module Control.Distributed.Process.ManagedProcess.Internal.Types
   ( -- * Exported data types
     InitResult(..)
+  , GenProcess()
+  , runProcess
+  , lift
+  , liftIO
+  , ProcessState(..)
+  , State
+  , Queue
+  , Limit
   , Condition(..)
   , ProcessAction(..)
   , ProcessReply(..)
@@ -71,9 +79,8 @@ module Control.Distributed.Process.ManagedProcess.Internal.Types
   ) where
 
 import Control.Concurrent.STM (STM)
-import Control.Distributed.Process hiding (Message, finally)
-import Control.Monad.Catch (finally)
-import qualified Control.Distributed.Process as P (Message)
+import Control.Distributed.Process hiding (Message, mask, finally, liftIO)
+import qualified Control.Distributed.Process as P (Message, liftIO)
 import Control.Distributed.Process.Serializable
 import Control.Distributed.Process.Extras
   ( Recipient(..)
@@ -83,16 +90,43 @@ import Control.Distributed.Process.Extras
   , Routable(..)
   , NFSerializable
   )
+import Control.Distributed.Process.Extras.Internal.Queue.PriorityQ
+  ( PriorityQ
+  )
 import Control.Distributed.Process.Extras.Internal.Types
   ( resolveOrDie
   )
 import Control.Distributed.Process.Extras.Time
+import Control.Distributed.Process.ManagedProcess.Timer (Timer, TimerKey)
 import Control.DeepSeq (NFData(..))
+import Control.Monad.Fix (MonadFix)
+import Control.Monad.Catch
+  ( catch
+  , throwM
+  , uninterruptibleMask
+  , mask
+  , finally
+  , MonadThrow
+  , MonadCatch
+  , MonadMask
+  )
+import qualified Control.Monad.Catch as Catch
+  ( catch
+  , throwM
+  )
+import Control.Monad.IO.Class (MonadIO)
+import qualified Control.Monad.State.Strict as ST
+  ( MonadState
+  , StateT
+  , get
+  , lift
+  , runStateT
+  )
 import Data.Binary hiding (decode)
+import Data.Map.Strict (Map)
 import Data.Typeable (Typeable)
-
+import Data.IORef (IORef)
 import Prelude hiding (init)
-
 import GHC.Generics
 
 --------------------------------------------------------------------------------
@@ -175,6 +209,80 @@ data InitResult s =
         ^ the process has decided not to continue starting - this is not an error -}
   deriving (Typeable)
 
+-- represent a max-backlog from RecvTimeoutPolicy
+type Limit = Maybe Int
+
+-- our priority queue
+type Queue = PriorityQ Int P.Message
+
+type TimerMap = Map TimerKey (Timer, P.Message)
+
+data ProcessState s = ProcessState { timeoutSpec :: RecvTimeoutPolicy
+                                   , procDef     :: ProcessDefinition s
+                                   , procPrio    :: [DispatchPriority s]
+                                   , procFilters :: [DispatchFilter s]
+                                   , usrTimeout  :: Delay
+                                   , sysTimeout  :: Timer
+                                   , usrTimers   :: TimerMap
+                                   , internalQ   :: Queue
+                                   , procState   :: s
+                                   }
+type State s = IORef (ProcessState s)
+
+newtype GenProcess s a = GenProcess {
+   unManaged :: ST.StateT (State s) Process a
+ }
+ deriving ( Functor
+          , Monad
+          , ST.MonadState (State s)
+          , MonadIO
+          , MonadFix
+          , Typeable
+          , Applicative
+          )
+
+instance forall s . MonadThrow (GenProcess s) where
+  throwM = lift . Catch.throwM
+
+instance forall s . MonadCatch (GenProcess s) where
+  catch p h = do
+    pSt <- ST.get
+    -- we can throw away our state since it is always accessed via an IORef
+    (a, _) <- lift $ Catch.catch (runProcess pSt p) (runProcess pSt . h)
+    return a
+
+instance forall s . MonadMask (GenProcess s) where
+  mask p = do
+      pSt <- ST.get
+      lift $ mask $ \restore -> do
+        (a, _) <- runProcess pSt (p (liftRestore restore))
+        return a
+    where
+      liftRestore restoreP = \p2 -> do
+        ourSTate <- ST.get
+        (a', _) <- lift $ restoreP $ runProcess ourSTate p2
+        return a'
+
+  uninterruptibleMask p = do
+      pSt <- ST.get
+      (a, _) <- lift $ uninterruptibleMask $ \restore ->
+        runProcess pSt (p (liftRestore restore))
+      return a
+    where
+      liftRestore restoreP = \p2 -> do
+        ourSTate <- ST.get
+        (a', _) <- lift $ restoreP $ runProcess ourSTate p2
+        return a'
+
+runProcess :: State s -> GenProcess s a -> Process (a, State s)
+runProcess state proc = ST.runStateT (unManaged proc) state
+
+lift :: Process a -> GenProcess s a
+lift p = GenProcess $ ST.lift p
+
+liftIO :: IO a -> GenProcess s a
+liftIO = lift . P.liftIO
+
 -- | The action taken by a process after a handler has run and its updated state.
 -- See "Control.Distributed.Process.ManagedProcess.Server.continue"
 --     "Control.Distributed.Process.ManagedProcess.Server.timeoutAfter"
@@ -184,6 +292,7 @@ data InitResult s =
 --
 data ProcessAction s =
     ProcessSkip
+  | ProcessActivity  (GenProcess s ()) -- ^ run the given activity
   | ProcessContinue  s              -- ^ continue with (possibly new) state
   | ProcessTimeout   Delay        s -- ^ timeout if no messages are received
   | ProcessHibernate TimeInterval s -- ^ hibernate for /delay/

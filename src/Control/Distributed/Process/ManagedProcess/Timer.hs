@@ -31,14 +31,18 @@
 --
 module Control.Distributed.Process.ManagedProcess.Timer
   ( Timer(timerDelay)
+  , TimerKey
   , delayTimer
   , startTimer
   , stopTimer
   , resetTimer
   , clearTimer
   , matchTimeout
+  , matchKey
+  , matchRun
   , isActive
   , readTimer
+  , checkKey
   , TimedOut(..)
   ) where
 
@@ -46,12 +50,14 @@ import Control.Concurrent (rtsSupportsBoundThreads)
 import Control.Concurrent.STM hiding (check)
 import Control.Distributed.Process
   ( matchSTM
+  , unsafeWrapMessage
   , Process
   , ProcessId
   , Match
   , Message
   , liftIO
   )
+import Control.Distributed.Process.Serializable (Serializable)
 import qualified Control.Distributed.Process as P
   ( liftIO
   )
@@ -71,18 +77,21 @@ import GHC.Generics
 -- Timeout Management                                                         --
 --------------------------------------------------------------------------------
 
+type TimerKey = Int
+
 -- private datum used during STM reads on Timers and to implement
 -- block in terms of listening for a message that will never arrive
-data TimedOut = TimedOut deriving (Eq, Show, Typeable, Generic)
+data TimedOut = TimedOut | Yield Int
+  deriving (Eq, Show, Typeable, Generic)
 instance Binary TimedOut where
 
 -- | We hold timers in 2 states, each described by a Delay.
 -- isActive = isJust . mtSignal
 -- the TimerRef is optional since we only use the Timer module from extras
 -- when we're unable to registerDelay (i.e. not running under -threaded)
-data Timer = Timer { timerDelay  :: Delay
-                   , mtPidRef :: Maybe TimerRef
-                   , mtSignal :: Maybe (TVar Bool)
+data Timer = Timer { timerDelay :: Delay
+                   , mtPidRef   :: Maybe TimerRef
+                   , mtSignal   :: Maybe (TVar Bool)
                    }
 
 -- | @True@ if a @Timer@ is currently active.
@@ -145,6 +154,27 @@ matchTimeout t@Timer{..}
     | isActive t = [ matchSTM (readTimer $ fromJust mtSignal)
                               (return . Left) ]
     | otherwise  = []
+
+matchKey :: TimerKey -> Timer -> [Match (Either TimedOut Message)]
+matchKey i t@Timer{..}
+  | isActive t = [matchSTM (readTVar (fromJust mtSignal) >>= \expired ->
+                               if expired then return (Yield i) else retry)
+                           (return . Left)]
+  | otherwise  = []
+
+matchRun :: (TimerKey -> Process Message)
+         -> TimerKey
+         -> Timer
+         -> [Match Message]
+matchRun f k t@Timer{..}
+  | isActive t = [matchSTM (readTVar (fromJust mtSignal) >>= \expired ->
+                               if expired then return k else retry) f]
+  | otherwise  = []
+
+checkKey :: Timer -> Process Bool
+checkKey t@Timer{..}
+  | isActive t = liftIO $ atomically $ readTVar $ fromJust mtSignal
+  | otherwise  = return False
 
 -- | Reads a given @TVar Bool@ for a timer, and returns @STM TimedOut@ once the
 -- variable is set to true. Will @retry@ in the meanwhile.
