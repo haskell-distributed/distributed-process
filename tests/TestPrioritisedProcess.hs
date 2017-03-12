@@ -367,7 +367,7 @@ testUserTimerHandling result = do
     procDef us =
       statelessProcess {
             apiHandlers = [
-              handleCast (\s () -> runAfter (seconds 5) MyAlarmSignal)
+              handleCast (\s () -> act $ runAfter (seconds 5) MyAlarmSignal)
             ]
           , infoHandlers = [
                handleInfo (\s (sig :: MyAlarmSignal) -> send us sig >> continue s)

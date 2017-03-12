@@ -46,6 +46,17 @@ module Control.Distributed.Process.ManagedProcess.Server.Priority
   , Message()
   , act
   , runAfter
+  , currentTimeout
+  , processState
+  , processDefinition
+  , processFilters
+  , processUnhandledMsgPolicy
+  , setUserTimeout
+  , setProcessState
+  , GenProcess
+  , peek
+  , push
+  , addUserTimer
   ) where
 
 import Control.Distributed.Process hiding (call, Message)
@@ -54,7 +65,19 @@ import Control.Distributed.Process.Extras
   ( ExitReason(..)
   )
 import Control.Distributed.Process.Extras.Time (TimeInterval, Delay(Delay))
-import Control.Distributed.Process.ManagedProcess.Internal.GenProcess (addUserTimer)
+import Control.Distributed.Process.ManagedProcess.Internal.GenProcess
+  ( addUserTimer
+  , currentTimeout
+  , processState
+  , processDefinition
+  , processFilters
+  , processUnhandledMsgPolicy
+  , setUserTimeout
+  , setProcessState
+  , GenProcess
+  , peek
+  , push
+  )
 import Control.Distributed.Process.ManagedProcess.Internal.Types
 import Control.Distributed.Process.ManagedProcess.Timer (startTimer)
 import Control.Distributed.Process.Serializable
@@ -190,12 +213,11 @@ ensureM c =
 filterFail :: ExitReason
 filterFail = ExitOther "Control.Distributed.Process.ManagedProcess.Priority:FilterFailed"
 
-act :: forall s . GenProcess s ()
-    -> Action s
+act :: forall s . GenProcess s () -> Action s
 act = return . ProcessActivity
 
-runAfter :: forall s m . (Serializable m) => TimeInterval -> m -> Action s
-runAfter d m = act $ do
+runAfter :: forall s m . (Serializable m) => TimeInterval -> m -> GenProcess s ()
+runAfter d m = do
   t <- lift $ startTimer (Delay d)
   void $ addUserTimer t (unsafeWrapMessage m)
 
