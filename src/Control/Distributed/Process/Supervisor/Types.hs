@@ -286,12 +286,13 @@ instance NFData ChildStart  where
 -- e.g., if the child is a long running server, this would be the server /loop/,
 -- as with e.g., @ManagedProces.start@.
 data ChildSpec = ChildSpec {
-    childKey     :: !ChildKey
-  , childType    :: !ChildType
-  , childRestart :: !RestartPolicy
-  , childStop    :: !ChildTerminationPolicy
-  , childStart   :: !ChildStart
-  , childRegName :: !(Maybe RegisteredName)
+    childKey          :: !ChildKey
+  , childType         :: !ChildType
+  , childRestart      :: !RestartPolicy
+  , childRestartDelay :: !(Maybe TimeInterval)
+  , childStop         :: !ChildTerminationPolicy
+  , childStart        :: !ChildStart
+  , childRegName      :: !(Maybe RegisteredName)
   } deriving (Typeable, Generic, Show)
 instance Binary ChildSpec where
 instance NFData ChildSpec where
@@ -359,6 +360,7 @@ data MxSupervisor =
   | SupervisorShutdown
     { supervisorPid :: SupervisorPid
     , shutdownMode  :: ShutdownMode
+    , exitRason     :: ExitReason
     }
     deriving (Typeable, Generic, Show)
 instance Binary MxSupervisor where

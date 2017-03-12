@@ -92,7 +92,7 @@ test-suite SupervisorTests
                    exceptions >= 0.5
   hs-source-dirs:
                    tests
-  ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind -eventlog
+  ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-name-shadowing -fno-warn-unused-do-bind -eventlog
   extensions:      CPP
   main-is:         TestSupervisor.hs
   other-modules:   TestUtils
@@ -131,7 +131,7 @@ test-suite NonThreadedSupervisorTests
                    exceptions >= 0.5
   hs-source-dirs:
                    tests
-  ghc-options:     -Wall -rtsopts -fno-warn-unused-do-bind
+  ghc-options:     -Wall -rtsopts -fno-warn-unused-do-bind -fno-warn-name-shadowing
   extensions:      CPP
   main-is:         TestSupervisor.hs
   other-modules:   TestUtils

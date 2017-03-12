@@ -131,3 +131,4 @@ supervisionMonitor = do
                        let cs = Map.lookup (supervisorPid ev') st
                        mapM_ (liftMX . (flip sendChan) ev' . smxc . snd)
                              (maybe [] id $ Map.lookup (supervisorPid ev') st)
+        Nothing  -> return ()

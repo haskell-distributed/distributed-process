@@ -78,6 +78,7 @@ defaultWorker clj =
     childKey     = ""
   , childType    = Worker
   , childRestart = Temporary
+  , childRestartDelay = Nothing
   , childStop    = TerminateImmediately
   , childStart   = clj
   , childRegName = Nothing
@@ -603,34 +604,35 @@ restartAfterThreeAttempts cs withSupervisor = do
     [(_, _)] <- listChildren sup
     return ()
 
-{-
 delayedRestartAfterThreeAttempts ::
-     (RestartStrategy -> [ChildSpec] -> (ProcessId -> Process ()) -> Assertion)
+     (RestartStrategy -> [ChildSpec] -> (Context -> Process ()) -> Assertion)
   -> Assertion
 delayedRestartAfterThreeAttempts withSupervisor = do
-  let restartPolicy = DelayedRestart Permanent (within 1 Seconds)
-  let spec = (permChild $(mkStaticClosure 'blockIndefinitely))
-             { childRestart = restartPolicy }
-  let strategy = RestartOne $ limit (maxRestarts 2) (seconds 1)
-  withSupervisor strategy [spec] $ \sup -> do
+  let spec = (permChild $ RunClosure $ $(mkStaticClosure 'blockIndefinitely))
+             { childRestartDelay = Just (seconds 3) }
+  let strategy = RestartOne $ limit (maxRestarts 2) (seconds 2)
+  withSupervisor strategy [spec] $ \ctx@Context{..} -> do
     mapM_ (\_ -> do
       [(childRef, _)] <- listChildren sup
       Just pid <- resolve childRef
       ref <- monitor pid
       testProcessStop pid
       void $ waitForDown ref) [1..3 :: Int]
+
     Just (ref, _) <- lookupChild sup $ childKey spec
     case ref of
-      ChildRestarting _ -> return ()
+      ChildRestarting _ -> do
+        SupervisedChildStarted{..} <- receiveChan sniffer
+        childSpecKey `shouldBe` equalTo (childKey spec)
       _ -> liftIO $ assertFailure $ "Unexpected ChildRef: " ++ (show ref)
-    sleep $ seconds 2
+
+    mapM_ (const $ verifySingleRestart ctx (childKey spec)) [1..3 :: Int]
+
     [(ref', _)] <- listChildren sup
-    liftIO $ putStrLn $ "it is: " ++ (show ref')
     Just pid <- resolve ref'
     mRef <- monitor pid
     testProcessStop pid
     void $ waitForDown mRef
--}
 
 permanentChildExceedsRestartsIntensity ::
      ChildStart
@@ -711,7 +713,7 @@ restartLeftWithLeftToRightSeqRestarts cs withSupervisor = do
     forM_ (map fst restarts) $ \cRef -> monitor cRef >>= waitForDown
 
     -- NB: this uses a separate channel to consume the Mx events...
-    waitForBranchRestartComplete sup sniff toStop
+    waitForBranchRestartComplete sniff toStop
 
     children' <- listChildren sup
     let (restarted', _) = splitAt 100 children'
@@ -1036,11 +1038,10 @@ restartRightWithRightToLeftRestarts rev ctx@Context{..} = do
   let [c1, c2] = [map fst cs | cs <- [(fst $ splitAt 3 children), notRestarted]]
   forM_ (zip c1 c2) $ \(p1, p2) -> p1 `shouldBe` equalTo p2
 
-waitForBranchRestartComplete :: SupervisorPid
-                             -> Sniffer
+waitForBranchRestartComplete :: Sniffer
                              -> ChildKey
                              -> Process ()
-waitForBranchRestartComplete sup sniff key = do
+waitForBranchRestartComplete sniff key = do
   debug logChannel $ "waiting for branch restart..."
   aux 10000 sniff Nothing -- `finally` unmonitorSupervisor sup
   where
@@ -1052,6 +1053,24 @@ waitForBranchRestartComplete sup sniff key = do
       , childSpecKey == key = return ()
       | Nothing <- m        = receiveTimeout 100 [ matchChan s return ] >>= aux (n-1) s
       | otherwise           = aux (n-1) s Nothing
+
+verifySingleRestart :: Context
+                    -> ChildKey
+                    -> Process ()
+verifySingleRestart Context{..} key = do
+  sleep $ seconds 1
+  let t = asTimeout waitTimeout
+  mx <- receiveChanTimeout t sniffer
+  case mx of
+    Just rs@SupervisedChildRestarting{} -> do
+      (childSpecKey rs) `shouldBe` equalTo key
+      mx' <- receiveChanTimeout t sniffer
+      case mx' of
+        Just cs@SupervisedChildStarted{} -> do
+          (childSpecKey cs) `shouldBe` equalTo key
+          debug logChannel $ "restart ok for " ++ (show cs)
+        _ -> liftIO $ assertFailure $ " Unexpected Waiting Child Started " ++ (show mx')
+    _ -> liftIO $ assertFailure $ "Unexpected Waiting Child Restarted " ++ (show mx)
 
 verifySeqStartOrder :: Context
                      -> [(ChildRef, Child)]
@@ -1428,8 +1447,8 @@ tests transport = do
           , testCase "Permanent Child Exceeds Restart Limits"
                 (permanentChildExceedsRestartsIntensity
                  (RunClosure $(mkStaticClosure 'noOp)) withSupervisor)
---          , testCase "Permanent Child Delayed Restart"
---                (delayedRestartAfterThreeAttempts withSupervisor)
+          , testCase "Permanent Child Delayed Restart"
+                (delayedRestartAfterThreeAttempts withSupervisor')
           ]
       ]
 {-    , testGroup "CI"
@@ -1438,7 +1457,7 @@ tests transport = do
           (RestartRight defaultLimits (RestartInOrder LeftToRight)) []
            (\_ -> sleep $ seconds 20))
       ]
-    -}
+-}
     ]
 
 main :: IO ()
