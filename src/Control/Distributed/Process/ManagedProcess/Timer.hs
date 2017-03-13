@@ -42,7 +42,6 @@ module Control.Distributed.Process.ManagedProcess.Timer
   , matchRun
   , isActive
   , readTimer
-  , checkKey
   , TimedOut(..)
   ) where
 
@@ -50,14 +49,12 @@ import Control.Concurrent (rtsSupportsBoundThreads)
 import Control.Concurrent.STM hiding (check)
 import Control.Distributed.Process
   ( matchSTM
-  , unsafeWrapMessage
   , Process
   , ProcessId
   , Match
   , Message
   , liftIO
   )
-import Control.Distributed.Process.Serializable (Serializable)
 import qualified Control.Distributed.Process as P
   ( liftIO
   )
@@ -77,11 +74,15 @@ import GHC.Generics
 -- Timeout Management                                                         --
 --------------------------------------------------------------------------------
 
+-- | A key for storing timers in prioritised process backing state.
 type TimerKey = Int
 
--- private datum used during STM reads on Timers and to implement
--- block in terms of listening for a message that will never arrive
-data TimedOut = TimedOut | Yield Int
+-- | Used during STM reads on Timers and to implement blocking. Since timers
+-- can be associated with a "TimerKey", the second constructor for this type
+-- yields a key indicating whic "Timer" it refers to. Note that the user is
+-- responsible for establishing and maintaining the mapping between @Timer@s
+-- and their keys.
+data TimedOut = TimedOut | Yield TimerKey
   deriving (Eq, Show, Typeable, Generic)
 instance Binary TimedOut where
 
@@ -155,6 +156,9 @@ matchTimeout t@Timer{..}
                               (return . Left) ]
     | otherwise  = []
 
+-- | Create a match expression for a given @Timer@. When the timer expires
+-- (i.e. the "TVar Bool" is set to @True@), the "Match" will return @Yield i@,
+-- where @i@ is the given "TimerKey".
 matchKey :: TimerKey -> Timer -> [Match (Either TimedOut Message)]
 matchKey i t@Timer{..}
   | isActive t = [matchSTM (readTVar (fromJust mtSignal) >>= \expired ->
@@ -162,6 +166,9 @@ matchKey i t@Timer{..}
                            (return . Left)]
   | otherwise  = []
 
+-- | As "matchKey", but instead of a returning @Yield i@, the generated "Match"
+-- handler evaluates the first argument - and expression from "TimerKey" to
+-- @Process Message@ - to determine its result.
 matchRun :: (TimerKey -> Process Message)
          -> TimerKey
          -> Timer
@@ -170,11 +177,6 @@ matchRun f k t@Timer{..}
   | isActive t = [matchSTM (readTVar (fromJust mtSignal) >>= \expired ->
                                if expired then return k else retry) f]
   | otherwise  = []
-
-checkKey :: Timer -> Process Bool
-checkKey t@Timer{..}
-  | isActive t = liftIO $ atomically $ readTVar $ fromJust mtSignal
-  | otherwise  = return False
 
 -- | Reads a given @TVar Bool@ for a timer, and returns @STM TimedOut@ once the
 -- variable is set to true. Will @retry@ in the meanwhile.

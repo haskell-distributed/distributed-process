@@ -140,9 +140,11 @@ type CallId = MonitorRef
 newtype CallRef a = CallRef { unCaller :: (Recipient, CallId) }
   deriving (Eq, Show, Typeable, Generic)
 
+-- | Retrieve the @Recipient@ for a @CallRef@.
 recipient :: CallRef a -> Recipient
 recipient = fst . unCaller
 
+-- | Retrieve the @CallId@ for a @CallRef@.
 tag :: CallRef a -> CallId
 tag = snd . unCaller
 
@@ -160,10 +162,14 @@ data Message a b =
   | ChanMessage a (SendPort b)
   deriving (Typeable, Generic)
 
+-- | Retrieve the @Recipient@ from a @Message@. If the supplied message is
+-- a /cast/ or /chan/ message will evaluate to @Nothing@, otherwise @Just ref@.
 caller :: forall a b . Message a b -> Maybe Recipient
 caller (CallMessage _ ref) = Just $ recipient ref
 caller _                   = Nothing
 
+-- | Reject a /call/ message with the supplied string. Sends @CallRejected@ to
+-- the recipient if the input is a @CallMessage@, otherwise has no side effects.
 rejectToCaller :: forall a b .
                   Message a b -> String -> Process ()
 rejectToCaller (CallMessage _ ref) m = sendTo ref (CallRejected m (tag ref))
@@ -187,6 +193,8 @@ instance NFSerializable a => NFData (CallResponse a) where
 deriving instance Eq a => Eq (CallResponse a)
 deriving instance Show a => Show (CallResponse a)
 
+-- | Sent to a consumer of the /call/ API when a server filter expression
+-- explicitly rejects an incoming call message.
 data CallRejected = CallRejected String CallId
   deriving (Typeable, Generic, Show, Eq)
 instance Binary CallRejected where
@@ -209,14 +217,16 @@ data InitResult s =
         ^ the process has decided not to continue starting - this is not an error -}
   deriving (Typeable)
 
--- represent a max-backlog from RecvTimeoutPolicy
+-- | Represent a max-backlog from RecvTimeoutPolicy
 type Limit = Maybe Int
 
--- our priority queue
+-- | Internal priority queue, used by prioritised processes.
 type Queue = PriorityQ Int P.Message
 
+-- | Map from @TimerKey@ to @(Timer, Message)@.
 type TimerMap = Map TimerKey (Timer, P.Message)
 
+-- | Internal state of a prioritised process loop.
 data ProcessState s = ProcessState { timeoutSpec :: RecvTimeoutPolicy
                                    , procDef     :: ProcessDefinition s
                                    , procPrio    :: [DispatchPriority s]
@@ -227,8 +237,11 @@ data ProcessState s = ProcessState { timeoutSpec :: RecvTimeoutPolicy
                                    , internalQ   :: Queue
                                    , procState   :: s
                                    }
+
+-- | Prioritised process state, held as an @IORef@.
 type State s = IORef (ProcessState s)
 
+-- | StateT based monad for prioritised process loops.
 newtype GenProcess s a = GenProcess {
    unManaged :: ST.StateT (State s) Process a
  }
@@ -274,12 +287,15 @@ instance forall s . MonadMask (GenProcess s) where
         (a', _) <- lift $ restoreP $ runProcess ourSTate p2
         return a'
 
+-- | Run an action in the @GenProcess@ monad.
 runProcess :: State s -> GenProcess s a -> Process (a, State s)
 runProcess state proc = ST.runStateT (unManaged proc) state
 
+-- | Lift an action in the @Process@ monad to @GenProcess@.
 lift :: Process a -> GenProcess s a
 lift p = GenProcess $ ST.lift p
 
+-- | Lift an IO action directly into @GenProcess@, @liftIO = lift . Process.LiftIO@.
 liftIO :: IO a -> GenProcess s a
 liftIO = lift . P.liftIO
 
@@ -290,6 +306,10 @@ liftIO = lift . P.liftIO
 --     "Control.Distributed.Process.ManagedProcess.Server.stop"
 --     "Control.Distributed.Process.ManagedProcess.Server.stopWith"
 --
+-- Also see "Control.Distributed.Process.Management.Priority.act" and
+-- "Control.Distributed.Process.ManagedProcess.Priority.runAfter".
+--
+-- And other actions. This type should not be used directly.
 data ProcessAction s =
     ProcessSkip
   | ProcessActivity  (GenProcess s ()) -- ^ run the given activity
@@ -339,10 +359,12 @@ data ExitState s = CleanShutdown s -- ^ given when an ordered shutdown is underw
                  | LastKnown s     {-
                   ^ given due to an unhandled exception, passing the last known state -}
 
+-- | @True@ if the @ExitState@ is @CleanShutdown@, otherwise @False@.
 isCleanShutdown :: ExitState s -> Bool
 isCleanShutdown (CleanShutdown _) = True
 isCleanShutdown _                 = False
 
+-- | Evaluates to the @s@ state datum in the given @ExitState@.
 exitState :: ExitState s -> s
 exitState (CleanShutdown s) = s
 exitState (LastKnown s)     = s
@@ -421,11 +443,15 @@ channelControlPort :: ControlChannel m
                    -> ControlPort m
 channelControlPort cc = ControlPort $ fst $ unControl cc
 
+-- | Given as the result of evaluating a "DispatchFilter". This type is intended
+-- for internal use. For an API for working with filters,
+-- see "Control.Distributed.Process.ManagedProcess.Priority".
 data Filter s = FilterOk s
               | forall m . (Show m) => FilterReject m s
               | FilterSkip s
               | FilterStop s ExitReason
 
+-- | Provides dispatch from a variety of inputs to a typed filter handler.
 data DispatchFilter s =
     forall a b . (Serializable a, Serializable b) =>
     FilterApi
@@ -508,6 +534,8 @@ instance MessageMatcher ExternDispatcher where
   matchDispatch _ s (DispatchCC  c d)     = matchChan c (d s)
   matchDispatch _ s (DispatchSTM c d _ _) = matchSTM  c (d s)
 
+-- | Defines the means of dispatching messages from external channels (e.g.
+-- those defined in terms of "ControlChannel", and STM actions) to a handler.
 class ExternMatcher d where
   matchExtern :: UnhandledMessagePolicy -> s -> d s -> Match P.Message
 
@@ -607,6 +635,10 @@ data ProcessDefinition s = ProcessDefinition {
 -- TODO: Generify this /call/ API and use it in Call.hs to avoid tagging
 
 -- TODO: the code below should be moved elsewhere. Maybe to Client.hs?
+
+-- | The send part of the /call/ client-server interaction. The resulting
+-- "CallRef" can be used to identify the corrolary response message (if one is
+-- sent by the server), and is unique to this /call-reply/ pair.
 initCall :: forall s a b . (Addressable s, Serializable a, Serializable b)
          => s -> a -> Process (CallRef b)
 initCall sid msg = do
@@ -617,6 +649,7 @@ initCall sid msg = do
     sendTo pid (CallMessage msg cRef :: Message a b)
     return cRef
 
+-- | Version of @initCall@ that utilises "unsafeSendTo".
 unsafeInitCall :: forall s a b . ( Addressable s
                                  , NFSerializable a
                                  , NFSerializable b
@@ -630,6 +663,9 @@ unsafeInitCall sid msg = do
     unsafeSendTo pid (CallMessage msg cRef  :: Message a b)
     return cRef
 
+-- | Wait on the server's response after an "initCall" has been previously been sent.
+--
+-- This function does /not/ trap asynchronous exceptions.
 waitResponse :: forall b. (Serializable b)
              => Maybe TimeInterval
              -> CallRef b

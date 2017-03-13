@@ -30,6 +30,10 @@ module Control.Distributed.Process.ManagedProcess.Internal.GenProcess
   , peek
   , push
   , addUserTimer
+  , removeUserTimer
+  , act
+  , runAfter
+  , evalAfter
   ) where
 
 import Control.Applicative (liftA2)
@@ -45,6 +49,7 @@ import Control.Distributed.Process
   , catchesExit
   , catchExit
   , die
+  , unsafeWrapMessage
   , Process
   , ProcessId
   , Match
@@ -86,6 +91,7 @@ import Control.Distributed.Process.Extras
   )
 import qualified Control.Distributed.Process.Extras.SystemLog as Log
 import Control.Distributed.Process.Extras.Time
+import Control.Distributed.Process.Serializable (Serializable)
 import Control.Monad (void)
 import Control.Monad.Catch
   ( mask_
@@ -112,32 +118,41 @@ import qualified Data.Map.Strict as Map
 -- Priority Mailbox Handling                                                  --
 --------------------------------------------------------------------------------
 
+-- | Evaluate the given function over the @ProcessState s@ for the caller, and
+-- return the result.
 gets :: forall s a . (ProcessState s -> a) -> GenProcess s a
 gets f = ST.get >>= \(s :: State s) -> liftIO $ do
   atomicModifyIORef' s $ \(s' :: ProcessState s) -> (s', f s' :: a)
 
+-- | Modify our state.
 modifyState :: (ProcessState s -> ProcessState s) -> GenProcess s ()
 modifyState f =
   ST.get >>= \s -> liftIO $ mask_ $ do
     atomicModifyIORef' s $ \s' -> (f s', ())
 
+-- | Modify our state and return a value (potentially from it).
 getAndModifyState :: (ProcessState s -> (ProcessState s, a))
                   -> GenProcess s a
 getAndModifyState f =
   ST.get >>= \s -> liftIO $ mask_ $ do
     atomicModifyIORef' s $ \s' -> f s'
 
+-- | Set the current process state.
 setProcessState :: s -> GenProcess s ()
 setProcessState st' =
   modifyState $ \st@ProcessState{..} -> st { procState = st' }
 
+-- | Set the mailbox draining timer.
 setDrainTimeout :: Timer -> GenProcess s ()
 setDrainTimeout t = modifyState $ \st@ProcessState{..} -> st { sysTimeout = t }
 
+-- | Set the user timeout applied whilst a prioritised process loop is in
+-- a blocking receive.
 setUserTimeout :: Delay -> GenProcess s ()
 setUserTimeout d =
   modifyState $ \st@ProcessState{..} -> st { usrTimeout = d }
 
+-- | Add a /user timer/, bound to the given datum.
 addUserTimer :: Timer -> Message -> GenProcess s TimerKey
 addUserTimer t m =
   getAndModifyState $ \st@ProcessState{..} ->
@@ -145,10 +160,14 @@ addUserTimer t m =
         tk = sz + 1
     in (st { usrTimers = (Map.insert tk (t, m) usrTimers) }, tk)
 
+-- | Remove a /user timer/, for the given key.
 removeUserTimer :: TimerKey -> GenProcess s ()
 removeUserTimer i =
   modifyState $ \st@ProcessState{..} -> st { usrTimers = (Map.delete i usrTimers) }
 
+-- | Consume the timer with the given @TimerKey@. The timer is removed from the
+-- @ProcessState@ and given to the supplied expression, whose evaluation is given
+-- back to the caller.
 consumeTimer :: forall s a . TimerKey -> (Message -> GenProcess s a) -> GenProcess s a
 consumeTimer k f = do
   mt <- gets usrTimers
@@ -159,41 +178,83 @@ consumeTimer k f = do
     Nothing     -> lift $ die $ "GenProcess.consumeTimer - InvalidTimerKey"
     Just (_, m) -> f m
 
+-- | The @ProcessDefinition@ for the current loop.
 processDefinition :: GenProcess s (ProcessDefinition s)
 processDefinition = gets procDef
 
+-- | The list of prioritisers for the current loop.
 processPriorities :: GenProcess s ([DispatchPriority s])
 processPriorities = gets procPrio
 
+-- | The list of filters for the current loop.
 processFilters :: GenProcess s ([DispatchFilter s])
 processFilters = gets procFilters
 
+-- | Evaluates to the user defined state for the currently executing server loop.
 processState :: GenProcess s s
 processState = gets procState
 
+-- | Evaluates to the @UnhandledMessagePolicy@ for the current loop.
 processUnhandledMsgPolicy :: GenProcess s UnhandledMessagePolicy
 processUnhandledMsgPolicy = gets (unhandledMessagePolicy . procDef)
 
+-- | The @Timer@ for the system timeout. See @drainTimeout@.
 systemTimeout :: GenProcess s Timer
 systemTimeout = gets sysTimeout
 
+-- | The policy for the system timeout. This is used to determine how the loop
+-- should limit the time spent draining the /real/ process mailbox into our
+-- internal priority queue.
 timeoutPolicy :: GenProcess s RecvTimeoutPolicy
 timeoutPolicy = gets timeoutSpec
 
+-- | The @Delay@ for the @drainTimeout@.
 drainTimeout :: GenProcess s Delay
 drainTimeout = gets (timerDelay . sysTimeout)
 
+-- | The current (user supplied) timeout.
 currentTimeout :: GenProcess s Delay
 currentTimeout = gets usrTimeout
 
+-- | Update and store the internal priority queue.
 updateQueue :: (Queue -> Queue) -> GenProcess s ()
 updateQueue f =
   modifyState $ \st@ProcessState{..} -> st { internalQ = f internalQ }
+
+-- | Evaluate any matching /info handler/ with the supplied datum after waiting
+-- for at least @TimeInterval@. The process state (for the resulting @Action s@)
+-- is also given and the process loop will go on as per @Server.continue@.
+--
+-- Informally, evaluating this expression (such that the @Action@ is given as the
+-- result of a handler or filter) will ensure that the supplied message (datum)
+-- is availble for processing no sooner than @TimeInterval@.
+--
+-- Currently, this expression creates an @Action@ that triggers immediate
+-- evaluation in the process loop before continuing with the given state. The
+-- process loop stores a /user timeout/ for the given time interval, which is
+-- trigerred like a wait/drain timeout. This implementation is subject to change.
+evalAfter :: forall s m . (Serializable m) => TimeInterval -> m -> s -> Action s
+evalAfter d m s = act $ runAfter d m >> setProcessState s
+
+-- | Produce an @Action s@ that, if it is the result of a handler, will cause the
+-- server loop to evaluate the supplied expression. This is given in the @GenProcess@
+-- monad, which is intended for internal use only.
+act :: forall s . GenProcess s () -> Action s
+act = return . ProcessActivity
+{-# WARNING act "This interface is intended for internal use only" #-}
+
+-- | Starts a timer and adds it as a /user timeout/.
+runAfter :: forall s m . (Serializable m) => TimeInterval -> m -> GenProcess s ()
+runAfter d m = do
+  t <- lift $ startTimer (Delay d)
+  void $ addUserTimer t (unsafeWrapMessage m)
+{-# WARNING runAfter "This interface is intended for internal use only" #-}
 
 --------------------------------------------------------------------------------
 -- Internal Priority Queue                                                    --
 --------------------------------------------------------------------------------
 
+-- | Dequeue a message from the internal priority queue.
 dequeue :: GenProcess s (Maybe Message)
 dequeue = getAndModifyState $ \st -> do
             let pq = internalQ st
@@ -201,18 +262,24 @@ dequeue = getAndModifyState $ \st -> do
               Nothing      -> (st, Nothing)
               Just (m, q') -> (st { internalQ = q' }, Just m)
 
+-- | Peek at the next available message in the internal priority queue, without
+-- removing it.
 peek :: GenProcess s (Maybe Message)
 peek = getAndModifyState $ \st -> do
          let pq = internalQ st
          (st, Q.peek pq)
 
+-- | Push a message to the head of the internal priority queue.
 push :: forall s . Message -> GenProcess s ()
 push m = do
   st <- processState
   enqueueMessage st [ PrioritiseInfo {
     prioritise = (\_ m' ->
-      return $ Just ((-100 :: Int), m')) :: s -> Message -> Process (Maybe (Int, Message)) } ] m
+      return $ Just ((101 :: Int), m')) :: s -> Message -> Process (Maybe (Int, Message)) } ] m
 
+-- | Enqueue a message in the internal priority queue. The given message will be
+-- evaluated by all the supplied prioritisers, and if none match it, then it will
+-- be assigned the lowest possible priority (i.e. put at the back of the queue).
 enqueueMessage :: forall s . s
                -> [DispatchPriority s]
                -> Message
@@ -342,7 +409,7 @@ recvQueue = do
 
     nextAction :: ProcessAction s -> GenProcess s ExitReason
     nextAction ac
-      | ProcessActivity  act     <- ac = act >> recvQueue
+      | ProcessActivity  act'    <- ac = act' >> recvQueue
       | ProcessSkip              <- ac = recvQueue
       | ProcessContinue  ps'     <- ac = recvQueueAux ps'
       | ProcessTimeout   d   ps' <- ac = setUserTimeout d >> recvQueueAux ps'
@@ -402,20 +469,20 @@ recvQueue = do
                -> Maybe (Filter s)
                -> Message
                -> GenProcess s (ProcessAction s)
-    filterNext mp' fs act msg
-      | Just (FilterSkip s')   <- act = setProcessState s' >> dequeue >> return ProcessSkip
-      | Just (FilterStop s' r) <- act = return $ ProcessStopping s' r
-      | Just (FilterOk s')     <- act
+    filterNext mp' fs mf msg
+      | Just (FilterSkip s')   <- mf = setProcessState s' >> dequeue >> return ProcessSkip
+      | Just (FilterStop s' r) <- mf = return $ ProcessStopping s' r
+      | Just (FilterOk s')     <- mf
       , []                     <- fs = setProcessState s' >> applyNext dequeue processApply
-      | Nothing <- act, []     <- fs = applyNext dequeue processApply
-      | Just (FilterOk s')     <- act
+      | Nothing <- mf, []      <- fs = applyNext dequeue processApply
+      | Just (FilterOk s')     <- mf
       , (f:fs')                <- fs = do
           setProcessState s'
           act' <- lift $ dynHandleFilter s' f msg
           filterNext mp' fs' act' msg
-      | Just (FilterReject _ s') <- act = do
+      | Just (FilterReject _ s') <- mf = do
           setProcessState s' >> dequeue >>= lift . applyPolicy mp' s' . fromJust
-      | Nothing <- act {- filter didn't apply to the input type -}
+      | Nothing <- mf {- filter didn't apply to the input type -}
       , (f:fs') <- fs = processState >>= \s' -> do
           lift (dynHandleFilter s' f msg) >>= \a -> filterNext mp' fs' a msg
 
@@ -443,8 +510,8 @@ recvQueue = do
     processApplyAux (h:hs) p' s' m' = do
      attempt <- lift $ h m'
      case attempt of
-       Nothing  -> processApplyAux hs p' s' m'
-       Just act -> return act
+       Nothing   -> processApplyAux hs p' s' m'
+       Just act' -> return act'
 
     drainMailbox :: GenProcess s ()
     drainMailbox = do
@@ -454,7 +521,7 @@ recvQueue = do
       pp <- processPriorities
       ut <- gets usrTimers
       let ts = Map.foldrWithKey (\k (t, _) ms -> ms ++ matchKey k t) [] ut
-      let ms = matchAny (return . Right) : (mkMatchers ps pd) ++ ts
+      let ms = ts ++ (matchAny (return . Right) : (mkMatchers ps pd))
       timerAcc <- timeoutPolicy >>= \spec -> case spec of
                                                RecvTimer      _   -> return Nothing
                                                RecvMaxBacklog cnt -> return $ Just cnt
@@ -534,7 +601,7 @@ recvQueue = do
     mkMatchRunners = do
       ut <- gets usrTimers
       fn <- mkRunner
-      let ms = Map.foldrWithKey (\k (t, _) ms -> ms ++ matchRun fn k t) [] ut
+      let ms = Map.foldrWithKey (\k (t, _) ms' -> ms' ++ matchRun fn k t) [] ut
       return ms
 
     mkRunner :: GenProcess s (TimerKey -> Process Message)
@@ -662,14 +729,14 @@ recvLoop pDef pState recvDelay =
         -- we've exhausted all the possible info handlers
         m <- dh st msg
         case m of
-          Nothing  -> auxHandler policy st ds msg
-          Just act -> return act
+          Nothing   -> auxHandler policy st ds msg
+          Just act' -> return act'
         -- but here we *do* let the policy kick in
       | otherwise = let dh = dispatchInfo d in do
         m <- dh st msg
         case m of
-          Nothing  -> policy msg
-          Just act -> return act
+          Nothing   -> policy msg
+          Just act' -> return act'
 
     processReceive :: [Match (ProcessAction s)]
                    -> TimeoutHandler s

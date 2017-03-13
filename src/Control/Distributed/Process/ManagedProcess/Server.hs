@@ -115,9 +115,11 @@ state = State
 input :: forall s m. (Serializable m) => (m -> Bool) -> Condition s m
 input = Input
 
+-- | Reject the message we're currently handling.
 reject :: forall r s . s -> String -> Reply r s
 reject st rs = continue st >>= return . ProcessReject rs
 
+-- | Reject the message we're currently handling, giving an explicit reason.
 rejectWith :: forall r m s . (Show r) => s -> r -> Reply m s
 rejectWith st rs = reject st (show rs)
 
@@ -270,7 +272,7 @@ handleCall = handleCallIf $ state (const True)
 
 -- | Constructs a 'call' handler from an ordinary function in the 'Process'
 -- monad. Given a function @f :: (s -> a -> Process (ProcessReply b s))@,
--- the expression @handleCall f@ will yield a 'Dispatcher' for inclusion
+-- the expression @handleCall f@ will yield a "Dispatcher" for inclusion
 -- in a 'Behaviour' specification for the /GenProcess/. Messages are only
 -- dispatched to the handler if the supplied condition evaluates to @True@.
 --

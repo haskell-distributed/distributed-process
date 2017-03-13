@@ -128,7 +128,7 @@ tryCall s m = initCall s m >>= waitResponse Nothing >>= decodeResult
 -- undefined, i.e., the server may or may not successfully process the
 -- request and may (or may not) send a response at a later time. From the
 -- callers perspective, this is somewhat troublesome, since the call result
--- cannot be decoded directly. In this case, the 'flushPendingCalls' API /may/
+-- cannot be decoded directly. In this case, the "flushPendingCalls" API /may/
 -- be used to attempt to receive the message later on, however this makes
 -- /no attempt whatsoever/ to guarantee /which/ call response will in fact
 -- be returned to the caller. In those semantics are unsuited to your
@@ -147,6 +147,7 @@ callTimeout s m d = initCall s m >>= waitResponse (Just d) >>= decodeResult
         decodeResult (Just (Right result)) = return $ Just result
         decodeResult (Just (Left reason))  = die reason
 
+-- | Attempt to flush out any pending call responses. 
 flushPendingCalls :: forall b . (Serializable b)
                   => TimeInterval
                   -> (b -> Process b)

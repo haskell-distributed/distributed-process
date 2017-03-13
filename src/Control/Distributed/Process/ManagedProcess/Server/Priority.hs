@@ -38,14 +38,14 @@ module Control.Distributed.Process.ManagedProcess.Server.Priority
   , reject
   , rejectApi
   , store
+  , storeM
   , crash
   , ensure
   , ensureM
   , Filter()
   , DispatchFilter()
   , Message()
-  , act
-  , runAfter
+  , evalAfter
   , currentTimeout
   , processState
   , processDefinition
@@ -64,7 +64,6 @@ import qualified Control.Distributed.Process as P (Message)
 import Control.Distributed.Process.Extras
   ( ExitReason(..)
   )
-import Control.Distributed.Process.Extras.Time (TimeInterval, Delay(Delay))
 import Control.Distributed.Process.ManagedProcess.Internal.GenProcess
   ( addUserTimer
   , currentTimeout
@@ -77,39 +76,43 @@ import Control.Distributed.Process.ManagedProcess.Internal.GenProcess
   , GenProcess
   , peek
   , push
+  , evalAfter
   )
 import Control.Distributed.Process.ManagedProcess.Internal.Types
-import Control.Distributed.Process.ManagedProcess.Timer (startTimer)
 import Control.Distributed.Process.Serializable
-import Control.Monad (void)
 import Prelude hiding (init)
 
+-- | Sent to a caller in cases where the server is rejecting an API input and
+-- a @Recipient@ is available (i.e. a /call/ message handling filter).
 data RejectedByServer = RejectedByServer deriving (Show)
 
+-- | Represents a pair of expressions that can be used to define a @DispatchFilter@.
 data FilterHandler s =
     forall m . (Serializable m) =>
     HandlePure
     {
       pureCheck :: s -> m -> Process Bool
     , handler :: s -> m -> Process (Filter s)
-    }
+    } -- ^ A pure handler, usable where the target handler is based on @handleInfo@
   | forall m b . (Serializable m, Serializable b) =>
     HandleApi
     {
       apiCheck :: s -> m -> Process Bool
     , apiHandler :: s -> Message m b -> Process (Filter s)
-    }
+    } -- ^ An API handler, usable where the target handler is based on @handle{Call, Cast, RpcChan}@
   | HandleRaw
     {
       rawCheck :: s -> P.Message -> Process Bool
     , rawHandler :: s -> P.Message -> Process (Maybe (Filter s))
-    }
+    } -- ^ A raw handler, usable where the target handler is based on @handleRaw@
   | HandleState { stateHandler :: s -> Process (Maybe (Filter s)) }
 
 {-
 check :: forall c s m . (Check c s m)
       => c -> (s -> Process (Filter s)) -> s -> m -> Process (Filter s)
 -}
+
+-- | Create a filter from a @FilterHandler@.
 check :: forall s . FilterHandler s -> DispatchFilter s
 check h
   | HandlePure{..}  <- h = FilterAny $ \s m -> pureCheck s m >>= procUnless s m handler
@@ -127,58 +130,78 @@ check h
     procUnless s _ _ True  = return $ FilterOk s
     procUnless s m h' False = h' s m
 
+-- | A raw filter (targetting raw messages).
 raw :: forall s .
        (s -> P.Message -> Process Bool)
     -> (s -> P.Message -> Process (Maybe (Filter s)))
     -> FilterHandler s
 raw = HandleRaw
 
+-- | A raw filter that ignores the server state in its condition expression.
 raw_ :: forall s .
         (P.Message -> Process Bool)
      -> (s -> P.Message -> Process (Maybe (Filter s)))
      -> FilterHandler s
 raw_ c h = raw (const $ c) h
 
+-- | An API filter (targetting /call/, /cast/, and /chan/ messages).
 api :: forall s m b . (Serializable m, Serializable b)
     => (s -> m -> Process Bool)
     -> (s -> Message m b -> Process (Filter s))
     -> FilterHandler s
 api = HandleApi
 
+-- | An API filter that ignores the server state in its condition expression.
 api_ :: forall m b s . (Serializable m, Serializable b)
      => (m -> Process Bool)
      -> (s -> Message m b -> Process (Filter s))
      -> FilterHandler s
 api_ c h = api (const $ c) h
 
+-- | An info filter (targetting info messages of a specific type)
 info :: forall s m . (Serializable m)
         => (s -> m -> Process Bool)
         -> (s -> m -> Process (Filter s))
         -> FilterHandler s
 info = HandlePure
 
+-- | An info filter that ignores the server state in its condition expression.
 info_ :: forall s m . (Serializable m)
         => (m -> Process Bool)
         -> (s -> m -> Process (Filter s))
         -> FilterHandler s
 info_ c h = info (const $ c) h
 
+-- | Create a filter expression that will reject all messages of a specific type.
 reject :: forall s m r . (Show r)
        => r -> s -> m -> Process (Filter s)
 reject r = \s _ -> do return $ FilterReject (show r) s
 
+-- | Create a filter expression that will crash (i.e. stop) the server.
 crash :: forall s . s -> ExitReason -> Process (Filter s)
 crash s r = return $ FilterStop s r
 
+-- | A version of @reject@ that deals with API messages (i.e. /call/, /cast/, etc)
+-- and in the case of a /call/ interaction, will reject the messages and reply to
+-- the sender accordingly (with @CallRejected@).
 rejectApi :: forall s m b r . (Show r, Serializable m, Serializable b)
           => r -> s -> Message m b -> Process (Filter s)
 rejectApi r = \s m -> do let r' = show r
                          rejectToCaller m r'
                          return $ FilterSkip s
 
+-- | Modify the server state every time a message is recieved.
 store :: (s -> s) -> DispatchFilter s
 store f = FilterState $ return . Just . FilterOk . f
 
+-- | Motify the server state when messages of a certain type arrive...
+storeM :: forall s m . (Serializable m)
+       => (s -> m -> Process s)
+       -> DispatchFilter s
+storeM proc = check $ HandlePure (\_ _ -> return True)
+                                 (\s m -> proc s m >>= return . FilterOk)
+
+-- | Refuse messages for which the given expression evaluates to @True@.
 refuse :: forall s m . (Serializable m)
        => (m -> Bool)
        -> DispatchFilter s
@@ -191,17 +214,19 @@ apiCheck :: forall s m r . (Serializable m, Serializable r)
       -> (s -> Message m r -> Process (Filter s))
       -> DispatchFilter s
 apiCheck c h = checkM (\s m -> return $ c s m) h
-
-apiReject
 -}
 
+-- | Ensure that the server state is consistent with the given expression each
+-- time a message arrives/is processed. If the expression evaluates to @True@
+-- then the filter will evaluate to "FilterOk", otherwise "FilterStop" (which
+-- will cause the server loop to stop with @ExitOther filterFail@).
 ensure :: forall s . (s -> Bool) -> DispatchFilter s
 ensure c =
   check $ HandleState { stateHandler = (\s -> if c s
                                                 then return $ Just $ FilterOk s
                                                 else return $ Just $ FilterStop s filterFail)
                       }
-
+-- | As @ensure@ but runs in the @Process@ monad, and matches only inputs of type @m@.
 ensureM :: forall s m . (Serializable m) => (s -> m -> Process Bool) -> DispatchFilter s
 ensureM c =
   check $ HandlePure { pureCheck = c
@@ -212,14 +237,6 @@ ensureM c =
 
 filterFail :: ExitReason
 filterFail = ExitOther "Control.Distributed.Process.ManagedProcess.Priority:FilterFailed"
-
-act :: forall s . GenProcess s () -> Action s
-act = return . ProcessActivity
-
-runAfter :: forall s m . (Serializable m) => TimeInterval -> m -> GenProcess s ()
-runAfter d m = do
-  t <- lift $ startTimer (Delay d)
-  void $ addUserTimer t (unsafeWrapMessage m)
 
 -- | Sets an explicit priority from 1..100. Values > 100 are rounded to 100,
 -- and values < 1 are set to 0.
