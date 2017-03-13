@@ -35,14 +35,14 @@
 -- The supervisors children are defined as a list of child specifications
 -- (see 'ChildSpec'). When a supervisor is started, its children are started
 -- in left-to-right (insertion order) according to this list. When a supervisor
--- stops (or exits for any reason), it will terminate its children in reverse
+-- stops (or exits for any reason), it will stop its children in reverse
 -- (i.e., from right-to-left of insertion) order. Child specs can be added to
 -- the supervisor after it has started, either on the left or right of the
 -- existing list of children.
 --
 -- When the supervisor spawns its child processes, they are always linked to
 -- their parent (i.e., the supervisor), therefore even if the supervisor is
--- terminated abruptly by an asynchronous exception, the children will still be
+-- killed abruptly by an asynchronous exception, the children will still be
 -- taken down with it, though somewhat less ceremoniously in that case.
 --
 -- [Restart Strategies]
@@ -52,7 +52,7 @@
 -- (see below for the rules governing child restart eligibility). Each restart
 -- strategy comprises a 'RestartMode' and 'RestartLimit', which govern how
 -- the restart should be handled, and the point at which the supervisor
--- should give up and terminate itself respectively.
+-- should give up and stop itself respectively.
 --
 -- With the exception of the @RestartOne@ strategy, which indicates that the
 -- supervisor will restart /only/ the one individual failing child, each
@@ -141,7 +141,7 @@
 -- restarts. In order prevent this, each restart strategy is parameterised
 -- with a 'RestartLimit' that caps the number of restarts allowed within a
 -- specific time period. If the supervisor exceeds this limit, it will stop,
--- terminating all its children (in left-to-right order) and exit with the
+-- stopping all its children (in left-to-right order) and exit with the
 -- reason @ExitOther "ReachedMaxRestartIntensity"@.
 --
 -- The 'MaxRestarts' type is a positive integer, and together with a specified
@@ -152,31 +152,31 @@
 -- as a single restart attempt, since otherwise it would likely exceed its
 -- maximum restart intensity too quickly.
 --
--- [Child Restart and Termination Policies]
+-- [Child Restart and Stop Policies]
 --
 -- When the supervisor detects that a child has died, the 'RestartPolicy'
 -- configured in the child specification is used to determin what to do. If
 -- the this is set to @Permanent@, then the child is always restarted.
 -- If it is @Temporary@, then the child is never restarted and the child
 -- specification is removed from the supervisor. A @Transient@ child will
--- be restarted only if it terminates /abnormally/, otherwise it is left
+-- be restarted only if it exits /abnormally/, otherwise it is left
 -- inactive (but its specification is left in place). Finally, an @Intrinsic@
 -- child is treated like a @Transient@ one, except that if /this/ kind of child
 -- exits /normally/, then the supervisor will also exit normally.
 --
--- When the supervisor does terminate a child, the 'ChildTerminationPolicy'
+-- When the supervisor does stop a child process, the "ChildStopPolicy"
 -- provided with the 'ChildSpec' determines how the supervisor should go
--- about doing so. If this is @TerminateImmediately@, then the child will
+-- about doing so. If this is "StopImmediately", then the child will
 -- be killed without further notice, which means the child will /not/ have
 -- an opportunity to clean up any internal state and/or release any held
--- resources. If the policy is @TerminateTimeout delay@ however, the child
+-- resources. If the policy is @StopTimeout delay@ however, the child
 -- will be sent an /exit signal/ instead, i.e., the supervisor will cause
 -- the child to exit via @exit childPid ExitShutdown@, and then will wait
 -- until the given @delay@ for the child to exit normally. If this does not
 -- happen within the given delay, the supervisor will revert to the more
--- aggressive @TerminateImmediately@ policy and try again. Any errors that
+-- aggressive "StopImmediately" policy and try again. Any errors that
 -- occur during a timed-out shutdown will be logged, however exit reasons
--- resulting from @TerminateImmediately@ are ignored.
+-- resulting from "StopImmediately" are ignored.
 --
 -- [Creating Child Specs]
 --
@@ -195,7 +195,7 @@
 -- who've manually registered with the /remote table/ and don't with to use
 -- tempate haskell (e.g. users of the Explicit closures API).
 --
--- [Supervision Trees & Supervisor Termination]
+-- [Supervision Trees & Supervisor Shutdown]
 --
 -- To create a supervision tree, one simply adds supervisors below one another
 -- as children, setting the @childType@ field of their 'ChildSpec' to
@@ -211,7 +211,7 @@ module Control.Distributed.Process.Supervisor
     ChildSpec(..)
   , ChildKey
   , ChildType(..)
-  , ChildTerminationPolicy(..)
+  , ChildStopPolicy(..)
   , ChildStart(..)
   , RegisteredName(LocalName, CustomRegister)
   , RestartPolicy(..)
@@ -246,8 +246,8 @@ module Control.Distributed.Process.Supervisor
   , StartChildResult(..)
   , startChild
   , startNewChild
-  , terminateChild
-  , TerminateChildResult(..)
+  , stopChild
+  , StopChildResult(..)
   , deleteChild
   , DeleteChildResult(..)
   , restartChild
@@ -342,9 +342,7 @@ import Control.Distributed.Process.ManagedProcess.Server.Priority
   , prioritiseCall_
   , prioritiseInfo_
   , setPriority
-  , runAfter
-  , act
-  , setProcessState
+  , evalAfter
   )
 import Control.Distributed.Process.ManagedProcess.Server.Restricted
   ( RestrictedProcess
@@ -481,10 +479,10 @@ data DelayedRestart = DelayedRestart !ChildKey !DiedReason
 instance Binary DelayedRestart where
 instance NFData DelayedRestart
 
-data TerminateChildReq = TerminateChildReq !ChildKey
+data StopChildReq = StopChildReq !ChildKey
   deriving (Typeable, Generic, Show, Eq)
-instance Binary TerminateChildReq where
-instance NFData TerminateChildReq where
+instance Binary StopChildReq where
+instance NFData StopChildReq where
 
 data IgnoreChildReq = IgnoreChildReq !ChildPid
   deriving (Typeable, Generic)
@@ -574,18 +572,18 @@ startNewChild :: Addressable a
 startNewChild addr spec = Unsafe.call addr $ AddChild True spec
 
 -- | Delete a supervised child. The child must already be stopped (see
--- 'terminateChild').
+-- 'stopChild').
 --
 deleteChild :: Addressable a => a -> ChildKey -> Process DeleteChildResult
 deleteChild sid childKey = Unsafe.call sid $ DeleteChild childKey
 
--- | Terminate a running child.
+-- | Stop a running child.
 --
-terminateChild :: Addressable a
+stopChild :: Addressable a
                => a
                -> ChildKey
-               -> Process TerminateChildResult
-terminateChild sid = Unsafe.call sid . TerminateChildReq
+               -> Process StopChildResult
+stopChild sid = Unsafe.call sid . StopChildReq
 
 -- | Forcibly restart a running child.
 --
@@ -595,7 +593,7 @@ restartChild :: Addressable a
              -> Process RestartChildResult
 restartChild sid = Unsafe.call sid . RestartChildReq
 
--- | Gracefully terminate a running supervisor. Returns immediately if the
+-- | Gracefully stop/shutdown a running supervisor. Returns immediately if the
 -- /address/ cannot be resolved.
 --
 shutdown :: Resolvable a => a -> Process ()
@@ -720,7 +718,7 @@ processDefinition =
     apiHandlers = [
        Restricted.handleCast   handleIgnore
        -- adding, removing and (optionally) starting new child specs
-     , handleCall              handleTerminateChild
+     , handleCall              handleStopChild
      , Restricted.handleCall   handleDeleteChild
      , Restricted.handleCallIf (input (\(AddChild immediate _) -> not immediate))
                                handleAddChild
@@ -867,7 +865,7 @@ handleDelayedRestart state (DelayedRestart key reason) =
   let child = findChild key state in do
   case child of
     Nothing ->
-      continue state -- a child could've been terminated and removed by now
+      continue state -- a child could've been stopped and removed by now
     Just ((ChildRestarting childPid), spec) -> do
       -- TODO: we ignore the unnecessary .active re-assignments in
       -- tryRestartChild, in order to keep the code simple - it would be good to
@@ -876,18 +874,18 @@ handleDelayedRestart state (DelayedRestart key reason) =
     Just other -> do
       die $ ExitOther $ (supErrId ".handleDelayedRestart:InvalidState: ") ++ (show other)
 
-handleTerminateChild :: State
-                     -> TerminateChildReq
-                     -> Process (ProcessReply TerminateChildResult State)
-handleTerminateChild state (TerminateChildReq key) =
+handleStopChild :: State
+                     -> StopChildReq
+                     -> Process (ProcessReply StopChildResult State)
+handleStopChild state (StopChildReq key) =
   let child = findChild key state in
   case child of
     Nothing ->
-      reply TerminateChildUnknownId state
+      reply StopChildUnknownId state
     Just (ChildStopped, _) ->
-      reply TerminateChildOk state
+      reply StopChildOk state
     Just (ref, spec) ->
-      reply TerminateChildOk =<< doTerminateChild ref spec state
+      reply StopChildOk =<< doStopChild ref spec state
 
 handleGetStats :: StatsReq
                -> RestrictedProcess State (Result SupervisorStats)
@@ -916,8 +914,8 @@ handleMonitorSignal state (ProcessMonitorNotification _ childPid reason) = do
 --------------------------------------------------------------------------------
 
 handleShutdown :: ExitState State -> ExitReason -> Process ()
-handleShutdown state r@(ExitOther reason) = terminateChildren (exitState state) r >> die reason
-handleShutdown state r                    = terminateChildren (exitState state) r
+handleShutdown state r@(ExitOther reason) = stopChildren (exitState state) r >> die reason
+handleShutdown state r                    = stopChildren (exitState state) r
 
 --------------------------------------------------------------------------------
 -- Child Start/Restart Handling                                               --
@@ -1003,14 +1001,14 @@ tryRestartBranch rs sp dr st = -- TODO: use DiedReason for logging...
       us <- getSelfPid
       cPid <- resolve cr
       report $ SupervisedChildRestarting us cPid (childKey cs) (ExitOther "RestartedBySupervisor")
-      doTerminateChild cr cs s >>= (flip startIt) ch
+      doStopChild cr cs s >>= (flip startIt) ch
 
     stopIt :: State -> Child -> Process State
     stopIt s (cr, cs) = do
       us <- getSelfPid
       cPid <- resolve cr
       report $ SupervisedChildRestarting us cPid (childKey cs) (ExitOther "RestartedBySupervisor")
-      doTerminateChild cr cs s
+      doStopChild cr cs s
 
     startIt :: State -> Child -> Process State
     startIt s (_, cs)
@@ -1077,25 +1075,25 @@ tryRestartBranch rs sp dr st = -- TODO: use DiedReason for logging...
                        LeftToRight -> tree
                        RightToLeft -> Seq.reverse tree
 
-      -- TODO: THIS IS INCORRECT... currently (below), we terminate
+      -- TODO: THIS IS INCORRECT... currently (below), we stop
       -- the branch in parallel, but wait on all the exits and then
       -- restart sequentially (based on 'order'). That's not what the
       -- 'RestartParallel' mode advertised, but more importantly, it's
       -- not clear what the semantics for error handling (viz restart errors)
       -- should actually be.
 
-      asyncs <- forM (toList tree') $ \ch -> async $ asyncTerminate ch
+      asyncs <- forM (toList tree') $ \ch -> async $ asyncStop ch
       (_errs, st') <- foldlM collectExits ([], activeState) asyncs
       -- TODO: report errs
       apply $ foldlM startIt st' tree'
       where
-        asyncTerminate :: Child -> Process (Maybe (ChildKey, ChildPid))
-        asyncTerminate (cr, cs) = do
+        asyncStop :: Child -> Process (Maybe (ChildKey, ChildPid))
+        asyncStop (cr, cs) = do
           mPid <- resolve cr
           case mPid of
             Nothing  -> return Nothing
             Just childPid -> do
-              void $ doTerminateChild cr cs activeState
+              void $ doStopChild cr cs activeState
               return $ Just (childKey cs, childPid)
 
         collectExits :: ([ExitReason], State)
@@ -1190,13 +1188,13 @@ doRestartDelay :: ChildPid
                -> State
                -> Process (ProcessAction State)
 doRestartDelay oldPid rDelay spec reason state = do
-  act $ do
-    void $ runAfter rDelay $ DelayedRestart (childKey spec) reason
-    setProcessState $ ( (active ^: Map.filter (/= chKey))
-                      . (bumpStats Active chType decrement)
-                      . (restarts ^= [])
-                      $ maybe state id (updateChild chKey (setChildRestarting oldPid) state)
-                      )
+  evalAfter rDelay
+            (DelayedRestart (childKey spec) reason)
+          $ ( (active ^: Map.filter (/= chKey))
+            . (bumpStats Active chType decrement)
+            . (restarts ^= [])
+            $ maybe state id (updateChild chKey (setChildRestarting oldPid) state)
+            )
   where
     chKey  = childKey spec
     chType = childType spec
@@ -1335,11 +1333,11 @@ filterInitFailures sup childPid ex = do
     ChildInitIgnore    -> Unsafe.cast sup $ IgnoreChildReq childPid
 
 --------------------------------------------------------------------------------
--- Child Termination/Shutdown                                                 --
+-- Child Stop/Shutdown                                                 --
 --------------------------------------------------------------------------------
 
-terminateChildren :: State -> ExitReason -> Process ()
-terminateChildren state er = do
+stopChildren :: State -> ExitReason -> Process ()
+stopChildren state er = do
   us <- getSelfPid
   let strat = shutdownStrategy state
   report $ SupervisorShutdown us strat er
@@ -1347,27 +1345,27 @@ terminateChildren state er = do
     ParallelShutdown -> do
       let allChildren = toList $ state ^. specs
       terminatorPids <- forM allChildren $ \ch -> do
-        pid <- spawnLocal $ void $ syncTerminate ch $ (active ^= Map.empty) state
+        pid <- spawnLocal $ void $ syncStop ch $ (active ^= Map.empty) state
         mRef <- monitor pid
         return (mRef, pid)
       terminationErrors <- collectExits [] $ zip terminatorPids (map snd allChildren)
-      -- it seems these would also be logged individually in doTerminateChild
+      -- it seems these would also be logged individually in doStopChild
       case terminationErrors of
         [] -> return ()
         _ -> do
           sup <- getSelfPid
           void $ logEntry Log.error $
-            mkReport "Errors in terminateChildren / ParallelShutdown"
+            mkReport "Errors in stopChildren / ParallelShutdown"
             sup "n/a" (show terminationErrors)
     SequentialShutdown ord -> do
       let specs'      = state ^. specs
       let allChildren = case ord of
                           RightToLeft -> Seq.reverse specs'
                           LeftToRight -> specs'
-      void $ foldlM (flip syncTerminate) state (toList allChildren)
+      void $ foldlM (flip syncStop) state (toList allChildren)
   where
-    syncTerminate :: Child -> State -> Process State
-    syncTerminate (cr, cs) state' = doTerminateChild cr cs state'
+    syncStop :: Child -> State -> Process State
+    syncStop (cr, cs) state' = doStopChild cr cs state'
 
     collectExits :: [(ProcessId, DiedReason)]
                  -> [((MonitorRef, ProcessId), ChildSpec)]
@@ -1385,13 +1383,13 @@ terminateChildren state er = do
         (DiedNormal, _) -> collectExits errors remaining
         (_, Nothing) -> collectExits errors remaining
         (DiedException _, Just sp') -> do
-            if (childStop sp') == TerminateImmediately
+            if (childStop sp') == StopImmediately
               then collectExits errors remaining
               else collectExits ((pid, reason):errors) remaining
         _ -> collectExits ((pid, reason):errors) remaining
 
-doTerminateChild :: ChildRef -> ChildSpec -> State -> Process State
-doTerminateChild ref spec state = do
+doStopChild :: ChildRef -> ChildSpec -> State -> Process State
+doStopChild ref spec state = do
   us <- getSelfPid
   mPid <- resolve ref
   case mPid of
@@ -1412,16 +1410,16 @@ doTerminateChild ref spec state = do
     chKey         = childKey spec
     updateStopped = maybe state id $ updateChild chKey (setChildStopped False) state
 
-childShutdown :: ChildTerminationPolicy
+childShutdown :: ChildStopPolicy
               -> ChildPid
               -> State
               -> Process DiedReason
 childShutdown policy childPid st = mask $ \restore -> do
   case policy of
-    (TerminateTimeout t) -> exit childPid ExitShutdown >> await restore childPid t st
+    (StopTimeout t) -> exit childPid ExitShutdown >> await restore childPid t st
     -- we ignore DiedReason for brutal kills
-    TerminateImmediately -> do
-      kill childPid "TerminatedBySupervisor"
+    StopImmediately -> do
+      kill childPid "StoppedBySupervisor"
       void $ await restore childPid Infinity st
       return DiedNormal
   where
@@ -1436,7 +1434,7 @@ childShutdown policy childPid st = mask $ \restore -> do
                    Delay t  -> receiveTimeout (asTimeout t) (matches mRef)
       -- let recv' =  if monitored then recv else withMonitor childPid' recv
       res <- recv `finally` (unmonitor mRef)
-      restore' $ maybe (childShutdown TerminateImmediately childPid' state) return res
+      restore' $ maybe (childShutdown StopImmediately childPid' state) return res
 
     matches :: MonitorRef -> [Match DiedReason]
     matches m = [

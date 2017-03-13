@@ -69,7 +69,7 @@ import qualified Network.Transport as NT
 
 expectedExitReason :: ProcessId -> String
 expectedExitReason sup = "killed-by=" ++ (show sup) ++
-                         ",reason=TerminatedBySupervisor"
+                         ",reason=StoppedBySupervisor"
 
 defaultWorker :: ChildStart -> ChildSpec
 defaultWorker clj =
@@ -79,7 +79,7 @@ defaultWorker clj =
   , childType    = Worker
   , childRestart = Temporary
   , childRestartDelay = Nothing
-  , childStop    = TerminateImmediately
+  , childStop    = StopImmediately
   , childStart   = clj
   , childRegName = Nothing
   }
@@ -272,11 +272,11 @@ sequentialShutdown result = do
   core' <- toChildStart $ $(mkClosure 'runCore) sp
   app'  <- toChildStart $ $(mkClosure 'runApp) sg
   let core = (permChild core') { childRegName = Just (LocalName "core")
-                               , childStop = TerminateTimeout (Delay $ within 2 Seconds)
+                               , childStop = StopTimeout (Delay $ within 2 Seconds)
                                , childKey  = "child-1"
                                }
   let app  = (permChild app')  { childRegName = Just (LocalName "app")
-                               , childStop = TerminateTimeout (Delay $ within 2 Seconds)
+                               , childStop = StopTimeout (Delay $ within 2 Seconds)
                                , childKey  = "child-2"
                                }
 
@@ -547,44 +547,44 @@ explicitRestartStoppedChild cs sup = do
   let spec = transientWorker cs
   let key = childKey spec
   ChildAdded ref <- startNewChild sup spec
-  void $ terminateChild sup key
+  void $ stopChild sup key
   restarted <- restartChild sup key
   sleepFor 500 Millis
   Just (ref', _) <- lookupChild sup key
   expectThat ref $ isNot $ equalTo ref'
   case restarted of
     ChildRestartOk (ChildRunning _) -> return ()
-    _ -> liftIO $ assertFailure $ "unexpected termination: " ++ (show restarted)
+    _ -> liftIO $ assertFailure $ "unexpected exit: " ++ (show restarted)
 
-terminateChildImmediately :: ChildStart -> ProcessId -> Process ()
-terminateChildImmediately cs sup = do
+stopChildImmediately :: ChildStart -> ProcessId -> Process ()
+stopChildImmediately cs sup = do
   let spec = tempWorker cs
   ChildAdded ref <- startNewChild sup spec
 --  Just pid <- resolve ref
   mRef <- monitor ref
-  void $ terminateChild sup (childKey spec)
+  void $ stopChild sup (childKey spec)
   reason <- waitForDown mRef
   expectThat reason $ equalTo $ DiedException (expectedExitReason sup)
 
-terminatingChildExceedsDelay :: ProcessId -> Process ()
-terminatingChildExceedsDelay sup = do
+stoppingChildExceedsDelay :: ProcessId -> Process ()
+stoppingChildExceedsDelay sup = do
   let spec = (tempWorker (RunClosure $(mkStaticClosure 'sleepy)))
-             { childStop = TerminateTimeout (Delay $ within 1 Seconds) }
+             { childStop = StopTimeout (Delay $ within 1 Seconds) }
   ChildAdded ref <- startNewChild sup spec
 -- Just pid <- resolve ref
   mRef <- monitor ref
-  void $ terminateChild sup (childKey spec)
+  void $ stopChild sup (childKey spec)
   reason <- waitForDown mRef
   expectThat reason $ equalTo $ DiedException (expectedExitReason sup)
 
-terminatingChildObeysDelay :: ProcessId -> Process ()
-terminatingChildObeysDelay sup = do
+stoppingChildObeysDelay :: ProcessId -> Process ()
+stoppingChildObeysDelay sup = do
   let spec = (tempWorker (RunClosure $(mkStaticClosure 'obedient)))
-             { childStop = TerminateTimeout (Delay $ within 1 Seconds) }
+             { childStop = StopTimeout (Delay $ within 1 Seconds) }
   ChildAdded child <- startNewChild sup spec
   Just pid <- resolve child
   void $ monitor pid
-  void $ terminateChild sup (childKey spec)
+  void $ stopChild sup (childKey spec)
   child `shouldExitWith` DiedNormal
 
 restartAfterThreeAttempts ::
@@ -652,18 +652,18 @@ permanentChildExceedsRestartsIntensity cs withSupervisor = do
                       DiedException $ "exit-from=" ++ (show sup) ++
                                       ",reason=ReachedMaxRestartIntensity"
 
-terminateChildIgnoresSiblings ::
+stopChildIgnoresSiblings ::
      ChildStart
   -> (RestartStrategy -> [ChildSpec] -> (ProcessId -> Process ()) -> Assertion)
   -> Assertion
-terminateChildIgnoresSiblings cs withSupervisor = do
+stopChildIgnoresSiblings cs withSupervisor = do
   let templ = permChild cs
   let specs = [templ { childKey = (show i) } | i <- [1..3 :: Int]]
   withSupervisor restartAll specs $ \sup -> do
     let toStop = childKey $ head specs
     Just (ref, _) <- lookupChild sup toStop
     mRef <- monitor ref
-    terminateChild sup toStop
+    stopChild sup toStop
     waitForDown mRef
     children <- listChildren sup
     forM_ (tail $ map fst children) $ \cRef -> do
@@ -1334,22 +1334,22 @@ tests transport = do
                 (withSupervisor restartOne []
                     (withClosure explicitRestartStoppedChild
                                  $(mkStaticClosure 'blockIndefinitely)))
-          , testCase "Immediate Child Termination (Brutal Kill) (Closure)"
+          , testCase "Immediate Child Stop (Brutal Kill) (Closure)"
                 (withSupervisor restartOne []
-                    (withClosure terminateChildImmediately
+                    (withClosure stopChildImmediately
                                  $(mkStaticClosure 'blockIndefinitely)))
-          , testCase "Child Termination Exceeds Timeout/Delay (Becomes Brutal Kill)"
-                (withSupervisor restartOne [] terminatingChildExceedsDelay)
-          , testCase "Child Termination Within Timeout/Delay"
-                (withSupervisor restartOne [] terminatingChildObeysDelay)
+          , testCase "Child Stop Exceeds Timeout/Delay (Becomes Brutal Kill)"
+                (withSupervisor restartOne [] stoppingChildExceedsDelay)
+          , testCase "Child Stop Within Timeout/Delay"
+                (withSupervisor restartOne [] stoppingChildObeysDelay)
           ]
           -- TODO: test for init failures (expecting $ ChildInitFailed r)
         , testGroup "Branch Restarts"
           [
             testGroup "Restart All"
             [
-              testCase "Terminate Child Ignores Siblings"
-                  (terminateChildIgnoresSiblings
+              testCase "Stop Child Ignores Siblings"
+                  (stopChildIgnoresSiblings
                    (RunClosure $(mkStaticClosure 'blockIndefinitely))
                    withSupervisor)
             , testCase "Restart All, Left To Right (Sequential) Restarts"

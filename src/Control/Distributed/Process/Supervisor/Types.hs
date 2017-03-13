@@ -11,13 +11,12 @@
 -- Portability :  non-portable (requires concurrency)
 --
 -----------------------------------------------------------------------------
-
 module Control.Distributed.Process.Supervisor.Types
   ( -- * Defining and Running a Supervisor
     ChildSpec(..)
   , ChildKey
   , ChildType(..)
-  , ChildTerminationPolicy(..)
+  , ChildStopPolicy(..)
   , ChildStart(..)
   , RegisteredName(LocalName, GlobalName, CustomRegister)
   , RestartPolicy(..)
@@ -45,7 +44,7 @@ module Control.Distributed.Process.Supervisor.Types
     -- * Adding and Removing Children
   , AddChildResult(..)
   , StartChildResult(..)
-  , TerminateChildResult(..)
+  , StopChildResult(..)
   , DeleteChildResult(..)
   , RestartChildResult(..)
     -- * Additional (Misc) Types
@@ -71,26 +70,32 @@ import Control.Exception (Exception)
 import Data.Hashable (Hashable)
 
 -- aliases for api documentation purposes
+
+-- | The "ProcessId" of a supervisor.
 type SupervisorPid = ProcessId
+
+-- | The "ProcessId" of a supervised /child/.
 type ChildPid = ProcessId
 
+-- | The maximum number of restarts a supervisor will tollerate, created by
+-- evaluating "maxRestarts".
 newtype MaxRestarts = MaxR { maxNumberOfRestarts :: Int }
   deriving (Typeable, Generic, Show)
 instance Binary MaxRestarts where
 instance Hashable MaxRestarts where
 instance NFData MaxRestarts where
 
--- | Smart constructor for @MaxRestarts@. The maximum
--- restart count must be a positive integer.
+-- | Smart constructor for @MaxRestarts@. The maximum restart count must be a
+-- positive integer, otherwise you will see @error "MaxR must be >= 0"@.
 maxRestarts :: Int -> MaxRestarts
 maxRestarts r | r >= 0    = MaxR r
               | otherwise = error "MaxR must be >= 0"
 
 -- | A compulsary limit on the number of restarts that a supervisor will
--- tolerate before it terminates all child processes and then itself.
--- If > @MaxRestarts@ occur within the specified @TimeInterval@, termination
--- will occur. This prevents the supervisor from entering an infinite loop of
--- child process terminations and restarts.
+-- tolerate before it stops all child processes and then itself.
+-- If > @MaxRestarts@ occur within the specified @TimeInterval@, the child
+-- will be stopped. This prevents the supervisor from entering an infinite loop
+-- of child process stops and restarts.
 --
 data RestartLimit =
   RestartLimit
@@ -101,19 +106,22 @@ data RestartLimit =
 instance Binary RestartLimit where
 instance NFData RestartLimit where
 
+-- | Smart constructor for "RestartLimit".
 limit :: MaxRestarts -> TimeInterval -> RestartLimit
 limit mr = RestartLimit mr
 
+-- | Default "RestartLimit" of @MaxR 1@ within @Seconds 1@.
 defaultLimits :: RestartLimit
 defaultLimits = limit (MaxR 1) (seconds 1)
 
+-- | Specifies the order in which a supervisor should apply restarts.
 data RestartOrder = LeftToRight | RightToLeft
   deriving (Typeable, Generic, Eq, Show)
 instance Binary RestartOrder where
 instance Hashable RestartOrder where
 instance NFData RestartOrder where
 
--- TODO: rename these, somehow...
+-- | Instructs a supervisor on how to restart its children.
 data RestartMode =
     RestartEach     { order :: !RestartOrder }
     {- ^ stop then start each child sequentially, i.e., @foldlM stopThenStart children@ -}
@@ -126,6 +134,8 @@ instance Binary RestartMode where
 instance Hashable RestartMode where
 instance NFData RestartMode where
 
+-- | Instructs a supervisor on how to instruct its children to stop running
+-- when the supervisor itself is shutting down.
 data ShutdownMode = SequentialShutdown !RestartOrder
                       | ParallelShutdown
   deriving (Typeable, Generic, Show, Eq)
@@ -143,9 +153,9 @@ instance NFData ShutdownMode where
 -- started).
 --
 -- The other two restart strategies refer to /prior/ and /subsequent/
--- siblings, which describe's those children's configured position
--- (i.e., insertion order). These latter modes allow one to control the order
--- in which siblings are restarted, and to exclude some siblings from the restart
+-- siblings, which describe's those children's configured position in insertion
+-- order in the child specs. These latter modes allow one to control the order
+-- in which siblings are restarted, and to exclude some siblings from restarting,
 -- without having to resort to grouping them using a child supervisor.
 --
 data RestartStrategy =
@@ -214,11 +224,13 @@ instance Eq ChildRef where
   ChildStartIgnored      == ChildStartIgnored      = True
   _                      == _                      = False
 
+-- | @True@ if "ChildRef" is running.
 isRunning :: ChildRef -> Bool
 isRunning (ChildRunning _)        = True
 isRunning (ChildRunningExtra _ _) = True
 isRunning _                       = False
 
+-- | @True@ if "ChildRef" is restarting
 isRestarting :: ChildRef -> Bool
 isRestarting (ChildRestarting _) = True
 isRestarting _                   = False
@@ -243,22 +255,23 @@ data ChildType = Worker | Supervisor
 instance Binary ChildType where
 instance NFData ChildType where
 
--- | Describes when a terminated child process should be restarted.
+-- | Describes when a stopped child process should be restarted.
 data RestartPolicy =
     Permanent  -- ^ a permanent child will always be restarted
   | Temporary  -- ^ a temporary child will /never/ be restarted
-  | Transient  -- ^ A transient child will be restarted only if it terminates abnormally
+  | Transient  -- ^ A transient child will be restarted only if it stops abnormally
   | Intrinsic  -- ^ as 'Transient', but if the child exits normally, the supervisor also exits normally
   deriving (Typeable, Generic, Eq, Show)
 instance Binary RestartPolicy where
 instance NFData RestartPolicy where
 
-data ChildTerminationPolicy =
-    TerminateTimeout !Delay
-  | TerminateImmediately
+-- | Governs how the supervisor will instruct child processes to stop.
+data ChildStopPolicy =
+    StopTimeout !Delay
+  | StopImmediately
   deriving (Typeable, Generic, Eq, Show)
-instance Binary ChildTerminationPolicy where
-instance NFData ChildTerminationPolicy where
+instance Binary ChildStopPolicy where
+instance NFData ChildStopPolicy where
 
 data RegisteredName =
     LocalName          !String
@@ -290,7 +303,7 @@ data ChildSpec = ChildSpec {
   , childType         :: !ChildType
   , childRestart      :: !RestartPolicy
   , childRestartDelay :: !(Maybe TimeInterval)
-  , childStop         :: !ChildTerminationPolicy
+  , childStop         :: !ChildStopPolicy
   , childStart        :: !ChildStart
   , childRegName      :: !(Maybe RegisteredName)
   } deriving (Typeable, Generic, Show)
@@ -418,9 +431,9 @@ data RestartChildResult =
 instance Binary RestartChildResult where
 instance NFData RestartChildResult where
 
-data TerminateChildResult =
-    TerminateChildOk
-  | TerminateChildUnknownId
+data StopChildResult =
+    StopChildOk
+  | StopChildUnknownId
   deriving (Typeable, Generic, Show, Eq)
-instance Binary TerminateChildResult where
-instance NFData TerminateChildResult where
+instance Binary StopChildResult where
+instance NFData StopChildResult where

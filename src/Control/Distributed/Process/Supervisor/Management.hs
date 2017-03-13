@@ -31,8 +31,6 @@ import Control.Distributed.Process
   , ReceivePort()
   , newChan
   , sendChan
-  , liftIO
-  , say
   , getSelfPid
   , unwrapMessage
   )
@@ -56,7 +54,6 @@ import Control.Distributed.Process.Supervisor.Types
 import Data.Binary
 import Data.Foldable (mapM_)
 import Data.Hashable (Hashable(..))
-import Data.Traversable (traverse)
 import Control.Distributed.Process.Extras.Internal.Containers.MultiMap (MultiMap)
 import qualified Control.Distributed.Process.Extras.Internal.Containers.MultiMap as Map
 
@@ -88,6 +85,13 @@ type State = MultiMap SupervisorPid (ProcessId, SupMxChan)
 supervisionAgentId :: MxAgentId
 supervisionAgentId = MxAgentId "service.monitoring.supervision"
 
+-- | Monitor the supervisor for the given pid. Binds a typed channel to the
+-- calling process, to which the resulting @ReceivePort@ belongs.
+--
+-- Multiple monitors can be created for any @calling process <-> sup@ pair.
+-- Each monitor maintains its own typed channel, which will only contain
+-- "MxSupervisor" entries obtained /after/ the channel was established.
+--
 monitorSupervisor :: SupervisorPid -> Process (ReceivePort MxSupervisor)
 monitorSupervisor sup = do
   us <- getSelfPid
@@ -95,30 +99,30 @@ monitorSupervisor sup = do
   mxNotify $ Register sup us sp
   return rp
 
+-- | Removes all monitors for @sup@, associated with the calling process.
+-- It is not possible to delete individual monitors (i.e. typed channels).
+--
 unmonitorSupervisor :: SupervisorPid -> Process ()
 unmonitorSupervisor sup = getSelfPid >>= mxNotify . UnRegister sup
 
+-- | Starts the supervision monitoring agent.
 supervisionMonitor :: Process ProcessId
 supervisionMonitor = do
   mxAgent supervisionAgentId initState [
         (mxSink $ \(Register sup pid sp) -> do
-          -- liftMX $ say $ "registering " ++ (show (sup, pid, sp))
           mxSetLocal . Map.insert sup (pid, SupMxChan sp) =<< mxGetLocal
           mxReady)
       , (mxSink $ \(UnRegister sup pid) -> do
-          -- liftMX $ say $ "unregistering " ++ (show (sup, pid))
           st <- mxGetLocal
           mxSetLocal $ Map.filterWithKey (\k v -> if k == sup then (fst v) /= pid else True) st
           mxReady)
-      {- , (mxSink $ \(ev :: MxEvent) -> do
-          case ev of
-            MxProcessDied
-            TODO: remove dead clients to avoid a space leak
-      -}
       , (mxSink $ \(ev :: MxEvent) -> do
           case ev of
-            MxUser msg -> goNotify msg >> mxReady
-            _          -> mxReady)
+            MxUser msg          -> goNotify msg >> mxReady
+            MxProcessDied pid _ -> do st <- mxGetLocal
+                                      mxSetLocal $ Map.filter ((/= pid) . fst) st
+                                      mxReady
+            _                   -> mxReady)
     ]
   where
     initState :: State
@@ -128,7 +132,6 @@ supervisionMonitor = do
       ev <- liftMX $ unwrapMessage msg :: MxAgent State (Maybe MxSupervisor)
       case ev of
         Just ev' -> do st <- mxGetLocal
-                       let cs = Map.lookup (supervisorPid ev') st
                        mapM_ (liftMX . (flip sendChan) ev' . smxc . snd)
                              (maybe [] id $ Map.lookup (supervisorPid ev') st)
         Nothing  -> return ()
