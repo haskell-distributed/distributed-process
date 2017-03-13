@@ -260,6 +260,13 @@ module Control.Distributed.Process.Supervisor
   , listChildren
   , SupervisorStats(..)
   , statistics
+  , getRestartIntensity
+  , definedChildren
+  , definedWorkers
+  , definedSupervisors
+  , runningChildren
+  , runningWorkers
+  , runningSupervisors
     -- * Additional (Misc) Types
   , StartFailure(..)
   , ChildInitFailure(..)
@@ -1307,7 +1314,6 @@ tryStartChild ChildSpec{..} =
     maybeRegister :: Maybe RegisteredName -> ChildPid -> Process ()
     maybeRegister Nothing                         _     = return ()
     maybeRegister (Just (LocalName n))            pid   = register n pid
-    maybeRegister (Just (GlobalName _))           _     = return ()
     maybeRegister (Just (CustomRegister clj))     pid   = do
         -- TODO: cache your closures!!!
         mProc <- catch (unClosure clj >>= return . Right)
@@ -1578,6 +1584,10 @@ strategy = accessor _strategy (\s st -> st { _strategy = s })
 restartIntensity :: Accessor RestartStrategy RestartLimit
 restartIntensity = accessor intensity (\i l -> l { intensity = i })
 
+-- | The "RestartLimit" for a given "RestartStrategy"
+getRestartIntensity :: RestartStrategy -> RestartLimit
+getRestartIntensity = (^. restartIntensity)
+
 restartPeriod :: Accessor State NominalDiffTime
 restartPeriod = accessor _restartPeriod (\p st -> st { _restartPeriod = p })
 
@@ -1596,17 +1606,41 @@ logger = accessor _logger (\l st -> st { _logger = l })
 children :: Accessor SupervisorStats Int
 children = accessor _children (\c st -> st { _children = c })
 
+-- | How many child specs are defined for this supervisor
+definedChildren :: SupervisorStats -> Int
+definedChildren = (^. children)
+
 workers :: Accessor SupervisorStats Int
 workers = accessor _workers (\c st -> st { _workers = c })
 
-running :: Accessor SupervisorStats Int
-running = accessor _running (\r st -> st { _running = r })
+-- | How many child specs define a worker (non-supervisor)
+definedWorkers :: SupervisorStats -> Int
+definedWorkers = (^. workers)
 
 supervisors :: Accessor SupervisorStats Int
 supervisors = accessor _supervisors (\c st -> st { _supervisors = c })
 
+-- | How many child specs define a supervisor?
+definedSupervisors :: SupervisorStats -> Int
+definedSupervisors = (^. supervisors)
+
+running :: Accessor SupervisorStats Int
+running = accessor _running (\r st -> st { _running = r })
+
+-- | How many running child processes.
+runningChildren :: SupervisorStats -> Int
+runningChildren = (^. running)
+
 activeWorkers :: Accessor SupervisorStats Int
 activeWorkers = accessor _activeWorkers (\c st -> st { _activeWorkers = c })
 
+-- | How many worker (non-supervisor) child processes are running.
+runningWorkers :: SupervisorStats -> Int
+runningWorkers = (^. activeWorkers)
+
 activeSupervisors :: Accessor SupervisorStats Int
 activeSupervisors = accessor _activeSupervisors (\c st -> st { _activeSupervisors = c })
+
+-- | How many supervisor child processes are running
+runningSupervisors :: SupervisorStats -> Int
+runningSupervisors = (^. activeSupervisors)

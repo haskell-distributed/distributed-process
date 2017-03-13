@@ -18,7 +18,7 @@ module Control.Distributed.Process.Supervisor.Types
   , ChildType(..)
   , ChildStopPolicy(..)
   , ChildStart(..)
-  , RegisteredName(LocalName, GlobalName, CustomRegister)
+  , RegisteredName(LocalName, CustomRegister)
   , RestartPolicy(..)
   , ChildRef(..)
   , isRunning
@@ -273,9 +273,11 @@ data ChildStopPolicy =
 instance Binary ChildStopPolicy where
 instance NFData ChildStopPolicy where
 
+-- | Represents a registered name, for registration /locally/ using the
+-- @register@ primitive, or via a @Closure (ChildPid -> Process ())@ such that
+-- registration can be performed using alternative process registries.
 data RegisteredName =
     LocalName          !String
-  | GlobalName         !String
   | CustomRegister     !(Closure (ChildPid -> Process ()))
   deriving (Typeable, Generic)
 instance Binary RegisteredName where
@@ -284,8 +286,8 @@ instance NFData RegisteredName where
 instance Show RegisteredName where
   show (CustomRegister _) = "Custom Register"
   show (LocalName      n) = n
-  show (GlobalName     n) = "global::" ++ n
 
+-- | Defines the way in which a child process is to be started.
 data ChildStart =
     RunClosure !(Closure (Process ()))
   | CreateHandle !(Closure (SupervisorPid -> Process (ChildPid, Message)))
@@ -310,14 +312,16 @@ data ChildSpec = ChildSpec {
 instance Binary ChildSpec where
 instance NFData ChildSpec where
 
+-- | A child process failure during init will be reported using this datum
 data ChildInitFailure =
-    ChildInitFailure !String
-  | ChildInitIgnore
+    ChildInitFailure !String -- ^ The init failed with the corresponding message
+  | ChildInitIgnore -- ^ The child told the supervisor to ignore its startup procedure
   deriving (Typeable, Generic, Show)
 instance Binary ChildInitFailure where
 instance NFData ChildInitFailure where
 instance Exception ChildInitFailure where
 
+-- | Statistics about a running supervisor
 data SupervisorStats = SupervisorStats {
     _children          :: Int
   , _supervisors       :: Int
@@ -331,6 +335,7 @@ data SupervisorStats = SupervisorStats {
 instance Binary SupervisorStats where
 instance NFData SupervisorStats where
 
+-- | Supervisor event data published to the management API
 data MxSupervisor =
     SupervisorBranchRestarted
     {
@@ -338,43 +343,43 @@ data MxSupervisor =
     , childSpecKey   :: ChildKey
     , diedReason     :: DiedReason
     , branchStrategy :: RestartStrategy
-    }
+    } -- ^ A branch restart took place
   | SupervisedChildRestarting
     { supervisorPid :: SupervisorPid
     , childInScope  :: Maybe ChildPid
     , childSpecKey  :: ChildKey
     , exitReason    :: ExitReason
-    }
+    } -- ^ A child is being restarted
   | SupervisedChildStarted
     { supervisorPid :: SupervisorPid
     , childRef      :: ChildRef
     , childSpecKey  :: ChildKey
-    }
+    } -- ^ A child has been started
   | SupervisedChildStartFailure
     { supervisorPid :: SupervisorPid
     , startFailure  :: StartFailure
     , childSpecKey  :: ChildKey
-    }
+    } -- ^ A child failed to start
   | SupervisedChildDied
     { supervisorPid :: SupervisorPid
     , childPid      :: ChildPid
     , exitReason    :: ExitReason
-    }
+    } -- ^ A child process death was detected
   | SupervisedChildInitFailed
     { supervisorPid :: SupervisorPid
     , childPid      :: ChildPid
     , initFailure   :: ChildInitFailure
-    }
+    } -- ^ A child failed during init
   | SupervisedChildStopped
     { supervisorPid :: SupervisorPid
     , childRef      :: ChildRef
     , diedReason    :: DiedReason
-    }
+    } -- ^ A child has been stopped
   | SupervisorShutdown
     { supervisorPid :: SupervisorPid
     , shutdownMode  :: ShutdownMode
     , exitRason     :: ExitReason
-    }
+    } -- ^ A supervisor is shutting down
     deriving (Typeable, Generic, Show)
 instance Binary MxSupervisor where
 instance NFData MxSupervisor where
@@ -401,39 +406,42 @@ data DeleteChildResult =
 instance Binary DeleteChildResult where
 instance NFData DeleteChildResult where
 
+-- | A child represented as a @(ChildRef, ChildSpec)@ pair.
 type Child = (ChildRef, ChildSpec)
 
 -- exported result types of internal APIs
 
+-- | The result of an @addChild@ request.
 data AddChildResult =
-    ChildAdded         !ChildRef
-  | ChildFailedToStart !StartFailure
+    ChildAdded         !ChildRef  -- ^ The child was added correctly
+  | ChildFailedToStart !StartFailure -- ^ The child failed to start
   deriving (Typeable, Generic, Show, Eq)
 instance Binary AddChildResult where
 instance NFData AddChildResult where
 
+-- | The result of a @startChild@ request.
 data StartChildResult =
-    ChildStartOk        !ChildRef
-  | ChildStartFailed    !StartFailure
-  | ChildStartUnknownId
-  | ChildStartInitIgnored
+    ChildStartOk        !ChildRef     -- ^ The child started successfully
+  | ChildStartFailed    !StartFailure -- ^ The child failed to start
+  | ChildStartUnknownId               -- ^ The child key was not recognised by the supervisor
   deriving (Typeable, Generic, Show, Eq)
 instance Binary StartChildResult where
 instance NFData StartChildResult where
 
+-- | The result of a @restartChild@ request.
 data RestartChildResult =
-    ChildRestartOk     !ChildRef
-  | ChildRestartFailed !StartFailure
-  | ChildRestartUnknownId
-  | ChildRestartIgnored
+    ChildRestartOk     !ChildRef     -- ^ The child restarted successfully
+  | ChildRestartFailed !StartFailure -- ^ The child failed to restart
+  | ChildRestartUnknownId            -- ^ The child key was not recognised by the supervisor
   deriving (Typeable, Generic, Show, Eq)
 
 instance Binary RestartChildResult where
 instance NFData RestartChildResult where
 
+-- | The result of a @stopChild@ request.
 data StopChildResult =
-    StopChildOk
-  | StopChildUnknownId
+    StopChildOk -- ^ The child was stopped successfully
+  | StopChildUnknownId -- ^ The child key was not recognised by the supervisor
   deriving (Typeable, Generic, Show, Eq)
 instance Binary StopChildResult where
 instance NFData StopChildResult where
