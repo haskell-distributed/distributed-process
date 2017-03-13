@@ -1199,7 +1199,7 @@ doRestartDelay oldPid rDelay spec reason state = do
             (DelayedRestart (childKey spec) reason)
           $ ( (active ^: Map.filter (/= chKey))
             . (bumpStats Active chType decrement)
-            . (restarts ^= [])
+            -- . (restarts ^= [])
             $ maybe state id (updateChild chKey (setChildRestarting oldPid) state)
             )
   where
