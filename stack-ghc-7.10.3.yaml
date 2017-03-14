@@ -13,4 +13,5 @@ extra-deps:
 - distributed-process-extras-0.3.1  # missing snapshot
 - distributed-process-async-0.2.4   # missing snapshot
 - distributed-process-systest-0.1.1 # missing prior to Jan-2017
+- distributed-static-0.3.5.0
 - rematch-0.2.0.0
