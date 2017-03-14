@@ -34,7 +34,7 @@ library
                    base >= 4.8.2.0 && < 5,
                    bytestring >= 0.9,
                    data-accessor >= 0.2.2.3,
-                   distributed-static >= 0.3.5.0 && < 0.4,
+                   distributed-static >= 0.3.4.0 && < 0.4,
                    distributed-process >= 0.6.6 && < 0.7,
                    distributed-process-extras >= 0.3.1 && < 0.4,
                    distributed-process-client-server >= 0.2.0 && < 0.3,
