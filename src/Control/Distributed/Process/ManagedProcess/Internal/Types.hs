@@ -447,6 +447,7 @@ channelControlPort cc = ControlPort $ fst $ unControl cc
 -- for internal use. For an API for working with filters,
 -- see "Control.Distributed.Process.ManagedProcess.Priority".
 data Filter s = FilterOk s
+              | FilterSafe s
               | forall m . (Show m) => FilterReject m s
               | FilterSkip s
               | FilterStop s ExitReason

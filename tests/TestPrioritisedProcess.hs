@@ -270,6 +270,77 @@ testFilteringBehavior result = do
   stash result $ m == 25
   kill pid "done"
 
+testSafeExecutionContext :: TestResult Bool -> Process ()
+testSafeExecutionContext result = do
+  let t = (asTimeout $ seconds 5)
+  (sigSp, rp) <- newChan
+  (wp, lp) <- newChan
+  let def = statelessProcess
+            { apiHandlers  = [ handleCall_ (\(m :: String) -> stranded rp wp Nothing >> return m) ]
+            , infoHandlers = [ handleInfo  (\s (m :: String) -> stranded rp wp (Just m) >> continue s) ]
+            , exitHandlers = [ handleExit  (\_ s (_ :: String) -> continue s) ]
+            } `prioritised` []
+
+  let spec = def { filters = [
+                     safe    (\_ (_ :: String) -> True)
+                   , apiSafe (\_ (_ :: String) (_ :: Maybe String) -> True)
+                   ]
+                 }
+
+  pid <- spawnLocal $ pserve () (statelessInit Infinity) spec
+  send pid "hello"  -- pid can't process this as it's stuck waiting on rp
+
+  sleep $ seconds 3
+  exit pid "ooops"  -- now we force an exit signal once the receiveWait finishes
+  sendChan sigSp () -- and allow the receiveWait to complete
+  send pid "hi again"
+
+  -- at this point, "hello" should still be in the backing queue/mailbox
+  sleep $ seconds 3
+
+  -- We should still be seeing "hello", since the 'safe' block saved us from
+  -- losing a message when we handled and swallowed the exit signal.
+  -- We should not see "hi again" until after "hello" has been processed
+  h <- receiveChanTimeout t lp
+  -- say $ "first response: " ++ (show h)
+  let a1 = h == (Just "hello")
+
+  sleep $ seconds 3
+
+  -- now we should have "hi again" waiting in the mailbox...
+  sendChan sigSp ()  -- we must release the handler a second time...
+  h2 <- receiveChanTimeout t lp
+  -- say $ "second response: " ++ (show h2)
+  let a2 = h2 == (Just "hi again")
+
+  void $ spawnLocal $ call pid "reply-please" >>= sendChan wp
+
+  -- the call handler should be stuck waiting on rp
+  Nothing <- receiveChanTimeout (asTimeout $ seconds 2) lp
+
+  -- now let's force an exit, then release the handler to see if it runs again...
+  exit pid "ooops2"
+
+  sleep $ seconds 2
+  sendChan sigSp ()
+
+  h3 <- receiveChanTimeout t lp
+--  say $ "third response: " ++ (show h3)
+  let a3 = h3 == (Just "reply-please")
+
+  stash result $ a1 && a2 && a3
+
+  where
+
+    stranded :: ReceivePort () -> SendPort String -> Maybe String -> Process ()
+    stranded gate chan str = do
+      -- say $ "stranded with " ++ (show str)
+      void $ receiveWait [ matchChan gate return ]
+      sleep $ seconds 1
+      case str of
+        Nothing -> return ()
+        Just s  -> sendChan chan s
+
 testExternalTimedOverflowHandling :: TestResult Bool -> Process ()
 testExternalTimedOverflowHandling result = do
   (pid, cp) <- launchStmOverloadServer -- default 10k mailbox drain limit
@@ -475,6 +546,9 @@ tests transport = do
           , testCase "Firing internal timeouts"
              (delayedAssertion "expected our info handler to run after the timeout"
               localNode True testUserTimerHandling)
+          , testCase "Creating 'Safe' Handlers"
+             (delayedAssertion "expected our handler to run on the old message"
+              localNode True testSafeExecutionContext)
          ]
       ]
 

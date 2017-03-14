@@ -4,6 +4,7 @@
 {-# LANGUAGE RecordWildCards            #-}
 {-# LANGUAGE EmptyDataDecls             #-}
 {-# LANGUAGE StandaloneDeriving         #-}
+{-# LANGUAGE AllowAmbiguousTypes        #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -44,6 +45,8 @@ module Control.Distributed.Process.ManagedProcess.Server.Priority
   , ensureM
   , Filter()
   , DispatchFilter()
+  , safe
+  , apiSafe
   , Message()
   , evalAfter
   , currentTimeout
@@ -106,6 +109,10 @@ data FilterHandler s =
     , rawHandler :: s -> P.Message -> Process (Maybe (Filter s))
     } -- ^ A raw handler, usable where the target handler is based on @handleRaw@
   | HandleState { stateHandler :: s -> Process (Maybe (Filter s)) }
+  | HandleSafe
+    {
+      safeCheck :: s -> P.Message -> Process Bool
+    } -- ^ A safe wrapper
 
 {-
 check :: forall c s m . (Check c s m)
@@ -125,6 +132,10 @@ check h
       c <- apiCheck s m'
       if c then return $ FilterOk s
            else apiHandler s m
+  | HandleSafe{..}  <- h = FilterRaw $ \s m -> do
+      c <- safeCheck s m
+      let ctr = if c then FilterSafe else FilterOk
+      return $ Just $ ctr s
 
   where
     procUnless s _ _ True  = return $ FilterOk s
@@ -171,6 +182,31 @@ info_ :: forall s m . (Serializable m)
         -> (s -> m -> Process (Filter s))
         -> FilterHandler s
 info_ c h = info (const $ c) h
+
+apiSafe :: forall s m b . (Serializable m, Serializable b)
+     => (s -> m -> Maybe b -> Bool)
+     -> DispatchFilter s
+apiSafe c = check $ HandleSafe (go c)
+  where
+--    go :: (s -> m -> Bool) -> s -> m -> Process Bool
+    go c' s (i :: P.Message) = do
+      m <- unwrapMessage i :: Process (Maybe (Message m b))
+      case m of
+        Just (CallMessage m' _) -> return $ c' s m' Nothing
+        Just (CastMessage m')   -> return $ c' s m' Nothing
+        Just (ChanMessage m' _) -> return $ c' s m' Nothing
+        Nothing                 -> return False
+
+safe :: forall s m . (Serializable m)
+     => (s -> m -> Bool)
+     -> DispatchFilter s
+safe c = check $ HandleSafe (go c)
+  where
+    go c' s (i :: P.Message) = do
+      m <- unwrapMessage i :: Process (Maybe m)
+      case m of
+        Just m' -> return $ c' s m'
+        Nothing -> return False
 
 -- | Create a filter expression that will reject all messages of a specific type.
 reject :: forall s m r . (Show r)

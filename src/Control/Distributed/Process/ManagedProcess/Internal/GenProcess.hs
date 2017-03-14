@@ -118,6 +118,8 @@ import qualified Data.Map.Strict as Map
 -- Priority Mailbox Handling                                                  --
 --------------------------------------------------------------------------------
 
+type Safe = Bool
+
 -- | Evaluate the given function over the @ProcessState s@ for the caller, and
 -- return the result.
 gets :: forall s a . (ProcessState s -> a) -> GenProcess s a
@@ -459,19 +461,26 @@ recvQueue = do
       (up, pf) <- gets $ liftA2 (,) (unhandledMessagePolicy . procDef) procFilters
       case pf of
         [] -> consumeMessage
-        _  -> filterMessage  (filterNext up pf Nothing)
+        _  -> filterMessage  (filterNext False up pf Nothing)
 
     consumeMessage = applyNext dequeue processApply
     filterMessage = applyNext peek
 
-    filterNext :: UnhandledMessagePolicy
+    filterNext :: Safe
+               -> UnhandledMessagePolicy
                -> [DispatchFilter s]
                -> Maybe (Filter s)
                -> Message
                -> GenProcess s (ProcessAction s)
-    filterNext mp' fs mf msg
+    filterNext isSafe mp' fs mf msg
+      | Just (FilterSafe s')   <- mf = filterNext True mp' fs (Just $ FilterOk s') msg
       | Just (FilterSkip s')   <- mf = setProcessState s' >> dequeue >> return ProcessSkip
       | Just (FilterStop s' r) <- mf = return $ ProcessStopping s' r
+      | isSafe
+      , Just (FilterOk s')     <- mf
+      , []                     <- fs = do setProcessState s'
+                                          act' <- processApply msg
+                                          dequeue >> return act'
       | Just (FilterOk s')     <- mf
       , []                     <- fs = setProcessState s' >> applyNext dequeue processApply
       | Nothing <- mf, []      <- fs = applyNext dequeue processApply
@@ -479,12 +488,12 @@ recvQueue = do
       , (f:fs')                <- fs = do
           setProcessState s'
           act' <- lift $ dynHandleFilter s' f msg
-          filterNext mp' fs' act' msg
+          filterNext isSafe mp' fs' act' msg
       | Just (FilterReject _ s') <- mf = do
           setProcessState s' >> dequeue >>= lift . applyPolicy mp' s' . fromJust
       | Nothing <- mf {- filter didn't apply to the input type -}
       , (f:fs') <- fs = processState >>= \s' -> do
-          lift (dynHandleFilter s' f msg) >>= \a -> filterNext mp' fs' a msg
+          lift (dynHandleFilter s' f msg) >>= \a -> filterNext isSafe mp' fs' a msg
 
     applyNext :: (GenProcess s (Maybe Message))
               -> (Message -> GenProcess s (ProcessAction s))
