@@ -10,7 +10,7 @@ import qualified Control.Distributed.Process.Extras (__remoteTable)
 import Control.Distributed.Process.Execution.Mailbox
 import Control.Distributed.Process.Extras.Time
 import Control.Distributed.Process.Extras.Timer
-import Control.Distributed.Process.Tests.Internal.Utils
+import Control.Distributed.Process.SysTest.Utils
 
 
 import Control.Rematch (equalTo)
@@ -190,7 +190,7 @@ tests transport = do
           (delayedAssertion
            "Expected the Queue to offer FIFO ordering"
            localNode True (allBuffersShouldRespectFIFOOrdering Queue))
-	   
+
         , testCase "Stack Ordering"
           (delayedAssertion
            "Expected the Queue to offer FIFO ordering"
