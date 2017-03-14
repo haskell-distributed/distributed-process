@@ -1215,9 +1215,11 @@ tests transport = do
   singleTestLock <- newMVar ()
   runProcess localNode $ do
     void $ supervisionMonitor
+    {-
     slog <- systemLogFile "supervisor.test.log" Debug return
     addFormatter slog $(mkStaticClosure 'formatMxSupervisor)
-
+    -}
+  
   let withSup sm = runInTestContext localNode singleTestLock sm
   let withSup' sm = runInTestContext' localNode sm
   let withSupervisor = runInTestContext localNode singleTestLock ParallelShutdown
