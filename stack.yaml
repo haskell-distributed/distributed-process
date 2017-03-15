@@ -1,0 +1,15 @@
+resolver: nightly-2017-02-03
+
+packages:
+- '.'
+- location:
+    git: https://github.com/haskell-distributed/distributed-process-client-server.git
+    commit: 8ad94262693eb66a158dbcd3b3908a2fc0888968
+  extra-dep: true
+
+extra-deps:
+- distributed-process-0.6.6         # missing snapshot
+- distributed-process-extras-0.3.1  # missing snapshot
+- distributed-process-async-0.2.4   # missing snapshot
+- distributed-process-systest-0.1.1 # missing prior to Jan-2017
+- rematch-0.2.0.0
