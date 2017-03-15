@@ -29,6 +29,7 @@ import Control.Monad.Catch (catch)
 import Data.Binary
 import Data.Either (rights)
 import Data.List (isInfixOf)
+import Data.Maybe (isNothing)
 import Data.Typeable (Typeable)
 
 #if ! MIN_VERSION_base(4,6,0)
@@ -269,6 +270,40 @@ testFilteringBehavior result = do
   m <- receiveWait [ matchIf (== 25) return ] :: Process Int
   stash result $ m == 25
   kill pid "done"
+
+testServerSwap :: TestResult Bool -> Process ()
+testServerSwap result = do
+  us <- getSelfPid
+  let def2 = statelessProcess { apiHandlers = [ handleCast  (\s (i :: Int) -> send us (i, i+1) >> continue s)
+                                              , handleCall_ (\(i :: Int)   -> return (i * 5))
+                                              ]
+                              , unhandledMessagePolicy = Drop  -- otherwise `call` would fail
+                              }
+  let def = statelessProcess
+            { apiHandlers  = [ handleCall_ (\(m :: String) -> return m) ]
+            , infoHandlers = [ handleInfo  (\s () -> become def2 s) ]
+            } `prioritised` []
+
+  pid <- spawnLocal $ pserve () (statelessInit Infinity) def
+
+  m1 <- call pid "hello there"
+  let a1 = m1 == "hello there"
+
+  send pid () --changeover
+
+  m2 <- callTimeout pid "are you there?" (seconds 5) :: Process (Maybe String)
+  let a2 = isNothing m2
+
+  cast pid (45 :: Int)
+  res <- receiveWait [ matchIf (\(i :: Int) -> i == 45) (return . Left)
+                     , match (\(_ :: Int, j :: Int) -> return $ Right j) ]
+
+  let a3 = res == (Right 46)
+
+  m4 <- call pid (20 :: Int) :: Process Int
+  let a4 = m4 == 100
+
+  stash result $ a1 && a2 && a3 && a4
 
 testSafeExecutionContext :: TestResult Bool -> Process ()
 testSafeExecutionContext result = do
@@ -549,6 +584,9 @@ tests transport = do
           , testCase "Creating 'Safe' Handlers"
              (delayedAssertion "expected our handler to run on the old message"
               localNode True testSafeExecutionContext)
+          , testCase "Swapping ProcessDefinitions at runtime"
+             (delayedAssertion "expected our handler to exist in the new handler list"
+              localNode True testServerSwap)
          ]
       ]
 

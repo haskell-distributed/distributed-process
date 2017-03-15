@@ -418,6 +418,10 @@ recvQueue = do
       | ProcessStop      xr      <- ac = return xr
       | ProcessStopping  ps' xr  <- ac = setProcessState ps' >> return xr
       | ProcessHibernate d' s'   <- ac = (lift $ block d') >> recvQueueAux s'
+      | ProcessBecome    pd' ps' <- ac = do
+          modifyState $ \st@ProcessState{..} -> st { procDef = pd', procState = ps' }
+          -- liftIO $ putStrLn "modified process def"
+          recvQueue
       | otherwise {- compiler foo -}   = return $ ExitOther "IllegalState"
 
     recvQueueAux st = setProcessState st >> recvQueue
@@ -506,13 +510,13 @@ recvQueue = do
 
     processApply msg = do
       (def, pState) <- gets $ liftA2 (,) procDef procState
-
       let pol          = unhandledMessagePolicy def
           apiMatchers  = map (dynHandleMessage pol pState) (apiHandlers def)
           infoMatchers = map (dynHandleMessage pol pState) (infoHandlers def)
           extMatchers  = map (dynHandleMessage pol pState) (externHandlers def)
           shutdown'    = dynHandleMessage pol pState shutdownHandler'
           ms'          = (shutdown':extMatchers) ++ apiMatchers ++ infoMatchers
+      -- liftIO $ putStrLn $ "we have " ++ (show $ (length apiMatchers, length infoMatchers)) ++ " handlers"
       processApplyAux ms' pol pState msg
 
     processApplyAux []     p' s' m' = lift $ applyPolicy p' s' m'
@@ -718,6 +722,7 @@ recvLoop pDef pState recvDelay =
         (ProcessHibernate d' s')  -> block d' >> recvLoop pDef s' recvDelay
         (ProcessStop r) -> handleStop (LastKnown pState) r >> return (r :: ExitReason)
         (ProcessStopping s' r)    -> handleStop (LastKnown s') r >> return (r :: ExitReason)
+        (ProcessBecome   d' s')   -> recvLoop d' s' recvDelay
         (ProcessActivity _)       -> die $ "recvLoop.InvalidState - ProcessActivityNotSupported"
   where
     matchAux :: UnhandledMessagePolicy

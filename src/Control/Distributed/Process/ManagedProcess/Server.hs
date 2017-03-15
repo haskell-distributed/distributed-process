@@ -32,6 +32,7 @@ module Control.Distributed.Process.ManagedProcess.Server
   , replyChan
   , reject
   , rejectWith
+  , become
     -- * Stateless actions
   , noReply_
   , haltNoReply_
@@ -188,6 +189,9 @@ hibernate d s = return $ ProcessHibernate d s
 --
 hibernate_ :: StatelessHandler s TimeInterval
 hibernate_ d = return . ProcessHibernate d
+
+become :: forall s . ProcessDefinition s -> s -> Action s
+become def st = return $ ProcessBecome def st
 
 -- | Instructs the process to terminate, giving the supplied reason. If a valid
 -- 'shutdownHandler' is installed, it will be called with the 'ExitReason'

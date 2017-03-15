@@ -318,6 +318,7 @@ data ProcessAction s =
   | ProcessHibernate TimeInterval s -- ^ hibernate for /delay/
   | ProcessStop      ExitReason     -- ^ stop the process, giving @ExitReason@
   | ProcessStopping  s ExitReason   -- ^ stop the process with @ExitReason@, with updated state
+  | ProcessBecome    (ProcessDefinition s) s -- ^ changes the current process definition
 
 -- | Returned from handlers for the synchronous 'call' protocol, encapsulates
 -- the reply data /and/ the action to take after sending the reply. A handler
