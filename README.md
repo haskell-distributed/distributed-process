@@ -1,4 +1,4 @@
-# distribributed-process-execution
+# distributed-process-execution
 [![travis](https://secure.travis-ci.org/haskell-distributed/distributed-process-execution.png)](http://travis-ci.org/haskell-distributed/distributed-process-async)
 [![Release](https://img.shields.io/hackage/v/distributed-process-execution.svg)](https://hackage.haskell.org/package/distributed-process-execution)
 
