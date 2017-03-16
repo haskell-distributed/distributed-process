@@ -60,6 +60,8 @@ module Control.Distributed.Process.ManagedProcess.Server.Priority
   , peek
   , push
   , addUserTimer
+  , act
+  , runAfter
   ) where
 
 import Control.Distributed.Process hiding (call, Message)
@@ -80,6 +82,8 @@ import Control.Distributed.Process.ManagedProcess.Internal.GenProcess
   , peek
   , push
   , evalAfter
+  , act
+  , runAfter
   )
 import Control.Distributed.Process.ManagedProcess.Internal.Types
 import Control.Distributed.Process.Serializable
