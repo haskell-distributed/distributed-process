@@ -21,110 +21,94 @@ import Control.Distributed.Process.Extras.Time
  ( TimeInterval
  , seconds
  )
+import Control.Distributed.Process.ManagedProcess
+ ( processState
+ , setProcessState
+ , runAfter
+ )
+import Control.Distributed.Process.FSM.Internal.Types
+import Control.Distributed.Process.FSM.Internal.Process
+ ( start
+ )
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Monad (void)
-import Control.Monad.Fix (MonadFix)
-import Control.Monad.IO.Class (MonadIO)
-import qualified Control.Monad.State.Strict as ST
-  ( MonadState
-  , StateT
-  , get
-  , lift
-  , runStateT
-  )
 import Data.Binary (Binary)
 import Data.Typeable (Typeable)
 import GHC.Generics
 
-data State s d m = State
-
-newtype FSM s d m o = FSM {
-   unFSM :: ST.StateT (State s d m) Process o
- }
- deriving ( Functor
-          , Monad
-          , ST.MonadState (State s d m)
-          , MonadIO
-          , MonadFix
-          , Typeable
-          , Applicative
-          )
-
-data Action = Consume | Produce | Skip
-data Transition s m = Remain | PutBack m | Change s
-data Event m = Event
-
-data Step s d where
-  Start     :: s -> d -> Step s d
-  Await     :: (Serializable m) => Event m -> Step s d -> Step s d
-  Always    :: FSM s d m (Transition s d) -> Step s d
-  Perhaps   :: (Eq s) => s -> FSM s d m (Transition s d) -> Step s d
-  Matching  :: (m -> Bool) -> FSM s d m (Transition s d) -> Step s d
-  Sequence  :: Step s d -> Step s d -> Step s d
-  Alternate :: Step s d -> Step s d -> Step s d
-  Reply     :: (Serializable r) => FSM s f m r -> Step s d
-
 type Pipeline = forall s d . Step s d
 
 initState :: forall s d . s -> d -> Step s d
-initState = Start
+initState = Yield
 
--- endState :: Action -> State
--- endState = undefined
-
-enter :: forall s d m . s -> FSM s d m (Transition s d)
-enter = undefined
-
-stopWith :: ExitReason -> Action
-stopWith = undefined
+enter :: forall s d . s -> FSM s d (Transition s d)
+enter = return . Enter
 
 event :: (Serializable m) => Event m
-event = Event
+event = Wait
 
-currentState :: forall s d m . FSM s d m s
-currentState = undefined
-
-reply :: forall s d m r . (Serializable r) => FSM s d m r -> Step s d
+reply :: forall s d r . (Serializable r) => FSM s d r -> Step s d
 reply = Reply
 
-timeout :: Serializable a => TimeInterval -> a -> FSM s d m (Transition s d)
-timeout = undefined
+timeout :: Serializable m => TimeInterval -> m -> FSM s d (Transition s d)
+timeout t m = return $ Eval $ runAfter t m
 
-set :: forall s d m . (d -> d) -> FSM s d m ()
-set = undefined
+stop :: ExitReason -> FSM s d (Transition s d)
+stop = return . Stop
 
-put :: forall s d m . d -> FSM s d m ()
-put = undefined
+set :: forall s d . (d -> d) -> FSM s d ()
+set f = addTransition $ Eval $ do
+  processState >>= \s -> setProcessState $ s { fsmData = (f $ fsmData s) }
+
+put :: forall s d . d -> FSM s d ()
+put d = addTransition $ Eval $ do
+  processState >>= \s -> setProcessState $ s { fsmData = d }
 
 (.|) :: Step s d -> Step s d -> Step s d
 (.|) = Alternate
 infixr 9 .|
 
+pick :: Step s d -> Step s d -> Step s d
+pick = Alternate
+
 (|>) :: Step s d -> Step s d -> Step s d
 (|>) = Sequence
 infixr 9 |>
 
+join :: Step s d -> Step s d -> Step s d
+join = Sequence
+
 (<|) :: Step s d -> Step s d -> Step s d
-(<|) = undefined
-infixr 9 <|
+(<|) = flip Sequence
+-- infixl 9 <|
+
+reverseJoin :: Step s d -> Step s d -> Step s d
+reverseJoin = flip Sequence
 
 (~>) :: forall s d m . (Serializable m) => Event m -> Step s d -> Step s d
 (~>) = Await
 infixr 9 ~>
 
-(~@) :: forall s d m . (Eq s) => s -> FSM s d m (Transition s d) -> Step s d
+await :: forall s d m . (Serializable m) => Event m -> Step s d -> Step s d
+await = Await
+
+(~@) :: forall s d . (Eq s) => s -> FSM s d (Transition s d) -> Step s d
 (~@) = Perhaps
 infixr 9 ~@
 
-allState :: forall s d m . FSM s d m (Transition s d) -> Step s d
+atState :: forall s d . (Eq s) => s -> FSM s d (Transition s d) -> Step s d
+atState = Perhaps
+
+allState :: forall s d m . (Serializable m) => (m -> FSM s d (Transition s d)) -> Step s d
 allState = Always
 
-(~?) :: forall s d m . (m -> Bool) -> FSM s d m (Transition s d) -> Step s d
+(~?) :: forall s d m . (Serializable m) => (m -> Bool) -> (m -> FSM s d (Transition s d)) -> Step s d
 (~?) = Matching
 
-start :: Pipeline -> Process ()
-start = const $ return ()
+matching :: forall s d m . (Serializable m) => (m -> Bool) -> (m -> FSM s d (Transition s d)) -> Step s d
+matching = Matching
 
+{-
 data StateName = On | Off deriving (Eq, Show, Typeable, Generic)
 instance Binary StateName where
 
@@ -144,10 +128,14 @@ startState = initState Off initCount
 demo :: Step StateName StateData
 demo = startState
          |> (event :: Event ButtonPush)
-              ~> (  (On  ~@ (set (+1) >> enter Off))
+              ~> (  (On  ~@ (set (+1) >> enter Off)) -- on => off => on is possible with |> here...
                  .| (Off ~@ (set (+1) >> enter On))
-                 ) <| (reply currentState)
+                 ) |> (reply currentState)
          .| (event :: Event Stop)
-              ~> ((== ExitShutdown) ~? (timeout (seconds 3) Reset))
-         .| (event :: Event Reset) ~> (allState $ put initCount >> enter Off)
---        .| endState $ stopWith ExitNormal
+              ~> (  ((== ExitShutdown) ~? (\_ -> timeout (seconds 3) Reset))
+                 .| ((const True) ~? (\r -> (liftIO $ putStrLn "stopping...") >> stop r))
+                 )
+         .| (event :: Event Reset)
+              ~> (allState $ \Reset -> put initCount >> enter Off)
+
+-}

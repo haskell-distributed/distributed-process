@@ -8,9 +8,249 @@
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses      #-}
-{-# LANGUAGE Rank2Types                 #-}
+{-# LANGUAGE GADTs                      #-}
+{-# LANGUAGE RankNTypes                 #-}
 
 module Control.Distributed.Process.FSM.Internal.Types
 where
 
-data Foo = Foo
+import Control.Distributed.Process
+ ( Process
+ , unwrapMessage
+ , handleMessage
+ , handleMessageIf
+ , wrapMessage
+ )
+import qualified Control.Distributed.Process as P
+ ( liftIO
+ , Message
+ )
+import Control.Distributed.Process.Extras (ExitReason)
+import Control.Distributed.Process.ManagedProcess
+ ( Action
+ , GenProcess
+ , continue
+ , stopWith
+ , setProcessState
+ )
+import Control.Distributed.Process.ManagedProcess.Server.Priority
+ ( push
+ , act
+ )
+import Control.Distributed.Process.Serializable (Serializable)
+import Control.Monad.Fix (MonadFix)
+import Control.Monad.IO.Class (MonadIO)
+import qualified Control.Monad.State.Strict as ST
+  ( MonadState
+  , StateT
+  , get
+  , modify
+  , lift
+  , runStateT
+  )
+-- import Data.Binary (Binary)
+import Data.Maybe (fromJust, isJust)
+import Data.Sequence
+   ( Seq
+   , ViewR(..)
+   , (<|)
+   , (|>)
+   , viewr
+   )
+import qualified Data.Sequence as Q (empty, null)
+import Data.Typeable (Typeable, typeOf)
+import Data.Tuple (swap, uncurry)
+-- import GHC.Generics
+
+data FsmState s d = FsmState { fsmName :: s
+                             , fsmData :: d
+                             , fsmProg :: Step s d
+                             }
+
+data Transition s d = Remain
+                    | PutBack
+                    | Enter s
+                    | Stop ExitReason
+                    | Eval (GenProcess (FsmState s d) ())
+
+instance forall s d . (Show s) => Show (Transition s d) where
+  show Remain    = "Remain"
+  show PutBack   = "PutBack"
+  show (Enter s) = "Enter " ++ (show s)
+  show (Stop er) = "Stop " ++ (show er)
+  show (Eval _)  = "Eval"
+
+data Event m where
+  Wait  :: (Serializable m) => Event m
+  Event :: (Serializable m) => m -> Event m
+
+instance forall m . (Typeable m) => Show (Event m) where
+  show ev@Wait = show $ "Wait::" ++ (show $ typeOf ev)
+  show ev      = show $ typeOf ev
+
+data Step s d where
+  Yield     :: s -> d -> Step s d
+  Await     :: (Serializable m) => Event m -> Step s d -> Step s d
+  Always    :: (Serializable m) => (m -> FSM s d (Transition s d)) -> Step s d
+  Perhaps   :: (Eq s) => s -> FSM s d (Transition s d) -> Step s d
+  Matching  :: (Serializable m) => (m -> Bool) -> (m -> FSM s d (Transition s d)) -> Step s d
+  Sequence  :: Step s d -> Step s d -> Step s d
+  Alternate :: Step s d -> Step s d -> Step s d
+  Reply     :: (Serializable r) => FSM s d r -> Step s d
+
+instance forall s d . (Show s) => Show (Step s d) where
+  show st
+    | Yield     _ _ <- st = "Yield"
+    | Await     _ s <- st = "Await (_" ++ (show s) ++ ")"
+    | Always    _   <- st = "Always _"
+    | Perhaps   s _ <- st = "Perhaps (" ++ (show s) ++ ")"
+    | Matching  _ _ <- st = "Matching _ _"
+    | Sequence  a b <- st = "Sequence [" ++ (show a) ++ " |> " ++ (show b) ++ ")"
+    | Alternate a b <- st = "Alternate [" ++ (show a) ++ " .| " ++ (show b) ++ ")"
+    | Reply     _   <- st = "Reply"
+
+-- instance forall s d (Show s) => Show (Step s d)
+
+data State s d = State { stName  :: s
+                       , stData  :: d
+                       , stInput :: P.Message
+                       , stReply :: (P.Message -> Process ())
+                       , stTrans :: Seq (Transition s d)
+                       }
+
+instance forall s d . (Show s) => Show (State s d) where
+  show State{..} = "State{stName=" ++ (show stName)
+                ++ "stTrans" ++ (show stTrans)
+
+newtype FSM s d o = FSM {
+   unFSM :: ST.StateT (State s d) Process o
+ }
+ deriving ( Functor
+          , Monad
+          , ST.MonadState (State s d)
+          , MonadIO
+          , MonadFix
+          , Typeable
+          , Applicative
+          )
+
+-- | Run an action in the @FSM@ monad.
+runFSM :: State s d -> FSM s d o -> Process (o, State s d)
+runFSM state proc = ST.runStateT (unFSM proc) state
+
+-- | Lift an action in the @Process@ monad to @FSM@.
+lift :: Process a -> FSM s d a
+lift p = FSM $ ST.lift p
+
+-- | Lift an IO action directly into @FSM@, @liftIO = lift . Process.LiftIO@.
+liftIO :: IO a -> FSM s d a
+liftIO = lift . P.liftIO
+
+currentState :: FSM s d s
+currentState = ST.get >>= return . stName
+
+stateData :: FSM s d d
+stateData = ST.get >>= return . stData
+
+addTransition :: Transition s d -> FSM s d ()
+addTransition t = ST.modify (\s -> fromJust $ enqueue s (Just t) )
+
+{-# INLINE seqEnqueue #-}
+seqEnqueue :: Seq a -> a -> Seq a
+seqEnqueue s a = a <| s
+
+{-# INLINE seqPush #-}
+seqPush :: Seq a -> a -> Seq a
+seqPush s a = s |> a
+
+{-# INLINE seqDequeue #-}
+seqDequeue :: Seq a -> Maybe (a, Seq a)
+seqDequeue s = maybe Nothing (\(s' :> a) -> Just (a, s')) $ getR s
+
+{-# INLINE peek #-}
+peek :: Seq a -> Maybe a
+peek s = maybe Nothing (\(_ :> a) -> Just a) $ getR s
+
+{-# INLINE getR #-}
+getR :: Seq a -> Maybe (ViewR a)
+getR s =
+  case (viewr s) of
+    EmptyR -> Nothing
+    a      -> Just a
+
+enqueue :: State s d -> Maybe (Transition s d) -> Maybe (State s d)
+enqueue st@State{..} trans
+  | isJust trans = Just $ st { stTrans = seqEnqueue stTrans (fromJust trans) }
+  | otherwise    = Nothing
+
+apply :: State s d -> P.Message -> Step s d -> Process (Maybe (State s d))
+apply st@State{..} msg step
+  | Yield     sn  sd  <- step = do
+      P.liftIO $ putStrLn "Yield s d"
+      return $ Just $ st { stName = sn, stData = sd }
+  | Await     evt act <- step = do
+      let ev = decodeToEvent evt msg
+      P.liftIO $ putStrLn $ (show evt) ++ " decoded: " ++ (show $ isJust ev)
+      if isJust (ev) then apply st msg act
+                     else (P.liftIO $ putStrLn $ "Cannot decode " ++ (show (evt, msg))) >> return Nothing
+  | Always    fsm     <- step = do
+      P.liftIO $ putStrLn "Always..."
+      runFSM st (handleMessage msg fsm) >>= mstash
+  | Perhaps   eqn act <- step = do
+      P.liftIO $ putStrLn $ "Perhaps"
+      if eqn == stName then runFSM st act >>= stash
+                       else (P.liftIO $ putStrLn "Perhaps Not...") >> return Nothing
+  | Matching  chk fsm <- step = do
+      P.liftIO $ putStrLn "Matching..."
+      runFSM st (handleMessageIf msg chk fsm) >>= mstash
+  | Sequence  ac1 ac2 <- step = do s <- apply st msg ac1
+                                   P.liftIO $ putStrLn $ "Seq LHS valid: " ++ (show $ isJust s)
+                                   let st' = if isJust s then fromJust s else st
+                                   apply st' msg ac2
+  | Alternate al1 al2 <- step = do s <- apply st msg al1
+                                   P.liftIO $ putStrLn $ "Alt LHS valid: " ++ (show $ isJust s)
+                                   if isJust s then return s
+                                               else (P.liftIO $ putStrLn "try br 2") >> apply st msg al2
+  | Reply     rply    <- step = do (r, s) <- runFSM st rply
+                                   stReply $ wrapMessage r
+                                   return $ Just s
+  | otherwise = error $ baseErr ++ ".Internal.Types.apply:InvalidStep"
+  where
+    mstash = return . uncurry enqueue . swap
+    stash (o, s) = return $ enqueue s (Just o)
+
+applyTransitions :: forall s d. FsmState s d
+                 -> State s d
+                 -> [GenProcess (FsmState s d) ()]
+                 -> Action (FsmState s d)
+applyTransitions fsmSt st@State{..} evals
+  | Q.null stTrans, [] <- evals = continue $ copyState fsmSt stName stData
+  | Q.null stTrans = act $ do setProcessState $ copyState fsmSt stName stData
+                              mapM_ id evals
+  | (tr, st2) <- next
+  , Enter s   <- tr = let st' = st2 { stName = s }
+                      in applyTransitions (copyState fsmSt s stData) st' evals
+  | (tr, st2) <- next
+  , PutBack   <- tr = applyTransitions fsmSt st2 ((push stInput) : evals)
+  {- let act' = setProcessState $ fsmSt { fsmName = stName, fsmData = stData }
+                                     push stInput -}
+  | (tr, st2) <- next
+  , Eval proc <- tr = applyTransitions fsmSt st2 (proc:evals)
+  | (tr, st2) <- next
+  , Remain    <- tr = applyTransitions fsmSt st2 evals
+  | (tr, _)   <- next
+  , Stop  er  <- tr = stopWith (copyState fsmSt stName stData) er
+  | otherwise = error $ baseErr ++ ".Internal.Process.applyTransitions:InvalidState"
+  where
+    copyState f sn sd = f { fsmName = sn, fsmData = sd }
+
+    -- don't call splatQ if Q.null
+    next = let (t, q) = fromJust $ seqDequeue stTrans
+           in (t, st { stTrans = q })
+
+baseErr :: String
+baseErr = "Control.Distributed.Process.FSM"
+
+decodeToEvent :: Serializable m => Event m -> P.Message -> Maybe (Event m)
+decodeToEvent Wait         msg = unwrapMessage msg >>= fmap Event
+decodeToEvent ev@(Event _) _   = Just ev  -- it's a bit odd that we'd end up here....
