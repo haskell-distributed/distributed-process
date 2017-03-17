@@ -430,7 +430,7 @@ data RemoteState =
 data ValidRemoteEndPointState = ValidRemoteEndPointState
   { _remoteOutgoing      :: !Int
   , _remoteIncoming      :: !(Set LightweightConnectionId)
-  , _remoteMaxIncoming   :: !LightweightConnectionId
+  , _remoteLastIncoming  :: !LightweightConnectionId
   , _remoteNextConnOutId :: !LightweightConnectionId
   ,  remoteSocket        :: !N.Socket
      -- | When the connection is being probed, yields an IO action that can be
@@ -941,7 +941,7 @@ handleConnectionRequest transport socketClosed sock = handle handleException $ d
                         ,  remoteSendLock      = sendLock
                         , _remoteOutgoing      = 0
                         , _remoteIncoming      = Set.empty
-                        , _remoteMaxIncoming   = 0
+                        , _remoteLastIncoming  = 0
                         , _remoteNextConnOutId = firstNonReservedLightweightConnectionId
                         }
             sendMany sock [encodeWord32 (encodeConnectionRequestResponse ConnectionRequestAccepted)]
@@ -1085,7 +1085,7 @@ handleIncomingMessages params (ourEndPoint, theirEndPoint) = do
               "handleIncomingMessages:createNewConnection (init)"
           RemoteEndPointValid vst ->
             return ( (remoteIncoming ^: Set.insert lcid)
-                   $ (remoteMaxIncoming ^= lcid)
+                   $ (remoteLastIncoming ^= lcid)
                    vst
                    )
           RemoteEndPointClosing resolved vst -> do
@@ -1097,7 +1097,7 @@ handleIncomingMessages params (ourEndPoint, theirEndPoint) = do
             -- RemoteEndPointValid
             putMVar resolved ()
             return ( (remoteIncoming ^= Set.singleton lcid)
-                   . (remoteMaxIncoming ^= lcid)
+                   . (remoteLastIncoming ^= lcid)
                    $ vst
                    )
           RemoteEndPointFailed err ->
@@ -1154,17 +1154,29 @@ handleIncomingMessages params (ourEndPoint, theirEndPoint) = do
             forM_ (Set.elems $ vst ^. remoteIncoming) $
               qdiscEnqueue' ourQueue theirAddr . ConnectionClosed . connId
             let vst' = remoteIncoming ^= Set.empty $ vst
-            -- If we still have outgoing connections then we ignore the
-            -- CloseSocket request (we sent a ConnectionCreated message to the
-            -- remote endpoint, but it did not receive it before sending the
-            -- CloseSocket request). Similarly, if lastReceivedId < lastSentId
-            -- then we sent a ConnectionCreated *AND* a ConnectionClosed
-            -- message to the remote endpoint, *both of which* it did not yet
-            -- receive before sending the CloseSocket request.
-            if vst' ^. remoteOutgoing > 0 || lastReceivedId < lastSentId vst
+            -- The peer sends the connection id of the last connection which
+            -- they accepted from us.
+            --
+            -- If it's not the same as the id of the last connection that we
+            -- have made to them (assuming we haven't cycled through all
+            -- identifiers so fast) then they hadn't seen the request before
+            -- they tried to close the socket. In that case, we don't close the
+            -- socket. They'll see our in-flight connection request and then
+            -- abandon their attempt to close the socket.
+            --
+            -- If it *is* the same then we can close the socket. However, if
+            -- our remoteOutgoing is nonzero, then the peer has made an error:
+            -- we haven't closed all of our lightweight connections to them, so
+            -- they should not send us CloseSocket.
+            -- In this case, we must enqueue EventConnectionLost.
+            if lastReceivedId /= lastSentId vst
               then
                 return (RemoteEndPointValid vst', Nothing)
               else do
+                when (vst' ^. remoteOutgoing > 0) $ do
+                  let code = EventConnectionLost (remoteAddress theirEndPoint)
+                  let msg  = "socket closed prematurely by peer"
+                  qdiscEnqueue' ourQueue theirAddr . ErrorEvent $ TransportError code msg
                 -- Release probing resources if probing.
                 forM_ (remoteProbing vst) id
                 removeRemoteEndPoint (ourEndPoint, theirEndPoint)
@@ -1172,7 +1184,7 @@ handleIncomingMessages params (ourEndPoint, theirEndPoint) = do
                 act <- schedule theirEndPoint $ do
                   void $ tryIO $ sendOn vst'
                     [ encodeWord32 (encodeControlHeader CloseSocket)
-                    , encodeWord32 (vst ^. remoteMaxIncoming)
+                    , encodeWord32 (vst ^. remoteLastIncoming)
                     ]
                 return (RemoteEndPointClosed, Just act)
           RemoteEndPointClosing resolved vst ->  do
@@ -1181,13 +1193,21 @@ handleIncomingMessages params (ourEndPoint, theirEndPoint) = do
             -- received. However, since we are in 'closing' state, the only
             -- way this may happen is when we sent a ConnectionCreated,
             -- ConnectionClosed, and CloseSocket message, none of which have
-            -- yet been received. We leave the endpoint in closing state in
-            -- that case.
-            if lastReceivedId < lastSentId vst
+            -- yet been received. It's sufficient to check that the peer has
+            -- not seen the ConnectionCreated message. In case they have seen
+            -- it (so that lastReceivedId == lastSendId vst) then they must
+            -- have seen the other messages or else they would not have sent
+            -- CloseSocket.
+            -- We leave the endpoint in closing state in that case.
+            if lastReceivedId /= lastSentId vst
               then do
                 return (RemoteEndPointClosing resolved vst, Nothing)
               else do
                 -- Release probing resources if probing.
+                when (vst ^. remoteOutgoing > 0) $ do
+                  let code = EventConnectionLost (remoteAddress theirEndPoint)
+                  let msg  = "socket closed prematurely by peer"
+                  qdiscEnqueue' ourQueue theirAddr . ErrorEvent $ TransportError code msg
                 forM_ (remoteProbing vst) id
                 removeRemoteEndPoint (ourEndPoint, theirEndPoint)
                 -- Nothing to do, but we want to indicate that the socket
@@ -1397,7 +1417,7 @@ setupRemoteEndPoint params (ourEndPoint, theirEndPoint) connTimeout = do
                     ,  remoteSendLock      = sendLock
                     , _remoteOutgoing      = 0
                     , _remoteIncoming      = Set.empty
-                    , _remoteMaxIncoming   = 0
+                    , _remoteLastIncoming  = 0
                     , _remoteNextConnOutId = firstNonReservedLightweightConnectionId
                     }
         resolveInit (ourEndPoint, theirEndPoint) (RemoteEndPointValid vst)
@@ -1444,7 +1464,7 @@ closeIfUnused (ourEndPoint, theirEndPoint) = do
           resolved <- newEmptyMVar
           act <- schedule theirEndPoint $
             sendOn vst [ encodeWord32 (encodeControlHeader CloseSocket)
-                       , encodeWord32 (vst ^. remoteMaxIncoming)
+                       , encodeWord32 (vst ^. remoteLastIncoming)
                        ]
           return (RemoteEndPointClosing resolved vst, Just act)
         else
@@ -1978,8 +1998,8 @@ remoteOutgoing = accessor _remoteOutgoing (\cs conn -> conn { _remoteOutgoing = 
 remoteIncoming :: Accessor ValidRemoteEndPointState (Set LightweightConnectionId)
 remoteIncoming = accessor _remoteIncoming (\cs conn -> conn { _remoteIncoming = cs })
 
-remoteMaxIncoming :: Accessor ValidRemoteEndPointState LightweightConnectionId
-remoteMaxIncoming = accessor _remoteMaxIncoming (\lcid st -> st { _remoteMaxIncoming = lcid })
+remoteLastIncoming :: Accessor ValidRemoteEndPointState LightweightConnectionId
+remoteLastIncoming = accessor _remoteLastIncoming (\lcid st -> st { _remoteLastIncoming = lcid })
 
 remoteNextConnOutId :: Accessor ValidRemoteEndPointState LightweightConnectionId
 remoteNextConnOutId = accessor _remoteNextConnOutId (\cix st -> st { _remoteNextConnOutId = cix })
