@@ -26,6 +26,7 @@ import Control.Distributed.Process.ManagedProcess
  , setProcessState
  , runAfter
  )
+import qualified Control.Distributed.Process.ManagedProcess.Internal.Types as MP (liftIO)
 import Control.Distributed.Process.FSM.Internal.Types
 import Control.Distributed.Process.FSM.Internal.Process
  ( start
@@ -58,11 +59,12 @@ stop = return . Stop
 
 set :: forall s d . (d -> d) -> FSM s d ()
 set f = addTransition $ Eval $ do
-  processState >>= \s -> setProcessState $ s { fsmData = (f $ fsmData s) }
+  MP.liftIO $ putStrLn "setting state"
+  processState >>= \s -> setProcessState $ s { stData = (f $ stData s) }
 
 put :: forall s d . d -> FSM s d ()
 put d = addTransition $ Eval $ do
-  processState >>= \s -> setProcessState $ s { fsmData = d }
+  processState >>= \s -> setProcessState $ s { stData = d }
 
 (.|) :: Step s d -> Step s d -> Step s d
 (.|) = Alternate
@@ -70,6 +72,13 @@ infixr 9 .|
 
 pick :: Step s d -> Step s d -> Step s d
 pick = Alternate
+
+(^.) :: Step s d -> Step s d -> Step s d
+(^.) = Init
+infixr 9 ^.
+
+init :: Step s d -> Step s d -> Step s d
+init = Init
 
 (|>) :: Step s d -> Step s d -> Step s d
 (|>) = Sequence
@@ -107,35 +116,3 @@ allState = Always
 
 matching :: forall s d m . (Serializable m) => (m -> Bool) -> (m -> FSM s d (Transition s d)) -> Step s d
 matching = Matching
-
-{-
-data StateName = On | Off deriving (Eq, Show, Typeable, Generic)
-instance Binary StateName where
-
-data Reset = Reset deriving (Eq, Show, Typeable, Generic)
-instance Binary Reset where
-
-type StateData = Integer
-type ButtonPush = ()
-type Stop = ExitReason
-
-initCount :: StateData
-initCount = 0
-
-startState :: Step StateName Integer
-startState = initState Off initCount
-
-demo :: Step StateName StateData
-demo = startState
-         |> (event :: Event ButtonPush)
-              ~> (  (On  ~@ (set (+1) >> enter Off)) -- on => off => on is possible with |> here...
-                 .| (Off ~@ (set (+1) >> enter On))
-                 ) |> (reply currentState)
-         .| (event :: Event Stop)
-              ~> (  ((== ExitShutdown) ~? (\_ -> timeout (seconds 3) Reset))
-                 .| ((const True) ~? (\r -> (liftIO $ putStrLn "stopping...") >> stop r))
-                 )
-         .| (event :: Event Reset)
-              ~> (allState $ \Reset -> put initCount >> enter Off)
-
--}

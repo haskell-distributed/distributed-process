@@ -61,10 +61,11 @@ start s d p = spawnLocal $ run s d p
 run :: forall s d . (Show s) => s -> d -> (Step s d) -> Process ()
 run s d p = MP.pserve (s, d, p) fsmInit processDefinition
 
-fsmInit :: forall s d . (Show s) => InitHandler (s, d, Step s d) (FsmState s d)
-fsmInit (st, sd, prog) = return $ InitOk (FsmState st sd prog) Infinity
+fsmInit :: forall s d . (Show s) => InitHandler (s, d, Step s d) (State s d)
+fsmInit (st, sd, prog) =
+  return $ InitOk (State st sd prog Nothing (const $ return ()) Q.empty) Infinity
 
-processDefinition :: forall s d . (Show s) => PrioritisedProcessDefinition (FsmState s d)
+processDefinition :: forall s d . (Show s) => PrioritisedProcessDefinition (State s d)
 processDefinition =
   defaultProcess
   {
@@ -73,28 +74,30 @@ processDefinition =
                    ]
   } `prioritised` []
 
-handleRpcRawInputs :: forall s d . (Show s) => FsmState s d
+handleRpcRawInputs :: forall s d . (Show s) => State s d
                    -> (P.Message, SendPort P.Message)
-                   -> Action (FsmState s d)
-handleRpcRawInputs st@FsmState{..} (msg, port) = do
-  let runState = State fsmName fsmData msg (sendChan port) Q.empty
-  handleInput st runState msg
+                   -> Action (State s d)
+handleRpcRawInputs st@State{..} (msg, port) =
+  handleInput msg $ st { stReply = (sendChan port), stTrans = Q.empty }
 
-handleAllRawInputs :: forall s d. (Show s) => FsmState s d
+handleAllRawInputs :: forall s d. (Show s) => State s d
                    -> P.Message
-                   -> Action (FsmState s d)
-handleAllRawInputs st@FsmState{..} msg = do
-  let runState = State fsmName fsmData msg (const $ return ()) Q.empty
-  handleInput st runState msg
+                   -> Action (State s d)
+handleAllRawInputs st@State{..} msg =
+  handleInput msg $ st { stReply = noOp, stTrans = Q.empty }
 
-handleInput :: forall s d . (Show s) => FsmState s d
+noOp :: P.Message -> Process ()
+noOp = const $ return ()
+
+handleInput :: forall s d . (Show s)
+            => P.Message
             -> State s d
-            -> P.Message
-            -> Action (FsmState s d)
-handleInput st@FsmState{..} runState msg = do
-  liftIO $ putStrLn $ "apply " ++ (show fsmProg)
-  res <- apply runState msg fsmProg
+            -> Action (State s d)
+handleInput msg st@State{..} = do
+  liftIO $ putStrLn $ "handleInput: " ++ (show stName)
+  liftIO $ putStrLn $ "apply " ++ (show stProg)
+  res <- apply st msg stProg
   liftIO $ putStrLn $ "got a result: " ++ (show res)
   case res of
-    Just res' -> applyTransitions st res' []
+    Just res' -> applyTransitions res' []
     Nothing   -> continue st

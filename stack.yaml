@@ -4,7 +4,7 @@ packages:
 - '.'
 - location:
     git: https://github.com/haskell-distributed/distributed-process-client-server.git
-    commit: de4334d6c633c811bb03c1f045a41458d95687a1
+    commit: b88d84e6fb9029781c263685e52c650e9a05970d
   extra-dep: true
 
 extra-deps:

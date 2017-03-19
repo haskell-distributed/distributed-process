@@ -48,6 +48,9 @@ instance Binary State where
 data Reset = Reset deriving (Eq, Show, Typeable, Generic)
 instance Binary Reset where
 
+data Check = Check deriving (Eq, Show, Typeable, Generic)
+instance Binary Check where
+
 type StateData = Integer
 type ButtonPush = ()
 type Stop = ExitReason
@@ -64,14 +67,15 @@ startState = initState Off initCount
 
 switchFsm :: Step State StateData
 switchFsm = startState
-         |> ((event :: Event ButtonPush)
+         ^. ((event :: Event ButtonPush)
               ~> (  (On  ~@ (set (+1) >> enter Off)) -- on => off => on is possible with |> here...
                  .| (Off ~@ (set (+1) >> enter On))
                  ) |> (reply currentState))
          .| ((event :: Event Stop)
               ~> (  ((== ExitShutdown) ~? (\_ -> timeout (seconds 3) Reset))
-                 .| ((const True) ~? (\r -> (FSM.liftIO $ putStrLn "stopping...") >> stop r))
+                 .| ((const True) ~? stop)
                  ))
+         .| ((event :: Event Check) ~> reply stateData)
          .| (event :: Event Reset)
               ~> (allState $ \Reset -> put initCount >> enter Off)
 
@@ -79,11 +83,40 @@ walkingAnFsmTree :: Process ()
 walkingAnFsmTree = do
   pid <- start Off initCount switchFsm
 
+  (sp, rp) <- newChan :: Process (SendPort Message, ReceivePort Message)
+
+  send pid (wrapMessage (() :: ButtonPush), sp)
+  msg <- receiveChan rp :: Process Message
+  mSt <- unwrapMessage msg :: Process (Maybe State)
+  mSt `shouldBe` equalTo (Just On)
+
+  send pid (wrapMessage (() :: ButtonPush), sp)
+  msg' <- receiveChan rp :: Process Message
+  mSt' <- unwrapMessage msg' :: Process (Maybe State)
+  mSt' `shouldBe` equalTo (Just Off)
+
+  send pid (wrapMessage Check, sp)
+  chk <- receiveChan rp :: Process Message
+  mCk <- unwrapMessage chk :: Process (Maybe StateData)
+  mCk `shouldBe` equalTo (Just $ (2 :: StateData))
+
+  send pid ExitShutdown
+  sleep $ seconds 6
   alive <- isProcessAlive pid
   liftIO $ putStrLn $ "alive == " ++ (show alive)
   alive `shouldBe` equalTo True
-  send pid ExitNormal
 
+  send pid (wrapMessage Check, sp)
+  chk2 <- receiveChan rp :: Process Message
+  mCk2 <- unwrapMessage chk2 :: Process (Maybe StateData)
+  mCk2 `shouldBe` equalTo (Just $ (0 :: StateData))
+
+  send pid (wrapMessage (() :: ButtonPush), sp)
+  rst' <- receiveChan rp :: Process Message
+  mrst' <- unwrapMessage rst' :: Process (Maybe State)
+  mrst' `shouldBe` equalTo (Just On)
+
+  send pid ExitNormal
   sleep $ seconds 5
   alive' <- isProcessAlive pid
   liftIO $ putStrLn $ "alive' == " ++ (show alive')
