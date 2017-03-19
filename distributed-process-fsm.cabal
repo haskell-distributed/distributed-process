@@ -43,6 +43,7 @@ library
   ghc-options:      -Wall
   exposed-modules:
                    Control.Distributed.Process.FSM,
+                   Control.Distributed.Process.FSM.Client,
                    Control.Distributed.Process.FSM.Internal.Types,
                    Control.Distributed.Process.FSM.Internal.Process
 

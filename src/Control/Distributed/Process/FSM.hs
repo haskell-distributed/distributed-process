@@ -77,8 +77,8 @@ pick = Alternate
 (^.) = Init
 infixr 9 ^.
 
-init :: Step s d -> Step s d -> Step s d
-init = Init
+begin :: Step s d -> Step s d -> Step s d
+begin = Init
 
 (|>) :: Step s d -> Step s d -> Step s d
 (|>) = Sequence
@@ -110,6 +110,9 @@ atState = Perhaps
 
 allState :: forall s d m . (Serializable m) => (m -> FSM s d (Transition s d)) -> Step s d
 allState = Always
+
+always :: forall s d m . (Serializable m) => (m -> FSM s d (Transition s d)) -> Step s d
+always = Always
 
 (~?) :: forall s d m . (Serializable m) => (m -> Bool) -> (m -> FSM s d (Transition s d)) -> Step s d
 (~?) = Matching

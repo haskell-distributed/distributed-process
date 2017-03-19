@@ -5,7 +5,7 @@
 
 module Main where
 
-import Control.Distributed.Process
+import Control.Distributed.Process hiding (call)
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Extras
  ( ExitReason(..)
@@ -15,6 +15,7 @@ import qualified Control.Distributed.Process.Extras (__remoteTable)
 import Control.Distributed.Process.Extras.Time hiding (timeout)
 import Control.Distributed.Process.Extras.Timer
 import Control.Distributed.Process.FSM
+import Control.Distributed.Process.FSM.Client (call)
 import Control.Distributed.Process.FSM.Internal.Process
 import Control.Distributed.Process.FSM.Internal.Types hiding (State, liftIO)
 import qualified Control.Distributed.Process.FSM.Internal.Types as FSM
@@ -79,26 +80,37 @@ switchFsm = startState
          .| (event :: Event Reset)
               ~> (allState $ \Reset -> put initCount >> enter Off)
 
-walkingAnFsmTree :: Process ()
-walkingAnFsmTree = do
-  pid <- start Off initCount switchFsm
+switchFsmAlt :: Step State StateData
+switchFsmAlt =
+  begin startState $
+    pick (await (event :: Event ButtonPush) ((pick (atState On  (set (+1) >> enter Off))
+                                                   (atState Off (set (+1) >> enter On))) `join` (reply currentState)))
+         (pick (await (event :: Event Stop) (pick (matching (== ExitShutdown) (\_ -> timeout (seconds 3) Reset))
+                                                  (matching (const True) stop)))
+               (pick (await (event :: Event Check) (reply stateData))
+                     (await (event :: Event Reset) (always $ \Reset -> put initCount >> enter Off))))
+
+notSoQuirkyDefinitions :: Process ()
+notSoQuirkyDefinitions = do
+  start Off initCount switchFsmAlt >>= walkingAnFsmTree
+
+quirkyOperators :: Process ()
+quirkyOperators = do
+  start Off initCount switchFsm >>= walkingAnFsmTree
+
+walkingAnFsmTree :: ProcessId -> Process ()
+walkingAnFsmTree pid = do
 
   (sp, rp) <- newChan :: Process (SendPort Message, ReceivePort Message)
 
-  send pid (wrapMessage (() :: ButtonPush), sp)
-  msg <- receiveChan rp :: Process Message
-  mSt <- unwrapMessage msg :: Process (Maybe State)
-  mSt `shouldBe` equalTo (Just On)
+  mSt <- call pid (() :: ButtonPush) :: Process State
+  mSt `shouldBe` equalTo On
 
-  send pid (wrapMessage (() :: ButtonPush), sp)
-  msg' <- receiveChan rp :: Process Message
-  mSt' <- unwrapMessage msg' :: Process (Maybe State)
-  mSt' `shouldBe` equalTo (Just Off)
+  mSt' <- call pid (() :: ButtonPush) :: Process State
+  mSt' `shouldBe` equalTo Off
 
-  send pid (wrapMessage Check, sp)
-  chk <- receiveChan rp :: Process Message
-  mCk <- unwrapMessage chk :: Process (Maybe StateData)
-  mCk `shouldBe` equalTo (Just $ (2 :: StateData))
+  mCk <- call pid Check :: Process StateData
+  mCk `shouldBe` equalTo (2 :: StateData)
 
   send pid ExitShutdown
   sleep $ seconds 6
@@ -106,15 +118,11 @@ walkingAnFsmTree = do
   liftIO $ putStrLn $ "alive == " ++ (show alive)
   alive `shouldBe` equalTo True
 
-  send pid (wrapMessage Check, sp)
-  chk2 <- receiveChan rp :: Process Message
-  mCk2 <- unwrapMessage chk2 :: Process (Maybe StateData)
-  mCk2 `shouldBe` equalTo (Just $ (0 :: StateData))
+  mCk2 <- call pid Check :: Process StateData
+  mCk2 `shouldBe` equalTo (0 :: StateData)
 
-  send pid (wrapMessage (() :: ButtonPush), sp)
-  rst' <- receiveChan rp :: Process Message
-  mrst' <- unwrapMessage rst' :: Process (Maybe State)
-  mrst' `shouldBe` equalTo (Just On)
+  mrst' <- call pid (() :: ButtonPush) :: Process State
+  mrst' `shouldBe` equalTo On
 
   send pid ExitNormal
   sleep $ seconds 5
@@ -133,8 +141,10 @@ tests transport = do
   return [
         testGroup "Language/DSL"
         [
-          testCase "Traversing an FSM definition"
-           (runProcess localNode walkingAnFsmTree)
+          testCase "Traversing an FSM definition (operators)"
+           (runProcess localNode quirkyOperators)
+        , testCase "Traversing an FSM definition (functions)"
+           (runProcess localNode notSoQuirkyDefinitions)
         ]
     ]
 
