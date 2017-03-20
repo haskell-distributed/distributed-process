@@ -67,7 +67,8 @@ import Data.Tuple (swap, uncurry)
 
 data State s d = State { stName  :: s
                        , stData  :: d
-                       , stProg  :: Step s d
+                       , stProg  :: Step s d -- original program
+                       , stInstr :: Step s d -- current step in the program
                        , stInput :: Maybe P.Message
                        , stReply :: (P.Message -> Process ())
                        , stTrans :: Seq (Transition s d)
@@ -101,6 +102,7 @@ instance forall m . (Typeable m) => Show (Event m) where
 data Step s d where
   Init      :: Step s d -> Step s d -> Step s d
   Yield     :: s -> d -> Step s d
+  SafeWait  :: (Serializable m) => Event m -> Step s d -> Step s d
   Await     :: (Serializable m) => Event m -> Step s d -> Step s d
   Always    :: (Serializable m) => (m -> FSM s d (Transition s d)) -> Step s d
   Perhaps   :: (Eq s) => s -> FSM s d (Transition s d) -> Step s d
@@ -114,6 +116,7 @@ instance forall s d . (Show s) => Show (Step s d) where
     | Init      _ _ <- st = "Init"
     | Yield     _ _ <- st = "Yield"
     | Await     _ s <- st = "Await (_ " ++ (show s) ++ ")"
+    | SafeWait  _ s <- st = "SafeWait (_ " ++ (show s) ++ ")"
     | Always    _   <- st = "Always _"
     | Perhaps   s _ <- st = "Perhaps (" ++ (show s) ++ ")"
     | Matching  _ _ <- st = "Matching _ _"
@@ -189,11 +192,16 @@ apply st msg step
       P.liftIO $ putStrLn "Init _ _"
       st' <- apply st msg is
       case st' of
-        Just s  -> apply (s { stProg = ns }) msg ns
+        Just s  -> apply (s { stProg = ns, stInstr = ns }) msg ns
         Nothing -> die $ ExitOther $ baseErr ++ ":InitFailed"
   | Yield     sn  sd  <- step = do
       P.liftIO $ putStrLn "Yield s d"
       return $ Just $ st { stName = sn, stData = sd }
+  | SafeWait evt act' <- step = do
+      let ev = decodeToEvent evt msg
+      P.liftIO $ putStrLn $ (show evt) ++ " decoded: " ++ (show $ isJust ev)
+      if isJust (ev) then apply st msg act'
+                     else (P.liftIO $ putStrLn $ "Cannot decode " ++ (show (evt, msg))) >> return Nothing
   | Await     evt act' <- step = do
       let ev = decodeToEvent evt msg
       P.liftIO $ putStrLn $ (show evt) ++ " decoded: " ++ (show $ isJust ev)
@@ -211,8 +219,8 @@ apply st msg step
       runFSM st (handleMessageIf msg chk fsm) >>= mstash
   | Sequence  ac1 ac2 <- step = do s <- apply st msg ac1
                                    P.liftIO $ putStrLn $ "Seq LHS valid: " ++ (show $ isJust s)
-                                   let st' = if isJust s then fromJust s else st
-                                   apply st' msg ac2
+                                   if isJust s then apply (fromJust s) msg ac2
+                                               else return Nothing
   | Alternate al1 al2 <- step = do s <- apply st msg al1
                                    P.liftIO $ putStrLn $ "Alt LHS valid: " ++ (show $ isJust s)
                                    if isJust s then return s

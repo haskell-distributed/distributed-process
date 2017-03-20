@@ -33,6 +33,7 @@ import Control.Distributed.Process.ManagedProcess
  , Action
  , InitHandler
  , InitResult(..)
+ , DispatchFilter
  , defaultProcess
  , prioritised
  )
@@ -46,6 +47,7 @@ import Control.Distributed.Process.ManagedProcess.Server
 import Control.Distributed.Process.ManagedProcess.Internal.Types
  ( ExitSignalDispatcher(..)
  )
+import Data.Maybe (isJust)
 import qualified Data.Sequence as Q (empty)
 -- import Control.Distributed.Process.Serializable (Serializable)
 -- import Control.Monad (void)
@@ -57,14 +59,14 @@ start ::  forall s d . (Show s) => s -> d -> (Step s d) -> Process ProcessId
 start s d p = spawnLocal $ run s d p
 
 run :: forall s d . (Show s) => s -> d -> (Step s d) -> Process ()
-run s d p = MP.pserve (s, d, p) fsmInit processDefinition
+run s d p = MP.pserve (s, d, p) fsmInit (processDefinition p)
 
 fsmInit :: forall s d . (Show s) => InitHandler (s, d, Step s d) (State s d)
 fsmInit (st, sd, prog) =
-  return $ InitOk (State st sd prog Nothing (const $ return ()) Q.empty) Infinity
+  return $ InitOk (State st sd prog prog Nothing (const $ return ()) Q.empty) Infinity
 
-processDefinition :: forall s d . (Show s) => PrioritisedProcessDefinition (State s d)
-processDefinition =
+processDefinition :: forall s d . (Show s) => Step s d -> PrioritisedProcessDefinition (State s d)
+processDefinition prog =
   (prioritised
     defaultProcess
     {
@@ -73,7 +75,17 @@ processDefinition =
                      ]
     , exitHandlers = [ ExitSignalDispatcher (\s _ m -> handleAllRawInputs s m >>= return . Just)
                      ]
-    } []) { filters = [safely] }
+    } []) { filters = (walkFSM prog []) }
+
+-- we should probably make a Foldable (Step s d) for this
+walkFSM :: forall s d . Step s d -> [DispatchFilter (State s d)] -> [DispatchFilter (State s d)]
+walkFSM st acc
+  | SafeWait  evt act <- st = walkFSM act $ safely (\_ m -> isJust $ decodeToEvent evt m) : acc
+  | Await     _   act <- st = walkFSM act acc
+  | Sequence  ac1 ac2 <- st = walkFSM ac1 $ walkFSM ac2 acc
+  | Init      ac1 ac2 <- st = walkFSM ac1 $ walkFSM ac2 acc
+  | Alternate ac1 ac2 <- st = walkFSM ac1 $ walkFSM ac2 acc -- both branches need filter defs
+  | otherwise               = acc
 
 handleRpcRawInputs :: forall s d . (Show s) => State s d
                    -> (P.Message, SendPort P.Message)

@@ -25,7 +25,7 @@ import Control.Rematch (equalTo)
 #if ! MIN_VERSION_base(4,6,0)
 import Prelude hiding (catch, drop)
 #else
-import Prelude hiding (drop)
+import Prelude hiding (drop, (*>))
 #endif
 
 import Test.Framework as TF (defaultMain, testGroup, Test)
@@ -89,6 +89,74 @@ switchFsmAlt =
                (pick (await (event :: Event Check) (reply stateData))
                      (await (event :: Event Reset) (always $ \Reset -> put initCount >> enter Off))))
 
+blockingFsm :: SendPort () -> Step State ()
+blockingFsm sp = initState Off ()
+            ^.  ((event :: Event ())
+                *> (allState $ \() -> (lift $ sleep (seconds 10) >> sendChan sp ()) >> resume))
+             .| ((event :: Event Stop)
+                ~> (  ((== ExitNormal)   ~? (\_ -> (liftIO $ putStrLn "resuming...") >> resume) )
+                      {- let's verify that we can't override
+                         a normal shutdown sequence... -}
+                   .| ((== ExitShutdown) ~? const resume)
+                   ))
+
+deepFSM :: SendPort () -> SendPort () -> Step State ()
+deepFSM on off = initState Off ()
+       ^. ((event :: Event State) ~> (allState $ \s -> enter s))
+       .| ( (Off ~@ resume)
+            |> ((event :: Event ())
+                ~> (allState $ \s -> (lift $ sendChan off s) >> resume))
+          )
+       .| ( (On ~@ resume)
+            |> ((event :: Event ())
+                ~> (allState $ \s -> (lift $ sendChan on s) >> resume))
+          )
+
+waitForDown :: MonitorRef -> Process DiedReason
+waitForDown ref =
+  receiveWait [ matchIf (\(ProcessMonitorNotification ref' _ _) -> ref == ref')
+                        (\(ProcessMonitorNotification _ _ dr) -> return dr) ]
+
+verifyOuterStateHandler :: Process ()
+verifyOuterStateHandler = do
+  (spOn, rpOn) <- newChan
+  (spOff, rpOff) <- newChan
+
+  pid <- start Off () $ deepFSM spOn spOff
+
+  send pid On
+  send pid ()
+  Nothing <- receiveChanTimeout (asTimeout $ seconds 3) rpOff
+  () <- receiveChan rpOn
+
+  send pid Off
+  send pid ()
+  Nothing <- receiveChanTimeout (asTimeout $ seconds 3) rpOn
+  () <- receiveChan rpOff
+
+  kill pid "bye bye"
+
+verifyMailboxHandling :: Process ()
+verifyMailboxHandling = do
+  (sp, rp) <- newChan :: Process (SendPort (), ReceivePort ())
+  pid <- start Off () (blockingFsm sp)
+
+  send pid ()
+  exit pid ExitNormal
+
+  sleep $ seconds 5
+  alive <- isProcessAlive pid
+  alive `shouldBe` equalTo True
+
+  -- we should resume after the ExitNormal handler runs, and get back into the ()
+  -- handler due to safeWait (*>) which adds a `safe` filter check for the given type
+  () <- receiveChan rp
+
+  exit pid ExitShutdown
+  monitor pid >>= waitForDown
+  alive' <- isProcessAlive pid
+  alive' `shouldBe` equalTo False
+
 verifyStopBehaviour :: Process ()
 verifyStopBehaviour = do
   pid <- start Off initCount switchFsm
@@ -96,7 +164,7 @@ verifyStopBehaviour = do
   alive `shouldBe` equalTo True
 
   exit pid $ ExitOther "foobar"
-  sleep $ seconds 5
+  monitor pid >>= waitForDown
   alive' <- isProcessAlive pid
   alive' `shouldBe` equalTo False
 
@@ -132,7 +200,7 @@ walkingAnFsmTree pid = do
   mrst' `shouldBe` equalTo On
 
   exit pid ExitShutdown
-  sleep $ seconds 5
+  monitor pid >>= waitForDown
   alive' <- isProcessAlive pid
   alive' `shouldBe` equalTo False
 
@@ -151,6 +219,12 @@ tests transport = do
            (runProcess localNode quirkyOperators)
         , testCase "Traversing an FSM definition (functions)"
            (runProcess localNode notSoQuirkyDefinitions)
+        , testCase "Traversing an FSM definition (exit handling)"
+           (runProcess localNode verifyStopBehaviour)
+        , testCase "Traversing an FSM definition (mailbox handling)"
+           (runProcess localNode verifyMailboxHandling)
+        , testCase "Traversing an FSM definition (nested definitions)"
+           (runProcess localNode verifyOuterStateHandler)
         ]
     ]
 

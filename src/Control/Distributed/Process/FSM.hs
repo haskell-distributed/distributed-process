@@ -32,6 +32,9 @@ initState = Yield
 enter :: forall s d . s -> FSM s d (Transition s d)
 enter = return . Enter
 
+resume :: forall s d . FSM s d (Transition s d)
+resume = return Remain
+
 event :: (Serializable m) => Event m
 event = Wait
 
@@ -87,6 +90,13 @@ infixr 9 ~>
 
 await :: forall s d m . (Serializable m) => Event m -> Step s d -> Step s d
 await = Await
+
+(*>) :: forall s d m . (Serializable m) => Event m -> Step s d -> Step s d
+(*>) = SafeWait
+infixr 9 *>
+
+safeWait :: forall s d m . (Serializable m) => Event m -> Step s d -> Step s d
+safeWait = SafeWait
 
 (~@) :: forall s d . (Eq s) => s -> FSM s d (Transition s d) -> Step s d
 (~@) = Perhaps
