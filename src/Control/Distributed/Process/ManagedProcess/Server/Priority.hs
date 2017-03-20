@@ -212,8 +212,8 @@ safe c = check $ HandleSafe (go c)
         Just m' -> return $ c' s m'
         Nothing -> return False
 
-safely :: forall s . DispatchFilter s
-safely = check $ HandleSafe $ \_ _ -> return True
+safely :: forall s . (s -> P.Message -> Bool) -> DispatchFilter s
+safely c = check $ HandleSafe $ \s m -> return (c s m)
 
 -- | Create a filter expression that will reject all messages of a specific type.
 reject :: forall s m r . (Show r)
