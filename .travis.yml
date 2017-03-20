@@ -1,0 +1,41 @@
+language: c
+
+sudo: false
+
+matrix:
+  include:
+  - env: ARGS="--stack-yaml stack-ghc-7.10.3.yaml" COVER="" GHCVER=7.10.3
+    addons: {apt: {packages: [libgmp-dev]}}
+  - env: ARGS="--stack-yaml stack-ghc-8.0.1.yaml" COVER="" GHCVER=8.0.1
+    addons: {apt: {packages: [libgmp-dev]}}
+  - env: ARGS="--resolver nightly" COVER="" GHCVER=latest
+    addons: {apt: {packages: [libgmp-dev]}}
+
+cache:
+  directories:
+  - $HOME/.stack
+  - $HOME/.local
+
+before_install:
+- export PATH=$HOME/.local/bin:$HOME/.cabal/bin:$PATH
+- mkdir -p ~/.local/bin
+- travis_retry curl -L https://www.stackage.org/stack/linux-x86_64 | tar xz --wildcards --strip-components=1 -C ~/.local/bin '*/stack'
+- stack --version
+
+install:
+- stack ${ARGS} setup --no-terminal
+
+script:
+- case "$COVER" in
+    true)
+      stack ${ARGS} test --coverage --no-terminal;
+      ./coverage.sh;
+      ;;
+    *)
+      stack ${ARGS} test --test-arguments='--plain'
+      ;;
+  esac
+
+notifications:
+  slack:
+    secure: g0NP1tkOe3+kI6O0Q1mgT/jPaLjxQ31J26MWouicu2F1Y3p73qTvv/QsOkafRMZDn07HlzgviCP25r7Ytg32pUAFvOh4U4MT2MpO0jUVVGPi4ZiwB+W5AH+HlDtJSickeSZ0AjXZSaGv8nQNegWkeaLQgLBIzrTHU8s0Y9K+whQ=

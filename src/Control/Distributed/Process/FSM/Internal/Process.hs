@@ -25,29 +25,27 @@ import Control.Distributed.Process
 import qualified Control.Distributed.Process as P
  ( Message
  )
-import Control.Distributed.Process.Extras (ExitReason(..))
 import Control.Distributed.Process.Extras.Time (Delay(Infinity))
 import Control.Distributed.Process.FSM.Internal.Types hiding (liftIO)
 import Control.Distributed.Process.ManagedProcess
  ( ProcessDefinition(..)
- , PrioritisedProcessDefinition
- , ProcessAction()
+ , PrioritisedProcessDefinition(filters)
  , Action
  , InitHandler
  , InitResult(..)
  , defaultProcess
  , prioritised
- , GenProcess
- , setProcessState
- , push
  )
 import qualified Control.Distributed.Process.ManagedProcess as MP (pserve)
+import Control.Distributed.Process.ManagedProcess.Server.Priority (safely)
 import Control.Distributed.Process.ManagedProcess.Server
  ( handleRaw
  , handleInfo
  , continue
  )
-import Data.Maybe (fromJust)
+import Control.Distributed.Process.ManagedProcess.Internal.Types
+ ( ExitSignalDispatcher(..)
+ )
 import qualified Data.Sequence as Q (empty)
 -- import Control.Distributed.Process.Serializable (Serializable)
 -- import Control.Monad (void)
@@ -67,12 +65,15 @@ fsmInit (st, sd, prog) =
 
 processDefinition :: forall s d . (Show s) => PrioritisedProcessDefinition (State s d)
 processDefinition =
-  defaultProcess
-  {
-    infoHandlers = [ handleInfo handleRpcRawInputs
-                   , handleRaw  handleAllRawInputs
-                   ]
-  } `prioritised` []
+  (prioritised
+    defaultProcess
+    {
+      infoHandlers = [ handleInfo handleRpcRawInputs
+                     , handleRaw  handleAllRawInputs
+                     ]
+    , exitHandlers = [ ExitSignalDispatcher (\s _ m -> handleAllRawInputs s m >>= return . Just)
+                     ]
+    } []) { filters = [safely] }
 
 handleRpcRawInputs :: forall s d . (Show s) => State s d
                    -> (P.Message, SendPort P.Message)

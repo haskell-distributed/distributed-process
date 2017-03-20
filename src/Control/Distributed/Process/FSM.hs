@@ -13,13 +13,9 @@
 
 module Control.Distributed.Process.FSM where
 
-import Control.Distributed.Process (Process)
-import Control.Distributed.Process.Extras
- ( ExitReason(ExitShutdown)
- )
+import Control.Distributed.Process.Extras (ExitReason)
 import Control.Distributed.Process.Extras.Time
  ( TimeInterval
- , seconds
  )
 import Control.Distributed.Process.ManagedProcess
  ( processState
@@ -28,16 +24,7 @@ import Control.Distributed.Process.ManagedProcess
  )
 import qualified Control.Distributed.Process.ManagedProcess.Internal.Types as MP (liftIO)
 import Control.Distributed.Process.FSM.Internal.Types
-import Control.Distributed.Process.FSM.Internal.Process
- ( start
- )
 import Control.Distributed.Process.Serializable (Serializable)
-import Control.Monad (void)
-import Data.Binary (Binary)
-import Data.Typeable (Typeable)
-import GHC.Generics
-
-type Pipeline = forall s d . Step s d
 
 initState :: forall s d . s -> d -> Step s d
 initState = Yield

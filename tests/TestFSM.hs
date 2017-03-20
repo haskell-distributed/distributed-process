@@ -18,7 +18,6 @@ import Control.Distributed.Process.FSM
 import Control.Distributed.Process.FSM.Client (call)
 import Control.Distributed.Process.FSM.Internal.Process
 import Control.Distributed.Process.FSM.Internal.Types hiding (State, liftIO)
-import qualified Control.Distributed.Process.FSM.Internal.Types as FSM
 import Control.Distributed.Process.SysTest.Utils
 
 import Control.Rematch (equalTo)
@@ -28,8 +27,6 @@ import Prelude hiding (catch, drop)
 #else
 import Prelude hiding (drop)
 #endif
-
-import Data.Maybe (catMaybes)
 
 import Test.Framework as TF (defaultMain, testGroup, Test)
 import Test.Framework.Providers.HUnit
@@ -73,7 +70,9 @@ switchFsm = startState
                  .| (Off ~@ (set (+1) >> enter On))
                  ) |> (reply currentState))
          .| ((event :: Event Stop)
-              ~> (  ((== ExitShutdown) ~? (\_ -> timeout (seconds 3) Reset))
+              ~> (  ((== ExitNormal) ~? (\_ -> timeout (seconds 3) Reset))
+                    {- let's verify that we can't override a normal shutdown sequence... -}
+                 .| ((== ExitShutdown) ~? (\_ -> timeout (seconds 3) Reset))
                  .| ((const True) ~? stop)
                  ))
          .| ((event :: Event Check) ~> reply stateData)
@@ -85,10 +84,21 @@ switchFsmAlt =
   begin startState $
     pick (await (event :: Event ButtonPush) ((pick (atState On  (set (+1) >> enter Off))
                                                    (atState Off (set (+1) >> enter On))) `join` (reply currentState)))
-         (pick (await (event :: Event Stop) (pick (matching (== ExitShutdown) (\_ -> timeout (seconds 3) Reset))
+         (pick (await (event :: Event Stop) (pick (matching (== ExitNormal) (\_ -> timeout (seconds 3) Reset))
                                                   (matching (const True) stop)))
                (pick (await (event :: Event Check) (reply stateData))
                      (await (event :: Event Reset) (always $ \Reset -> put initCount >> enter Off))))
+
+verifyStopBehaviour :: Process ()
+verifyStopBehaviour = do
+  pid <- start Off initCount switchFsm
+  alive <- isProcessAlive pid
+  alive `shouldBe` equalTo True
+
+  exit pid $ ExitOther "foobar"
+  sleep $ seconds 5
+  alive' <- isProcessAlive pid
+  alive' `shouldBe` equalTo False
 
 notSoQuirkyDefinitions :: Process ()
 notSoQuirkyDefinitions = do
@@ -100,9 +110,6 @@ quirkyOperators = do
 
 walkingAnFsmTree :: ProcessId -> Process ()
 walkingAnFsmTree pid = do
-
-  (sp, rp) <- newChan :: Process (SendPort Message, ReceivePort Message)
-
   mSt <- call pid (() :: ButtonPush) :: Process State
   mSt `shouldBe` equalTo On
 
@@ -112,10 +119,10 @@ walkingAnFsmTree pid = do
   mCk <- call pid Check :: Process StateData
   mCk `shouldBe` equalTo (2 :: StateData)
 
-  send pid ExitShutdown
+  -- verify that the process implementation turns exit signals into handlers...
+  exit pid ExitNormal
   sleep $ seconds 6
   alive <- isProcessAlive pid
-  liftIO $ putStrLn $ "alive == " ++ (show alive)
   alive `shouldBe` equalTo True
 
   mCk2 <- call pid Check :: Process StateData
@@ -124,10 +131,9 @@ walkingAnFsmTree pid = do
   mrst' <- call pid (() :: ButtonPush) :: Process State
   mrst' `shouldBe` equalTo On
 
-  send pid ExitNormal
+  exit pid ExitShutdown
   sleep $ seconds 5
   alive' <- isProcessAlive pid
-  liftIO $ putStrLn $ "alive' == " ++ (show alive')
   alive' `shouldBe` equalTo False
 
 myRemoteTable :: RemoteTable

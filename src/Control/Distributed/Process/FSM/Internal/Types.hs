@@ -44,23 +44,23 @@ import Control.Distributed.Process.Serializable (Serializable)
 import Control.Monad.Fix (MonadFix)
 import Control.Monad.IO.Class (MonadIO)
 import qualified Control.Monad.State.Strict as ST
-  ( MonadState
-  , StateT
-  , get
-  , modify
-  , lift
-  , runStateT
-  )
+ ( MonadState
+ , StateT
+ , get
+ , modify
+ , lift
+ , runStateT
+ )
 -- import Data.Binary (Binary)
 import Data.Maybe (fromJust, isJust)
 import Data.Sequence
-   ( Seq
-   , ViewR(..)
-   , (<|)
-   , (|>)
-   , viewr
-   )
-import qualified Data.Sequence as Q (empty, null)
+ ( Seq
+ , ViewR(..)
+ , (<|)
+ , (|>)
+ , viewr
+ )
+import qualified Data.Sequence as Q (null)
 import Data.Typeable (Typeable, typeOf)
 import Data.Tuple (swap, uncurry)
 -- import GHC.Generics
@@ -194,19 +194,19 @@ apply st msg step
   | Yield     sn  sd  <- step = do
       P.liftIO $ putStrLn "Yield s d"
       return $ Just $ st { stName = sn, stData = sd }
-  | Await     evt act <- step = do
+  | Await     evt act' <- step = do
       let ev = decodeToEvent evt msg
       P.liftIO $ putStrLn $ (show evt) ++ " decoded: " ++ (show $ isJust ev)
-      if isJust (ev) then apply st msg act
+      if isJust (ev) then apply st msg act'
                      else (P.liftIO $ putStrLn $ "Cannot decode " ++ (show (evt, msg))) >> return Nothing
-  | Always    fsm     <- step = do
+  | Always    fsm      <- step = do
       P.liftIO $ putStrLn "Always..."
       runFSM st (handleMessage msg fsm) >>= mstash
-  | Perhaps   eqn act <- step = do
+  | Perhaps   eqn act' <- step = do
       P.liftIO $ putStrLn $ "Perhaps " ++ (show eqn) ++ " in " ++ (show $ stName st)
-      if eqn == (stName st) then runFSM st act >>= stash
+      if eqn == (stName st) then runFSM st act' >>= stash
                             else (P.liftIO $ putStrLn "Perhaps Not...") >> return Nothing
-  | Matching  chk fsm <- step = do
+  | Matching  chk fsm  <- step = do
       P.liftIO $ putStrLn "Matching..."
       runFSM st (handleMessageIf msg chk fsm) >>= mstash
   | Sequence  ac1 ac2 <- step = do s <- apply st msg ac1
@@ -219,10 +219,11 @@ apply st msg step
                                                else (P.liftIO $ putStrLn "try br 2") >> apply st msg al2
   | Reply     rply    <- step = do
       let ev = Eval $ do fSt <- processState
-                         MP.lift $ do
-                           P.liftIO $ putStrLn $ "Replying from " ++ (show fSt)
-                           (r, s) <- runFSM fSt rply
-                           (stReply fSt) $ wrapMessage r
+                         s' <- MP.lift $ do P.liftIO $ putStrLn $ "Replying from " ++ (show fSt)
+                                            (r, s) <- runFSM fSt rply
+                                            (stReply s) $ wrapMessage r
+                                            return s
+                         setProcessState s'
       -- (_, st') <- runFSM st (addTransition ev)
       return $ enqueue st (Just ev)
   | otherwise = error $ baseErr ++ ".Internal.Types.apply:InvalidStep"

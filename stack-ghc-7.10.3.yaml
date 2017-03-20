@@ -1,4 +1,4 @@
-resolver: nightly-2017-02-03
+resolver: nightly-2016-03-08
 
 packages:
 - '.'
@@ -8,6 +8,7 @@ packages:
   extra-dep: true
 
 extra-deps:
+- network-transport-inmemory-0.5.1  # snapshot 0.5.2 in lts-7.18
 - distributed-process-0.6.6         # missing snapshot
 - distributed-process-extras-0.3.1  # missing snapshot
 - distributed-process-async-0.2.4   # missing snapshot
