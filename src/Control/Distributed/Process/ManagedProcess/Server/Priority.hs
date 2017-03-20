@@ -47,6 +47,7 @@ module Control.Distributed.Process.ManagedProcess.Server.Priority
   , DispatchFilter()
   , safe
   , apiSafe
+  , safely
   , Message()
   , evalAfter
   , currentTimeout
@@ -192,7 +193,6 @@ apiSafe :: forall s m b . (Serializable m, Serializable b)
      -> DispatchFilter s
 apiSafe c = check $ HandleSafe (go c)
   where
---    go :: (s -> m -> Bool) -> s -> m -> Process Bool
     go c' s (i :: P.Message) = do
       m <- unwrapMessage i :: Process (Maybe (Message m b))
       case m of
@@ -211,6 +211,9 @@ safe c = check $ HandleSafe (go c)
       case m of
         Just m' -> return $ c' s m'
         Nothing -> return False
+
+safely :: forall s . DispatchFilter s
+safely = check $ HandleSafe $ \_ _ -> return True
 
 -- | Create a filter expression that will reject all messages of a specific type.
 reject :: forall s m r . (Show r)
