@@ -15,7 +15,7 @@ import qualified Control.Distributed.Process.Extras (__remoteTable)
 import Control.Distributed.Process.Extras.Time hiding (timeout)
 import Control.Distributed.Process.Extras.Timer
 import Control.Distributed.Process.FSM
-import Control.Distributed.Process.FSM.Client (call)
+import Control.Distributed.Process.FSM.Client (call, callTimeout)
 import Control.Distributed.Process.FSM.Internal.Process
 import Control.Distributed.Process.FSM.Internal.Types hiding (State, liftIO)
 import Control.Distributed.Process.SysTest.Utils
@@ -37,6 +37,7 @@ import qualified Network.Transport as NT
 -- import Control.Distributed.Process.Serializable (Serializable)
 -- import Control.Monad (void)
 import Data.Binary (Binary)
+import Data.Maybe (fromJust)
 import Data.Typeable (Typeable)
 import GHC.Generics
 
@@ -104,8 +105,11 @@ deepFSM :: SendPort () -> SendPort () -> Step State ()
 deepFSM on off = initState Off ()
        ^. ((event :: Event State) ~> (allState $ \s -> enter s))
        .| ( (Off ~@ resume)
-            |> ((event :: Event ())
-                ~> (allState $ \s -> (lift $ sendChan off s) >> resume))
+            |> (  ((event :: Event ())
+                    ~> (allState $ \s -> (lift $ sendChan off s) >> resume))
+               .| (((event :: Event String) ~> (always $ \(_ :: String) -> resume))
+                    |> (reply (currentInput >>= return . fromJust :: FSM State () String)))
+               )
           )
        .| ( (On ~@ resume)
             |> ((event :: Event ())
@@ -129,10 +133,16 @@ verifyOuterStateHandler = do
   Nothing <- receiveChanTimeout (asTimeout $ seconds 3) rpOff
   () <- receiveChan rpOn
 
+  resp <- callTimeout pid "hello there" (seconds 3):: Process (Maybe String)
+  resp `shouldBe` equalTo (Nothing :: Maybe String)
+
   send pid Off
   send pid ()
   Nothing <- receiveChanTimeout (asTimeout $ seconds 3) rpOn
   () <- receiveChan rpOff
+
+  res <- call pid "hello" :: Process String
+  res `shouldBe` equalTo "hello"
 
   kill pid "bye bye"
 

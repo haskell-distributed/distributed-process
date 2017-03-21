@@ -91,13 +91,13 @@ handleRpcRawInputs :: forall s d . (Show s) => State s d
                    -> (P.Message, SendPort P.Message)
                    -> Action (State s d)
 handleRpcRawInputs st@State{..} (msg, port) =
-  handleInput msg $ st { stReply = (sendChan port), stTrans = Q.empty }
+  handleInput msg $ st { stReply = (sendChan port), stTrans = Q.empty, stInput = Just msg }
 
 handleAllRawInputs :: forall s d. (Show s) => State s d
                    -> P.Message
                    -> Action (State s d)
 handleAllRawInputs st@State{..} msg =
-  handleInput msg $ st { stReply = noOp, stTrans = Q.empty }
+  handleInput msg $ st { stReply = noOp, stTrans = Q.empty, stInput = Just msg }
 
 noOp :: P.Message -> Process ()
 noOp = const $ return ()

@@ -81,7 +81,7 @@ call pid msg = bracket (monitor pid) unmonitor $ \mRef -> do
   send pid (wrapMessage msg, sp)
   msg' <- receiveWait [ matchChan rp return
                       , matchIf (\(ProcessMonitorNotification ref _ _) -> ref == mRef)
-                                (\_ -> die $ ExitOther "ServerUnreachable")
+                                (\(ProcessMonitorNotification _ _ r) -> die $ ExitOther (show r))
                       ] :: Process Message
   mR <- unwrapMessage msg'
   case mR of

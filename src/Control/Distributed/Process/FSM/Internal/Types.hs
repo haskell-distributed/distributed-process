@@ -154,6 +154,12 @@ currentState = ST.get >>= return . stName
 stateData :: FSM s d d
 stateData = ST.get >>= return . stData
 
+currentMessage :: forall s d . FSM s d P.Message
+currentMessage = ST.get >>= return . fromJust . stInput
+
+currentInput :: forall s d m . (Serializable m) => FSM s d (Maybe m)
+currentInput = currentMessage >>= \m -> lift (unwrapMessage m :: Process (Maybe m))
+
 addTransition :: Transition s d -> FSM s d ()
 addTransition t = ST.modify (\s -> fromJust $ enqueue s (Just t) )
 
