@@ -29,6 +29,7 @@ module Control.Distributed.Process.ManagedProcess.Internal.GenProcess
   , GenProcess
   , peek
   , push
+  , enqueue
   , addUserTimer
   , removeUserTimer
   , act
@@ -278,6 +279,12 @@ push m = do
   enqueueMessage st [ PrioritiseInfo {
     prioritise = (\_ m' ->
       return $ Just ((101 :: Int), m')) :: s -> Message -> Process (Maybe (Int, Message)) } ] m
+
+-- | Enqueue a message to the back of the internal priority queue.
+enqueue :: forall s . Message -> GenProcess s ()
+enqueue m = do
+  st <- processState
+  enqueueMessage st [] m
 
 -- | Enqueue a message in the internal priority queue. The given message will be
 -- evaluated by all the supplied prioritisers, and if none match it, then it will
