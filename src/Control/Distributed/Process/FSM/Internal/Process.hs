@@ -21,6 +21,7 @@ import Control.Distributed.Process
  , sendChan
  , spawnLocal
  , liftIO
+ , handleMessage
  )
 import qualified Control.Distributed.Process as P
  ( Message
@@ -38,7 +39,9 @@ import Control.Distributed.Process.ManagedProcess
  , prioritised
  )
 import qualified Control.Distributed.Process.ManagedProcess as MP (pserve)
-import Control.Distributed.Process.ManagedProcess.Server.Priority (safely)
+import Control.Distributed.Process.ManagedProcess.Server.Priority
+ ( safely
+ )
 import Control.Distributed.Process.ManagedProcess.Server
  ( handleRaw
  , handleInfo
@@ -46,6 +49,7 @@ import Control.Distributed.Process.ManagedProcess.Server
  )
 import Control.Distributed.Process.ManagedProcess.Internal.Types
  ( ExitSignalDispatcher(..)
+ , DispatchPriority(PrioritiseInfo)
  )
 import Data.Maybe (isJust)
 import qualified Data.Sequence as Q (empty)
@@ -55,15 +59,16 @@ import qualified Data.Sequence as Q (empty)
 -- import Data.Typeable (Typeable)
 -- import GHC.Generics
 
-start ::  forall s d . (Show s) => s -> d -> (Step s d) -> Process ProcessId
+start ::  forall s d . (Show s, Eq s) => s -> d -> (Step s d) -> Process ProcessId
 start s d p = spawnLocal $ run s d p
 
-run :: forall s d . (Show s) => s -> d -> (Step s d) -> Process ()
+run :: forall s d . (Show s, Eq s) => s -> d -> (Step s d) -> Process ()
 run s d p = MP.pserve (s, d, p) fsmInit (processDefinition p)
 
-fsmInit :: forall s d . (Show s) => InitHandler (s, d, Step s d) (State s d)
+fsmInit :: forall s d . (Show s, Eq s) => InitHandler (s, d, Step s d) (State s d)
 fsmInit (st, sd, prog) =
-  return $ InitOk (State st sd prog prog Nothing (const $ return ()) Q.empty) Infinity
+  let st' = State st sd prog Nothing (const $ return ()) Q.empty Q.empty
+  in return $ InitOk st' Infinity
 
 processDefinition :: forall s d . (Show s) => Step s d -> PrioritisedProcessDefinition (State s d)
 processDefinition prog =
@@ -75,10 +80,12 @@ processDefinition prog =
                      ]
     , exitHandlers = [ ExitSignalDispatcher (\s _ m -> handleAllRawInputs s m >>= return . Just)
                      ]
-    } []) { filters = (walkFSM prog []) }
+    } (walkPFSM prog [])) { filters = (walkFSM prog []) }
 
--- we should probably make a Foldable (Step s d) for this
-walkFSM :: forall s d . Step s d -> [DispatchFilter (State s d)] -> [DispatchFilter (State s d)]
+-- we should probably make a Foldable (Step s d) for these
+walkFSM :: forall s d . Step s d
+        -> [DispatchFilter (State s d)]
+        -> [DispatchFilter (State s d)]
 walkFSM st acc
   | SafeWait  evt act <- st = walkFSM act $ safely (\_ m -> isJust $ decodeToEvent evt m) : acc
   | Await     _   act <- st = walkFSM act acc
@@ -86,6 +93,20 @@ walkFSM st acc
   | Init      ac1 ac2 <- st = walkFSM ac1 $ walkFSM ac2 acc
   | Alternate ac1 ac2 <- st = walkFSM ac1 $ walkFSM ac2 acc -- both branches need filter defs
   | otherwise               = acc
+
+walkPFSM :: forall s d . Step s d
+         -> [DispatchPriority (State s d)]
+         -> [DispatchPriority (State s d)]
+walkPFSM st acc
+  | SafeWait  evt act <- st  = walkPFSM act (checkPrio evt acc)
+  | Await     evt act <- st  = walkPFSM act (checkPrio evt acc)
+  | Sequence  ac1 ac2 <- st  = walkPFSM ac1 $ walkPFSM ac2 acc
+  | Init      ac1 ac2 <- st  = walkPFSM ac1 $ walkPFSM ac2 acc
+  | Alternate ac1 ac2 <- st  = walkPFSM ac1 $ walkPFSM ac2 acc -- both branches need filter defs
+  | otherwise                = acc
+  where
+    checkPrio ev acc = (mkPrio ev):acc
+    mkPrio ev' = PrioritiseInfo $ \s m -> handleMessage m (resolveEvent ev' m s)
 
 handleRpcRawInputs :: forall s d . (Show s) => State s d
                    -> (P.Message, SendPort P.Message)
@@ -108,7 +129,7 @@ handleInput :: forall s d . (Show s)
             -> Action (State s d)
 handleInput msg st@State{..} = do
   liftIO $ putStrLn $ "handleInput: " ++ (show stName)
-  liftIO $ putStrLn $ "apply " ++ (show stProg)
+  liftIO $ putStrLn $ "apply: " ++ (show stProg)
   res <- apply st msg stProg
   liftIO $ putStrLn $ "got a result: " ++ (show res)
   case res of

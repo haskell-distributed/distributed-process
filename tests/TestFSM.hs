@@ -5,7 +5,8 @@
 
 module Main where
 
-import Control.Distributed.Process hiding (call)
+import Control.Distributed.Process hiding (call, send, sendChan)
+import Control.Distributed.Process.UnsafePrimitives (send, sendChan)
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Extras
  ( ExitReason(..)
@@ -19,7 +20,7 @@ import Control.Distributed.Process.FSM.Client (call, callTimeout)
 import Control.Distributed.Process.FSM.Internal.Process
 import Control.Distributed.Process.FSM.Internal.Types hiding (State, liftIO)
 import Control.Distributed.Process.SysTest.Utils
-
+import Control.Monad (replicateM_, forM_)
 import Control.Rematch (equalTo)
 
 #if ! MIN_VERSION_base(4,6,0)
@@ -60,9 +61,10 @@ initCount = 0
 startState :: Step State Integer
 startState = initState Off initCount
 
--- TODO: [LANG] it's great that we can filter on StateID per event,
--- but we also need a way to specify that certain events are only handled
--- in specific states (e.g. to utilise `become` in the ManagedProcess API)
+waitForDown :: MonitorRef -> Process DiedReason
+waitForDown ref =
+  receiveWait [ matchIf (\(ProcessMonitorNotification ref' _ _) -> ref == ref')
+                        (\(ProcessMonitorNotification _ _ dr) -> return dr) ]
 
 switchFsm :: Step State StateData
 switchFsm = startState
@@ -95,7 +97,7 @@ blockingFsm sp = initState Off ()
             ^.  ((event :: Event ())
                 *> (allState $ \() -> (lift $ sleep (seconds 10) >> sendChan sp ()) >> resume))
              .| ((event :: Event Stop)
-                ~> (  ((== ExitNormal)   ~? (\_ -> (liftIO $ putStrLn "resuming...") >> resume) )
+                ~> (  ((== ExitNormal)   ~? (\_ -> resume) )
                       {- let's verify that we can't override
                          a normal shutdown sequence... -}
                    .| ((== ExitShutdown) ~? const resume)
@@ -104,22 +106,61 @@ blockingFsm sp = initState Off ()
 deepFSM :: SendPort () -> SendPort () -> Step State ()
 deepFSM on off = initState Off ()
        ^. ((event :: Event State) ~> (allState $ \s -> enter s))
-       .| ( (Off ~@ resume)
+       .| ( (whenStateIs Off)
             |> (  ((event :: Event ())
                     ~> (allState $ \s -> (lift $ sendChan off s) >> resume))
                .| (((event :: Event String) ~> (always $ \(_ :: String) -> resume))
                     |> (reply (currentInput >>= return . fromJust :: FSM State () String)))
                )
           )
-       .| ( (On ~@ resume)
+       .| ( (On ~@ resume) -- equivalent to `whenStateIs On`
             |> ((event :: Event ())
                 ~> (allState $ \s -> (lift $ sendChan on s) >> resume))
           )
 
-waitForDown :: MonitorRef -> Process DiedReason
-waitForDown ref =
-  receiveWait [ matchIf (\(ProcessMonitorNotification ref' _ _) -> ref == ref')
-                        (\(ProcessMonitorNotification _ _ dr) -> return dr) ]
+genFSM :: SendPort () -> Step State ()
+genFSM sp = initState Off ()
+       ^. ( (whenStateIs Off)
+            |> ((event :: Event ()) ~> (always $ \() -> postpone))
+          )
+       .| ( (((pevent 100) :: Event State) ~> (always $ \state -> enter state))
+         .| ((event :: Event ()) ~> (always $ \() -> (lift $ sendChan sp ()) >> resume))
+          )
+       .| ( (event :: Event String)
+             ~> ( (Off ~@ putBack)
+               .| (On  ~@ (nextEvent ()))
+                )
+          )
+
+republicationOfEvents :: Process ()
+republicationOfEvents = do
+  (sp, rp) <- newChan
+
+  pid <- start Off () $ genFSM sp
+
+  replicateM_ 15 $ send pid ()
+
+  Nothing <- receiveChanTimeout (asTimeout $ seconds 5) rp
+
+  send pid On
+
+  replicateM_ 15 $ receiveChan rp
+
+  send pid "hello"  -- triggers `nextEvent ()`
+
+  res <- receiveChanTimeout (asTimeout $ seconds 5) rp :: Process (Maybe ())
+  res `shouldBe` equalTo (Just ())
+
+  send pid Off
+
+  forM_ ([1..50] :: [Int]) $ \i -> send pid i
+  send pid "yo"
+  send pid On
+
+  res' <- receiveChanTimeout (asTimeout $ seconds 20) rp :: Process (Maybe ())
+  res' `shouldBe` equalTo (Just ())
+
+  kill pid "thankyou byebye"
 
 verifyOuterStateHandler :: Process ()
 verifyOuterStateHandler = do
@@ -235,6 +276,8 @@ tests transport = do
            (runProcess localNode verifyMailboxHandling)
         , testCase "Traversing an FSM definition (nested definitions)"
            (runProcess localNode verifyOuterStateHandler)
+        , testCase "Traversing an FSM definition (event re-publication)"
+           (runProcess localNode republicationOfEvents)
         ]
     ]
 

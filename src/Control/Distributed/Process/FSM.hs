@@ -13,6 +13,7 @@
 
 module Control.Distributed.Process.FSM where
 
+import Control.Distributed.Process (wrapMessage)
 import Control.Distributed.Process.Extras (ExitReason)
 import Control.Distributed.Process.Extras.Time
  ( TimeInterval
@@ -21,7 +22,9 @@ import Control.Distributed.Process.ManagedProcess
  ( processState
  , setProcessState
  , runAfter
+ , Priority
  )
+import Control.Distributed.Process.ManagedProcess.Server.Priority (setPriority)
 import qualified Control.Distributed.Process.ManagedProcess.Internal.Types as MP (liftIO)
 import Control.Distributed.Process.FSM.Internal.Types
 import Control.Distributed.Process.Serializable (Serializable)
@@ -29,14 +32,29 @@ import Control.Distributed.Process.Serializable (Serializable)
 initState :: forall s d . s -> d -> Step s d
 initState = Yield
 
+event :: (Serializable m) => Event m
+event = Wait
+
+pevent :: (Serializable m) => Int -> Event m
+pevent = WaitP . setPriority
+
 enter :: forall s d . s -> FSM s d (Transition s d)
 enter = return . Enter
 
+postpone :: forall s d . FSM s d (Transition s d)
+postpone = return Postpone
+
+putBack :: forall s d . FSM s d (Transition s d)
+putBack = return PutBack
+
+nextEvent :: forall s d m . (Serializable m) => m -> FSM s d (Transition s d)
+nextEvent m = return $ Push (wrapMessage m)
+
+publishEvent :: forall s d m . (Serializable m) => m -> FSM s d (Transition s d)
+publishEvent m = return $ Enqueue (wrapMessage m)
+
 resume :: forall s d . FSM s d (Transition s d)
 resume = return Remain
-
-event :: (Serializable m) => Event m
-event = Wait
 
 reply :: forall s d r . (Serializable r) => FSM s d r -> Step s d
 reply = Reply
@@ -104,6 +122,9 @@ infixr 9 ~@
 
 atState :: forall s d . (Eq s) => s -> FSM s d (Transition s d) -> Step s d
 atState = Perhaps
+
+whenStateIs :: forall s d . (Eq s) => s -> Step s d
+whenStateIs s = s ~@ resume
 
 allState :: forall s d m . (Serializable m) => (m -> FSM s d (Transition s d)) -> Step s d
 allState = Always

@@ -35,11 +35,15 @@ import Control.Distributed.Process.ManagedProcess
  , setProcessState
  , processState
  )
-import qualified Control.Distributed.Process.ManagedProcess.Internal.Types as MP (lift, liftIO)
-import Control.Distributed.Process.ManagedProcess.Server.Priority
- ( push
- , act
+import qualified Control.Distributed.Process.ManagedProcess.Internal.GenProcess as Gen (enqueue, push)
+import Control.Distributed.Process.ManagedProcess.Internal.Types
+ ( Priority(..)
  )
+import qualified Control.Distributed.Process.ManagedProcess.Internal.Types as MP
+ ( lift
+ , liftIO
+ )
+import Control.Distributed.Process.ManagedProcess.Server.Priority (act)
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Monad.Fix (MonadFix)
 import Control.Monad.IO.Class (MonadIO)
@@ -65,13 +69,14 @@ import Data.Typeable (Typeable, typeOf)
 import Data.Tuple (swap, uncurry)
 -- import GHC.Generics
 
-data State s d = State { stName  :: s
+data State s d = (Show s, Eq s) =>
+                 State { stName  :: s
                        , stData  :: d
                        , stProg  :: Step s d -- original program
-                       , stInstr :: Step s d -- current step in the program
                        , stInput :: Maybe P.Message
                        , stReply :: (P.Message -> Process ())
                        , stTrans :: Seq (Transition s d)
+                       , stQueue :: Seq P.Message
                        }
 
 instance forall s d . (Show s) => Show (State s d) where
@@ -80,6 +85,9 @@ instance forall s d . (Show s) => Show (State s d) where
 
 data Transition s d = Remain
                     | PutBack
+                    | Push P.Message
+                    | Enqueue P.Message
+                    | Postpone
                     | Enter s
                     | Stop ExitReason
                     | Eval (GenProcess (State s d) ())
@@ -87,17 +95,32 @@ data Transition s d = Remain
 instance forall s d . (Show s) => Show (Transition s d) where
   show Remain    = "Remain"
   show PutBack   = "PutBack"
+  show Postpone  = "Postpone"
+  show (Push m)  = "Push " ++ (show m)
+  show (Enqueue m) = "Enqueue " ++ (show m)
   show (Enter s) = "Enter " ++ (show s)
   show (Stop er) = "Stop " ++ (show er)
   show (Eval _)  = "Eval"
 
 data Event m where
-  Wait  :: (Serializable m) => Event m
-  Event :: (Serializable m) => m -> Event m
+  Wait    :: (Serializable m) => Event m
+  WaitP   :: (Serializable m) => Priority () -> Event m
+  Event   :: (Serializable m) => m -> Event m
+
+resolveEvent :: forall s d m . (Serializable m)
+             => Event m
+             -> P.Message
+             -> State s d
+             -> m
+             -> Process (Int, P.Message)
+resolveEvent ev m _ _
+  | WaitP p <- ev       = return (getPrio p, m)
+  | otherwise           = return (0, m)
 
 instance forall m . (Typeable m) => Show (Event m) where
-  show ev@Wait = show $ "Wait::" ++ (show $ typeOf ev)
-  show ev      = show $ typeOf ev
+  show ev@Wait      = show $ "Wait::" ++ (show $ typeOf ev)
+  show ev@(WaitP _) = show $ "WaitP::" ++ (show $ typeOf ev)
+  show ev           = show $ typeOf ev
 
 data Step s d where
   Init      :: Step s d -> Step s d -> Step s d
@@ -171,9 +194,13 @@ seqEnqueue s a = a <| s
 seqPush :: Seq a -> a -> Seq a
 seqPush s a = s |> a
 
+{-# INLINE seqPop #-}
+seqPop :: Seq a -> Maybe (a, Seq a)
+seqPop s = maybe Nothing (\(s' :> a) -> Just (a, s')) $ getR s
+
 {-# INLINE seqDequeue #-}
 seqDequeue :: Seq a -> Maybe (a, Seq a)
-seqDequeue s = maybe Nothing (\(s' :> a) -> Just (a, s')) $ getR s
+seqDequeue = seqPop
 
 {-# INLINE peek #-}
 peek :: Seq a -> Maybe a
@@ -198,7 +225,7 @@ apply st msg step
       P.liftIO $ putStrLn "Init _ _"
       st' <- apply st msg is
       case st' of
-        Just s  -> apply (s { stProg = ns, stInstr = ns }) msg ns
+        Just s  -> apply (s { stProg = ns }) msg ns
         Nothing -> die $ ExitOther $ baseErr ++ ":InitFailed"
   | Yield     sn  sd  <- step = do
       P.liftIO $ putStrLn "Yield s d"
@@ -255,23 +282,32 @@ applyTransitions st@State{..} evals
                               MP.liftIO $ putStrLn $ "ProcessState: " ++ (show stName)
                               mapM_ id evals
   | (tr, st2) <- next
-  , Enter s   <- tr = let st' = st2 { stName = s }
-                      in do P.liftIO $ putStrLn $ "NEWSTATE: " ++ (show st')
-                            applyTransitions st' evals
+  , PutBack   <- tr = applyTransitions st2 ((Gen.enqueue $ fromJust stInput) : evals)
+  | isJust stInput
+  , input     <- fromJust stInput
+  , (tr, st2) <- next
+  , Postpone  <- tr = applyTransitions (st2 { stQueue = seqEnqueue stQueue input }) evals
   | (tr, st2) <- next
-  , PutBack   <- tr = applyTransitions st2 ((push $ fromJust stInput) : evals)
-  {- let act' = setProcessState $ fsmSt { fsmName = stName, fsmData = stData }
-                                     push stInput -}
+  , Enqueue m <- tr = applyTransitions st2 ((Gen.enqueue m):evals)
+  | (tr, st2) <- next
+  , Push m    <- tr = applyTransitions st2 ((Gen.push m):evals)
   | (tr, st2) <- next
   , Eval proc <- tr = applyTransitions st2 (proc:evals)
   | (tr, st2) <- next
   , Remain    <- tr = applyTransitions st2 evals
   | (tr, _)   <- next
   , Stop  er  <- tr = stopWith st er
-  | otherwise = error $ baseErr ++ ".Internal.Process.applyTransitions:InvalidState"
+  | (tr, st2) <- next
+  , Enter s   <- tr =
+      if s == stName then applyTransitions st2 evals
+                     else do let st' = st2 { stName = s }
+                             let evals' = if Q.null stQueue then evals
+                                                            else (mapM_ Gen.push stQueue) : evals
+                             applyTransitions st' evals'
+  | otherwise = error $ baseErr ++ ".Internal.Process.applyTransitions:InvalidTransition"
   where
     -- don't call if Q.null!
-    next = let (t, q) = fromJust $ seqDequeue stTrans
+    next = let (t, q) = fromJust $ seqPop stTrans
            in (t, st { stTrans = q })
 
 baseErr :: String
@@ -279,4 +315,5 @@ baseErr = "Control.Distributed.Process.FSM"
 
 decodeToEvent :: Serializable m => Event m -> P.Message -> Maybe (Event m)
 decodeToEvent Wait         msg = unwrapMessage msg >>= fmap Event
+decodeToEvent (WaitP _)    msg = unwrapMessage msg >>= fmap Event
 decodeToEvent ev@(Event _) _   = Just ev  -- it's a bit odd that we'd end up here....
