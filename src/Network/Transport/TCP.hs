@@ -485,6 +485,9 @@ data TCPParameters = TCPParameters {
     --
     -- This can be overriden for each connect call with
     -- 'ConnectHints'.'connectTimeout'.
+    --
+    -- Connection requests to this transport will also timeout if they don't
+    -- send the required data before this many microseconds.
   , transportConnectTimeout :: Maybe Int
     -- | Create a QDisc for an EndPoint.
   , tcpNewQDisc :: forall t . IO (QDisc t)
@@ -899,10 +902,20 @@ handleConnectionRequest transport socketClosed sock = handle handleException $ d
       N.setSocketOption sock N.KeepAlive 1
     forM_ (tcpUserTimeout $ transportParams transport) $
       N.setSocketOption sock N.UserTimeout
-    ourEndPointId <- recvWord32 sock
-    let maxAddressLength = tcpMaxAddressLength $ transportParams transport
-    theirAddress  <- EndPointAddress . BS.concat <$>
-      recvWithLength maxAddressLength sock
+    let connTimeout = transportConnectTimeout (transportParams transport)
+    -- The peer must send our identifier and their address promptly, if a
+    -- timeout is set.
+    mAddrInfo <- maybe (fmap Just) System.Timeout.timeout connTimeout $ do
+      ourEndPointId <- recvWord32 sock
+      let maxAddressLength = tcpMaxAddressLength $ transportParams transport
+      theirAddress <- EndPointAddress . BS.concat <$>
+        recvWithLength maxAddressLength sock
+      return (ourEndPointId, theirAddress)
+    addrInfo <- case mAddrInfo of
+      Nothing -> throwIO (userError "handleConnectionRequest: timed out")
+      Just x -> return x
+    let theirAddress = snd addrInfo
+    let ourEndPointId = fst addrInfo
     let ourAddress = encodeEndPointAddress (transportHost transport)
                                            (transportPort transport)
                                            ourEndPointId
