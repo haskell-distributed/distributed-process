@@ -15,10 +15,8 @@ import Control.Distributed.Process.Extras
 import qualified Control.Distributed.Process.Extras (__remoteTable)
 import Control.Distributed.Process.Extras.Time hiding (timeout)
 import Control.Distributed.Process.Extras.Timer
-import Control.Distributed.Process.FSM
+import Control.Distributed.Process.FSM hiding (State, liftIO)
 import Control.Distributed.Process.FSM.Client (call, callTimeout)
-import Control.Distributed.Process.FSM.Internal.Process
-import Control.Distributed.Process.FSM.Internal.Types hiding (State, liftIO)
 import Control.Distributed.Process.SysTest.Utils
 import Control.Monad (replicateM_, forM_)
 import Control.Rematch (equalTo)

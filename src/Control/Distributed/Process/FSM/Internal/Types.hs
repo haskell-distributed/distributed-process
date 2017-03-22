@@ -1,18 +1,33 @@
 {-# LANGUAGE ExistentialQuantification  #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE PatternGuards              #-}
-{-# LANGUAGE BangPatterns               #-}
 {-# LANGUAGE RecordWildCards            #-}
-{-# LANGUAGE TupleSections              #-}
 {-# LANGUAGE DeriveDataTypeable         #-}
-{-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses      #-}
 {-# LANGUAGE GADTs                      #-}
 {-# LANGUAGE RankNTypes                 #-}
 
 module Control.Distributed.Process.FSM.Internal.Types
-where
+ ( apply
+ , applyTransitions
+ , State(..)
+ , Transition(..)
+ , Event(..)
+ , resolveEvent
+ , Step(..)
+ , FSM(..)
+ , runFSM
+ , lift
+ , liftIO
+ , currentState
+ , currentInput
+ , currentMessage
+ , stateData
+ , addTransition
+ , baseErr
+ , decodeToEvent
+ ) where
 
 import Control.Distributed.Process
  ( Process
@@ -41,7 +56,6 @@ import Control.Distributed.Process.ManagedProcess.Internal.Types
  )
 import qualified Control.Distributed.Process.ManagedProcess.Internal.Types as MP
  ( lift
- , liftIO
  )
 import Control.Distributed.Process.ManagedProcess.Server.Priority (act)
 import Control.Distributed.Process.Serializable (Serializable)
@@ -55,7 +69,6 @@ import qualified Control.Monad.State.Strict as ST
  , lift
  , runStateT
  )
--- import Data.Binary (Binary)
 import Data.Maybe (fromJust, isJust)
 import Data.Sequence
  ( Seq
@@ -67,8 +80,8 @@ import Data.Sequence
 import qualified Data.Sequence as Q (null)
 import Data.Typeable (Typeable, typeOf)
 import Data.Tuple (swap, uncurry)
--- import GHC.Generics
 
+-- | The internal state of an FSM process.
 data State s d = (Show s, Eq s) =>
                  State { stName  :: s
                        , stData  :: d
@@ -83,6 +96,13 @@ instance forall s d . (Show s) => Show (State s d) where
  show State{..} = "State{stName=" ++ (show stName)
                ++ ", stTrans=" ++ (show stTrans) ++ "}"
 
+-- | Represents a transition from one world state to another. Transitions can
+-- be used to alter the process state, state data, to modify and/or interact with
+-- the process mailbox, and to postpone processing of messages until state changes
+-- take place.
+--
+-- The fundmental state transactions are @Remain@, @Enter newState@, and
+-- @Stop exitReason@.
 data Transition s d = Remain
                     | PutBack
                     | Push P.Message
@@ -102,11 +122,15 @@ instance forall s d . (Show s) => Show (Transition s d) where
   show (Stop er) = "Stop " ++ (show er)
   show (Eval _)  = "Eval"
 
+-- | Represents an event arriving, parameterised by the type @m@ of the event.
+-- Used in a combinatorial style to wire FSM steps, actions and transitions to
+-- specific types of input event.
 data Event m where
   Wait    :: (Serializable m) => Event m
   WaitP   :: (Serializable m) => Priority () -> Event m
   Event   :: (Serializable m) => m -> Event m
 
+-- | Resolve an event into a priority setting, for insertion into a priority queue.
 resolveEvent :: forall s d m . (Serializable m)
              => Event m
              -> P.Message
@@ -122,6 +146,7 @@ instance forall m . (Typeable m) => Show (Event m) where
   show ev@(WaitP _) = show $ "WaitP::" ++ (show $ typeOf ev)
   show ev           = show $ typeOf ev
 
+-- | Represents a step in a FSM definition
 data Step s d where
   Init      :: Step s d -> Step s d -> Step s d
   Yield     :: s -> d -> Step s d
@@ -147,6 +172,7 @@ instance forall s d . (Show s) => Show (Step s d) where
     | Alternate a b <- st = "Alternate [" ++ (show a) ++ " .| " ++ (show b) ++ "]"
     | Reply     _   <- st = "Reply"
 
+-- | State monad transformer.
 newtype FSM s d o = FSM {
    unFSM :: ST.StateT (State s d) Process o
  }
@@ -171,18 +197,23 @@ lift p = FSM $ ST.lift p
 liftIO :: IO a -> FSM s d a
 liftIO = lift . P.liftIO
 
+-- | Fetch the state for the current pass.
 currentState :: FSM s d s
 currentState = ST.get >>= return . stName
 
+-- | Fetch the state data for the current pass.
 stateData :: FSM s d d
 stateData = ST.get >>= return . stData
 
+-- | Fetch the message that initiated the current pass.
 currentMessage :: forall s d . FSM s d P.Message
 currentMessage = ST.get >>= return . fromJust . stInput
 
+-- | Retrieve the "currentMessage" and attempt to decode it to type @m@
 currentInput :: forall s d m . (Serializable m) => FSM s d (Maybe m)
 currentInput = currentMessage >>= \m -> lift (unwrapMessage m :: Process (Maybe m))
 
+-- | A a "Transition" to be evaluated once the current pass completes.
 addTransition :: Transition s d -> FSM s d ()
 addTransition t = ST.modify (\s -> fromJust $ enqueue s (Just t) )
 
@@ -197,14 +228,6 @@ seqPush s a = s |> a
 {-# INLINE seqPop #-}
 seqPop :: Seq a -> Maybe (a, Seq a)
 seqPop s = maybe Nothing (\(s' :> a) -> Just (a, s')) $ getR s
-
-{-# INLINE seqDequeue #-}
-seqDequeue :: Seq a -> Maybe (a, Seq a)
-seqDequeue = seqPop
-
-{-# INLINE peek #-}
-peek :: Seq a -> Maybe a
-peek s = maybe Nothing (\(_ :> a) -> Just a) $ getR s
 
 {-# INLINE getR #-}
 getR :: Seq a -> Maybe (ViewR a)
@@ -222,46 +245,47 @@ apply :: (Show s) => State s d -> P.Message -> Step s d -> Process (Maybe (State
 apply st msg step
   | Init      is  ns  <- step = do
       -- ensure we only `init` successfully once
-      P.liftIO $ putStrLn "Init _ _"
+      -- P.liftIO $ putStrLn "Init _ _"
       st' <- apply st msg is
       case st' of
         Just s  -> apply (s { stProg = ns }) msg ns
         Nothing -> die $ ExitOther $ baseErr ++ ":InitFailed"
   | Yield     sn  sd  <- step = do
-      P.liftIO $ putStrLn "Yield s d"
+      -- P.liftIO $ putStrLn "Yield s d"
       return $ Just $ st { stName = sn, stData = sd }
   | SafeWait evt act' <- step = do
       let ev = decodeToEvent evt msg
-      P.liftIO $ putStrLn $ (show evt) ++ " decoded: " ++ (show $ isJust ev)
+      -- P.liftIO $ putStrLn $ (show evt) ++ " decoded: " ++ (show $ isJust ev)
       if isJust (ev) then apply st msg act'
-                     else (P.liftIO $ putStrLn $ "Cannot decode " ++ (show (evt, msg))) >> return Nothing
+                     else {-(P.liftIO $ putStrLn $ "Cannot decode " ++ (show (evt, msg))) >>  -}
+                          return Nothing
   | Await     evt act' <- step = do
       let ev = decodeToEvent evt msg
-      P.liftIO $ putStrLn $ (show evt) ++ " decoded: " ++ (show $ isJust ev)
+      -- P.liftIO $ putStrLn $ (show evt) ++ " decoded: " ++ (show $ isJust ev)
       if isJust (ev) then apply st msg act'
-                     else (P.liftIO $ putStrLn $ "Cannot decode " ++ (show (evt, msg))) >> return Nothing
+                     else {- (P.liftIO $ putStrLn $ "Cannot decode " ++ (show (evt, msg))) >>  -}
+                          return Nothing
   | Always    fsm      <- step = do
-      P.liftIO $ putStrLn "Always..."
+      -- P.liftIO $ putStrLn "Always..."
       runFSM st (handleMessage msg fsm) >>= mstash
   | Perhaps   eqn act' <- step = do
-      P.liftIO $ putStrLn $ "Perhaps " ++ (show eqn) ++ " in " ++ (show $ stName st)
+      -- P.liftIO $ putStrLn $ "Perhaps " ++ (show eqn) ++ " in " ++ (show $ stName st)
       if eqn == (stName st) then runFSM st act' >>= stash
-                            else (P.liftIO $ putStrLn "Perhaps Not...") >> return Nothing
+                            else return Nothing
   | Matching  chk fsm  <- step = do
-      P.liftIO $ putStrLn "Matching..."
+      -- P.liftIO $ putStrLn "Matching..."
       runFSM st (handleMessageIf msg chk fsm) >>= mstash
   | Sequence  ac1 ac2 <- step = do s <- apply st msg ac1
-                                   P.liftIO $ putStrLn $ "Seq LHS valid: " ++ (show $ isJust s)
+                                   -- P.liftIO $ putStrLn $ "Seq LHS valid: " ++ (show $ isJust s)
                                    if isJust s then apply (fromJust s) msg ac2
                                                else return Nothing
   | Alternate al1 al2 <- step = do s <- apply st msg al1
-                                   P.liftIO $ putStrLn $ "Alt LHS valid: " ++ (show $ isJust s)
+                                   -- P.liftIO $ putStrLn $ "Alt LHS valid: " ++ (show $ isJust s)
                                    if isJust s then return s
-                                               else (P.liftIO $ putStrLn "try br 2") >> apply st msg al2
+                                               else apply st msg al2
   | Reply     rply    <- step = do
       let ev = Eval $ do fSt <- processState
-                         s' <- MP.lift $ do P.liftIO $ putStrLn $ "Replying from " ++ (show fSt)
-                                            (r, s) <- runFSM fSt rply
+                         s' <- MP.lift $ do (r, s) <- runFSM fSt rply
                                             (stReply s) $ wrapMessage r
                                             return s
                          setProcessState s'
@@ -279,7 +303,7 @@ applyTransitions :: forall s d. (Show s)
 applyTransitions st@State{..} evals
   | Q.null stTrans, [] <- evals = continue $ st
   | Q.null stTrans = act $ do setProcessState st
-                              MP.liftIO $ putStrLn $ "ProcessState: " ++ (show stName)
+                              -- MP.liftIO $ putStrLn $ "ProcessState: " ++ (show stName)
                               mapM_ id evals
   | (tr, st2) <- next
   , PutBack   <- tr = applyTransitions st2 ((Gen.enqueue $ fromJust stInput) : evals)
@@ -310,9 +334,13 @@ applyTransitions st@State{..} evals
     next = let (t, q) = fromJust $ seqPop stTrans
            in (t, st { stTrans = q })
 
+-- | Base module name for error messages.
 baseErr :: String
 baseErr = "Control.Distributed.Process.FSM"
 
+-- | Given an "Event" for any "Serializable" type @m@ and a raw message, decode
+-- the message and map it to either @Event m@ if the types are aligned, otherwise
+-- @Nothing@.
 decodeToEvent :: Serializable m => Event m -> P.Message -> Maybe (Event m)
 decodeToEvent Wait         msg = unwrapMessage msg >>= fmap Event
 decodeToEvent (WaitP _)    msg = unwrapMessage msg >>= fmap Event

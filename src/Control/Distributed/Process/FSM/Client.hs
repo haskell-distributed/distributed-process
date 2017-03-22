@@ -1,18 +1,20 @@
-{-# LANGUAGE ExistentialQuantification  #-}
-{-# LANGUAGE ScopedTypeVariables        #-}
-{-# LANGUAGE PatternGuards              #-}
-{-# LANGUAGE BangPatterns               #-}
-{-# LANGUAGE RecordWildCards            #-}
-{-# LANGUAGE TupleSections              #-}
-{-# LANGUAGE DeriveDataTypeable         #-}
-{-# LANGUAGE DeriveGeneric              #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE MultiParamTypeClasses      #-}
-{-# LANGUAGE GADTs                      #-}
-{-# LANGUAGE RankNTypes                 #-}
-
+-----------------------------------------------------------------------------
+-- |
+-- Module      :  Control.Distributed.Process.FSM.Client
+-- Copyright   :  (c) Tim Watson 2017
+-- License     :  BSD3 (see the file LICENSE)
+--
+-- Maintainer  :  Tim Watson <watson.timothy@gmail.com>
+-- Stability   :  experimental
+-- Portability :  non-portable (requires concurrency)
+--
+-- The Client Portion of the /FSM/ API.
+-----------------------------------------------------------------------------
 module Control.Distributed.Process.FSM.Client
-where
+ ( call
+ , callTimeout
+ , safeCall
+ ) where
 
 import Control.Distributed.Process
  ( send

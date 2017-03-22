@@ -1,18 +1,12 @@
 {-# LANGUAGE ExistentialQuantification  #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE PatternGuards              #-}
-{-# LANGUAGE BangPatterns               #-}
 {-# LANGUAGE RecordWildCards            #-}
-{-# LANGUAGE TupleSections              #-}
-{-# LANGUAGE DeriveDataTypeable         #-}
-{-# LANGUAGE DeriveGeneric              #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE MultiParamTypeClasses      #-}
-{-# LANGUAGE GADTs                      #-}
-{-# LANGUAGE RankNTypes                 #-}
 
 module Control.Distributed.Process.FSM.Internal.Process
-where
+ ( start
+ , run
+ ) where
 
 import Control.Distributed.Process
  ( Process
@@ -20,7 +14,6 @@ import Control.Distributed.Process
  , SendPort
  , sendChan
  , spawnLocal
- , liftIO
  , handleMessage
  )
 import qualified Control.Distributed.Process as P
@@ -53,15 +46,13 @@ import Control.Distributed.Process.ManagedProcess.Internal.Types
  )
 import Data.Maybe (isJust)
 import qualified Data.Sequence as Q (empty)
--- import Control.Distributed.Process.Serializable (Serializable)
--- import Control.Monad (void)
--- import Data.Binary (Binary)
--- import Data.Typeable (Typeable)
--- import GHC.Generics
 
+-- | Start an FSM process
 start ::  forall s d . (Show s, Eq s) => s -> d -> (Step s d) -> Process ProcessId
 start s d p = spawnLocal $ run s d p
 
+-- | Run an FSM process. NB: this is a /managed process listen-loop/
+-- and will not evaluate to its result until the server process stops.
 run :: forall s d . (Show s, Eq s) => s -> d -> (Step s d) -> Process ()
 run s d p = MP.pserve (s, d, p) fsmInit (processDefinition p)
 
@@ -105,7 +96,7 @@ walkPFSM st acc
   | Alternate ac1 ac2 <- st  = walkPFSM ac1 $ walkPFSM ac2 acc -- both branches need filter defs
   | otherwise                = acc
   where
-    checkPrio ev acc = (mkPrio ev):acc
+    checkPrio ev acc' = (mkPrio ev):acc'
     mkPrio ev' = PrioritiseInfo $ \s m -> handleMessage m (resolveEvent ev' m s)
 
 handleRpcRawInputs :: forall s d . (Show s) => State s d
@@ -128,10 +119,7 @@ handleInput :: forall s d . (Show s)
             -> State s d
             -> Action (State s d)
 handleInput msg st@State{..} = do
-  liftIO $ putStrLn $ "handleInput: " ++ (show stName)
-  liftIO $ putStrLn $ "apply: " ++ (show stProg)
   res <- apply st msg stProg
-  liftIO $ putStrLn $ "got a result: " ++ (show res)
   case res of
     Just res' -> applyTransitions res' []
     Nothing   -> continue st
