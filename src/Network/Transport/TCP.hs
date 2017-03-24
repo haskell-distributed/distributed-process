@@ -1008,7 +1008,7 @@ handleConnectionRequest transport socketClosed sock = handle handleException $ d
 -- This runs in a thread that will never be killed.
 handleIncomingMessages :: TCPParameters -> EndPointPair -> IO ()
 handleIncomingMessages params (ourEndPoint, theirEndPoint) = do
-    mSock <- withMVar theirState $ \st ->
+    choice <- withMVar theirState $ \st ->
       case st of
         RemoteEndPointInvalid _ ->
           relyViolation (ourEndPoint, theirEndPoint)
@@ -1017,16 +1017,17 @@ handleIncomingMessages params (ourEndPoint, theirEndPoint) = do
           relyViolation (ourEndPoint, theirEndPoint)
             "handleIncomingMessages (init)"
         RemoteEndPointValid ep ->
-          return . Just $ remoteSocket ep
+          return . Right $ remoteSocket ep
         RemoteEndPointClosing _ ep ->
-          return . Just $ remoteSocket ep
+          return . Right $ remoteSocket ep
         RemoteEndPointClosed ->
-          return Nothing
+          return . Left $ userError "handleIncomingMessages (already closed)"
         RemoteEndPointFailed _ ->
-          return Nothing
+          return . Left $ userError "handleIncomingMessages (failed)"
 
-    forM_ mSock $ \sock ->
-      tryIO (go sock) >>= either (prematureExit sock) return
+    case choice of
+      Left err -> prematureExit err
+      Right sock -> tryIO (go sock) >>= either prematureExit return
   where
     -- Dispatch
     --
@@ -1264,8 +1265,8 @@ handleIncomingMessages params (ourEndPoint, theirEndPoint) = do
     recvLimit   = tcpMaxReceiveLength params
 
     -- Deal with a premature exit
-    prematureExit :: N.Socket -> IOException -> IO ()
-    prematureExit sock err = do
+    prematureExit :: IOException -> IO ()
+    prematureExit err = do
       modifyMVar_ theirState $ \st ->
         case st of
           RemoteEndPointInvalid _ ->
