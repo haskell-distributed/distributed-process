@@ -2,10 +2,6 @@ resolver: nightly-2016-03-08
 
 packages:
 - '.'
-- location:
-    git: https://github.com/haskell-distributed/distributed-process-client-server.git
-    commit: 935516a3fde7a194ca84f77a1e6584192c5f878b
-  extra-dep: true
 
 extra-deps:
 - network-transport-inmemory-0.5.1  # snapshot 0.5.2 in lts-7.18
@@ -13,4 +9,5 @@ extra-deps:
 - distributed-process-extras-0.3.1  # missing snapshot
 - distributed-process-async-0.2.4   # missing snapshot
 - distributed-process-systest-0.1.1 # missing prior to Jan-2017
+- distributed-process-client-server-0.2.1
 - rematch-0.2.0.0
