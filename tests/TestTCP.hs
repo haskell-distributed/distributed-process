@@ -647,9 +647,10 @@ testReconnect = do
     -- The first time we close the socket before accepting the logical connection
     count <- modifyMVar counter $ \i -> return (i + 1, i)
 
-    -- The client is responsible for taking this MVar before trying to connect
-    -- again.
-    putMVar socketClosed (WaitSocketFree socketFree)
+    -- Wait 100ms after the socket closes, to (hopefully) ensure that the client
+    -- knows the connection is closed, and sending on that socket will therefore
+    -- fail.
+    putMVar socketClosed (WaitSocketFree (socketFree >> threadDelay 100000))
 
     when (count > 0) $ do
       -- The second, third, and fourth connections are accepted according to the
@@ -665,7 +666,6 @@ testReconnect = do
         -- On the third request the socket then closes.
         Right (Just CreatedNewConnection) <- tryIO $ decodeControlHeader <$> recvWord32 sock
         connId <- recvWord32 sock :: IO LightweightConnectionId
-        return ()
 
         when (count > 2) $ do
           -- On the fourth request, a message is received and then the socket
@@ -685,46 +685,58 @@ testReconnect = do
     Right endpoint  <- newEndPoint transport
     let theirAddr = encodeEndPointAddress "127.0.0.1" serverPort 0
 
-    -- The second attempt will fail because the server closes the socket before we can request a connection
     takeMVar endpointCreated
-    -- This might time out or not, depending on whether the server closes the
-    -- socket before or after we can send the RequestConnectionId request
-    resultConnect <- timeout 500000 $ connect endpoint theirAddr ReliableOrdered defaultConnectHints
-    case resultConnect of
-      Nothing -> return ()
-      Just (Left (TransportError ConnectFailed _)) -> return ()
-      Just (Left err) -> throwIO err
-      Just (Right _) -> throwIO $ userError "testConnect: unexpected connect success"
 
+    -- First attempt: fails because the server closes the socket without
+    -- doing the handshake.
+    resultConnect <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
+    case resultConnect of
+      Left (TransportError ConnectFailed _) -> return ()
+      Left err -> throwIO err
+      Right _ -> throwIO $ userError "testConnect: unexpected connect success"
     WaitSocketFree wait <- takeMVar socketClosed
     wait
 
-    -- Second attempt: server accepts but then closes the socket. We expect
-    -- either a failed connection, or a subsequent send to fail.
-    resultConnect <- timeout 500000 $ connect endpoint theirAddr ReliableOrdered defaultConnectHints
-    -- Here we must be sure that the socket has closed.
+    -- Second attempt: server accepts the connection but then closes the socket.
+    -- We expect a failed connection if the socket is closed *before*
+    -- CreatedNewConnection is sent, or a successful connection such that a
+    -- subsequent send will fail in case CreatedNewConnection was sent before
+    -- the close.
+    resultConnect <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
+    -- We must be sure that the socket has closed before trying to send.
     WaitSocketFree wait <- takeMVar socketClosed
     wait
     case resultConnect of
-      Nothing -> return ()
-      Just (Left (TransportError ConnectFailed _)) -> return ()
-      Just (Left err) -> throwIO err
-      Just (Right c) -> do
-        ev <- send c ["foo"]
+      Left (TransportError ConnectFailed _) -> return ()
+      Left err -> throwIO err
+      Right c -> do
+        ev <- send c ["ping"]
         case ev of
           Left _ -> return ()
           Right _ -> throwIO $ userError "testConnect: unexpected send success"
 
+    -- In any case, since a heavyweight connection was made, we'll get a
+    -- connection lost event.
     ErrorEvent (TransportError (EventConnectionLost _) _) <- receive endpoint
 
-    -- The third attempt succeeds
-    Right conn1 <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
-
-    -- But a send will fail because the server has closed the connection again
+    -- Third attempt: server accepts the heavyweight and the lightweight
+    -- connection (CreatedNewConnection) but then closes the socket.
+    -- The connection must succeed, but sending after the socket is closed
+    -- must fail.
+    resultConnect <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
+    -- Wait until close before trying to send.
     WaitSocketFree wait <- takeMVar socketClosed
     wait
-    threadDelay 100000
-    Left (TransportError SendFailed _) <- send conn1 ["ping"]
+    case resultConnect of
+      Left err -> throwIO err
+      Right c -> do
+        ev <- send c ["ping"]
+        case ev of
+          Left (TransportError SendFailed _) -> return ()
+          Left err -> throwIO err
+          Right _ -> throwIO $ userError "testConnect: unexpected send success"
+
+    ErrorEvent (TransportError (EventConnectionLost _) _) <- receive endpoint
 
     -- But a subsequent call to connect should reestablish the connection
     Right conn2 <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
