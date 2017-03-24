@@ -8,7 +8,18 @@
 {-# LANGUAGE MultiParamTypeClasses      #-}
 {-# LANGUAGE GADTs                      #-}
 {-# LANGUAGE RankNTypes                 #-}
-
+-----------------------------------------------------------------------------
+-- |
+-- Module      :  Control.Distributed.Process.FSM.Internal.Types
+-- Copyright   :  (c) Tim Watson 2017
+-- License     :  BSD3 (see the file LICENSE)
+--
+-- Maintainer  :  Tim Watson <watson.timothy@gmail.com>
+-- Stability   :  experimental
+-- Portability :  non-portable (requires concurrency)
+--
+-- Types and common functionality.
+-----------------------------------------------------------------------------
 module Control.Distributed.Process.FSM.Internal.Types
  ( apply
  , applyTransitions
@@ -219,11 +230,11 @@ stateData = ST.get >>= return . stData
 currentMessage :: forall s d . FSM s d P.Message
 currentMessage = ST.get >>= return . fromJust . stInput
 
--- | Retrieve the "currentMessage" and attempt to decode it to type @m@
+-- | Retrieve the 'currentMessage' and attempt to decode it to type @m@
 currentInput :: forall s d m . (Serializable m) => FSM s d (Maybe m)
 currentInput = currentMessage >>= \m -> lift (unwrapMessage m :: Process (Maybe m))
 
--- | A a "Transition" to be evaluated once the current pass completes.
+-- | Add a "Transition" to be evaluated once the current pass completes.
 addTransition :: Transition s d -> FSM s d ()
 addTransition t = ST.modify (\s -> fromJust $ enqueue s (Just t) )
 

@@ -2,7 +2,20 @@
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE PatternGuards              #-}
 {-# LANGUAGE RecordWildCards            #-}
-
+-----------------------------------------------------------------------------
+-- |
+-- Module      :  Control.Distributed.Process.FSM.Internal.Process
+-- Copyright   :  (c) Tim Watson 2017
+-- License     :  BSD3 (see the file LICENSE)
+--
+-- Maintainer  :  Tim Watson <watson.timothy@gmail.com>
+-- Stability   :  experimental
+-- Portability :  non-portable (requires concurrency)
+--
+-- The /Managed Process/ implementation of an FSM process.
+--
+-- See "Control.Distributed.Process.ManagedProcess".
+-----------------------------------------------------------------------------
 module Control.Distributed.Process.FSM.Internal.Process
  ( start
  , run

@@ -395,7 +395,7 @@ module Control.Distributed.Process.FSM
  , (~@)
  , (~?)
  , (^.)
-   -- * Useful / Important Types and Utilities
+   -- * Types and Utilities
  , Event
  , FSM
  , lift
@@ -426,8 +426,8 @@ import Control.Distributed.Process.FSM.Internal.Types
 import Control.Distributed.Process.Serializable (Serializable)
 import Prelude hiding ((*>))
 
--- | Fluent way to say "yield" when you're building an initial state up (e.g.
--- whilst utilising "begin").
+-- | Fluent way to say 'yield' when you're building an initial state up (e.g.
+-- whilst utilising 'begin').
 initState :: forall s d . s -> d -> Step s d
 initState = yield
 
@@ -437,13 +437,13 @@ yield :: forall s d . s -> d -> Step s d
 yield = Yield
 
 -- | Creates an @Event m@ for some "Serializable" type @m@. When passed to
--- functions that follow the combinator pattern (such as "await"), will ensure
+-- functions that follow the combinator pattern (such as 'await'), will ensure
 -- that only messages of type @m@ are processed by the handling expression.
 --
 event :: (Serializable m) => Event m
 event = Wait
 
--- | A /prioritised/ version of "event". The server will prioritise messages
+-- | A /prioritised/ version of 'event'. The server will prioritise messages
 -- matching the "Event" type @m@.
 --
 -- See "Control.Distributed.Process.ManagedProcess.Server.Priority" for more
@@ -452,8 +452,8 @@ pevent :: (Serializable m) => Int -> Event m
 pevent = WaitP . setPriority
 
 -- | Evaluates to a "Transition" that instructs the process to enter the given
--- state @s@. All expressions following evaluation of "enter" will see
--- "currentState" containing the updated value, and any future events will be
+-- state @s@. All expressions following evaluation of 'enter' will see
+-- 'currentState' containing the updated value, and any future events will be
 -- processed in the new state.
 --
 -- In addition, should any events/messages have been postponed in a previous
@@ -486,7 +486,7 @@ putBack = return PutBack
 nextEvent :: forall s d m . (Serializable m) => m -> FSM s d (Transition s d)
 nextEvent m = return $ Push (wrapMessage m)
 
--- | As "nextEvent", but places the message at the back of the queue by default.
+-- | As 'nextEvent', but places the message at the back of the queue by default.
 --
 -- Mailbox priority ordering will still take precedence over insertion order.
 --
@@ -502,7 +502,7 @@ resume = return Remain
 -- sending its event to the process.
 --
 -- The expression used to produce the reply message must reside in the "FSM" monad.
--- The reply is /not/ sent immediately upon evaluating "reply", however if the
+-- The reply is /not/ sent immediately upon evaluating 'reply', however if the
 -- sender supplied a reply channel, the reply is guaranteed to be sent prior to
 -- evaluating the next pass.
 --
@@ -532,7 +532,7 @@ stop = return . Stop
 --
 -- This expression functions as a "Transition" and is not applied immediately.
 -- To /see/ state data changes in subsequent expressions during a single pass,
--- use "yield" instead.
+-- use 'yield' instead.
 set :: forall s d . (d -> d) -> FSM s d (Transition s d)
 set f = return $ Eval (processState >>= \s -> setProcessState $ s { stData = (f $ stData s) })
 
@@ -543,12 +543,12 @@ set_ f = set f >>= addTransition
 --
 -- This expression functions as a "Transition" and is not applied immediately.
 -- To /see/ state data changes in subsequent expressions during a single pass,
--- use "yield" instead.
+-- use 'yield' instead.
 put :: forall s d . d -> FSM s d ()
 put d = addTransition $ Eval $ do
   processState >>= \s -> setProcessState $ s { stData = d }
 
--- | Synonym for "pick"
+-- | Synonym for 'pick'
 (.|) :: Step s d -> Step s d -> Step s d
 (.|) = Alternate
 infixr 9 .|
@@ -558,7 +558,7 @@ infixr 9 .|
 pick :: Step s d -> Step s d -> Step s d
 pick = Alternate
 
--- | Synonym for "begin"
+-- | Synonym for 'begin'
 (^.) :: Step s d -> Step s d -> Step s d
 (^.) = Init
 infixr 9 ^.
@@ -568,7 +568,7 @@ infixr 9 ^.
 begin :: Step s d -> Step s d -> Step s d
 begin = Init
 
--- | Synonym for "join".
+-- | Synonym for 'join'.
 (|>) :: Step s d -> Step s d -> Step s d
 (|>) = Sequence
 infixr 9 |>
@@ -582,10 +582,11 @@ join = Sequence
 (<|) = flip Sequence
 -- infixl 9 <|
 
+-- | Join from right to left.
 reverseJoin :: Step s d -> Step s d -> Step s d
 reverseJoin = flip Sequence
 
--- | Synonym for "await"
+-- | Synonym for 'await'
 (~>) :: forall s d m . (Serializable m) => Event m -> Step s d -> Step s d
 (~>) = Await
 infixr 9 ~>
@@ -595,27 +596,27 @@ infixr 9 ~>
 await :: forall s d m . (Serializable m) => Event m -> Step s d -> Step s d
 await = Await
 
--- | Synonym for "safeWait"
+-- | Synonym for 'safeWait'
 (*>) :: forall s d m . (Serializable m) => Event m -> Step s d -> Step s d
 (*>) = SafeWait
 infixr 9 *>
 
--- | A /safe/ version of "await". The FSM will place a @check $ safe@ filter
+-- | A /safe/ version of 'await'. The FSM will place a @check $ safe@ filter
 -- around all messages matching the input type @m@ of the "Event" argument.
 -- Should an exit signal interrupt the current pass, the input event will be
 -- re-tried if an exit handler can be found for the exit-reason.
 --
--- In all other respects, this API behaves exactly like "await"
+-- In all other respects, this API behaves exactly like 'await'
 safeWait :: forall s d m . (Serializable m) => Event m -> Step s d -> Step s d
 safeWait = SafeWait
 
--- | Synonym for "atState"
+-- | Synonym for 'atState'
 (~@) :: forall s d . (Eq s) => s -> FSM s d (Transition s d) -> Step s d
 (~@) = Perhaps
 infixr 9 ~@
 
 -- | Given a state @s@ and an expression that evaluates to a  "Transition",
--- proceed with evaluation only if the "currentState" is equal to @s@.
+-- proceed with evaluation only if the 'currentState' is equal to @s@.
 atState :: forall s d . (Eq s) => s -> FSM s d (Transition s d) -> Step s d
 atState = Perhaps
 
@@ -629,11 +630,11 @@ whenStateIs s = s ~@ resume
 allState :: forall s d m . (Serializable m) => (m -> FSM s d (Transition s d)) -> Step s d
 allState = Always
 
--- | Synonym for "allState".
+-- | Synonym for 'allState'.
 always :: forall s d m . (Serializable m) => (m -> FSM s d (Transition s d)) -> Step s d
 always = Always
 
--- | Synonym for "matching".
+-- | Synonym for 'matching'.
 (~?) :: forall s d m . (Serializable m) => (m -> Bool) -> (m -> FSM s d (Transition s d)) -> Step s d
 (~?) = Matching
 

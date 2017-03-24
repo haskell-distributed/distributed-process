@@ -44,6 +44,8 @@ import Control.Distributed.Process.FSM.Internal.Types (baseErr)
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Monad.Catch (bracket)
 
+-- | Initiate a 'call' and if an exit signal arrives, return it as
+-- @Left reason@, otherwise evaluate to @Right result@.
 safeCall :: (Serializable m, Serializable r)
          => ProcessId
          -> m
@@ -57,6 +59,9 @@ safeCall pid msg = do
     weFailed a b (ExitOther _) = a == b
     weFailed _ _ _             = False
 
+-- | As 'call' but times out if the response does not arrive without the
+-- specified "TimeInterval". If the call times out, the caller's mailbox
+-- is not affected (i.e. no message will arrive at a later time).
 callTimeout :: (Serializable m, Serializable r)
             => ProcessId
             -> m
@@ -77,6 +82,11 @@ callTimeout pid msg ti = bracket (monitor pid) unmonitor $ \mRef -> do
                     Just r -> return $ Just r
                     _      -> die $ ExitOther $ baseErr ++ ".Client:InvalidResponseType"
 
+-- | Make a synchronous /call/ to the FSM process at "ProcessId". If a
+-- "Step" exists that upon receiving an event of type @m@ will eventually
+-- reply to the caller, the reply will be the result of evaluating this
+-- function. If not, or if the types do not match up, this function will
+-- block indefinitely.
 call :: (Serializable m, Serializable r) => ProcessId -> m -> Process r
 call pid msg = bracket (monitor pid) unmonitor $ \mRef -> do
   (sp, rp) <- newChan :: Process (SendPort Message, ReceivePort Message)
