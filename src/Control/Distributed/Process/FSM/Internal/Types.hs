@@ -3,6 +3,7 @@
 {-# LANGUAGE PatternGuards              #-}
 {-# LANGUAGE RecordWildCards            #-}
 {-# LANGUAGE DeriveDataTypeable         #-}
+{-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses      #-}
 {-# LANGUAGE GADTs                      #-}
@@ -14,6 +15,7 @@ module Control.Distributed.Process.FSM.Internal.Types
  , State(..)
  , Transition(..)
  , Event(..)
+ , Stopping(..)
  , resolveEvent
  , Step(..)
  , FSM(..)
@@ -69,6 +71,7 @@ import qualified Control.Monad.State.Strict as ST
  , lift
  , runStateT
  )
+import Data.Binary
 import Data.Maybe (fromJust, isJust)
 import Data.Sequence
  ( Seq
@@ -80,6 +83,7 @@ import Data.Sequence
 import qualified Data.Sequence as Q (null)
 import Data.Typeable (Typeable, typeOf)
 import Data.Tuple (swap, uncurry)
+import GHC.Generics
 
 -- | The internal state of an FSM process.
 data State s d = (Show s, Eq s) =>
@@ -129,6 +133,12 @@ data Event m where
   Wait    :: (Serializable m) => Event m
   WaitP   :: (Serializable m) => Priority () -> Event m
   Event   :: (Serializable m) => m -> Event m
+
+-- | Event type wrapper passed to the FSM whenever we're shutting down.
+data Stopping = Stopping { reason  :: ExitReason -- ^ The "ExitReason"
+                         , errored :: Bool  -- ^ Was the shutdown triggered by an error
+                         } deriving (Typeable, Generic, Show)
+instance Binary Stopping where
 
 -- | Resolve an event into a priority setting, for insertion into a priority queue.
 resolveEvent :: forall s d m . (Serializable m)

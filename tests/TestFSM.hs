@@ -67,8 +67,8 @@ waitForDown ref =
 switchFsm :: Step State StateData
 switchFsm = startState
          ^. ((event :: Event ButtonPush)
-              ~> (  (On  ~@ (set (+1) >> enter Off)) -- on => off => on is possible with |> here...
-                 .| (Off ~@ (set (+1) >> enter On))
+              ~> (  (On  ~@ (set_ (+1) >> enter Off)) -- on => off => on is possible with |> here...
+                 .| (Off ~@ (set_ (+1) >> enter On))
                  ) |> (reply currentState))
          .| ((event :: Event Stop)
               ~> (  ((== ExitNormal) ~? (\_ -> timeout (seconds 3) Reset))
@@ -80,11 +80,17 @@ switchFsm = startState
          .| (event :: Event Reset)
               ~> (allState $ \Reset -> put initCount >> enter Off)
 
+pushButton :: ProcessId -> Process State
+pushButton pid = call pid (() :: ButtonPush)
+
+check :: ProcessId -> Process StateData
+check pid = call pid Check
+
 switchFsmAlt :: Step State StateData
 switchFsmAlt =
   begin startState $
-    pick (await (event :: Event ButtonPush) ((pick (atState On  (set (+1) >> enter Off))
-                                                   (atState Off (set (+1) >> enter On))) `join` (reply currentState)))
+    pick (await (event :: Event ButtonPush) ((pick (atState On  (set_ (+1) >> enter Off))
+                                                   (atState Off (set_ (+1) >> enter On))) `join` (reply currentState)))
          (pick (await (event :: Event Stop) (pick (matching (== ExitNormal) (\_ -> timeout (seconds 3) Reset))
                                                   (matching (const True) stop)))
                (pick (await (event :: Event Check) (reply stateData))
@@ -227,13 +233,13 @@ quirkyOperators = do
 
 walkingAnFsmTree :: ProcessId -> Process ()
 walkingAnFsmTree pid = do
-  mSt <- call pid (() :: ButtonPush) :: Process State
+  mSt <- pushButton pid
   mSt `shouldBe` equalTo On
 
-  mSt' <- call pid (() :: ButtonPush) :: Process State
+  mSt' <- pushButton pid
   mSt' `shouldBe` equalTo Off
 
-  mCk <- call pid Check :: Process StateData
+  mCk <- check pid
   mCk `shouldBe` equalTo (2 :: StateData)
 
   -- verify that the process implementation turns exit signals into handlers...
@@ -242,10 +248,10 @@ walkingAnFsmTree pid = do
   alive <- isProcessAlive pid
   alive `shouldBe` equalTo True
 
-  mCk2 <- call pid Check :: Process StateData
+  mCk2 <- check pid
   mCk2 `shouldBe` equalTo (0 :: StateData)
 
-  mrst' <- call pid (() :: ButtonPush) :: Process State
+  mrst' <- pushButton pid
   mrst' `shouldBe` equalTo On
 
   exit pid ExitShutdown

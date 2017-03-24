@@ -15,19 +15,23 @@ import Control.Distributed.Process
  , sendChan
  , spawnLocal
  , handleMessage
+ , wrapMessage
  )
 import qualified Control.Distributed.Process as P
  ( Message
  )
+import Control.Distributed.Process.Extras (ExitReason)
 import Control.Distributed.Process.Extras.Time (Delay(Infinity))
 import Control.Distributed.Process.FSM.Internal.Types hiding (liftIO)
 import Control.Distributed.Process.ManagedProcess
  ( ProcessDefinition(..)
  , PrioritisedProcessDefinition(filters)
  , Action
+ , ProcessAction
  , InitHandler
  , InitResult(..)
  , DispatchFilter
+ , ExitState(..)
  , defaultProcess
  , prioritised
  )
@@ -44,6 +48,7 @@ import Control.Distributed.Process.ManagedProcess.Internal.Types
  ( ExitSignalDispatcher(..)
  , DispatchPriority(PrioritiseInfo)
  )
+import Control.Monad (void)
 import Data.Maybe (isJust)
 import qualified Data.Sequence as Q (empty)
 
@@ -69,8 +74,9 @@ processDefinition prog =
       infoHandlers = [ handleInfo handleRpcRawInputs
                      , handleRaw  handleAllRawInputs
                      ]
-    , exitHandlers = [ ExitSignalDispatcher (\s _ m -> handleAllRawInputs s m >>= return . Just)
+    , exitHandlers = [ ExitSignalDispatcher (\s _ m -> handleExitReason s m)
                      ]
+    , shutdownHandler = handleShutdown
     } (walkPFSM prog [])) { filters = (walkFSM prog []) }
 
 -- we should probably make a Foldable (Step s d) for these
@@ -111,6 +117,21 @@ handleAllRawInputs :: forall s d. (Show s) => State s d
 handleAllRawInputs st@State{..} msg =
   handleInput msg $ st { stReply = noOp, stTrans = Q.empty, stInput = Just msg }
 
+handleExitReason :: forall s d. (Show s) => State s d
+                   -> P.Message
+                   -> Process (Maybe (ProcessAction (State s d)))
+handleExitReason st@State{..} msg =
+  let st' = st { stReply = noOp, stTrans = Q.empty, stInput = Just msg }
+  in tryHandleInput st' msg
+
+handleShutdown :: forall s d . ExitState (State s d) -> ExitReason -> Process ()
+handleShutdown es er
+  | (CleanShutdown s) <- es = shutdownAux s False
+  | (LastKnown     s) <- es = shutdownAux s True
+  where
+    shutdownAux st@State{..} ef =
+      void $ tryHandleInput st (wrapMessage $ Stopping er ef)
+
 noOp :: P.Message -> Process ()
 noOp = const $ return ()
 
@@ -118,8 +139,17 @@ handleInput :: forall s d . (Show s)
             => P.Message
             -> State s d
             -> Action (State s d)
-handleInput msg st@State{..} = do
+handleInput msg st = do
+  res <- tryHandleInput st msg
+  case res of
+    Just act -> return act
+    Nothing  -> continue st
+
+tryHandleInput :: forall s d. (Show s) => State s d
+                  -> P.Message
+                  -> Process (Maybe (ProcessAction (State s d)))
+tryHandleInput st@State{..} msg = do
   res <- apply st msg stProg
   case res of
-    Just res' -> applyTransitions res' []
-    Nothing   -> continue st
+    Just res' -> applyTransitions res' [] >>= return . Just
+    Nothing   -> return Nothing
