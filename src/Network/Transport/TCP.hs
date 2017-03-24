@@ -934,7 +934,7 @@ handleConnectionRequest transport socketClosed sock = handle handleException $ d
     go :: LocalEndPoint -> EndPointAddress -> IO ()
     go ourEndPoint theirAddress = do
       -- This runs in a thread that will never be killed
-      mEndPointAndSocket <- handle ((>> return Nothing) . handleException) $ do
+      mEndPoint <- handle ((>> return Nothing) . handleException) $ do
         resetIfBroken ourEndPoint theirAddress
         (theirEndPoint, isNew) <-
           findRemoteEndPoint ourEndPoint theirAddress RequestedByThem Nothing
@@ -959,14 +959,13 @@ handleConnectionRequest transport socketClosed sock = handle handleException $ d
                         }
             sendMany sock [encodeWord32 (encodeConnectionRequestResponse ConnectionRequestAccepted)]
             resolveInit (ourEndPoint, theirEndPoint) (RemoteEndPointValid vst)
-            return $ Just (theirEndPoint, sock)
+            return (Just theirEndPoint)
       -- If we left the scope of the exception handler with a return value of
       -- Nothing then the socket is already closed; otherwise, the socket has
       -- been recorded as part of the remote endpoint. Either way, we no longer
       -- have to worry about closing the socket on receiving an asynchronous
       -- exception from this point forward.
-      forM_ mEndPointAndSocket $ \(theirEndPoint, sock) ->
-        handleIncomingMessages (transportParams transport) (ourEndPoint, theirEndPoint) sock
+      forM_ mEndPoint $ handleIncomingMessages (transportParams transport) . (,) ourEndPoint
 
     handleException :: SomeException -> IO ()
     handleException ex = do
@@ -1007,11 +1006,28 @@ handleConnectionRequest transport socketClosed sock = handle handleException $ d
 --
 -- Returns only if the remote party closes the socket or if an error occurs.
 -- This runs in a thread that will never be killed.
-handleIncomingMessages :: TCPParameters -> EndPointPair -> N.Socket -> IO ()
-handleIncomingMessages params (ourEndPoint, theirEndPoint) sock =
-  tryIO (go sock) >>= either (prematureExit sock) return
-  where
+handleIncomingMessages :: TCPParameters -> EndPointPair -> IO ()
+handleIncomingMessages params (ourEndPoint, theirEndPoint) = do
+    mSock <- withMVar theirState $ \st ->
+      case st of
+        RemoteEndPointInvalid _ ->
+          relyViolation (ourEndPoint, theirEndPoint)
+            "handleIncomingMessages (invalid)"
+        RemoteEndPointInit _ _ _ ->
+          relyViolation (ourEndPoint, theirEndPoint)
+            "handleIncomingMessages (init)"
+        RemoteEndPointValid ep ->
+          return . Just $ remoteSocket ep
+        RemoteEndPointClosing _ ep ->
+          return . Just $ remoteSocket ep
+        RemoteEndPointClosed ->
+          return Nothing
+        RemoteEndPointFailed _ ->
+          return Nothing
 
+    forM_ mSock $ \sock ->
+      tryIO (go sock) >>= either (prematureExit sock) return
+  where
     -- Dispatch
     --
     -- If a recv throws an exception this will be caught top-level and
@@ -1442,7 +1458,7 @@ setupRemoteEndPoint params (ourEndPoint, theirEndPoint) connTimeout = do
     -- We handle incoming messages in a separate thread, and are careful to
     -- always close the socket once that thread is finished.
     forM_ didAccept $ \(socketClosed, sock) -> void $ forkIO $
-      handleIncomingMessages params (ourEndPoint, theirEndPoint) sock
+      handleIncomingMessages params (ourEndPoint, theirEndPoint)
       `finally`
       (tryCloseSocket sock `finally` putMVar socketClosed ())
     return $ either (const Nothing) (Just . (\(_,_,x) -> x)) result
