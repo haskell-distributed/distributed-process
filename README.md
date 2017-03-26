@@ -9,13 +9,14 @@ Github: [![GitHub tag](https://img.shields.io/github/tag/haskell-distributed/dis
 
 Hackage: [![Releases](https://img.shields.io/hackage/v/distributed-process-fsm.svg)](https://hackage.haskell.org/package/distributed-process-fsm) [![Dependencies](https://img.shields.io/hackage-deps/v/distributed-process-fsm.svg)](http://packdeps.haskellers.com/feed?needle=distributed-process-fsm)
 
-Stackage: [![LTS 6](https://www.stackage.org/package/distributed-process-fsm/badge/lts-6)](http://stackage.org/lts-6/package/distributed-process-fsm)
-[![NIGHTLY](https://www.stackage.org/package/distributed-process-fsm/badge/nightly)](http://stackage.org/nightly/package/distributed-process-fsm)
+Stackage: [![NIGHTLY](https://www.stackage.org/package/distributed-process-fsm/badge/nightly)](http://stackage.org/nightly/package/distributed-process-fsm)
 
 ### Getting Help / Raising Issues
 [![Slack Sign Up/In](https://rauchg-slackin-dxinpkuzrg.now.sh/badge.svg)](https://rauchg-slackin-dxinpkuzrg.now.sh/) [![Slack Sign Up/In](https://img.shields.io/badge/Freenode-%23haskell--distributed-ff69b4.svg)]()
 
 As well as our Slack channels (you'll need to sign up, but there is a form for doing so) and #haskell-distributed on freenode, you can contact the distributed-haskell@googlegroups.com mailing list for help and comments. Please also see http://haskell-distributed.github.com for documentation, user guides, tutorials and assistance.
+
+If you're struggling to get onto slack or gitter, please submit an issue and we'll respond asap.
 
 Visit the [bug tracker](https://github.com/haskell-distributed/distributed-process-client-server/issues) to submit issues.
 
