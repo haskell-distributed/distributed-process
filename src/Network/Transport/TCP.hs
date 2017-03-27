@@ -929,7 +929,12 @@ handleConnectionRequest transport socketClosed (sock, sockAddr) = handle handleE
               -- Clear the socket of the unsupported handshake data.
               _ <- recvExact sock handshakeLength
               handleVersioned
-    handleVersioned
+    -- The handshake must complete within the optional timeout duration.
+    let connTimeout = transportConnectTimeout (transportParams transport)
+    outcome <- maybe (fmap Just) System.Timeout.timeout connTimeout handleVersioned
+    case outcome of
+      Nothing -> throwIO (userError "handleConnectionRequest: timed out")
+      Just () -> return ()
 
   where
 
