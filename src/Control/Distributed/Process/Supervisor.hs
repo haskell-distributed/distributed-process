@@ -24,26 +24,20 @@
 -- hierarchical process structure called a supervision tree, which provides
 -- a convenient structure for building fault tolerant software.
 --
--- Unless otherwise stated, all functions in this module will cause the calling
--- process to exit unless the specified supervisor process exists.
+-- Unless otherwise stated, all client functions in this module will cause the
+-- calling process to exit unless the specified supervisor process can be resolved.
 --
 -- [Supervision Principles]
 --
 -- A supervisor is responsible for starting, stopping and monitoring its child
 -- processes so as to keep them alive by restarting them when necessary.
 --
--- The supervisors children are defined as a list of child specifications
--- (see 'ChildSpec'). When a supervisor is started, its children are started
+-- The supervisor's children are defined as a list of child specifications
+-- (see "ChildSpec"). When a supervisor is started, its children are started
 -- in left-to-right (insertion order) according to this list. When a supervisor
--- stops (or exits for any reason), it will stop its children in reverse
--- (i.e., from right-to-left of insertion) order. Child specs can be added to
--- the supervisor after it has started, either on the left or right of the
--- existing list of children.
---
--- When the supervisor spawns its child processes, they are always linked to
--- their parent (i.e., the supervisor), therefore even if the supervisor is
--- killed abruptly by an asynchronous exception, the children will still be
--- taken down with it, though somewhat less ceremoniously in that case.
+-- stops (or exits for any reason), it will stop all its children before exiting.
+-- Child specs can be added to the supervisor after it has started, either on
+-- the left or right of the existing list of child specs.
 --
 -- [Restart Strategies]
 --
@@ -191,7 +185,15 @@
 -- data about the child process - usually this is a newtype wrapper used by
 -- clients to communicate with the process.
 --
--- Finally, a third instance provides a shortcut to @staticClosure@, for consumers
+-- When the supervisor spawns its child processes, they should be linked to their
+-- parent (i.e., the supervisor), such that even if the supervisor is killed
+-- abruptly by an asynchronous exception, the children will still be taken down
+-- with it, though somewhat less ceremoniously in that case. This behaviour is
+-- injected by the supervisor for any "ChildStart" built on @Closure (Process ())@
+-- automatically, but the /handle/ based approach requires that the @Closure@
+-- responsible for spawning does the linking itself.
+--
+-- Finally, we provide a simple shortcut to @staticClosure@, for consumers
 -- who've manually registered with the /remote table/ and don't with to use
 -- tempate haskell (e.g. users of the Explicit closures API).
 --
