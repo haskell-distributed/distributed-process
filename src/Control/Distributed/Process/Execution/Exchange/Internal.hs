@@ -243,10 +243,10 @@ processDefinition _ tc cc = do
   liftIO $ putMVar tc $ channelControlPort cc
   return $
     defaultProcess {
-        externHandlers  = [ handleControlChan cc handleControlMessage ]
-      , infoHandlers    = [ handleInfo handleMonitor
-                          , handleRaw convertToCC
-                          ]
+        externHandlers = [ handleControlChan cc handleControlMessage ]
+      , infoHandlers   = [ handleInfo handleMonitor
+                         , handleRaw convertToCC
+                         ]
       } :: Process (ProcessDefinition (ExchangeType s))
 
 handleMonitor :: forall s.
