@@ -190,6 +190,9 @@ hibernate d s = return $ ProcessHibernate d s
 hibernate_ :: StatelessHandler s TimeInterval
 hibernate_ d = return . ProcessHibernate d
 
+-- | The server loop will execute against the supplied 'ProcessDefinition', allowing
+-- the process to change its behaviour (in terms of message handlers, exit handling,
+-- termination, unhandled message policy, etc)
 become :: forall s . ProcessDefinition s -> s -> Action s
 become def st = return $ ProcessBecome def st
 

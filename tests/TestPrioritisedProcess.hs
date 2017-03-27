@@ -12,13 +12,18 @@ import Control.Concurrent.STM.TQueue
  )
 import Control.Exception (SomeException)
 import Control.DeepSeq (NFData)
-import Control.Distributed.Process hiding (call, send, catch, sendChan)
+import Control.Distributed.Process hiding (call, send, catch, sendChan, wrapMessage)
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Extras hiding (__remoteTable, monitor)
 import Control.Distributed.Process.Async hiding (check)
-import Control.Distributed.Process.ManagedProcess hiding (reject)
+import Control.Distributed.Process.ManagedProcess hiding (reject, Message)
 import qualified Control.Distributed.Process.ManagedProcess.Server.Priority as P (Message)
-import Control.Distributed.Process.ManagedProcess.Server.Priority
+import Control.Distributed.Process.ManagedProcess.Server.Priority hiding (Message)
+import qualified Control.Distributed.Process.ManagedProcess.Server.Gen as Gen
+ ( dequeue
+ , continue
+ , lift
+ )
 import Control.Distributed.Process.SysTest.Utils
 import Control.Distributed.Process.Extras.Time
 import Control.Distributed.Process.Extras.Timer hiding (runAfter)
@@ -29,7 +34,7 @@ import Control.Monad.Catch (catch)
 import Data.Binary
 import Data.Either (rights)
 import Data.List (isInfixOf)
-import Data.Maybe (isNothing)
+import Data.Maybe (isNothing, isJust)
 import Data.Typeable (Typeable)
 
 #if ! MIN_VERSION_base(4,6,0)
@@ -240,6 +245,37 @@ launchFilteredServer us = do
 
   pid <- spawnLocal $ pserve 0 (\c -> return $ InitOk c Infinity) p'
   return (pid, cp)
+
+testStupidInfiniteLoop :: TestResult Bool -> Process ()
+testStupidInfiniteLoop result = do
+  let def = statelessProcess {
+                  apiHandlers = [
+                    handleCast (\_ sp -> eval $ do q <- processQueue
+                                                   m <- Gen.dequeue
+                                                   Gen.lift $ sendChan sp (length q, m)
+                                                   Gen.continue)
+                  ]
+                , infoHandlers = [
+                    handleInfo (\_ (m :: String) -> eval $ do enqueue (wrapMessage m)
+                                                              Gen.continue)
+                  ]
+                } :: ProcessDefinition ()
+
+  let prio = def `prioritised` []
+  pid <- spawnLocal $ pserve () (statelessInit Infinity) prio
+
+  -- this message should create an infinite loop
+  send pid "fooboo"
+
+  (sp, rp) <- newChan :: Process (SendPort (Int, Maybe Message), ReceivePort (Int, Maybe Message))
+
+  cast pid sp
+  (i, m) <- receiveChan rp
+
+  cast pid sp
+  (i', m') <- receiveChan rp
+
+  stash result $ (i == 1 && isJust m && i' == 0 && isNothing m')
 
 testFilteringBehavior :: TestResult Bool -> Process ()
 testFilteringBehavior result = do
@@ -587,6 +623,9 @@ tests transport = do
           , testCase "Swapping ProcessDefinitions at runtime"
              (delayedAssertion "expected our handler to exist in the new handler list"
               localNode True testServerSwap)
+          , testCase "Accessing the internal process implementation"
+             (delayedAssertion "it should allow us to modify the internal q"
+              localNode True testStupidInfiniteLoop)
          ]
       ]
 

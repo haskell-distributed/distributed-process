@@ -368,6 +368,45 @@
 -- abruptly. Once again, supervision hierarchies are a better way to ensure
 -- consistent cleanup occurs when valued resources are held by a process.
 --
+-- [Filters, pre-processing, and safe handlers]
+--
+-- A prioritised process can take advantage of filters, which enable the server
+-- to pre-process messages, reject them (based on the message itself, or the
+-- server's state), and mark classes of message as requiring /safe/ handling.
+--
+-- Assuming a 'PrioritisedProcessDefinition' that holds its state as an 'Int',
+-- here are some simple applications of filters:
+--
+-- >   let rejectUnchecked =
+-- >        rejectApi Foo :: Int -> P.Message String String -> Process (Filter Int)
+-- >
+-- >     filters = [
+-- >       store  (+1)
+-- >     , ensure (>0)
+-- >
+-- >     , check $ api_ (\(s :: String) -> return $ "checked-" `isInfixOf` s) rejectUnchecked
+-- >     , check $ info (\_ (_ :: MonitorRef, _ :: ProcessId) -> return False) $ reject Foo
+-- >     , refuse ((> 10) :: Int -> Bool)
+-- >     ]
+--
+-- We can store/update our state, ensure our state is in a valid condition,
+-- check api and info messages, and refuse messages using simple predicates.
+-- Messages cannot be modified by filters, not can reply data.
+--
+-- A 'safe' filter is a means to instruct the prioritised managed process loop
+-- not to dequeue the current message from the internal priority queue until a
+-- handler has successfully matched and run against it (without an exception,
+-- either synchronous or asynchronous) to completion. Messages marked thus, will
+-- remain in the priority queue even in the face of exit signals, which means that
+-- if the server process code handles and swallows them, it will begin re-processing
+-- the last message a second time.
+--
+-- It is important to recognise that the 'safe' filter does not act like a
+-- transaction. There are no checkpoints, nor facilities for rolling back actions
+-- on failure. If an exit signal terminates a handler for a message marked as
+-- 'safe' and an exit handler catches and swallows it, the handler (and all prior
+-- filters too) will be re-run in its entireity.
+--
 -- [Special Clients: Control Channels]
 --
 -- For advanced users and those requiring very low latency, a prioritised
@@ -460,7 +499,6 @@
 -- messages passed across Cloud Haskell's communication fabric vs. data shared
 -- via STM. This is true even when client(s) and server(s) reside on the same
 -- local node.
---
 --
 -- A server wishing to receive data via STM can do so using the @handleExternal@
 -- API. By way of example, here is a simple echo server implemented using STM:
@@ -597,21 +635,25 @@ module Control.Distributed.Process.ManagedProcess
   , defaultProcessWithPriorities
   , statelessProcess
   , statelessInit
-    -- * Server side callbacks
-  , module Control.Distributed.Process.ManagedProcess.Server
-    -- * Control channels
+  -- * Control channels
   , ControlChannel()
   , ControlPort()
   , newControlChan
   , channelControlPort
+    -- * Server side callbacks
+  , module Control.Distributed.Process.ManagedProcess.Server
     -- * Prioritised mailboxes
   , module P
+    -- * Low level and internal APIs & Process implementation
+  , module Gen
   ) where
 
 import Control.Distributed.Process hiding (call, Message)
 import Control.Distributed.Process.ManagedProcess.Client
 import Control.Distributed.Process.ManagedProcess.Server
+import qualified Control.Distributed.Process.ManagedProcess.Server.Restricted as R
 import qualified Control.Distributed.Process.ManagedProcess.Server.Priority as P hiding (reject)
+import qualified Control.Distributed.Process.ManagedProcess.Internal.GenProcess as Gen
 import Control.Distributed.Process.ManagedProcess.Internal.GenProcess
 import Control.Distributed.Process.ManagedProcess.Internal.Types hiding (runProcess)
 import Control.Distributed.Process.Extras (ExitReason(..))

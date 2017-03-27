@@ -90,7 +90,7 @@ import Control.Distributed.Process.Extras
   , Routable(..)
   , NFSerializable
   )
-import Control.Distributed.Process.Extras.Internal.Queue.PriorityQ
+import Control.Distributed.Process.ManagedProcess.Internal.PriorityQueue
   ( PriorityQ
   )
 import Control.Distributed.Process.Extras.Internal.Types
@@ -313,6 +313,7 @@ liftIO = lift . P.liftIO
 data ProcessAction s =
     ProcessSkip
   | ProcessActivity  (GenProcess s ()) -- ^ run the given activity
+  | ProcessExpression (GenProcess s (ProcessAction s)) -- ^ evaluate an expression
   | ProcessContinue  s              -- ^ continue with (possibly new) state
   | ProcessTimeout   Delay        s -- ^ timeout if no messages are received
   | ProcessHibernate TimeInterval s -- ^ hibernate for /delay/

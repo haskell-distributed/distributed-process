@@ -188,6 +188,8 @@ info_ :: forall s m . (Serializable m)
         -> FilterHandler s
 info_ c h = info (const $ c) h
 
+-- | As 'safe', but as applied to api messages (i.e. those originating from
+-- call as cast client interactions).
 apiSafe :: forall s m b . (Serializable m, Serializable b)
      => (s -> m -> Maybe b -> Bool)
      -> DispatchFilter s
@@ -201,6 +203,13 @@ apiSafe c = check $ HandleSafe (go c)
         Just (ChanMessage m' _) -> return $ c' s m' Nothing
         Nothing                 -> return False
 
+-- | Given a check expression, if it evaluates to @True@ for some input,
+-- then do not dequeue the message until after any matching handlers have
+-- successfully run, or the the unhandled message policy is chosen if none match.
+-- Thus, if an exit signal (async exception) terminates execution of a handler, and we
+-- have an installed exit handler which allows the process to continue running,
+-- we will retry the input in question since it has not been fully dequeued prior
+-- to the exit signal arriving.
 safe :: forall s m . (Serializable m)
      => (s -> m -> Bool)
      -> DispatchFilter s
@@ -212,6 +221,7 @@ safe c = check $ HandleSafe (go c)
         Just m' -> return $ c' s m'
         Nothing -> return False
 
+-- | As 'safe', but matches on a raw message.
 safely :: forall s . (s -> P.Message -> Bool) -> DispatchFilter s
 safely c = check $ HandleSafe $ \s m -> return (c s m)
 
@@ -251,7 +261,6 @@ refuse :: forall s m . (Serializable m)
 refuse c = check $ info (const $ \m -> return $ c m) (reject RejectedByServer)
 
 {-
-
 apiCheck :: forall s m r . (Serializable m, Serializable r)
       => (s -> Message m r -> Bool)
       -> (s -> Message m r -> Process (Filter s))

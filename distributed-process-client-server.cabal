@@ -56,9 +56,11 @@ library
                    Control.Distributed.Process.ManagedProcess.Server,
                    Control.Distributed.Process.ManagedProcess.Server.Priority,
                    Control.Distributed.Process.ManagedProcess.Server.Restricted,
+                   Control.Distributed.Process.ManagedProcess.Server.Gen,
                    Control.Distributed.Process.ManagedProcess.Timer,
                    Control.Distributed.Process.ManagedProcess.Internal.Types,
                    Control.Distributed.Process.ManagedProcess.Internal.GenProcess
+  other-modules:   Control.Distributed.Process.ManagedProcess.Internal.PriorityQueue
 
 test-suite ManagedProcessTests
   type:            exitcode-stdio-1.0

@@ -21,6 +21,7 @@ module Control.Distributed.Process.ManagedProcess.Internal.GenProcess
   , processDefinition
   , processFilters
   , processUnhandledMsgPolicy
+  , processQueue
   , gets
   , getAndModifyState
   , modifyState
@@ -30,8 +31,10 @@ module Control.Distributed.Process.ManagedProcess.Internal.GenProcess
   , peek
   , push
   , enqueue
+  , dequeue
   , addUserTimer
   , removeUserTimer
+  , eval
   , act
   , runAfter
   , evalAfter
@@ -80,11 +83,12 @@ import Control.Distributed.Process.ManagedProcess.Timer
   , matchRun
   )
 import Control.Distributed.Process.ManagedProcess.Internal.Types hiding (Message)
-import qualified Control.Distributed.Process.Extras.Internal.Queue.PriorityQ as Q
+import qualified Control.Distributed.Process.ManagedProcess.Internal.PriorityQueue as Q
   ( empty
   , dequeue
   , enqueue
   , peek
+  , toList
   )
 import Control.Distributed.Process.Extras
   ( ExitReason(..)
@@ -201,6 +205,10 @@ processState = gets procState
 processUnhandledMsgPolicy :: GenProcess s UnhandledMessagePolicy
 processUnhandledMsgPolicy = gets (unhandledMessagePolicy . procDef)
 
+-- | Returns a /read only view/ on the internal priority queue.
+processQueue :: GenProcess s [Message]
+processQueue = gets internalQ >>= return . Q.toList
+
 -- | The @Timer@ for the system timeout. See @drainTimeout@.
 systemTimeout :: GenProcess s Timer
 systemTimeout = gets sysTimeout
@@ -245,6 +253,10 @@ evalAfter d m s = act $ runAfter d m >> setProcessState s
 act :: forall s . GenProcess s () -> Action s
 act = return . ProcessActivity
 {-# WARNING act "This interface is intended for internal use only" #-}
+
+-- | Evaluate an expression in the 'GenProcess' monad.
+eval :: forall s . GenProcess s (ProcessAction s) -> Action s
+eval = return . ProcessExpression
 
 -- | Starts a timer and adds it as a /user timeout/.
 runAfter :: forall s m . (Serializable m) => TimeInterval -> m -> GenProcess s ()
@@ -418,6 +430,7 @@ recvQueue = do
 
     nextAction :: ProcessAction s -> GenProcess s ExitReason
     nextAction ac
+      | ProcessExpression expr   <- ac = expr >>= nextAction
       | ProcessActivity  act'    <- ac = act' >> recvQueue
       | ProcessSkip              <- ac = recvQueue
       | ProcessContinue  ps'     <- ac = recvQueueAux ps'
@@ -731,6 +744,7 @@ recvLoop pDef pState recvDelay =
         (ProcessStopping s' r)    -> handleStop (LastKnown s') r >> return (r :: ExitReason)
         (ProcessBecome   d' s')   -> recvLoop d' s' recvDelay
         (ProcessActivity _)       -> die $ "recvLoop.InvalidState - ProcessActivityNotSupported"
+        (ProcessExpression _)     -> die $ "recvLoop.InvalidState - ProcessExpressionNotSupported"
   where
     matchAux :: UnhandledMessagePolicy
              -> s
