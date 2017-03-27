@@ -243,10 +243,10 @@ processDefinition _ tc cc = do
   liftIO $ putMVar tc $ channelControlPort cc
   return $
     defaultProcess {
-        apiHandlers  = [ handleControlChan cc handleControlMessage ]
-      , infoHandlers = [ handleInfo handleMonitor
-                       , handleRaw convertToCC
-                       ]
+        externHandlers = [ handleControlChan cc handleControlMessage ]
+      , infoHandlers   = [ handleInfo handleMonitor
+                         , handleRaw convertToCC
+                         ]
       } :: Process (ProcessDefinition (ExchangeType s))
 
 handleMonitor :: forall s.
@@ -273,4 +273,3 @@ handleControlMessage ex@ExchangeType{..} cm =
                  Configure msg -> configureEx state msg
                  Post      msg -> routeEx     state msg
   in action >>= \s -> continue $ ex { state = s }
-

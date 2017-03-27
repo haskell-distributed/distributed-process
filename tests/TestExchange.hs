@@ -15,7 +15,7 @@ import Control.Distributed.Process.Extras.Internal.Primitives
 import qualified Control.Distributed.Process.Execution.EventManager as EventManager
   ( start
   )
-import Control.Distributed.Process.Tests.Internal.Utils
+import Control.Distributed.Process.SysTest.Utils
 import Control.Monad (void, forM, forever)
 import Control.Rematch (equalTo)
 

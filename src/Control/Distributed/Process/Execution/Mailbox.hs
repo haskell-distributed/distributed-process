@@ -133,11 +133,12 @@ import Control.Distributed.Process.Closure
   , mkStaticClosure
   )
 import Control.Distributed.Process.Serializable hiding (SerializableDict)
-import Control.Distributed.Process.Extras.Internal.Types
+import Control.Distributed.Process.Extras
   ( ExitReason(..)
   , Resolvable(..)
   , Routable(..)
   , Linkable(..)
+  , Addressable
   )
 import Control.Distributed.Process.ManagedProcess
   ( call
@@ -226,6 +227,8 @@ instance Resolvable Mailbox where
 instance Routable Mailbox where
   sendTo       = post
   unsafeSendTo = post
+
+instance Addressable Mailbox
 
 sendCtrlMsg :: Mailbox
             -> ControlMessage
@@ -449,9 +452,6 @@ startSupervised p b l s = do
 
 -- | As 'startMailbox', but suitable for use in supervisor child specs.
 --
--- Example:
--- > childSpec = toChildStart $ startSupervisedMailbox pid bufferType mboxLimit
---
 -- See "Control.Distributed.Process.Supervisor"
 --
 startSupervisedMailbox :: ProcessId
@@ -567,9 +567,11 @@ processDefinition :: ProcessId
 processDefinition pid tc cc = do
   liftIO $ atomically $ writeTChan tc $ channelControlPort cc
   return $ defaultProcess { apiHandlers = [
-                               handleControlChan     cc handleControlMessages
-                             , Restricted.handleCall handleGetStats
+                               Restricted.handleCall handleGetStats
                              ]
+                          , externHandlers = [
+                              handleControlChan cc handleControlMessages
+                            ]
                           , infoHandlers = [ handleInfo handlePost
                                            , handleRaw  handleRawInputs ]
                           , unhandledMessagePolicy = DeadLetter pid
@@ -741,4 +743,3 @@ acceptMatching = $(mkStaticClosure 'matching)
 --
 deliver :: Mailbox -> Process ()
 deliver mb = active mb acceptEverything
-
