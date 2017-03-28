@@ -95,9 +95,7 @@ safeCall s m = do
   (fmap fromJust (initCall s m >>= waitResponse Nothing) :: Process (Either ExitReason b))
     `catchesExit` [(\pid msg -> handleMessageIf msg (weFailed pid us)
                                                     (return . Left))]
-
   where
-
     weFailed a b (ExitOther _) = a == b
     weFailed _ _ _             = False
 
@@ -147,7 +145,7 @@ callTimeout s m d = initCall s m >>= waitResponse (Just d) >>= decodeResult
         decodeResult (Just (Right result)) = return $ Just result
         decodeResult (Just (Left reason))  = die reason
 
--- | Attempt to flush out any pending call responses. 
+-- | Attempt to flush out any pending call responses.
 flushPendingCalls :: forall b . (Serializable b)
                   => TimeInterval
                   -> (b -> Process b)

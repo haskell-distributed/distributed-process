@@ -529,7 +529,7 @@ testCallPrioritisation result = do
   -- the async worker has had a chance to deliver the longest string message,
   -- our test will fail. Such races are /normal/ given that the async worker
   -- runs in another process and delivery order between multiple processes
-  -- is undefined (and in practise, paritally depenendent on the scheduler)
+  -- is undefined (and in practise, partially depenendent on the scheduler)
   sleep $ seconds 1
   send pid ()
   _ <- mapM wait asyncRefs :: Process [AsyncResult ()]
@@ -550,6 +550,9 @@ tests transport = do
             (delayedAssertion
              "expected n * 2 back from the server"
              localNode (Just 4) (testBasicCall_ $ wrap server))
+          , testCase "basic deferred call handling"
+            (delayedAssertion "expected a response sent via replyTo"
+             localNode (AsyncDone "Hello There") testDeferredCallResponse)
           , testCase "basic cast with manual send and explicit server continue"
             (delayedAssertion
              "expected pong back from the server"

@@ -12,6 +12,7 @@ import Control.Concurrent.STM.TQueue
 import Control.Concurrent.MVar
 import Control.Exception (SomeException)
 import Control.Distributed.Process hiding (call, catch)
+import Control.Distributed.Process.Async (AsyncResult(AsyncDone))
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Extras hiding (__remoteTable, monitor, send, nsend)
 import Control.Distributed.Process.ManagedProcess
@@ -235,6 +236,9 @@ tests transport = do
             (delayedAssertion
              "expected n * 2 back from the server"
              localNode (Just 4) (testUnsafeBasicCall_ $ wrap server))
+           , testCase "basic deferred call handling"
+             (delayedAssertion "expected a response sent via replyTo"
+              localNode (AsyncDone "Hello There") testDeferredCallResponse)
           , testCase "basic cast with manual send and explicit server continue"
             (delayedAssertion
              "expected pong back from the server"

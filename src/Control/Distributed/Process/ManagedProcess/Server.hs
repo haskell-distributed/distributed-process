@@ -218,7 +218,7 @@ stop_ r _ = stop r
 -- > replyTo = sendTo
 --
 replyTo :: (Serializable m) => CallRef m -> m -> Process ()
-replyTo = sendTo
+replyTo cRef@(CallRef (_, tag)) msg = sendTo cRef $ CallResponse msg tag
 
 -- | Sends a reply to a 'SendPort' (for use in 'handleRpcChan' et al).
 --

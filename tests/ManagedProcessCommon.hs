@@ -108,7 +108,30 @@ launchEchoServer handler = do
   pid <- spawnLocal $ serve () (statelessInit Infinity) procDef
   return $ StmServer pid inQ replyQ
 
+deferredResponseServer :: Process ProcessId
+deferredResponseServer =
+  let procDef = defaultProcess {
+      apiHandlers = [
+          handleCallFrom (\r s (m :: String) -> noReply_ ((r, m):s) )
+      ]
+    , infoHandlers = [
+          handleInfo (\s () -> (mapM_ (\t -> replyTo (fst t) (snd t)) s) >> continue [])
+      ]
+    } :: ProcessDefinition [(CallRef String, String)]
+  in spawnLocal $ serve [] (\s -> return $ InitOk s Infinity) procDef
+
 -- common test cases
+
+testDeferredCallResponse :: TestResult (AsyncResult String) -> Process ()
+testDeferredCallResponse result = do
+  pid <- deferredResponseServer
+  r <- async $ task $ (call pid "Hello There" :: Process String)
+
+  sleep $ seconds 2
+  AsyncPending <- poll r
+
+  send pid ()
+  wait r >>= stash result
 
 testBasicCall :: Launcher () -> TestResult (Maybe String) -> Process ()
 testBasicCall launch result = do
