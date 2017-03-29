@@ -35,4 +35,3 @@ dequeue p = maybe Nothing (\(v, pq') -> Just (v, pq')) $
 {-# INLINE peek #-}
 peek :: Ord k => PriorityQ k v -> Maybe v
 peek p = maybe Nothing (\(v, _) -> Just v) $ dequeue p
-

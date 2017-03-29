@@ -2,6 +2,7 @@
 {-# LANGUAGE ExistentialQuantification  #-}
 {-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE UndecidableInstances       #-}
+{-# LANGUAGE TupleSections              #-}
 
 module Control.Distributed.Process.Extras.Internal.Containers.MultiMap
   ( MultiMap
@@ -10,6 +11,7 @@ module Control.Distributed.Process.Extras.Internal.Containers.MultiMap
   , insert
   , member
   , lookup
+  , delete
   , filter
   , filterWithKey
   , toList
@@ -58,6 +60,9 @@ member k = Map.member k . hmap
 lookup :: (Insertable k) => k -> MultiMap k v -> Maybe [v]
 lookup k M{..} = maybe Nothing (Just . Foldable.toList) $ Map.lookup k hmap
 {-# INLINE lookup #-}
+
+delete :: (Insertable k) => k -> MultiMap k v -> Maybe ([v], MultiMap k v)
+delete k m@M{..} = maybe Nothing (Just . (, M $ Map.delete k hmap)) $ lookup k m
 
 filter :: forall k v. (Insertable k)
        => (v -> Bool)
