@@ -500,6 +500,12 @@ data TCPParameters = TCPParameters {
     -- connection will go down. The peer and the local node will get an
     -- EventConnectionLost.
   , tcpMaxReceiveLength :: Word32
+    -- | If True, new connections will be accepted only if the socket's host
+    -- matches the host that the peer claims in its EndPointAddress.
+    -- This is useful when operating on untrusted networks, because the peer
+    -- could otherwise deny service to some victim by claiming the victim's
+    -- address.
+  , tcpCheckPeerHost :: Bool
   }
 
 -- | Internal functionality we expose for unit testing
@@ -612,6 +618,7 @@ defaultTCPParameters = TCPParameters {
   , transportConnectTimeout = Nothing
   , tcpMaxAddressLength = maxBound
   , tcpMaxReceiveLength = maxBound
+  , tcpCheckPeerHost   = False
   }
 
 --------------------------------------------------------------------------------
@@ -913,43 +920,38 @@ handleConnectionRequest transport socketClosed (sock, sockAddr) = handle handleE
       let maxAddressLength = tcpMaxAddressLength $ transportParams transport
       theirAddress <- EndPointAddress . BS.concat <$>
         recvWithLength maxAddressLength sock
-      (theirHost, theirPort, theirEndPointId)
-        <- maybe (throwIO (userError "handleConnectionRequest: peer gave malformed address"))
-                 return
-                 (decodeEndPointAddress theirAddress)
+      return (ourEndPointId, theirAddress)
+    (ourEndPointId, theirAddress) <- case mAddrInfo of
+      Nothing -> throwIO (userError "handleConnectionRequest: timed out")
+      Just x -> return x
+    let ourAddress = encodeEndPointAddress (transportHost transport)
+                                           (transportPort transport)
+                                           ourEndPointId
+    (theirHost, _, _)
+      <- maybe (throwIO (userError "handleConnectionRequest: peer gave malformed address"))
+               return
+               (decodeEndPointAddress theirAddress)
+    let checkPeerHost = tcpCheckPeerHost (transportParams transport)
+    if checkPeerHost && (theirHost /= actualHost)
+    then
       -- If the OS-determined host doesn't match the host that the peer gave us,
       -- then we have no choice but to reject the connection. It's because we
       -- use the EndPointAddress to key the remote end points (localConnections)
       -- and we don't want to allow a peer to deny service to other peers by
       -- claiming to have their host and port.
-      unless (theirHost == actualHost) $ do
-        let errorString = concat [
-                "handleConnectionRequest: reported host "
-              , show theirHost
-              , " does not match actual host "
-              , show actualHost
-              ]
-        throwIO (userError errorString)
-      return (ourEndPointId, theirAddress)
-    addrInfo <- case mAddrInfo of
-      Nothing -> throwIO (userError "handleConnectionRequest: timed out")
-      Just x -> return x
-    let theirAddress = snd addrInfo
-    let ourEndPointId = fst addrInfo
-    let ourAddress = encodeEndPointAddress (transportHost transport)
-                                           (transportPort transport)
-                                           ourEndPointId
-    ourEndPoint <- withMVar (transportState transport) $ \st -> case st of
-      TransportValid vst ->
-        case vst ^. localEndPointAt ourAddress of
-          Nothing -> do
-            sendMany sock [encodeWord32 (encodeConnectionRequestResponse ConnectionRequestInvalid)]
-            throwIO $ userError "handleConnectionRequest: Invalid endpoint"
-          Just ourEndPoint ->
-            return ourEndPoint
-      TransportClosed ->
-        throwIO $ userError "Transport closed"
-    void $ go ourEndPoint theirAddress
+      sendMany sock [encodeWord32 (encodeConnectionRequestResponse ConnectionRequestHostMismatch)]
+    else do
+      ourEndPoint <- withMVar (transportState transport) $ \st -> case st of
+        TransportValid vst ->
+          case vst ^. localEndPointAt ourAddress of
+            Nothing -> do
+              sendMany sock [encodeWord32 (encodeConnectionRequestResponse ConnectionRequestInvalid)]
+              throwIO $ userError "handleConnectionRequest: Invalid endpoint"
+            Just ourEndPoint ->
+              return ourEndPoint
+        TransportClosed ->
+          throwIO $ userError "Transport closed"
+      void $ go ourEndPoint theirAddress
   where
     go :: LocalEndPoint -> EndPointAddress -> IO ()
     go ourEndPoint theirAddress = do
@@ -1470,6 +1472,11 @@ setupRemoteEndPoint params (ourEndPoint, theirEndPoint) connTimeout = do
             throwIO ex
           _ ->
             relyViolation (ourEndPoint, theirEndPoint) "setupRemoteEndPoint: Crossed"
+        tryCloseSocket sock `finally` putMVar socketClosedVar ()
+        return Nothing
+      Right (socketClosedVar, sock, ConnectionRequestHostMismatch) -> do
+        let err = TransportError ConnectFailed "setupRemoteEndPoint: Host mismatch"
+        resolveInit (ourEndPoint, theirEndPoint) (RemoteEndPointInvalid err)
         tryCloseSocket sock `finally` putMVar socketClosedVar ()
         return Nothing
       Left err -> do

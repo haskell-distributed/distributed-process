@@ -143,6 +143,8 @@ data ConnectionRequestResponse =
   | ConnectionRequestInvalid
     -- | /A/s request crossed with a request from /B/ (see protocols)
   | ConnectionRequestCrossed
+    -- | /A/ gave an incorrect host (did not match the host that /B/ observed).
+  | ConnectionRequestHostMismatch
   deriving (Show)
 
 decodeConnectionRequestResponse :: Word32 -> Maybe ConnectionRequestResponse
@@ -150,13 +152,15 @@ decodeConnectionRequestResponse w32 = case w32 of
   0 -> Just ConnectionRequestAccepted
   1 -> Just ConnectionRequestInvalid
   2 -> Just ConnectionRequestCrossed
+  3 -> Just ConnectionRequestHostMismatch
   _ -> Nothing
 
 encodeConnectionRequestResponse :: ConnectionRequestResponse -> Word32
 encodeConnectionRequestResponse crr = case crr of
-  ConnectionRequestAccepted -> 0
-  ConnectionRequestInvalid  -> 1
-  ConnectionRequestCrossed  -> 2
+  ConnectionRequestAccepted     -> 0
+  ConnectionRequestInvalid      -> 1
+  ConnectionRequestCrossed      -> 2
+  ConnectionRequestHostMismatch -> 3
 
 -- | Start a server at the specified address.
 --
