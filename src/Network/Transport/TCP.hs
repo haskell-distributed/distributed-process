@@ -1478,8 +1478,11 @@ setupRemoteEndPoint params (ourEndPoint, theirEndPoint) connTimeout = do
         tryCloseSocket sock `finally` putMVar socketClosedVar ()
         return Nothing
       Right (socketClosedVar, sock, ConnectionRequestHostMismatch) -> do
-        actualHost <- recvWithLength (tcpMaxReceiveLength params) sock
-        let err = TransportError ConnectFailed ("setupRemoteEndPoint: Host mismatch " ++ BSC.unpack (BS.concat actualHost))
+        let handler :: SomeException -> IO (TransportError ConnectErrorCode)
+            handler err = return (TransportError ConnectFailed (show err))
+        err <- handle handler $ do
+          actualHost <- recvWithLength (tcpMaxReceiveLength params) sock
+          return (TransportError ConnectFailed ("setupRemoteEndPoint: Host mismatch " ++ BSC.unpack (BS.concat actualHost)))
         resolveInit (ourEndPoint, theirEndPoint) (RemoteEndPointInvalid err)
         tryCloseSocket sock `finally` putMVar socketClosedVar ()
         return Nothing
