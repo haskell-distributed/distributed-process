@@ -15,6 +15,7 @@ module Control.Distributed.Process.Extras.Internal.Containers.MultiMap
   , filter
   , filterWithKey
   , toList
+  , size
   ) where
 
 import qualified Data.Foldable as Foldable
@@ -45,6 +46,9 @@ instance Foldable (MultiMap k) where
 
 empty :: MultiMap k v
 empty = M $ Map.empty
+
+size :: MultiMap k v -> Int
+size = Map.size . hmap
 
 insert :: forall k v. (Insertable k, Insertable v)
        => k -> v -> MultiMap k v -> MultiMap k v
