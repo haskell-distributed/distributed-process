@@ -8,16 +8,18 @@ module Control.Distributed.Process.Extras.Internal.Queue.SeqQ
   , dequeue
   , peek
   , filter
+  , size
   )
   where
 
 -- A simple FIFO queue implementation backed by @Data.Sequence@.
-import Prelude hiding (filter)
+import Prelude hiding (filter, length)
 import Data.Sequence
   ( Seq
   , ViewR(..)
   , (<|)
   , viewr
+  , length
   )
 import qualified Data.Sequence as Seq (empty, singleton, null, filter)
 
@@ -49,6 +51,10 @@ dequeue s = maybe Nothing (\(s' :> a) -> Just (a, SeqQ s')) $ getR s
 {-# INLINE peek #-}
 peek :: SeqQ a -> Maybe a
 peek s = maybe Nothing (\(_ :> a) -> Just a) $ getR s
+
+{-# INLINE size #-}
+size :: SeqQ a -> Int
+size = length . q
 
 filter :: (a -> Bool) -> SeqQ a -> SeqQ a
 filter c s = SeqQ $ Seq.filter c (q s)
