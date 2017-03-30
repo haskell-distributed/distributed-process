@@ -1001,6 +1001,26 @@ testCloseEndPoint = do
 
   readMVar serverFinished
 
+-- | Ensure that if the peer's claimed host doesn't match its actual host,
+--   the connection is rejected (when tcpCheckPeerHost is enabled).
+testCheckPeerHost :: IO ()
+testCheckPeerHost = do
+
+  let params = defaultTCPParameters { tcpCheckPeerHost = True }
+  Right transport1 <- createTransport "127.0.0.1" "0" ((,) "127.0.0.1") params
+  -- This transport claims 127.0.0.2 as its host, but connections from it to
+  -- an EndPoint on transport1 will show 127.0.0.1 as the socket's source host.
+  Right transport2 <- createTransport "127.0.0.1" "0" ((,) "127.0.0.2") defaultTCPParameters
+
+  Right ep1 <- newEndPoint transport1
+  Right ep2 <- newEndPoint transport2
+
+  Left err <- connect ep2 (address ep1) ReliableOrdered defaultConnectHints
+
+  TransportError ConnectFailed "setupRemoteEndPoint: Host mismatch" <- return err
+
+  return ()
+
 main :: IO ()
 main = do
   tcpResult <- tryIO $ runTests
@@ -1019,6 +1039,7 @@ main = do
            , ("InvalidCloseConnection", testInvalidCloseConnection)
            , ("MaxLength",              testMaxLength)
            , ("CloseEndPoint",          testCloseEndPoint)
+           , ("CheckPeerHost",          testCheckPeerHost)
            ]
   -- Run the generic tests even if the TCP specific tests failed..
   testTransport (either (Left . show) (Right) <$>
