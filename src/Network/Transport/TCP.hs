@@ -144,6 +144,7 @@ import Control.Exception
 import Data.IORef (IORef, newIORef, writeIORef, readIORef, writeIORef)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (concat)
+import qualified Data.ByteString.Char8 as BSC (pack, unpack)
 import Data.Bits (shiftL, (.|.))
 import Data.Maybe (isJust)
 import Data.Word (Word32)
@@ -939,7 +940,9 @@ handleConnectionRequest transport socketClosed (sock, sockAddr) = handle handleE
       -- use the EndPointAddress to key the remote end points (localConnections)
       -- and we don't want to allow a peer to deny service to other peers by
       -- claiming to have their host and port.
-      sendMany sock [encodeWord32 (encodeConnectionRequestResponse ConnectionRequestHostMismatch)]
+      sendMany sock $
+          encodeWord32 (encodeConnectionRequestResponse ConnectionRequestHostMismatch)
+        : prependLength [BSC.pack actualHost]
     else do
       ourEndPoint <- withMVar (transportState transport) $ \st -> case st of
         TransportValid vst ->
@@ -1475,7 +1478,8 @@ setupRemoteEndPoint params (ourEndPoint, theirEndPoint) connTimeout = do
         tryCloseSocket sock `finally` putMVar socketClosedVar ()
         return Nothing
       Right (socketClosedVar, sock, ConnectionRequestHostMismatch) -> do
-        let err = TransportError ConnectFailed "setupRemoteEndPoint: Host mismatch"
+        actualHost <- recvWithLength (tcpMaxReceiveLength params) sock
+        let err = TransportError ConnectFailed ("setupRemoteEndPoint: Host mismatch " ++ BSC.unpack (BS.concat actualHost))
         resolveInit (ourEndPoint, theirEndPoint) (RemoteEndPointInvalid err)
         tryCloseSocket sock `finally` putMVar socketClosedVar ()
         return Nothing

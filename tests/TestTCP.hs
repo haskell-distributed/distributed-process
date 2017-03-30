@@ -1017,7 +1017,8 @@ testCheckPeerHost = do
 
   Left err <- connect ep2 (address ep1) ReliableOrdered defaultConnectHints
 
-  TransportError ConnectFailed "setupRemoteEndPoint: Host mismatch" <- return err
+  TransportError ConnectFailed "setupRemoteEndPoint: Host mismatch 127.0.0.1"
+    <- return err
 
   return ()
 
