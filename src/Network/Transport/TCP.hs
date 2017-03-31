@@ -24,8 +24,6 @@ module Network.Transport.TCP
   , createTransportExposeInternals
   , TransportInternals(..)
   , EndPointId
-  , encodeEndPointAddress
-  , decodeEndPointAddress
   , ControlHeader(..)
   , ConnectionRequestResponse(..)
   , firstNonReservedLightweightConnectionId
@@ -60,6 +58,10 @@ import Network.Transport.TCP.Internal
   , encodeWord32
   , tryCloseSocket
   , tryShutdownSocketBoth
+  , decodeSockAddr
+  , EndPointId
+  , encodeEndPointAddress
+  , decodeEndPointAddress
   )
 import Network.Transport.Internal
   ( prependLength
@@ -91,6 +93,7 @@ import qualified Network.Socket as N
   , connect
   , sOMAXCONN
   , AddrInfo
+  , SockAddr(..)
   )
 
 #ifdef USE_MOCK_NETWORK
@@ -444,9 +447,6 @@ data ValidRemoteEndPointState = ValidRemoteEndPointState
   ,  remoteSocketClosed  :: !(IO ())
   }
 
--- | Local identifier for an endpoint within this transport
-type EndPointId = Word32
-
 -- | Pair of local and a remote endpoint (for conciseness in signatures)
 type EndPointPair = (LocalEndPoint, RemoteEndPoint)
 
@@ -501,6 +501,12 @@ data TCPParameters = TCPParameters {
     -- connection will go down. The peer and the local node will get an
     -- EventConnectionLost.
   , tcpMaxReceiveLength :: Word32
+    -- | If True, new connections will be accepted only if the socket's host
+    -- matches the host that the peer claims in its EndPointAddress.
+    -- This is useful when operating on untrusted networks, because the peer
+    -- could otherwise deny service to some victim by claiming the victim's
+    -- address.
+  , tcpCheckPeerHost :: Bool
   }
 
 -- | Internal functionality we expose for unit testing
@@ -613,6 +619,7 @@ defaultTCPParameters = TCPParameters {
   , transportConnectTimeout = Nothing
   , tcpMaxAddressLength = maxBound
   , tcpMaxReceiveLength = maxBound
+  , tcpCheckPeerHost   = False
   }
 
 --------------------------------------------------------------------------------
@@ -894,14 +901,18 @@ apiCloseEndPoint transport evs ourEndPoint =
 -- the transport down. We must be careful to close the socket when a (possibly
 -- asynchronous, ThreadKilled) exception occurs. (If an exception escapes from
 -- handleConnectionRequest the transport will be shut down.)
-handleConnectionRequest :: TCPTransport -> IO () -> N.Socket -> IO ()
-handleConnectionRequest transport socketClosed sock = handle handleException $ do
+handleConnectionRequest :: TCPTransport -> IO () -> (N.Socket, N.SockAddr) -> IO ()
+handleConnectionRequest transport socketClosed (sock, sockAddr) = handle handleException $ do
     when (tcpNoDelay $ transportParams transport) $
       N.setSocketOption sock N.NoDelay 1
     when (tcpKeepAlive $ transportParams transport) $
       N.setSocketOption sock N.KeepAlive 1
     forM_ (tcpUserTimeout $ transportParams transport) $
       N.setSocketOption sock N.UserTimeout
+    -- Get the OS-determined host and port.
+    (actualHost, actualPort) <-
+      decodeSockAddr sockAddr >>=
+        maybe (throwIO (userError "handleConnectionRequest: invalid socket address")) return
     let connTimeout = transportConnectTimeout (transportParams transport)
     -- The peer must send our identifier and their address promptly, if a
     -- timeout is set.
@@ -911,25 +922,39 @@ handleConnectionRequest transport socketClosed sock = handle handleException $ d
       theirAddress <- EndPointAddress . BS.concat <$>
         recvWithLength maxAddressLength sock
       return (ourEndPointId, theirAddress)
-    addrInfo <- case mAddrInfo of
+    (ourEndPointId, theirAddress) <- case mAddrInfo of
       Nothing -> throwIO (userError "handleConnectionRequest: timed out")
       Just x -> return x
-    let theirAddress = snd addrInfo
-    let ourEndPointId = fst addrInfo
     let ourAddress = encodeEndPointAddress (transportHost transport)
                                            (transportPort transport)
                                            ourEndPointId
-    ourEndPoint <- withMVar (transportState transport) $ \st -> case st of
-      TransportValid vst ->
-        case vst ^. localEndPointAt ourAddress of
-          Nothing -> do
-            sendMany sock [encodeWord32 (encodeConnectionRequestResponse ConnectionRequestInvalid)]
-            throwIO $ userError "handleConnectionRequest: Invalid endpoint"
-          Just ourEndPoint ->
-            return ourEndPoint
-      TransportClosed ->
-        throwIO $ userError "Transport closed"
-    void $ go ourEndPoint theirAddress
+    (theirHost, _, _)
+      <- maybe (throwIO (userError "handleConnectionRequest: peer gave malformed address"))
+               return
+               (decodeEndPointAddress theirAddress)
+    let checkPeerHost = tcpCheckPeerHost (transportParams transport)
+    if checkPeerHost && (theirHost /= actualHost)
+    then
+      -- If the OS-determined host doesn't match the host that the peer gave us,
+      -- then we have no choice but to reject the connection. It's because we
+      -- use the EndPointAddress to key the remote end points (localConnections)
+      -- and we don't want to allow a peer to deny service to other peers by
+      -- claiming to have their host and port.
+      sendMany sock $
+          encodeWord32 (encodeConnectionRequestResponse ConnectionRequestHostMismatch)
+        : prependLength [BSC.pack actualHost]
+    else do
+      ourEndPoint <- withMVar (transportState transport) $ \st -> case st of
+        TransportValid vst ->
+          case vst ^. localEndPointAt ourAddress of
+            Nothing -> do
+              sendMany sock [encodeWord32 (encodeConnectionRequestResponse ConnectionRequestInvalid)]
+              throwIO $ userError "handleConnectionRequest: Invalid endpoint"
+            Just ourEndPoint ->
+              return ourEndPoint
+        TransportClosed ->
+          throwIO $ userError "Transport closed"
+      void $ go ourEndPoint theirAddress
   where
     go :: LocalEndPoint -> EndPointAddress -> IO ()
     go ourEndPoint theirAddress = do
@@ -1178,19 +1203,19 @@ handleIncomingMessages params (ourEndPoint, theirEndPoint) = do
             -- socket. They'll see our in-flight connection request and then
             -- abandon their attempt to close the socket.
             --
-            -- If it *is* the same then we can close the socket. However, if
-            -- our remoteOutgoing is nonzero, then the peer has made an error:
-            -- we haven't closed all of our lightweight connections to them, so
-            -- they should not send us CloseSocket.
-            -- In this case, we must enqueue EventConnectionLost.
-            if lastReceivedId /= lastSentId vst
+            -- It's possible that a local connection is coming up but has not
+            -- yet sent CreatedNewConnection (see createConnectionTo), in
+            -- which case remoteOutgoing is positive, but the sent and received
+            -- ids do match. In this case we don't close the socket, because
+            -- that connection will soon sent the message and bump the lastSentId.
+            --
+            -- Both disjuncts are needed: it's possible that remoteOutgoing is
+            -- 0 and the ids do not match, in case we have created and closed
+            -- a connection but the peer has not yet heard of it.
+            if vst ^. remoteOutgoing > 0 || lastReceivedId /= lastSentId vst
               then
                 return (RemoteEndPointValid vst', Nothing)
               else do
-                when (vst' ^. remoteOutgoing > 0) $ do
-                  let code = EventConnectionLost (remoteAddress theirEndPoint)
-                  let msg  = "socket closed prematurely by peer"
-                  qdiscEnqueue' ourQueue theirAddr . ErrorEvent $ TransportError code msg
                 -- Release probing resources if probing.
                 forM_ (remoteProbing vst) id
                 removeRemoteEndPoint (ourEndPoint, theirEndPoint)
@@ -1450,6 +1475,15 @@ setupRemoteEndPoint params (ourEndPoint, theirEndPoint) connTimeout = do
             throwIO ex
           _ ->
             relyViolation (ourEndPoint, theirEndPoint) "setupRemoteEndPoint: Crossed"
+        tryCloseSocket sock `finally` putMVar socketClosedVar ()
+        return Nothing
+      Right (socketClosedVar, sock, ConnectionRequestHostMismatch) -> do
+        let handler :: SomeException -> IO (TransportError ConnectErrorCode)
+            handler err = return (TransportError ConnectFailed (show err))
+        err <- handle handler $ do
+          actualHost <- recvWithLength (tcpMaxReceiveLength params) sock
+          return (TransportError ConnectFailed ("setupRemoteEndPoint: Host mismatch " ++ BSC.unpack (BS.concat actualHost)))
+        resolveInit (ourEndPoint, theirEndPoint) (RemoteEndPointInvalid err)
         tryCloseSocket sock `finally` putMVar socketClosedVar ()
         return Nothing
       Left err -> do
@@ -1889,47 +1923,12 @@ socketToEndPoint (EndPointAddress ourAddress) theirAddress reuseAddr noDelay kee
     failed                = TransportError ConnectFailed . show
     timeoutError          = TransportError ConnectTimeout "Timed out"
 
--- | Encode end point address
-encodeEndPointAddress :: N.HostName
-                      -> N.ServiceName
-                      -> EndPointId
-                      -> EndPointAddress
-encodeEndPointAddress host port ix = EndPointAddress . BSC.pack $
-  host ++ ":" ++ port ++ ":" ++ show ix
-
--- | Decode end point address
-decodeEndPointAddress :: EndPointAddress
-                      -> Maybe (N.HostName, N.ServiceName, EndPointId)
-decodeEndPointAddress (EndPointAddress bs) =
-  case splitMaxFromEnd (== ':') 2 $ BSC.unpack bs of
-    [host, port, endPointIdStr] ->
-      case reads endPointIdStr of
-        [(endPointId, "")] -> Just (host, port, endPointId)
-        _                  -> Nothing
-    _ ->
-      Nothing
-
 -- | Construct a ConnectionId
 createConnectionId :: HeavyweightConnectionId
                    -> LightweightConnectionId
                    -> ConnectionId
 createConnectionId hcid lcid =
   (fromIntegral hcid `shiftL` 32) .|. fromIntegral lcid
-
--- | @spltiMaxFromEnd p n xs@ splits list @xs@ at elements matching @p@,
--- returning at most @p@ segments -- counting from the /end/
---
--- > splitMaxFromEnd (== ':') 2 "ab:cd:ef:gh" == ["ab:cd", "ef", "gh"]
-splitMaxFromEnd :: (a -> Bool) -> Int -> [a] -> [[a]]
-splitMaxFromEnd p = \n -> go [[]] n . reverse
-  where
-    -- go :: [[a]] -> Int -> [a] -> [[a]]
-    go accs         _ []     = accs
-    go ([]  : accs) 0 xs     = reverse xs : accs
-    go (acc : accs) n (x:xs) =
-      if p x then go ([] : acc : accs) (n - 1) xs
-             else go ((x : acc) : accs) n xs
-    go _ _ _ = error "Bug in splitMaxFromEnd"
 
 --------------------------------------------------------------------------------
 -- Functions from TransportInternals                                          --
