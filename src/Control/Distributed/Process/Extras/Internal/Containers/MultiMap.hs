@@ -14,6 +14,7 @@ module Control.Distributed.Process.Extras.Internal.Containers.MultiMap
   , delete
   , filter
   , filterWithKey
+  , foldrWithKey
   , toList
   , size
   ) where
