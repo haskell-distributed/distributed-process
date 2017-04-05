@@ -1,5 +1,6 @@
 import Network.Transport
 import Network.Transport.TCP (createTransport, defaultTCPParameters)
+import Network.Socket.Internal (withSocketsDo)
 import Control.Concurrent
 import Data.Map
 import Control.Exception
@@ -44,7 +45,7 @@ p `onCtrlC` q = catchJust isUserInterrupt p (const $ q >> p `onCtrlC` q)
     isUserInterrupt _             = Nothing
 
 main :: IO ()
-main = do
+main = withSocketsDo $ do
   [host, port]    <- getArgs
   serverDone      <- newEmptyMVar
   Right transport <- createTransport host port defaultTCPParameters

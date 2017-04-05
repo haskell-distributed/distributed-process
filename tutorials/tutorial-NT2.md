@@ -68,17 +68,18 @@ because it is simpler. We first need a bunch of imports:
 
 {% highlight haskell %}
 import Network.Transport
-import Network.Transport.TCP (createTransport)
+import Network.Transport.TCP (createTransport, defaultTCPParameters)
+import Network.Socket.Internal (withSocketsDo)
 import System.Environment
 import Data.ByteString.Char8
 import Control.Monad
 {% endhighlight %}
 
-The client will consist of a single main function.
+The client will consist of a single main function. [withSocketsDo](http://hackage.haskell.org/package/network-2.6.2.1/docs/Network-Socket-Internal.html#v:withSocketsDo) may be needed for Windows platform with old versions of network library. For compatibility with older versions on Windows, it is good practice to always call withSocketsDo (it's very cheap).
 
 {% highlight haskell %}
 main :: IO ()
-main = do
+main = withSocketsDo $ do
 {% endhighlight %}
 
 When we start the client we expect three command line arguments.
@@ -157,14 +158,14 @@ That's it! Here is the entire client again:
 
 {% highlight haskell %}
 main :: IO ()
-main = do
+main = withSocketsDo $ do
   [host, port, serverAddr] <- getArgs
   Right transport <- createTransport host port 
   Right endpoint  <- newEndPoint transport
 
-  let addr = EndPointAddress (fromString serverAddr)
+  let addr = EndPointAddress (pack serverAddr)
   Right conn <- connect endpoint addr ReliableOrdered defaultConnectHints
-  send conn [fromString "Hello world"]
+  send conn [pack "Hello world"]
   close conn
 
   replicateM_ 3 $ receive endpoint >>= print 
@@ -180,7 +181,8 @@ start with a bunch of imports:
 
 {% highlight haskell %}
 import Network.Transport
-import Network.Transport.TCP (createTransport)
+import Network.Transport.TCP (createTransport, defaultTCPParameters)
+import Network.Socket.Internal (withSocketsDo)
 import Control.Concurrent
 import Data.Map
 import Control.Exception
@@ -191,10 +193,10 @@ We will write the main function first:
 
 {% highlight haskell %}
 main :: IO ()
-main = do
+main = withSocketsDo $ do
   [host, port]    <- getArgs
   serverDone      <- newEmptyMVar
-  Right transport <- createTransport host port 
+  Right transport <- createTransport host port defaultTCPParameters
   Right endpoint  <- newEndPoint transport
   forkIO $ echoServer endpoint serverDone 
   putStrLn $ "Echo server started at " ++ show (address endpoint)
