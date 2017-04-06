@@ -4,6 +4,8 @@
 {-# LANGUAGE MultiParamTypeClasses  #-}
 {-# LANGUAGE ScopedTypeVariables    #-}
 {-# LANGUAGE UndecidableInstances   #-}
+{-# LANGUAGE AllowAmbiguousTypes    #-}
+{-# LANGUAGE FunctionalDependencies #-}
 
 -- | Types used throughout the Extras package
 --
@@ -18,6 +20,7 @@ module Control.Distributed.Process.Extras.Internal.Types
   , Killable(..)
   , Resolvable(..)
   , Routable(..)
+  , Monitored(..)
   , Addressable
   , Recipient(..)
   , RegisterSelf(..)
@@ -49,6 +52,7 @@ import Control.Exception (SomeException)
 import Control.Monad.Catch (catch)
 import Data.Binary
 import Data.Foldable (traverse_)
+import Data.Maybe (fromJust)
 import Data.Typeable (Typeable)
 import GHC.Generics
 
@@ -144,6 +148,18 @@ class Linkable a where
   -- | Create a /link/ with the supplied object.
   linkTo :: (Resolvable a) => a -> Process ()
   linkTo r = resolve r >>= traverse_ link
+
+class Monitored a r m | a r -> m where
+  mkMonitor :: a -> Process r
+  checkMonitor :: a -> r -> m -> Process Bool
+
+instance (Resolvable a) => Monitored a MonitorRef ProcessMonitorNotification where
+  mkMonitor a = monitor . fromJust =<< resolve a
+  checkMonitor p r (ProcessMonitorNotification ref pid _) = do
+    p' <- resolve p
+    case p' of
+      Nothing -> return False
+      Just pr -> return $ ref == r && pid == pr
 
 -- | Class of things that can be killed (or instructed to exit).
 class Killable p where

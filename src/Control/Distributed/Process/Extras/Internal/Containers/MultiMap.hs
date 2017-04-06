@@ -76,9 +76,8 @@ filter :: forall k v. (Insertable k)
 filter p M{..} = M $ Map.foldlWithKey' (matchOn p) hmap hmap
   where
     matchOn pred acc key valueSet =
-      -- TODO: if the Set is empty, do not add the key back into the map,
-      -- and thus avoid a minor but real space leak
-      Map.insert key (Set.filter pred valueSet) acc
+      let vs = Set.filter pred valueSet in
+      if Set.null vs then acc else Map.insert key vs acc
 {-# INLINE filter #-}
 
 filterWithKey :: forall k v. (Insertable k)
@@ -88,7 +87,8 @@ filterWithKey :: forall k v. (Insertable k)
 filterWithKey p M{..} = M $ Map.foldlWithKey' (matchOn p) hmap hmap
   where
     matchOn pred acc key valueSet =
-      Map.insert key (Set.filter (pred key) valueSet) acc
+      let vs = Set.filter (pred key) valueSet in
+      if Set.null vs then acc else Map.insert key vs acc
 {-# INLINE filterWithKey #-}
 
 -- | /O(n)/ Reduce this map by applying a binary operator to all

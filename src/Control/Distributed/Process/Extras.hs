@@ -62,6 +62,7 @@ module Control.Distributed.Process.Extras
   , Routable(..)
   , Linkable(..)
   , Killable(..)
+  , Monitored(..)
   , NFSerializable
   , Recipient(..)
   , Shutdown(..)

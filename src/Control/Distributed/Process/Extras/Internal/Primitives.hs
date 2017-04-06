@@ -27,6 +27,7 @@ module Control.Distributed.Process.Extras.Internal.Primitives
   , Resolvable(..)
   , Linkable(..)
   , Killable(..)
+  , Monitored(..)
 
     -- * Spawning and Linking
   , spawnSignalled
@@ -66,6 +67,7 @@ import Control.Distributed.Process.Extras.Internal.Types
   , Killable(..)
   , Resolvable(..)
   , Routable(..)
+  , Monitored(..)
   , RegisterSelf(..)
   , ExitReason(ExitOther)
   , whereisRemote
