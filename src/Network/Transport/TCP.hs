@@ -59,7 +59,7 @@ import Network.Transport.TCP.Internal
   , encodeWord32
   , tryCloseSocket
   , tryShutdownSocketBoth
-  , decodeSockAddr
+  , resolveSockAddr
   , EndPointId
   , encodeEndPointAddress
   , decodeEndPointAddress
@@ -959,9 +959,10 @@ handleConnectionRequest transport socketClosed (sock, sockAddr) = handle handleE
     handleConnectionRequestV0 :: (N.Socket, N.SockAddr) -> IO (Maybe (IO ()))
     handleConnectionRequestV0 (sock, sockAddr) = do
       -- Get the OS-determined host and port.
-      (actualHost, actualPort) <-
-        decodeSockAddr sockAddr >>=
+      (numericHost, resolvedHost, actualPort) <-
+        resolveSockAddr sockAddr >>=
           maybe (throwIO (userError "handleConnectionRequest: invalid socket address")) return
+
       (ourEndPointId, theirAddress) <- do
         ourEndPointId <- recvWord32 sock
         let maxAddressLength = tcpMaxAddressLength $ transportParams transport
@@ -976,7 +977,7 @@ handleConnectionRequest transport socketClosed (sock, sockAddr) = handle handleE
                  return
                  (decodeEndPointAddress theirAddress)
       let checkPeerHost = tcpCheckPeerHost (transportParams transport)
-      if checkPeerHost && (theirHost /= actualHost)
+      if checkPeerHost && (theirHost /= resolvedHost) && (theirHost /= numericHost)
       then do
         -- If the OS-determined host doesn't match the host that the peer gave us,
         -- then we have no choice but to reject the connection. It's because we
@@ -985,7 +986,8 @@ handleConnectionRequest transport socketClosed (sock, sockAddr) = handle handleE
         -- claiming to have their host and port.
         sendMany sock $
             encodeWord32 (encodeConnectionRequestResponse ConnectionRequestHostMismatch)
-          : prependLength [BSC.pack actualHost]
+          : (prependLength [BSC.pack theirHost] ++ prependLength [BSC.pack numericHost] ++ prependLength [BSC.pack resolvedHost])
+
         return Nothing
       else do
         ourEndPoint <- withMVar (transportState transport) $ \st -> case st of
@@ -1536,8 +1538,19 @@ setupRemoteEndPoint params (ourEndPoint, theirEndPoint) connTimeout = do
         let handler :: SomeException -> IO (TransportError ConnectErrorCode)
             handler err = return (TransportError ConnectFailed (show err))
         err <- handle handler $ do
-          actualHost <- recvWithLength (tcpMaxReceiveLength params) sock
-          return (TransportError ConnectFailed ("setupRemoteEndPoint: Host mismatch " ++ BSC.unpack (BS.concat actualHost)))
+          claimedHost <- recvWithLength (tcpMaxReceiveLength params) sock
+          actualNumericHost <- recvWithLength (tcpMaxReceiveLength params) sock
+          actualResolvedHost <- recvWithLength (tcpMaxReceiveLength params) sock
+          let reason = concat [
+                  "setupRemoteEndPoint: Host mismatch"
+                , ". Claimed: "
+                , BSC.unpack (BS.concat claimedHost)
+                , "; Numeric: "
+                , BSC.unpack (BS.concat actualNumericHost)
+                , "; Resolved: "
+                , BSC.unpack (BS.concat actualResolvedHost)
+                ]
+          return (TransportError ConnectFailed reason)
         resolveInit (ourEndPoint, theirEndPoint) (RemoteEndPointInvalid err)
         tryCloseSocket sock `finally` putMVar socketClosedVar ()
         return Nothing
