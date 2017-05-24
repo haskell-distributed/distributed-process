@@ -950,18 +950,12 @@ handleConnectionRequest transport socketClosed (sock, sockAddr) = handle handleE
       (actualHost, actualPort) <-
         decodeSockAddr sockAddr >>=
           maybe (throwIO (userError "handleConnectionRequest: invalid socket address")) return
-      let connTimeout = transportConnectTimeout (transportParams transport)
-      -- The peer must send our identifier and their address promptly, if a
-      -- timeout is set.
-      mAddrInfo <- maybe (fmap Just) System.Timeout.timeout connTimeout $ do
+      (ourEndPointId, theirAddress) <- do
         ourEndPointId <- recvWord32 sock
         let maxAddressLength = tcpMaxAddressLength $ transportParams transport
         theirAddress <- EndPointAddress . BS.concat <$>
           recvWithLength maxAddressLength sock
         return (ourEndPointId, theirAddress)
-      (ourEndPointId, theirAddress) <- case mAddrInfo of
-        Nothing -> throwIO (userError "handleConnectionRequest: timed out")
-        Just x -> return x
       let ourAddress = encodeEndPointAddress (transportHost transport)
                                              (transportPort transport)
                                              ourEndPointId
