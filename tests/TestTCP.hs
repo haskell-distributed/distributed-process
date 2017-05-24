@@ -84,6 +84,7 @@ import Network.Transport.TCP.Mock.Socket.ByteString (sendMany)
 import Network.Socket.ByteString (sendMany)
 #endif
 
+import qualified Data.ByteString as BS (length, concat)
 import Data.String (fromString)
 import GHC.IO.Exception (ioe_errno)
 import Foreign.C.Error (Errno(..), eADDRNOTAVAIL)
@@ -988,14 +989,25 @@ testCloseEndPoint = do
     addr:_ <- N.getAddrInfo (Just N.defaultHints) (Just hostName) (Just serviceName)
     sock <- N.socket (N.addrFamily addr) N.Stream N.defaultProtocol
     N.connect sock (N.addrAddress addr)
-    sendMany sock [
-        encodeWord32 endPointId
-      , encodeWord32 13
-      , "127.0.0.1:0:0"
-      -- Create a lightweight connection.
-      , encodeWord32 (encodeControlHeader CreatedNewConnection)
-      , encodeWord32 1024
-      ]
+    let endPointAddress = "127.0.0.1:0:0"
+        -- Version 0x00000000 handshake data.
+        v0handshake = [
+            encodeWord32 endPointId
+          , encodeWord32 (fromIntegral (BS.length endPointAddress))
+          , endPointAddress
+          ]
+        -- Version, and total length of the versioned handshake.
+        handshake = [
+            encodeWord32 0x00000000
+          , encodeWord32 (fromIntegral (BS.length (BS.concat v0handshake)))
+          ]
+    sendMany sock $
+         handshake
+      ++ v0handshake
+      ++ [ -- Create a lightweight connection.
+           encodeWord32 (encodeControlHeader CreatedNewConnection)
+         , encodeWord32 1024
+         ]
     readMVar serverFinished
     N.close sock
 
