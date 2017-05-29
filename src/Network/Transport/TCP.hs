@@ -943,7 +943,7 @@ handleConnectionRequest transport socketClosed (sock, sockAddr) = handle handleE
     outcome <- maybe (fmap Just) System.Timeout.timeout connTimeout handleVersioned
     case outcome of
       Nothing -> throwIO (userError "handleConnectionRequest: timed out")
-      Just () -> return ()
+      Just act -> forM_ act id
 
   where
 
@@ -954,6 +954,7 @@ handleConnectionRequest transport socketClosed (sock, sockAddr) = handle handleE
     rethrowIfAsync :: Maybe AsyncException -> IO ()
     rethrowIfAsync = mapM_ throwIO
 
+    handleConnectionRequestV0 :: (N.Socket, N.SockAddr) -> IO (Maybe (IO ()))
     handleConnectionRequestV0 (sock, sockAddr) = do
       -- Get the OS-determined host and port.
       (actualHost, actualPort) <-
@@ -974,7 +975,7 @@ handleConnectionRequest transport socketClosed (sock, sockAddr) = handle handleE
                  (decodeEndPointAddress theirAddress)
       let checkPeerHost = tcpCheckPeerHost (transportParams transport)
       if checkPeerHost && (theirHost /= actualHost)
-      then
+      then do
         -- If the OS-determined host doesn't match the host that the peer gave us,
         -- then we have no choice but to reject the connection. It's because we
         -- use the EndPointAddress to key the remote end points (localConnections)
@@ -983,6 +984,7 @@ handleConnectionRequest transport socketClosed (sock, sockAddr) = handle handleE
         sendMany sock $
             encodeWord32 (encodeConnectionRequestResponse ConnectionRequestHostMismatch)
           : prependLength [BSC.pack actualHost]
+        return Nothing
       else do
         ourEndPoint <- withMVar (transportState transport) $ \st -> case st of
           TransportValid vst ->
@@ -994,11 +996,11 @@ handleConnectionRequest transport socketClosed (sock, sockAddr) = handle handleE
                 return ourEndPoint
           TransportClosed ->
             throwIO $ userError "Transport closed"
-        void $ go ourEndPoint theirAddress
+        go ourEndPoint theirAddress
 
       where
 
-      go :: LocalEndPoint -> EndPointAddress -> IO ()
+      go :: LocalEndPoint -> EndPointAddress -> IO (Maybe (IO ()))
       go ourEndPoint theirAddress = do
         -- This runs in a thread that will never be killed
         mEndPoint <- handle ((>> return Nothing) . handleException) $ do
@@ -1032,7 +1034,7 @@ handleConnectionRequest transport socketClosed (sock, sockAddr) = handle handleE
         -- been recorded as part of the remote endpoint. Either way, we no longer
         -- have to worry about closing the socket on receiving an asynchronous
         -- exception from this point forward.
-        forM_ mEndPoint $ handleIncomingMessages (transportParams transport) . (,) ourEndPoint
+        return $ fmap (handleIncomingMessages (transportParams transport) . (,) ourEndPoint) mEndPoint
 
       probeIfValid :: RemoteEndPoint -> IO ()
       probeIfValid theirEndPoint = modifyMVar_ (remoteState theirEndPoint) $
