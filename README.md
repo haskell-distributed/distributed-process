@@ -1,5 +1,5 @@
 # network-transport-inmemory
-[![travis](https://secure.travis-ci.org/haskell-distributed/network-transport-inmemory.png)](http://travis-ci.org/haskell-distributed/network-transport-inmemory)
+[![travis](https://secure.travis-ci.org/haskell-distributed/network-transport-inmemory.svg)](http://travis-ci.org/haskell-distributed/network-transport-inmemory)
 [![Release](https://img.shields.io/hackage/v/network-transport-inmemory.svg)](http://hackage.haskell.org/package/network-transport-inmemory)
 
 network-transport-inmemory is a transport for local
