@@ -478,9 +478,9 @@ data TCPParameters = TCPParameters {
     -- | Should we set TCP_NODELAY on connection sockets?
     -- Defaults to True.
   , tcpNoDelay :: Bool
-    -- | Value of TCP_USER_TIMEOUT in milliseconds
-  , tcpKeepAlive :: Bool
     -- | Should we set TCP_KEEPALIVE on connection sockets?
+  , tcpKeepAlive :: Bool
+    -- | Value of TCP_USER_TIMEOUT in milliseconds
   , tcpUserTimeout :: Maybe Int
     -- | A connect timeout for all 'connect' calls of the transport
     -- in microseconds
