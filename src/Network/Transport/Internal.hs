@@ -30,6 +30,7 @@ import Prelude hiding (catch)
 import Foreign.Storable (pokeByteOff, peekByteOff)
 import Foreign.ForeignPtr (withForeignPtr)
 import Data.ByteString (ByteString)
+import Data.List (foldl')
 import qualified Data.ByteString as BS (length)
 import qualified Data.ByteString.Internal as BSI
   ( unsafeCreate
@@ -123,8 +124,25 @@ decodeNum16 :: Num a => ByteString -> a
 decodeNum16 = fromIntegral . decodeWord16
 
 -- | Prepend a list of bytestrings with their total length
+--   Will be an exception in case of overflow: the sum of the lengths of
+--   the ByteStrings overflows Int, or that sum overflows Word32.
 prependLength :: [ByteString] -> [ByteString]
-prependLength bss = encodeWord32 (fromIntegral . sum . map BS.length $ bss) : bss
+prependLength bss = case word32Length of
+    Nothing -> overflow
+    Just w32 -> encodeWord32 w32 : bss
+  where
+    intLength :: Int
+    intLength = foldl' safeAdd 0 . map BS.length $ bss
+    word32Length :: Maybe Word32
+    word32Length = tryToEnum intLength
+    -- Non-negative integer addition with overflow check.
+    safeAdd :: Int -> Int -> Int
+    safeAdd i j
+      | r >= 0    = r
+      | otherwise = overflow
+      where
+      r = i + j
+    overflow = throw $ userError "prependLength: input is too long (overflow)"
 
 -- | Translate exceptions that arise in IO computations
 mapIOException :: Exception e => (IOException -> e) -> IO a -> IO a
