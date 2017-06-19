@@ -939,11 +939,13 @@ handleConnectionRequest transport socketClosed (sock, sockAddr) = handle handleE
               _ <- recvExact sock handshakeLength
               handleVersioned
     -- The handshake must complete within the optional timeout duration.
+    -- No socket 'recv's are to be run outside the timeout. The continuation
+    -- returned may 'send', but not 'recv'.
     let connTimeout = transportConnectTimeout (transportParams transport)
     outcome <- maybe (fmap Just) System.Timeout.timeout connTimeout handleVersioned
     case outcome of
       Nothing -> throwIO (userError "handleConnectionRequest: timed out")
-      Just () -> return ()
+      Just act -> forM_ act id
 
   where
 
@@ -954,6 +956,7 @@ handleConnectionRequest transport socketClosed (sock, sockAddr) = handle handleE
     rethrowIfAsync :: Maybe AsyncException -> IO ()
     rethrowIfAsync = mapM_ throwIO
 
+    handleConnectionRequestV0 :: (N.Socket, N.SockAddr) -> IO (Maybe (IO ()))
     handleConnectionRequestV0 (sock, sockAddr) = do
       -- Get the OS-determined host and port.
       (actualHost, actualPort) <-
@@ -974,7 +977,7 @@ handleConnectionRequest transport socketClosed (sock, sockAddr) = handle handleE
                  (decodeEndPointAddress theirAddress)
       let checkPeerHost = tcpCheckPeerHost (transportParams transport)
       if checkPeerHost && (theirHost /= actualHost)
-      then
+      then do
         -- If the OS-determined host doesn't match the host that the peer gave us,
         -- then we have no choice but to reject the connection. It's because we
         -- use the EndPointAddress to key the remote end points (localConnections)
@@ -983,6 +986,7 @@ handleConnectionRequest transport socketClosed (sock, sockAddr) = handle handleE
         sendMany sock $
             encodeWord32 (encodeConnectionRequestResponse ConnectionRequestHostMismatch)
           : prependLength [BSC.pack actualHost]
+        return Nothing
       else do
         ourEndPoint <- withMVar (transportState transport) $ \st -> case st of
           TransportValid vst ->
@@ -994,45 +998,41 @@ handleConnectionRequest transport socketClosed (sock, sockAddr) = handle handleE
                 return ourEndPoint
           TransportClosed ->
             throwIO $ userError "Transport closed"
-        void $ go ourEndPoint theirAddress
+        return (Just (go ourEndPoint theirAddress))
 
       where
 
       go :: LocalEndPoint -> EndPointAddress -> IO ()
-      go ourEndPoint theirAddress = do
-        -- This runs in a thread that will never be killed
-        mEndPoint <- handle ((>> return Nothing) . handleException) $ do
-          resetIfBroken ourEndPoint theirAddress
-          (theirEndPoint, isNew) <-
-            findRemoteEndPoint ourEndPoint theirAddress RequestedByThem Nothing
+      go ourEndPoint theirAddress = handle handleException $ do
+        resetIfBroken ourEndPoint theirAddress
+        (theirEndPoint, isNew) <-
+          findRemoteEndPoint ourEndPoint theirAddress RequestedByThem Nothing
 
-          if not isNew
-            then do
-              void $ tryIO $ sendMany sock
-                [encodeWord32 (encodeConnectionRequestResponse ConnectionRequestCrossed)]
-              probeIfValid theirEndPoint
-              return Nothing
-            else do
-              sendLock <- newMVar ()
-              let vst = ValidRemoteEndPointState
-                          {  remoteSocket        = sock
-                          ,  remoteSocketClosed  = socketClosed
-                          ,  remoteProbing       = Nothing
-                          ,  remoteSendLock      = sendLock
-                          , _remoteOutgoing      = 0
-                          , _remoteIncoming      = Set.empty
-                          , _remoteLastIncoming  = 0
-                          , _remoteNextConnOutId = firstNonReservedLightweightConnectionId
-                          }
-              sendMany sock [encodeWord32 (encodeConnectionRequestResponse ConnectionRequestAccepted)]
-              resolveInit (ourEndPoint, theirEndPoint) (RemoteEndPointValid vst)
-              return (Just theirEndPoint)
-        -- If we left the scope of the exception handler with a return value of
-        -- Nothing then the socket is already closed; otherwise, the socket has
-        -- been recorded as part of the remote endpoint. Either way, we no longer
-        -- have to worry about closing the socket on receiving an asynchronous
-        -- exception from this point forward.
-        forM_ mEndPoint $ handleIncomingMessages (transportParams transport) . (,) ourEndPoint
+        if not isNew
+          then do
+            void $ tryIO $ sendMany sock
+              [encodeWord32 (encodeConnectionRequestResponse ConnectionRequestCrossed)]
+            probeIfValid theirEndPoint
+          else do
+            sendLock <- newMVar ()
+            let vst = ValidRemoteEndPointState
+                        {  remoteSocket        = sock
+                        ,  remoteSocketClosed  = socketClosed
+                        ,  remoteProbing       = Nothing
+                        ,  remoteSendLock      = sendLock
+                        , _remoteOutgoing      = 0
+                        , _remoteIncoming      = Set.empty
+                        , _remoteLastIncoming  = 0
+                        , _remoteNextConnOutId = firstNonReservedLightweightConnectionId
+                        }
+            sendMany sock [encodeWord32 (encodeConnectionRequestResponse ConnectionRequestAccepted)]
+            -- resolveInit will update the shared state, and handleIncomingMessages
+            -- will always ultimately clean up after it.
+            -- Closing up the socket is also out of our hands. It will happen
+            -- when handleIncomingMessages finishes.
+            resolveInit (ourEndPoint, theirEndPoint) (RemoteEndPointValid vst)
+              `finally`
+              handleIncomingMessages (transportParams transport) (ourEndPoint, theirEndPoint)
 
       probeIfValid :: RemoteEndPoint -> IO ()
       probeIfValid theirEndPoint = modifyMVar_ (remoteState theirEndPoint) $
@@ -1068,28 +1068,41 @@ handleConnectionRequest transport socketClosed (sock, sockAddr) = handle handleE
 -- Returns only if the remote party closes the socket or if an error occurs.
 -- This runs in a thread that will never be killed.
 handleIncomingMessages :: TCPParameters -> EndPointPair -> IO ()
-handleIncomingMessages params (ourEndPoint, theirEndPoint) = do
-    choice <- withMVar theirState $ \st ->
-      case st of
-        RemoteEndPointInvalid _ ->
-          relyViolation (ourEndPoint, theirEndPoint)
-            "handleIncomingMessages (invalid)"
-        RemoteEndPointInit _ _ _ ->
-          relyViolation (ourEndPoint, theirEndPoint)
-            "handleIncomingMessages (init)"
-        RemoteEndPointValid ep ->
-          return . Right $ remoteSocket ep
-        RemoteEndPointClosing _ ep ->
-          return . Right $ remoteSocket ep
-        RemoteEndPointClosed ->
-          return . Left $ userError "handleIncomingMessages (already closed)"
-        RemoteEndPointFailed _ ->
-          return . Left $ userError "handleIncomingMessages (failed)"
+handleIncomingMessages params (ourEndPoint, theirEndPoint) =
+    bracket acquire release act
 
-    case choice of
-      Left err -> prematureExit err
-      Right sock -> tryIO (go sock) >>= either prematureExit return
   where
+
+    -- Use shared remote endpoint state to get a socket, or an appropriate
+    -- exception in case it's neither valid nor closing.
+    acquire :: IO (Either IOError N.Socket)
+    acquire = withMVar theirState $ \st -> case st of
+      RemoteEndPointInvalid _ ->
+        relyViolation (ourEndPoint, theirEndPoint)
+          "handleIncomingMessages (invalid)"
+      RemoteEndPointInit _ _ _ ->
+        relyViolation (ourEndPoint, theirEndPoint)
+          "handleIncomingMessages (init)"
+      RemoteEndPointValid ep ->
+        return . Right $ remoteSocket ep
+      RemoteEndPointClosing _ ep ->
+        return . Right $ remoteSocket ep
+      RemoteEndPointClosed ->
+        return . Left $ userError "handleIncomingMessages (already closed)"
+      RemoteEndPointFailed _ ->
+        return . Left $ userError "handleIncomingMessages (failed)"
+
+    -- 'Right' is the normal case in which there still is a live socket to
+    -- the remote endpoint, and so 'act' was run and installed its own
+    -- exception handler.
+    release :: Either IOError N.Socket -> IO ()
+    release (Left err) = prematureExit err
+    release (Right _) = return ()
+
+    act :: Either IOError N.Socket -> IO ()
+    act (Left _) = return ()
+    act (Right sock) = go sock `catch` prematureExit
+
     -- Dispatch
     --
     -- If a recv throws an exception this will be caught top-level and
