@@ -1,4 +1,4 @@
-# distribributed-process-supervisor
+# distributed-process-supervisor
 [![travis](https://secure.travis-ci.org/haskell-distributed/distributed-process-supervisor.png)](http://travis-ci.org/haskell-distributed/distributed-process-supervisor)
 [![Release](https://img.shields.io/hackage/v/distributed-process-supervisor.svg)](https://hackage.haskell.org/package/distributed-process-supervisor)
 
