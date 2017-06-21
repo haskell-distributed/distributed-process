@@ -1,4 +1,4 @@
-# distribributed-process-client-server
+# distributed-process-client-server
 [![Build Status](https://secure.travis-ci.org/haskell-distributed/distributed-process-client-server.png)](http://travis-ci.org/haskell-distributed/distributed-process-client-server)
 [![Code Coverage](https://coveralls.io/repos/github/haskell-distributed/distributed-process-client-server/badge.svg?branch=master)](https://coveralls.io/github/haskell-distributed/distributed-process-client-server?branch=master)
 [![BSD3 License](http://img.shields.io/badge/license-BSD3-brightgreen.svg)](https://tldrlegal.com/license/bsd-3-clause-license-%28revised%29)
