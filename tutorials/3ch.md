@@ -63,7 +63,7 @@ demo = do
     listen = do
       third <- expect :: Process ProcessId
       first <- expect :: Process String
-      second <- expectTimeout 100000 :: Process String
+      second <- expectTimeout 100000 :: Process (Maybe String)
       mapM_ (say . show) [first, second, third]
       send third ()
 {% endhighlight %}
