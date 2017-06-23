@@ -59,12 +59,15 @@ demo = do
     send listener "hello"
     getSelfPid >>= send listener
     () <- expect
+    return ()
   where
     listen = do
       third <- expect :: Process ProcessId
       first <- expect :: Process String
-      second <- expectTimeout 100000 :: Process String
-      mapM_ (say . show) [first, second, third]
+      second <- expectTimeout 100000 :: Process (Maybe String)
+      (say . show) first
+      (say . show) second
+      (say . show) third
       send third ()
 {% endhighlight %}
 
