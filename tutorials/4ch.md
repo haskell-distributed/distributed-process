@@ -120,6 +120,8 @@ module MathServer
   , launchMathServer
   ) where
 
+import Control.Distributed.Process.ManagedProcess
+import Control.Distributed.Process.Extras.Time
 import .... -- elided
 
 -- We keep this data-type hidden from the outside world, and we ignore
@@ -148,7 +150,7 @@ launchMathServer =
       apiHandlers = [ handleCall_ (\(Add x y) -> return (x + y)) ]
     , unhandledMessagePolicy = Drop
     }
-  in spawnLocal $ start () (statelessInit Infinity) server >> return ()
+  in spawnLocal $ serve () (statelessInit Infinity) server >> return ()
 {% endhighlight %}
 
 
@@ -191,7 +193,7 @@ launchMathServer =
       apiHandlers = [ handleRpcChan_ (\chan (Add x y) -> sendChan chan (x + y)) ]
     , unhandledMessagePolicy = Drop
     }
-  in spawnLocal $ start () (statelessInit Infinity) server >> return ()
+  in spawnLocal $ serve () (statelessInit Infinity) server >> return ()
 {% endhighlight %}
 
 Ensuring that only valid types are sent to the server is relatively simple,
@@ -230,7 +232,7 @@ launchMathServer =
                     , handleCast_ (\(Add x y) -> liftIO $ putStrLn $ show (x + y) >> continue_) ]
     , unhandledMessagePolicy = Drop
     }
-  in spawnLocal $ start () (statelessInit Infinity) server >> return ()
+  in spawnLocal $ serve () (statelessInit Infinity) server >> return ()
 {% endhighlight %}
 
 
