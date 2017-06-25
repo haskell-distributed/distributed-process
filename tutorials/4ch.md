@@ -120,8 +120,8 @@ module MathServer
   , launchMathServer
   ) where
 
-import Control.Distributed.Process.ManagedProcess
-import Control.Distributed.Process.Extras.Time
+import Control.Distributed.Process.ManagedProcess -- from the package `distributed-process-client-server`
+import Control.Distributed.Process.Extras.Time -- from the package `distributed-process-extras`
 import .... -- elided
 
 -- We keep this data-type hidden from the outside world, and we ignore
