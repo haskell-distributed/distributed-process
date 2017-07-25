@@ -1,3 +1,9 @@
+2017-07-25  Facundo Domínguez <facundo.dominguez@tweag.io> 0.5.2
+
+* prependLength checks for overflow (5608f0f)
+* Drop inlinePerformIO for unsafeDupablePerformIO (18bf80c)
+* Have travis build n-t even with no tests (7ffe43e)
+
 2017-02-23  Facundo Domínguez <facundo.dominguez@tweag.io> 0.5.1
 
 * Add {encode|decode}{Word|Enum|Num}{32|16}.
