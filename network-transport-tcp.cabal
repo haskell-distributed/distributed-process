@@ -1,5 +1,5 @@
 Name:          network-transport-tcp
-Version:       0.5.1
+Version:       0.6.0
 Cabal-Version: >=1.10
 Build-Type:    Simple
 License:       BSD3
