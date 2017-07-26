@@ -661,6 +661,7 @@ testCloseEndPoint transport _ = do
       close conn
       putMVar serverFirstTestDone ()
       ConnectionClosed cid' <- receive endpoint ; True <- return $ cid == cid'
+      putMVar serverAddr (address endpoint)
       return ()
 
     -- Second test
@@ -687,10 +688,10 @@ testCloseEndPoint transport _ = do
 
   -- Client
   forkTry $ do
-    theirAddr <- readMVar serverAddr
 
     -- First test: close endpoint with one outgoing but no incoming connections
     do
+      theirAddr <- takeMVar serverAddr
       Right endpoint <- newEndPoint transport
       putMVar clientAddr1 (address endpoint)
 
@@ -707,6 +708,7 @@ testCloseEndPoint transport _ = do
 
     -- Second test: close endpoint with one outgoing and one incoming connection
     do
+      theirAddr <- takeMVar serverAddr
       Right endpoint <- newEndPoint transport
       putMVar clientAddr2 (address endpoint)
 
