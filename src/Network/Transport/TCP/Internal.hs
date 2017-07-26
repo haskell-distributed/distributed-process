@@ -13,7 +13,7 @@ module Network.Transport.TCP.Internal
   , encodeWord32
   , tryCloseSocket
   , tryShutdownSocketBoth
-  , decodeSockAddr
+  , resolveSockAddr
   , EndPointId
   , encodeEndPointAddress
   , decodeEndPointAddress
@@ -61,6 +61,7 @@ import qualified Network.Socket as N
   , ShutdownCmd(ShutdownBoth)
   , SockAddr(..)
   , inet_ntoa
+  , getNameInfo
   )
 
 #ifdef USE_MOCK_NETWORK
@@ -305,13 +306,26 @@ recvExact sock len = go [] len
         then throwIO (userError "recvExact: Socket closed")
         else go (bs : acc) (l - fromIntegral (BS.length bs))
 
--- | Produce a HostName and ServiceName from a SockAddr. Only gives 'Just' for
--- IPv4 addresses.
-decodeSockAddr :: N.SockAddr -> IO (Maybe (N.HostName, N.ServiceName))
-decodeSockAddr sockAddr = case sockAddr of
+-- | Get the numeric host, resolved host (via getNameInfo), and port from a
+-- SockAddr. The numeric host is first, then resolved host (which may be the
+-- same as the numeric host).
+-- Will only give 'Just' for IPv4 addresses.
+resolveSockAddr :: N.SockAddr -> IO (Maybe (N.HostName, N.HostName, N.ServiceName))
+resolveSockAddr sockAddr = case sockAddr of
   N.SockAddrInet port host -> do
-    hostString <- N.inet_ntoa host
-    return $ Just (hostString, show port)
+    (mResolvedHost, mResolvedPort) <- N.getNameInfo [] True False sockAddr
+    case (mResolvedHost, mResolvedPort) of
+      (Just resolvedHost, Nothing) -> do
+        numericHost <- N.inet_ntoa host
+        return $ Just (numericHost, resolvedHost, show port)
+      _ -> error $ concat [
+          "decodeSockAddr: unexpected resolution "
+        , show sockAddr
+        , " -> "
+        , show mResolvedHost
+        , ", "
+        , show mResolvedPort
+        ]
   _ -> return Nothing
 
 -- | Encode end point address
