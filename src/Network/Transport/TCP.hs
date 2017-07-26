@@ -1012,25 +1012,24 @@ handleConnectionRequest transport socketClosed (sock, sockAddr) = handle handleE
           maybe (throwIO (userError "handleConnectionRequest: invalid socket address")) return
       -- The peer must send our identifier and their address promptly, if a
       -- timeout is set.
-      addrInfo <- do
+      (ourEndPointId, theirAddress, mTheirHost) <- do
         ourEndPointId <- recvWord32 sock
         let maxAddressLength = tcpMaxAddressLength $ transportParams transport
         mTheirAddress <- BS.concat <$> recvWithLength maxAddressLength sock
         -- Sending a length = 0 address means unaddressable.
         if BS.null mTheirAddress
-        then fmap ((,) ourEndPointId . Left) randomEndPointAddress
+        then do
+          theirAddress <- randomEndPointAddress
+          return (ourEndPointId, theirAddress, Nothing)
         else do
           let theirAddress = EndPointAddress mTheirAddress
-          (theirHost, theirPort, theirEndPointId)
+          (theirHost, _, _)
             <- maybe (throwIO (userError "handleConnectionRequest: peer gave malformed address"))
                      return
                      (decodeEndPointAddress theirAddress)
-          return (ourEndPointId, Right (theirAddress, (theirHost, theirPort, theirEndPointId)))
-      (ourEndPointId, theirAddress, peerHost) <- case addrInfo of
-        (x, Left y) -> return (x, y, Nothing)
-        (x, Right (y, (h, _, _))) -> return (x, y, Just h)
+          return (ourEndPointId, theirAddress, Just theirHost)
       let checkPeerHost = tcpCheckPeerHost (transportParams transport)
-      continue <- case (peerHost, checkPeerHost) of
+      continue <- case (mTheirHost, checkPeerHost) of
         (Just theirHost, True) -> do
           -- If the OS-determined host doesn't match the host that the peer gave us,
           -- then we have no choice but to reject the connection. It's because we
