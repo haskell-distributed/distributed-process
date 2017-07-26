@@ -509,6 +509,10 @@ data TCPParameters = TCPParameters {
     -- could otherwise deny service to some victim by claiming the victim's
     -- address.
   , tcpCheckPeerHost :: Bool
+    -- | What to do if there's an exception when accepting a new TCP
+    -- connection. Throwing an exception here will cause the server to
+    -- terminate.
+  , tcpServerExceptionHandler :: SomeException -> IO ()
   }
 
 -- | Internal functionality we expose for unit testing
@@ -608,7 +612,7 @@ createTransportExposeInternals bindHost bindPort mkExternal params = do
         )
 
     errorHandler :: TCPTransport -> SomeException -> IO ()
-    errorHandler _ = throwIO
+    errorHandler _ = tcpServerExceptionHandler params
 
     terminationHandler :: TCPTransport -> SomeException -> IO ()
     terminationHandler transport ex = do
@@ -631,6 +635,7 @@ defaultTCPParameters = TCPParameters {
   , tcpMaxAddressLength = maxBound
   , tcpMaxReceiveLength = maxBound
   , tcpCheckPeerHost   = False
+  , tcpServerExceptionHandler = throwIO
   }
 
 --------------------------------------------------------------------------------
