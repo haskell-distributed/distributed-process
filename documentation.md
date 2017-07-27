@@ -225,7 +225,7 @@ runProcess  :: LocalNode -> Process () -> IO ()
 {% endhighlight %}
 
 Once we've spawned some processes, they can communicate with one another
-using the messaging primitives provided by [distributed-processes][distributed-processes],
+using the messaging primitives provided by [distributed-process][distributed-process],
 which are well documented in the haddocks.
 
 ### What is Serializable
