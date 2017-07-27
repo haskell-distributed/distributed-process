@@ -499,7 +499,7 @@ API, which looks a lot like `Async` but manages exit signals in a single thread 
 configurable task pools and task supervision strategy part of its API.
 
 More complex examples of the `ManagedProcess` API can be seen in the
-[Managed Processes tutorial](tutorials/tutorial3.html). API documentation for HEAD is available
+[Managed Processes tutorial](tutorials/4ch.html). API documentation for HEAD is available
 [here][d-p-client-server-ManagedProcess].
 
 ### Supervision Trees
