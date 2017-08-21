@@ -1,5 +1,5 @@
 Name:          network-transport-inmemory
-Version:       0.5.1
+Version:       0.5.2
 Cabal-Version: >=1.8
 Build-Type:    Simple
 License:       BSD3
