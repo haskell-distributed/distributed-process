@@ -31,8 +31,8 @@ library
                      bytestring >= 0.9 && < 0.12,
                      distributed-process >= 0.6.0 && < 0.7,
                      distributed-static,
-                     HUnit >= 1.2 && < 1.4,
-                     network-transport >= 0.4.1.0 && < 0.5,
+                     HUnit >= 1.2 && < 1.6,
+                     network-transport >= 0.4.1.0 && < 0.6,
                      network >= 2.5 && < 2.7,
                      random >= 1.0 && < 1.2,
                      rematch >= 0.1.2.1,
@@ -61,7 +61,7 @@ Test-Suite TestCHInMemory
   Build-Depends:     base >= 4.4 && < 5,
                      distributed-process-tests,
                      network >= 2.3 && < 2.7,
-                     network-transport >= 0.4.1.0 && < 0.5,
+                     network-transport >= 0.4.1.0 && < 0.6,
                      network-transport-inmemory >= 0.5,
                      test-framework >= 0.6 && < 0.9
   Extensions:        CPP
@@ -76,8 +76,8 @@ Test-Suite TestCHInTCP
     Build-Depends:     base >= 4.4 && < 5,
                        distributed-process-tests,
                        network >= 2.3 && < 2.7,
-                       network-transport >= 0.4.1.0 && < 0.5,
-                       network-transport-tcp >= 0.5 && < 0.6,
+                       network-transport >= 0.4.1.0 && < 0.6,
+                       network-transport-tcp >= 0.5 && < 0.7,
                        test-framework >= 0.6 && < 0.9
   else
     Buildable:       False
@@ -93,7 +93,7 @@ Test-Suite TestClosure
   Build-Depends:     base >= 4.4 && < 5,
                      distributed-process-tests,
                      network >= 2.3 && < 2.7,
-                     network-transport >= 0.4.1.0 && < 0.5,
+                     network-transport >= 0.4.1.0 && < 0.6,
                      network-transport-inmemory >= 0.5,
                      test-framework >= 0.6 && < 0.9
   Extensions:        CPP
@@ -107,7 +107,7 @@ Test-Suite TestStats
   Build-Depends:     base >= 4.4 && < 5,
                      distributed-process-tests,
                      network >= 2.3 && < 2.7,
-                     network-transport >= 0.4.1.0 && < 0.5,
+                     network-transport >= 0.4.1.0 && < 0.6,
                      network-transport-inmemory >= 0.5,
                      test-framework >= 0.6 && < 0.9
   Extensions:        CPP
@@ -122,7 +122,7 @@ Test-Suite TestMx
   Build-Depends:     base >= 4.4 && < 5,
                      distributed-process-tests,
                      network >= 2.3 && < 2.7,
-                     network-transport >= 0.4.1.0 && < 0.5,
+                     network-transport >= 0.4.1.0 && < 0.6,
                      network-transport-inmemory >= 0.5,
                      test-framework >= 0.6 && < 0.9
   Extensions:        CPP
@@ -136,7 +136,7 @@ Test-Suite TestTracing
   Build-Depends:     base >= 4.4 && < 5,
                      distributed-process-tests,
                      network >= 2.3 && < 2.7,
-                     network-transport >= 0.4.1.0 && < 0.5,
+                     network-transport >= 0.4.1.0 && < 0.6,
                      network-transport-inmemory >= 0.5,
                      test-framework >= 0.6 && < 0.9
   Extensions:        CPP
