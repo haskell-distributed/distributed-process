@@ -4,72 +4,38 @@ sudo: false
 
 matrix:
   include:
-  - env: CABAL_INSTALL_VER=1.22 GHCVER=7.6.3 BUILD=cabal
-    addons: {apt: {packages: [cabal-install-1.22,ghc-7.6.3], sources: [hvr-ghc]}}
-
-  - env: ARGS="--stack-yaml stack-ghc-7.8.4.yaml" BUILD=stack
+  - env: ARGS="--stack-yaml stack-ghc-7.8.4.yaml"
     addons: {apt: {packages: [libgmp-dev]}}
 
-  - env: ARGS="--stack-yaml stack-ghc-7.10.3.yaml" BUILD=stack
+  - env: ARGS="--stack-yaml stack-ghc-7.10.3.yaml"
     addons: {apt: {packages: [libgmp-dev]}}
 
-  - env: ARGS= BUILD=stack GHCVER=8.0.1
+  - env: ARGS="--stack-yaml stack-ghc-8.0.2.yaml"
     addons: {apt: {packages: [libgmp-dev]}}
+
+#  - env: ARGS=
+#    addons: {apt: {packages: [libgmp-dev]}}
 
 cache:
   directories:
   - $HOME/.stack
-  - $HOME/.cabal/packages
 
 before_install:
-# cabal case:
-# workaround for https://ghc.haskell.org/trac/ghc/ticket/9221
-# taken from https://github.com/hvr/multi-ghc-travis/blob/0fa68f78c2b1b059f904c9abc85510a3bb4f57e2/README.md
-- case "$BUILD" in
-    stack)
-      export PATH=$HOME/.local/bin:$HOME/.cabal/bin:$PATH;
-      mkdir -p ~/.local/bin;
-      travis_retry curl -L https://www.stackage.org/stack/linux-x86_64 | tar xz --wildcards --strip-components=1 -C ~/.local/bin '*/stack';
-      stack --version
-      ;;
-    cabal)
-      export PATH=$HOME/.local/bin:/opt/ghc/$GHCVER/bin:/opt/cabal/$CABAL_INSTALL_VER/bin:$HOME/.cabal/bin:$PATH;
-      ghc --version;
-      cabal --version;
-      travis_retry cabal update;
-      sed -i 's/^jobs:/-- jobs:/' $HOME/.cabal/config
-      ;;
-  esac
+- export PATH=$HOME/.local/bin:$PATH;
+  mkdir -p ~/.local/bin;
+  travis_retry curl -L https://www.stackage.org/stack/linux-x86_64 | tar xz --wildcards --strip-components=1 -C ~/.local/bin '*/stack';
+  stack --version
 
 install:
-- case "$BUILD" in
-    stack)
-      stack $ARGS setup --no-terminal;
-      stack $ARGS build --no-terminal --only-snapshot --test --no-run-tests;
-      ;;
-    cabal)
-      cabal install --jobs=2 --enable-tests --only-dependencies -ftcp . distributed-process-tests/
-      ;;
-  esac
+- stack $ARGS setup --no-terminal;
+  stack $ARGS build --no-terminal --only-snapshot --test --no-run-tests;
 
 script:
-- case "$BUILD" in
-    stack)
-      export ARG='--test-arguments'
-      export TEST_PACKAGE="distributed-process-tests:"
-      ;;
-    cabal)
-      cabal install --jobs=2 --enable-tests -ftcp .
-      cd distributed-process-tests;
-      cabal configure -ftcp --enable-tests;
-      cabal build --jobs=2;
-      export ARG='--test-options'
-      export TEST_PACKAGE=""
-      ;;
-   esac
-- $BUILD ${ARGS} test $ARG='--plain -t "!Flaky"' ${TEST_PACKAGE}TestCHInMemory
-- $BUILD ${ARGS} test $ARG='--plain -t "!Flaky"' ${TEST_PACKAGE}TestCHInTCP
-- $BUILD ${ARGS} test $ARG='--plain -t "!SpawnReconnect"' ${TEST_PACKAGE}TestClosure
-- $BUILD ${ARGS} test $ARG='--plain' ${TEST_PACKAGE}TestStats
-- $BUILD ${ARGS} test $ARG='--plain' ${TEST_PACKAGE}TestMx
-- $BUILD ${ARGS} test $ARG='--plain' ${TEST_PACKAGE}TestTracing
+- export ARG='--test-arguments'
+  export TEST_PACKAGE="distributed-process-tests:"
+- stack ${ARGS} test $ARG='--plain -t "!Flaky"' ${TEST_PACKAGE}TestCHInMemory
+- stack ${ARGS} test $ARG='--plain -t "!Flaky"' ${TEST_PACKAGE}TestCHInTCP
+- stack ${ARGS} test $ARG='--plain -t "!SpawnReconnect"' ${TEST_PACKAGE}TestClosure
+- stack ${ARGS} test $ARG='--plain' ${TEST_PACKAGE}TestStats
+- stack ${ARGS} test $ARG='--plain' ${TEST_PACKAGE}TestMx
+- stack ${ARGS} test $ARG='--plain' ${TEST_PACKAGE}TestTracing

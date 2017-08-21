@@ -1,4 +1,4 @@
-resolver: nightly-2016-03-08
+resolver: lts-9.0
 
 packages:
 - '.'
