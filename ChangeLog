@@ -1,3 +1,14 @@
+2016-08-21  Facundo Domínguez  <facundo.dominguez@tweag.io>  0.2.4.1
+
+* fix race in testCloseConnect
+
+2016-08-21  Facundo Domínguez  <facundo.dominguez@tweag.io>  0.2.4.0
+
+* Fix race in testCloseEndpoint
+* Tests receive events eagerly
+* Update upper bound of n-t
+* Removed EndPointAddress equality checks
+
 2016-02-17  Facundo Domínguez  <facundo.dominguez@tweag.io>  0.2.3.0
 
 * Add a test for send strictness in self connections.
