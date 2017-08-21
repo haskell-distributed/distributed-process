@@ -111,7 +111,7 @@ Library
      Build-Depends:   time >= 1.5
   if flag(th)
      other-extensions: TemplateHaskell
-     Build-Depends: template-haskell >= 2.6 && < 2.12
+     Build-Depends: template-haskell >= 2.6
      Exposed-modules: Control.Distributed.Process.Internal.Closure.TH
      CPP-Options:     -DTemplateHaskellSupport
 
