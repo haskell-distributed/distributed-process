@@ -49,6 +49,9 @@ Library
 
 Executable TestSimpleLocalnet
   Main-Is:           TestSimpleLocalnet.hs
+  Other-Modules:
+    Control.Distributed.Process.Backend.SimpleLocalnet
+    Control.Distributed.Process.Backend.SimpleLocalnet.Internal.Multicast
   If flag(build-example)
     Build-Depends:     base >= 4.4 && < 5,
                        bytestring >= 0.9 && < 0.11,
