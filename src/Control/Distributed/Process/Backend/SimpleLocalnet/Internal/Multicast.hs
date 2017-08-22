@@ -21,7 +21,7 @@ import qualified Data.Accessor.Container as DAC (mapDefault)
 import Control.Applicative ((<$>))
 import Network.Socket (HostName, PortNumber, Socket, SockAddr)
 import qualified Network.Socket.ByteString as NBS (recvFrom, sendManyTo)
-import Network.Transport.Internal (decodeInt32, encodeInt32)
+import Network.Transport.Internal (decodeNum32, encodeEnum32)
 import Network.Multicast (multicastSender, multicastReceiver)
 
 --------------------------------------------------------------------------------
@@ -51,7 +51,7 @@ initMulticast host port bufferSize = do
     writer :: forall a. Binary a => Socket -> SockAddr -> a -> IO ()
     writer sock addr val = do
       let bytes = encode val
-          len   = encodeInt32 (BSL.length bytes)
+          len   = encodeEnum32 (BSL.length bytes)
       NBS.sendManyTo sock (len : BSL.toChunks bytes) addr
 
 --------------------------------------------------------------------------------
@@ -85,7 +85,7 @@ recvWithLength :: Socket
                -> IO (BSL.ByteString, SockAddr)
 recvWithLength sock st bufferSize = do
   (len, addr) <- recvExact sock 4 st bufferSize
-  let n = decodeInt32 . BSS.concat . BSL.toChunks $ len
+  let n = decodeNum32 . BSS.concat . BSL.toChunks $ len
   bytes <- recvExactFrom addr sock n st bufferSize
   return (bytes, addr)
 
