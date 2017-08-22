@@ -56,6 +56,7 @@
 -- > -- Cannot apply function of type (forall a. (a -> a) -> a -> a) to arg of type (Int -> Bool)
 -- > > funResultTy (typeOf (undefined :: (ANY -> ANY) -> (ANY -> ANY))) (typeOf (undefined :: Int -> Bool))
 -- > Left "Cannot unify Int and Bool"
+{-# LANGUAGE BangPatterns #-}
 module Data.Rank1Typeable
   ( -- * Basic types
     TypeRep
@@ -117,10 +118,10 @@ tcFun = fst $ splitTyConApp $ typeOf (\() -> ())
 -- | Dynamic type representation with support for rank-1 types
 data TypeRep
     = TRCon TyCon
-    | TRApp Fingerprint TypeRep TypeRep
+    | TRApp {-# UNPACK #-} !Fingerprint TypeRep TypeRep
 
 data TyCon = TyCon
-    { tyConFingerprint :: Fingerprint
+    { tyConFingerprint :: {-# UNPACK #-} !Fingerprint
     , tyConPackage :: String
     , tyConModule :: String
     , tyConName :: String
