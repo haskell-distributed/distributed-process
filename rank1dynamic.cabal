@@ -29,8 +29,7 @@ Library
   GHC-Options:         -Wall
   Extensions:          EmptyDataDecls,
                        DeriveDataTypeable,
-                       ViewPatterns,
-                       CPP
+                       ViewPatterns
 
 Test-Suite TestRank1Dynamic
   Type:              exitcode-stdio-1.0
