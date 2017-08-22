@@ -1,3 +1,7 @@
+2017-08-22  Facundo Domínguez <facundo.dominguezy@tweag.io>  0.2.4
+
+* Update dependency bounds to build with ghc-8.2.1.
+
 2016-10-13  Facundo Domínguez <facundo.dominguezy@tweag.io>  0.2.3.3
 
 * Update dependency bounds.
