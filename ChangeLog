@@ -1,3 +1,8 @@
+2017-08-22  Facundo Domínguez  <facundo.dominguez@tweag.io>  0.3.6
+
+* Move upper bound of rank1dynamic to support ghc-8.2.1.
+* Remove dynamic type check in Static Binary instance.
+
 2016-06-01  Facundo Domínguez  <facundo.dominguez@tweag.io>  0.3.5.0
 
 * Add compatibility with ghc-8.
