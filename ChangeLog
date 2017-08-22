@@ -1,4 +1,8 @@
-2016-08-21 Facundo Domínguez <facundo.dominguez@tweag.io> 0.7.0
+2017-08-22 Facundo Domínguez <facundo.dominguez@tweag.io> 0.7.1
+
+* Relax upper bounds in dependencies to build with ghc-8.2.1.
+
+2017-08-21 Facundo Domínguez <facundo.dominguez@tweag.io> 0.7.0
 
 * Change type of message sent by `say` from a 3-tuple to a proper
 type (`SayMessage`) with a proper `UTCTime`. (#291)
