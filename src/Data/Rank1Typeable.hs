@@ -62,7 +62,6 @@ module Data.Rank1Typeable
   , typeOf
   , splitTyConApp
   , mkTyConApp
-  , underlyingTypeRep
     -- * Operations on type representations
   , isInstanceOf
   , funResultTy
@@ -99,61 +98,47 @@ import Prelude hiding (succ)
 import Control.Arrow ((***), second)
 import Control.Monad (void)
 import Control.Applicative ((<$>))
+import Data.Binary
+import Data.Function (on)
 import Data.List (intersperse, isPrefixOf)
 import Data.Maybe (fromMaybe)
-import Data.Typeable
-  ( Typeable
-  , TyCon
-  , mkTyCon3
-  , tyConPackage
-  , tyConModule
-  , tyConName
-  )
-#if MIN_VERSION_base(4,7,0)
-import Data.Proxy (Proxy(Proxy))
-#endif
-import qualified Data.Typeable.Internal as T
-import Data.Binary (Binary(get, put))
-import qualified Data.Typeable as Typeable
-  ( TypeRep
-  , typeOf
-  , splitTyConApp
-  , mkTyConApp
-  )
+import Data.Typeable ( Typeable )
+import qualified Data.Typeable as T
+import GHC.Fingerprint
 
 tcList, tcFun :: TyCon
-#if MIN_VERSION_base(4,7,0)
-tcList = T.typeRepTyCon (T.typeOf [()])
-tcFun = T.typeRepTyCon (T.typeRep (Proxy :: Proxy (->)))
-#else
-tcList = T.listTc
-tcFun = T.funTc
-#endif
+tcList = fst $ splitTyConApp $ typeOf [()]
+tcFun = fst $ splitTyConApp $ typeOf (\() -> ())
 
 --------------------------------------------------------------------------------
 -- The basic type                                                             --
 --------------------------------------------------------------------------------
 
 -- | Dynamic type representation with support for rank-1 types
-newtype TypeRep = TypeRep {
-    -- | Return the underlying standard ("Data.Typeable") type representation
-    underlyingTypeRep :: Typeable.TypeRep
-  }
+data TypeRep
+    = TRCon TyCon
+    | TRApp Fingerprint TypeRep TypeRep
+
+data TyCon = TyCon
+    { tyConFingerprint :: Fingerprint
+    , tyConPackage :: String
+    , tyConModule :: String
+    , tyConName :: String
+    }
+
+-- | The fingerprint of a TypeRep
+typeRepFingerprint :: TypeRep -> Fingerprint
+typeRepFingerprint (TRCon c) = tyConFingerprint c
+typeRepFingerprint (TRApp fp _ _) = fp
 
 -- | Compare two type representations
---
--- For base >= 4.6 this compares fingerprints, but older versions of base
--- have a bug in the fingerprint construction
--- (<http://hackage.haskell.org/trac/ghc/ticket/5962>)
-instance Eq TypeRep where
-#if ! MIN_VERSION_base(4,6,0)
-  (splitTyConApp -> (c1, ts1)) == (splitTyConApp -> (c2, ts2)) =
-    c1 == c2 && all (uncurry (==)) (zip ts1 ts2)
-#else
-  t1 == t2 = underlyingTypeRep t1 == underlyingTypeRep t2
-#endif
+instance Eq TyCon where
+  (==) = (==) `on` tyConFingerprint
 
--- Binary instance for 'TypeRep', avoiding orphan instances
+instance Eq TypeRep where
+  (==) = (==) `on` typeRepFingerprint
+
+--- Binary instance for 'TypeRep', avoiding orphan instances
 instance Binary TypeRep where
   put (splitTyConApp -> (tc, ts)) = do
     put $ tyConPackage tc
@@ -169,7 +154,29 @@ instance Binary TypeRep where
 
 -- | The type representation of any 'Typeable' term
 typeOf :: Typeable a => a -> TypeRep
-typeOf = TypeRep . Typeable.typeOf
+typeOf = trTypeOf . T.typeOf
+
+-- | Conversion from Data.Typeable.TypeRep to Data.Rank1Typeable.TypeRep
+trTypeOf :: T.TypeRep -> TypeRep
+trTypeOf t = let (c, ts) = T.splitTyConApp t
+              in foldl mkTRApp (TRCon $ fromTypeableTyCon c) $ map trTypeOf ts
+  where
+    fromTypeableTyCon c =
+      TyCon (T.tyConFingerprint c)
+            (T.tyConPackage c)
+            (T.tyConModule c)
+            (T.tyConName c)
+
+-- | Applies a TypeRep to another.
+mkTRApp :: TypeRep -> TypeRep -> TypeRep
+mkTRApp t0 t1 = TRApp fp t0 t1
+  where
+    fp = fingerprintFingerprints [typeRepFingerprint t0, typeRepFingerprint t1]
+
+mkTyCon3 :: String -> String -> String -> TyCon
+mkTyCon3 pkg m name = TyCon fp pkg m name
+  where
+    fp = fingerprintFingerprints [ fingerprintString s | s <- [pkg, m, name] ]
 
 --------------------------------------------------------------------------------
 -- Constructors/destructors (views)                                           --
@@ -178,14 +185,14 @@ typeOf = TypeRep . Typeable.typeOf
 -- | Split a type representation into the application of
 -- a type constructor and its argument
 splitTyConApp :: TypeRep -> (TyCon, [TypeRep])
-splitTyConApp t =
-  let (c, ts) = Typeable.splitTyConApp (underlyingTypeRep t)
-  in (c, map TypeRep ts)
+splitTyConApp = go []
+  where
+    go xs (TRCon c) = (c, xs)
+    go xs (TRApp _ t0 t1) = go (t1 : xs) t0
 
 -- | Inverse of 'splitTyConApp'
 mkTyConApp :: TyCon -> [TypeRep] -> TypeRep
-mkTyConApp c ts
-  = TypeRep (Typeable.mkTyConApp c (map underlyingTypeRep ts))
+mkTyConApp c = foldl mkTRApp (TRCon c)
 
 isTypVar :: TypeRep -> Maybe Var
 isTypVar (splitTyConApp -> (c, [t])) | c == typVar = Just t
@@ -332,6 +339,9 @@ unify = \t1 t2 -> go [] [(t1, t2)]
 --------------------------------------------------------------------------------
 -- Pretty-printing                                                            --
 --------------------------------------------------------------------------------
+
+instance Show TyCon where
+  showsPrec _ c = showString (tyConName c)
 
 instance Show TypeRep where
   showsPrec p (splitTyConApp -> (tycon, tys)) =
