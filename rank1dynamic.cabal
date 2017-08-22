@@ -29,14 +29,13 @@ Library
   GHC-Options:         -Wall
   Extensions:          EmptyDataDecls,
                        DeriveDataTypeable,
-                       ViewPatterns,
-                       CPP
+                       ViewPatterns
 
 Test-Suite TestRank1Dynamic
   Type:              exitcode-stdio-1.0
   Main-Is:           test.hs
   Build-Depends:     base >= 4.6 && < 5,
-                     HUnit >= 1.2 && < 1.4,
+                     HUnit >= 1.2 && < 1.7,
                      rank1dynamic,
                      test-framework >= 0.6 && < 0.9,
                      test-framework-hunit >= 0.2.0 && < 0.4

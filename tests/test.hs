@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 import Data.Rank1Typeable
 import Data.Rank1Dynamic
 
@@ -36,11 +35,7 @@ tests =
 
       , testCase "CANNOT use a term of type 'forall a. a -> a' as 'forall a. a'" $
           typeOf (undefined :: ANY) `isInstanceOf` typeOf (undefined :: ANY -> ANY)
-#if MIN_VERSION_base(4,7,0)
           @?= Left "Cannot unify Skolem and (->)"
-#else
-          @?= Left "Cannot unify Skolem and ->"
-#endif 
       ]
 
   , testGroup "Examples of funResultTy"
@@ -95,11 +90,7 @@ tests =
 
       , testCase "CANNOT use a term of type 'forall a. a -> a' as 'forall a. a'" $
           do f <- fromDynamic (toDynamic (id :: ANY -> ANY)) ; return $ (f :: Int)
-#if MIN_VERSION_base(4,7,0)
           @?= Left "Cannot unify Int and (->)"
-#else
-          @?= Left "Cannot unify Int and ->"
-#endif
       ]
 
   , testGroup "Examples of dynApply"
