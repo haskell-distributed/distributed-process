@@ -52,7 +52,7 @@ Library
                      bytestring >= 0.9 && < 0.11,
                      random >= 1.0 && < 1.2,
                      distributed-static >= 0.2 && < 0.4,
-                     rank1dynamic >= 0.1 && < 0.4,
+                     rank1dynamic >= 0.1 && < 0.5,
                      syb >= 0.3 && < 0.8,
                      exceptions >= 0.5,
                      containers >= 0.5 && < 0.6,
@@ -121,7 +121,7 @@ benchmark distributed-process-throughput
   Type:            exitcode-stdio-1.0
   Build-Depends:   base >= 4.6 && < 5,
                    distributed-process,
-                   network-transport-tcp >= 0.3 && < 0.6,
+                   network-transport-tcp >= 0.3 && < 0.7,
                    bytestring >= 0.9 && < 0.11,
                    binary >= 0.6.3 && < 0.9
   Main-Is:         benchmarks/Throughput.hs
@@ -131,7 +131,7 @@ benchmark distributed-process-latency
   Type:            exitcode-stdio-1.0
   Build-Depends:   base >= 4.6 && < 5,
                    distributed-process,
-                   network-transport-tcp >= 0.3 && < 0.6,
+                   network-transport-tcp >= 0.3 && < 0.7,
                    bytestring >= 0.9 && < 0.11,
                    binary >= 0.6.3 && < 0.9
   Main-Is:         benchmarks/Latency.hs
@@ -141,7 +141,7 @@ benchmark distributed-process-channels
   Type:            exitcode-stdio-1.0
   Build-Depends:   base >= 4.6 && < 5,
                    distributed-process,
-                   network-transport-tcp >= 0.3 && < 0.6,
+                   network-transport-tcp >= 0.3 && < 0.7,
                    bytestring >= 0.9 && < 0.11,
                    binary >= 0.6.3 && < 0.9
   Main-Is:         benchmarks/Channels.hs
@@ -151,7 +151,7 @@ benchmark distributed-process-spawns
   Type:            exitcode-stdio-1.0
   Build-Depends:   base >= 4.6 && < 5,
                    distributed-process,
-                   network-transport-tcp >= 0.3 && < 0.6,
+                   network-transport-tcp >= 0.3 && < 0.7,
                    bytestring >= 0.9 && < 0.11,
                    binary >= 0.6.3 && < 0.9
   Main-Is:         benchmarks/Spawns.hs
@@ -161,7 +161,7 @@ benchmark distributed-process-ring
   Type:            exitcode-stdio-1.0
   Build-Depends:   base >= 4.6 && < 5,
                    distributed-process,
-                   network-transport-tcp >= 0.3 && < 0.6,
+                   network-transport-tcp >= 0.3 && < 0.7,
                    bytestring >= 0.9 && < 0.11,
                    binary >= 0.6.3 && < 0.9
   Main-Is:         benchmarks/ProcessRing.hs

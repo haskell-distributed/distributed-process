@@ -110,7 +110,8 @@ main = do
   argv <- getArgs
   (opt, _) <- parseArgv argv
   putStrLn $ "options: " ++ (show opt)
-  Right transport <- createTransport "127.0.0.1" "8090" defaultTCPParameters
+  Right transport <- createTransport
+    "127.0.0.1" "8090" (\sn -> ("127.0.0.1", sn)) defaultTCPParameters
   node <- newLocalNode transport initRemoteTable
   catch (void $ runProcess node $ initialProcess opt)
         (\(e :: SomeException) -> putStrLn $ "ERROR: " ++ (show e))

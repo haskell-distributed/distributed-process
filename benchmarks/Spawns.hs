@@ -42,6 +42,7 @@ initialProcess "CLIENT" = do
 main :: IO ()
 main = do
   [role, host, port] <- getArgs
-  Right transport <- createTransport host port defaultTCPParameters
+  Right transport <- createTransport
+    host port (\sn -> (host, sn)) defaultTCPParameters
   node <- newLocalNode transport initRemoteTable
   runProcess node $ initialProcess role
