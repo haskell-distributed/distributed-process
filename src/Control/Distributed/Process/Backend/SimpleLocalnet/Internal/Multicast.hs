@@ -2,7 +2,6 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Control.Distributed.Process.Backend.SimpleLocalnet.Internal.Multicast (initMulticast) where
 
-import Data.Function (on)
 import Data.Map (Map)
 import qualified Data.Map as Map (empty)
 import Data.Binary (Binary, decode, encode)
