@@ -167,20 +167,15 @@
 -- >   where
 -- >     sdictSendPort :: forall a. SerializableDict a -> SerializableDict (SendPort a)
 -- >     sdictSendPort SerializableDict = SerializableDict
-{-# LANGUAGE CPP #-}
-#if __GLASGOW_HASKELL__ >= 710
 {-# LANGUAGE StaticPointers #-}
 {-# LANGUAGE RoleAnnotations #-}
-#endif
 module Control.Distributed.Static
   ( -- * Static values
     Static
   , staticLabel
   , staticApply
-#if __GLASGOW_HASKELL__ >= 710
   , staticPtr
   , staticApplyPtr
-#endif
     -- * Derived static combinators
   , staticCompose
   , staticSplit
@@ -213,9 +208,6 @@ import Data.Binary
   , decode
   )
 import Data.ByteString.Lazy (ByteString, empty)
-#if ! MIN_VERSION_bytestring(0,10,0)
-import Data.ByteString.Lazy as BSL
-#endif
 import Data.Map (Map)
 import qualified Data.Map as Map (lookup, empty, insert)
 import Control.Applicative ((<$>), (<*>))
@@ -228,27 +220,22 @@ import Data.Rank1Typeable
   , ANY2
   , ANY3
   , ANY4
-#if __GLASGOW_HASKELL__ >= 710
   , TypeRep
   , typeOf
-#endif
   )
 
 -- Imports necessary to support StaticPtr
-#if __GLASGOW_HASKELL__ >= 710
 import qualified GHC.Exts as GHC (Any)
 import GHC.StaticPtr
 import GHC.Fingerprint.Type (Fingerprint(..))
 import System.IO.Unsafe (unsafePerformIO)
 import Data.Rank1Dynamic (unsafeToDynamic)
 import Unsafe.Coerce (unsafeCoerce)
-#endif
 
 --------------------------------------------------------------------------------
 -- Introducing static values                                                  --
 --------------------------------------------------------------------------------
 
-#if __GLASGOW_HASKELL__ >= 710
 -- | Static dynamic values
 --
 -- In the new proposal for static, the SPT contains these 'TypeRep's.
@@ -272,32 +259,25 @@ instance Eq SDynamic where
 instance Ord SDynamic where
   SDynamic _ ptr1 `compare` SDynamic _ ptr2 =
     staticKey ptr1 `compare` staticKey ptr2
-#endif
 
 data StaticLabel =
     StaticLabel String
   | StaticApply !StaticLabel !StaticLabel
-#if __GLASGOW_HASKELL__ >= 710
   | StaticPtr SDynamic
-#endif
   deriving (Eq, Ord, Typeable, Show)
 
 instance NFData StaticLabel where
   rnf (StaticLabel s) = rnf s
   rnf (StaticApply a b) = rnf a `seq` rnf b
   -- There are no NFData instances for TypeRep or for StaticPtr :/
-#if __GLASGOW_HASKELL__ >= 710
   rnf (StaticPtr (SDynamic _a _b)) = ()
-#endif
 
 -- | A static value. Static is opaque; see 'staticLabel' and 'staticApply'.
 newtype Static a = Static StaticLabel
   deriving (Eq, Ord, Typeable, Show)
 
 -- Trying to 'coerce' static values will lead to unification errors
-#if __GLASGOW_HASKELL__ >= 710
 type role Static nominal
-#endif
 
 instance NFData (Static a) where
   rnf (Static s) = rnf s
@@ -312,11 +292,9 @@ putStaticLabel (StaticLabel string) =
   putWord8 0 >> put string
 putStaticLabel (StaticApply label1 label2) =
   putWord8 1 >> putStaticLabel label1 >> putStaticLabel label2
-#if __GLASGOW_HASKELL__ >= 710
 putStaticLabel (StaticPtr (SDynamic typ ptr)) =
   let Fingerprint hi lo = staticKey ptr
   in putWord8 2 >> put typ >> put hi >> put lo
-#endif
 
 getStaticLabel :: Get StaticLabel
 getStaticLabel = do
@@ -324,7 +302,6 @@ getStaticLabel = do
   case header of
     0 -> StaticLabel <$> get
     1 -> StaticApply <$> getStaticLabel <*> getStaticLabel
-#if __GLASGOW_HASKELL__ >= 710
     2 -> do typ <- get
             hi  <- get
             lo  <- get
@@ -332,15 +309,12 @@ getStaticLabel = do
             case unsaferLookupStaticPtr key of
               Nothing  -> fail "StaticLabel.get: invalid pointer"
               Just ptr -> return $ StaticPtr (SDynamic typ ptr)
-#endif
     _ -> fail "StaticLabel.get: invalid"
 
-#if __GLASGOW_HASKELL__ >= 710
 -- | We need to be able to lookup keys outside of the IO monad so that we
 -- can provide a 'Get' instance.
 unsaferLookupStaticPtr :: StaticKey -> Maybe (StaticPtr a)
 unsaferLookupStaticPtr = unsafePerformIO . unsafeLookupStaticPtr
-#endif
 
 -- | Create a primitive static value.
 --
@@ -353,7 +327,6 @@ staticLabel = Static . StaticLabel . force
 staticApply :: Static (a -> b) -> Static a -> Static b
 staticApply (Static f) (Static x) = Static (StaticApply f x)
 
-#if __GLASGOW_HASKELL__ >= 710
 -- | Construct a static value from a static pointer
 --
 -- Since 0.3.4.0.
@@ -367,7 +340,6 @@ staticPtr x = Static . StaticPtr
 staticApplyPtr :: (Typeable a, Typeable b)
                => StaticPtr (a -> b) -> Static a -> Static b
 staticApplyPtr = staticApply . staticPtr
-#endif
 
 --------------------------------------------------------------------------------
 -- Eliminating static values                                                  --
@@ -402,10 +374,8 @@ resolveStaticLabel rtable (StaticApply label1 label2) = do
   f <- resolveStaticLabel rtable label1
   x <- resolveStaticLabel rtable label2
   f `dynApply` x
-#if __GLASGOW_HASKELL__ >= 710
 resolveStaticLabel _ (StaticPtr (SDynamic typ ptr)) =
   return $ unsafeToDynamic typ (deRefStaticPtr ptr)
-#endif
 
 -- | Resolve a static value
 unstatic :: Typeable a => RemoteTable -> Static a -> Either String a
@@ -425,11 +395,7 @@ instance Binary (Closure a) where
   put (Closure st env) = put st >> put env
   get = Closure <$> get <*> get
 
-#if MIN_VERSION_bytestring(0,10,0)
 instance NFData (Closure a) where rnf (Closure f b) = rnf f `seq` rnf b
-#else
-instance NFData (Closure a) where rnf (Closure f b) = rnf f `seq` BSL.length b `seq` ()
-#endif
 
 closure :: Static (ByteString -> a) -- ^ Decoder
         -> ByteString               -- ^ Encoded closure environment
