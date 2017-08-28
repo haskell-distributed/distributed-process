@@ -259,7 +259,11 @@ data SDynamic = SDynamic TypeRep (StaticPtr GHC.Any)
 
 instance Show SDynamic where
   show (SDynamic typ ptr) =
-    "<<static " ++ spInfoName (staticPtrInfo ptr) ++ " :: " ++ show typ ++ ">>"
+    let spi = staticPtrInfo ptr
+        (line, col) = spInfoSrcLoc spi
+     in concat [ "<<static ", spInfoModuleName spi, ":", show line, ":"
+               , show col, " :: ", show typ, ">>"
+               ]
 
 instance Eq SDynamic where
   SDynamic _ ptr1 == SDynamic _ ptr2 =
