@@ -3,7 +3,6 @@
 {-# LANGUAGE FlexibleInstances  #-}
 {-# LANGUAGE ScopedTypeVariables  #-}
 {-# LANGUAGE GADTs  #-}
-{-# LANGUAGE CPP    #-}
 module Control.Distributed.Process.Serializable
   ( Serializable
   , encodeFingerprint
@@ -18,17 +17,7 @@ module Control.Distributed.Process.Serializable
 
 import Data.Binary (Binary)
 
-#if MIN_VERSION_base(4,10,0)
-import Data.Typeable (Typeable)
-import Type.Reflection (typeRep)
-import Type.Reflection.Unsafe (TypeRep, typeRepFingerprint)
-#elif MIN_VERSION_base(4,7,0)
-import Data.Typeable (Typeable)
-import Data.Typeable.Internal (TypeRep(TypeRep), typeOf)
-#else
-import Data.Typeable (Typeable(..))
-import Data.Typeable.Internal (TypeRep(TypeRep))
-#endif
+import Data.Typeable (Typeable, typeRepFingerprint, typeOf)
 
 import Numeric (showHex)
 import Control.Exception (throw)
@@ -75,14 +64,8 @@ sizeOfFingerprint :: Int
 sizeOfFingerprint = sizeOf (undefined :: Fingerprint)
 
 -- | The fingerprint of the typeRep of the argument
-fingerprint :: forall a. Typeable a => a -> Fingerprint
-#if MIN_VERSION_base(4,10,0)
-fingerprint _ = typeRepFingerprint (typeRep :: TypeRep a)
-#elif MIN_VERSION_base(4,8,0)
-fingerprint a = let TypeRep fp _ _ _ = typeOf a in fp
-#else
-fingerprint a = let TypeRep fp _ _ = typeOf a in fp
-#endif
+fingerprint :: Typeable a => a -> Fingerprint
+fingerprint = typeRepFingerprint . typeOf
 
 -- | Show fingerprint (for debugging purposes)
 showFingerprint :: Fingerprint -> ShowS
