@@ -1,8 +1,14 @@
+next release
+
+* Added support for unaddressable endpoints. (#61)
+* apiSend RELY violation is removed for closed remote endpoints (#70)
+* The server no longer needs crash if accept throws an exception.
+* Check peer-reported host against socket host (#54)
+
 2017-08-21 FacundoDominguez <facundo.dominguez@tweag.io> 0.6.0
 
 * Implemented protocol versioning (#55)
 * Extend interface so queue policies and lengths can be configured.
-* Check peer-reported host against socket host (#54)
 * Test improvements
 * Fix races when an EndPoint is closed or failed (#60)
 * Fix timeout socket connections (#53)
