@@ -1,3 +1,17 @@
+2017-08-21 FacundoDominguez <facundo.dominguez@tweag.io> 0.6.0
+
+* Implemented protocol versioning (#55)
+* Extend interface so queue policies and lengths can be configured.
+* Check peer-reported host against socket host (#54)
+* Test improvements
+* Fix races when an EndPoint is closed or failed (#60)
+* Fix timeout socket connections (#53)
+* Use equality rather than ordering in socket close (#56)
+* apiCloseEndPoint blocks until no longer reciving
+* Shutdown sockets when closing endpoints
+* Allow computing the external address from the chosen bind port (#50)
+* Discard remote endpoints when they close or fail (#43)
+
 2016-02-17 FacundoDominguez <facundo.dominguez@tweag.io> 0.5.0
 
 * Add TCP_KEEPALIVE support for sockets.
