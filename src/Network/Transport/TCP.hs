@@ -862,12 +862,18 @@ apiSend (ourEndPoint, theirEndPoint) connId connAlive payload =
         RemoteEndPointClosing _ _ -> do
           alive <- readIORef connAlive
           if alive
-            then relyViolation (ourEndPoint, theirEndPoint) "apiSend"
+            -- RemoteEndPointClosing is only entered by 'closeIfUnused',
+            -- which guarantees that there are no alive connections.
+            then relyViolation (ourEndPoint, theirEndPoint) "apiSend RemoteEndPointClosing"
             else throwIO $ TransportError SendClosed "Connection closed"
         RemoteEndPointClosed -> do
           alive <- readIORef connAlive
           if alive
-            then relyViolation (ourEndPoint, theirEndPoint) "apiSend"
+            -- This is normal. If the remote endpoint closes up while we have
+            -- an outgoing connection (CloseEndPoint or CloseSocket message),
+            -- we'll post the connection lost event but we won't update these
+            -- 'connAlive' IORefs.
+            then throwIO $ TransportError SendFailed "Remote endpoint closed"
             else throwIO $ TransportError SendClosed "Connection closed"
         RemoteEndPointFailed err -> do
           alive <- readIORef connAlive
