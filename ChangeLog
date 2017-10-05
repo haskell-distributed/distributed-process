@@ -1,3 +1,11 @@
+Unreleased
+
+*
+
+2016-10-05  Facundo Domínguez  <facundo.dominguez@tweag.io>  0.2.4.2
+
+* Remove upper bound for ansi-terminal.
+
 2016-08-21  Facundo Domínguez  <facundo.dominguez@tweag.io>  0.2.4.1
 
 * fix race in testCloseConnect
