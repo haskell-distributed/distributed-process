@@ -4,30 +4,21 @@
 
 module Main where
 
-import Control.Applicative
 import Control.Concurrent.MVar
 import Control.Distributed.Process
 import Control.Distributed.Process.Closure
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable()
 import Control.Distributed.Process.Async
-import Control.Distributed.Process.Extras (Routable(..), Resolvable(..))
 import Control.Distributed.Process.SysTest.Utils
-import Control.Distributed.Process.Extras.Time
-import Control.Distributed.Process.Extras.Timer
 import Control.Monad (replicateM_)
 import Data.Binary()
 import Data.Typeable()
 import Network.Transport.TCP
 import qualified Network.Transport as NT
 
-#if ! MIN_VERSION_base(4,6,0)
-import Prelude hiding (catch)
-#endif
-
 import Test.Framework (Test, testGroup, defaultMain)
 import Test.Framework.Providers.HUnit (testCase)
--- import TestUtils
 
 testAsyncPoll :: TestResult (AsyncResult ()) -> Process ()
 testAsyncPoll result = do
@@ -228,7 +219,7 @@ asyncStmTests transport = do
 -- | Given a @builder@ function, make and run a test suite on a single transport
 testMain :: (NT.Transport -> IO [Test]) -> IO ()
 testMain builder = do
-  Right (transport, _) <- createTransportExposeInternals"127.0.0.1" "0" (\sn -> ("127.0.0.1", sn)) defaultTCPParameters
+  Right (transport, _) <- createTransportExposeInternals "127.0.0.1" "0" (\sn -> ("127.0.0.1", sn)) defaultTCPParameters
   testData <- builder transport
   defaultMain testData
 
