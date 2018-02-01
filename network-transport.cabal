@@ -23,7 +23,7 @@ Description:   "Network.Transport" is a Network Abstraction Layer which provides
                    using the 'EndPointAddress' of the remote end.
                .
                  * The 'EndPointAddress' can be serialised and sent over the
-                   network, where as 'EndPoint's and connections cannot.
+                   network, whereas 'EndPoint's and connections cannot.
                .
                  * Connections between 'EndPoint's are unidirectional and lightweight.
                .
