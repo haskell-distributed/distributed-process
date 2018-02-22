@@ -1,11 +1,6 @@
-resolver: nightly-2016-06-09
+resolver: lts-10.3
 
 packages:
 - .
 
-extra-deps:
-- rank1dynamic-0.3.3.0
-- distributed-static-0.3.5.0
-- distributed-process-0.6.6
-- network-transport-0.4.4.0
-- rematch-0.2.0.0
+extra-deps: []
