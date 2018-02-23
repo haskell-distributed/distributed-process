@@ -285,10 +285,11 @@ of exit reasons.
 
 {% highlight haskell %}
 demo = do
-  pid <- spawnLocal $ receive >>= return
+  pid <- spawnLocal $ expect >>= return
   link pid
   send pid ()
-  () <- receive
+  () <- expect
+  return ()
 {% endhighlight %}
 
 The medium that link failures uses to signal exit conditions is the same as exit and kill
