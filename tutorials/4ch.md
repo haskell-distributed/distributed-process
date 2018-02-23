@@ -351,7 +351,7 @@ submitter with the handle, so we end up with one field for the active (running)
 tasks and another for the queue of accepted (but inactive) ones, as expected.
 
 Since we cannot wait on all these `Async` handles at once whilst we're supposed to
-be accepting new messages from clients - actually, /async/ does provide an API for
+be accepting new messages from clients - actually, [distributed-process-async][6] does provide an API for
 multiplexing on async results, but that's no use here - instead we will monitor the
 async tasks and pull the results when we receive their monitor signals. So for the
 active tasks, we'll need to store a `MonitorRef` and a reference to the original
@@ -668,3 +668,4 @@ additional book keeping data.
 [3]: https://github.com/haskell-distributed/distributed-process-task
 [4]: https://github.com/haskell-distributed/distributed-process-extras/blob/master/src/Control/Distributed/Process/Extras/UnsafePrimitives.hs
 [5]: /documentation.html
+[6]: https://hackage.haskell.org/package/distributed-process-async
