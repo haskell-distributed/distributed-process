@@ -61,10 +61,11 @@ module Control.Distributed.Process.Async
 
 import Control.Applicative
 import Control.Concurrent.STM hiding (check)
-import Control.Distributed.Process
+import Control.Distributed.Process hiding (catch, finally)
 import Control.Distributed.Process.Serializable
 import Control.Distributed.Process.Async.Internal.Types
 import Control.Monad
+import Control.Monad.Catch (finally)
 import Data.Maybe
   ( fromMaybe
   )
@@ -131,9 +132,7 @@ asyncDo shouldLink (AsyncTask proc) = do
         sendChan sp worker  -- let the parent process know the worker pid
 
         wref <- monitor worker
-        rref <- case shouldLink of
-                    True  -> monitor root >>= return . Just
-                    False -> return Nothing
+        rref <- if shouldLink then fmap Just (monitor root) else return Nothing
         finally (pollUntilExit worker result)
                 (unmonitor wref >>
                     return (maybe (return ()) unmonitor rref))
@@ -141,11 +140,10 @@ asyncDo shouldLink (AsyncTask proc) = do
     workerPid <- receiveChan rp
     liftIO $ atomically $ putTMVar sigStart ()
 
-    return Async {
-          _asyncWorker  = workerPid
-        , _asyncMonitor = insulator
-        , _asyncWait    = (readTMVar result)
-        }
+    return Async { _asyncWorker  = workerPid
+                 , _asyncMonitor = insulator
+                 , _asyncWait    = readTMVar result
+                 }
 
   where
     pollUntilExit :: (Serializable a)
@@ -154,7 +152,7 @@ asyncDo shouldLink (AsyncTask proc) = do
                   -> Process ()
     pollUntilExit wpid result' = do
       r <- receiveWait [
-          match (\c@(CancelWait) -> kill wpid "cancel" >> return (Left c))
+          match (\c@CancelWait -> kill wpid "cancel" >> return (Left c))
         , match (\(ProcessMonitorNotification _ pid' r) ->
                   return (Right (pid', r)))
         ]
@@ -180,7 +178,7 @@ asyncDo shouldLink (AsyncTask proc) = do
 poll :: (Serializable a) => Async a -> Process (AsyncResult a)
 poll hAsync = do
   r <- liftIO $ atomically $ pollSTM hAsync
-  return $ fromMaybe (AsyncPending) r
+  return $ fromMaybe AsyncPending r
 
 -- | Like 'poll' but returns 'Nothing' if @(poll hAsync) == AsyncPending@.
 check :: (Serializable a) => Async a -> Process (Maybe (AsyncResult a))
@@ -192,7 +190,7 @@ check hAsync = poll hAsync >>= \r -> case r of
 waitCheckTimeout :: (Serializable a) =>
                     Int -> Async a -> Process (AsyncResult a)
 waitCheckTimeout t hAsync =
-  waitTimeout t hAsync >>= return . fromMaybe (AsyncPending)
+  fmap (fromMaybe AsyncPending) (waitTimeout t hAsync)
 
 -- | Wait for an asynchronous action to complete, and return its
 -- value. The result (which can include failure and/or cancellation) is
@@ -235,9 +233,7 @@ waitCancelTimeout t hAsync = do
 waitAny :: (Serializable a)
         => [Async a]
         -> Process (Async a, AsyncResult a)
-waitAny asyncs = do
-  r <- liftIO $ waitAnySTM asyncs
-  return r
+waitAny asyncs = liftIO $ waitAnySTM asyncs
 
 -- | Like 'waitAny', but also cancels the other asynchronous
 -- operations as soon as one has completed.
@@ -271,7 +267,7 @@ waitEither_ left right =
 --
 waitBoth :: Async a
             -> Async b
-            -> Process ((AsyncResult a), (AsyncResult b))
+            -> Process (AsyncResult a, AsyncResult b)
 waitBoth left right =
   liftIO $ atomically $ do
     a <- waitSTM left
