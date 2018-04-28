@@ -158,12 +158,3 @@ getTraceFlags t s = publishEvent t (unsafeCreateUnencodedMessage s)
 
 getCurrentTraceClient :: MxEventBus -> SendPort (Maybe ProcessId) -> IO ()
 getCurrentTraceClient t s = publishEvent t (unsafeCreateUnencodedMessage s)
-
-class Traceable a where
-  uod :: [a] -> TraceSubject
-
-instance Traceable ProcessId where
-  uod = TraceProcs . Set.fromList
-
-instance Traceable String where
-  uod = TraceNames . Set.fromList
