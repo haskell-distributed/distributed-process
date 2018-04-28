@@ -366,6 +366,12 @@ instance MonadCatch Process where
     lproc <- ask
     liftIO $ catch (runLocalProcess lproc p) (runLocalProcess lproc . h)
 instance MonadMask Process where
+  generalBracket acquire release inner = do
+    lproc <- ask
+    liftIO $
+      generalBracket (runLocalProcess lproc acquire)
+                     (\a e -> runLocalProcess lproc $ release a e)
+                     (runLocalProcess lproc . inner)
   mask p = do
       lproc <- ask
       liftIO $ mask $ \restore ->
