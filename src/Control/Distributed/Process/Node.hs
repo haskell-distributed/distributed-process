@@ -37,7 +37,6 @@ import qualified Data.Map as Map
   , filterWithKey
   , foldlWithKey
   )
-import qualified Data.Set as Set
 import Data.Time.Format (formatTime)
 #if MIN_VERSION_time(1,5,0)
 import Data.Time.Format (defaultTimeLocale)
@@ -55,7 +54,6 @@ import qualified Data.Set as Set
   , union
   )
 import Data.Foldable (forM_)
-import Data.List (foldl')
 import Data.Maybe (isJust, fromJust, isNothing, catMaybes)
 import Data.Typeable (Typeable)
 import Control.Category ((>>>))

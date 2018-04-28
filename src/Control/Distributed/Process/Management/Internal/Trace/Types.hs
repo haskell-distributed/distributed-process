@@ -43,7 +43,6 @@ import Control.Distributed.Process.Serializable
 import Data.Binary
 import Data.List (intersperse)
 import Data.Set (Set)
-import qualified Data.Set as Set (fromList)
 import Data.Typeable
 import GHC.Generics
 
