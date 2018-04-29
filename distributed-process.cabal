@@ -54,7 +54,7 @@ Library
                      distributed-static >= 0.2 && < 0.4,
                      rank1dynamic >= 0.1 && < 0.5,
                      syb >= 0.3 && < 0.8,
-                     exceptions >= 0.10,
+                     exceptions >= 0.5,
                      containers >= 0.5 && < 0.6,
                      deepseq >= 1.3.0.1 && < 1.6
   Exposed-modules:   Control.Distributed.Process,
