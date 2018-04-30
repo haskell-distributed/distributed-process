@@ -43,7 +43,6 @@ import Control.Distributed.Process.Serializable
 import Data.Binary
 import Data.List (intersperse)
 import Data.Set (Set)
-import qualified Data.Set as Set (fromList)
 import Data.Typeable
 import GHC.Generics
 
@@ -158,12 +157,3 @@ getTraceFlags t s = publishEvent t (unsafeCreateUnencodedMessage s)
 
 getCurrentTraceClient :: MxEventBus -> SendPort (Maybe ProcessId) -> IO ()
 getCurrentTraceClient t s = publishEvent t (unsafeCreateUnencodedMessage s)
-
-class Traceable a where
-  uod :: [a] -> TraceSubject
-
-instance Traceable ProcessId where
-  uod = TraceProcs . Set.fromList
-
-instance Traceable String where
-  uod = TraceNames . Set.fromList
