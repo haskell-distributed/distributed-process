@@ -1,5 +1,5 @@
 name:           distributed-process-async
-version:        0.2.4.1
+version:        0.2.4.2
 cabal-version:  >=1.8
 build-type:     Simple
 license:        BSD3
@@ -8,7 +8,6 @@ stability:      experimental
 Copyright:      Tim Watson 2012 - 2016
 Author:         Tim Watson
 Maintainer:     Tim Watson <watson.timothy@gmail.com>
-Stability:      experimental
 Homepage:       http://github.com/haskell-distributed/distributed-process-async
 Bug-Reports:    http://github.com/haskell-distributed/distributed-process-async/issues
 synopsis:       Cloud Haskell Async API
@@ -41,7 +40,7 @@ library
                    unordered-containers >= 0.2.3.0 && < 0.3,
                    fingertree < 0.2,
                    stm >= 2.4 && < 2.5,
-                   time > 1.4 && < 1.7,
+                   time >= 1.8.0.2,
                    transformers
   extensions:      CPP
                    InstanceSigs
@@ -57,10 +56,10 @@ test-suite AsyncTests
   x-uses-tf:       true
   build-depends:
                    base >= 4.4 && < 5,
-                   ansi-terminal >= 0.5 && < 0.7,
+                   ansi-terminal >= 0.5 && < 0.9,
                    distributed-process,
                    distributed-process-async,
-                   distributed-process-systest >= 0.1.0 && < 0.2.0,
+                   distributed-process-systest >= 0.2.0,
                    exceptions >= 0.8.2.1 && < 0.9,
                    network >= 2.5 && < 2.7,
                    network-transport >= 0.4 && < 0.6,

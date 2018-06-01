@@ -1,5 +1,5 @@
 # Specifies the GHC version and set of packages available
-resolver: nightly-2017-02-03
+resolver: lts-11.9
 
 # Local packages, usually specified by relative directory name
 packages:
@@ -7,8 +7,9 @@ packages:
 
 # Packages to be pulled from upstream that are not in the resolver (e.g., acme-missiles-0.3)
 extra-deps:
-- distributed-process-0.6.6
-- distributed-process-extras-0.3.0
+- distributed-process-0.7.3
+- distributed-process-extras-0.3.2
+#- distributed-process-systest-0.2.0
 - distributed-process-systest-0.1.1
 - rematch-0.2.0.0
 
