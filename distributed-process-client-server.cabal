@@ -26,7 +26,7 @@ source-repository head
 library
   build-depends:
                    base >= 4.8.2.0 && < 5,
-                   distributed-process >= 0.7,
+                   distributed-process >= 0.6.6 && < 0.8,
                    distributed-process-extras >= 0.3.1 && < 0.4,
                    distributed-process-async >= 0.2.4 && < 0.3,
                    binary >= 0.6.3.0 && < 0.9,
@@ -68,7 +68,7 @@ test-suite ManagedProcessTests
                    base >= 4.4 && < 5,
                    ansi-terminal >= 0.5 && < 0.7,
                    containers,
-                   distributed-process >= 0.7,
+                   distributed-process >= 0.6.6 && < 0.8,
                    distributed-process-extras >= 0.3.1 && < 0.4,
                    distributed-process-async >= 0.2.4 && < 0.3,
                    distributed-process-client-server,
@@ -106,7 +106,7 @@ test-suite PrioritisedProcessTests
                    base >= 4.4 && < 5,
                    ansi-terminal >= 0.5 && < 0.7,
                    containers,
-                   distributed-process >= 0.6.6 && < 0.7,
+                   distributed-process >= 0.6.6 && < 0.8,
                    distributed-process-extras >= 0.3.1 && < 0.4,
                    distributed-process-async >= 0.2.4 && < 0.3,
                    distributed-process-client-server,
