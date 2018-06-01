@@ -1,5 +1,5 @@
 name:           distributed-process-async
-version:        0.2.4.2
+version:        0.2.5
 cabal-version:  >=1.8
 build-type:     Simple
 license:        BSD3

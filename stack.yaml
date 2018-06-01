@@ -8,7 +8,7 @@ packages:
 # Packages to be pulled from upstream that are not in the resolver (e.g., acme-missiles-0.3)
 extra-deps:
 - distributed-process-0.7.3
-- distributed-process-extras-0.3.2
+- distributed-process-extras-0.3.4
 - distributed-process-systest-0.2.0
 - rematch-0.2.0.0
 
