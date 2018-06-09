@@ -3,4 +3,7 @@ resolver: lts-11.12
 packages:
 - .
 
-extra-deps: []
+extra-deps:
+- rematch-0.2.0.0
+- distributed-process-0.7.3 
+- exceptions-0.9.0

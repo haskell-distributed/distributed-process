@@ -1,0 +1,13 @@
+# Specifies the GHC version and set of packages available
+resolver: lts-7.24
+
+# Local packages, usually specified by relative directory name
+packages:
+- '.'
+
+# Packages to be pulled from upstream that are not in the resolver (e.g., acme-missiles-0.3)
+extra-deps:
+- rematch-0.2.0.0
+
+# Override default flag values for local packages and extra-deps
+flags: {}

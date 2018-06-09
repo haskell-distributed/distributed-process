@@ -1,0 +1,29 @@
+language: c
+
+sudo: false
+
+matrix:
+  include:
+  - env: ARGS="--stack-yaml stack-ghc-8.0.1.yaml" COVER="" GHCVER=8.0.1
+    addons: {apt: {packages: [libgmp-dev]}}
+  - env: ARGS="--stack-yaml stack-ghc-8.0.2.yaml" COVER="" GHCVER=8.0.2
+    addons: {apt: {packages: [libgmp-dev]}}
+  - env: ARGS="--resolver nightly" COVER="" GHCVER=latest
+    addons: {apt: {packages: [libgmp-dev]}}
+
+cache:
+  directories:
+  - $HOME/.stack
+  - $HOME/.local
+
+before_install:
+- export PATH=$HOME/.local/bin:$HOME/.cabal/bin:$PATH
+- mkdir -p ~/.local/bin
+- travis_retry curl -L https://www.stackage.org/stack/linux-x86_64 | tar xz --wildcards --strip-components=1 -C ~/.local/bin '*/stack'
+- stack --version
+
+install:
+- stack ${ARGS} setup --no-terminal
+
+script:
+- stack ${ARGS} test --test-arguments='--plain'
