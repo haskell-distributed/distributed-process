@@ -31,6 +31,7 @@ library
                      rematch >= 0.1.2.1 && < 0.3,
                      test-framework >= 0.6 && < 0.9,
                      test-framework-hunit >= 0.2.0 && < 0.4,
+                     exceptions,
                      stm
   hs-source-dirs:    src
   ghc-options:       -Wall -fno-warn-unused-do-bind

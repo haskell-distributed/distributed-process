@@ -1,7 +1,6 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric      #-}
 {-# LANGUAGE TemplateHaskell    #-}
-{-# LANGUAGE CPP                #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -47,9 +46,6 @@ module Control.Distributed.Process.SysTest.Utils
   , stash
   ) where
 
-#if ! MIN_VERSION_base(4,6,0)
-import Prelude hiding (catch)
-#endif
 import Control.Concurrent
   ( ThreadId
   , myThreadId
@@ -73,9 +69,10 @@ import Control.Concurrent
 import Control.Concurrent.MVar
   ( putMVar
   )
-import Control.Distributed.Process
+import Control.Distributed.Process hiding (catch, finally)
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable()
+import Control.Monad.Catch
 
 import Control.Exception (AsyncException(ThreadKilled), SomeException)
 import Control.Monad (forever)
