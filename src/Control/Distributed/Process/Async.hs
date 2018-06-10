@@ -53,6 +53,8 @@ module Control.Distributed.Process.Async
   , waitCheckTimeout
     -- * STM versions
   , pollSTM
+  , waitSTM
+  , waitAnySTM
   , waitAnyCancel
   , waitEither
   , waitEither_
