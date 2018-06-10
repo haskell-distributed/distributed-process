@@ -1,15 +1,9 @@
-resolver: nightly-2016-03-02
+resolver: nightly-2017-02-03
+
 packages:
-- .
-- location:
-    git: https://github.com/haskell-distributed/distributed-process-systest.git
-    commit: 6b8749fd38141425e6b677d5a5137b3fe09cc127
+- '.'
 
 extra-deps:
-- rank1dynamic-0.3.2.0
-- distributed-static-0.3.4.0
-- distributed-process-0.6.1
-- network-transport-tcp-0.5.1
+- network-transport-inmemory-0.5.1  # snapshot 0.5.2 in lts-7.18
+- distributed-process-0.7.3         # missing snapshot
 - rematch-0.2.0.0
-- distributed-process-0.6.1
-

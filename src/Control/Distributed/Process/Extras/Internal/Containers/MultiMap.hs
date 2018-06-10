@@ -2,6 +2,7 @@
 {-# LANGUAGE ExistentialQuantification  #-}
 {-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE UndecidableInstances       #-}
+{-# LANGUAGE TupleSections              #-}
 
 module Control.Distributed.Process.Extras.Internal.Containers.MultiMap
   ( MultiMap
@@ -10,9 +11,12 @@ module Control.Distributed.Process.Extras.Internal.Containers.MultiMap
   , insert
   , member
   , lookup
+  , delete
   , filter
   , filterWithKey
+  , foldrWithKey
   , toList
+  , size
   ) where
 
 import qualified Data.Foldable as Foldable
@@ -44,6 +48,9 @@ instance Foldable (MultiMap k) where
 empty :: MultiMap k v
 empty = M $ Map.empty
 
+size :: MultiMap k v -> Int
+size = Map.size . hmap
+
 insert :: forall k v. (Insertable k, Insertable v)
        => k -> v -> MultiMap k v -> MultiMap k v
 insert k' v' M{..} =
@@ -59,6 +66,9 @@ lookup :: (Insertable k) => k -> MultiMap k v -> Maybe [v]
 lookup k M{..} = maybe Nothing (Just . Foldable.toList) $ Map.lookup k hmap
 {-# INLINE lookup #-}
 
+delete :: (Insertable k) => k -> MultiMap k v -> Maybe ([v], MultiMap k v)
+delete k m@M{..} = maybe Nothing (Just . (, M $ Map.delete k hmap)) $ lookup k m
+
 filter :: forall k v. (Insertable k)
        => (v -> Bool)
        -> MultiMap k v
@@ -66,7 +76,8 @@ filter :: forall k v. (Insertable k)
 filter p M{..} = M $ Map.foldlWithKey' (matchOn p) hmap hmap
   where
     matchOn pred acc key valueSet =
-      Map.insert key (Set.filter pred valueSet) acc
+      let vs = Set.filter pred valueSet in
+      if Set.null vs then acc else Map.insert key vs acc
 {-# INLINE filter #-}
 
 filterWithKey :: forall k v. (Insertable k)
@@ -76,7 +87,8 @@ filterWithKey :: forall k v. (Insertable k)
 filterWithKey p M{..} = M $ Map.foldlWithKey' (matchOn p) hmap hmap
   where
     matchOn pred acc key valueSet =
-      Map.insert key (Set.filter (pred key) valueSet) acc
+      let vs = Set.filter (pred key) valueSet in
+      if Set.null vs then acc else Map.insert key vs acc
 {-# INLINE filterWithKey #-}
 
 -- | /O(n)/ Reduce this map by applying a binary operator to all

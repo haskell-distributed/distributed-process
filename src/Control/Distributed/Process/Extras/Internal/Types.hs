@@ -1,11 +1,11 @@
 {-# LANGUAGE DeriveDataTypeable     #-}
 {-# LANGUAGE DeriveGeneric          #-}
-{-# LANGUAGE StandaloneDeriving     #-}
-{-# LANGUAGE TemplateHaskell        #-}
 {-# LANGUAGE FlexibleInstances      #-}
-{-# LANGUAGE DefaultSignatures      #-}
 {-# LANGUAGE MultiParamTypeClasses  #-}
 {-# LANGUAGE ScopedTypeVariables    #-}
+{-# LANGUAGE UndecidableInstances   #-}
+{-# LANGUAGE AllowAmbiguousTypes    #-}
+{-# LANGUAGE FunctionalDependencies #-}
 
 -- | Types used throughout the Extras package
 --
@@ -20,6 +20,7 @@ module Control.Distributed.Process.Extras.Internal.Types
   , Killable(..)
   , Resolvable(..)
   , Routable(..)
+  , Monitored(..)
   , Addressable
   , Recipient(..)
   , RegisterSelf(..)
@@ -32,8 +33,6 @@ module Control.Distributed.Process.Extras.Internal.Types
   , ExitReason(..)
   , ServerDisconnected(..)
   , NFSerializable
-    -- remote table
-  , __remoteTable
   ) where
 
 import Control.Concurrent.MVar
@@ -42,21 +41,18 @@ import Control.Concurrent.MVar
   , modifyMVar
   )
 import Control.DeepSeq (NFData(..), ($!!))
-import Control.Distributed.Process hiding (send)
+import Control.Distributed.Process hiding (send, catch)
 import qualified Control.Distributed.Process as P
   ( send
   , unsafeSend
   , unsafeNSend
   )
-import Control.Distributed.Process.Closure
-  ( remotable
-  , mkClosure
-  , functionTDict
-  )
 import Control.Distributed.Process.Serializable
-
+import Control.Exception (SomeException)
+import Control.Monad.Catch (catch)
 import Data.Binary
 import Data.Foldable (traverse_)
+import Data.Maybe (fromJust)
 import Data.Typeable (Typeable)
 import GHC.Generics
 
@@ -73,10 +69,9 @@ import GHC.Generics
 -- behaviour by using /unsafe/ primitives in this way.
 --
 class (NFData a, Serializable a) => NFSerializable a
+instance (NFData a, Serializable a) => NFSerializable a
 
-instance NFSerializable ProcessId
 instance (NFSerializable a) => NFSerializable (SendPort a)
-instance NFSerializable Message
 
 -- | Tags provide uniqueness for messages, so that they can be
 -- matched with their response.
@@ -98,14 +93,20 @@ newTagPool = liftIO $ newMVar 0
 getTag :: TagPool -> Process Tag
 getTag tp = liftIO $ modifyMVar tp (\tag -> return (tag+1,tag))
 
-$(remotable ['whereis])
-
--- | A synchronous version of 'whereis', this relies on 'call'
--- to perform the relevant monitoring of the remote node.
+-- | A synchronous version of 'whereis', this monitors the remote node
+-- and returns @Nothing@ if the node goes down (since a remote node failing
+-- or being non-contactible has the same effect as a process not being
+-- registered from the caller's point of view).
 whereisRemote :: NodeId -> String -> Process (Maybe ProcessId)
-whereisRemote node name =
-  call $(functionTDict 'whereis) node ($(mkClosure 'whereis) name)
-
+whereisRemote node name = do
+  mRef <- monitorNode node
+  whereisRemoteAsync node name
+  receiveWait [ matchIf (\(NodeMonitorNotification ref nid _) -> ref == mRef &&
+                                                                 nid == node)
+                        (\NodeMonitorNotification{} -> return Nothing)
+              , matchIf (\(WhereIsReply n _) -> n == name)
+                        (\(WhereIsReply _ mPid) -> return mPid)
+              ]
 
 -- | Wait cancellation message.
 data CancelWait = CancelWait
@@ -148,6 +149,18 @@ class Linkable a where
   linkTo :: (Resolvable a) => a -> Process ()
   linkTo r = resolve r >>= traverse_ link
 
+class Monitored a r m | a r -> m where
+  mkMonitor :: a -> Process r
+  checkMonitor :: a -> r -> m -> Process Bool
+
+instance (Resolvable a) => Monitored a MonitorRef ProcessMonitorNotification where
+  mkMonitor a = monitor . fromJust =<< resolve a
+  checkMonitor p r (ProcessMonitorNotification ref pid _) = do
+    p' <- resolve p
+    case p' of
+      Nothing -> return False
+      Just pr -> return $ ref == r && pid == pr
+
 -- | Class of things that can be killed (or instructed to exit).
 class Killable p where
   -- | Kill (instruct to exit) generic process, using 'kill' primitive.
@@ -157,6 +170,8 @@ class Killable p where
   -- | Kill (instruct to exit) generic process, using 'exit' primitive.
   exitProc :: (Resolvable p, Serializable m) => p -> m -> Process ()
   exitProc r m = resolve r >>= traverse_ (flip exit $ m)
+
+instance Resolvable p => Killable p
 
 -- | resolve the Resolvable or die with specified msg plus details of what didn't resolve
 resolveOrDie  :: (Resolvable a) => a -> String -> Process ProcessId
@@ -172,7 +187,7 @@ class Resolvable a where
   -- | Resolve the reference to a process id, or @Nothing@ if resolution fails
   resolve :: a -> Process (Maybe ProcessId)
 
-    -- | Unresolvable @Addressable@ Message
+  -- | Unresolvable @Addressable@ Message
   unresolvableMessage :: (Resolvable a) => a -> String
   unresolvableMessage = baseAddressableErrorMessage
 
@@ -183,9 +198,10 @@ instance Resolvable ProcessId where
 instance Resolvable String where
   resolve = whereis
   unresolvableMessage s = "CannotResolveRegisteredName[" ++ s ++ "]"
- 
+
 instance Resolvable (NodeId, String) where
-  resolve (nid, pname) = whereisRemote nid pname
+  resolve (nid, pname) =
+    whereisRemote nid pname `catch` (\(_ :: SomeException) -> return Nothing)
   unresolvableMessage (n, s) =
     "CannotResolveRemoteRegisteredName[name: " ++ s ++ ", node: " ++ (show n) ++ "]"
 
@@ -220,8 +236,8 @@ instance Routable String where
   unsafeSendTo name msg = P.unsafeNSend name $!! msg
 
 instance Routable (NodeId, String) where
-  sendTo  (nid, pname) msg   = nsendRemote nid pname msg
-  unsafeSendTo               = sendTo -- because serialisation *must* take place
+  sendTo  (nid, pname) = nsendRemote nid pname
+  unsafeSendTo         = sendTo -- because serialisation *must* take place
 
 instance Routable (Message -> Process ()) where
   sendTo f       = f . wrapMessage
@@ -269,8 +285,7 @@ instance Routable Recipient where
 -- useful exit reasons
 
 -- | Given when a server is unobtainable.
-data ServerDisconnected = ServerDisconnected !DiedReason
+newtype ServerDisconnected = ServerDisconnected DiedReason
   deriving (Typeable, Generic)
 instance Binary ServerDisconnected where
 instance NFData ServerDisconnected where
-
