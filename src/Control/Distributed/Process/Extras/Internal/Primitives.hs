@@ -58,7 +58,7 @@ module Control.Distributed.Process.Extras.Internal.Primitives
 
 import Control.Concurrent (myThreadId, throwTo)
 import Control.Distributed.Process hiding (monitor, finally, catch)
-import qualified Control.Distributed.Process as P (monitor)
+import qualified Control.Distributed.Process as P (monitor, unmonitor)
 import Control.Distributed.Process.Closure (seqCP, remotable, mkClosure)
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Extras.Internal.Types
@@ -72,48 +72,39 @@ import Control.Distributed.Process.Extras.Internal.Types
   , ExitReason(ExitOther)
   , whereisRemote
   )
-import Control.Monad (void)
+import Control.Monad (void, (>=>), replicateM_)
 import Control.Monad.Catch (finally, catchIf)
 import Data.Maybe (isJust, fromJust)
+import Data.Foldable (traverse_)
 
 -- utility
 
 -- | Monitor any @Resolvable@ object.
---
 monitor :: Resolvable a => a -> Process (Maybe MonitorRef)
-monitor addr = do
-  mPid <- resolve addr
-  case mPid of
-    Nothing -> return Nothing
-    Just p  -> return . Just =<< P.monitor p
+monitor = resolve >=> traverse P.monitor
 
+-- | Wait until @Resolvable@ object will exit. Return immediately
+-- if object can't be resolved.
 awaitExit :: Resolvable a => a -> Process ()
-awaitExit addr = do
-  mPid <- resolve addr
-  case mPid of
-    Nothing -> return ()
-    Just p  -> do
-      mRef <- P.monitor p
-      receiveWait [
-          matchIf (\(ProcessMonitorNotification r p' _) -> r == mRef && p == p')
-                  (\_ -> return ())
-        ]
+awaitExit = resolve >=> traverse_ await where
+  await pid = withMonitorRef pid $ \ref -> receiveWait
+      [ matchIf (\(ProcessMonitorNotification r _ _) -> r == ref)
+                (\_ -> return ())
+      ]
+  withMonitorRef pid = bracket (P.monitor pid) P.unmonitor
 
--- | deliver = flip sendTo
+-- | Send message to @Addressable@ object.
 deliver :: (Addressable a, Serializable m) => m -> a -> Process ()
 deliver = flip sendTo
 
--- | True if getProcessInfo /= Nothing
--- NB: only works for local processes.
+-- | Check if specified process is alive. Information may be outdated.
 isProcessAlive :: ProcessId -> Process Bool
-isProcessAlive pid = getProcessInfo pid >>= \info -> return $ info /= Nothing
+isProcessAlive pid = isJust <$> getProcessInfo pid
 
 -- | Apply the supplied expression /n/ times
 times :: Int -> Process () -> Process ()
-n `times` proc = runP proc n
-  where runP :: Process () -> Int -> Process ()
-        runP _ 0 = return ()
-        runP p n' = p >> runP p (n' - 1)
+times = replicateM_
+{-# DEPRECATED times "use replicateM_ instead" #-}
 
 -- | Like 'Control.Monad.forever' but sans space leak
 forever' :: Monad m => m a -> m b
@@ -203,6 +194,8 @@ whereisOrStart name proc = do
     , matchChan recvStart return
     ] `finally` (unmonitor mRef)
 
+-- | Helper function will register itself under a given name and send
+-- result to given @Process@.
 registerSelf :: (String, ProcessId) -> Process ()
 registerSelf (name,target) =
   do self <- getSelfPid
@@ -274,9 +267,10 @@ awaitResponse addr matches = do
   mPid <- resolve addr
   case mPid of
     Nothing -> return $ Left $ ExitOther "UnresolvedAddress"
-    Just p  -> do
-      mRef <- P.monitor p
-      receiveWait ((matchRef mRef):matches)
+    Just p  ->
+      bracket (P.monitor p)
+              P.unmonitor
+              $ \mRef -> receiveWait ((matchRef mRef):matches)
   where
     matchRef :: MonitorRef -> Match (Either ExitReason b)
     matchRef r = matchIf (\(ProcessMonitorNotification r' _ _) -> r == r')
