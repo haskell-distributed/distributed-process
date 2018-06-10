@@ -4,8 +4,6 @@ sudo: false
 
 matrix:
   include:
-  - env: ARGS="--stack-yaml stack-ghc-7.10.3.yaml" COVER="" GHCVER=7.10.3
-    addons: {apt: {packages: [libgmp-dev]}}
   - env: ARGS="--stack-yaml stack-ghc-8.0.1.yaml" COVER="" GHCVER=8.0.1
     addons: {apt: {packages: [libgmp-dev]}}
   - env: ARGS="--resolver nightly" COVER="" GHCVER=latest
