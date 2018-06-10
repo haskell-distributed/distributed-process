@@ -2,8 +2,15 @@ resolver: nightly-2017-02-03
 
 packages:
 - '.'
+- location:
+    git: https://github.com/haskell-distributed/distributed-process.git
+    commit: d91a88f70c2cb6a6511283c5720bd9950fc3c55a
+  extra-dep: true
+- location:
+    git: https://github.com/haskell-distributed/distributed-process-systest.git
+    commit: b4a6b646adb6c81725ddac4babcfc21b86944d98
+  extra-dep: true
 
 extra-deps:
 - network-transport-inmemory-0.5.1  # snapshot 0.5.2 in lts-7.18
-- distributed-process-0.7.3         # missing snapshot
 - rematch-0.2.0.0
