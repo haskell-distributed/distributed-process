@@ -1,5 +1,5 @@
 name:           distributed-process-extras
-version:        0.3.4
+version:        0.3.5
 cabal-version:  >=1.8
 build-type:     Simple
 license:        BSD3

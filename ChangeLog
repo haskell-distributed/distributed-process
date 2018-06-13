@@ -1,3 +1,7 @@
+2017-06-13 Alexander Vershilov <alexander.vershilov@gmail.com> 0.3.5
+* Bump dependencies
+* Cleanup code
+
 2017-02-05 Tim Watson <watson.timothy @ google mail service dot com> 0.3.0
 
 * re-implement whereIsRemote in terms of whereIsRemoteAsync
