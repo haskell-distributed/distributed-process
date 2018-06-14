@@ -22,10 +22,6 @@ source-repository head
   type:      git
   location:  https://github.com/haskell-distributed/distributed-process-async
 
-flag perf
-  description: Build with profiling enabled
-  default: False
-
 library
   build-depends:
                    base >= 4.4 && < 5,
