@@ -28,7 +28,7 @@ script:
       ./coverage.sh;
       ;;
     *)
-      stack ${ARGS} test --test-arguments='--plain'
+      stack test --test-arguments='--plain'
       ;;
   esac
 
