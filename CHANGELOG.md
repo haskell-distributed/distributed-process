@@ -1,5 +1,12 @@
 # Change Log
 
+## [v0.2.5](https://github.com/haskell-distributed/distributed-process-client-server/tree/v0.2.3) (2018-06-14)
+[Full Changelog](https://github.com/haskell-distributed/distributed-process-client-server/compare/v0.2.3...v0.2.5)
+
+* Update version bounds.
+* Support exceptions-0.10.
+
+
 ## [v0.2.3](https://github.com/haskell-distributed/distributed-process-client-server/tree/v0.2.3) (2017-03-28)
 [Full Changelog](https://github.com/haskell-distributed/distributed-process-client-server/compare/v0.2.2...v0.2.3)
 
