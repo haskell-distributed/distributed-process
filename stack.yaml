@@ -19,8 +19,4 @@ packages:
   extra-dep: true
 
 extra-deps:
-- network-transport-inmemory-0.5.1  # snapshot 0.5.2 in lts-7.18
-- network-transport-0.4.4.0
-- network-transport-tcp-0.5.1
-- distributed-process-0.7.3         # missing snapshot
 - rematch-0.2.0.0
