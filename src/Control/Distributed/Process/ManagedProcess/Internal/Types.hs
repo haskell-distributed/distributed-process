@@ -108,7 +108,7 @@ import Control.Monad.Catch
   , finally
   , MonadThrow
   , MonadCatch
-  , MonadMask
+  , MonadMask(..)
   )
 import qualified Control.Monad.Catch as Catch
   ( catch
@@ -286,6 +286,11 @@ instance forall s . MonadMask (GenProcess s) where
         ourSTate <- ST.get
         (a', _) <- lift $ restoreP $ runProcess ourSTate p2
         return a'
+
+  generalBracket acquire release inner = GenProcess $ 
+    generalBracket (unManaged acquire)
+                   (\a e -> unManaged $ release a e)
+                   (unManaged . inner)
 
 -- | Run an action in the @GenProcess@ monad.
 runProcess :: State s -> GenProcess s a -> Process (a, State s)

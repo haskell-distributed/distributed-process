@@ -1,11 +1,19 @@
-resolver: lts-11.7
+resolver: lts-11.13
 
 packages:
 - '.'
+- location:
+    git: https://github.com/haskell-distributed/distributed-process-systest.git
+    commit: b4a6b646adb6c81725ddac4babcfc21b86944d98
+  extra-dep: true
 
 extra-deps:
+- ansi-terminal-0.6.3.1
+- network-transport-0.4.4.0         # missing snapshot
+- network-transport-tcp-0.5.1       # missing snapshot
 - network-transport-inmemory-0.5.1  # snapshot 0.5.2 in lts-7.18
-- distributed-process-0.7.3         # missing snapshot
+- distributed-process-0.7.4         # missing snapshot
 - rematch-0.2.0.0
-- distributed-process-extras-0.3.4
-- distributed-process-async-0.2.5
+- distributed-process-extras-0.3.5
+- distributed-process-async-0.2.6
+- exceptions-0.10.0

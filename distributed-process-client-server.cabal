@@ -125,7 +125,7 @@ test-suite PrioritisedProcessTests
                    transformers,
                    rematch >= 0.2.0.0,
                    ghc-prim,
-                   exceptions >= 0.5
+                   exceptions >= 0.10
   other-modules:   ManagedProcessCommon,
                    TestUtils
   hs-source-dirs:
