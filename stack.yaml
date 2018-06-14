@@ -4,19 +4,12 @@ packages:
 - '.'
 
 - location:
-    git: https://github.com/haskell-distributed/distributed-process-async.git
-    commit: 52b08e44fe2ba25ec586adee2b6530153c99d901
-  extra-dep: true
-
-- location:
-    git: https://github.com/haskell-distributed/distributed-process-extras.git
-    commit: 4b548c8d427034ba5222c3ad6bcd1bca444bdec4
-  extra-dep: true
-
-- location:
     git: https://github.com/haskell-distributed/distributed-process-systest.git
     commit: b4a6b646adb6c81725ddac4babcfc21b86944d98
   extra-dep: true
 
 extra-deps:
+- distributed-process-0.7.3
+- distributed-process-async-0.2.6
+- distributed-process-extras-0.3.5
 - rematch-0.2.0.0
