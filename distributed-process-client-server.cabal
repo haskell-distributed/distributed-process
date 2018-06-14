@@ -1,5 +1,5 @@
 name:           distributed-process-client-server
-version:        0.2.5
+version:        0.2.5.1
 cabal-version:  >=1.8
 build-type:     Simple
 license:        BSD3
