@@ -20,7 +20,7 @@ description:    A part of the Cloud Haskell framework
 
                 For detailed information see "Control.Distributed.Process.Supervisor"
 category:       Control
-tested-with:    GHC == 7.10.3 GHC == 8.0.1 GHC == 8.0.2
+tested-with:    GHC == 8.2.2
 data-dir:       ""
 extra-source-files: ChangeLog
 
@@ -47,7 +47,7 @@ library
                    stm >= 2.4 && < 2.5,
                    time > 1.4 && < 1.9,
                    transformers,
-                   exceptions >= 0.8.3
+                   exceptions >= 0.8.3 && < 0.11
   extensions:      CPP
   hs-source-dirs:   src
   ghc-options:      -Wall
@@ -89,7 +89,7 @@ test-suite SupervisorTests
                    transformers,
                    rematch >= 0.2.0.0,
                    ghc-prim,
-                   exceptions >= 0.8.3
+                   exceptions >= 0.8.3 && < 0.11
   hs-source-dirs:
                    tests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-name-shadowing -fno-warn-unused-do-bind -eventlog
@@ -129,7 +129,7 @@ test-suite NonThreadedSupervisorTests
                    transformers,
                    rematch >= 0.2.0.0,
                    ghc-prim,
-                   exceptions >= 0.8.3
+                   exceptions >= 0.8.3 && < 0.11
   hs-source-dirs:
                    tests
   ghc-options:     -Wall -rtsopts -fno-warn-unused-do-bind -fno-warn-name-shadowing
