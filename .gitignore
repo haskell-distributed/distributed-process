@@ -1,3 +1,4 @@
+*.sw[ponm]
 dist/
 .cabal-sandbox
 cabal.sandbox.config

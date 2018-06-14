@@ -305,7 +305,7 @@ import Control.Distributed.Process
   , spawnLocal
   , unsafeWrapMessage
   , unmonitor
-  , withMonitor
+  , withMonitor_
   , expect
   , unClosure
   , receiveWait
@@ -621,7 +621,7 @@ shutdownAndWait sid = do
   mPid <- resolve sid
   case mPid of
     Nothing -> return ()
-    Just p  -> withMonitor p $ do
+    Just p  -> withMonitor_ p $ do
       shutdown p
       receiveWait [ matchIf (\(ProcessMonitorNotification _ p' _) -> p' == p)
                             (\_ -> return ())
@@ -1410,10 +1410,10 @@ doStopChild ref spec state = do
                $ updateStopped
                )
   where
-    shutdownComplete :: State -> ChildPid -> DiedReason -> Process State
-    shutdownComplete _      _   DiedNormal        = return $ updateStopped
-    shutdownComplete state' pid (r :: DiedReason) = do
-      logShutdown (state' ^. logger) chKey pid r >> return state'
+    {-shutdownComplete :: State -> ChildPid -> DiedReason -> Process State-}
+    {-shutdownComplete _      _   DiedNormal        = return $ updateStopped-}
+    {-shutdownComplete state' pid (r :: DiedReason) = do-}
+      {-logShutdown (state' ^. logger) chKey pid r >> return state'-}
 
     chKey         = childKey spec
     updateStopped = maybe state id $ updateChild chKey (setChildStopped False) state
@@ -1460,13 +1460,13 @@ errorMaxIntensityReached = ExitOther "ReachedMaxRestartIntensity"
 report :: MxSupervisor -> Process ()
 report = mxNotify . MxUser . unsafeWrapMessage
 
-logShutdown :: LogSink -> ChildKey -> ChildPid -> DiedReason -> Process ()
-logShutdown log' child childPid reason = do
-    sup <- getSelfPid
-    Log.info log' $ mkReport banner sup (show childPid) shutdownReason
-  where
-    banner         = "Child Shutdown Complete"
-    shutdownReason = (show reason) ++ ", child-key: " ++ child
+{-logShutdown :: LogSink -> ChildKey -> ChildPid -> DiedReason -> Process ()-}
+{-logShutdown log' child childPid reason = do-}
+    {-sup <- getSelfPid-}
+    {-Log.info log' $ mkReport banner sup (show childPid) shutdownReason-}
+  {-where-}
+    {-banner         = "Child Shutdown Complete"-}
+    {-shutdownReason = (show reason) ++ ", child-key: " ++ child-}
 
 logExit :: SupervisorPid -> ChildPid -> ExitReason -> Process ()
 logExit sup pid er = do
