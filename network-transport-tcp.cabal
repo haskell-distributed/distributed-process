@@ -9,7 +9,7 @@ Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
 maintainer:    Facundo Domínguez <facundo.dominguez@tweag.io>
 Stability:     experimental
 Homepage:      http://haskell-distributed.github.com
-Bug-Reports:   https://cloud-haskell.atlassian.net/browse/NTTCP
+Bug-Reports:   https://github.com/haskell-distributed/network-transport-tcp/issues
 Synopsis:      TCP instantiation of Network.Transport
 Description:   TCP instantiation of Network.Transport
 Tested-With:   GHC==7.6.3 GHC==7.8.4 GHC==7.10.3
