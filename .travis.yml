@@ -4,7 +4,7 @@ sudo: false
 
 matrix:
   include:
-  - env: ARGS="--resolver nightly" COVER="" GHCVER=latest
+  - env:
     addons: {apt: {packages: [libgmp-dev]}}
 
 cache:
@@ -22,15 +22,9 @@ install:
 - stack setup --no-terminal
 
 script:
-- case "$COVER" in
-    true)
-      stack ${ARGS} test --coverage --no-terminal;
-      ./coverage.sh;
-      ;;
-    *)
-      stack ${ARGS} test --test-arguments='--plain'
-      ;;
-  esac
+- stack build
+- stack test --test-arguments='--plain'
+
 
 notifications:
   slack:
