@@ -19,7 +19,7 @@ before_install:
 - stack --version
 
 install:
-- stack ${ARGS} setup --no-terminal
+- stack setup --no-terminal
 
 script:
 - case "$COVER" in
