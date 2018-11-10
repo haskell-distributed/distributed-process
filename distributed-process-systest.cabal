@@ -1,5 +1,5 @@
 name:          distributed-process-systest
-version:       0.2.0
+version:       0.3.0
 synopsis:      Cloud Haskell Test Support
 description:   Testing Frameworks and Capabilities for programs built on Cloud Haskell
 homepage:      http://github.com/haskell-distributed/distributed-process-systest
