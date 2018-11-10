@@ -403,7 +403,8 @@ receiveWait ms = do
   mProc <- liftIO $ dequeue queue Blocking (map unMatch ms)
   case mProc of
     Just proc' -> proc'
-    Nothing    -> error "Well... That wasn't supposed to happen! o_O"
+    Nothing    -> die $ "System Invariant Violation: CQueue.hs returned `Nothing` "
+                     ++ "in the absence of a timeout value."
 
 -- | Like 'receiveWait' but with a timeout.
 --
