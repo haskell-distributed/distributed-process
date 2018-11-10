@@ -174,5 +174,6 @@ withRegisteredTracer act = do
                    --     is not considered cool in later versions of MonadFail
                    case mTP of
                      Just p' -> act p'
-                     Nothing -> die "Initial Tracer Name Not Registered"
+                     Nothing -> die $ "System Invariant Violation: Tracer Process "
+                                   ++ "Name Not Found (whereis tracer.initial)"
     (Just p) -> act p
