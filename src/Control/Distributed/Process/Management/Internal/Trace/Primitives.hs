@@ -33,6 +33,7 @@ import Control.Distributed.Process.Internal.Primitives
   ( whereis
   , newChan
   , receiveChan
+  , die
   )
 import Control.Distributed.Process.Management.Internal.Trace.Types
   ( TraceArg(..)
@@ -168,6 +169,10 @@ withRegisteredTracer act = do
   withLocalTracer $ \t -> liftIO $ Tracer.getCurrentTraceClient t sp
   currentTracer <- receiveChan rp
   case currentTracer of
-    Nothing  -> do { (Just p') <- whereis "tracer.initial"; act p' }
+    Nothing  -> do mTP <- whereis "tracer.initial"
+                   -- NB: this should NOT ever happen, but forcing pattern matches
+                   --     is not considered cool in later versions of MonadFail
+                   case mTP of
+                     Just p' -> act p'
+                     Nothing -> die "Initial Tracer Name Not Registered"
     (Just p) -> act p
-

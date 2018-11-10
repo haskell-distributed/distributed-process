@@ -400,8 +400,10 @@ newtype Match b = Match { unMatch :: MatchOn Message (Process b) }
 receiveWait :: [Match b] -> Process b
 receiveWait ms = do
   queue <- processQueue <$> ask
-  Just proc <- liftIO $ dequeue queue Blocking (map unMatch ms)
-  proc
+  mProc <- liftIO $ dequeue queue Blocking (map unMatch ms)
+  case mProc of
+    Just proc' -> proc'
+    Nothing    -> error "Well... That wasn't supposed to happen! o_O"
 
 -- | Like 'receiveWait' but with a timeout.
 --

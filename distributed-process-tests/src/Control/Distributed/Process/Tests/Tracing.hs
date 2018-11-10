@@ -125,9 +125,11 @@ testTraceSending result = do
       (\ev ->
         case ev of
           (MxSent to from msg) -> do
-            (Just s) <- unwrapMessage msg :: Process (Maybe String)
-            stash res (to == pid && from == self && s == "hello there")
-            stash res (to == pid && from == self)
+            mS <- unwrapMessage msg :: Process (Maybe String)
+            case mS of
+              (Just s) -> do stash res (to == pid && from == self && s == "hello there")
+                             stash res (to == pid && from == self)
+              _        -> die "failed state invariant, message type unmatched..."
           _ ->
             return ()) $ do
         send pid "hello there"
@@ -246,12 +248,8 @@ testRemoteTraceRelay TestTransport{..} result =
     -- Here we set up that relay, and then wait for a signal
     -- that the tracer (on node1) has seen the expected
     -- MxSpawned message, at which point we're finished
-    (Just log') <- whereis "logger"
-    pid <- liftIO $ forkProcess node2 $ do
-      logRelay <- spawnLocal $ relay log'
-      reregister "logger" logRelay
-      getSelfNode >>= stash mvNid >> (expect :: Process ())
 
+    pid <- splinchLogger node2 mvNid
     nid <- liftIO $ takeMVar mvNid
     mref <- monitor pid
     observedPid <- liftIO $ newEmptyMVar
@@ -291,6 +289,17 @@ testRemoteTraceRelay TestTransport{..} result =
     -- and just to be polite...
     liftIO $ closeLocalNode node2
 
+  where
+    splinchLogger n2 mv = do
+      mLog <- whereis "logger"
+      case mLog of
+        Nothing   -> die "no logger registered"
+        Just log' -> do liftIO $ forkProcess n2 $ do
+                          logRelay <- spawnLocal $ relay log'
+                          reregister "logger" logRelay
+                          getSelfNode >>= stash mv >> (expect :: Process ())
+
+
 -- | Sets the value of an environment variable while executing the given IO
 -- computation and restores the preceeding value upon completion.
 withEnv :: String -> String -> IO a -> IO a
@@ -319,9 +328,12 @@ testSystemLoggerMsg t action interestingMessage =
       -- Wait for the trace message.
       receiveWait [ matchIf interestingMessage' $ const $ return () ]
       -- Only one interesting message should arrive.
-      Nothing <- receiveTimeout 100000
-                   [ matchIf interestingMessage' $ const $ return () ]
-      return ()
+      expectedTimeout <- receiveTimeout
+                           100000
+                           [ matchIf interestingMessage' $ const $ return () ]
+      case expectedTimeout of
+        Nothing -> return ()
+        Just _  -> die "Unexpected message arrived..."
 
 
 -- | Tests that one and only one trace message is produced when a message is
