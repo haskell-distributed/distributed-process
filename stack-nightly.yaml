@@ -2,7 +2,6 @@ resolver: nightly-2018-11-10
 
 packages:
 - '.'
-- distributed-process-tests/
 - location:
     git: https://github.com/haskell-distributed/distributed-static.git
     commit: c51e6aadd3a44c044e96a8e986c11d3a94b45b11
@@ -20,7 +19,3 @@ extra-deps:
 - rank1dynamic-0.4.0
 - network-transport-0.5.2
 - rematch-0.2.0.0
-
-flags:
-  distributed-process-tests:
-    tcp: true
