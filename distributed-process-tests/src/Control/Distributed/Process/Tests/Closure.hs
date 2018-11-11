@@ -412,29 +412,34 @@ testSpawnSupervised TestTransport{..} rtable = do
       throw supervisorDeath
 
     forkProcess node2 $ do
-      [super, child] <- liftIO $ mapM readMVar [superPid, childPid]
-      ref <- monitor child
-      self <- getSelfPid
-      let waitForMOrL = do
-            liftIO $ threadDelay 10000
-            mpinfo <- getProcessInfo child
-            case mpinfo of
-              Nothing -> waitForMOrL
-              Just pinfo ->
-                 unless (isJust $ lookup self (infoMonitors pinfo)) waitForMOrL
-      waitForMOrL
-      liftIO $ putMVar linkUp ()
-      -- because monitor message was sent before message to process
-      -- we hope that it will be processed before
-      res <- expect
+      res <- liftIO $ mapM readMVar [superPid, childPid]
       case res of
-          (ProcessMonitorNotification ref' pid' (DiedException e)) ->
-            if (ref' == ref && pid' == child &&
-              e == show (ProcessLinkException super
-                        (DiedException (show supervisorDeath))))
-              then liftIO $ putMVar thirdProcessDone ()
-              else error "Something went horribly wrong"
-          _ -> error "Something went horribly wrong"
+        [super, child] -> do
+          ref <- monitor child
+          self <- getSelfPid
+          let waitForMOrL = do
+                liftIO $ threadDelay 10000
+                mpinfo <- getProcessInfo child
+                case mpinfo of
+                  Nothing -> waitForMOrL
+                  Just pinfo ->
+                     unless (isJust $ lookup self (infoMonitors pinfo)) waitForMOrL
+          waitForMOrL
+          liftIO $ putMVar linkUp ()
+          -- because monitor message was sent before message to process
+          -- we hope that it will be processed before
+          res' <- expect
+          case res' of
+              (ProcessMonitorNotification ref' pid' (DiedException e)) ->
+                if (ref' == ref && pid' == child &&
+                  e == show (ProcessLinkException super
+                            (DiedException (show supervisorDeath))))
+                  then liftIO $ putMVar thirdProcessDone ()
+                  else error "Something went horribly wrong"
+              _ -> error "Something went horribly wrong"
+
+        _ -> die $ "Something went horribly wrong"
+
     takeMVar thirdProcessDone
   where
     supervisorDeath :: IOException
@@ -505,8 +510,11 @@ testFib TestTransport{..} rtable = do
   forkProcess (head nodes) $ do
     (sport, rport) <- newChan
     spawnLocal $ dfib (map localNodeId nodes, sport, 10)
-    55 <- receiveChan rport :: Process Integer
+    ff <- receiveChan rport :: Process Integer
     liftIO $ putMVar done ()
+    if ff /= 55
+      then die $ "Something went horribly wrong"
+      else return ()
 
   takeMVar done
 

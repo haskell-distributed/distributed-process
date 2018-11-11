@@ -39,7 +39,7 @@ import Control.Distributed.Process.Internal.Types
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable (Serializable)
 
-import Test.HUnit (Assertion, assertFailure)
+import Test.HUnit (Assertion, assertBool, assertFailure)
 import Test.Framework (Test, testGroup)
 import Test.Framework.Providers.HUnit (testCase)
 import Control.Rematch hiding (match)
@@ -75,12 +75,47 @@ ping = do
   send partner (Ping self)
   ping
 
+verifyClient :: String -> MVar Bool -> IO ()
+verifyClient s b = takeMVar b >>= assertBool s
+
+expectPing :: MVar Bool ->  Process ()
+expectPing mv = expect >>= liftIO . putMVar mv . checkPing
+  where
+    checkPing (Ping _) = True
+    checkPing _        = False
+
 -- | Quick and dirty synchronous version of whereisRemoteAsync
 whereisRemote :: NodeId -> String -> Process (Maybe ProcessId)
 whereisRemote nid string = do
   whereisRemoteAsync nid string
-  WhereIsReply _ mPid <- expect
-  return mPid
+  receiveWait [
+      match (\(WhereIsReply _ mPid) -> return mPid)
+    ]
+
+verifyWhereIsRemote :: NodeId -> String -> Process ProcessId
+verifyWhereIsRemote n s = whereisRemote n s >>= maybe (die "remote name not found") return
+
+waitForExit :: ProcessId -> Process DiedReason
+waitForExit pid = monitor pid >>= waitForDown
+
+waitForDown :: MonitorRef -> Process DiedReason
+waitForDown ref =
+  receiveWait [ matchIf (\(ProcessMonitorNotification ref' _ _) -> ref == ref')
+                        (\(ProcessMonitorNotification _ _ dr) -> return dr) ]
+
+syncBreakConnection :: (NT.EndPointAddress -> NT.EndPointAddress -> IO ()) -> LocalNode -> LocalNode -> IO ()
+syncBreakConnection breakConnection nid0 nid1 = do
+  m <- newEmptyMVar
+  _ <- forkProcess nid1 $ getSelfPid >>= liftIO . putMVar m
+  runProcess nid0 $ do
+    them <- liftIO $ takeMVar m
+    pinger <- spawnLocal $ forever $ send them ()
+    _ <- monitorNode (localNodeId nid1)
+    liftIO $ breakConnection (nodeAddress $ localNodeId nid0)
+                             (nodeAddress $ localNodeId nid1)
+    NodeMonitorNotification _ _ _ <- expect
+    kill pinger "finished"
+    return ()
 
 data Add       = Add    ProcessId Double Double deriving (Typeable)
 data Divide    = Divide ProcessId Double Double deriving (Typeable)
@@ -155,12 +190,18 @@ monitorTestProcess theirAddr mOrL un reason monitorSetup done =
                 unmonitor ref
                 liftIO $ putMVar done ()
               (False, ref) -> do
-                ProcessMonitorNotification ref' pid reason' <- expect
-                True <- return $ Just ref' == ref && pid == theirAddr && mOrL && reason == reason'
-                liftIO $ putMVar done ()
+                receiveWait [
+                    match (\(ProcessMonitorNotification ref' pid reason') -> do
+                              liftIO $ do
+                                assertBool "Bad Monitor Signal"
+                                           (Just ref' == ref && pid == theirAddr &&
+                                              mOrL && reason == reason')
+                                putMVar done ())
+                  ]
         )
         (\(ProcessLinkException pid reason') -> do
-            True <- return $ pid == theirAddr && not mOrL && not un && reason == reason'
+            (liftIO $ assertBool "link exception unmatched" $
+              pid == theirAddr && not mOrL && not un && reason == reason')
             liftIO $ putMVar done ()
         )
 
@@ -191,8 +232,10 @@ testPing TestTransport{..} = do
       pid <- getSelfPid
       replicateM_ numPings $ do
         send pingServer (Pong pid)
-        Ping _ <- expect
-        return ()
+        p <- expect
+        case p of
+          Ping _ -> return ()
+          _      -> die "Unexpected message"
 
     putMVar clientDone ()
 
@@ -279,7 +322,7 @@ testMonitorLocalDeadProcess TestTransport{..} mOrL un = do
     runProcess localNode $ do
       monitor theirAddr
       -- wait for the process to die
-      ProcessMonitorNotification _ _ _ <- expect
+      expect :: Process ProcessMonitorNotification
       monitorTestProcess theirAddr mOrL un DiedUnknownId Nothing done
 
   takeMVar done
@@ -353,14 +396,17 @@ testMath TestTransport{..} = do
     runProcess localNode $ do
       pid <- getSelfPid
       send mathServer (Add pid 1 2)
-      3 <- expect :: Process Double
+      three <- expect :: Process Double
       send mathServer (Divide pid 8 2)
-      4 <- expect :: Process Double
+      four <- expect :: Process Double
       send mathServer (Divide pid 8 0)
-      DivByZero <- expect
-      liftIO $ putMVar clientDone ()
+      divByZ <- expect
+      liftIO $ putMVar clientDone (three, four, divByZ)
 
-  takeMVar clientDone
+  res <- takeMVar clientDone
+  case res of
+    (3, 4, DivByZero) -> return ()
+    _                 -> error $ "Something went horribly wrong"
 
 -- | Send first message (i.e. connect) to an already terminated process
 -- (without monitoring); then send another message to a second process on
@@ -388,11 +434,9 @@ testSendToTerminated TestTransport{..} = do
       pid <- getSelfPid
       send server1 "Hi"
       send server2 (Pong pid)
-      Ping pid' <- expect
-      True <- return $ pid' == server2
-      liftIO $ putMVar clientDone ()
+      expectPing clientDone
 
-  takeMVar clientDone
+  verifyClient "Expected Ping from server" clientDone
 
 -- | Test (non-zero) timeout
 testTimeout :: TestTransport -> Assertion
@@ -401,10 +445,10 @@ testTimeout TestTransport{..} = do
   done <- newEmptyMVar
 
   runProcess localNode $ do
-    Nothing <- receiveTimeout 1000000 [match (\(Add _ _ _) -> return ())]
-    liftIO $ putMVar done ()
+    res <- receiveTimeout 1000000 [match (\Add{} -> return ())]
+    liftIO $ putMVar done $ res == Nothing
 
-  takeMVar done
+  verifyClient "Expected receiveTimeout to timeout..." done
 
 -- | Test zero timeout
 testTimeout0 :: TestTransport -> Assertion
@@ -432,10 +476,9 @@ testTimeout0 TestTransport{..} = do
       -- is not interested in, and then a single message that it wants
       replicateM_ 10000 $ send server "Irrelevant message"
       send server (Pong pid)
-      Ping _ <- expect
-      liftIO $ putMVar clientDone ()
+      expectPing clientDone
 
-  takeMVar clientDone
+  verifyClient "Expected Ping from server" clientDone
 
 -- | Test typed channels
 testTypedChannels :: TestTransport -> Assertion
@@ -458,10 +501,10 @@ testTypedChannels TestTransport{..} = do
     runProcess localNode $ do
       (clientSendPort, rport) <- newChan
       sendChan serverSendPort (clientSendPort, 5)
-      False <- receiveChan rport
-      liftIO $ putMVar clientDone ()
+      ch <- receiveChan rport
+      liftIO $ putMVar clientDone $ ch == False
 
-  takeMVar clientDone
+  verifyClient "Expected channel to send 'False'" clientDone
 
 -- | Test merging receive ports
 testMergeChannels :: TestTransport -> Assertion
@@ -484,9 +527,8 @@ testMergeChannels TestTransport{..} = do
         rs  <- mapM charChannel "abc"
         m   <- mergePorts biased rs
         xs  <- replicateM 9 $ receiveChan m
-        True <- return $ xs == expected
-        liftIO $ putMVar done ()
-      takeMVar done
+        liftIO $ putMVar done $ xs == expected
+      verifyClient "Expected single layer merge to match expected ordering" done
 
     -- Two layers of merging
     testNested :: LocalNode -> Bool -> Bool -> String -> IO ()
@@ -497,9 +539,8 @@ testMergeChannels TestTransport{..} = do
         ms   <- mapM (mergePorts biasedInner) rss
         m    <- mergePorts biasedOuter ms
         xs   <- replicateM (9 * 3) $ receiveChan m
-        True <- return $ xs == expected
-        liftIO $ putMVar done ()
-      takeMVar done
+        liftIO $ putMVar done $ xs == expected
+      verifyClient "Expected nested channels to match expeted ordering" done
 
     -- Test that if no messages are (immediately) available, the scheduler makes no difference
     testBlocked :: LocalNode -> Bool -> IO ()
@@ -508,43 +549,45 @@ testMergeChannels TestTransport{..} = do
       done <- newEmptyMVar
 
       forkProcess localNode $ do
-        [sa, sb, sc] <- liftIO $ mapM readMVar vs
-        mapM_ ((>> liftIO (threadDelay 10000)) . uncurry sendChan)
-          [ -- a, b, c
-            (sa, 'a')
-          , (sb, 'b')
-          , (sc, 'c')
-            -- a, c, b
-          , (sa, 'a')
-          , (sc, 'c')
-          , (sb, 'b')
-            -- b, a, c
-          , (sb, 'b')
-          , (sa, 'a')
-          , (sc, 'c')
-            -- b, c, a
-          , (sb, 'b')
-          , (sc, 'c')
-          , (sa, 'a')
-            -- c, a, b
-          , (sc, 'c')
-          , (sa, 'a')
-          , (sb, 'b')
-            -- c, b, a
-          , (sc, 'c')
-          , (sb, 'b')
-          , (sa, 'a')
-          ]
+        ss <- liftIO $ mapM readMVar vs
+        case ss of
+          [sa, sb, sc] ->
+            mapM_ ((>> liftIO (threadDelay 10000)) . uncurry sendChan)
+              [ -- a, b, c
+                (sa, 'a')
+              , (sb, 'b')
+              , (sc, 'c')
+                -- a, c, b
+              , (sa, 'a')
+              , (sc, 'c')
+              , (sb, 'b')
+                -- b, a, c
+              , (sb, 'b')
+              , (sa, 'a')
+              , (sc, 'c')
+                -- b, c, a
+              , (sb, 'b')
+              , (sc, 'c')
+              , (sa, 'a')
+                -- c, a, b
+              , (sc, 'c')
+              , (sa, 'a')
+              , (sb, 'b')
+                -- c, b, a
+              , (sc, 'c')
+              , (sb, 'b')
+              , (sa, 'a')
+              ]
+          _ -> die "Something went horribly wrong"
 
       forkProcess localNode $ do
         (ss, rs) <- unzip <$> replicateM 3 newChan
         liftIO $ mapM_ (uncurry putMVar) $ zip vs ss
         m  <- mergePorts biased rs
         xs <- replicateM (6 * 3) $ receiveChan m
-        True <- return $ xs == "abcacbbacbcacabcba"
-        liftIO $ putMVar done ()
+        liftIO $ putMVar done $ xs == "abcacbbacbcacabcba"
 
-      takeMVar done
+      verifyClient "Expected merged ports to match expected ordering" done
 
     mergePorts :: Serializable a => Bool -> [ReceivePort a] -> Process (ReceivePort a)
     mergePorts True  = mergePortsBiased
@@ -562,8 +605,9 @@ testTerminate TestTransport{..} = do
   localNode <- newLocalNode testTransport initRemoteTable
   runProcess localNode $ do
     e <- try terminate :: Process (Either ProcessTerminationException ())
-    True <- return $ either show show e == show ProcessTerminationException
-    return ()
+    if either show show e == show ProcessTerminationException
+      then return ()
+      else die "Unexpected result from terminate"
 
 testMonitorNode :: TestTransport -> Assertion
 testMonitorNode TestTransport{..} = do
@@ -574,11 +618,12 @@ testMonitorNode TestTransport{..} = do
 
   runProcess node2 $ do
     ref <- monitorNode (localNodeId node1)
-    NodeMonitorNotification ref' nid DiedDisconnect <- expect
-    True <- return $ ref == ref' && nid == localNodeId node1
-    liftIO $ putMVar done ()
+    receiveWait [
+        match (\(NodeMonitorNotification ref' nid DiedDisconnect) ->
+                return $ ref == ref' && nid == localNodeId node1)
+      ] >>= liftIO . putMVar done
 
-  takeMVar done
+  verifyClient "Expected NodeMonitorNotification with matching ref & nodeId" done
 
 testMonitorLiveNode :: TestTransport -> Assertion
 testMonitorLiveNode TestTransport{..} = do
@@ -593,15 +638,16 @@ testMonitorLiveNode TestTransport{..} = do
     liftIO $ putMVar ready ()
     liftIO $ takeMVar readyr
     send p ()
-    NodeMonitorNotification ref' nid _ <- expect
-    True <- return $ ref == ref' && nid == localNodeId node1
-    liftIO $ putMVar done ()
+    receiveWait [
+        match (\(NodeMonitorNotification ref' nid _) ->
+                (return $ ref == ref' && nid == localNodeId node1))
+      ] >>= liftIO . putMVar done
 
   takeMVar ready
   closeLocalNode node1
   putMVar readyr ()
 
-  takeMVar done
+  verifyClient "Expected NodeMonitorNotification for LIVE node" done
 
 testMonitorChannel :: TestTransport -> Assertion
 testMonitorChannel TestTransport{..} = do
@@ -611,18 +657,20 @@ testMonitorChannel TestTransport{..} = do
     pid <- forkProcess node1 $ do
       sport <- expect :: Process (SendPort ())
       ref <- monitorPort sport
-      PortMonitorNotification ref' port' reason <- expect
-      -- reason might be DiedUnknownId if the receive port is GCed before the
-      -- monitor is established (TODO: not sure that this is reasonable)
-      return $ ref' == ref && port' == sendPortId sport && (reason == DiedNormal || reason == DiedUnknownId)
-      liftIO $ putMVar gotNotification ()
+      receiveWait [
+          -- reason might be DiedUnknownId if the receive port is GCed before the
+          -- monitor is established (TODO: not sure that this is reasonable)
+          match (\(PortMonitorNotification ref' port' reason) ->
+                  return $ ref' == ref && port' == sendPortId sport &&
+                    (reason == DiedNormal || reason == DiedUnknownId))
+        ] >>= liftIO . putMVar gotNotification
 
     runProcess node2 $ do
       (sport, _) <- newChan :: Process (SendPort (), ReceivePort ())
       send pid sport
       liftIO $ threadDelay 100000
 
-    takeMVar gotNotification
+    verifyClient "Expected PortMonitorNotification" gotNotification
 
 testRegistry :: TestTransport -> Assertion
 testRegistry TestTransport{..} = do
@@ -634,19 +682,27 @@ testRegistry TestTransport{..} = do
 
   runProcess node $ do
     register "ping" pingServer
-    Just pid <- whereis "ping"
-    True <- return $ pingServer == pid
+    whereis "ping" >>= liftIO . assertBool "Unexpected ping" . (== Just pingServer)
     us <- getSelfPid
     nsend "ping" (Pong us)
-    Ping pid' <- expect
-    True <- return $ pingServer == pid'
-    Left (ProcessRegistrationException "dead" Nothing)  <- try $ register "dead" deadProcess
-    Left (ProcessRegistrationException "ping" (Just x)) <- try $ register "ping" deadProcess
-    True <- return $ x == pingServer
-    Left (ProcessRegistrationException "dead" Nothing) <- try $ unregister "dead"
+    receiveWait [
+        matchIf (\(Ping pid') -> pingServer == pid') (const $ return ())
+      ]
+    checkRegException "dead" Nothing deadProcess
+    checkRegException "ping" (Just pingServer) deadProcess
+    try (unregister "dead") >>= checkReg "dead" Nothing
     liftIO $ putMVar done ()
 
   takeMVar done
+
+  where
+    checkRegException name pid dead =
+      try (register name dead) >>= checkReg name pid
+
+    checkReg name pid res =
+      case res of
+        Left (ProcessRegistrationException name pid) -> return ()
+        _ -> die $ "Unexpected Registration" ++ show res
 
 testRegistryRemoteProcess :: TestTransport -> Assertion
 testRegistryRemoteProcess TestTransport{..} = do
@@ -658,13 +714,13 @@ testRegistryRemoteProcess TestTransport{..} = do
 
   runProcess node2 $ do
     register "ping" pingServer
-    Just pid <- whereis "ping"
-    True <- return $ pingServer == pid
+    whereis "ping" >>= liftIO . assertBool "Unexpected ping" . (== Just pingServer)
     us <- getSelfPid
     nsend "ping" (Pong us)
-    Ping pid' <- expect
-    True <- return $ pingServer == pid'
-    liftIO $ putMVar done ()
+    receiveWait [
+        matchIf (\(Ping pid') -> pingServer == pid')
+                (const $ liftIO $ putMVar done ())
+      ]
 
   takeMVar done
 
@@ -685,12 +741,13 @@ testRemoteRegistry TestTransport{..} = do
                     "ping" == label' && pid == pingServer)
                (\(RegisterReply _ _ _) -> return ()) ]
 
-    Just pid <- whereisRemote nid1 "ping"
-    True <- return $ pingServer == pid
+    pid <- verifyWhereIsRemote nid1 "ping"
+    liftIO $ assertBool "Expected pindServer to match pid" $ pingServer == pid
     us <- getSelfPid
     nsendRemote nid1 "ping" (Pong us)
-    Ping pid' <- expect
-    True <- return $ pingServer == pid'
+    receiveWait [
+        match (\(Ping pid') -> return $ pingServer == pid')
+      ] >>= liftIO . assertBool "Expected Ping with ping server's ProcessId"
 
     -- test that if process was not registered Nothing is returned
     -- in owner field.
@@ -726,15 +783,15 @@ testRemoteRegistryRemoteProcess TestTransport{..} = do
     receiveWait [
        matchIf (\(RegisterReply label' _ _) -> "ping" == label')
                (\(RegisterReply _ _ _) -> return ()) ]
-    Just pid <- whereisRemote nid1 "ping"
-    True <- return $ pingServer == pid
+    pid <- verifyWhereIsRemote nid1 "ping"
+    liftIO $ assertBool "Expected pingServer to match remote name" $ pingServer == pid
     us <- getSelfPid
     nsendRemote nid1 "ping" (Pong us)
-    Ping pid' <- expect
-    True <- return $ pingServer == pid'
-    liftIO $ putMVar done ()
+    receiveWait [
+        match (\(Ping pid') -> return $ pingServer == pid')
+      ] >>= liftIO . putMVar done
 
-  takeMVar done
+  verifyClient "Expected Ping with ping server's ProcessId" done
 
 testSpawnLocal :: TestTransport -> Assertion
 testSpawnLocal TestTransport{..} = do
@@ -748,15 +805,14 @@ testSpawnLocal TestTransport{..} = do
       sport <- expect
       sendChan sport (1234 :: Int)
 
-    sport <- spawnChannelLocal $ \rport -> do
-      (1234 :: Int) <- receiveChan rport
-      send us ()
+    sport <- spawnChannelLocal $
+      \rport -> (receiveChan rport :: Process Int) >>= send us
 
     send pid sport
-    () <- expect
-    liftIO $ putMVar done ()
+    expect >>= liftIO . putMVar done
 
-  takeMVar done
+  res <- takeMVar done
+  assertBool "Expected 1234 :: Int" $ res == (1234 :: Int)
 
 testSpawnAsyncStrictness :: TestTransport -> Assertion
 testSpawnAsyncStrictness TestTransport{..} = do
@@ -785,8 +841,9 @@ testReconnect TestTransport{..} = do
     liftIO $ putMVar processA us
     msg1 <- expect
     msg2 <- expect
-    True <- return $ msg1 == "message 1" && msg2 == "message 3"
-    liftIO $ putMVar sendTestOk ()
+    liftIO $ do
+      assertBool "messages did not match" $ msg1 == "message 1" && msg2 == "message 3"
+      putMVar sendTestOk ()
 
   forkProcess node2 $ do
     {-
@@ -819,7 +876,7 @@ testReconnect TestTransport{..} = do
         matchIf (\(RegisterReply label' _ _) -> "a" == label')
                 (\(RegisterReply _ _ _) -> return ()) ]
 
-    Just _  <- whereisRemote nid1 "a"
+    _  <- whereisRemote nid1 "a"
 
 
     -- Simulate network failure
@@ -838,9 +895,10 @@ testReconnect TestTransport{..} = do
                 (\(RegisterReply _ _ _) -> return ()) ]
 
     -- Check
-    Nothing  <- whereisRemote nid1 "a"  -- this will fail because the name is removed when the node is disconnected
-    Just _  <- whereisRemote nid1 "b"  -- this will suceed because the value is set after thereconnect
-    Just _  <- whereisRemote nid1 "c"
+    mPid <- whereisRemote nid1 "a"  -- this will fail because the name is removed when the node is disconnected
+    liftIO $ assertBool "Expected remote name to be lost" $ mPid == Nothing
+    verifyWhereIsRemote nid1 "b"  -- this will suceed because the value is set after thereconnect
+    verifyWhereIsRemote nid1 "c"
 
     liftIO $ putMVar registerTestOk ()
 
@@ -881,13 +939,14 @@ testUSend usendPrim TestTransport{..} numMessages = do
         isSorted _                = True
     -- The list can't be null since there are no failures after sending
     -- the last message.
-    True <- return $ isSorted msgs && not (null msgs)
-    liftIO $ putMVar usendTestOk ()
+    liftIO $ do
+      assertBool "Unexpected failure after sending last msg" $ isSorted msgs && not (null msgs)
+      putMVar usendTestOk ()
 
   forkProcess node2 $ do
     them <- liftIO $ readMVar processA
     getSelfPid >>= send them
-    () <- expect
+    expect :: Process ()
     forM_ [1..numMessages] $ \i -> do
       liftIO $ testBreakConnection (nodeAddress nid1) (nodeAddress nid2)
       usendPrim them i
@@ -919,14 +978,17 @@ testMatchAny TestTransport{..} = do
     runProcess localNode $ do
       pid <- getSelfPid
       send mathServer (Add pid 1 2)
-      3 <- expect :: Process Double
+      three <- expect :: Process Double
       send mathServer (Divide pid 8 2)
-      4 <- expect :: Process Double
+      four <- expect :: Process Double
       send mathServer (Divide pid 8 0)
-      DivByZero <- expect
-      liftIO $ putMVar clientDone ()
+      divByZ <- expect
+      liftIO $ putMVar clientDone (three, four, divByZ)
 
-  takeMVar clientDone
+  res <- takeMVar clientDone
+  case res of
+    (3, 4, DivByZero) -> return ()
+    _                 -> error "Unexpected result"
 
 -- | Test 'matchAny'. This repeats the 'testMath' but with a proxy server
 -- in between, however we block 'Divide' requests ....
@@ -953,12 +1015,13 @@ testMatchAnyHandle TestTransport{..} = do
     runProcess localNode $ do
       pid <- getSelfPid
       send mathServer (Add pid 1 2)
-      3 <- expect :: Process Double
+      three <- expect :: Process Double
       send mathServer (Divide pid 8 2)
-      Nothing <- (expectTimeout 100000) :: Process (Maybe Double)
-      liftIO $ putMVar clientDone ()
+      res <- (expectTimeout 100000) :: Process (Maybe Double)
+      liftIO $ putMVar clientDone $ three == 3 && res == Nothing
 
-  takeMVar clientDone
+  verifyClient "Expected Nothing (i.e. timeout)" clientDone
+
   where maybeForward :: ProcessId -> Message -> Process (Maybe ())
         maybeForward s msg =
             handleMessage msg (\m@(Add _ _ _) -> send s m)
@@ -986,8 +1049,10 @@ testMatchAnyNoHandle TestTransport{..} = do
                 Just _  -> die "NONSENSE")
           ]
         -- we *must* have removed the message from our mailbox though!!!
-        Nothing <- receiveTimeout 100000 [ match (\(Add _ _ _) -> return ()) ]
-        liftIO $ putMVar serverDone ()
+        res <- receiveTimeout 100000 [ match (\(Add _ _ _) -> return ()) ]
+        liftIO $ do
+          assertBool "Expected timeout!" $ res == Nothing
+          putMVar serverDone ()
     putMVar addr server
 
   -- Client
@@ -1030,14 +1095,21 @@ testMatchAnyIf TestTransport{..} = do
     runProcess localNode $ do
       pid <- getSelfPid
       send server (pid, "foo")
-      "foo" <- expect
-      send server (pid, "baz")
-      "baz" <- expect
-      send server (pid, "bar")
-      Nothing <- (expectTimeout 100000) :: Process (Maybe Double)
-      liftIO $ putMVar clientDone ()
+      foo <- expect
+      -- provoking what would be the wrong ordering is informative here...
 
-  takeMVar clientDone
+      send server (pid, "bar")
+      bar <- (expectTimeout 100000) :: Process (Maybe String) -- was Double o_O !?
+
+      send server (pid, "baz")
+      baz <- expect
+
+      liftIO $ putMVar clientDone (foo, bar, baz)
+
+  res <- takeMVar clientDone
+  let res' = res == ("foo", Nothing, "baz")
+  assertBool "Expected timeout due to type mismatch" res'
+
   where tryHandleMessage :: Message -> Process (Maybe ())
         tryHandleMessage msg =
           handleMessage msg (\(pid :: ProcessId, (m :: String))
@@ -1070,12 +1142,13 @@ testMatchMessageWithUnwrap TestTransport{..} = do
     runProcess localNode $ do
       pid <- getSelfPid
       send server (pid, wrapMessage ("foo" :: String))
-      "foo" <- expect
+      foo <- expect
       send server (pid, wrapMessage ("baz" :: String))
-      "baz" <- expect
-      liftIO $ putMVar clientDone ()
+      baz <- expect
+      liftIO $ putMVar clientDone (foo, baz)
 
-  takeMVar clientDone
+  res <- takeMVar clientDone
+  assertBool "Unexpected unwrapped results" $ res == ("foo", "baz")
 
 -- Test 'receiveChanTimeout'
 testReceiveChanTimeout :: TestTransport -> Assertion
@@ -1093,18 +1166,19 @@ testReceiveChanTimeout TestTransport{..} = do
 
       -- Wait for a message with a delay. No message arrives, we should get
       -- Nothing after the delay.
-      Nothing <- receiveChanTimeout 100000 rp
+      receiveChanTimeout 100000 rp >>= maybe (return ()) (const $ die "Expected Timeout")
 
       -- Let the sender know that it can send a message.
       liftIO $ putMVar mvSender ()
 
       -- Wait for a message with a delay again. Now a message arrives after
       -- 0.1 seconds
-      Just True <- receiveChanTimeout 20000000 rp
+      res <- receiveChanTimeout 20000000 rp >>= maybe (die "Timeout") return
+      liftIO $ assertBool "Expected result to be 'True'" res
 
       -- Wait for a message with zero timeout: non-blocking check. No message is
       -- available, we get Nothing
-      Nothing <- receiveChanTimeout 0 rp
+      receiveChanTimeout 0 rp >>= maybe (return ()) (const $ die "Expected Timeout")
 
       -- Let the sender know that it can send a message.
       liftIO $ putMVar mvSender ()
@@ -1114,7 +1188,7 @@ testReceiveChanTimeout TestTransport{..} = do
         liftIO $ threadDelay 100000
         mb <- receiveChanTimeout 0 rp
         case mb of
-          Just b -> do False <- return b; return ()
+          Just b -> do liftIO $ assertBool "Unexpected Message" $ not b
           _      -> loop
 
       liftIO $ putMVar done ()
@@ -1151,8 +1225,8 @@ testReceiveChanFeatures TestTransport{..} = do
 
       rp1 <- mergePortsBiased [even <$> rpInt, rpBool]
 
-      True <- receiveChan rp1
-      False <- receiveChan rp1
+      receiveChan rp1 >>= liftIO . assertBool "Expected True"
+      receiveChan rp1 >>= liftIO . assertBool "Expected False" . not
 
       -- Test Applicative instance
 
@@ -1161,7 +1235,7 @@ testReceiveChanFeatures TestTransport{..} = do
 
       let rp2 = pure (+) <*> rpInt <*> rpInt
 
-      7 <- receiveChan rp2
+      receiveChan rp2 >>= liftIO . assertBool "Expected 7" . (== 7)
 
       -- Test Alternative instance
 
@@ -1170,8 +1244,8 @@ testReceiveChanFeatures TestTransport{..} = do
 
       let rp3 = (even <$> rpInt) <|> rpBool
 
-      False <- receiveChan rp3
-      True <- receiveChan rp3
+      receiveChan rp3 >>= liftIO . assertBool "Expected False" . not
+      receiveChan rp3 >>= liftIO . assertBool "Expected True"
 
       -- Test Monad instance
 
@@ -1185,8 +1259,8 @@ testReceiveChanFeatures TestTransport{..} = do
                      then rpInt
                      else return 7
 
-      5 <- receiveChan rp4
-      7 <- receiveChan rp4
+      receiveChan rp4 >>= liftIO . assertBool "Expected 5" . (== 5)
+      receiveChan rp4 >>= liftIO . assertBool "Expected 7" . (== 7)
 
       liftIO $ putMVar done ()
 
@@ -1195,7 +1269,6 @@ testReceiveChanFeatures TestTransport{..} = do
 testKillLocal :: TestTransport -> Assertion
 testKillLocal TestTransport{..} = do
   localNode <- newLocalNode testTransport initRemoteTable
-  done <- newEmptyMVar
 
   pid <- forkProcess localNode $ do
     liftIO $ threadDelay 1000000
@@ -1204,17 +1277,18 @@ testKillLocal TestTransport{..} = do
     ref <- monitor pid
     us <- getSelfPid
     kill pid "TestKill"
-    ProcessMonitorNotification ref' pid' (DiedException ex) <- expect
-    True <- return $ ref == ref' && pid == pid' && ex == "killed-by=" ++ show us ++ ",reason=TestKill"
-    liftIO $ putMVar done ()
-
-  takeMVar done
+    mn <- expect
+    case mn of
+      ProcessMonitorNotification ref' pid' (DiedException ex) ->
+        case ref == ref' && pid == pid' && ex == "killed-by=" ++ show us ++ ",reason=TestKill" of
+          True  -> return ()
+          False -> die "Invalid ProcessMonitorNotification received"
+      _ -> die "Something went horribly wrong"
 
 testKillRemote :: TestTransport -> Assertion
 testKillRemote TestTransport{..} = do
   node1 <- newLocalNode testTransport initRemoteTable
   node2 <- newLocalNode testTransport initRemoteTable
-  done <- newEmptyMVar
 
   pid <- forkProcess node1 $ do
     liftIO $ threadDelay 1000000
@@ -1223,11 +1297,17 @@ testKillRemote TestTransport{..} = do
     ref <- monitor pid
     us <- getSelfPid
     kill pid "TestKill"
-    ProcessMonitorNotification ref' pid' (DiedException reason) <- expect
-    True <- return $ ref == ref' && pid == pid' && reason == "killed-by=" ++ show us ++ ",reason=TestKill"
-    liftIO $ putMVar done ()
-
-  takeMVar done
+    mn <- expect
+    case mn of
+      ProcessMonitorNotification ref' pid' (DiedException reason) ->
+        case (ref == ref', pid == pid', reason == "killed-by=" ++ show us ++ ",reason=TestKill") of
+          (True, True, True) -> return ()
+          (a, b, c) -> do
+            let a' = if a then "" else "Invalid ref"
+            let b' = if b then "" else "Invalid pid"
+            let c' = if c then "" else "Invalid message"
+            die $ unwords [a', b', c']
+      _ -> die "Received unexpected message"
 
 testCatchesExit :: TestTransport -> Assertion
 testCatchesExit TestTransport{..} = do
@@ -1253,7 +1333,10 @@ testHandleMessageIf TestTransport{..} = do
     self <- getSelfPid
     send self (5 :: Integer, 10 :: Integer)
     msg <- receiveWait [ matchMessage return ]
-    Nothing <- handleMessageIf msg (\() -> True) (\() -> die $ "whoops")
+    handleMessageIf msg
+                    (\() -> True)
+                    (\() -> die "whoops") >>= maybe (return ())
+                                                    (const $ die "Expected Mismatch")
     handleMessageIf msg (\(x :: Integer, y :: Integer) -> x == 5 && y == 10)
                         (\input -> liftIO $ putMVar done input)
     return ()
@@ -1298,8 +1381,11 @@ testDie TestTransport{..} = do
       (die ("foobar", 123 :: Int))
       `catchExit` \_from reason -> do
         -- TODO: should verify that 'from' has the right value
-        True <- return $ reason == ("foobar", 123 :: Int)
+        let res = reason == ("foobar", 123 :: Int)
         liftIO $ putMVar done ()
+        if res
+          then return ()
+          else die "Something went horribly wrong"
 
   takeMVar done
 
@@ -1313,8 +1399,11 @@ testPrettyExit TestTransport{..} = do
       `catch` \ex@(ProcessExitException from _) ->
         let expected = "exit-from=" ++ (show from)
         in do
-          True <- return $ (show ex) == expected
+          let res = (show ex) == expected
           liftIO $ putMVar done ()
+          if res
+            then return ()
+            else die "Something went horribly wrong"
 
   takeMVar done
 
@@ -1330,17 +1419,26 @@ testExitLocal TestTransport{..} = do
   pid <- forkProcess localNode $ do
     (liftIO (putMVar handlerSetUp ()) >> expect) `catchExit` \_from reason -> do
         -- TODO: should verify that 'from' has the right value
-        True <- return $ reason == "TestExit"
+        res <- return $ reason == "TestExit"
         liftIO $ putMVar supervisedDone ()
+        if res
+          then return ()
+          else die "Something went horribly wrong"
 
   runProcess localNode $ do
     liftIO $ takeMVar handlerSetUp
     ref <- monitor pid
     exit pid "TestExit"
     -- This time the client catches the exception, so it dies normally
-    ProcessMonitorNotification ref' pid' DiedNormal <- expect
-    True <- return $ ref == ref' && pid == pid'
-    liftIO $ putMVar supervisorDone ()
+    mn <- expect
+    case mn of
+      ProcessMonitorNotification ref' pid' DiedNormal -> do
+        let res = ref == ref' && pid == pid'
+        liftIO $ putMVar supervisorDone ()
+        if res
+          then return ()
+          else die "Something went horribly wrong"
+      _ -> die "Something went horribly wrong"
 
   takeMVar supervisedDone
   takeMVar supervisorDone
@@ -1356,15 +1454,24 @@ testExitRemote TestTransport{..} = do
     (receiveWait [] :: Process ()) -- block forever
       `catchExit` \_from reason -> do
         -- TODO: should verify that 'from' has the right value
-        True <- return $ reason == "TestExit"
+        res <- return $ reason == "TestExit"
         liftIO $ putMVar supervisedDone ()
+        if res
+          then return ()
+          else die "Something went horribly wrong"
 
   runProcess node2 $ do
     ref <- monitor pid
     exit pid "TestExit"
-    ProcessMonitorNotification ref' pid' DiedNormal <- expect
-    True <- return $ ref == ref' && pid == pid'
-    liftIO $ putMVar supervisorDone ()
+    mn <- expect
+    case mn of
+      ProcessMonitorNotification ref' pid' DiedNormal -> do
+        res' <- return $ ref == ref' && pid == pid'
+        liftIO $ putMVar supervisorDone ()
+        if res'
+          then return ()
+          else die "Something went horribly wrong"
+      _ -> die "Something went horribly wrong"
 
   takeMVar supervisedDone
   takeMVar supervisorDone
@@ -1384,8 +1491,7 @@ testUnsafeSend TestTransport{..} = do
   void $ forkProcess localNode $ do
     serverPid <- liftIO $ takeMVar serverAddr
     getSelfPid >>= unsafeSend serverPid
-    () <- expect
-    liftIO $ putMVar clientDone ()
+    expect >>= liftIO . putMVar clientDone
 
   takeMVar clientDone
 
@@ -1404,8 +1510,7 @@ testUnsafeUSend TestTransport{..} = do
   void $ forkProcess localNode $ do
     serverPid <- liftIO $ takeMVar serverAddr
     getSelfPid >>= unsafeUSend serverPid
-    () <- expect
-    liftIO $ putMVar clientDone ()
+    expect >>= liftIO . putMVar clientDone
 
   takeMVar clientDone
 
@@ -1416,8 +1521,7 @@ testUnsafeNSend TestTransport{..} = do
   localNode <- newLocalNode testTransport initRemoteTable
 
   pid <- forkProcess localNode $ do
-    () <- expect
-    liftIO $ putMVar clientDone ()
+    expect >>= liftIO . putMVar clientDone
 
   void $ runProcess localNode $ do
     register "foobar" pid
@@ -1435,8 +1539,7 @@ testUnsafeNSendRemote TestTransport{..} = do
   _ <- forkProcess localNode1 $ do
     getSelfPid >>= register "foobar"
     liftIO $ putMVar clientDone ()
-    () <- expect
-    liftIO $ putMVar clientDone ()
+    expect >>= liftIO . putMVar clientDone
 
   takeMVar clientDone
   void $ runProcess localNode2 $ do
@@ -1460,7 +1563,7 @@ testUnsafeSendChan TestTransport{..} = do
     serverPid <- liftIO $ takeMVar serverAddr
     (sp, rp) <- newChan
     unsafeSend serverPid sp
-    () <- receiveChan rp
+    receiveChan rp :: Process ()
     liftIO $ putMVar clientDone ()
 
   takeMVar clientDone
@@ -1474,8 +1577,8 @@ testCallLocal TestTransport{..} = do
   runProcess node $ do
     r <- (/=) <$> getSelfPid <*> callLocal getSelfPid
     liftIO $ putMVar result r
-  True <- takeMVar result
-  return ()
+
+  takeMVar result >>= assertBool "Expected 'True'"
 
   -- Testing that when callLocal is interrupted, the worker is interrupted.
   ibox <- newIORef False
@@ -1492,10 +1595,9 @@ testCallLocal TestTransport{..} = do
           (send keeper ())
     caller <- expect
     exit caller "test"
-    ()     <- expect
-    return ()
-  True <- readIORef ibox
-  return ()
+    expect :: Process ()
+
+  readIORef ibox >>= assertBool "Expected 'True'"
 
   -- Testing that when the worker raises an exception, the exception is propagated to the parent.
   ibox2 <- newIORef False
@@ -1504,8 +1606,8 @@ testCallLocal TestTransport{..} = do
     liftIO $ writeIORef ibox2 $ case r of
       Left (ErrorCall "e") -> True
       _ -> False
-  True <- readIORef ibox
-  return ()
+
+  readIORef ibox >>= assertBool "Expected 'True'"
 
   -- Test that caller waits for the worker in correct situation
   ibox3 <- newIORef False
@@ -1522,8 +1624,8 @@ testCallLocal TestTransport{..} = do
         liftIO $ putMVar result3 =<< readIORef ibox3
     worker <- expect
     send worker ()
-  True <- takeMVar result3
-  return ()
+
+  takeMVar result3 >>= assertBool "Expected 'True'"
 
   -- Test that caller waits for the worker in case when caller gets an exception
   ibox4 <- newIORef False
@@ -1539,13 +1641,9 @@ testCallLocal TestTransport{..} = do
             `finally` (liftIO $ putMVar result4 =<< readIORef ibox4)
     caller <- expect
     exit caller "hi!"
-  True <- takeMVar result4
-  return ()
+
+  takeMVar result4 >>= assertBool "Expected 'True'"
   -- XXX: Testing that when mask_ $ callLocal p runs p in masked state.
-
-
-
-
 
 tests :: TestTransport -> IO [Test]
 tests testtrans = return [
@@ -1631,17 +1729,3 @@ tests testtrans = return [
     , testCase "MonitorUnreachable" (testMonitorUnreachable testtrans True False)
     ]
   ]
-
-syncBreakConnection :: (NT.EndPointAddress -> NT.EndPointAddress -> IO ()) -> LocalNode -> LocalNode -> IO ()
-syncBreakConnection breakConnection nid0 nid1 = do
-  m <- newEmptyMVar
-  _ <- forkProcess nid1 $ getSelfPid >>= liftIO . putMVar m
-  runProcess nid0 $ do
-    them <- liftIO $ takeMVar m
-    pinger <- spawnLocal $ forever $ send them ()
-    _ <- monitorNode (localNodeId nid1)
-    liftIO $ breakConnection (nodeAddress $ localNodeId nid0)
-                             (nodeAddress $ localNodeId nid1)
-    NodeMonitorNotification _ _ _ <- expect
-    kill pinger "finished"
-    return ()
