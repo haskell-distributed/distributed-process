@@ -10,6 +10,12 @@ matrix:
   - env: ARGS="--stack-yaml stack-ghc-8.0.2.yaml"
     addons: {apt: {packages: [libgmp-dev]}}
 
+  - env: ARGS="--stack-yaml stack-ghc-8.2.2.yaml"
+    addons: {apt: {packages: [libgmp-dev]}}
+
+  - env: ARGS="--stack-yaml stack-ghc-8.4.4.yaml"
+    addons: {apt: {packages: [libgmp-dev]}}
+
   - env: ARGS=
     addons: {apt: {packages: [libgmp-dev]}}
 

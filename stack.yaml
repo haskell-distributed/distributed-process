@@ -1,5 +1,7 @@
 resolver: nightly-2017-08-20
 
+# TODO: we can enable nightly-2018-11-11 once PR #319 is merged
+
 packages:
 - '.'
 - distributed-process-tests/
