@@ -25,13 +25,18 @@ import Control.Concurrent.MVar
   )
 import Control.Monad (replicateM_, replicateM, forever, void, unless, join)
 import Control.Exception (SomeException, throwIO, ErrorCall(..))
-import qualified Control.Exception as Ex (catch)
-import Control.Applicative ((<$>), (<*>), pure, (<|>))
+import Control.Monad.Catch (try, catch, finally, mask, onException)
+import Control.Applicative ((<|>))
 import qualified Network.Transport as NT (closeEndPoint, EndPointAddress)
-import Control.Distributed.Process
+import Control.Distributed.Process hiding
+  ( try
+  , catch
+  , finally
+  , mask
+  , onException
+  )
 import Control.Distributed.Process.Internal.Types
-  ( NodeId(nodeAddress)
-  , LocalNode(localEndPoint)
+  ( LocalNode(localEndPoint)
   , ProcessExitException(..)
   , nullProcessId
   , createUnencodedMessage
@@ -65,7 +70,7 @@ expectThat a matcher = case res of
 forkTry :: IO () -> IO ThreadId
 forkTry p = do
   tid <- myThreadId
-  forkIO $ Ex.catch p (\e -> throwTo tid (e :: SomeException))
+  forkIO $ catch p (\e -> throwTo tid (e :: SomeException))
 
 -- | The ping server from the paper
 ping :: Process ()
@@ -700,8 +705,8 @@ testRemoteRegistry TestTransport{..} = do
                (\(RegisterReply _ _ _) -> return ()) ]
     registerRemoteAsync nid1 "ping" deadProcess
     receiveWait [
-       matchIf (\(RegisterReply label' False (Just pid)) ->
-                    "ping" == label' && pid == pingServer)
+       matchIf (\(RegisterReply label' False (Just pid'')) ->
+                    "ping" == label' && pid'' == pingServer)
                (\(RegisterReply _ _ _) -> return ()) ]
     unregisterRemoteAsync nid1 "dead"
     receiveWait [

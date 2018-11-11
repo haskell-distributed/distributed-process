@@ -31,6 +31,7 @@ library
                      bytestring >= 0.9 && < 0.12,
                      distributed-process >= 0.6.0 && < 0.8,
                      distributed-static,
+                     exceptions >= 0.5,
                      HUnit >= 1.2 && < 1.7,
                      network-transport >= 0.4.1.0 && < 0.6,
                      network >= 2.5 && < 2.7,
@@ -126,7 +127,7 @@ Test-Suite TestMx
                      network-transport-inmemory >= 0.5,
                      test-framework >= 0.6 && < 0.9
   Extensions:        CPP
-  ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
+  ghc-options:       -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   HS-Source-Dirs:    tests
 
 Test-Suite TestTracing
@@ -140,5 +141,5 @@ Test-Suite TestTracing
                      network-transport-inmemory >= 0.5,
                      test-framework >= 0.6 && < 0.9
   Extensions:        CPP
-  ghc-options:       -Wall -eventlog -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
+  ghc-options:       -eventlog -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   HS-Source-Dirs:    tests
