@@ -24,6 +24,7 @@ import Control.Distributed.Process.Management
   , mxGetId
   )
 import Control.Monad (void)
+import Control.Rematch (equalTo)
 import Data.Binary
 import Data.List (find, sort)
 import Data.Maybe (isJust)
@@ -175,31 +176,83 @@ testAgentEventHandling result = do
 
   stash result $ seenAlive && seenDead
 
+testMxMonitorEvents :: Process ()
+testMxMonitorEvents = do
+
+  {- This test only deals with the local case, to ensure that we are being
+     notified in the expected order - the remote cases related to the
+     behaviour of the node controller are contained in the CH test suite. -}
+
+  let label = "testMxMonitorEvents"
+  let agentLabel = "listener-agent"
+  let delay = 1000000
+  (regChan, regSink) <- newChan
+  (unRegChan, unRegSink) <- newChan
+  agent <- mxAgent (MxAgentId agentLabel) () [
+      mxSink $ \ev -> do
+        case ev of
+          MxRegistered pid label
+            | label /= agentLabel -> liftMX $ sendChan regChan (label, pid)
+          MxUnRegistered pid label
+            | label /= agentLabel -> liftMX $ sendChan unRegChan (label, pid)
+          _                        -> return ()
+        mxReady
+    ]
+
+  p1 <- spawnLocal expect
+  p2 <- spawnLocal expect
+
+  register label p1
+  reg1 <- receiveChanTimeout delay regSink
+  reg1 `shouldBe` equalTo (Just (label, p1))
+
+  unregister label
+  unreg1 <- receiveChanTimeout delay unRegSink
+  unreg1 `shouldBe` equalTo (Just (label, p1))
+
+  register label p2
+  reg2 <- receiveChanTimeout delay regSink
+  reg2 `shouldBe` equalTo (Just (label, p2))
+
+  reregister label p1
+  unreg2 <- receiveChanTimeout delay unRegSink
+  unreg2 `shouldBe` equalTo (Just (label, p2))
+
+  reg3 <- receiveChanTimeout delay regSink
+  reg3 `shouldBe` equalTo (Just (label, p1))
+
+  mapM_ (flip kill $ "test-complete") [agent, p1, p2]
+
 tests :: TestTransport -> IO [Test]
 tests TestTransport{..} = do
   node1 <- newLocalNode testTransport initRemoteTable
   return [
-    testGroup "Mx Agents" [
-        testCase "Event Handling"
-            (delayedAssertion
-             "expected True, but events where not as expected"
-             node1 True testAgentEventHandling)
-      , testCase "Inter-Agent Broadcast"
-            (delayedAssertion
-             "expected (), but no broadcast was received"
-             node1 () testAgentBroadcast)
-      , testCase "Agent Mailbox Handling"
-            (delayedAssertion
-             "expected (Just ()), but no regular (mailbox) input was handled"
-             node1 (Just ()) testAgentMailboxHandling)
-      , testCase "Agent Dual Input Handling"
-            (delayedAssertion
-             "expected sum = 15, but the result was Nothing"
-             node1 (Just 15 :: Maybe Int) testAgentDualInput)
-      , testCase "Agent Input Prioritisation"
-            (delayedAssertion
-             "expected [first, second, third, fourth, fifth], but result diverged"
-             node1 (sort ["first", "second",
-                          "third", "fourth",
-                          "fifth"]) testAgentPrioritisation)
-    ]]
+      testGroup "Mx Agents" [
+          testCase "Event Handling"
+              (delayedAssertion
+               "expected True, but events where not as expected"
+               node1 True testAgentEventHandling)
+        , testCase "Inter-Agent Broadcast"
+              (delayedAssertion
+               "expected (), but no broadcast was received"
+               node1 () testAgentBroadcast)
+        , testCase "Agent Mailbox Handling"
+              (delayedAssertion
+               "expected (Just ()), but no regular (mailbox) input was handled"
+               node1 (Just ()) testAgentMailboxHandling)
+        , testCase "Agent Dual Input Handling"
+              (delayedAssertion
+               "expected sum = 15, but the result was Nothing"
+               node1 (Just 15 :: Maybe Int) testAgentDualInput)
+        , testCase "Agent Input Prioritisation"
+              (delayedAssertion
+               "expected [first, second, third, fourth, fifth], but result diverged"
+               node1 (sort ["first", "second",
+                            "third", "fourth",
+                            "fifth"]) testAgentPrioritisation)
+      ]
+    , testGroup "Mx Events" [
+        testCase "Monitor Events"
+          (runProcess node1 testMxMonitorEvents)
+      ]
+    ]

@@ -37,9 +37,11 @@ import Control.Distributed.Process.Internal.Types
   , createUnencodedMessage
   )
 import Control.Distributed.Process.Node
+import Control.Distributed.Process.Debug
+import Control.Distributed.Process.Management.Internal.Types
 import Control.Distributed.Process.Serializable (Serializable)
 
-import Test.HUnit (Assertion, assertFailure)
+import Test.HUnit (Assertion, assertFailure, assertBool)
 import Test.Framework (Test, testGroup)
 import Test.Framework.Providers.HUnit (testCase)
 import Control.Rematch hiding (match)
@@ -1369,6 +1371,113 @@ testExitRemote TestTransport{..} = do
   takeMVar supervisedDone
   takeMVar supervisorDone
 
+testRegistryMonitoring :: TestTransport -> Assertion
+testRegistryMonitoring TestTransport{..} = do
+  localNode <- newLocalNode testTransport initRemoteTable
+  remoteNode <- newLocalNode testTransport initRemoteTable
+  return ()
+
+  -- Local process. Test if local process will be removed from
+  -- registry when it dies.
+  box <- newEmptyMVar
+  runProcess localNode $ do
+    pid <- spawnLocal $ do
+                expect
+    register "test" pid
+    tpid <- whereis "test"
+    if tpid == Just pid
+      then do _ <- monitor pid
+              send pid ()
+              ProcessMonitorNotification{} <- expect
+              tpid1 <- whereis "test"
+              liftIO $ putMVar box (Nothing == tpid1)
+      else liftIO $ putMVar box False
+
+  takeMVar box >>= assertBool "expected local process to not be registered"
+  return ()
+
+  -- Remote process. Test if remote process entry is removed
+  -- from registry when process dies.
+  remote1 <- testRemote remoteNode
+  runProcess localNode $
+    let waitpoll = do
+        w <- whereis "test" :: Process (Maybe ProcessId)
+        forM_ w (const waitpoll)
+    in do register "test" remote1
+          send remote1 ()
+          waitpoll
+          return ()
+  return ()
+
+  -- Many labels. Test if all labels associated with process
+  -- are removed from registry when it dies.
+  remote2 <- testRemote remoteNode
+  runProcess localNode $
+    let waitpoll = do
+        w1 <- whereis "test-3" :: Process (Maybe ProcessId)
+        w2 <- whereis "test-4" :: Process (Maybe ProcessId)
+        forM_ (w1 <|> w2) (const waitpoll)
+    in do register "test-3" remote2
+          register "test-4" remote2
+          send remote2 ()
+          waitpoll
+          return ()
+
+{- XXX: waiting including patch for nsend for remote process
+  remote3 <- testRemote remoteNode
+  remote4 <- testRemote remoteNode
+  -- test many labels
+  runProcess localNode $ do
+     register "test-3" remote3
+     reregister "test-3" remote4
+     send remote3 ()
+     liftIO $ threadDelay 50000 -- XXX: racy
+     monitor remote4
+     nsend "test-3" ()
+     ProcessMonitorNotification{} <- expect
+     return ()
+-}
+
+  -- Test registerRemoteAsync properties. Add a local process to
+  -- remote registry and checks that it is removed
+  -- when the process dies.
+  remote5 <- testRemote remoteNode
+  runProcess localNode $ do
+    registerRemoteAsync (localNodeId remoteNode) "test" remote5
+    receiveWait [
+        match (\(RegisterReply _ True _) -> return ())
+      ] >>= send remote5
+    let waitpoll = do
+        whereisRemoteAsync (localNodeId remoteNode) "test"
+        receiveWait [
+            match (\(WhereIsReply _ mr) -> forM_ mr (const waitpoll))
+          ]
+    waitpoll
+
+  -- Add remote process to remote registry and checks if
+  -- entry is removed then process is dead.
+  remote6 <- testRemote localNode
+  runProcess localNode $ do
+    registerRemoteAsync (localNodeId remoteNode) "test" remote6
+    receiveWait [
+        match (\(RegisterReply _ True _) -> return ())
+      ] >>= send remote6
+    let waitpoll = do
+        whereisRemoteAsync (localNodeId remoteNode) "test"
+        receiveWait [
+            match (\(WhereIsReply _ mr) -> forM_ mr (const waitpoll))
+          ]
+    waitpoll
+   where
+     testRemote node = do
+       -- test many labels
+       pidBox <- newEmptyMVar
+       forkProcess node $ do
+           us <- getSelfPid
+           liftIO $ putMVar pidBox us
+           expect :: Process ()
+       takeMVar pidBox
+
 testUnsafeSend :: TestTransport -> Assertion
 testUnsafeSend TestTransport{..} = do
   serverAddr <- newEmptyMVar
@@ -1579,6 +1688,7 @@ tests testtrans = return [
       , testCase "MaskRestoreScope"    (testMaskRestoreScope    testtrans)
       , testCase "ExitLocal"           (testExitLocal           testtrans)
       , testCase "ExitRemote"          (testExitRemote          testtrans)
+      , testCase "TestRegistryMonitor" (testRegistryMonitoring  testtrans)
       , testCase "TextCallLocal"       (testCallLocal           testtrans)
       -- Unsafe Primitives
       , testCase "TestUnsafeSend"      (testUnsafeSend          testtrans)

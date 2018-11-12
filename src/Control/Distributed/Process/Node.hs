@@ -28,9 +28,13 @@ import Data.Binary (decode)
 import Data.Map (Map)
 import qualified Data.Map as Map
   ( empty
+  , delete
   , toList
   , fromList
   , filter
+  , insert
+  , lookup
+  , insertLookupWithKey
   , partitionWithKey
   , elems
   , size
@@ -183,6 +187,17 @@ import Control.Distributed.Process.Internal.Types
 import Control.Distributed.Process.Management.Internal.Agent
   ( mxAgentController
   )
+import Control.Distributed.Process.Management
+  ( mxAgent
+  , mxSink
+  , liftMX
+  , mxUpdateLocal
+  , mxGetLocal
+  , mxSetLocal
+  , mxReady
+  , MxEvent(..)
+  , MxAgentId(..)
+  )
 import qualified Control.Distributed.Process.Management.Internal.Trace.Remote as Trace
   ( remoteTable
   )
@@ -194,9 +209,6 @@ import Control.Distributed.Process.Management.Internal.Trace.Types
   , traceEvent
   , traceLogFmt
   , enableTrace
-  )
-import Control.Distributed.Process.Management.Internal.Types
-  ( MxEvent(..)
   )
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Internal.Messaging
@@ -210,6 +222,9 @@ import Control.Distributed.Process.Internal.Primitives
   , match
   , sendChan
   , unwrapMessage
+  , monitor
+  , unmonitorAsync
+  , getSelfNode
   , SayMessage(..)
   )
 import Control.Distributed.Process.Internal.Types (SendPort, Tracer(..))
@@ -309,6 +324,49 @@ startDefaultTracer node' = do
     _ -> return ()
 
 -- TODO: we need a better mechanism for defining and registering services
+
+registryMonitorAgentId :: MxAgentId
+registryMonitorAgentId = MxAgentId "service.registry.monitoring"
+
+-- note [registry monitoring agent]
+-- this agent listens for 'MxRegistered' and 'MxUnRegistered' events and tracks
+-- all remote 'ProcessId's that are stored in the registry.
+--
+-- When a remote process is registered, the agent starts monitoring it until it
+-- is unregistered or the monitor notification arrives.
+--
+-- The agent keeps the amount of labels associated with each registered remote
+-- process. This is necessary so the process is unmonitored only when it has
+-- been unregistered from all of the labels.
+--
+
+registryMonitorAgent :: Process ProcessId
+registryMonitorAgent = do
+  nid <- getSelfNode
+  -- For each process the map associates the 'MonitorRef' used to monitor it and
+  -- the amount of labels associated with it.
+  mxAgent registryMonitorAgentId (Map.empty :: Map String MonitorRef)
+    [ mxSink $ \(ProcessMonitorNotification mref _ _) -> do
+        mxUpdateLocal $ Map.filter (== mref)
+        mxReady
+    , mxSink $ \ev -> do
+        case ev of
+          MxRegistered pid label
+            | processNodeId pid /= nid -> do
+              mref <- liftMX $ monitor pid
+              mxUpdateLocal (Map.insert label mref)
+          MxUnRegistered pid label
+            | processNodeId pid /= nid -> do
+              mrefs <- mxGetLocal
+              forM_ (label `Map.lookup` mrefs) $ \mref -> do
+                liftMX $ unmonitorAsync mref
+                mxUpdateLocal (Map.delete label)
+          _ -> return ()
+        mxReady
+      -- remove async answers from mailbox
+    , mxSink $ \RegisterReply{} -> mxReady
+    , mxSink $ \DidUnmonitor{} -> mxReady
+    ]
 
 -- | Start and register the service processes on a node
 startServiceProcesses :: LocalNode -> IO ()
