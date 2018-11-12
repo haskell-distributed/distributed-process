@@ -117,11 +117,11 @@ testAgentPrioritisation result = do
 testAgentMailboxHandling :: TestResult (Maybe ()) -> Process ()
 testAgentMailboxHandling result = do
   (sp, rp) <- newChan
-  agent <- mxAgent (MxAgentId "listener-agent") () [
+  agent <- mxAgent (MxAgentId "mailbox-agent") () [
       mxSink $ \() -> (liftMX $ sendChan sp ()) >> mxReady
     ]
 
-  nsend "listener-agent" ()
+  nsend "mailbox-agent" ()
 
   stash result =<< receiveChanTimeout 1000000 rp
   kill agent "finished"
@@ -184,7 +184,7 @@ testMxRegEvents = do
      behaviour of the node controller are contained in the CH test suite. -}
 
   let label = "testMxRegEvents"
-  let agentLabel = "listener-agent"
+  let agentLabel = "mxRegEvents-agent"
   let delay = 1000000
   (regChan, regSink) <- newChan
   (unRegChan, unRegSink) <- newChan
@@ -231,8 +231,8 @@ testMxRegMon remoteNode = do
 
   let label1 = "aaaaa"
   let label2 = "bbbbb"
-  let isValid l = l ==label1 || l == label2
-  let agentLabel = "listener-agent"
+  let isValid l = l == label1 || l == label2
+  let agentLabel = "mxRegMon-agent"
   let delay = 1000000
   (regChan, regSink) <- newChan
   (unRegChan, unRegSink) <- newChan
@@ -273,8 +273,12 @@ testMxRegMon remoteNode = do
   unreg1 <- receiveChanTimeout delay unRegSink
   unreg2 <- receiveChanTimeout delay unRegSink
 
-  sort [unreg1, unreg2]
-    `shouldBe` equalTo [Just (label1, p1), Just (label2, p1)]
+  let evts = [unreg1, unreg2]
+  -- we can't rely on the order of the values in the node controller's
+  -- map (it's either racy to do so, or no such guarantee exists for Data.Map),
+  -- so we simply verify that we received the un-registration events we expect
+  evts `shouldContain` (Just (label1, p1))
+  evts `shouldContain` (Just (label2, p1))
 
   kill agent "test-complete"
 
