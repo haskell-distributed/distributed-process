@@ -34,7 +34,7 @@ import qualified Data.Map as Map
   , filter
   , insert
   , lookup
-  , insertLookupWithKey
+  , partition
   , partitionWithKey
   , elems
   , size
@@ -328,28 +328,23 @@ startDefaultTracer node' = do
 registryMonitorAgentId :: MxAgentId
 registryMonitorAgentId = MxAgentId "service.registry.monitoring"
 
--- note [registry monitoring agent]
--- this agent listens for 'MxRegistered' and 'MxUnRegistered' events and tracks
--- all remote 'ProcessId's that are stored in the registry.
---
--- When a remote process is registered, the agent starts monitoring it until it
--- is unregistered or the monitor notification arrives.
---
--- The agent keeps the amount of labels associated with each registered remote
--- process. This is necessary so the process is unmonitored only when it has
--- been unregistered from all of the labels.
---
+{- note [registry monitoring agent]
+   This agent listens for 'MxRegistered' and 'MxUnRegistered' events and tracks
+   all labels for remote 'ProcessId's that are stored in the registry.
+
+   When a remote process is registered, the agent starts monitoring it until it
+   is unregistered. We can safely ignore ProcessMonitorNotification's, since the
+   node controller is obligated to issue an MxUnRegistered event for any labels
+   connected to a dead process. Thus, our only responsibility here is to ensure
+   that we set up monitors for locally registered processes, and tear them down
+   once unregistration occurs.
+ -}
 
 registryMonitorAgent :: Process ProcessId
 registryMonitorAgent = do
   nid <- getSelfNode
-  -- For each process the map associates the 'MonitorRef' used to monitor it and
-  -- the amount of labels associated with it.
   mxAgent registryMonitorAgentId (Map.empty :: Map String MonitorRef)
-    [ mxSink $ \(ProcessMonitorNotification mref _ _) -> do
-        mxUpdateLocal $ Map.filter (== mref)
-        mxReady
-    , mxSink $ \ev -> do
+    [ mxSink $ \ev -> do
         case ev of
           MxRegistered pid label
             | processNodeId pid /= nid -> do
@@ -363,9 +358,9 @@ registryMonitorAgent = do
                 mxUpdateLocal (Map.delete label)
           _ -> return ()
         mxReady
-      -- remove async answers from mailbox
-    , mxSink $ \RegisterReply{} -> mxReady
-    , mxSink $ \DidUnmonitor{} -> mxReady
+      -- [note: no need to remove async answers from mailbox]
+      -- The framework simply discards any input you don't have a handler for.
+      -- See Management.hs `runAgent` for details.
     ]
 
 -- | Start and register the service processes on a node
@@ -961,7 +956,11 @@ ncEffectDied ident reason = do
 
   modify' $ (links ^= unaffectedLinks') . (monitors ^= unaffectedMons')
 
-  modify' $ registeredHere ^: Map.filter (\pid -> not $ ident `impliesDeathOf` ProcessIdentifier pid)
+  -- we now consider all labels for this identifier unregistered
+  let toDrop pid = not $ ident `impliesDeathOf` ProcessIdentifier pid
+  (keepNames, dropNames) <- Map.partition toDrop <$> gets (^. registeredHere)
+  mapM_ (\(p, l) -> liftIO $ trace node (MxUnRegistered l p)) (Map.toList dropNames)
+  modify' $ registeredHere ^= keepNames
 
   remaining <- fmap Map.toList (gets (^. registeredOnNodes)) >>=
       mapM (\(pid,nidlist) ->

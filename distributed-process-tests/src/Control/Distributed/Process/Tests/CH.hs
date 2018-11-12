@@ -39,6 +39,7 @@ import Control.Distributed.Process.Internal.Types
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Debug
 import Control.Distributed.Process.Management.Internal.Types
+import Control.Distributed.Process.Tests.Internal.Utils (shouldBe)
 import Control.Distributed.Process.Serializable (Serializable)
 
 import Test.HUnit (Assertion, assertFailure, assertBool)
@@ -1404,6 +1405,9 @@ testRegistryMonitoring TestTransport{..} = do
         w <- whereis "test" :: Process (Maybe ProcessId)
         forM_ w (const waitpoll)
     in do register "test" remote1
+          -- [race-condition] invalid test if we force exit before waitpoll runs
+          registered <- whereis "test"
+          registered `shouldBe` (equalTo (Just remote1))
           send remote1 ()
           waitpoll
           return ()
@@ -1412,6 +1416,7 @@ testRegistryMonitoring TestTransport{..} = do
   -- Many labels. Test if all labels associated with process
   -- are removed from registry when it dies.
   remote2 <- testRemote remoteNode
+  remoteX <- testRemote remoteNode
   runProcess localNode $
     let waitpoll = do
         w1 <- whereis "test-3" :: Process (Maybe ProcessId)
@@ -1419,8 +1424,11 @@ testRegistryMonitoring TestTransport{..} = do
         forM_ (w1 <|> w2) (const waitpoll)
     in do register "test-3" remote2
           register "test-4" remote2
+          register "test-X" remoteX
           send remote2 ()
           waitpoll
+          rX <- whereis "test-X"
+          rX `shouldBe` (equalTo (Just remoteX))
           return ()
 
 {- XXX: waiting including patch for nsend for remote process
