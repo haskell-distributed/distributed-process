@@ -482,15 +482,13 @@ forward msg them = do
       destNode = (processNodeId them) in do
   case destNode == nid of
     True  -> sendCtrlMsg Nothing (LocalSend them msg)
-    False -> liftIO $ sendPayload (processNode proc)
-                                  (ProcessIdentifier (processId proc))
-                                  (ProcessIdentifier them)
-                                  NoImplicitReconnect
-                                  (messageToPayload msg)
-  -- We do not fire the trace event until after the sending is complete;
-  -- In the remote case, 'sendMessage' can block in the networking stack.
-  liftIO $ traceEvent (localEventBus node)
-                      (MxSent them us msg)
+    False ->
+      liftIO $ do
+        sendPayload (processNode proc) (ProcessIdentifier (processId proc)) (ProcessIdentifier them) NoImplicitReconnect (messageToPayload msg)
+        -- We do not fire the trace event until after the sending is complete;
+        -- In this remote case, 'sendMessage' can block in the networking stack.
+        liftIO $ traceEvent (localEventBus node)
+                            (MxSent them us msg)
 
 -- | Forward a raw 'Message' to the given 'ProcessId'.
 --
@@ -506,12 +504,12 @@ uforward msg them = do
       destNode = (processNodeId them) in do
   case destNode == nid of
     True  -> sendCtrlMsg Nothing (LocalSend them msg)
-    False -> sendCtrlMsg (Just destNode) $ UnreliableSend (processLocalId them)
-                                                          msg
-  -- We do not fire the trace event until after the sending is complete;
-  -- In the remote case, 'sendCtrlMsg' can block in the networking stack.
-  liftIO $ traceEvent (localEventBus node)
-                      (MxSent them us msg)
+    False -> do
+      sendCtrlMsg (Just destNode) $ UnreliableSend (processLocalId them) msg
+      -- We do not fire the trace event until after the sending is complete;
+      -- In the remote case, 'sendCtrlMsg' can block in the networking stack.
+      liftIO $ traceEvent (localEventBus node)
+                          (MxSent them us msg)
 
 -- | Wrap a 'Serializable' value in a 'Message'. Note that 'Message's are
 -- 'Serializable' - like the datum they contain - but also note, deserialising

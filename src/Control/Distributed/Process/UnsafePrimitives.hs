@@ -32,7 +32,24 @@
 -- the /normal/ strategy).
 --
 -- Use of the functions in this module can potentially change the runtime
--- behaviour of your application. You have been warned!
+-- behaviour of your application. In addition, messages passed between Cloud
+-- Haskell processes are written to a tracing infrastructure on the local node,
+-- to provide improved introspection and debugging facilities for complex actor
+-- based systems. This module makes no attempt to force evaluation in these
+-- cases either, thus evaluation problems in passed data structures could not
+-- only crash your processes, but could also bring down critical internal
+-- services on which the node relies to function correctly.
+--
+-- If you wish to repudiate such issues, you are advised to consider the use
+-- of NFSerialisable in the distributed-process-extras package, which type
+-- class brings NFData into scope along with Serializable, such that we can
+-- force evaluation. Intended for use with modules such as this one, this
+-- approach guarantees correct evaluatedness in terms of @NFData@. Please note
+-- however, that we /cannot/ guarantee that an @NFData@ instance will behave the
+-- same way as a @Binary@ one with regards evaluation, so it is still possible
+-- to introduce unexpected behaviour by using /unsafe/ primitives in this way.
+--
+-- You have been warned!
 --
 -- This module is exported so that you can replace the use of Cloud Haskell's
 -- /safe/ messaging primitives. If you want to use both variants, then you can
@@ -55,7 +72,12 @@ import Control.Distributed.Process.Internal.Messaging
   , sendBinary
   , sendCtrlMsg
   )
-
+import Control.Distributed.Process.Management.Internal.Types
+  ( MxEvent(..)
+  )
+import Control.Distributed.Process.Management.Internal.Trace.Types
+  ( traceEvent
+  )
 import Control.Distributed.Process.Internal.Types
   ( ProcessId(..)
   , NodeId(..)
@@ -79,34 +101,60 @@ import Control.Monad.Reader (ask)
 
 -- | Named send to a process in the local registry (asynchronous)
 nsend :: Serializable a => String -> a -> Process ()
-nsend label msg =
-  sendCtrlMsg Nothing (NamedSend label (unsafeCreateUnencodedMessage msg))
+nsend label msg = do
+  proc <- ask
+  let us = processId proc
+  let node = localNodeId (processNode proc)
+  let msg' = wrapMessage msg
+  -- see [note: tracing]
+  liftIO $ traceEvent (localEventBus (processNode proc))
+                      (MxSentToName label us msg')
+  sendCtrlMsg Nothing (NamedSend label msg')
+
+-- [note: tracing]
+-- In the remote case, we do not fire a trace event until after sending is
+-- complete, since 'sendMessage' can block in the networking stack.
+--
+-- In addition, MxSent trace messages are dispatched by the node controller's
+-- thread for local sends, which also covers local nsend, and local usend.
+--
+-- Also note that tracing writes to the local node's control channel, and this
+-- module explicitly specifies to its clients that it does unsafe message
+-- encoding. The same is true for the messages it puts onto the Management
+-- event bus, however we do *not* want unevaluated thunks hitting the event
+-- bus control thread. Hence the word /Unsafe/ in this module's name!
+--
 
 -- | Named send to a process in a remote registry (asynchronous)
 nsendRemote :: Serializable a => NodeId -> String -> a -> Process ()
 nsendRemote nid label msg = do
   proc <- ask
+  let us = processId proc
+  let node = processNode proc
   if localNodeId (processNode proc) == nid
     then nsend label msg
-    else sendCtrlMsg (Just nid) (NamedSend label (createMessage msg))
+    else do -- see [note: tracing] NB: this is a remote call to another NC...
+            sendCtrlMsg (Just nid) (NamedSend label (createMessage msg))
+            liftIO $ traceEvent (localEventBus node)
+                                (MxSentToName label us (wrapMessage msg))
 
 -- | Send a message
 send :: Serializable a => ProcessId -> a -> Process ()
 send them msg = do
   proc <- ask
   let node     = localNodeId (processNode proc)
-      destNode = (processNodeId them) in do
+      destNode = (processNodeId them)
+      us       = (processId proc) in do
   case destNode == node of
     True  -> unsafeSendLocal them msg
-    False -> liftIO $ sendMessage (processNode proc)
-                                  (ProcessIdentifier (processId proc))
-                                  (ProcessIdentifier them)
-                                  NoImplicitReconnect
-                                  msg
-  where
-    unsafeSendLocal :: (Serializable a) => ProcessId -> a -> Process ()
-    unsafeSendLocal pid msg' =
-      sendCtrlMsg Nothing $ LocalSend pid (unsafeCreateUnencodedMessage msg')
+    False -> liftIO $ do sendMessage (processNode proc)
+                                     (ProcessIdentifier (processId proc))
+                                     (ProcessIdentifier them)
+                                     NoImplicitReconnect
+                                     msg
+                         -- see [note: tracing]
+                         liftIO $ traceEvent (localEventBus (processNode proc))
+                                             (MxSent them us (wrapMessage msg))
 
 -- | Send a message unreliably.
 --
@@ -121,11 +169,20 @@ usend :: Serializable a => ProcessId -> a -> Process ()
 usend them msg = do
     proc <- ask
     let there = processNodeId them
+    let (us, node) = (processId proc, processNode proc)
     if localNodeId (processNode proc) == there
-      then sendCtrlMsg Nothing $
-             LocalSend them (unsafeCreateUnencodedMessage msg)
-      else sendCtrlMsg (Just there) $ UnreliableSend (processLocalId them)
-                                                     (createMessage msg)
+      then unsafeSendLocal them msg
+      else do sendCtrlMsg (Just there) $ UnreliableSend (processLocalId them)
+                                                        (createMessage msg)
+              -- I would assert that is it *still* cheaper to not encode here...
+              liftIO $ traceEvent (localEventBus node)
+                                  (MxSent them us (wrapMessage msg))
+
+unsafeSendLocal :: (Serializable a) => ProcessId -> a -> Process ()
+unsafeSendLocal pid msg =
+  let msg' = wrapMessage msg in do
+    sendCtrlMsg Nothing $ LocalSend pid msg'
+    -- see [note: tracing]
 
 -- | Send a message on a typed channel
 sendChan :: Serializable a => SendPort a -> a -> Process ()
@@ -144,7 +201,7 @@ sendChan (SendPort cid) msg = do
   where
     unsafeSendChanLocal :: (Serializable a) => SendPortId -> a -> Process ()
     unsafeSendChanLocal spId msg' =
-      sendCtrlMsg Nothing $ LocalPortSend spId (unsafeCreateUnencodedMessage msg')
+      sendCtrlMsg Nothing $ LocalPortSend spId (wrapMessage msg')
 
 -- | Create an unencoded @Message@ for any @Serializable@ type.
 wrapMessage :: Serializable a => a -> Message

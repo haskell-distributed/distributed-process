@@ -56,6 +56,8 @@ data MxEvent =
     -- ^ fired whenever a node /dies/ (i.e., the connection is broken/disconnected)
   | MxSent             ProcessId    ProcessId Message
     -- ^ fired whenever a message is sent from a local process
+  | MxSentToName       String       ProcessId Message
+    -- ^ fired whenever a named send occurs
   | MxReceived         ProcessId    Message
     -- ^ fired whenever a message is received by a local process
   | MxConnected        ConnectionId EndPointAddress

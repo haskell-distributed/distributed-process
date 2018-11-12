@@ -7,6 +7,12 @@ import Network.Transport.Test (TestTransport(..))
 import Control.Concurrent (threadDelay)
 import Control.Distributed.Process
 import Control.Distributed.Process.Node
+import qualified Control.Distributed.Process.UnsafePrimitives as Unsafe
+  ( send
+  , nsend
+  , nsendRemote
+  , usend
+  )
 import Control.Distributed.Process.Management
   ( MxEvent(..)
   , MxAgentId(..)
@@ -175,31 +181,92 @@ testAgentEventHandling result = do
 
   stash result $ seenAlive && seenDead
 
+
+testMxUnsafeSendEvents :: LocalNode -> Process ()
+testMxUnsafeSendEvents remoteNode = do
+
+  -- ensure that when a registered process dies, we get a notification that
+  -- it has been unregistered as well as seeing the name get removed
+
+  let label1 = "aaaaa"
+  let label2 = "bbbbb"
+  let isValid l = l ==label1 || l == label2
+  let agentLabel = "listener-agent"
+  let delay = 1000000
+  (regChan, regSink) <- newChan
+  (unRegChan, unRegSink) <- newChan
+  agent <- mxAgent (MxAgentId agentLabel) () [
+      mxSink $ \ev -> do
+        case ev of
+          MxRegistered pid label
+            | isValid label -> liftMX $ sendChan regChan (label, pid)
+          MxUnRegistered pid label
+            | isValid label -> liftMX $ sendChan unRegChan (label, pid)
+          _                 -> return ()
+        mxReady
+    ]
+
+  (sp, rp) <- newChan
+  liftIO $ forkProcess remoteNode $ do
+    getSelfPid >>= sendChan sp
+    expect :: Process ()
+
+  p1 <- receiveChan rp
+
+  register label1 p1
+  reg1 <- receiveChanTimeout delay regSink
+  reg1 `shouldBe` equalTo (Just (label1, p1))
+
+  register label2 p1
+  reg2 <- receiveChanTimeout delay regSink
+  reg2 `shouldBe` equalTo (Just (label2, p1))
+
+  n1 <- whereis label1
+  n1 `shouldBe` equalTo (Just p1)
+
+  n2 <- whereis label2
+  n2 `shouldBe` equalTo (Just p1)
+
+  kill p1 "goodbye"
+
+  unreg1 <- receiveChanTimeout delay unRegSink
+  unreg2 <- receiveChanTimeout delay unRegSink
+
+  sort [unreg1, unreg2]
+    `shouldBe` equalTo [Just (label1, p1), Just (label2, p1)]
+
+  kill agent "test-complete"
+
 tests :: TestTransport -> IO [Test]
 tests TestTransport{..} = do
   node1 <- newLocalNode testTransport initRemoteTable
+  node2 <- newLocalNode testTransport initRemoteTable
   return [
-    testGroup "Mx Agents" [
-        testCase "Event Handling"
-            (delayedAssertion
-             "expected True, but events where not as expected"
-             node1 True testAgentEventHandling)
-      , testCase "Inter-Agent Broadcast"
-            (delayedAssertion
-             "expected (), but no broadcast was received"
-             node1 () testAgentBroadcast)
-      , testCase "Agent Mailbox Handling"
-            (delayedAssertion
-             "expected (Just ()), but no regular (mailbox) input was handled"
-             node1 (Just ()) testAgentMailboxHandling)
-      , testCase "Agent Dual Input Handling"
-            (delayedAssertion
-             "expected sum = 15, but the result was Nothing"
-             node1 (Just 15 :: Maybe Int) testAgentDualInput)
-      , testCase "Agent Input Prioritisation"
-            (delayedAssertion
-             "expected [first, second, third, fourth, fifth], but result diverged"
-             node1 (sort ["first", "second",
-                          "third", "fourth",
-                          "fifth"]) testAgentPrioritisation)
+      testGroup "Mx Agents" [
+          testCase "Event Handling"
+              (delayedAssertion
+               "expected True, but events where not as expected"
+               node1 True testAgentEventHandling)
+        , testCase "Inter-Agent Broadcast"
+              (delayedAssertion
+               "expected (), but no broadcast was received"
+               node1 () testAgentBroadcast)
+        , testCase "Agent Mailbox Handling"
+              (delayedAssertion
+               "expected (Just ()), but no regular (mailbox) input was handled"
+               node1 (Just ()) testAgentMailboxHandling)
+        , testCase "Agent Dual Input Handling"
+              (delayedAssertion
+               "expected sum = 15, but the result was Nothing"
+               node1 (Just 15 :: Maybe Int) testAgentDualInput)
+        , testCase "Agent Input Prioritisation"
+              (delayedAssertion
+               "expected [first, second, third, fourth, fifth], but result diverged"
+               node1 (sort ["first", "second",
+                            "third", "fourth",
+                            "fifth"]) testAgentPrioritisation)
+      testGroup "Mx Events" [
+        testCase "Monitor Events"
+          (runProcess node1 (testMxUnsafeSendEvents node2))
+      ]
     ]]
