@@ -31,7 +31,6 @@ import qualified Data.Map as Map
   , delete
   , toList
   , fromList
-  , filter
   , insert
   , lookup
   , partition
@@ -193,7 +192,6 @@ import Control.Distributed.Process.Management
   , liftMX
   , mxUpdateLocal
   , mxGetLocal
-  , mxSetLocal
   , mxReady
   , MxEvent(..)
   , MxAgentId(..)
@@ -325,9 +323,6 @@ startDefaultTracer node' = do
 
 -- TODO: we need a better mechanism for defining and registering services
 
-registryMonitorAgentId :: MxAgentId
-registryMonitorAgentId = MxAgentId "service.registry.monitoring"
-
 {- note [registry monitoring agent]
    This agent listens for 'MxRegistered' and 'MxUnRegistered' events and tracks
    all labels for remote 'ProcessId's that are stored in the registry.
@@ -362,6 +357,9 @@ registryMonitorAgent = do
       -- The framework simply discards any input you don't have a handler for.
       -- See Management.hs `runAgent` for details.
     ]
+  where
+    registryMonitorAgentId :: MxAgentId
+    registryMonitorAgentId = MxAgentId "service.registry.monitoring"
 
 -- | Start and register the service processes on a node
 startServiceProcesses :: LocalNode -> IO ()
