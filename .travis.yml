@@ -34,5 +34,11 @@ script:
 - stack ${ARGS} test $ARG='--plain -t "!Flaky"' ${TEST_PACKAGE}TestCHInTCP
 - stack ${ARGS} test $ARG='--plain -t "!SpawnReconnect"' ${TEST_PACKAGE}TestClosure
 - stack ${ARGS} test $ARG='--plain' ${TEST_PACKAGE}TestStats
-- stack ${ARGS} test $ARG='--plain' ${TEST_PACKAGE}TestMx
-- stack ${ARGS} test $ARG='--plain' ${TEST_PACKAGE}TestTracing
+- stack ${ARGS} test $ARG='--plain' ${TEST_PACKAGE}TestMxInMemory
+- stack ${ARGS} test $ARG='--plain' ${TEST_PACKAGE}TestMxInTCP
+- stack ${ARGS} test $ARG='--plain' ${TEST_PACKAGE}TestTracingInMemory
+- stack ${ARGS} test $ARG='--plain' ${TEST_PACKAGE}TestTracingInTCP
+
+notifications:
+  slack:
+    secure: LbqbNjK1KiHNiQo/i/Za4vkMD9l9mhmN+PWYFBQkNvGFWffSRayRKFrTqt4znV2p7h4dY1XZFoC7T5RemBVQLq2ppZAUWxkITeu1OUlnmVLDfJLeVYGTR/fn90nP6Y5ITE7T3A07nKmWaRbKpIgFBAOjzgqaM0csscDx3z0WW18=
