@@ -45,6 +45,16 @@ data Publish = Publish
 
 instance Binary Publish where
 
+awaitExit :: ProcessId -> Process ()
+awaitExit pid =
+  withMonitorRef pid $ \ref -> do
+      receiveWait
+        [ matchIf (\(ProcessMonitorNotification r _ _) -> r == ref)
+                  (\_ -> return ())
+        ]
+  where
+    withMonitorRef pid = bracket (monitor pid) unmonitor
+
 testAgentBroadcast :: TestResult () -> Process ()
 testAgentBroadcast result = do
   (resultSP, resultRP) <- newChan :: Process (SendPort (), ReceivePort ())
@@ -62,13 +72,13 @@ testAgentBroadcast result = do
   -- and the consumer will see that and send the result to our typed channel.
   stash result =<< receiveChan resultRP
 
-  kill publisher "finished"
-  kill consumer  "finished"
+  kill publisher "finished" >> awaitExit publisher
+  kill consumer  "finished" >> awaitExit consumer
 
 testAgentDualInput :: TestResult (Maybe Int) -> Process ()
 testAgentDualInput result = do
   (sp, rp) <- newChan
-  _ <- mxAgent (MxAgentId "sum-agent") (0 :: Int) [
+  s <- mxAgent (MxAgentId "sum-agent") (0 :: Int) [
         mxSink $ (\(i :: Int) -> do
                      mxSetLocal . (+i) =<< mxGetLocal
                      i' <- mxGetLocal
@@ -85,6 +95,7 @@ testAgentDualInput result = do
   mxNotify          (5 :: Int)
 
   stash result =<< receiveChanTimeout 10000000 rp
+  awaitExit s
 
 testAgentPrioritisation :: TestResult [String] -> Process ()
 testAgentPrioritisation result = do
@@ -96,8 +107,8 @@ testAgentPrioritisation result = do
 
   let name = "prioritising-agent"
   (sp, rp) <- newChan
-  void $ mxAgent (MxAgentId name) ["first"] [
-        mxSink (\(s :: String) -> do
+  s <- mxAgent (MxAgentId name) ["first"] [
+         mxSink (\(s :: String) -> do
                    mxUpdateLocal ((s:))
                    st <- mxGetLocal
                    case length st of
@@ -113,6 +124,7 @@ testAgentPrioritisation result = do
   nsend name "fifth"
 
   stash result . sort =<< receiveChan rp
+  awaitExit s
 
 testAgentMailboxHandling :: TestResult (Maybe ()) -> Process ()
 testAgentMailboxHandling result = do
@@ -124,7 +136,7 @@ testAgentMailboxHandling result = do
   nsend "mailbox-agent" ()
 
   stash result =<< receiveChanTimeout 1000000 rp
-  kill agent "finished"
+  kill agent "finished" >> awaitExit agent
 
 testAgentEventHandling :: TestResult Bool -> Process ()
 testAgentEventHandling result = do
@@ -175,6 +187,7 @@ testAgentEventHandling result = do
   seenDead  <- receiveChan reply
 
   stash result $ seenAlive && seenDead
+  kill agentPid "test-complete" >> awaitExit agentPid
 
 testMxRegEvents :: Process ()
 testMxRegEvents = do
@@ -222,6 +235,7 @@ testMxRegEvents = do
   reg3 `shouldBe` equalTo (Just (label, p1))
 
   mapM_ (flip kill $ "test-complete") [agent, p1, p2]
+  awaitExit agent
 
 testMxRegMon :: LocalNode -> Process ()
 testMxRegMon remoteNode = do
@@ -280,7 +294,7 @@ testMxRegMon remoteNode = do
   evts `shouldContain` (Just (label1, p1))
   evts `shouldContain` (Just (label2, p1))
 
-  kill agent "test-complete"
+  kill agent "test-complete" >> awaitExit agent
 
 tests :: TestTransport -> IO [Test]
 tests TestTransport{..} = do
