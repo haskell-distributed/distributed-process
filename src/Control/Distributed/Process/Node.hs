@@ -1129,7 +1129,7 @@ ncEffectGetInfo from pid =
   case mProc of
     Nothing   -> dispatch (isLocal node (ProcessIdentifier from))
                           from (ProcessInfoNone DiedUnknownId)
-    Just proc    -> do
+    Just proc -> do
       itsLinks    <- Set.map fst . BiMultiMap.lookupBy1st them <$>
                        gets (^. links)
       itsMons     <- BiMultiMap.lookupBy1st them <$> gets (^. monitors)
@@ -1143,8 +1143,8 @@ ncEffectGetInfo from pid =
                    infoNode               = (processNodeId pid)
                  , infoRegisteredNames    = reg
                  , infoMessageQueueLength = size
-                 , infoMonitors       = Set.toList itsMons
-                 , infoLinks          = Set.toList itsLinks
+                 , infoMonitors           = Set.toList itsMons
+                 , infoLinks              = Set.toList itsLinks
                  }
   where dispatch :: (Serializable a)
                  => Bool
