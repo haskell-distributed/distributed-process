@@ -955,7 +955,11 @@ ncEffectRegister from label atnode mPid reregistration = do
                do modify' $ registeredHereFor label ^= mPid
                   updateRemote node currentVal mPid
                   case mPid of
-                    (Just p) -> liftIO $ trace node (MxRegistered p label)
+                    (Just p) -> do
+                      if reregistration
+                        then liftIO $ trace node (MxUnRegistered (fromJust currentVal) label)
+                        else return ()
+                      liftIO $ trace node (MxRegistered p label)
                     Nothing  -> liftIO $ trace node (MxUnRegistered (fromJust currentVal) label)
              newVal <- gets (^. registeredHereFor label)
              ncSendToProcess from $ unsafeCreateUnencodedMessage $
