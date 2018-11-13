@@ -23,11 +23,11 @@ import Control.Distributed.Process.Management
   , mxBroadcast
   , mxGetId
   )
-import Control.Monad (void)
+import Control.Monad (void, unless)
 import Control.Rematch (equalTo)
 import Data.Binary
 import Data.List (find, sort)
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, isNothing)
 import Data.Typeable
 import GHC.Generics
 #if ! MIN_VERSION_base(4,6,0)
@@ -141,6 +141,8 @@ testAgentMailboxHandling result = do
 testAgentEventHandling :: TestResult Bool -> Process ()
 testAgentEventHandling result = do
   let initState = [] :: [MxEvent]
+
+  (rc, rs) <- newChan
   agentPid <- mxAgent (MxAgentId "lifecycle-listener-agent") initState [
       (mxSink $ \ev -> do
          st <- mxGetLocal
@@ -149,7 +151,7 @@ testAgentEventHandling result = do
                  (MxSpawned _)       -> mxSetLocal (ev:st)
                  (MxProcessDied _ _) -> mxSetLocal (ev:st)
                  _                   -> return ()
-         act >> mxReady),
+         act >> (liftMX $ sendChan rc ()) >> mxReady),
       (mxSink $ \(ev, sp :: SendPort Bool) -> do
           st <- mxGetLocal
           let found =
@@ -169,15 +171,25 @@ testAgentEventHandling result = do
           mxReady)
     ]
 
+  -- TODO: yes, this is racy, but we're at the mercy of the scheduler here...
+  faff 2000000 rs
+
   _ <- monitor agentPid
   (sp, rp) <- newChan
-  pid <- spawnLocal $ sendChan sp ()
-  () <- receiveChan rp
+
+  pid <- spawnLocal $ expect >>= sendChan sp
 
   -- By waiting for a monitor notification, we have a
-  -- higher probably that the agent has seen
+  -- higher probably that the agent has seen the spawn and died events
   monitor pid
+
+  send pid ()
+  () <- receiveChan rp
+
   receiveWait [ match (\(ProcessMonitorNotification _ _ _) -> return ()) ]
+
+  -- TODO: yes, this is racy, but we're at the mercy of the scheduler here...
+  faff 2000000 rs
 
   (replyTo, reply) <- newChan :: Process (SendPort Bool, ReceivePort Bool)
   mxNotify (MxSpawned pid, replyTo)
@@ -188,6 +200,12 @@ testAgentEventHandling result = do
 
   stash result $ seenAlive && seenDead
   kill agentPid "test-complete" >> awaitExit agentPid
+  where
+    faff delay port = do
+      res <- receiveChanTimeout delay port
+      unless (isNothing res) $ do
+        pause delay
+        faff delay port
 
 testMxRegEvents :: TestResult () -> Process ()
 testMxRegEvents result = do
