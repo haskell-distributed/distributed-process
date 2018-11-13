@@ -189,112 +189,113 @@ testAgentEventHandling result = do
   stash result $ seenAlive && seenDead
   kill agentPid "test-complete" >> awaitExit agentPid
 
-testMxRegEvents :: Process ()
-testMxRegEvents = do
-
+testMxRegEvents :: TestResult () -> Process ()
+testMxRegEvents result = do
   {- This test only deals with the local case, to ensure that we are being
      notified in the expected order - the remote cases related to the
      behaviour of the node controller are contained in the CH test suite. -}
+  ensure (stash result ()) $ do
+    let label = "testMxRegEvents"
+    let agentLabel = "mxRegEvents-agent"
+    let delay = 1000000
+    (regChan, regSink) <- newChan
+    (unRegChan, unRegSink) <- newChan
+    agent <- mxAgent (MxAgentId agentLabel) () [
+        mxSink $ \ev -> do
+          case ev of
+            MxRegistered pid label'
+              | label' == label -> liftMX $ sendChan regChan (label', pid)
+            MxUnRegistered pid label'
+              | label' == label -> liftMX $ sendChan unRegChan (label', pid)
+            _                   -> return ()
+          mxReady
+      ]
 
-  let label = "testMxRegEvents"
-  let agentLabel = "mxRegEvents-agent"
-  let delay = 1000000
-  (regChan, regSink) <- newChan
-  (unRegChan, unRegSink) <- newChan
-  agent <- mxAgent (MxAgentId agentLabel) () [
-      mxSink $ \ev -> do
-        case ev of
-          MxRegistered pid label
-            | label /= agentLabel -> liftMX $ sendChan regChan (label, pid)
-          MxUnRegistered pid label
-            | label /= agentLabel -> liftMX $ sendChan unRegChan (label, pid)
-          _                        -> return ()
-        mxReady
-    ]
+    p1 <- spawnLocal expect
+    p2 <- spawnLocal expect
 
-  p1 <- spawnLocal expect
-  p2 <- spawnLocal expect
+    register label p1
+    reg1 <- receiveChanTimeout delay regSink
+    reg1 `shouldBe` equalTo (Just (label, p1))
 
-  register label p1
-  reg1 <- receiveChanTimeout delay regSink
-  reg1 `shouldBe` equalTo (Just (label, p1))
+    unregister label
+    unreg1 <- receiveChanTimeout delay unRegSink
+    unreg1 `shouldBe` equalTo (Just (label, p1))
 
-  unregister label
-  unreg1 <- receiveChanTimeout delay unRegSink
-  unreg1 `shouldBe` equalTo (Just (label, p1))
+    register label p2
+    reg2 <- receiveChanTimeout delay regSink
+    reg2 `shouldBe` equalTo (Just (label, p2))
 
-  register label p2
-  reg2 <- receiveChanTimeout delay regSink
-  reg2 `shouldBe` equalTo (Just (label, p2))
+    reregister label p1
+    unreg2 <- receiveChanTimeout delay unRegSink
+    unreg2 `shouldBe` equalTo (Just (label, p2))
 
-  reregister label p1
-  unreg2 <- receiveChanTimeout delay unRegSink
-  unreg2 `shouldBe` equalTo (Just (label, p2))
+    reg3 <- receiveChanTimeout delay regSink
+    reg3 `shouldBe` equalTo (Just (label, p1))
 
-  reg3 <- receiveChanTimeout delay regSink
-  reg3 `shouldBe` equalTo (Just (label, p1))
+    mapM_ (flip kill $ "test-complete") [agent, p1, p2]
+    awaitExit agent
 
-  mapM_ (flip kill $ "test-complete") [agent, p1, p2]
-  awaitExit agent
+testMxRegMon :: LocalNode -> TestResult () -> Process ()
+testMxRegMon remoteNode result = do
+  ensure (stash result ()) $ do
+    -- ensure that when a registered process dies, we get a notification that
+    -- it has been unregistered as well as seeing the name get removed
+    let label1 = "aaaaa"
+    let label2 = "bbbbb"
+    let isValid l = l == label1 || l == label2
+    let agentLabel = "mxRegMon-agent"
+    let delay = 1000000
+    (regChan, regSink) <- newChan
+    (unRegChan, unRegSink) <- newChan
+    agent <- mxAgent (MxAgentId agentLabel) () [
+        mxSink $ \ev -> do
+          case ev of
+            MxRegistered pid label
+              | isValid label -> liftMX $ sendChan regChan (label, pid)
+            MxUnRegistered pid label
+              | isValid label -> liftMX $ sendChan unRegChan (label, pid)
+            _                 -> return ()
+          mxReady
+      ]
 
-testMxRegMon :: LocalNode -> Process ()
-testMxRegMon remoteNode = do
+    (sp, rp) <- newChan
+    liftIO $ forkProcess remoteNode $ do
+      getSelfPid >>= sendChan sp
+      expect :: Process ()
 
-  -- ensure that when a registered process dies, we get a notification that
-  -- it has been unregistered as well as seeing the name get removed
+    p1 <- receiveChan rp
 
-  let label1 = "aaaaa"
-  let label2 = "bbbbb"
-  let isValid l = l == label1 || l == label2
-  let agentLabel = "mxRegMon-agent"
-  let delay = 1000000
-  (regChan, regSink) <- newChan
-  (unRegChan, unRegSink) <- newChan
-  agent <- mxAgent (MxAgentId agentLabel) () [
-      mxSink $ \ev -> do
-        case ev of
-          MxRegistered pid label
-            | isValid label -> liftMX $ sendChan regChan (label, pid)
-          MxUnRegistered pid label
-            | isValid label -> liftMX $ sendChan unRegChan (label, pid)
-          _                 -> return ()
-        mxReady
-    ]
+    register label1 p1
+    reg1 <- receiveChanTimeout delay regSink
+    reg1 `shouldBe` equalTo (Just (label1, p1))
 
-  (sp, rp) <- newChan
-  liftIO $ forkProcess remoteNode $ do
-    getSelfPid >>= sendChan sp
-    expect :: Process ()
+    register label2 p1
+    reg2 <- receiveChanTimeout delay regSink
+    reg2 `shouldBe` equalTo (Just (label2, p1))
 
-  p1 <- receiveChan rp
+    n1 <- whereis label1
+    n1 `shouldBe` equalTo (Just p1)
 
-  register label1 p1
-  reg1 <- receiveChanTimeout delay regSink
-  reg1 `shouldBe` equalTo (Just (label1, p1))
+    n2 <- whereis label2
+    n2 `shouldBe` equalTo (Just p1)
 
-  register label2 p1
-  reg2 <- receiveChanTimeout delay regSink
-  reg2 `shouldBe` equalTo (Just (label2, p1))
+    kill p1 "goodbye"
 
-  n1 <- whereis label1
-  n1 `shouldBe` equalTo (Just p1)
+    unreg1 <- receiveChanTimeout delay unRegSink
+    unreg2 <- receiveChanTimeout delay unRegSink
 
-  n2 <- whereis label2
-  n2 `shouldBe` equalTo (Just p1)
+    let evts = [unreg1, unreg2]
+    -- we can't rely on the order of the values in the node controller's
+    -- map (it's either racy to do so, or no such guarantee exists for Data.Map),
+    -- so we simply verify that we received the un-registration events we expect
+    evts `shouldContain` (Just (label1, p1))
+    evts `shouldContain` (Just (label2, p1))
 
-  kill p1 "goodbye"
+    kill agent "test-complete" >> awaitExit agent
 
-  unreg1 <- receiveChanTimeout delay unRegSink
-  unreg2 <- receiveChanTimeout delay unRegSink
-
-  let evts = [unreg1, unreg2]
-  -- we can't rely on the order of the values in the node controller's
-  -- map (it's either racy to do so, or no such guarantee exists for Data.Map),
-  -- so we simply verify that we received the un-registration events we expect
-  evts `shouldContain` (Just (label1, p1))
-  evts `shouldContain` (Just (label2, p1))
-
-  kill agent "test-complete" >> awaitExit agent
+ensure :: Process () -> Process () -> Process ()
+ensure = flip finally
 
 tests :: TestTransport -> IO [Test]
 tests TestTransport{..} = do
@@ -327,8 +328,12 @@ tests TestTransport{..} = do
       ]
     , testGroup "Mx Events" [
         testCase "Name Registration Events"
-          (runProcess node1 testMxRegEvents)
+          (delayedAssertion
+           "expected registration events to map to the correct ProcessId"
+           node1 () testMxRegEvents)
       , testCase "Post Death Name UnRegistration Events"
-          (runProcess node1 (testMxRegMon node2))
+          (delayedAssertion
+           "expected process deaths to result in unregistration events"
+           node1 () (testMxRegMon node2))
       ]
     ]
