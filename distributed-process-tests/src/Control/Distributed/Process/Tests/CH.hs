@@ -1481,113 +1481,66 @@ testExitRemote TestTransport{..} = do
 
 testRegistryMonitoring :: TestTransport -> Assertion
 testRegistryMonitoring TestTransport{..} = do
-  localNode <- newLocalNode testTransport initRemoteTable
-  remoteNode <- newLocalNode testTransport initRemoteTable
-  return ()
+  node1 <- newLocalNode testTransport initRemoteTable
+  node2 <- newLocalNode testTransport initRemoteTable
+  waitH <- newEmptyMVar
 
-  -- Local process. Test if local process will be removed from
-  -- registry when it dies.
-  box <- newEmptyMVar
-  runProcess localNode $ do
-    pid <- spawnLocal $ do
-                expect
-    register "test" pid
-    tpid <- whereis "test"
-    if tpid == Just pid
-      then do _ <- monitor pid
-              send pid ()
-              ProcessMonitorNotification{} <- expect
-              tpid1 <- whereis "test"
-              liftIO $ putMVar box (Nothing == tpid1)
-      else liftIO $ putMVar box False
+  let nid = localNodeId node2
+  pid <- forkProcess node1 $ do
+    getSelfPid >>= runUntilRegistered nid
+    liftIO $ takeMVar waitH
 
-  takeMVar box >>= assertBool "expected local process to not be registered"
-  return ()
+  runProcess node2 $ do
+    register regName pid
+    res <- whereis regName
+    us <- getSelfPid
+    liftIO $ do
+      putMVar waitH ()
+      assertBool "expected (Just pid)" $ res == (Just pid)
 
-  -- Remote process. Test if remote process entry is removed
-  -- from registry when process dies.
-  remote1 <- testRemote remoteNode
-  runProcess localNode $
-    let waitpoll = do
-        w <- whereis "test" :: Process (Maybe ProcessId)
-        forM_ w (const waitpoll)
-    in do register "test" remote1
-          -- [race-condition] invalid test if we force exit before waitpoll runs
-          registered <- whereis "test"
-          registered `shouldBe` (equalTo (Just remote1))
-          send remote1 ()
-          waitpoll
-          return ()
-  return ()
+    -- This delay isn't essential!
+    -- The test case passes perfectly fine without it (feel free to comment out
+    -- and see), however waiting a few seconds here, makes it much more likely
+    -- that in delayUntilMaybeUnregistered we will hit the match case right
+    -- away, and thus not be subjected to a 20 second delay. The value of 4
+    -- seconds appears to work optimally on osx and across several linux distros
+    -- running in virtual machines (which is essentially what we do in CI)
+    receiveTimeout 4000000 [ matchAny return ]
+    return ()
 
-  -- Many labels. Test if all labels associated with process
-  -- are removed from registry when it dies.
-  remote2 <- testRemote remoteNode
-  runProcess localNode $
-    let waitpoll = do
-        w1 <- whereis "test-3" :: Process (Maybe ProcessId)
-        w2 <- whereis "test-4" :: Process (Maybe ProcessId)
-        forM_ (w1 <|> w2) (const waitpoll)
-    in do register "test-3" remote2
-          register "test-4" remote2
-          send remote2 ()
-          waitpoll
-          return ()
+  -- This delay doesn't serve much purpose in the happy path, however if some
+  -- future patch breaks the cooperative behaviour of node controllers viz
+  -- remote process registration and notification taking place via ncEffectDied,
+  -- there would be the possibility of a race in the test case should we attempt
+  -- to evaluate `whereis regName` on node2 right away. In case the name is still
+  -- erroneously registered, observing the 20 second delay (or lack of), could at
+  -- least give a hint that something is wrong, and we give up our time slice
+  -- so that there's a higher change the registrations have been cleaned up
+  -- in either case.
+  runProcess node2 $ delayUntilMaybeUnregistered nid pid
 
-{- XXX: waiting including patch for nsend for remote process
-  remote3 <- testRemote remoteNode
-  remote4 <- testRemote remoteNode
-  -- test many labels
-  runProcess localNode $ do
-     register "test-3" remote3
-     reregister "test-3" remote4
-     send remote3 ()
-     liftIO $ threadDelay 50000 -- XXX: racy
-     monitor remote4
-     nsend "test-3" ()
-     ProcessMonitorNotification{} <- expect
-     return ()
--}
+  regHere <- newEmptyMVar
+  runProcess node2 $ whereis regName >>= liftIO . putMVar regHere
+  res <- takeMVar regHere
+  assertBool "expected Nothing, but process still registered" (res == Nothing)
 
-  -- Test registerRemoteAsync properties. Add a local process to
-  -- remote registry and checks that it is removed
-  -- when the process dies.
-  remote5 <- testRemote remoteNode
-  runProcess localNode $ do
-    registerRemoteAsync (localNodeId remoteNode) "test" remote5
-    receiveWait [
-        match (\(RegisterReply _ True _) -> return ())
-      ] >>= send remote5
-    let waitpoll = do
-        whereisRemoteAsync (localNodeId remoteNode) "test"
-        receiveWait [
-            match (\(WhereIsReply _ mr) -> forM_ mr (const waitpoll))
-          ]
-    waitpoll
+  where
+    runUntilRegistered nid us = do
+      whereisRemoteAsync nid regName
+      receiveWait [
+          matchIf (\(WhereIsReply n (Just p)) -> n == regName && p == us)
+                  (const $ return ())
+        ]
 
-  -- Add remote process to remote registry and checks if
-  -- entry is removed then process is dead.
-  remote6 <- testRemote localNode
-  runProcess localNode $ do
-    registerRemoteAsync (localNodeId remoteNode) "test" remote6
-    receiveWait [
-        match (\(RegisterReply _ True _) -> return ())
-      ] >>= send remote6
-    let waitpoll = do
-        whereisRemoteAsync (localNodeId remoteNode) "test"
-        receiveWait [
-            match (\(WhereIsReply _ mr) -> forM_ mr (const waitpoll))
-          ]
-    waitpoll
-   where
-     testRemote node = do
-       -- test many labels
-       pidBox <- newEmptyMVar
-       forkProcess node $ do
-           us <- getSelfPid
-           liftIO $ putMVar pidBox us
-           expect :: Process ()
-       takeMVar pidBox
+    delayUntilMaybeUnregistered nid p = do
+      whereisRemoteAsync nid regName
+      receiveTimeout 20000000 {- 20 sec delay -} [
+          matchIf (\(WhereIsReply n p) -> n == regName && p == Nothing)
+                  (const $ return ())
+        ]
+      return ()
+
+    regName = "testRegisterRemote"
 
 testUnsafeSend :: TestTransport -> Assertion
 testUnsafeSend TestTransport{..} = do
@@ -1790,7 +1743,7 @@ tests testtrans = return [
       , testCase "MaskRestoreScope"    (testMaskRestoreScope    testtrans)
       , testCase "ExitLocal"           (testExitLocal           testtrans)
       , testCase "ExitRemote"          (testExitRemote          testtrans)
-      , testCase "TestRegistryMonitor" (testRegistryMonitoring  testtrans)
+      , testCase "RegistryMonitoring"  (testRegistryMonitoring  testtrans)
       , testCase "TextCallLocal"       (testCallLocal           testtrans)
       -- Unsafe Primitives
       , testCase "TestUnsafeSend"      (testUnsafeSend          testtrans)
