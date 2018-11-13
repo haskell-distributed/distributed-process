@@ -12,7 +12,7 @@ import Control.Monad
 import Control.Distributed.Process hiding (catch)
 import Control.Distributed.Process.Node
 import Control.Exception (catch, SomeException)
-import Network.Transport.TCP (createTransport, defaultTCPParameters)
+import Network.Transport.TCP (createTransport, defaultTCPAddr, defaultTCPParameters)
 import System.Environment
 import System.Console.GetOpt
 
@@ -111,7 +111,7 @@ main = do
   (opt, _) <- parseArgv argv
   putStrLn $ "options: " ++ (show opt)
   Right transport <- createTransport
-    "127.0.0.1" "8090" (\sn -> ("127.0.0.1", sn)) defaultTCPParameters
+                        (defaultTCPAddr "127.0.0.1" "8090" ) defaultTCPParameters
   node <- newLocalNode transport initRemoteTable
   catch (void $ runProcess node $ initialProcess opt)
         (\(e :: SomeException) -> putStrLn $ "ERROR: " ++ (show e))

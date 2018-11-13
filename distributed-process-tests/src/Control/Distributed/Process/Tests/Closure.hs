@@ -169,8 +169,11 @@ testUnclosure TestTransport{..} rtable = do
   node <- newLocalNode testTransport rtable
   done <- newEmptyMVar
   forkProcess node $ do
-    120 <- join . unClosure $ factorialClosure 5
+    i <- join . unClosure $ factorialClosure 5
     liftIO $ putMVar done ()
+    if i == 720
+      then return ()
+      else error "Something went horribly wrong"
   takeMVar done
 
 testBind :: TestTransport -> RemoteTable -> Assertion
@@ -180,8 +183,11 @@ testBind TestTransport{..} rtable = do
   runProcess node $ do
     us <- getSelfPid
     join . unClosure $ sendFac 6 us
-    (720 :: Int) <- expect
+    (i :: Int) <- expect
     liftIO $ putMVar done ()
+    if i == 720
+      then return ()
+      else error "Something went horribly wrong"
   takeMVar done
 
 testSendPureClosure :: TestTransport -> RemoteTable -> Assertion
@@ -194,7 +200,7 @@ testSendPureClosure TestTransport{..} rtable = do
     addr <- forkProcess node $ do
       cl <- expect
       fn <- unClosure cl :: Process (Int -> Int)
-      13 <- return $ fn 6
+      (_ :: Int) <- return $ fn 6
       liftIO $ putMVar serverDone ()
     putMVar serverAddr addr
 
@@ -218,8 +224,11 @@ testSendIOClosure TestTransport{..} rtable = do
       liftIO $ do
         someMVar <- newEmptyMVar
         io someMVar
-        5 <- readMVar someMVar
+        i <- readMVar someMVar
         putMVar serverDone ()
+        if i == 5
+          then return ()
+          else error "Something went horribly wrong"
     putMVar serverAddr addr
 
   forkIO $ do
@@ -248,8 +257,10 @@ testSendProcClosure TestTransport{..} rtable = do
     runProcess node $ do
       pid <- getSelfPid
       send theirAddr (cpSend $(mkStatic 'sdictInt) pid)
-      5 <- expect :: Process Int
-      liftIO $ putMVar clientDone ()
+      i <- expect :: Process Int
+      if i == 5
+        then liftIO $ putMVar clientDone ()
+        else error "Something went horribly wrong"
 
   takeMVar clientDone
 
@@ -269,8 +280,9 @@ testSpawn TestTransport{..} rtable = do
       pid   <- getSelfPid
       pid'  <- spawn nid (sendPidClosure pid)
       pid'' <- expect
-      True <- return $ pid' == pid''
-      liftIO $ putMVar clientDone ()
+      if pid' == pid''
+        then liftIO $ putMVar clientDone ()
+        else error "Something went horribly wrong"
 
   takeMVar clientDone
 
@@ -294,8 +306,9 @@ testSpawnRace TestTransport{..} rtable = do
       spawnLocal $ spawn (localNodeId node2) (sendPidClosure pid) >>= send pid
       pid'  <- expect :: Process ProcessId
       pid'' <- expect :: Process ProcessId
-      True <- return $ pid' == pid''
-      return ()
+      if pid' == pid''
+        then return ()
+        else error "Something went horribly wrong"
 
   where
 
@@ -332,8 +345,10 @@ testCall TestTransport{..} rtable = do
     node <- newLocalNode testTransport rtable
     nid <- readMVar serverNodeAddr
     runProcess node $ do
-      (120 :: Int) <- call $(mkStatic 'sdictInt) nid (factorialClosure 5)
-      liftIO $ putMVar clientDone ()
+      (a :: Int) <- call $(mkStatic 'sdictInt) nid (factorialClosure 5)
+      if a == 120
+        then liftIO $ putMVar clientDone ()
+        else error "something went horribly wrong"
 
   takeMVar clientDone
 
@@ -350,8 +365,10 @@ testCallBind TestTransport{..} rtable = do
     node <- newLocalNode testTransport rtable
     nid <- readMVar serverNodeAddr
     runProcess node $ do
-      (120 :: Int) <- call $(mkStatic 'sdictInt) nid (factorial' 5)
-      liftIO $ putMVar clientDone ()
+      (a :: Int) <- call $(mkStatic 'sdictInt) nid (factorial' 5)
+      if a == 120
+        then liftIO $ putMVar clientDone ()
+        else error "Something went horribly wrong"
 
   takeMVar clientDone
 
@@ -362,9 +379,11 @@ testSeq TestTransport{..} rtable = do
   runProcess node $ do
     us <- getSelfPid
     join . unClosure $ sendFac 5 us `seqCP` sendFac 6 us
-    120 :: Int <- expect
-    720 :: Int <- expect
-    liftIO $ putMVar done ()
+    a :: Int <- expect
+    b :: Int <- expect
+    if a == 120 && b == 720
+      then liftIO $ putMVar done ()
+      else error "Something went horribly wrong"
   takeMVar done
 
 -- Test 'spawnSupervised'
@@ -393,25 +412,33 @@ testSpawnSupervised TestTransport{..} rtable = do
       throw supervisorDeath
 
     forkProcess node2 $ do
-      [super, child] <- liftIO $ mapM readMVar [superPid, childPid]
-      ref <- monitor child
-      self <- getSelfPid
-      let waitForMOrL = do
-            liftIO $ threadDelay 10000
-            mpinfo <- getProcessInfo child
-            case mpinfo of
-              Nothing -> waitForMOrL
-              Just pinfo ->
-                 unless (isJust $ lookup self (infoMonitors pinfo)) waitForMOrL
-      waitForMOrL
-      liftIO $ putMVar linkUp ()
-      -- because monitor message was sent before message to process
-      -- we hope that it will be processed before
-      ProcessMonitorNotification ref' pid' (DiedException e) <- expect
-      True <- return $ ref' == ref
-                    && pid' == child
-                    && e == show (ProcessLinkException super (DiedException (show supervisorDeath)))
-      liftIO $ putMVar thirdProcessDone ()
+      res <- liftIO $ mapM readMVar [superPid, childPid]
+      case res of
+        [super, child] -> do
+          ref <- monitor child
+          self <- getSelfPid
+          let waitForMOrL = do
+                liftIO $ threadDelay 10000
+                mpinfo <- getProcessInfo child
+                case mpinfo of
+                  Nothing -> waitForMOrL
+                  Just pinfo ->
+                     unless (isJust $ lookup self (infoMonitors pinfo)) waitForMOrL
+          waitForMOrL
+          liftIO $ putMVar linkUp ()
+          -- because monitor message was sent before message to process
+          -- we hope that it will be processed before
+          res' <- expect
+          case res' of
+              (ProcessMonitorNotification ref' pid' (DiedException e)) ->
+                if (ref' == ref && pid' == child &&
+                  e == show (ProcessLinkException super
+                            (DiedException (show supervisorDeath))))
+                  then liftIO $ putMVar thirdProcessDone ()
+                  else error "Something went horribly wrong"
+              _ -> error "Something went horribly wrong"
+
+        _ -> die $ "Something went horribly wrong"
 
     takeMVar thirdProcessDone
   where
@@ -426,8 +453,10 @@ testSpawnInvalid TestTransport{..} rtable = do
     (pid, ref) <- spawnMonitor (localNodeId node) (closure (staticLabel "ThisDoesNotExist") empty)
     ProcessMonitorNotification ref' pid' _reason <- expect
     -- Depending on the exact interleaving, reason might be NoProc or the exception thrown by the absence of the static closure
-    True <- return $ ref' == ref && pid == pid'
-    liftIO $ putMVar done ()
+    res <- return $ ref' == ref && pid == pid'
+    if res == True
+      then liftIO $ putMVar done ()
+      else error "Something went horribly wrong"
   takeMVar done
 
 testClosureExpect :: TestTransport -> RemoteTable -> Assertion
@@ -439,8 +468,10 @@ testClosureExpect TestTransport{..} rtable = do
     us     <- getSelfPid
     them   <- spawn nodeId $ cpExpect $(mkStatic 'sdictInt) `bindCP` cpSend $(mkStatic 'sdictInt) us
     send them (1234 :: Int)
-    (1234 :: Int) <- expect
-    liftIO $ putMVar done ()
+    (res :: Int) <- expect
+    if res == 1234
+      then liftIO $ putMVar done ()
+      else error "Something went horribly wrong"
   takeMVar done
 
 testSpawnChannel :: TestTransport -> RemoteTable -> Assertion
@@ -465,8 +496,10 @@ testTDict TestTransport{..} rtable = do
   done <- newEmptyMVar
   [node1, node2] <- replicateM 2 $ newLocalNode testTransport rtable
   forkProcess node1 $ do
-    True <- call $(functionTDict 'isPrime) (localNodeId node2) ($(mkClosure 'isPrime) (79 :: Integer))
-    liftIO $ putMVar done ()
+    res <- call $(functionTDict 'isPrime) (localNodeId node2) ($(mkClosure 'isPrime) (79 :: Integer))
+    if res == True
+      then liftIO $ putMVar done ()
+      else error "Something went horribly wrong..."
   takeMVar done
 
 testFib :: TestTransport -> RemoteTable -> Assertion
@@ -477,8 +510,11 @@ testFib TestTransport{..} rtable = do
   forkProcess (head nodes) $ do
     (sport, rport) <- newChan
     spawnLocal $ dfib (map localNodeId nodes, sport, 10)
-    55 <- receiveChan rport :: Process Integer
+    ff <- receiveChan rport :: Process Integer
     liftIO $ putMVar done ()
+    if ff /= 55
+      then die $ "Something went horribly wrong"
+      else return ()
 
   takeMVar done
 
@@ -503,9 +539,12 @@ testSpawnReconnect testtrans@TestTransport{..} rtable = do
     liftIO $ threadDelay 100000
 
     count <- liftIO $ takeMVar iv
-    True <- return $ count == 2 || count == 3 -- It depends on which message we get first in 'spawn'
+    res <- return $ count == 2 || count == 3 -- It depends on which message we get first in 'spawn'
 
     liftIO $ putMVar done ()
+    if res /= True
+      then error "Something went horribly wrong"
+      else return ()
 
   takeMVar done
 
