@@ -37,7 +37,6 @@ script:
 - stack ${ARGS} test $ARG='--plain' ${TEST_PACKAGE}TestMxInMemory
 - stack ${ARGS} test $ARG='--plain' ${TEST_PACKAGE}TestMxInTCP
 - stack ${ARGS} test $ARG='--plain' ${TEST_PACKAGE}TestTracingInMemory
-- stack ${ARGS} test $ARG='--plain' ${TEST_PACKAGE}TestTracingInTCP
 
 notifications:
   slack:

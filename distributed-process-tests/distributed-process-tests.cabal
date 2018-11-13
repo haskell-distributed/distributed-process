@@ -155,17 +155,3 @@ Test-Suite TestMxInTCP
   Extensions:        CPP
   ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   HS-Source-Dirs:    tests
-
-Test-Suite TestTracingInTCP
-  Type:              exitcode-stdio-1.0
-  Main-Is:           runInMemory.hs
-  CPP-Options:       -DTEST_SUITE_MODULE=Control.Distributed.Process.Tests.Tracing
-  Build-Depends:     base >= 4.4 && < 5,
-                     distributed-process-tests,
-                     network >= 2.3 && < 2.9,
-                     network-transport >= 0.4.1.0 && < 0.6,
-                     network-transport-inmemory >= 0.5,
-                     test-framework >= 0.6 && < 0.9
-  Extensions:        CPP
-  ghc-options:       -Wall -eventlog -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
-  HS-Source-Dirs:    tests
