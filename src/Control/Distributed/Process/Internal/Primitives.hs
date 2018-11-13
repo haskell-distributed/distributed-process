@@ -401,8 +401,11 @@ newtype Match b = Match { unMatch :: MatchOn Message (Process b) }
 receiveWait :: [Match b] -> Process b
 receiveWait ms = do
   queue <- processQueue <$> ask
-  Just proc <- liftIO $ dequeue queue Blocking (map unMatch ms)
-  proc
+  mProc <- liftIO $ dequeue queue Blocking (map unMatch ms)
+  case mProc of
+    Just proc' -> proc'
+    Nothing    -> die $ "System Invariant Violation: CQueue.hs returned `Nothing` "
+                     ++ "in the absence of a timeout value."
 
 -- | Like 'receiveWait' but with a timeout.
 --

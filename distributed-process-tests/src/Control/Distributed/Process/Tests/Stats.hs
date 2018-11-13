@@ -29,7 +29,7 @@ import Test.Framework.Providers.HUnit (testCase)
 
 testLocalDeadProcessInfo :: TestResult (Maybe ProcessInfo) -> Process ()
 testLocalDeadProcessInfo result = do
-  pid <- spawnLocal $ do "finish" <- expect; return ()
+  pid <- spawnLocal $ do (_ :: String) <- expect; return ()
   mref <- monitor pid
   send pid "finish"
   _ <- receiveWait [
@@ -52,8 +52,10 @@ testLocalLiveProcessInfo result = do
        link self
        mRef <- monitor self
        stash mon mRef
-       "die" <- expect
-       return ()
+       res <- expect
+       case res of
+         "die" -> return ()
+         _     -> die $ "unexpected message received: " ++ res
 
   monRef <- liftIO $ takeMVar mon
 
@@ -84,9 +86,9 @@ testRemoteLiveProcessInfo TestTransport{..} node1 = do
     -- our send op shouldn't overtake link or monitor requests AFAICT
     -- so a little table tennis should get us synchronised properly
     send serverPid (self, "ping")
-    "pong" <- expect
+    pong <- expect
     pInfo <- getProcessInfo serverPid
-    stash result $ pInfo /= Nothing
+    stash result $ pong == "pong" && pInfo /= Nothing
   where
     launchRemote :: MVar ProcessId -> IO ()
     launchRemote locMV = do
@@ -97,8 +99,10 @@ testRemoteLiveProcessInfo TestTransport{..} node1 = do
             _ <- receiveWait [
                   match (\(pid, "ping") -> send pid "pong")
                 ]
-            "stop" <- expect
-            return ()
+            res <- expect
+            case res of
+              "stop" -> return ()
+              _      -> die $ "unexpected message received: " ++ res
         return ()
 
     withActiveRemote :: LocalNode
