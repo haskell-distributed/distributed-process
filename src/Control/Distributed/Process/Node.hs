@@ -376,6 +376,7 @@ startServiceProcesses node = do
     -- loops during tracing if the user reregisters the "logger" with a custom
     -- process which uses 'send' or other primitives which are traced.
     register "trace.logger" logger
+    void $ registryMonitorAgent
  where
    loop = do
      receiveWait
