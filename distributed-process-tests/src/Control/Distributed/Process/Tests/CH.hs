@@ -1506,7 +1506,6 @@ testRegistryMonitoring TestTransport{..} = do
     -- seconds appears to work optimally on osx and across several linux distros
     -- running in virtual machines (which is essentially what we do in CI)
     receiveTimeout 4000000 [ matchAny return ]
-    return ()
 
   -- This delay doesn't serve much purpose in the happy path, however if some
   -- future patch breaks the cooperative behaviour of node controllers viz
