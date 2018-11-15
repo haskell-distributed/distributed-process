@@ -186,15 +186,8 @@ import Control.Distributed.Process.Internal.Types
 import Control.Distributed.Process.Management.Internal.Agent
   ( mxAgentController
   )
-import Control.Distributed.Process.Management
-  ( mxAgent
-  , mxSink
-  , liftMX
-  , mxUpdateLocal
-  , mxGetLocal
-  , mxReady
-  , MxEvent(..)
-  , MxAgentId(..)
+import Control.Distributed.Process.Management.Internal.Types
+  ( MxEvent(..)
   )
 import qualified Control.Distributed.Process.Management.Internal.Trace.Remote as Trace
   ( remoteTable
@@ -323,44 +316,6 @@ startDefaultTracer node' = do
 
 -- TODO: we need a better mechanism for defining and registering services
 
-{- note [registry monitoring agent]
-   This agent listens for 'MxRegistered' and 'MxUnRegistered' events and tracks
-   all labels for remote 'ProcessId's that are stored in the registry.
-
-   When a remote process is registered, the agent starts monitoring it until it
-   is unregistered. We can safely ignore ProcessMonitorNotification's, since the
-   node controller is obligated to issue an MxUnRegistered event for any labels
-   connected to a dead process. Thus, our only responsibility here is to ensure
-   that we set up monitors for locally registered processes, and tear them down
-   once unregistration occurs.
- -}
-
-registryMonitorAgent :: Process ProcessId
-registryMonitorAgent = do
-  nid <- getSelfNode
-  mxAgent registryMonitorAgentId (Map.empty :: Map String MonitorRef)
-    [ mxSink $ \ev -> do
-        case ev of
-          MxRegistered pid label
-            | processNodeId pid /= nid -> do
-              mref <- liftMX $ monitor pid
-              mxUpdateLocal (Map.insert label mref)
-          MxUnRegistered pid label
-            | processNodeId pid /= nid -> do
-              mrefs <- mxGetLocal
-              forM_ (label `Map.lookup` mrefs) $ \mref -> do
-                liftMX $ unmonitorAsync mref
-                mxUpdateLocal (Map.delete label)
-          _ -> return ()
-        mxReady
-      -- [note: no need to remove async answers from mailbox]
-      -- The framework simply discards any input you don't have a handler for.
-      -- See Management.hs `runAgent` for details.
-    ]
-  where
-    registryMonitorAgentId :: MxAgentId
-    registryMonitorAgentId = MxAgentId "service.registry.monitoring"
-
 -- | Start and register the service processes on a node
 startServiceProcesses :: LocalNode -> IO ()
 startServiceProcesses node = do
@@ -376,7 +331,6 @@ startServiceProcesses node = do
     -- loops during tracing if the user reregisters the "logger" with a custom
     -- process which uses 'send' or other primitives which are traced.
     register "trace.logger" logger
-    void $ registryMonitorAgent
  where
    loop = do
      receiveWait
