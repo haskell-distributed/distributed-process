@@ -120,7 +120,7 @@ Test-Suite TestMxInMemory
   CPP-Options:       -DTEST_SUITE_MODULE=Control.Distributed.Process.Tests.Mx
   Build-Depends:     base >= 4.4 && < 5,
                      distributed-process-tests,
-                     network >= 2.3 && < 2.7,
+                     network >= 2.3 && < 2.9,
                      network-transport >= 0.4.1.0 && < 0.6,
                      network-transport-inmemory >= 0.5,
                      test-framework >= 0.6 && < 0.9
@@ -134,7 +134,7 @@ Test-Suite TestTracingInMemory
   CPP-Options:       -DTEST_SUITE_MODULE=Control.Distributed.Process.Tests.Tracing
   Build-Depends:     base >= 4.4 && < 5,
                      distributed-process-tests,
-                     network >= 2.3 && < 2.7,
+                     network >= 2.3 && < 2.9,
                      network-transport >= 0.4.1.0 && < 0.6,
                      network-transport-inmemory >= 0.5,
                      test-framework >= 0.6 && < 0.9
