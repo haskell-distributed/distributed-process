@@ -1,8 +1,12 @@
-resolver: lts-12.17
+resolver: lts-12.18
 
 packages:
 - '.'
 - distributed-process-tests/
+- location:
+    git: https://github.com/haskell-distributed/network-transport-tcp.git
+    commit: d87d6f55697a94a1fbf211ff9c1bb769a1e129cd
+  extra-dep: true
 
 extra-deps:
 - rank1dynamic-0.4.0

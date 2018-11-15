@@ -5,19 +5,13 @@ sudo: false
 matrix:
   include:
   - env: ARGS="--stack-yaml stack-ghc-7.10.3.yaml"
-    addons: {apt: {packages: [libgmp-dev]}}
-
-  - env: ARGS="--stack-yaml stack-ghc-8.0.2.yaml"
-    addons: {apt: {packages: [libgmp-dev]}}
-
+      addons: {apt: {packages: [libgmp-dev]}}
   - env: ARGS="--stack-yaml stack-ghc-8.2.2.yaml"
-    addons: {apt: {packages: [libgmp-dev]}}
-
+      addons: {apt: {packages: [libgmp-dev]}}
   - env: ARGS="--stack-yaml stack-ghc-8.4.4.yaml"
-    addons: {apt: {packages: [libgmp-dev]}}
-
-  - env: ARGS=
-    addons: {apt: {packages: [libgmp-dev]}}
+      addons: {apt: {packages: [libgmp-dev]}}
+  - env: ARGS="--stack-yaml stack-nightly.yaml --resolver nightly"
+      addons: {apt: {packages: [libgmp-dev]}}
 
 cache:
   directories:
@@ -40,5 +34,10 @@ script:
 - stack ${ARGS} test $ARG='--plain -t "!Flaky"' ${TEST_PACKAGE}TestCHInTCP
 - stack ${ARGS} test $ARG='--plain -t "!SpawnReconnect"' ${TEST_PACKAGE}TestClosure
 - stack ${ARGS} test $ARG='--plain' ${TEST_PACKAGE}TestStats
-- stack ${ARGS} test $ARG='--plain' ${TEST_PACKAGE}TestMx
-- stack ${ARGS} test $ARG='--plain' ${TEST_PACKAGE}TestTracing
+- stack ${ARGS} test $ARG='--plain' ${TEST_PACKAGE}TestMxInMemory
+- stack ${ARGS} test $ARG='--plain' ${TEST_PACKAGE}TestMxInTCP
+- stack ${ARGS} test $ARG='--plain' ${TEST_PACKAGE}TestTracingInMemory
+
+notifications:
+  slack:
+    secure: LbqbNjK1KiHNiQo/i/Za4vkMD9l9mhmN+PWYFBQkNvGFWffSRayRKFrTqt4znV2p7h4dY1XZFoC7T5RemBVQLq2ppZAUWxkITeu1OUlnmVLDfJLeVYGTR/fn90nP6Y5ITE7T3A07nKmWaRbKpIgFBAOjzgqaM0csscDx3z0WW18=
