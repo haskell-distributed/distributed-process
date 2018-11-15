@@ -1,4 +1,4 @@
-resolver: lts-12.18 # Use GHC 8.4.4
+resolver: lts-11.22
 
 packages:
 - '.'

@@ -37,6 +37,9 @@ import Control.Distributed.Process.Internal.Types
   , createUnencodedMessage
   )
 import Control.Distributed.Process.Node
+import Control.Distributed.Process.Debug
+import Control.Distributed.Process.Management.Internal.Types
+import Control.Distributed.Process.Tests.Internal.Utils (shouldBe)
 import Control.Distributed.Process.Serializable (Serializable)
 
 import Test.HUnit (Assertion, assertBool, assertFailure)
@@ -1476,6 +1479,68 @@ testExitRemote TestTransport{..} = do
   takeMVar supervisedDone
   takeMVar supervisorDone
 
+testRegistryMonitoring :: TestTransport -> Assertion
+testRegistryMonitoring TestTransport{..} = do
+  node1 <- newLocalNode testTransport initRemoteTable
+  node2 <- newLocalNode testTransport initRemoteTable
+  waitH <- newEmptyMVar
+
+  let nid = localNodeId node2
+  pid <- forkProcess node1 $ do
+    getSelfPid >>= runUntilRegistered nid
+    liftIO $ takeMVar waitH
+
+  runProcess node2 $ do
+    register regName pid
+    res <- whereis regName
+    us <- getSelfPid
+    liftIO $ do
+      putMVar waitH ()
+      assertBool "expected (Just pid)" $ res == (Just pid)
+
+    -- This delay isn't essential!
+    -- The test case passes perfectly fine without it (feel free to comment out
+    -- and see), however waiting a few seconds here, makes it much more likely
+    -- that in delayUntilMaybeUnregistered we will hit the match case right
+    -- away, and thus not be subjected to a 20 second delay. The value of 4
+    -- seconds appears to work optimally on osx and across several linux distros
+    -- running in virtual machines (which is essentially what we do in CI)
+    void $ receiveTimeout 4000000 [ matchAny return ]
+
+  -- This delay doesn't serve much purpose in the happy path, however if some
+  -- future patch breaks the cooperative behaviour of node controllers viz
+  -- remote process registration and notification taking place via ncEffectDied,
+  -- there would be the possibility of a race in the test case should we attempt
+  -- to evaluate `whereis regName` on node2 right away. In case the name is still
+  -- erroneously registered, observing the 20 second delay (or lack of), could at
+  -- least give a hint that something is wrong, and we give up our time slice
+  -- so that there's a higher change the registrations have been cleaned up
+  -- in either case.
+  runProcess node2 $ delayUntilMaybeUnregistered nid pid
+
+  regHere <- newEmptyMVar
+  runProcess node2 $ whereis regName >>= liftIO . putMVar regHere
+  res <- takeMVar regHere
+  assertBool "expected Nothing, but process still registered" (res == Nothing)
+
+  where
+    runUntilRegistered nid us = do
+      whereisRemoteAsync nid regName
+      receiveWait [
+          matchIf (\(WhereIsReply n (Just p)) -> n == regName && p == us)
+                  (const $ return ())
+        ]
+
+    delayUntilMaybeUnregistered nid p = do
+      whereisRemoteAsync nid regName
+      receiveTimeout 20000000 {- 20 sec delay -} [
+          matchIf (\(WhereIsReply n p) -> n == regName && p == Nothing)
+                  (const $ return ())
+        ]
+      return ()
+
+    regName = "testRegisterRemote"
+
 testUnsafeSend :: TestTransport -> Assertion
 testUnsafeSend TestTransport{..} = do
   serverAddr <- newEmptyMVar
@@ -1677,6 +1742,7 @@ tests testtrans = return [
       , testCase "MaskRestoreScope"    (testMaskRestoreScope    testtrans)
       , testCase "ExitLocal"           (testExitLocal           testtrans)
       , testCase "ExitRemote"          (testExitRemote          testtrans)
+      , testCase "RegistryMonitoring"  (testRegistryMonitoring  testtrans)
       , testCase "TextCallLocal"       (testCallLocal           testtrans)
       -- Unsafe Primitives
       , testCase "TestUnsafeSend"      (testUnsafeSend          testtrans)

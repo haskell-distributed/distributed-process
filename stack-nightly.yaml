@@ -1,4 +1,4 @@
-resolver: nightly-2018-11-10
+resolver: nightly
 
 packages:
 - '.'
@@ -9,11 +9,11 @@ packages:
   extra-dep: true
 - location:
     git: https://github.com/haskell-distributed/network-transport-tcp.git
-    commit: d87d6f55697a94a1fbf211ff9c1bb769a1e129cd
+    commit: d58250e2388b86a1865ac4139373cbdc106e72e1
   extra-dep: true
 - location:
     git: https://github.com/haskell-distributed/network-transport-inmemory.git
-    commit: b7a10ffc07a77f4fe6affbf8abe535b11933a01a
+    commit: 0ce97924f15a8c1570b2355151834305c9bd2a28
   extra-dep: true
 
 extra-deps:
