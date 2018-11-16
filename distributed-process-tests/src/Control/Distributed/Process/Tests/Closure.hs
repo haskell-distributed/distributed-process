@@ -522,7 +522,7 @@ testSpawnReconnect :: TestTransport -> RemoteTable -> Assertion
 testSpawnReconnect testtrans@TestTransport{..} rtable = do
   [node1, node2] <- replicateM 2 $ newLocalNode testTransport rtable
   let nid1 = localNodeId node1
-      nid2 = localNodeId node2
+      -- nid2 = localNodeId node2
   done <- newEmptyMVar
   iv <- newMVar (0 :: Int)
 
