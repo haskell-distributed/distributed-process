@@ -947,9 +947,7 @@ testUSend usendPrim TestTransport{..} numMessages = do
         isSorted _                = True
     -- The list can't be null since there are no failures after sending
     -- the last message.
-    liftIO $ do
-      assertBool "Unexpected failure after sending last msg" $ isSorted msgs && not (null msgs)
-      putMVar usendTestOk ()
+    liftIO $ putMVar usendTestOk $ isSorted msgs && not (null msgs)
 
   forkProcess node2 $ do
     them <- liftIO $ readMVar processA
@@ -960,7 +958,8 @@ testUSend usendPrim TestTransport{..} numMessages = do
       usendPrim them i
       liftIO (threadDelay 30000)
 
-  takeMVar usendTestOk
+  res <- takeMVar usendTestOk
+  assertBool "Unexpected failure after sending last msg" res
 
 -- | Test 'matchAny'. This repeats the 'testMath' but with a proxy server
 -- in between
