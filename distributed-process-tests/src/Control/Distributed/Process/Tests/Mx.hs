@@ -4,7 +4,6 @@ module Control.Distributed.Process.Tests.Mx (tests) where
 import Control.Distributed.Process.Tests.Internal.Utils
 import Network.Transport.Test (TestTransport(..))
 
-import Control.Concurrent (threadDelay)
 import Control.Distributed.Process
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Management
@@ -21,7 +20,6 @@ import Control.Distributed.Process.Management
   , mxUpdateLocal
   , mxNotify
   , mxBroadcast
-  , mxGetId
   )
 import Control.Monad (void, unless)
 import Control.Rematch (equalTo)

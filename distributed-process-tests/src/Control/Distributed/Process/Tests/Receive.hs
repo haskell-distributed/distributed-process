@@ -10,13 +10,12 @@ import Network.Transport.Test (TestTransport(..))
 
 import Network.Transport (Transport)
 import Control.Distributed.Process
-import Control.Distributed.Process.Closure
 import Control.Distributed.Process.Node
 
 import Control.Monad
 
 import Test.HUnit (Assertion, (@?=))
-import Test.Framework (Test, defaultMain)
+import Test.Framework (Test)
 import Test.Framework.Providers.HUnit (testCase)
 
 -- Tests:
@@ -43,7 +42,7 @@ recTest2 :: ReceivePort ()
          -> SendPort String
          -> ReceivePort String -> ReceivePort String
          -> Process ()
-recTest2 wait sync r1 r2 = do
+recTest2 wait sync r1 _ = do
   forever $ do
     receiveChan wait
     r <- receiveWait
@@ -56,7 +55,7 @@ recTest3 :: ReceivePort ()
          -> SendPort String
          -> ReceivePort String -> ReceivePort String
          -> Process ()
-recTest3 wait sync r1 r2 = do
+recTest3 wait sync r1 _ = do
   forever $ do
     receiveChan wait
     r <- receiveWait
@@ -69,7 +68,7 @@ recTest4 :: ReceivePort ()
          -> SendPort String
          -> ReceivePort String -> ReceivePort String
          -> Process ()
-recTest4 wait sync r1 r2 = do
+recTest4 wait sync r1 _ = do
   forever $ do
     receiveChan wait
     r <- receiveWait
@@ -83,11 +82,11 @@ master :: Process ()
 master = do
   (waits,waitr) <- newChan
   (syncs,syncr) <- newChan
-  let go expect = do
+  let go expected = do
          sendChan waits ()
          r <- receiveChan syncr
-         liftIO $ print (r,expect, r == expect)
-         liftIO $ r @?= expect
+         liftIO $ print (r, expected, r == expected)
+         liftIO $ r @?= expected
 
   liftIO $ putStrLn "---- Test 1 ----"
   (s1,r1) <- newChan

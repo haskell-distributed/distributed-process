@@ -12,8 +12,10 @@ extra-deps:
 - rank1dynamic-0.4.0
 - distributed-static-0.3.8
 - network-transport-0.5.2
+- network-transport-tcp-0.6.0
 - network-transport-inmemory-0.5.2
 - rematch-0.2.0.0
+# - exceptions-0.8.2.1 # test dependency
 
 flags:
   distributed-process-tests:
