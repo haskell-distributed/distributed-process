@@ -30,6 +30,7 @@ import qualified Control.Monad.State as ST
   ( MonadState
   , StateT
   )
+import Control.Monad.Fix (MonadFix)
 import Data.Binary
 import Data.Typeable (Typeable)
 import GHC.Generics
@@ -114,6 +115,7 @@ newtype MxAgent s a =
   } deriving ( Functor
              , Monad
              , MonadIO
+             , MonadFix
              , ST.MonadState (MxAgentState s)
              , Typeable
              , Applicative

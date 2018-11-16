@@ -20,6 +20,7 @@ module Control.Distributed.Process.Tests.Internal.Utils
   -- ping !
   , Ping(Ping)
   , ping
+  , pause
   , shouldBe
   , shouldMatch
   , shouldContain
@@ -78,10 +79,10 @@ import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable()
 
 import Control.Exception (AsyncException(ThreadKilled), SomeException)
-import Control.Monad (forever)
+import Control.Monad (forever, void)
 import Control.Monad.STM (atomically)
 import Control.Rematch hiding (match)
-import Control.Rematch.Run 
+import Control.Rematch.Run
 import Data.Binary
 import Data.Typeable (Typeable)
 
@@ -107,9 +108,17 @@ data TestProcessControl = Stop | Go | Report ProcessId
 
 instance Binary TestProcessControl where
 
+data Private = Private
+  deriving (Typeable, Generic)
+instance Binary Private where
+
 -- | Does exactly what it says on the tin, doing so in the @Process@ monad.
 noop :: Process ()
 noop = return ()
+
+pause :: Int -> Process ()
+pause delay =
+  void $ receiveTimeout delay [ match (\Private -> return ()) ]
 
 synchronisedAssertion :: Eq a
                       => String
@@ -229,4 +238,3 @@ tryForkProcess :: LocalNode -> Process () -> IO ProcessId
 tryForkProcess node p = do
   tid <- liftIO myThreadId
   forkProcess node $ catch p (\e -> liftIO $ throwTo tid (e::SomeException))
-

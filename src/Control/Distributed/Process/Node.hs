@@ -28,9 +28,12 @@ import Data.Binary (decode)
 import Data.Map (Map)
 import qualified Data.Map as Map
   ( empty
+  , delete
   , toList
   , fromList
-  , filter
+  , insert
+  , lookup
+  , partition
   , partitionWithKey
   , elems
   , size
@@ -183,6 +186,9 @@ import Control.Distributed.Process.Internal.Types
 import Control.Distributed.Process.Management.Internal.Agent
   ( mxAgentController
   )
+import Control.Distributed.Process.Management.Internal.Types
+  ( MxEvent(..)
+  )
 import qualified Control.Distributed.Process.Management.Internal.Trace.Remote as Trace
   ( remoteTable
   )
@@ -194,9 +200,6 @@ import Control.Distributed.Process.Management.Internal.Trace.Types
   , traceEvent
   , traceLogFmt
   , enableTrace
-  )
-import Control.Distributed.Process.Management.Internal.Types
-  ( MxEvent(..)
   )
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Internal.Messaging
@@ -210,6 +213,9 @@ import Control.Distributed.Process.Internal.Primitives
   , match
   , sendChan
   , unwrapMessage
+  , monitor
+  , unmonitorAsync
+  , getSelfNode
   , SayMessage(..)
   )
 import Control.Distributed.Process.Internal.Types (SendPort, Tracer(..))
@@ -903,7 +909,11 @@ ncEffectDied ident reason = do
 
   modify' $ (links ^= unaffectedLinks') . (monitors ^= unaffectedMons')
 
-  modify' $ registeredHere ^: Map.filter (\pid -> not $ ident `impliesDeathOf` ProcessIdentifier pid)
+  -- we now consider all labels for this identifier unregistered
+  let toDrop pid = not $ ident `impliesDeathOf` ProcessIdentifier pid
+  (keepNames, dropNames) <- Map.partition toDrop <$> gets (^. registeredHere)
+  mapM_ (\(p, l) -> liftIO $ trace node (MxUnRegistered l p)) (Map.toList dropNames)
+  modify' $ registeredHere ^= keepNames
 
   remaining <- fmap Map.toList (gets (^. registeredOnNodes)) >>=
       mapM (\(pid,nidlist) ->
@@ -955,7 +965,11 @@ ncEffectRegister from label atnode mPid reregistration = do
                do modify' $ registeredHereFor label ^= mPid
                   updateRemote node currentVal mPid
                   case mPid of
-                    (Just p) -> liftIO $ trace node (MxRegistered p label)
+                    (Just p) -> do
+                      if reregistration
+                        then liftIO $ trace node (MxUnRegistered (fromJust currentVal) label)
+                        else return ()
+                      liftIO $ trace node (MxRegistered p label)
                     Nothing  -> liftIO $ trace node (MxUnRegistered (fromJust currentVal) label)
              newVal <- gets (^. registeredHereFor label)
              ncSendToProcess from $ unsafeCreateUnencodedMessage $
@@ -1070,7 +1084,7 @@ ncEffectGetInfo from pid =
   case mProc of
     Nothing   -> dispatch (isLocal node (ProcessIdentifier from))
                           from (ProcessInfoNone DiedUnknownId)
-    Just proc    -> do
+    Just proc -> do
       itsLinks    <- Set.map fst . BiMultiMap.lookupBy1st them <$>
                        gets (^. links)
       itsMons     <- BiMultiMap.lookupBy1st them <$> gets (^. monitors)
@@ -1084,8 +1098,8 @@ ncEffectGetInfo from pid =
                    infoNode               = (processNodeId pid)
                  , infoRegisteredNames    = reg
                  , infoMessageQueueLength = size
-                 , infoMonitors       = Set.toList itsMons
-                 , infoLinks          = Set.toList itsLinks
+                 , infoMonitors           = Set.toList itsMons
+                 , infoLinks              = Set.toList itsLinks
                  }
   where dispatch :: (Serializable a)
                  => Bool

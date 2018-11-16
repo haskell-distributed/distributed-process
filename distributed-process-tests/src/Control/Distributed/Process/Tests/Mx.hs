@@ -4,7 +4,6 @@ module Control.Distributed.Process.Tests.Mx (tests) where
 import Control.Distributed.Process.Tests.Internal.Utils
 import Network.Transport.Test (TestTransport(..))
 
-import Control.Concurrent (threadDelay)
 import Control.Distributed.Process
 import Control.Distributed.Process.Node
 import qualified Control.Distributed.Process.UnsafePrimitives as Unsafe
@@ -27,12 +26,12 @@ import Control.Distributed.Process.Management
   , mxUpdateLocal
   , mxNotify
   , mxBroadcast
-  , mxGetId
   )
-import Control.Monad (void)
+import Control.Monad (void, unless)
+import Control.Rematch (equalTo)
 import Data.Binary
 import Data.List (find, sort)
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, isNothing)
 import Data.Typeable
 import GHC.Generics
 #if ! MIN_VERSION_base(4,6,0)
@@ -49,6 +48,16 @@ data Publish = Publish
   deriving (Typeable, Generic, Eq)
 
 instance Binary Publish where
+
+awaitExit :: ProcessId -> Process ()
+awaitExit pid =
+  withMonitorRef pid $ \ref -> do
+      receiveWait
+        [ matchIf (\(ProcessMonitorNotification r _ _) -> r == ref)
+                  (\_ -> return ())
+        ]
+  where
+    withMonitorRef pid = bracket (monitor pid) unmonitor
 
 testAgentBroadcast :: TestResult () -> Process ()
 testAgentBroadcast result = do
@@ -67,13 +76,13 @@ testAgentBroadcast result = do
   -- and the consumer will see that and send the result to our typed channel.
   stash result =<< receiveChan resultRP
 
-  kill publisher "finished"
-  kill consumer  "finished"
+  kill publisher "finished" >> awaitExit publisher
+  kill consumer  "finished" >> awaitExit consumer
 
 testAgentDualInput :: TestResult (Maybe Int) -> Process ()
 testAgentDualInput result = do
   (sp, rp) <- newChan
-  _ <- mxAgent (MxAgentId "sum-agent") (0 :: Int) [
+  s <- mxAgent (MxAgentId "sum-agent") (0 :: Int) [
         mxSink $ (\(i :: Int) -> do
                      mxSetLocal . (+i) =<< mxGetLocal
                      i' <- mxGetLocal
@@ -90,6 +99,7 @@ testAgentDualInput result = do
   mxNotify          (5 :: Int)
 
   stash result =<< receiveChanTimeout 10000000 rp
+  awaitExit s
 
 testAgentPrioritisation :: TestResult [String] -> Process ()
 testAgentPrioritisation result = do
@@ -101,8 +111,8 @@ testAgentPrioritisation result = do
 
   let name = "prioritising-agent"
   (sp, rp) <- newChan
-  void $ mxAgent (MxAgentId name) ["first"] [
-        mxSink (\(s :: String) -> do
+  s <- mxAgent (MxAgentId name) ["first"] [
+         mxSink (\(s :: String) -> do
                    mxUpdateLocal ((s:))
                    st <- mxGetLocal
                    case length st of
@@ -118,22 +128,25 @@ testAgentPrioritisation result = do
   nsend name "fifth"
 
   stash result . sort =<< receiveChan rp
+  awaitExit s
 
 testAgentMailboxHandling :: TestResult (Maybe ()) -> Process ()
 testAgentMailboxHandling result = do
   (sp, rp) <- newChan
-  agent <- mxAgent (MxAgentId "listener-agent") () [
+  agent <- mxAgent (MxAgentId "mailbox-agent") () [
       mxSink $ \() -> (liftMX $ sendChan sp ()) >> mxReady
     ]
 
-  nsend "listener-agent" ()
+  nsend "mailbox-agent" ()
 
   stash result =<< receiveChanTimeout 1000000 rp
-  kill agent "finished"
+  kill agent "finished" >> awaitExit agent
 
 testAgentEventHandling :: TestResult Bool -> Process ()
 testAgentEventHandling result = do
   let initState = [] :: [MxEvent]
+
+  (rc, rs) <- newChan
   agentPid <- mxAgent (MxAgentId "lifecycle-listener-agent") initState [
       (mxSink $ \ev -> do
          st <- mxGetLocal
@@ -142,7 +155,7 @@ testAgentEventHandling result = do
                  (MxSpawned _)       -> mxSetLocal (ev:st)
                  (MxProcessDied _ _) -> mxSetLocal (ev:st)
                  _                   -> return ()
-         act >> mxReady),
+         act >> (liftMX $ sendChan rc ()) >> mxReady),
       (mxSink $ \(ev, sp :: SendPort Bool) -> do
           st <- mxGetLocal
           let found =
@@ -162,15 +175,25 @@ testAgentEventHandling result = do
           mxReady)
     ]
 
+  -- TODO: yes, this is racy, but we're at the mercy of the scheduler here...
+  faff 2000000 rs
+
   _ <- monitor agentPid
   (sp, rp) <- newChan
-  pid <- spawnLocal $ sendChan sp ()
-  () <- receiveChan rp
+
+  pid <- spawnLocal $ expect >>= sendChan sp
 
   -- By waiting for a monitor notification, we have a
-  -- higher probably that the agent has seen
+  -- higher probably that the agent has seen the spawn and died events
   monitor pid
+
+  send pid ()
+  () <- receiveChan rp
+
   receiveWait [ match (\(ProcessMonitorNotification _ _ _) -> return ()) ]
+
+  -- TODO: yes, this is racy, but we're at the mercy of the scheduler here...
+  faff 2000000 rs
 
   (replyTo, reply) <- newChan :: Process (SendPort Bool, ReceivePort Bool)
   mxNotify (MxSpawned pid, replyTo)
@@ -180,6 +203,121 @@ testAgentEventHandling result = do
   seenDead  <- receiveChan reply
 
   stash result $ seenAlive && seenDead
+  kill agentPid "test-complete" >> awaitExit agentPid
+  where
+    faff delay port = do
+      res <- receiveChanTimeout delay port
+      unless (isNothing res) $ do
+        pause delay
+        faff delay port
+
+testMxRegEvents :: TestResult () -> Process ()
+testMxRegEvents result = do
+  {- This test only deals with the local case, to ensure that we are being
+     notified in the expected order - the remote cases related to the
+     behaviour of the node controller are contained in the CH test suite. -}
+  ensure (stash result ()) $ do
+    let label = "testMxRegEvents"
+    let agentLabel = "mxRegEvents-agent"
+    let delay = 1000000
+    (regChan, regSink) <- newChan
+    (unRegChan, unRegSink) <- newChan
+    agent <- mxAgent (MxAgentId agentLabel) () [
+        mxSink $ \ev -> do
+          case ev of
+            MxRegistered pid label'
+              | label' == label -> liftMX $ sendChan regChan (label', pid)
+            MxUnRegistered pid label'
+              | label' == label -> liftMX $ sendChan unRegChan (label', pid)
+            _                   -> return ()
+          mxReady
+      ]
+
+    p1 <- spawnLocal expect
+    p2 <- spawnLocal expect
+
+    register label p1
+    reg1 <- receiveChanTimeout delay regSink
+    reg1 `shouldBe` equalTo (Just (label, p1))
+
+    unregister label
+    unreg1 <- receiveChanTimeout delay unRegSink
+    unreg1 `shouldBe` equalTo (Just (label, p1))
+
+    register label p2
+    reg2 <- receiveChanTimeout delay regSink
+    reg2 `shouldBe` equalTo (Just (label, p2))
+
+    reregister label p1
+    unreg2 <- receiveChanTimeout delay unRegSink
+    unreg2 `shouldBe` equalTo (Just (label, p2))
+
+    reg3 <- receiveChanTimeout delay regSink
+    reg3 `shouldBe` equalTo (Just (label, p1))
+
+    mapM_ (flip kill $ "test-complete") [agent, p1, p2]
+    awaitExit agent
+
+testMxRegMon :: LocalNode -> TestResult () -> Process ()
+testMxRegMon remoteNode result = do
+  ensure (stash result ()) $ do
+    -- ensure that when a registered process dies, we get a notification that
+    -- it has been unregistered as well as seeing the name get removed
+    let label1 = "aaaaa"
+    let label2 = "bbbbb"
+    let isValid l = l == label1 || l == label2
+    let agentLabel = "mxRegMon-agent"
+    let delay = 1000000
+    (regChan, regSink) <- newChan
+    (unRegChan, unRegSink) <- newChan
+    agent <- mxAgent (MxAgentId agentLabel) () [
+        mxSink $ \ev -> do
+          case ev of
+            MxRegistered pid label
+              | isValid label -> liftMX $ sendChan regChan (label, pid)
+            MxUnRegistered pid label
+              | isValid label -> liftMX $ sendChan unRegChan (label, pid)
+            _                 -> return ()
+          mxReady
+      ]
+
+    (sp, rp) <- newChan
+    liftIO $ forkProcess remoteNode $ do
+      getSelfPid >>= sendChan sp
+      expect :: Process ()
+
+    p1 <- receiveChan rp
+
+    register label1 p1
+    reg1 <- receiveChanTimeout delay regSink
+    reg1 `shouldBe` equalTo (Just (label1, p1))
+
+    register label2 p1
+    reg2 <- receiveChanTimeout delay regSink
+    reg2 `shouldBe` equalTo (Just (label2, p1))
+
+    n1 <- whereis label1
+    n1 `shouldBe` equalTo (Just p1)
+
+    n2 <- whereis label2
+    n2 `shouldBe` equalTo (Just p1)
+
+    kill p1 "goodbye"
+
+    unreg1 <- receiveChanTimeout delay unRegSink
+    unreg2 <- receiveChanTimeout delay unRegSink
+
+    let evts = [unreg1, unreg2]
+    -- we can't rely on the order of the values in the node controller's
+    -- map (it's either racy to do so, or no such guarantee exists for Data.Map),
+    -- so we simply verify that we received the un-registration events we expect
+    evts `shouldContain` (Just (label1, p1))
+    evts `shouldContain` (Just (label2, p1))
+
+    kill agent "test-complete" >> awaitExit agent
+
+ensure :: Process () -> Process () -> Process ()
+ensure = flip finally
 
 
 testMxUnsafeSendEvents :: LocalNode -> Process ()
@@ -265,8 +403,17 @@ tests TestTransport{..} = do
                node1 (sort ["first", "second",
                             "third", "fourth",
                             "fifth"]) testAgentPrioritisation)
-      testGroup "Mx Events" [
-        testCase "Monitor Events"
-          (runProcess node1 (testMxUnsafeSendEvents node2))
       ]
-    ]]
+    , testGroup "Mx Events" [
+        testCase "Name Registration Events"
+          (delayedAssertion
+           "expected registration events to map to the correct ProcessId"
+           node1 () testMxRegEvents)
+      , testCase "Post Death Name UnRegistration Events"
+          (delayedAssertion
+           "expected process deaths to result in unregistration events"
+           node1 () (testMxRegMon node2))
+      , testCase "Monitor Events"
+        (runProcess node1 (testMxUnsafeSendEvents node2))
+      ]
+    ]

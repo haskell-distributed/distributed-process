@@ -7,7 +7,7 @@ import Control.Monad
 import Control.Applicative
 import Control.Distributed.Process
 import Control.Distributed.Process.Node
-import Network.Transport.TCP (createTransport, defaultTCPParameters)
+import Network.Transport.TCP (createTransport, defaultTCPAddr, defaultTCPParameters)
 import Data.Binary (encode, decode)
 import qualified Data.ByteString.Lazy as BSL
 
@@ -42,7 +42,8 @@ initialProcess "CLIENT" = do
 main :: IO ()
 main = do
   [role, host, port] <- getArgs
-  Right transport <- createTransport
-    host port (\sn -> (host, sn)) defaultTCPParameters
-  node <- newLocalNode transport initRemoteTable
-  runProcess node $ initialProcess role
+  trans <- createTransport (defaultTCPAddr host port) defaultTCPParameters
+  case trans of
+    Right transport -> do node <- newLocalNode transport initRemoteTable
+                          runProcess node $ initialProcess role
+    Left other -> error $ show other

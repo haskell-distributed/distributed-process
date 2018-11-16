@@ -8,7 +8,6 @@ import Network.Transport.Test (TestTransport(..))
 import Network.Transport.InMemory
 import Test.Framework (defaultMainWithArgs)
 
-import Control.Concurrent (threadDelay)
 import System.Environment (getArgs)
 
 main :: IO ()

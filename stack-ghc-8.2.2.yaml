@@ -1,6 +1,4 @@
-resolver: lts-12.18 # Use GHC 8.4.4
-
-# TODO: we can enable nightly-2018-11-11 once PR #319 is merged
+resolver: lts-11.22
 
 packages:
 - '.'
@@ -16,6 +14,7 @@ extra-deps:
 - network-transport-0.5.2
 - network-transport-inmemory-0.5.2
 - rematch-0.2.0.0
+# - exceptions-0.8.2.1 # test dependency
 
 flags:
   distributed-process-tests:
