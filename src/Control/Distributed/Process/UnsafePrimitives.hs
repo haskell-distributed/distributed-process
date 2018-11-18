@@ -104,28 +104,11 @@ nsend :: Serializable a => String -> a -> Process ()
 nsend label msg = do
   proc <- ask
   let us = processId proc
-  let node = localNodeId (processNode proc)
   let msg' = wrapMessage msg
   -- see [note: tracing]
   liftIO $ traceEvent (localEventBus (processNode proc))
                       (MxSentToName label us msg')
   sendCtrlMsg Nothing (NamedSend label msg')
-
--- [note: tracing]
--- In the remote case, we do not fire a trace event until after sending is
--- complete, since 'sendMessage' can block in the networking stack. For locally
--- registered processes, we trace before sending the NC a control message, since
--- we cannot guarantee ordering otherwise.
---
--- In addition, MxSent trace messages are dispatched by the node controller's
--- thread for local sends, which also covers usend.
---
--- Also note that tracing writes to the local node's control channel, and this
--- module explicitly specifies to its clients that it does unsafe message
--- encoding. The same is true for the messages it puts onto the Management
--- event bus, however we do *not* want unevaluated thunks hitting the event
--- bus control thread. Hence the word /Unsafe/ in this module's name!
---
 
 -- | Named send to a process in a remote registry (asynchronous)
 nsendRemote :: Serializable a => NodeId -> String -> a -> Process ()
@@ -133,13 +116,13 @@ nsendRemote nid label msg = do
   proc <- ask
   let us = processId proc
   let node = processNode proc
-  if localNodeId (processNode proc) == nid
+  if localNodeId node == nid
     then nsend label msg
     else
       let lbl = label ++ "@" ++ show nid in do
         -- see [note: tracing] NB: this is a remote call to another NC...
         liftIO $ traceEvent (localEventBus node)
-                            (MxSentToName label us (wrapMessage msg))
+                            (MxSentToName lbl us (wrapMessage msg))
         sendCtrlMsg (Just nid) (NamedSend label (createMessage msg))
 
 -- | Send a message
@@ -176,11 +159,20 @@ usend them msg = do
     let there = processNodeId them
     let (us, node) = (processId proc, processNode proc)
     let msg' = wrapMessage msg
+    -- see [note: tracing]
     liftIO $ traceEvent (localEventBus node) (MxSent them us msg')
     if localNodeId (processNode proc) == there
       then sendCtrlMsg Nothing $ LocalSend them msg'
       else sendCtrlMsg (Just there) $ UnreliableSend (processLocalId them)
                                                      (createMessage msg)
+
+-- [note: tracing]
+-- Note that tracing writes to the local node's control channel, and this
+-- module explicitly specifies to its clients that it does unsafe message
+-- encoding. The same is true for the messages it puts onto the Management
+-- event bus, however we do *not* want unevaluated thunks hitting the event
+-- bus control thread. Hence the word /Unsafe/ in this module's name!
+--
 
 -- | Send a message on a typed channel
 sendChan :: Serializable a => SendPort a -> a -> Process ()

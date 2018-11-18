@@ -33,7 +33,7 @@ import Control.Monad.Catch(finally, bracket, try)
 import Control.Rematch (equalTo)
 import Data.Binary
 import Data.List (find, sort)
-import Data.Maybe (isJust, isNothing)
+import Data.Maybe (isJust, fromJust, isNothing)
 import Data.Typeable
 import GHC.Generics hiding (from)
 #if ! MIN_VERSION_base(4,6,0)
@@ -323,17 +323,21 @@ ensure = flip finally
 
 type SendTest = ProcessId -> ReceivePort MxEvent -> Process Bool
 
-testNSend :: (String -> () -> Process ()) -> Maybe LocalNode -> TestResult Bool -> Process ()
+testNSend :: (String -> () -> Process ())
+          -> Maybe LocalNode
+          -> TestResult Bool
+          -> Process ()
 testNSend op n r = testMxSend n r $ \p1 sink -> do
   let delay = 5000000
   let label = "testMxSend"
+  let isValid = isValidLabel n label
 
   register label p1
   reg1 <- receiveChanTimeout delay sink
   case reg1 of
     Just (MxRegistered pd lb)
-      | pd == p1 && lb == label -> return ()
-    _                           -> die $ "Reg-Failed: " ++ show reg1
+      | pd == p1 && isValid lb -> return ()
+    _                          -> die $ "Reg-Failed: " ++ show reg1
 
   op label ()
 
@@ -341,8 +345,14 @@ testNSend op n r = testMxSend n r $ \p1 sink -> do
   sent <- receiveChanTimeout delay sink
   case sent of
     Just (MxSentToName lb by _)
-      | by == us && lb == label -> return True
-    _                            -> die $ "Send-Failed: " ++ show sent
+      | by == us && isValid lb -> return True
+    _                          -> die $ "Send-Failed: " ++ show sent
+
+  where
+    isValidLabel n l1 l2
+      | l2 == l2 = True
+      | isJust n     = l2 == l1 ++ "@" ++ show (localNodeId $ fromJust n)
+      | otherwise    = False
 
 testSend :: (ProcessId -> () -> Process ()) -> Maybe LocalNode -> TestResult Bool -> Process ()
 testSend op n r = testMxSend n r $ \p1 sink -> do
