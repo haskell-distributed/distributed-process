@@ -74,12 +74,13 @@ import Control.Concurrent
 import Control.Concurrent.MVar
   ( putMVar
   )
-import Control.Distributed.Process
+import Control.Distributed.Process hiding (finally, catch)
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable()
 
 import Control.Exception (AsyncException(ThreadKilled), SomeException)
 import Control.Monad (forever, void)
+import Control.Monad.Catch (finally, catch)
 import Control.Monad.STM (atomically)
 import Control.Rematch hiding (match)
 import Control.Rematch.Run

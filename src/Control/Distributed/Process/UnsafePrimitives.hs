@@ -113,10 +113,12 @@ nsend label msg = do
 
 -- [note: tracing]
 -- In the remote case, we do not fire a trace event until after sending is
--- complete, since 'sendMessage' can block in the networking stack.
+-- complete, since 'sendMessage' can block in the networking stack. For locally
+-- registered processes, we trace before sending the NC a control message, since
+-- we cannot guarantee ordering otherwise.
 --
 -- In addition, MxSent trace messages are dispatched by the node controller's
--- thread for local sends, which also covers local nsend, and local usend.
+-- thread for local sends, which also covers usend.
 --
 -- Also note that tracing writes to the local node's control channel, and this
 -- module explicitly specifies to its clients that it does unsafe message
@@ -133,10 +135,12 @@ nsendRemote nid label msg = do
   let node = processNode proc
   if localNodeId (processNode proc) == nid
     then nsend label msg
-    else do -- see [note: tracing] NB: this is a remote call to another NC...
-            sendCtrlMsg (Just nid) (NamedSend label (createMessage msg))
-            liftIO $ traceEvent (localEventBus node)
-                                (MxSentToName label us (wrapMessage msg))
+    else
+      let lbl = label ++ "@" ++ show nid in do
+        -- see [note: tracing] NB: this is a remote call to another NC...
+        liftIO $ traceEvent (localEventBus node)
+                            (MxSentToName label us (wrapMessage msg))
+        sendCtrlMsg (Just nid) (NamedSend label (createMessage msg))
 
 -- | Send a message
 send :: Serializable a => ProcessId -> a -> Process ()
@@ -144,17 +148,18 @@ send them msg = do
   proc <- ask
   let node     = localNodeId (processNode proc)
       destNode = (processNodeId them)
-      us       = (processId proc) in do
-  case destNode == node of
-    True  -> unsafeSendLocal them msg
-    False -> liftIO $ do sendMessage (processNode proc)
-                                     (ProcessIdentifier (processId proc))
-                                     (ProcessIdentifier them)
-                                     NoImplicitReconnect
-                                     msg
-                         -- see [note: tracing]
-                         liftIO $ traceEvent (localEventBus (processNode proc))
-                                             (MxSent them us (wrapMessage msg))
+      us       = (processId proc)
+      msg'     = wrapMessage msg in do
+    -- see [note: tracing]
+    liftIO $ traceEvent (localEventBus (processNode proc))
+                        (MxSent them us msg')
+    if destNode == node
+      then sendCtrlMsg Nothing $ LocalSend them msg'
+      else liftIO $ sendMessage (processNode proc)
+                                (ProcessIdentifier (processId proc))
+                                (ProcessIdentifier them)
+                                NoImplicitReconnect
+                                msg
 
 -- | Send a message unreliably.
 --
@@ -170,19 +175,12 @@ usend them msg = do
     proc <- ask
     let there = processNodeId them
     let (us, node) = (processId proc, processNode proc)
+    let msg' = wrapMessage msg
+    liftIO $ traceEvent (localEventBus node) (MxSent them us msg')
     if localNodeId (processNode proc) == there
-      then unsafeSendLocal them msg
-      else do sendCtrlMsg (Just there) $ UnreliableSend (processLocalId them)
-                                                        (createMessage msg)
-              -- I would assert that is it *still* cheaper to not encode here...
-              liftIO $ traceEvent (localEventBus node)
-                                  (MxSent them us (wrapMessage msg))
-
-unsafeSendLocal :: (Serializable a) => ProcessId -> a -> Process ()
-unsafeSendLocal pid msg =
-  let msg' = wrapMessage msg in do
-    sendCtrlMsg Nothing $ LocalSend pid msg'
-    -- see [note: tracing]
+      then sendCtrlMsg Nothing $ LocalSend them msg'
+      else sendCtrlMsg (Just there) $ UnreliableSend (processLocalId them)
+                                                     (createMessage msg)
 
 -- | Send a message on a typed channel
 sendChan :: Serializable a => SendPort a -> a -> Process ()
@@ -192,7 +190,7 @@ sendChan (SendPort cid) msg = do
       destNode = processNodeId (sendPortProcessId cid) in do
   case destNode == node of
     True  -> unsafeSendChanLocal cid msg
-    False -> do
+    False ->
       liftIO $ sendBinary (processNode proc)
                           (ProcessIdentifier (processId proc))
                           (SendPortIdentifier cid)

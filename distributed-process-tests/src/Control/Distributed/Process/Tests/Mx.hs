@@ -3,8 +3,9 @@ module Control.Distributed.Process.Tests.Mx (tests) where
 
 import Control.Distributed.Process.Tests.Internal.Utils
 import Network.Transport.Test (TestTransport(..))
-
-import Control.Distributed.Process
+import Control.Exception (SomeException)
+import Control.Distributed.Process hiding (bracket, finally, try)
+import Control.Distributed.Process.Internal.Types (ProcessExitException(..))
 import Control.Distributed.Process.Node
 import qualified Control.Distributed.Process.UnsafePrimitives as Unsafe
   ( send
@@ -28,12 +29,13 @@ import Control.Distributed.Process.Management
   , mxBroadcast
   )
 import Control.Monad (void, unless)
+import Control.Monad.Catch(finally, bracket, try)
 import Control.Rematch (equalTo)
 import Data.Binary
 import Data.List (find, sort)
 import Data.Maybe (isJust, isNothing)
 import Data.Typeable
-import GHC.Generics
+import GHC.Generics hiding (from)
 #if ! MIN_VERSION_base(4,6,0)
 import Prelude hiding (catch, log)
 #endif
@@ -57,7 +59,7 @@ awaitExit pid =
                   (\_ -> return ())
         ]
   where
-    withMonitorRef pid = bracket (monitor pid) unmonitor
+    withMonitorRef p = bracket (monitor p) unmonitor
 
 testAgentBroadcast :: TestResult () -> Process ()
 testAgentBroadcast result = do
@@ -319,101 +321,163 @@ testMxRegMon remoteNode result = do
 ensure :: Process () -> Process () -> Process ()
 ensure = flip finally
 
+type SendTest = ProcessId -> ReceivePort MxEvent -> Process Bool
 
-testMxUnsafeSendEvents :: LocalNode -> Process ()
-testMxUnsafeSendEvents remoteNode = do
+testNSend :: (String -> () -> Process ()) -> Maybe LocalNode -> TestResult Bool -> Process ()
+testNSend op n r = testMxSend n r $ \p1 sink -> do
+  let delay = 5000000
+  let label = "testMxSend"
 
-  -- ensure that when a registered process dies, we get a notification that
-  -- it has been unregistered as well as seeing the name get removed
+  register label p1
+  reg1 <- receiveChanTimeout delay sink
+  case reg1 of
+    Just (MxRegistered pd lb)
+      | pd == p1 && lb == label -> return ()
+    _                           -> die $ "Reg-Failed: " ++ show reg1
 
-  let label1 = "aaaaa"
-  let label2 = "bbbbb"
-  let isValid l = l ==label1 || l == label2
-  let agentLabel = "listener-agent"
-  let delay = 1000000
-  (regChan, regSink) <- newChan
-  (unRegChan, unRegSink) <- newChan
-  agent <- mxAgent (MxAgentId agentLabel) () [
+  op label ()
+
+  us <- getSelfPid
+  sent <- receiveChanTimeout delay sink
+  case sent of
+    Just (MxSentToName lb by _)
+      | by == us && lb == label -> return True
+    _                            -> die $ "Send-Failed: " ++ show sent
+
+testSend :: (ProcessId -> () -> Process ()) -> Maybe LocalNode -> TestResult Bool -> Process ()
+testSend op n r = testMxSend n r $ \p1 sink -> do
+  -- initiate a send
+  op p1 ()
+
+  -- verify the management event
+  us <- getSelfPid
+  sent <- receiveChanTimeout 5000000 sink
+  case sent of
+    Just (MxSent pidTo pidFrom _)
+      | pidTo == p1 && pidFrom == us -> return True
+    _                                -> return False
+
+testMxSend :: Maybe LocalNode -> TestResult Bool -> SendTest -> Process ()
+testMxSend mNode result test = do
+  us <- getSelfPid
+  (chan, sink) <- newChan
+  agent <- mxAgent (MxAgentId $ agentLabel us) () [
       mxSink $ \ev -> do
         case ev of
-          MxRegistered pid label
-            | isValid label -> liftMX $ sendChan regChan (label, pid)
-          MxUnRegistered pid label
-            | isValid label -> liftMX $ sendChan unRegChan (label, pid)
+          m@(MxSent _ fromPid _)
+            | fromPid == us -> liftMX $ sendChan chan m
+          m@(MxSentToName _ fromPid _)
+            | fromPid == us -> liftMX $ sendChan chan m
+          m@(MxRegistered _ name)
+            | name == label -> liftMX $ sendChan chan m
           _                 -> return ()
         mxReady
     ]
 
   (sp, rp) <- newChan
-  liftIO $ forkProcess remoteNode $ do
-    getSelfPid >>= sendChan sp
-    expect :: Process ()
+  case mNode of
+    Nothing         -> void $ spawnLocal (proc sp)
+    Just remoteNode -> void $ liftIO $ forkProcess remoteNode $ proc sp
 
   p1 <- receiveChan rp
+  res <- try (test p1 sink)
+  case res of
+    Left  (ProcessExitException _ m) -> (liftIO $ putStrLn $ "SomeException-" ++ show m) >> stash result False
+    Right tr                         -> stash result tr
+  kill agent "bye"
+  kill p1 "bye"
 
-  register label1 p1
-  reg1 <- receiveChanTimeout delay regSink
-  reg1 `shouldBe` equalTo (Just (label1, p1))
-
-  register label2 p1
-  reg2 <- receiveChanTimeout delay regSink
-  reg2 `shouldBe` equalTo (Just (label2, p1))
-
-  n1 <- whereis label1
-  n1 `shouldBe` equalTo (Just p1)
-
-  n2 <- whereis label2
-  n2 `shouldBe` equalTo (Just p1)
-
-  kill p1 "goodbye"
-
-  unreg1 <- receiveChanTimeout delay unRegSink
-  unreg2 <- receiveChanTimeout delay unRegSink
-
-  sort [unreg1, unreg2]
-    `shouldBe` equalTo [Just (label1, p1), Just (label2, p1)]
-
-  kill agent "test-complete"
+  where
+    label = "testMxSend"
+    agentLabel s = "mx-unsafe-check-agent-" ++ show s
+    proc sp' = getSelfPid >>= sendChan sp' >> expect :: Process ()
 
 tests :: TestTransport -> IO [Test]
 tests TestTransport{..} = do
   node1 <- newLocalNode testTransport initRemoteTable
   node2 <- newLocalNode testTransport initRemoteTable
+  let nid = localNodeId node2
   return [
-      testGroup "Mx Agents" [
-          testCase "Event Handling"
+      testGroup "MxAgents" [
+          testCase "EventHandling"
               (delayedAssertion
                "expected True, but events where not as expected"
                node1 True testAgentEventHandling)
-        , testCase "Inter-Agent Broadcast"
+        , testCase "InterAgentBroadcast"
               (delayedAssertion
                "expected (), but no broadcast was received"
                node1 () testAgentBroadcast)
-        , testCase "Agent Mailbox Handling"
+        , testCase "AgentMailboxHandling"
               (delayedAssertion
                "expected (Just ()), but no regular (mailbox) input was handled"
                node1 (Just ()) testAgentMailboxHandling)
-        , testCase "Agent Dual Input Handling"
+        , testCase "AgentDualInputHandling"
               (delayedAssertion
                "expected sum = 15, but the result was Nothing"
                node1 (Just 15 :: Maybe Int) testAgentDualInput)
-        , testCase "Agent Input Prioritisation"
+        , testCase "AgentInputPrioritisation"
               (delayedAssertion
                "expected [first, second, third, fourth, fifth], but result diverged"
                node1 (sort ["first", "second",
                             "third", "fourth",
                             "fifth"]) testAgentPrioritisation)
       ]
-    , testGroup "Mx Events" [
-        testCase "Name Registration Events"
+    , testGroup "MxEvents" [
+        testCase "NameRegistrationEvents"
           (delayedAssertion
            "expected registration events to map to the correct ProcessId"
            node1 () testMxRegEvents)
-      , testCase "Post Death Name UnRegistration Events"
+      , testCase "PostDeathNameUnRegistrationEvents"
           (delayedAssertion
            "expected process deaths to result in unregistration events"
            node1 () (testMxRegMon node2))
-      , testCase "Monitor Events"
-        (runProcess node1 (testMxUnsafeSendEvents node2))
+      , testGroup "SentEvents" [
+          testGroup "RemoteTargets" [
+            testCase "Unsafe.nsend"
+              (delayedAssertion "expected mx events failed"
+               node1 True (testNSend Unsafe.nsend $ Just node2))
+          , testCase "Unsafe.nsendRemote"
+              (delayedAssertion "expected mx events failed"
+               node1 True (testNSend (Unsafe.nsendRemote nid) $ Just node2))
+          , testCase "Unsafe.send"
+              (delayedAssertion "expected mx events failed"
+               node1 True (testSend Unsafe.send $ Just node2))
+          , testCase "Unsafe.usend"
+              (delayedAssertion "expected mx events failed"
+               node1 True (testSend Unsafe.usend $ Just node2))
+          , testCase "nsend"
+               (delayedAssertion "expected mx events failed"
+                node1 True (testNSend nsend $ Just node2))
+           , testCase "nsendRemote"
+               (delayedAssertion "expected mx events failed"
+                node1 True (testNSend (nsendRemote nid) $ Just node2))
+           , testCase "send"
+               (delayedAssertion "expected mx events failed"
+                node1 True (testSend send $ Just node2))
+           , testCase "usend"
+               (delayedAssertion "expected mx events failed"
+                node1 True (testSend usend $ Just node2))
+          ]
+        , testGroup "LocalTargets" [
+              testCase "Unsafe.nsend"
+              (delayedAssertion "expected mx events failed"
+               node1 True (testNSend Unsafe.nsend Nothing))
+            , testCase "Unsafe.send"
+                (delayedAssertion "expected mx events failed"
+                 node1 True (testSend Unsafe.send Nothing))
+            , testCase "Unsafe.usend"
+                (delayedAssertion "expected mx events failed"
+                 node1 True (testSend Unsafe.usend Nothing))
+            , testCase "nsend"
+                (delayedAssertion "expected mx events failed"
+                 node1 True (testNSend nsend Nothing))
+            , testCase "send"
+                (delayedAssertion "expected mx events failed"
+                 node1 True (testSend send Nothing))
+            , testCase "usend"
+                (delayedAssertion "expected mx events failed"
+                 node1 True (testSend usend Nothing))
+            ]
+          ]
+        ]
       ]
-    ]
