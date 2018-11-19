@@ -178,20 +178,22 @@ usend them msg = do
 sendChan :: Serializable a => SendPort a -> a -> Process ()
 sendChan (SendPort cid) msg = do
   proc <- ask
-  let node     = localNodeId (processNode proc)
-      destNode = processNodeId (sendPortProcessId cid) in do
-  case destNode == node of
-    True  -> unsafeSendChanLocal cid msg
-    False ->
-      liftIO $ sendBinary (processNode proc)
-                          (ProcessIdentifier (processId proc))
-                          (SendPortIdentifier cid)
-                          NoImplicitReconnect
-                          msg
+  let node = processNode proc
+      pid  = processId proc
+      us   = localNodeId node
+      them = processNodeId (sendPortProcessId cid)
+      msg' = wrapMessage msg in do
+  liftIO $ traceEvent (localEventBus node) (MxSentToPort pid cid msg')
+  if them == us
+    then unsafeSendChanLocal cid msg' -- NB: we wrap to P.Message !!!
+    else liftIO $ sendBinary node
+                             (ProcessIdentifier pid)
+                             (SendPortIdentifier cid)
+                             NoImplicitReconnect
+                             msg
   where
-    unsafeSendChanLocal :: (Serializable a) => SendPortId -> a -> Process ()
-    unsafeSendChanLocal spId msg' =
-      sendCtrlMsg Nothing $ LocalPortSend spId (wrapMessage msg')
+    unsafeSendChanLocal :: SendPortId -> Message -> Process ()
+    unsafeSendChanLocal p m = sendCtrlMsg Nothing $ LocalPortSend p m
 
 -- | Create an unencoded @Message@ for any @Serializable@ type.
 wrapMessage :: Serializable a => a -> Message

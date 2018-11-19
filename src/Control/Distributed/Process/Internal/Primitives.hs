@@ -335,13 +335,16 @@ newChan = do
 sendChan :: Serializable a => SendPort a -> a -> Process ()
 sendChan (SendPort cid) msg = do
   proc <- ask
-  let node     = localNodeId (processNode proc)
-      destNode = processNodeId (sendPortProcessId cid) in do
-  case destNode == node of
+  let node = processNode proc
+      pid  = processId proc
+      us   = localNodeId node
+      them = processNodeId (sendPortProcessId cid) in do
+  liftIO $ traceEvent (localEventBus node) (MxSentToPort pid cid $ wrapMessage msg)
+  case them == us of
     True  -> sendChanLocal cid msg
     False -> do
-      liftIO $ sendBinary (processNode proc)
-                          (ProcessIdentifier (processId proc))
+      liftIO $ sendBinary node
+                          (ProcessIdentifier pid)
                           (SendPortIdentifier cid)
                           NoImplicitReconnect
                           msg

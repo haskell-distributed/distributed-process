@@ -44,7 +44,7 @@ import Control.Distributed.Process.Internal.Types
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Debug
 import Control.Distributed.Process.Management.Internal.Types
-import Control.Distributed.Process.Tests.Internal.Utils (shouldBe)
+import Control.Distributed.Process.Tests.Internal.Utils (shouldBe, pause)
 import Control.Distributed.Process.Serializable (Serializable)
 
 import Test.HUnit (Assertion, assertBool, assertFailure)
@@ -87,10 +87,9 @@ verifyClient :: String -> MVar Bool -> IO ()
 verifyClient s b = takeMVar b >>= assertBool s
 
 expectPing :: MVar Bool ->  Process ()
-expectPing mv = expect >>= liftIO . putMVar mv . checkPing
+expectPing mv = expect  >>= liftIO . putMVar mv . checkPing
   where
     checkPing (Ping _) = True
-    checkPing _        = False
 
 -- | Quick and dirty synchronous version of whereisRemoteAsync
 whereisRemote :: NodeId -> String -> Process (Maybe ProcessId)
@@ -240,10 +239,10 @@ testPing TestTransport{..} = do
       pid <- getSelfPid
       replicateM_ numPings $ do
         send pingServer (Pong pid)
-        p <- expect
+        p <- expectTimeout 3000000
         case p of
-          Ping _ -> return ()
-          _      -> die "Unexpected message"
+          Just (Ping _) -> return ()
+          Nothing       -> die "Failed to receive Ping"
 
     putMVar clientDone ()
 
@@ -560,7 +559,7 @@ testMergeChannels TestTransport{..} = do
         ss <- liftIO $ mapM readMVar vs
         case ss of
           [sa, sb, sc] ->
-            mapM_ ((>> liftIO (threadDelay 10000)) . uncurry sendChan)
+            mapM_ ((>> pause 10000) . uncurry sendChan)
               [ -- a, b, c
                 (sa, 'a')
               , (sb, 'b')
