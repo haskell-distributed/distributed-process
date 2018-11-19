@@ -5,7 +5,10 @@ import Control.Distributed.Process.Tests.Internal.Utils
 import Network.Transport.Test (TestTransport(..))
 import Control.Exception (SomeException)
 import Control.Distributed.Process hiding (bracket, finally, try)
-import Control.Distributed.Process.Internal.Types (ProcessExitException(..))
+import Control.Distributed.Process.Internal.Types
+ ( ProcessExitException(..)
+ , unsafeCreateUnencodedMessage
+ )
 import Control.Distributed.Process.Node
 import qualified Control.Distributed.Process.UnsafePrimitives as Unsafe
   ( send
@@ -321,8 +324,6 @@ testMxRegMon remoteNode result = do
 ensure :: Process () -> Process () -> Process ()
 ensure = flip finally
 
-type SendTest = ProcessId -> ReceivePort MxEvent -> Process Bool
-
 testNSend :: (String -> () -> Process ())
           -> Maybe LocalNode
           -> TestResult Bool
@@ -354,7 +355,10 @@ testNSend op n r = testMxSend n r $ \p1 sink -> do
       | isJust n     = l2 == l1 ++ "@" ++ show (localNodeId $ fromJust n)
       | otherwise    = False
 
-testSend :: (ProcessId -> () -> Process ()) -> Maybe LocalNode -> TestResult Bool -> Process ()
+testSend :: (ProcessId -> () -> Process ())
+         -> Maybe LocalNode
+         -> TestResult Bool
+         -> Process ()
 testSend op n r = testMxSend n r $ \p1 sink -> do
   -- initiate a send
   op p1 ()
@@ -366,6 +370,8 @@ testSend op n r = testMxSend n r $ \p1 sink -> do
     Just (MxSent pidTo pidFrom _)
       | pidTo == p1 && pidFrom == us -> return True
     _                                -> return False
+
+type SendTest = ProcessId -> ReceivePort MxEvent -> Process Bool
 
 testMxSend :: Maybe LocalNode -> TestResult Bool -> SendTest -> Process ()
 testMxSend mNode result test = do
@@ -467,6 +473,12 @@ tests TestTransport{..} = do
            , testCase "usend"
                (delayedAssertion "expected mx events failed"
                 node1 True (testSend usend $ Just node2))
+           , testCase "forward"
+               (delayedAssertion "expected mx events failed"
+                node1 True (testSend (\p m -> forward (unsafeCreateUnencodedMessage m) p) $ Just node2))
+           , testCase "uforward"
+               (delayedAssertion "expected mx events failed"
+                node1 True (testSend (\p m -> uforward (unsafeCreateUnencodedMessage m) p) $ Just node2))
           ]
         , testGroup "LocalTargets" [
               testCase "Unsafe.nsend"
@@ -487,6 +499,12 @@ tests TestTransport{..} = do
             , testCase "usend"
                 (delayedAssertion "expected mx events failed"
                  node1 True (testSend usend Nothing))
+            , testCase "forward"
+                (delayedAssertion "expected mx events failed"
+                 node1 True (testSend (\p m -> forward (unsafeCreateUnencodedMessage m) p) Nothing))
+            , testCase "uforward"
+                (delayedAssertion "expected mx events failed"
+                 node1 True (testSend (\p m -> uforward (unsafeCreateUnencodedMessage m) p) Nothing))
             ]
           ]
         ]
