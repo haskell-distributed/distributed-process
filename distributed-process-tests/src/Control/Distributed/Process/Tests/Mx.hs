@@ -1,4 +1,6 @@
-{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveGeneric    #-}
+{-# LANGUAGE ParallelListComp #-}
+
 module Control.Distributed.Process.Tests.Mx (tests) where
 
 import Control.Distributed.Process.Tests.Internal.Utils
@@ -35,7 +37,7 @@ import Control.Monad (void, unless)
 import Control.Monad.Catch(finally, bracket, try)
 import Control.Rematch (equalTo)
 import Data.Binary
-import Data.List (find, sort)
+import Data.List (find, sort, intercalate)
 import Data.Maybe (isJust, fromJust, isNothing)
 import Data.Typeable
 import GHC.Generics hiding (from)
@@ -412,7 +414,6 @@ tests :: TestTransport -> IO [Test]
 tests TestTransport{..} = do
   node1 <- newLocalNode testTransport initRemoteTable
   node2 <- newLocalNode testTransport initRemoteTable
-  let nid = localNodeId node2
   return [
       testGroup "MxAgents" [
           testCase "EventHandling"
@@ -447,65 +448,40 @@ tests TestTransport{..} = do
           (delayedAssertion
            "expected process deaths to result in unregistration events"
            node1 () (testMxRegMon node2))
-      , testGroup "SentEvents" [
-          testGroup "RemoteTargets" [
-            testCase "Unsafe.nsend"
-              (delayedAssertion "expected mx events failed"
-               node1 True (testNSend Unsafe.nsend $ Just node2))
-          , testCase "Unsafe.nsendRemote"
-              (delayedAssertion "expected mx events failed"
-               node1 True (testNSend (Unsafe.nsendRemote nid) $ Just node2))
-          , testCase "Unsafe.send"
-              (delayedAssertion "expected mx events failed"
-               node1 True (testSend Unsafe.send $ Just node2))
-          , testCase "Unsafe.usend"
-              (delayedAssertion "expected mx events failed"
-               node1 True (testSend Unsafe.usend $ Just node2))
-          , testCase "nsend"
-               (delayedAssertion "expected mx events failed"
-                node1 True (testNSend nsend $ Just node2))
-           , testCase "nsendRemote"
-               (delayedAssertion "expected mx events failed"
-                node1 True (testNSend (nsendRemote nid) $ Just node2))
-           , testCase "send"
-               (delayedAssertion "expected mx events failed"
-                node1 True (testSend send $ Just node2))
-           , testCase "usend"
-               (delayedAssertion "expected mx events failed"
-                node1 True (testSend usend $ Just node2))
-           , testCase "forward"
-               (delayedAssertion "expected mx events failed"
-                node1 True (testSend (\p m -> forward (unsafeCreateUnencodedMessage m) p) $ Just node2))
-           , testCase "uforward"
-               (delayedAssertion "expected mx events failed"
-                node1 True (testSend (\p m -> uforward (unsafeCreateUnencodedMessage m) p) $ Just node2))
-          ]
-        , testGroup "LocalTargets" [
-              testCase "Unsafe.nsend"
-              (delayedAssertion "expected mx events failed"
-               node1 True (testNSend Unsafe.nsend Nothing))
-            , testCase "Unsafe.send"
-                (delayedAssertion "expected mx events failed"
-                 node1 True (testSend Unsafe.send Nothing))
-            , testCase "Unsafe.usend"
-                (delayedAssertion "expected mx events failed"
-                 node1 True (testSend Unsafe.usend Nothing))
-            , testCase "nsend"
-                (delayedAssertion "expected mx events failed"
-                 node1 True (testNSend nsend Nothing))
-            , testCase "send"
-                (delayedAssertion "expected mx events failed"
-                 node1 True (testSend send Nothing))
-            , testCase "usend"
-                (delayedAssertion "expected mx events failed"
-                 node1 True (testSend usend Nothing))
-            , testCase "forward"
-                (delayedAssertion "expected mx events failed"
-                 node1 True (testSend (\p m -> forward (unsafeCreateUnencodedMessage m) p) Nothing))
-            , testCase "uforward"
-                (delayedAssertion "expected mx events failed"
-                 node1 True (testSend (\p m -> uforward (unsafeCreateUnencodedMessage m) p) Nothing))
+      , testGroup "SendEvents" $ buildTestCases node1 node2
+      ]
+    ]
+  where
+    buildTestCases n1 n2 =
+      let nid = localNodeId n2 in build n2 [
+              ("NSend", [
+                  ("Unsafe.nsend",       testNSend Unsafe.nsend)
+                , ("Unsafe.nsendRemote", testNSend (Unsafe.nsendRemote nid))
+                , ("nsend",              testNSend nsend)
+                , ("nsendRemote",        testNSend (nsendRemote nid))
+                ])
+            , ("Send", [
+                  ("Unsafe.send",  testSend Unsafe.send)
+                , ("Unsafe.usend", testSend Unsafe.usend)
+                , ("send",         testSend send)
+                , ("usend",        testSend usend)
+                ])
+            , ("Forward", [
+                  ("forward",  testSend (\p m -> forward (unsafeCreateUnencodedMessage m) p))
+                , ("uforward", testSend (\p m -> uforward (unsafeCreateUnencodedMessage m) p))
+                ])
             ]
-          ]
-        ]
+
+    build :: LocalNode
+          -> [(String, [(String, (Maybe LocalNode -> TestResult Bool -> Process ()))])]
+          -> [Test]
+    build ln specs =
+      [ testGroup (intercalate "-" [groupName, caseSuffix]) [
+             testCase (intercalate "-" [caseName, caseSuffix])
+               (delayedAssertion "expected mx events failed"
+                ln True (caseImpl caseNode))
+             | (caseName, caseImpl) <- groupCases
+           ]
+         | (groupName, groupCases) <- specs
+         , (caseSuffix, caseNode) <- [("RemotePid", Just ln), ("LocalPid", Nothing)]
       ]
