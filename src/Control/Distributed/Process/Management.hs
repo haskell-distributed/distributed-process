@@ -76,6 +76,40 @@
 --
 --  * Whether messages will be taken from the mailbox first, or the event bus.
 --
+-- Since the event bus uses STM broadcast channels to communicate with agents,
+-- no message written to the bus successfully can be lost.
+--
+-- Agents can also receive messages via their mailboxes - these are subject to
+-- the same guarantees as all inter-process message sending.
+--
+-- Messages dispatched on an STM broadcast channel (i.e., management event bus)
+-- are guaranteed to be delivered with the same FIFO ordering guarantees that
+-- exist between two communicating processes, such that communication from the
+-- node controller's threads (i.e., MxEvent's) will never be re-ordered, but
+-- messages dispatched to the event bus by other processes (including, but not
+-- limited to agents) are only guaranteed to be ordered between one sender and
+-- one receiver.
+--
+-- No guarantee exists for the ordering in which messages sent to an agent's
+-- mailbox will be delivered, vs messages dispatched via the event bus.
+--
+-- Because of the above, there are no ordering guarantees for messages sent
+-- between agents, or for processes to agents, except for those that apply to
+-- messages sent between regular processes, since agents are
+-- implemented as such.
+--
+-- The event bus is serial and single threaded. Anything that is published by
+-- the node controller will be seen in FIFO order. There are no ordering
+-- guarantees pertaining to entries published to the event bus by other
+-- processes or agents.
+--
+-- It should not be possible to see, for example, an @MxReceived@ before the
+-- corresponding @MxSent@ event, since the places where we issue the @MxSent@
+-- write directly to the event bus (using STM) in the calling (green) thread,
+-- before dispatching instructions to the node controller to perform the
+-- necessary routing to deliver the message to a process (or registered name,
+-- or typed channel) locally or remotely.
+--
 -- [Management Data API]
 --
 -- Both management agents and clients of the API have access to a variety of
@@ -143,8 +177,6 @@
 --
 -- > monitorNames = getSelfPid >>= nsend "name-monitor"
 -- > monitorNames2 = getSelfPid >>= mxNotify
---
--- For some real-world examples, see the distributed-process-platform package.
 --
 -- [Performance, Stablity and Scalability]
 --
