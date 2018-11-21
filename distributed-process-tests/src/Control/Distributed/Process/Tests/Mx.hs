@@ -17,6 +17,7 @@ import qualified Control.Distributed.Process.UnsafePrimitives as Unsafe
   , nsend
   , nsendRemote
   , usend
+  , sendChan
   )
 import Control.Distributed.Process.Management
   ( MxEvent(..)
@@ -38,7 +39,7 @@ import Control.Monad.Catch(finally, bracket, try)
 import Control.Rematch (equalTo)
 import Data.Binary
 import Data.List (find, sort, intercalate)
-import Data.Maybe (isJust, fromJust, isNothing)
+import Data.Maybe (isJust, fromJust, isNothing, fromMaybe)
 import Data.Typeable
 import GHC.Generics hiding (from)
 #if ! MIN_VERSION_base(4,6,0)
@@ -373,15 +374,47 @@ testSend op n r = testMxSend n r $ \p1 sink -> do
       | pidTo == p1 && pidFrom == us -> return True
     _                                -> return False
 
+testChan :: (SendPort () -> () -> Process ())
+         -> Maybe LocalNode
+         -> TestResult Bool
+         -> Process ()
+testChan op n r = testMxSend n r $ \p1 sink -> do
+
+  us <- getSelfPid
+  send p1 us
+
+  cleared <- receiveChan sink
+  case cleared of
+    (MxSent pidTo pidFrom _)
+      | pidTo == p1 && pidFrom == us -> return ()
+    _                                -> die "Received uncleared Mx Event"
+
+  chan <- receiveTimeout 5000000 [ match return ]
+  let ch' = fromMaybe (error "No reply chan received") chan
+
+  -- initiate a send
+  op ch' ()
+
+  -- verify the management event
+  sent <- receiveChanTimeout 5000000 sink
+  case sent of
+    Just (MxSentToPort sId spId _)
+      | sId == us && spId == sendPortId ch' -> return True
+    _                                       -> return False
+
 type SendTest = ProcessId -> ReceivePort MxEvent -> Process Bool
 
 testMxSend :: Maybe LocalNode -> TestResult Bool -> SendTest -> Process ()
 testMxSend mNode result test = do
   us <- getSelfPid
+  (sp, rp) <- newChan
   (chan, sink) <- newChan
   agent <- mxAgent (MxAgentId $ agentLabel us) () [
       mxSink $ \ev -> do
         case ev of
+          m@(MxSentToPort _ cid _)
+            | cid /= sendPortId chan
+              && cid /= sendPortId sp -> liftMX $ sendChan chan m
           m@(MxSent _ fromPid _)
             | fromPid == us -> liftMX $ sendChan chan m
           m@(MxSentToName _ fromPid _)
@@ -392,7 +425,6 @@ testMxSend mNode result test = do
         mxReady
     ]
 
-  (sp, rp) <- newChan
   case mNode of
     Nothing         -> void $ spawnLocal (proc sp)
     Just remoteNode -> void $ liftIO $ forkProcess remoteNode $ proc sp
@@ -408,7 +440,16 @@ testMxSend mNode result test = do
   where
     label = "testMxSend"
     agentLabel s = "mx-unsafe-check-agent-" ++ show s
-    proc sp' = getSelfPid >>= sendChan sp' >> expect :: Process ()
+    proc sp' = getSelfPid >>= sendChan sp' >> go Nothing
+
+    go :: Maybe (ReceivePort ()) -> Process ()
+    go Nothing = receiveTimeout 5000000 [ match replyChannel ] >>= go
+    go c@(Just c') = receiveWait [ matchChan c' return ] >> go c
+
+    replyChannel p' = do
+      (s, r) <- newChan
+      send p' s
+      return r
 
 tests :: TestTransport -> IO [Test]
 tests TestTransport{..} = do
@@ -455,16 +496,18 @@ tests TestTransport{..} = do
     buildTestCases n1 n2 =
       let nid = localNodeId n2 in build n2 [
               ("NSend", [
-                  ("Unsafe.nsend",       testNSend Unsafe.nsend)
-                , ("Unsafe.nsendRemote", testNSend (Unsafe.nsendRemote nid))
-                , ("nsend",              testNSend nsend)
+                  ("nsend",              testNSend nsend)
+                , ("Unsafe.nsend",       testNSend Unsafe.nsend)
                 , ("nsendRemote",        testNSend (nsendRemote nid))
+                , ("Unsafe.nsendRemote", testNSend (Unsafe.nsendRemote nid))
                 ])
             , ("Send", [
-                  ("Unsafe.send",  testSend Unsafe.send)
-                , ("Unsafe.usend", testSend Unsafe.usend)
-                , ("send",         testSend send)
-                , ("usend",        testSend usend)
+                  ("send",            testSend send)
+                , ("Unsafe.send",     testSend Unsafe.send)
+                , ("usend",           testSend usend)
+                , ("Unsafe.usend",    testSend Unsafe.usend)
+                , ("sendChan",        testChan sendChan)
+                , ("Unsafe.sendChan", testChan Unsafe.sendChan)
                 ])
             , ("Forward", [
                   ("forward",  testSend (\p m -> forward (unsafeCreateUnencodedMessage m) p))
