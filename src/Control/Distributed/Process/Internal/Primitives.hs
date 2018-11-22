@@ -307,7 +307,13 @@ expect = receiveWait [match return]
 -- Channels                                                                   --
 --------------------------------------------------------------------------------
 
--- | Create a new typed channel
+-- | Create a new typed channel, bound to the calling Process
+--
+-- Note that the channel is bound to the lifecycle of the process that evaluates
+-- this function, such that when it dies/exits, the channel will no longer
+-- function, but will remain accessible. Thus reading from the ReceivePort will
+-- fail silently thereafter, blocking indefinitely (unless a timeout is used).
+--
 newChan :: Serializable a => Process (SendPort a, ReceivePort a)
 newChan = do
     proc <- ask
