@@ -44,13 +44,13 @@ import Control.Distributed.Process.Internal.Types
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Debug
 import Control.Distributed.Process.Management.Internal.Types
-import Control.Distributed.Process.Tests.Internal.Utils (shouldBe)
+import Control.Distributed.Process.Tests.Internal.Utils (shouldBe, pause)
 import Control.Distributed.Process.Serializable (Serializable)
-
+import Data.Maybe (isNothing)
 import Test.HUnit (Assertion, assertBool, assertFailure)
 import Test.Framework (Test, testGroup)
 import Test.Framework.Providers.HUnit (testCase)
-import Control.Rematch hiding (match)
+import Control.Rematch hiding (match, isNothing)
 import Control.Rematch.Run (Match(..))
 
 newtype Ping = Ping ProcessId
@@ -1273,6 +1273,76 @@ testReceiveChanFeatures TestTransport{..} = do
 
   takeMVar done
 
+testChanLifecycle :: TestTransport -> Assertion
+testChanLifecycle TestTransport{..} = let delay = 3000000 in do
+  result <- newEmptyMVar
+  tchMV <- newEmptyMVar
+  localNode <- newLocalNode testTransport initRemoteTable
+  runProcess localNode $ do
+
+    pid <- spawnLocal $ do tCh  <- newChan :: Process (SendPort (), ReceivePort ())
+                           liftIO $ putMVar tchMV tCh
+                           expect :: Process ()
+                           let (sp, _) = tCh
+                           sendChan sp ()
+                           expect :: Process ()
+
+    mRefPid <- monitor pid
+
+    cPid <- spawnLocal $ do
+      (sp', rp) <- liftIO $ takeMVar tchMV
+      -- say "picked up our test channel"
+      send pid ()
+      -- say "told pid to continue"
+      res <- receiveChanTimeout delay rp
+      case res of
+        Nothing -> say "initial chan () missing!" >> (liftIO $ putMVar result False)
+        Just () -> do mr <- monitor pid
+                      pause 10000
+                      -- say "sending pid a second () will cause it to exit"
+                      send pid ()
+
+                      -- say "make sure we see a DOWN notification for pid having stopped"
+                      receiveWait [ match (\(_ :: ProcessMonitorNotification) -> return ()) ]
+
+                      -- now that pid has died, the send port should be useless...
+                      liftIO $ putMVar tchMV (sp', rp)
+
+                      -- let's verify that we do not see the message from our
+                      -- parent process on the channel, once pid has died...
+                      recv <- receiveChanTimeout delay rp
+                      -- say $ "finished waiting for second (), writing result" ++ (show recv)
+                      liftIO $ putMVar result $ isNothing recv
+
+    mRefCPid <- monitor cPid
+
+    receiveWait
+        [ matchIf (\(ProcessMonitorNotification r _ _) -> r == mRefPid)
+                  (\_ -> return ())
+        ]
+
+    -- say "seen first pid die..."
+
+    (sendPort, _) <- liftIO $ takeMVar tchMV
+    sendChan sendPort ()
+    -- say "sent () after owning pid died"
+
+    -- let cPid know we've written to the channel...
+    send cPid ()
+
+    receiveWait
+        [ matchIf (\(ProcessMonitorNotification r _ _) -> r == mRefCPid)
+                  (\_ -> return ())
+        ]
+
+    -- say "seen both pids die now..."
+
+  -- and wait on the result back in IO land...
+  testRes <- takeMVar result
+  -- runProcess localNode $ say "got result..."
+  assertBool "Expected sending on the channel to fail, but received data!" testRes
+
+
 testKillLocal :: TestTransport -> Assertion
 testKillLocal TestTransport{..} = do
   localNode <- newLocalNode testTransport initRemoteTable
@@ -1737,6 +1807,7 @@ tests testtrans = return [
       , testCase "MatchMessageUnwrap"  (testMatchMessageWithUnwrap testtrans)
       , testCase "ReceiveChanTimeout"  (testReceiveChanTimeout  testtrans)
       , testCase "ReceiveChanFeatures" (testReceiveChanFeatures testtrans)
+      , testCase "ChanLifecycle"       (testChanLifecycle       testtrans)
       , testCase "KillLocal"           (testKillLocal           testtrans)
       , testCase "KillRemote"          (testKillRemote          testtrans)
       , testCase "Die"                 (testDie                 testtrans)
