@@ -489,7 +489,7 @@ tests TestTransport{..} = do
           (delayedAssertion
            "expected process deaths to result in unregistration events"
            node1 () (testMxRegMon node2))
-      , testGroup "SendEvents" $ buildTestCases node1 node2
+      -- , testGroup "SendEvents" $ buildTestCases node1 node2
       ]
     ]
   where
