@@ -50,6 +50,7 @@ import Test.Framework
   ( Test
   , testGroup
   )
+import Test.HUnit (Assertion)
 import Test.Framework.Providers.HUnit (testCase)
 
 data Publish = Publish
@@ -329,9 +330,8 @@ ensure = flip finally
 
 testNSend :: (String -> () -> Process ())
           -> Maybe LocalNode
-          -> TestResult Bool
           -> Process ()
-testNSend op n r = testMxSend n r $ \p1 sink -> do
+testNSend op n = testMxSend n $ \p1 sink -> do
   let delay = 5000000
   let label = "testMxSend"
   let isValid = isValidLabel n label
@@ -360,9 +360,8 @@ testNSend op n r = testMxSend n r $ \p1 sink -> do
 
 testSend :: (ProcessId -> () -> Process ())
          -> Maybe LocalNode
-         -> TestResult Bool
          -> Process ()
-testSend op n r = testMxSend n r $ \p1 sink -> do
+testSend op n = testMxSend n $ \p1 sink -> do
   -- initiate a send
   op p1 ()
 
@@ -376,9 +375,8 @@ testSend op n r = testMxSend n r $ \p1 sink -> do
 
 testChan :: (SendPort () -> () -> Process ())
          -> Maybe LocalNode
-         -> TestResult Bool
          -> Process ()
-testChan op n r = testMxSend n r $ \p1 sink -> do
+testChan op n = testMxSend n $ \p1 sink -> do
 
   us <- getSelfPid
   send p1 us
@@ -404,8 +402,8 @@ testChan op n r = testMxSend n r $ \p1 sink -> do
 
 type SendTest = ProcessId -> ReceivePort MxEvent -> Process Bool
 
-testMxSend :: Maybe LocalNode -> TestResult Bool -> SendTest -> Process ()
-testMxSend mNode result test = do
+testMxSend :: Maybe LocalNode -> SendTest -> Process ()
+testMxSend mNode test = do
   us <- getSelfPid
   (sp, rp) <- newChan
   (chan, sink) <- newChan
@@ -431,11 +429,14 @@ testMxSend mNode result test = do
 
   p1 <- receiveChan rp
   res <- try (test p1 sink)
-  case res of
-    Left  (ProcessExitException _ m) -> (liftIO $ putStrLn $ "SomeException-" ++ show m) >> stash result False
-    Right tr                         -> stash result tr
+
   kill agent "bye"
   kill p1 "bye"
+
+  case res of
+    Left  (ProcessExitException _ m) -> (liftIO $ putStrLn $ "SomeException-" ++ show m) >> die m
+    Right tr                         -> tr `shouldBe` equalTo True
+
 
   where
     label = "testMxSend"
@@ -452,7 +453,7 @@ testMxSend mNode result test = do
       return r
 
 tests :: TestTransport -> IO [Test]
-tests TestTransport{..} = do
+tests tt@TestTransport{..} = do
   node1 <- newLocalNode testTransport initRemoteTable
   node2 <- newLocalNode testTransport initRemoteTable
   return [
@@ -489,12 +490,11 @@ tests TestTransport{..} = do
           (delayedAssertion
            "expected process deaths to result in unregistration events"
            node1 () (testMxRegMon node2))
-      , testGroup "SendEvents" $ buildTestCases node1 node2
+      , testGroup "SendEvents" $ buildTestCases tt node2
       ]
     ]
   where
-    buildTestCases n1 n2 =
-      let nid = localNodeId n2 in build n2 [
+    buildTestCases tt' n2 = let nid = localNodeId n2 in build tt' n2 [
               ("NSend", [
                   ("nsend",              testNSend nsend)
                 , ("Unsafe.nsend",       testNSend Unsafe.nsend)
@@ -515,14 +515,15 @@ tests TestTransport{..} = do
                 ])
             ]
 
-    build :: LocalNode
-          -> [(String, [(String, (Maybe LocalNode -> TestResult Bool -> Process ()))])]
+    build :: TestTransport
+          -> LocalNode
+          -> [(String, [(String, (Maybe LocalNode -> Process ()))])]
           -> [Test]
-    build ln specs =
+    build TestTransport{..} ln specs =
       [ testGroup (intercalate "-" [groupName, caseSuffix]) [
              testCase (intercalate "-" [caseName, caseSuffix])
-               (delayedAssertion "expected mx events failed"
-                ln True (caseImpl caseNode))
+               (newLocalNode testTransport initRemoteTable >>= \n ->
+                  tryRunProcess n (caseImpl caseNode))
              | (caseName, caseImpl) <- groupCases
            ]
          | (groupName, groupCases) <- specs

@@ -91,6 +91,7 @@ import Test.HUnit (Assertion, assertFailure)
 import Test.HUnit.Base (assertBool)
 
 import GHC.Generics
+import System.Timeout (timeout)
 
 -- | A mutable cell containing a test result.
 type TestResult a = MVar a
@@ -233,7 +234,8 @@ testProcessReport pid = do
 tryRunProcess :: LocalNode -> Process () -> IO ()
 tryRunProcess node p = do
   tid <- liftIO myThreadId
-  runProcess node $ catch p (\e -> liftIO $ throwTo tid (e::SomeException))
+  void $ timeout (1000000 * 60 * 5 :: Int) $
+    runProcess node $ catch p (\e -> liftIO $ throwTo tid (e::SomeException))
 
 tryForkProcess :: LocalNode -> Process () -> IO ProcessId
 tryForkProcess node p = do
