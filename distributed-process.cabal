@@ -6,7 +6,7 @@ License:       BSD3
 License-File:  LICENSE
 Copyright:     Well-Typed LLP, Tweag I/O Limited
 Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
-Maintainer:    Facundo Domínguez <facundo.dominguez@tweag.io>
+Maintainer:    Tim Watson <watson.timothy@gmail.com>
 Stability:     experimental
 Homepage:      http://haskell-distributed.github.com/
 Bug-Reports:   https://github.com/haskell-distributed/distributed-process/issues
@@ -21,7 +21,7 @@ Description:   This is an implementation of Cloud Haskell, as described in
 
                You will probably also want to install a Cloud Haskell backend such
                as distributed-process-simplelocalnet.
-Tested-With:   GHC==7.6.3 GHC==7.8.4 GHC==7.10.3 GHC==8.0.1
+Tested-With:   GHC==7.10.3 GHC==8.0.2 GHC==8.2.2 GHC==8.4.4
 Category:      Control
 extra-source-files: ChangeLog
 

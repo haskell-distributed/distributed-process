@@ -10,6 +10,7 @@ import Network.Transport.TCP
   ( createTransportExposeInternals
   , TransportInternals(socketBetween)
   , defaultTCPParameters
+  , defaultTCPAddr
   , TCPParameters(..)
   )
 import Test.Framework (defaultMainWithArgs)
@@ -24,8 +25,7 @@ main = do
     hSetBuffering stdout LineBuffering
     hSetBuffering stderr LineBuffering
     Right (transport, internals) <-
-      createTransportExposeInternals "127.0.0.1" "8080"
-        (\sn -> ("127.0.0.1", sn))
+      createTransportExposeInternals (defaultTCPAddr "127.0.0.1" "8080")
         defaultTCPParameters { transportConnectTimeout = Just 3000000 }
     ts <- tests TestTransport
       { testTransport = transport

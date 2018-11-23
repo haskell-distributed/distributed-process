@@ -21,6 +21,7 @@ import Control.Concurrent.STM
 import Control.Distributed.Process.Internal.Types
   ( Process
   , ProcessId
+  , SendPortId
   , Message
   , DiedReason
   , NodeId
@@ -30,6 +31,7 @@ import qualified Control.Monad.State as ST
   ( MonadState
   , StateT
   )
+import Control.Monad.Fix (MonadFix)
 import Data.Binary
 import Data.Typeable (Typeable)
 import GHC.Generics
@@ -56,8 +58,14 @@ data MxEvent =
     -- ^ fired whenever a node /dies/ (i.e., the connection is broken/disconnected)
   | MxSent             ProcessId    ProcessId Message
     -- ^ fired whenever a message is sent from a local process
+  | MxSentToName       String       ProcessId Message
+    -- ^ fired whenever a named send occurs
+  | MxSentToPort       ProcessId    SendPortId Message
+    -- ^ fired whenever a sendChan occurs
   | MxReceived         ProcessId    Message
     -- ^ fired whenever a message is received by a local process
+  | MxReceivedPort     SendPortId   Message
+    -- ^ fired whenever a message is received via a typed channel
   | MxConnected        ConnectionId EndPointAddress
     -- ^ fired when a network-transport connection is first established
   | MxDisconnected     ConnectionId EndPointAddress
@@ -112,6 +120,7 @@ newtype MxAgent s a =
   } deriving ( Functor
              , Monad
              , MonadIO
+             , MonadFix
              , ST.MonadState (MxAgentState s)
              , Typeable
              , Applicative

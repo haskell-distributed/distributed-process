@@ -28,9 +28,12 @@ import Data.Binary (decode)
 import Data.Map (Map)
 import qualified Data.Map as Map
   ( empty
+  , delete
   , toList
   , fromList
-  , filter
+  , insert
+  , lookup
+  , partition
   , partitionWithKey
   , elems
   , size
@@ -183,6 +186,9 @@ import Control.Distributed.Process.Internal.Types
 import Control.Distributed.Process.Management.Internal.Agent
   ( mxAgentController
   )
+import Control.Distributed.Process.Management.Internal.Types
+  ( MxEvent(..)
+  )
 import qualified Control.Distributed.Process.Management.Internal.Trace.Remote as Trace
   ( remoteTable
   )
@@ -194,9 +200,6 @@ import Control.Distributed.Process.Management.Internal.Trace.Types
   , traceEvent
   , traceLogFmt
   , enableTrace
-  )
-import Control.Distributed.Process.Management.Internal.Types
-  ( MxEvent(..)
   )
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Internal.Messaging
@@ -210,6 +213,9 @@ import Control.Distributed.Process.Internal.Primitives
   , match
   , sendChan
   , unwrapMessage
+  , monitor
+  , unmonitorAsync
+  , getSelfNode
   , SayMessage(..)
   )
 import Control.Distributed.Process.Internal.Types (SendPort, Tracer(..))
@@ -486,7 +492,7 @@ type IncomingConnection = (NT.EndPointAddress, IncomingTarget)
 data IncomingTarget =
     Uninit
   | ToProc ProcessId (Weak (CQueue Message))
-  | ToChan TypedChannel
+  | ToChan SendPortId TypedChannel
   | ToNode
 
 data ConnectionState = ConnectionState {
@@ -541,13 +547,17 @@ handleIncomingMessages node = go initConnectionState
                 enqueue queue msg -- 'enqueue' is strict
                 trace node (MxReceived pid msg)
               go st
-            Just (_, ToChan (TypedChannel chan')) -> do
+            Just (_, ToChan chId (TypedChannel chan')) -> do
               mChan <- deRefWeak chan'
               -- If mChan is Nothing, the process has given up the read end of
               -- the channel and we simply ignore the incoming message
-              forM_ mChan $ \chan -> atomically $
-                -- We make sure the message is fully decoded when it is enqueued
-                writeTQueue chan $! decode (BSL.fromChunks payload)
+              forM_ mChan $ \chan -> do
+                msg' <- atomically $ do
+                  msg <- return $! decode (BSL.fromChunks payload)
+                  -- We make sure the message is fully decoded when it is enqueued
+                  writeTQueue chan msg
+                  return msg
+                trace node $ MxReceivedPort chId $ unsafeCreateUnencodedMessage msg'
               go st
             Just (_, ToNode) -> do
               let ctrlMsg = decode . BSL.fromChunks $ payload
@@ -574,7 +584,7 @@ handleIncomingMessages node = go initConnectionState
                       mChannel <- withMVar (processState proc) $ return . (^. typedChannelWithId lcid)
                       case mChannel of
                         Just channel ->
-                          go (incomingAt cid ^= Just (src, ToChan channel) $ st)
+                          go (incomingAt cid ^= Just (src, ToChan chId channel) $ st)
                         Nothing ->
                           invalidRequest cid st $
                             "incoming attempt to connect to unknown channel of"
@@ -903,7 +913,11 @@ ncEffectDied ident reason = do
 
   modify' $ (links ^= unaffectedLinks') . (monitors ^= unaffectedMons')
 
-  modify' $ registeredHere ^: Map.filter (\pid -> not $ ident `impliesDeathOf` ProcessIdentifier pid)
+  -- we now consider all labels for this identifier unregistered
+  let toDrop pid = not $ ident `impliesDeathOf` ProcessIdentifier pid
+  (keepNames, dropNames) <- Map.partition toDrop <$> gets (^. registeredHere)
+  mapM_ (\(p, l) -> liftIO $ trace node (MxUnRegistered l p)) (Map.toList dropNames)
+  modify' $ registeredHere ^= keepNames
 
   remaining <- fmap Map.toList (gets (^. registeredOnNodes)) >>=
       mapM (\(pid,nidlist) ->
@@ -955,7 +969,11 @@ ncEffectRegister from label atnode mPid reregistration = do
                do modify' $ registeredHereFor label ^= mPid
                   updateRemote node currentVal mPid
                   case mPid of
-                    (Just p) -> liftIO $ trace node (MxRegistered p label)
+                    (Just p) -> do
+                      if reregistration
+                        then liftIO $ trace node (MxUnRegistered (fromJust currentVal) label)
+                        else return ()
+                      liftIO $ trace node (MxRegistered p label)
                     Nothing  -> liftIO $ trace node (MxUnRegistered (fromJust currentVal) label)
              newVal <- gets (^. registeredHereFor label)
              ncSendToProcess from $ unsafeCreateUnencodedMessage $
@@ -1036,11 +1054,12 @@ ncEffectLocalPortSend from msg = do
         -- If ch is Nothing, the process has given up the read end of
         -- the channel and we simply ignore the incoming message - this
         ch <- deRefWeak chan'
-        forM_ ch $ \chan -> deliverChan msg chan
-  where deliverChan :: forall a . Message -> TQueue a -> IO ()
-        deliverChan (UnencodedMessage _ raw) chan' =
+        forM_ ch $ \chan -> deliverChan node from msg chan
+  where deliverChan :: forall a . LocalNode -> SendPortId -> Message -> TQueue a -> IO ()
+        deliverChan n p (UnencodedMessage _ raw) chan' = do
             atomically $ writeTQueue chan' ((unsafeCoerce raw) :: a)
-        deliverChan (EncodedMessage   _ _) _ =
+            trace n (MxReceivedPort p $ unsafeCreateUnencodedMessage raw)
+        deliverChan _ _ (EncodedMessage   _ _) _ =
             -- this will not happen unless someone screws with Primitives.hs
             error "invalid local channel delivery"
 
@@ -1070,7 +1089,7 @@ ncEffectGetInfo from pid =
   case mProc of
     Nothing   -> dispatch (isLocal node (ProcessIdentifier from))
                           from (ProcessInfoNone DiedUnknownId)
-    Just proc    -> do
+    Just proc -> do
       itsLinks    <- Set.map fst . BiMultiMap.lookupBy1st them <$>
                        gets (^. links)
       itsMons     <- BiMultiMap.lookupBy1st them <$> gets (^. monitors)
@@ -1084,8 +1103,8 @@ ncEffectGetInfo from pid =
                    infoNode               = (processNodeId pid)
                  , infoRegisteredNames    = reg
                  , infoMessageQueueLength = size
-                 , infoMonitors       = Set.toList itsMons
-                 , infoLinks          = Set.toList itsLinks
+                 , infoMonitors           = Set.toList itsMons
+                 , infoLinks              = Set.toList itsLinks
                  }
   where dispatch :: (Serializable a)
                  => Bool

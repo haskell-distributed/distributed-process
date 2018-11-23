@@ -6,7 +6,7 @@ description:   Tests and test suite for Cloud Haskell libraries.
 license:       BSD3
 license-file:  LICENSE
 Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
-Maintainer:    Facundo Domínguez <facundo.dominguez@tweag.io>
+Maintainer:    Tim Watson <watson.timothy@gmail.com>
 copyright:     Well-Typed LLP
 category:      Control, Cloud Haskell
 build-type:    Simple
@@ -31,9 +31,10 @@ library
                      bytestring >= 0.9 && < 0.12,
                      distributed-process >= 0.6.0 && < 0.8,
                      distributed-static,
+                     exceptions >= 0.5,
                      HUnit >= 1.2 && < 1.7,
                      network-transport >= 0.4.1.0 && < 0.6,
-                     network >= 2.5 && < 2.7,
+                     network >= 2.5 && < 2.9,
                      random >= 1.0 && < 1.2,
                      rematch >= 0.1.2.1,
                      setenv >= 0.1.1.3,
@@ -60,7 +61,7 @@ Test-Suite TestCHInMemory
   CPP-Options:       -DTEST_SUITE_MODULE=Control.Distributed.Process.Tests.CH
   Build-Depends:     base >= 4.4 && < 5,
                      distributed-process-tests,
-                     network >= 2.3 && < 2.7,
+                     network >= 2.3 && < 2.9,
                      network-transport >= 0.4.1.0 && < 0.6,
                      network-transport-inmemory >= 0.5,
                      test-framework >= 0.6 && < 0.9
@@ -75,7 +76,7 @@ Test-Suite TestCHInTCP
   if flag(tcp)
     Build-Depends:     base >= 4.4 && < 5,
                        distributed-process-tests,
-                       network >= 2.3 && < 2.7,
+                       network >= 2.3 && < 2.9,
                        network-transport >= 0.4.1.0 && < 0.6,
                        network-transport-tcp >= 0.5 && < 0.7,
                        test-framework >= 0.6 && < 0.9
@@ -92,7 +93,7 @@ Test-Suite TestClosure
   CPP-Options:       -DTEST_SUITE_MODULE=Control.Distributed.Process.Tests.Closure
   Build-Depends:     base >= 4.4 && < 5,
                      distributed-process-tests,
-                     network >= 2.3 && < 2.7,
+                     network >= 2.3 && < 2.9,
                      network-transport >= 0.4.1.0 && < 0.6,
                      network-transport-inmemory >= 0.5,
                      test-framework >= 0.6 && < 0.9
@@ -106,7 +107,7 @@ Test-Suite TestStats
   CPP-Options:       -DTEST_SUITE_MODULE=Control.Distributed.Process.Tests.Stats
   Build-Depends:     base >= 4.4 && < 5,
                      distributed-process-tests,
-                     network >= 2.3 && < 2.7,
+                     network >= 2.3 && < 2.9,
                      network-transport >= 0.4.1.0 && < 0.6,
                      network-transport-inmemory >= 0.5,
                      test-framework >= 0.6 && < 0.9
@@ -114,31 +115,44 @@ Test-Suite TestStats
   ghc-options:       -Wall -eventlog -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   HS-Source-Dirs:    tests
 
-
-Test-Suite TestMx
+Test-Suite TestMxInMemory
   Type:              exitcode-stdio-1.0
   Main-Is:           runInMemory.hs
   CPP-Options:       -DTEST_SUITE_MODULE=Control.Distributed.Process.Tests.Mx
   Build-Depends:     base >= 4.4 && < 5,
                      distributed-process-tests,
-                     network >= 2.3 && < 2.7,
+                     network >= 2.3 && < 2.9,
                      network-transport >= 0.4.1.0 && < 0.6,
                      network-transport-inmemory >= 0.5,
                      test-framework >= 0.6 && < 0.9
   Extensions:        CPP
-  ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
+  ghc-options:       -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   HS-Source-Dirs:    tests
 
-Test-Suite TestTracing
+Test-Suite TestTracingInMemory
   Type:              exitcode-stdio-1.0
   Main-Is:           runInMemory.hs
   CPP-Options:       -DTEST_SUITE_MODULE=Control.Distributed.Process.Tests.Tracing
   Build-Depends:     base >= 4.4 && < 5,
                      distributed-process-tests,
-                     network >= 2.3 && < 2.7,
+                     network >= 2.3 && < 2.9,
                      network-transport >= 0.4.1.0 && < 0.6,
                      network-transport-inmemory >= 0.5,
                      test-framework >= 0.6 && < 0.9
   Extensions:        CPP
-  ghc-options:       -Wall -eventlog -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
+  ghc-options:       -eventlog -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
+  HS-Source-Dirs:    tests
+
+Test-Suite TestMxInTCP
+  Type:              exitcode-stdio-1.0
+  Main-Is:           runInMemory.hs
+  CPP-Options:       -DTEST_SUITE_MODULE=Control.Distributed.Process.Tests.Mx
+  Build-Depends:     base >= 4.4 && < 5,
+                     distributed-process-tests,
+                     network >= 2.3 && < 2.9,
+                     network-transport >= 0.4.1.0 && < 0.6,
+                     network-transport-inmemory >= 0.5,
+                     test-framework >= 0.6 && < 0.9
+  Extensions:        CPP
+  ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   HS-Source-Dirs:    tests

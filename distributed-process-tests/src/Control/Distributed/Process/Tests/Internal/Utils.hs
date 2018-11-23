@@ -20,6 +20,7 @@ module Control.Distributed.Process.Tests.Internal.Utils
   -- ping !
   , Ping(Ping)
   , ping
+  , pause
   , shouldBe
   , shouldMatch
   , shouldContain
@@ -73,15 +74,16 @@ import Control.Concurrent
 import Control.Concurrent.MVar
   ( putMVar
   )
-import Control.Distributed.Process
+import Control.Distributed.Process hiding (finally, catch)
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable()
 
 import Control.Exception (AsyncException(ThreadKilled), SomeException)
-import Control.Monad (forever)
+import Control.Monad (forever, void)
+import Control.Monad.Catch (finally, catch)
 import Control.Monad.STM (atomically)
 import Control.Rematch hiding (match)
-import Control.Rematch.Run 
+import Control.Rematch.Run
 import Data.Binary
 import Data.Typeable (Typeable)
 
@@ -89,6 +91,7 @@ import Test.HUnit (Assertion, assertFailure)
 import Test.HUnit.Base (assertBool)
 
 import GHC.Generics
+import System.Timeout (timeout)
 
 -- | A mutable cell containing a test result.
 type TestResult a = MVar a
@@ -107,9 +110,17 @@ data TestProcessControl = Stop | Go | Report ProcessId
 
 instance Binary TestProcessControl where
 
+data Private = Private
+  deriving (Typeable, Generic)
+instance Binary Private where
+
 -- | Does exactly what it says on the tin, doing so in the @Process@ monad.
 noop :: Process ()
 noop = return ()
+
+pause :: Int -> Process ()
+pause delay =
+  void $ receiveTimeout delay [ match (\Private -> return ()) ]
 
 synchronisedAssertion :: Eq a
                       => String
@@ -223,10 +234,10 @@ testProcessReport pid = do
 tryRunProcess :: LocalNode -> Process () -> IO ()
 tryRunProcess node p = do
   tid <- liftIO myThreadId
-  runProcess node $ catch p (\e -> liftIO $ throwTo tid (e::SomeException))
+  void $ timeout (1000000 * 60 * 5 :: Int) $
+    runProcess node $ catch p (\e -> liftIO $ throwTo tid (e::SomeException))
 
 tryForkProcess :: LocalNode -> Process () -> IO ProcessId
 tryForkProcess node p = do
   tid <- liftIO myThreadId
   forkProcess node $ catch p (\e -> liftIO $ throwTo tid (e::SomeException))
-

@@ -1,6 +1,4 @@
-resolver: lts-12.18 # Use GHC 8.4.4
-
-# TODO: we can enable nightly-2018-11-11 once PR #319 is merged
+resolver: lts-12.18
 
 packages:
 - '.'
