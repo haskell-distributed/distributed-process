@@ -5,7 +5,6 @@ module Control.Distributed.Process.Tests.Mx (tests) where
 
 import Control.Distributed.Process.Tests.Internal.Utils
 import Network.Transport.Test (TestTransport(..))
-import Control.Exception (SomeException)
 import Control.Distributed.Process hiding (bracket, finally, try)
 import Control.Distributed.Process.Internal.Types
  ( ProcessExitException(..)
@@ -39,7 +38,7 @@ import Control.Monad.Catch(finally, bracket, try)
 import Control.Rematch (equalTo)
 import Data.Binary
 import Data.List (find, sort, intercalate)
-import Data.Maybe (isJust, fromJust, isNothing, fromMaybe)
+import Data.Maybe (isJust, fromJust, isNothing, fromMaybe, catMaybes)
 import Data.Typeable
 import GHC.Generics hiding (from)
 #if ! MIN_VERSION_base(4,6,0)
@@ -50,7 +49,6 @@ import Test.Framework
   ( Test
   , testGroup
   )
-import Test.HUnit (Assertion)
 import Test.Framework.Providers.HUnit (testCase)
 
 data Publish = Publish
@@ -68,7 +66,7 @@ awaitExit pid =
   where
     withMonitorRef p = bracket (monitor p) unmonitor
 
-testAgentBroadcast :: TestResult () -> Process ()
+testAgentBroadcast :: TestResult (Maybe ()) -> Process ()
 testAgentBroadcast result = do
   (resultSP, resultRP) <- newChan :: Process (SendPort (), ReceivePort ())
 
@@ -83,10 +81,10 @@ testAgentBroadcast result = do
   mxNotify ()
   -- Once the publisher has seen our message, it will broadcast the Publish
   -- and the consumer will see that and send the result to our typed channel.
-  stash result =<< receiveChan resultRP
+  stash result =<< receiveChanTimeout 10000000 resultRP
 
-  kill publisher "finished" >> awaitExit publisher
-  kill consumer  "finished" >> awaitExit consumer
+  kill publisher "finished"
+  kill consumer  "finished"
 
 testAgentDualInput :: TestResult (Maybe Int) -> Process ()
 testAgentDualInput result = do
@@ -101,6 +99,8 @@ testAgentDualInput result = do
                         else mxReady)
     ]
 
+  mRef <- monitor s
+
   mxNotify          (1 :: Int)
   nsend "sum-agent" (3 :: Int)
   mxNotify          (2 :: Int)
@@ -108,7 +108,10 @@ testAgentDualInput result = do
   mxNotify          (5 :: Int)
 
   stash result =<< receiveChanTimeout 10000000 rp
-  awaitExit s
+  died <- receiveTimeout 10000000 [
+      matchIf (\(ProcessMonitorNotification r _ _) -> r == mRef) (const $ return True)
+    ]
+  died `shouldBe` equalTo (Just True)
 
 testAgentPrioritisation :: TestResult [String] -> Process ()
 testAgentPrioritisation result = do
@@ -122,10 +125,10 @@ testAgentPrioritisation result = do
   (sp, rp) <- newChan
   s <- mxAgent (MxAgentId name) ["first"] [
          mxSink (\(s :: String) -> do
-                   mxUpdateLocal ((s:))
+                   mxUpdateLocal (s:)
                    st <- mxGetLocal
                    case length st of
-                     n | n == 5 -> do liftMX $ sendChan sp st
+                     n | n == 5 -> do liftMX $ sendChan sp (sort st)
                                       mxDeactivate "finished"
                      _          -> mxReceive  -- go to the mailbox
                    )
@@ -136,7 +139,7 @@ testAgentPrioritisation result = do
   mxNotify "fourth"
   nsend name "fifth"
 
-  stash result . sort =<< receiveChan rp
+  stash result . fromMaybe [] =<< receiveChanTimeout 10000000 rp
   awaitExit s
 
 testAgentMailboxHandling :: TestResult (Maybe ()) -> Process ()
@@ -149,12 +152,19 @@ testAgentMailboxHandling result = do
   nsend "mailbox-agent" ()
 
   stash result =<< receiveChanTimeout 1000000 rp
-  kill agent "finished" >> awaitExit agent
+  kill agent "finished"
 
 testAgentEventHandling :: TestResult Bool -> Process ()
 testAgentEventHandling result = do
-  let initState = [] :: [MxEvent]
+  us <- getSelfPid
+  -- because this test is a bit racy, let's ensure it can't run indefinitely
+  timer <- spawnLocal $ do
+    pause (1000000 * 60 * 5)
+    -- okay we've waited 5 mins, let's kill the test off if it's stuck...
+    stash result False
+    kill us "Test Timed Out"
 
+  let initState = [] :: [MxEvent]
   (rc, rs) <- newChan
   agentPid <- mxAgent (MxAgentId "lifecycle-listener-agent") initState [
       (mxSink $ \ev -> do
@@ -187,8 +197,7 @@ testAgentEventHandling result = do
   -- TODO: yes, this is racy, but we're at the mercy of the scheduler here...
   faff 2000000 rs
 
-  _ <- monitor agentPid
-  (sp, rp) <- newChan
+  (sp, rp) <- newChan :: Process (SendPort (), ReceivePort ())
 
   pid <- spawnLocal $ expect >>= sendChan sp
 
@@ -197,9 +206,11 @@ testAgentEventHandling result = do
   monitor pid
 
   send pid ()
-  () <- receiveChan rp
+  rct <- receiveChanTimeout 10000000 rp
+  unless (isJust rct) $ die "No response on channel"
 
-  receiveWait [ match (\(ProcessMonitorNotification _ _ _) -> return ()) ]
+  pmn <- receiveTimeout 2000000 [ match (\ProcessMonitorNotification{} -> return ()) ]
+  unless (isJust pmn) $ die "No monitor notification arrived"
 
   -- TODO: yes, this is racy, but we're at the mercy of the scheduler here...
   faff 2000000 rs
@@ -208,17 +219,16 @@ testAgentEventHandling result = do
   mxNotify (MxSpawned pid, replyTo)
   mxNotify (MxProcessDied pid DiedNormal, replyTo)
 
-  seenAlive <- receiveChan reply
-  seenDead  <- receiveChan reply
+  seenAlive <- receiveChanTimeout 10000000 reply
+  seenDead  <- receiveChanTimeout 10000000 reply
 
-  stash result $ seenAlive && seenDead
-  kill agentPid "test-complete" >> awaitExit agentPid
+  stash result $ foldr (&&) True $ catMaybes [seenAlive, seenDead]
+  kill timer "test-complete"
+  kill agentPid "test-complete"
   where
     faff delay port = do
       res <- receiveChanTimeout delay port
-      unless (isNothing res) $ do
-        pause delay
-        faff delay port
+      unless (isNothing res) $ pause delay
 
 testMxRegEvents :: TestResult () -> Process ()
 testMxRegEvents result = do
@@ -265,7 +275,6 @@ testMxRegEvents result = do
     reg3 `shouldBe` equalTo (Just (label, p1))
 
     mapM_ (flip kill $ "test-complete") [agent, p1, p2]
-    awaitExit agent
 
 testMxRegMon :: LocalNode -> TestResult () -> Process ()
 testMxRegMon remoteNode result = do
@@ -323,7 +332,7 @@ testMxRegMon remoteNode result = do
     evts `shouldContain` (Just (label1, p1))
     evts `shouldContain` (Just (label2, p1))
 
-    kill agent "test-complete" >> awaitExit agent
+    kill agent "test-complete"
 
 ensure :: Process () -> Process () -> Process ()
 ensure = flip finally
@@ -331,59 +340,62 @@ ensure = flip finally
 testNSend :: (String -> () -> Process ())
           -> Maybe LocalNode
           -> Process ()
-testNSend op n = testMxSend n $ \p1 sink -> do
+testNSend op n = do
+  us <- getSelfPid
   let delay = 5000000
-  let label = "testMxSend"
+  let label = "testMxSend" ++ (show us)
   let isValid = isValidLabel n label
 
-  register label p1
-  reg1 <- receiveChanTimeout delay sink
-  case reg1 of
-    Just (MxRegistered pd lb)
-      | pd == p1 && isValid lb -> return ()
-    _                          -> die $ "Reg-Failed: " ++ show reg1
+  testMxSend n label $ \p1 sink -> do
+    register label p1
+    reg1 <- receiveChanTimeout delay sink
+    case reg1 of
+      Just (MxRegistered pd lb)
+        | pd == p1 && isValid lb -> return ()
+      _                          -> die $ "Reg-Failed: " ++ show reg1
 
-  op label ()
+    op label ()
 
-  us <- getSelfPid
-  sent <- receiveChanTimeout delay sink
-  case sent of
-    Just (MxSentToName lb by _)
-      | by == us && isValid lb -> return True
-    _                          -> die $ "Send-Failed: " ++ show sent
+    sent <- receiveChanTimeout delay sink
+    case sent of
+      Just (MxSentToName lb by _)
+        | by == us && isValid lb -> return True
+      _                          -> die $ "Send-Failed: " ++ show sent
 
   where
-    isValidLabel n l1 l2
+    isValidLabel nd l1 l2
       | l2 == l2 = True
-      | isJust n     = l2 == l1 ++ "@" ++ show (localNodeId $ fromJust n)
+      | isJust nd     = l2 == l1 ++ "@" ++ show (localNodeId $ fromJust nd)
       | otherwise    = False
 
 testSend :: (ProcessId -> () -> Process ())
          -> Maybe LocalNode
          -> Process ()
-testSend op n = testMxSend n $ \p1 sink -> do
-  -- initiate a send
-  op p1 ()
-
-  -- verify the management event
+testSend op n = do
   us <- getSelfPid
-  sent <- receiveChanTimeout 5000000 sink
-  case sent of
-    Just (MxSent pidTo pidFrom _)
-      | pidTo == p1 && pidFrom == us -> return True
-    _                                -> return False
+  let label = "testMxSend" ++ (show us)
+  testMxSend n label $ \p1 sink -> do
+    -- initiate a send
+    op p1 ()
+
+    -- verify the management event
+    sent <- receiveChanTimeout 5000000 sink
+    case sent of
+      Just (MxSent pidTo pidFrom _)
+        | pidTo == p1 && pidFrom == us -> return True
+      _                                -> return False
 
 testChan :: (SendPort () -> () -> Process ())
          -> Maybe LocalNode
          -> Process ()
-testChan op n = testMxSend n $ \p1 sink -> do
+testChan op n = testMxSend n "" $ \p1 sink -> do
 
   us <- getSelfPid
   send p1 us
 
-  cleared <- receiveChan sink
+  cleared <- receiveChanTimeout 2000000 sink
   case cleared of
-    (MxSent pidTo pidFrom _)
+    Just (MxSent pidTo pidFrom _)
       | pidTo == p1 && pidFrom == us -> return ()
     _                                -> die "Received uncleared Mx Event"
 
@@ -402,8 +414,8 @@ testChan op n = testMxSend n $ \p1 sink -> do
 
 type SendTest = ProcessId -> ReceivePort MxEvent -> Process Bool
 
-testMxSend :: Maybe LocalNode -> SendTest -> Process ()
-testMxSend mNode test = do
+testMxSend :: Maybe LocalNode -> String -> SendTest -> Process ()
+testMxSend mNode label test = do
   us <- getSelfPid
   (sp, rp) <- newChan
   (chan, sink) <- newChan
@@ -427,11 +439,12 @@ testMxSend mNode test = do
     Nothing         -> void $ spawnLocal (proc sp)
     Just remoteNode -> void $ liftIO $ forkProcess remoteNode $ proc sp
 
-  p1 <- receiveChan rp
-  res <- try (test p1 sink)
+  p1 <- receiveChanTimeout 2000000 rp
+  unless (isJust p1) $ die "Timed out waiting for ProcessId"
+  res <- try $ test (fromJust p1) sink
 
   kill agent "bye"
-  kill p1 "bye"
+  kill (fromJust p1) "bye"
 
   case res of
     Left  (ProcessExitException _ m) -> (liftIO $ putStrLn $ "SomeException-" ++ show m) >> die m
@@ -439,7 +452,6 @@ testMxSend mNode test = do
 
 
   where
-    label = "testMxSend"
     agentLabel s = "mx-unsafe-check-agent-" ++ show s
     proc sp' = getSelfPid >>= sendChan sp' >> go Nothing
 
@@ -453,7 +465,7 @@ testMxSend mNode test = do
       return r
 
 tests :: TestTransport -> IO [Test]
-tests tt@TestTransport{..} = do
+tests TestTransport{..} = do
   node1 <- newLocalNode testTransport initRemoteTable
   node2 <- newLocalNode testTransport initRemoteTable
   return [
@@ -465,7 +477,7 @@ tests tt@TestTransport{..} = do
         , testCase "InterAgentBroadcast"
               (delayedAssertion
                "expected (), but no broadcast was received"
-               node1 () testAgentBroadcast)
+               node1 (Just ()) testAgentBroadcast)
         , testCase "AgentMailboxHandling"
               (delayedAssertion
                "expected (Just ()), but no regular (mailbox) input was handled"
@@ -490,11 +502,11 @@ tests tt@TestTransport{..} = do
           (delayedAssertion
            "expected process deaths to result in unregistration events"
            node1 () (testMxRegMon node2))
-      , testGroup "SendEvents" $ buildTestCases tt node2
+      , testGroup "SendEvents" $ buildTestCases node1 node2
       ]
     ]
   where
-    buildTestCases tt' n2 = let nid = localNodeId n2 in build tt' n2 [
+    buildTestCases n1 n2 = let nid = localNodeId n2 in build n1 n2 [
               ("NSend", [
                   ("nsend",              testNSend nsend)
                 , ("Unsafe.nsend",       testNSend Unsafe.nsend)
@@ -515,15 +527,14 @@ tests tt@TestTransport{..} = do
                 ])
             ]
 
-    build :: TestTransport
+    build :: LocalNode
           -> LocalNode
           -> [(String, [(String, (Maybe LocalNode -> Process ()))])]
           -> [Test]
-    build TestTransport{..} ln specs =
+    build n ln specs =
       [ testGroup (intercalate "-" [groupName, caseSuffix]) [
              testCase (intercalate "-" [caseName, caseSuffix])
-               (newLocalNode testTransport initRemoteTable >>= \n ->
-                  tryRunProcess n (caseImpl caseNode))
+               (runProcess n (caseImpl caseNode))
              | (caseName, caseImpl) <- groupCases
            ]
          | (groupName, groupCases) <- specs
