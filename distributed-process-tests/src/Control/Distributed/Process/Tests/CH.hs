@@ -46,11 +46,11 @@ import Control.Distributed.Process.Debug
 import Control.Distributed.Process.Management.Internal.Types
 import Control.Distributed.Process.Tests.Internal.Utils (shouldBe, pause)
 import Control.Distributed.Process.Serializable (Serializable)
-import Data.Maybe (isNothing)
+import Data.Maybe (isNothing, isJust)
 import Test.HUnit (Assertion, assertBool, assertFailure)
 import Test.Framework (Test, testGroup)
 import Test.Framework.Providers.HUnit (testCase)
-import Control.Rematch hiding (match, isNothing)
+import Control.Rematch hiding (match, isNothing, isJust)
 import Control.Rematch.Run (Match(..))
 
 newtype Ping = Ping ProcessId
@@ -87,10 +87,9 @@ verifyClient :: String -> MVar Bool -> IO ()
 verifyClient s b = takeMVar b >>= assertBool s
 
 expectPing :: MVar Bool ->  Process ()
-expectPing mv = expect >>= liftIO . putMVar mv . checkPing
+expectPing mv = expect  >>= liftIO . putMVar mv . checkPing
   where
     checkPing (Ping _) = True
-    checkPing _        = False
 
 -- | Quick and dirty synchronous version of whereisRemoteAsync
 whereisRemote :: NodeId -> String -> Process (Maybe ProcessId)
@@ -240,10 +239,10 @@ testPing TestTransport{..} = do
       pid <- getSelfPid
       replicateM_ numPings $ do
         send pingServer (Pong pid)
-        p <- expect
+        p <- expectTimeout 3000000
         case p of
-          Ping _ -> return ()
-          _      -> die "Unexpected message"
+          Just (Ping _) -> return ()
+          Nothing       -> die "Failed to receive Ping"
 
     putMVar clientDone ()
 
@@ -560,7 +559,7 @@ testMergeChannels TestTransport{..} = do
         ss <- liftIO $ mapM readMVar vs
         case ss of
           [sa, sb, sc] ->
-            mapM_ ((>> liftIO (threadDelay 10000)) . uncurry sendChan)
+            mapM_ ((>> pause 10000) . uncurry sendChan)
               [ -- a, b, c
                 (sa, 'a')
               , (sb, 'b')
@@ -736,7 +735,6 @@ testRemoteRegistry :: TestTransport -> Assertion
 testRemoteRegistry TestTransport{..} = do
   node1 <- newLocalNode testTransport initRemoteTable
   node2 <- newLocalNode testTransport initRemoteTable
-  done <- newEmptyMVar
 
   pingServer <- forkProcess node1 ping
   deadProcess <- forkProcess node1 (return ())
@@ -751,6 +749,7 @@ testRemoteRegistry TestTransport{..} = do
 
     pid <- verifyWhereIsRemote nid1 "ping"
     liftIO $ assertBool "Expected pindServer to match pid" $ pingServer == pid
+
     us <- getSelfPid
     nsendRemote nid1 "ping" (Pong us)
     receiveWait [
@@ -760,22 +759,22 @@ testRemoteRegistry TestTransport{..} = do
     -- test that if process was not registered Nothing is returned
     -- in owner field.
     registerRemoteAsync nid1 "dead" deadProcess
-    receiveWait [
-       matchIf (\(RegisterReply label' False Nothing) -> "dead" == label')
-               (\(RegisterReply _ _ _) -> return ()) ]
+    receiveWait [ matchIf (\(RegisterReply label' f mPid) -> "dead" == label')
+                          (\(RegisterReply _ f mPid) -> return (not f && isNothing mPid))
+                ] >>= liftIO . assertBool "Expected False Nothing in RegisterReply"
+
     registerRemoteAsync nid1 "ping" deadProcess
     receiveWait [
-       matchIf (\(RegisterReply label' False (Just pid'')) ->
-                    "ping" == label' && pid'' == pingServer)
-               (\(RegisterReply _ _ _) -> return ()) ]
+        matchIf (\(RegisterReply label' False mPid) ->
+                     "ping" == label' && isJust mPid)
+                (\(RegisterReply _ f (Just pid'')) -> return (not f && pid'' == pingServer))
+      ] >>= liftIO . assertBool "Expected False and (Just alreadyRegisteredPid) in RegisterReply"
+
     unregisterRemoteAsync nid1 "dead"
     receiveWait [
-       matchIf (\(RegisterReply label' False Nothing) ->
-                    "dead" == label' && pid == pingServer)
-               (\(RegisterReply _ _ _) -> return ()) ]
-    liftIO $ putMVar done ()
-
-  takeMVar done
+        matchIf (\(RegisterReply label' _ _) -> "dead" == label')
+                (\(RegisterReply _ f mPid) -> return (not f && isNothing mPid))
+      ] >>= liftIO . assertBool "Expected False and Nothing in RegisterReply"
 
 testRemoteRegistryRemoteProcess :: TestTransport -> Assertion
 testRemoteRegistryRemoteProcess TestTransport{..} = do

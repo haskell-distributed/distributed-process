@@ -492,7 +492,7 @@ type IncomingConnection = (NT.EndPointAddress, IncomingTarget)
 data IncomingTarget =
     Uninit
   | ToProc ProcessId (Weak (CQueue Message))
-  | ToChan TypedChannel
+  | ToChan SendPortId TypedChannel
   | ToNode
 
 data ConnectionState = ConnectionState {
@@ -547,13 +547,17 @@ handleIncomingMessages node = go initConnectionState
                 enqueue queue msg -- 'enqueue' is strict
                 trace node (MxReceived pid msg)
               go st
-            Just (_, ToChan (TypedChannel chan')) -> do
+            Just (_, ToChan chId (TypedChannel chan')) -> do
               mChan <- deRefWeak chan'
               -- If mChan is Nothing, the process has given up the read end of
               -- the channel and we simply ignore the incoming message
-              forM_ mChan $ \chan -> atomically $
-                -- We make sure the message is fully decoded when it is enqueued
-                writeTQueue chan $! decode (BSL.fromChunks payload)
+              forM_ mChan $ \chan -> do
+                msg' <- atomically $ do
+                  msg <- return $! decode (BSL.fromChunks payload)
+                  -- We make sure the message is fully decoded when it is enqueued
+                  writeTQueue chan msg
+                  return msg
+                trace node $ MxReceivedPort chId $ unsafeCreateUnencodedMessage msg'
               go st
             Just (_, ToNode) -> do
               let ctrlMsg = decode . BSL.fromChunks $ payload
@@ -580,7 +584,7 @@ handleIncomingMessages node = go initConnectionState
                       mChannel <- withMVar (processState proc) $ return . (^. typedChannelWithId lcid)
                       case mChannel of
                         Just channel ->
-                          go (incomingAt cid ^= Just (src, ToChan channel) $ st)
+                          go (incomingAt cid ^= Just (src, ToChan chId channel) $ st)
                         Nothing ->
                           invalidRequest cid st $
                             "incoming attempt to connect to unknown channel of"
@@ -1050,11 +1054,12 @@ ncEffectLocalPortSend from msg = do
         -- If ch is Nothing, the process has given up the read end of
         -- the channel and we simply ignore the incoming message - this
         ch <- deRefWeak chan'
-        forM_ ch $ \chan -> deliverChan msg chan
-  where deliverChan :: forall a . Message -> TQueue a -> IO ()
-        deliverChan (UnencodedMessage _ raw) chan' =
+        forM_ ch $ \chan -> deliverChan node from msg chan
+  where deliverChan :: forall a . LocalNode -> SendPortId -> Message -> TQueue a -> IO ()
+        deliverChan n p (UnencodedMessage _ raw) chan' = do
             atomically $ writeTQueue chan' ((unsafeCoerce raw) :: a)
-        deliverChan (EncodedMessage   _ _) _ =
+            trace n (MxReceivedPort p $ unsafeCreateUnencodedMessage raw)
+        deliverChan _ _ (EncodedMessage   _ _) _ =
             -- this will not happen unless someone screws with Primitives.hs
             error "invalid local channel delivery"
 
