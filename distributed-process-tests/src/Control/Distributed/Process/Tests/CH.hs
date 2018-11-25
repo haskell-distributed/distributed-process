@@ -1560,7 +1560,9 @@ testRegistryMonitoring TestTransport{..} = do
 
   let nid = localNodeId node2
   pid <- forkProcess node1 $ do
-    getSelfPid >>= runUntilRegistered nid
+    self <- getSelfPid
+    runUntilRegistered nid self
+    say $ regName ++ " registered to " ++ show self
     liftIO $ takeMVar waitH
 
   runProcess node2 $ do
@@ -1594,7 +1596,9 @@ testRegistryMonitoring TestTransport{..} = do
   regHere <- newEmptyMVar
   runProcess node2 $ whereis regName >>= liftIO . putMVar regHere
   res <- takeMVar regHere
-  assertBool "expected Nothing, but process still registered" (res == Nothing)
+  case res of
+    Nothing  -> return ()
+    Just pid -> assertBool ("expected Nothing, but got " ++ show pid) False
 
   where
     runUntilRegistered nid us = do
@@ -1607,7 +1611,7 @@ testRegistryMonitoring TestTransport{..} = do
     delayUntilMaybeUnregistered nid p = do
       whereisRemoteAsync nid regName
       receiveTimeout 20000000 {- 20 sec delay -} [
-          matchIf (\(WhereIsReply n p) -> n == regName && p == Nothing)
+          matchIf (\(WhereIsReply n p) -> n == regName && isNothing p)
                   (const $ return ())
         ]
       return ()
