@@ -33,7 +33,8 @@ script:
   export TEST_PACKAGE="distributed-process-tests:"
   export DISTRIBUTED_PROCESS_TEST_NODE="1"
 - stack $ARGS build --no-terminal ${TEST_PACKAGE}RemoteHost --flag ${TEST_PACKAGE}remote
-- stack $ARGS run --no-terminal ${TEST_PACKAGE}RemoteHost --flag ${TEST_PACKAGE}remote &
+- touch trace.log
+- env DISTRIBUTED_PROCESS_TRACE_FILE=test.log stack $ARGS run --no-terminal ${TEST_PACKAGE}RemoteHost --flag ${TEST_PACKAGE}remote &
 - stack ${ARGS} test $ARG='--plain -t "!Flaky"' ${TEST_PACKAGE}TestCHInMemory
 - stack ${ARGS} test $ARG='--plain -t "!Flaky"' ${TEST_PACKAGE}TestCHInTCP
 - stack ${ARGS} test $ARG='--plain -t "!SpawnReconnect"' ${TEST_PACKAGE}TestClosure
@@ -42,6 +43,7 @@ script:
 - stack ${ARGS} test $ARG='--plain' ${TEST_PACKAGE}TestMxInTCP
 - stack ${ARGS} test $ARG='--plain' ${TEST_PACKAGE}TestTracingInMemory
 - stack ${ARGS} test $ARG='--plain' ${TEST_PACKAGE}TestRemoteNodesTCP --flag ${TEST_PACKAGE}remote
+- cat trace.log
 
 notifications:
   slack:
