@@ -24,12 +24,16 @@ before_install:
   stack --version
 
 install:
+- export TEST_PACKAGE="distributed-process-tests:"
 - stack $ARGS setup --no-terminal;
-  stack $ARGS build --no-terminal --only-snapshot --test --no-run-tests;
+  stack $ARGS build --no-terminal --only-snapshot --test --no-run-tests --flag ${TEST_PACKAGE}remote;
 
 script:
 - export ARG='--test-arguments'
   export TEST_PACKAGE="distributed-process-tests:"
+  export DISTRIBUTED_PROCESS_TEST_NODE="1"
+- stack $ARGS build --no-terminal ${TEST_PACKAGE}RemoteHost
+- stack $ARGS run --no-terminal ${TEST_PACKAGE}RemoteHost &
 - stack ${ARGS} test $ARG='--plain -t "!Flaky"' ${TEST_PACKAGE}TestCHInMemory
 - stack ${ARGS} test $ARG='--plain -t "!Flaky"' ${TEST_PACKAGE}TestCHInTCP
 - stack ${ARGS} test $ARG='--plain -t "!SpawnReconnect"' ${TEST_PACKAGE}TestClosure
@@ -37,6 +41,7 @@ script:
 - stack ${ARGS} test $ARG='--plain' ${TEST_PACKAGE}TestMxInMemory
 - stack ${ARGS} test $ARG='--plain' ${TEST_PACKAGE}TestMxInTCP
 - stack ${ARGS} test $ARG='--plain' ${TEST_PACKAGE}TestTracingInMemory
+- stack ${ARGS} test $ARG='--plain' ${TEST_PACKAGE}TestRemoteNodesTCP
 
 notifications:
   slack:
