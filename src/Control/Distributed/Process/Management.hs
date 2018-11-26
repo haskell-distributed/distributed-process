@@ -253,6 +253,7 @@ module Control.Distributed.Process.Management
     MxEvent(..)
     -- * Firing Arbitrary /Mx Events/
   , mxNotify
+  , mxLog
     -- * Constructing Mx Agents
   , MxAction()
   , MxAgentId(..)
@@ -330,6 +331,11 @@ mxNotify :: (Serializable a) => a -> Process ()
 mxNotify msg = do
   bus <- localEventBus . processNode <$> ask
   liftIO $ publishEvent bus $ unsafeCreateUnencodedMessage msg
+
+-- | Publishes a log message to the management event bus.
+--
+mxLog :: String -> Process ()
+mxLog = mxNotify . MxLog
 
 --------------------------------------------------------------------------------
 -- API for writing user defined management extensions (i.e., agents)          --

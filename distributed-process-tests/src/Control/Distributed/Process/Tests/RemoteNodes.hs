@@ -11,6 +11,7 @@ import System.Environment (getArgs)
 import System.IO
 import Control.Distributed.Process
 import Control.Distributed.Process.Node
+import Control.Distributed.Process.Management (mxLog)
 import Control.Distributed.Process.Tests.Internal.Utils (shouldBe, pause)
 import Control.Distributed.Static (registerStatic, staticClosure, staticLabel)
 import Control.Monad (void)
@@ -30,9 +31,11 @@ awaitsRegistration :: Process ()
 awaitsRegistration = do
   self <- getSelfPid
   nid <- expect :: Process NodeId
+  mxLog $ regName ++ " received nodeId " ++ show nid
   runUntilRegistered nid self
-  say $ regName ++ " registered to " ++ show self
+  mxLog $ regName ++ " registered to " ++ show self
   expect :: Process ()
+  mxLog $ regName ++ " exiting..."
   where
     runUntilRegistered nid us = do
       whereisRemoteAsync nid regName
