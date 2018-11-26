@@ -29,4 +29,4 @@ main = do
     Right transport -> do node <- newLocalNode transport $ R.remoteTable initRemoteTable
                           catch (void $ runProcess node initialProcess)
                                 (\(e :: SomeException) -> putStrLn $ "ERROR: " ++ show e)
-    _               -> error "Unable to initialise network-transport"
+    Left  badness   -> error $ "Unable to initialise network-transport " ++ show badness
