@@ -1818,7 +1818,8 @@ tests testtrans = return [
       , testCase "MaskRestoreScope"    (testMaskRestoreScope    testtrans)
       , testCase "ExitLocal"           (testExitLocal           testtrans)
       , testCase "ExitRemote"          (testExitRemote          testtrans)
-      , testCase "RegistryMonitoring"  (testRegistryMonitoring  testtrans)
+      -- NB: migrated to runTCPMultiNode
+      -- , testCase "RegistryMonitoring"  (testRegistryMonitoring  testtrans)
       , testCase "TextCallLocal"       (testCallLocal           testtrans)
       -- Unsafe Primitives
       , testCase "TestUnsafeSend"      (testUnsafeSend          testtrans)

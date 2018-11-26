@@ -51,19 +51,6 @@ remoteTable :: RemoteTable -> RemoteTable
 remoteTable =
   registerStatic "$awaitsRegistration" $ toDynamic awaitsRegistration
 
-{-
--- | Given a name and a 'Process ()' value, generate a 'Closure (Process ())'
--- value and a function to add the closure to a remote table.
-mkProcBaseClosure
-  :: [Char]
-  -> Process ()
-  -> (Closure (Process ()), RemoteTable -> RemoteTable)
-mkProcBaseClosure name p = (procClosure, registerProc p)
-  where
-    procClosure = staticClosure (staticLabel name)
-    registerProc = registerStatic name . toDynamic
-    -}
-
 testRegistryMonitoring :: LocalNode -> NodeId -> Assertion
 testRegistryMonitoring node nid =
   runProcess node $ do
