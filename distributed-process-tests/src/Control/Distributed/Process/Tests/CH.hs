@@ -1556,22 +1556,20 @@ testRegistryMonitoring :: TestTransport -> Assertion
 testRegistryMonitoring TestTransport{..} = do
   node1 <- newLocalNode testTransport initRemoteTable
   node2 <- newLocalNode testTransport initRemoteTable
-  waitH <- newEmptyMVar
 
   let nid = localNodeId node2
   pid <- forkProcess node1 $ do
     self <- getSelfPid
     runUntilRegistered nid self
     say $ regName ++ " registered to " ++ show self
-    liftIO $ takeMVar waitH
+    expect :: Process ()
 
   runProcess node2 $ do
     register regName pid
     res <- whereis regName
-    us <- getSelfPid
-    liftIO $ do
-      putMVar waitH ()
-      assertBool "expected (Just pid)" $ res == (Just pid)
+    liftIO $ assertBool "expected (Just pid)" $ res == (Just pid)
+
+    send pid ()
 
     -- This delay isn't essential!
     -- The test case passes perfectly fine without it (feel free to comment out
@@ -1820,7 +1818,8 @@ tests testtrans = return [
       , testCase "MaskRestoreScope"    (testMaskRestoreScope    testtrans)
       , testCase "ExitLocal"           (testExitLocal           testtrans)
       , testCase "ExitRemote"          (testExitRemote          testtrans)
-      , testCase "RegistryMonitoring"  (testRegistryMonitoring  testtrans)
+      -- NB: migrated to runTCPMultiNode
+      -- , testCase "RegistryMonitoring"  (testRegistryMonitoring  testtrans)
       , testCase "TextCallLocal"       (testCallLocal           testtrans)
       -- Unsafe Primitives
       , testCase "TestUnsafeSend"      (testUnsafeSend          testtrans)

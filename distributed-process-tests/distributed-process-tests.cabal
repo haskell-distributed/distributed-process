@@ -16,6 +16,10 @@ flag tcp
   Description: build and run TCP tests
   Default:     False
 
+flag remote
+  description: Build Remote Node executable(s) and TestRemoteNodesTCP test suite
+  default: False
+
 library
   exposed-modules:   Network.Transport.Test
                      Control.Distributed.Process.Tests.CH
@@ -24,10 +28,12 @@ library
                      Control.Distributed.Process.Tests.Receive
                      Control.Distributed.Process.Tests.Stats
                      Control.Distributed.Process.Tests.Tracing
+                     Control.Distributed.Process.Tests.RemoteNodes
                      Control.Distributed.Process.Tests.Internal.Utils
   Build-Depends:     base >= 4.4 && < 5,
                      ansi-terminal >= 0.5,
                      binary >= 0.5 && < 0.9,
+                     rank1dynamic,
                      bytestring >= 0.9 && < 0.12,
                      distributed-process >= 0.6.0 && < 0.8,
                      distributed-static,
@@ -156,3 +162,34 @@ Test-Suite TestMxInTCP
   Extensions:        CPP
   ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   HS-Source-Dirs:    tests
+
+Test-Suite TestRemoteNodesTCP
+  Type:              exitcode-stdio-1.0
+  Main-Is:           runTCPMultiNode.hs
+  CPP-Options:       -DTEST_SUITE_MODULE=Control.Distributed.Process.Tests.RemoteNodes
+  if flag(remote)
+    Build-Depends:     base >= 4.4 && < 5,
+                       exceptions,
+                       rank1dynamic,
+                       distributed-process,
+                       distributed-process-tests,
+                       network >= 2.3 && < 2.9,
+                       network-transport >= 0.4.1.0 && < 0.6,
+                       network-transport-tcp >= 0.5 && < 0.7,
+                       test-framework >= 0.6 && < 0.9
+  else
+    Buildable:       False
+  Extensions:        CPP
+  ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N
+  HS-Source-Dirs:    tests
+
+executable RemoteHost
+  Build-Depends:   base >= 4.6 && < 5,
+                   rank1dynamic,
+                   distributed-process,
+                   distributed-process-tests,
+                   network-transport-tcp >= 0.3 && < 0.7,
+                   bytestring >= 0.9 && < 0.11,
+                   binary >= 0.6.3 && < 0.10
+  Main-Is:         tests/RemoteHost.hs
+  ghc-options:     -Wall -threaded -O2 -rtsopts -with-rtsopts=-N
