@@ -1556,22 +1556,24 @@ testRegistryMonitoring :: TestTransport -> Assertion
 testRegistryMonitoring TestTransport{..} = do
   node1 <- newLocalNode testTransport initRemoteTable
   node2 <- newLocalNode testTransport initRemoteTable
-  waitH <- newEmptyMVar
 
   let nid = localNodeId node2
   pid <- forkProcess node1 $ do
     self <- getSelfPid
     runUntilRegistered nid self
-    say $ regName ++ " registered to " ++ show self
-    liftIO $ takeMVar waitH
+    say $ (show self) ++ " registered as " ++ regName
+    expect :: Process ()
+    say $ (show self) ++ " exiting normally"
 
   runProcess node2 $ do
     register regName pid
+    say $ regName ++ " registered to " ++ show pid
     res <- whereis regName
+    send pid ()
+    say $ " sent finish signal to " ++ show pid
     us <- getSelfPid
-    liftIO $ do
-      putMVar waitH ()
-      assertBool "expected (Just pid)" $ res == (Just pid)
+    liftIO $ assertBool "expected (Just pid)" $ res == (Just pid)
+
 
     -- This delay isn't essential!
     -- The test case passes perfectly fine without it (feel free to comment out
@@ -1610,11 +1612,13 @@ testRegistryMonitoring TestTransport{..} = do
 
     delayUntilMaybeUnregistered nid p = do
       whereisRemoteAsync nid regName
-      receiveTimeout 20000000 {- 20 sec delay -} [
+      res <- receiveTimeout 20000000 {- 20 sec delay -} [
           matchIf (\(WhereIsReply n p) -> n == regName && isNothing p)
                   (const $ return ())
         ]
-      return ()
+      case res of
+        Just () -> return ()
+        Nothing -> delayUntilMaybeUnregistered nid p
 
     regName = "testRegisterRemote"
 
