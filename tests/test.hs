@@ -35,7 +35,7 @@ tests =
 
       , testCase "CANNOT use a term of type 'forall a. a -> a' as 'forall a. a'" $
           typeOf (undefined :: ANY) `isInstanceOf` typeOf (undefined :: ANY -> ANY)
-          @?= Left "Cannot unify Skolem and ->"
+          @?= Left "Cannot unify Skolem and (->)"
       ]
 
   , testGroup "Examples of funResultTy"
@@ -90,7 +90,7 @@ tests =
 
       , testCase "CANNOT use a term of type 'forall a. a -> a' as 'forall a. a'" $
           do f <- fromDynamic (toDynamic (id :: ANY -> ANY)) ; return $ (f :: Int)
-          @?= Left "Cannot unify Int and ->"
+          @?= Left "Cannot unify Int and (->)"
       ]
 
   , testGroup "Examples of dynApply"
