@@ -1,10 +1,18 @@
-import Data.Rank1Typeable
-import Data.Rank1Dynamic
+{-# LANGUAGE CPP #-}
+import           Data.Rank1Dynamic
+import           Data.Rank1Typeable
 
-import Test.HUnit hiding (Test)
-import Test.Framework
-import Test.Framework.Providers.HUnit
-import Unsafe.Coerce
+import           Test.Framework
+import           Test.Framework.Providers.HUnit
+import           Test.HUnit                     hiding (Test)
+import           Unsafe.Coerce
+
+funKindStr :: String
+#if __GLASGOW_HASKELL__ >= 804
+funKindStr = "->"
+#else
+funKindStr = "(->)"
+#endif
 
 
 main :: IO ()
@@ -35,7 +43,7 @@ tests =
 
       , testCase "CANNOT use a term of type 'forall a. a -> a' as 'forall a. a'" $
           typeOf (undefined :: ANY) `isInstanceOf` typeOf (undefined :: ANY -> ANY)
-          @?= Left "Cannot unify Skolem and (->)"
+          @?= Left ("Cannot unify Skolem and " ++ funKindStr)
       ]
 
   , testGroup "Examples of funResultTy"
@@ -90,7 +98,7 @@ tests =
 
       , testCase "CANNOT use a term of type 'forall a. a -> a' as 'forall a. a'" $
           do f <- fromDynamic (toDynamic (id :: ANY -> ANY)) ; return $ (f :: Int)
-          @?= Left "Cannot unify Int and (->)"
+          @?= Left ("Cannot unify Int and " ++ funKindStr)
       ]
 
   , testGroup "Examples of dynApply"
