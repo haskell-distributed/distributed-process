@@ -4,6 +4,7 @@ next release
 * apiSend RELY violation is removed for closed remote endpoints (#70)
 * The server no longer needs crash if accept throws an exception.
 * Check peer-reported host against socket host (#54)
+* Fix possible endless waiting on the 'crossed' MVar (#74)
 
 2017-08-21 FacundoDominguez <facundo.dominguez@tweag.io> 0.6.0
 
