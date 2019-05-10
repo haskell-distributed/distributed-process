@@ -125,6 +125,7 @@ import Control.Concurrent.MVar
   , readMVar
   , takeMVar
   , putMVar
+  , tryPutMVar
   , newEmptyMVar
   , withMVar
   )
@@ -1739,8 +1740,11 @@ connectToSelf ourEndPoint = do
 resolveInit :: EndPointPair -> RemoteState -> IO ()
 resolveInit (ourEndPoint, theirEndPoint) newState =
   modifyMVar_ (remoteState theirEndPoint) $ \st -> case st of
-    RemoteEndPointInit resolved _ _ -> do
+    RemoteEndPointInit resolved crossed _ -> do
       putMVar resolved ()
+      -- Unblock the reader (if any) if the ConnectionRequestCrossed
+      -- message did not come within the connection timeout.
+      tryPutMVar crossed ()
       case newState of
         RemoteEndPointClosed ->
           removeRemoteEndPoint (ourEndPoint, theirEndPoint)
