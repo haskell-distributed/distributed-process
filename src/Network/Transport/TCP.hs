@@ -14,6 +14,7 @@
 {-# LANGUAGE RecursiveDo #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Network.Transport.TCP
   ( -- * Main API
@@ -123,6 +124,7 @@ import Control.Concurrent.MVar
   , modifyMVar
   , modifyMVar_
   , readMVar
+  , tryReadMVar
   , takeMVar
   , putMVar
   , tryPutMVar
@@ -1914,9 +1916,12 @@ findRemoteEndPoint ourEndPoint theirAddress findOrigin mtimer = go
                 (RequestedByThem, RequestedByUs) ->
                   if ourAddress > theirAddress
                     then do
-                      -- Wait for the Crossed message
-                      readMVarTimeout mtimer crossed
-                      return (theirEndPoint, True)
+                      -- Wait for the Crossed message and recheck the state
+                      -- of the remote endpoint after this (it may well be
+                      -- invalid already in case of a timeout).
+                      tryReadMVar crossed >>= \case
+                        Nothing -> readMVarTimeout mtimer crossed >> go
+                        _       -> return (theirEndPoint, True)
                     else
                       return (theirEndPoint, False)
                 (RequestedByThem, RequestedByThem) ->
