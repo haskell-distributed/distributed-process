@@ -1,3 +1,7 @@
+2019-05-12  Facundo Domínguez <facundo.dominguez@tweag.io> 0.5.4
+
+* Fix documentation typo (#39).
+
 2019-05-12  Facundo Domínguez <facundo.dominguez@tweag.io> 0.5.3
 
 * Relax upper bound of hashable.
