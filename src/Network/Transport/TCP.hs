@@ -461,7 +461,10 @@ data ValidRemoteEndPointState = ValidRemoteEndPointState
      -- used to release any resources dedicated to the probing.
   ,  remoteProbing       :: Maybe (IO ())
      -- | MVar protects the socket usage by the concurrent threads and
-     -- prohibits its usage after SomeException (see 'sendOn').
+     -- prohibits its usage after SomeException.
+     --
+     -- Nothing allows the socket usage. @Just e@ is set on an
+     -- exception after which the socket should not be used (see 'sendOn').
   ,  remoteSendLock      :: !(MVar (Maybe SomeException))
      -- | An IO which returns when the socket (remoteSocket) has been closed.
      --   The program/thread which created the socket is always responsible
@@ -1960,9 +1963,9 @@ findRemoteEndPoint ourEndPoint theirAddress findOrigin mtimer = go
 -- is interrupted - otherwise, the other side may get the msg corrupted.
 --
 -- There are two types of possible exceptions here:
--- 1) Outer non-IOExceptions (like 'ProcessLinkException').
--- 2) IOExceptions (inner or outer).
--- On an 'IOException' the remote endpoint is failed (see 'runScheduledAction',
+-- 1) Outer asynchronous exceptions (like 'ProcessLinkException').
+-- 2) Synchronous exceptions (inner or outer).
+-- On a synchronous exception the remote endpoint is failed (see 'runScheduledAction',
 -- for example) and its socket is not supposed to be used again.
 --
 -- With 'async' the code is run in a new thread which is not-targeted (and
