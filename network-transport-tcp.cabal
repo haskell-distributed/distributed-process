@@ -26,6 +26,7 @@ Flag use-mock-network
 
 Library
   Build-Depends:   base >= 4.3 && < 5,
+                   async >= 2.1 && < 2.2,
                    network-transport >= 0.5 && < 0.6,
                    data-accessor >= 0.2 && < 0.3,
                    containers >= 0.4 && < 0.7,
