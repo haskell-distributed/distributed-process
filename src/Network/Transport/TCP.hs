@@ -1973,18 +1973,17 @@ findRemoteEndPoint ourEndPoint theirAddress findOrigin mtimer = go
 -- we protect the socket usage by the concurrent threads, as well as prevent
 -- that usage after SomeException.
 sendOn :: ValidRemoteEndPointState -> [ByteString] -> IO ()
-sendOn vst bs = wait =<< async
-  (mask $ \restore -> do
+sendOn vst bs = (wait =<<) $ async $
+  mask $ \restore -> do
     let lock = remoteSendLock vst
-    bad <- takeMVar lock
-    when (isNothing bad) $
+    maybeException <- takeMVar lock
+    when (isNothing maybeException) $
       restore (sendMany (remoteSocket vst) bs) `catch` \ex -> do
         putMVar lock (Just ex)
         throwIO ex
-    putMVar lock bad
-    unless (isNothing bad) $
-      throwIO . userError $ "sendOn failed earlier with: "
-                          ++ show (fromJust bad))
+    putMVar lock maybeException
+    forM_ maybeException $ \e ->
+      throwIO $ userError $ "sendOn failed earlier with: " ++ show e
 
 --------------------------------------------------------------------------------
 -- Scheduling actions                                                         --
