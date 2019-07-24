@@ -1,16 +1,16 @@
 # Specifies the GHC version and set of packages available
-resolver: lts-11.13
+resolver: lts-12.18
 
 # Local packages, usually specified by relative directory name
 packages:
 - '.'
 - location:
     git: https://github.com/haskell-distributed/distributed-process.git
-    commit: d91a88f70c2cb6a6511283c5720bd9950fc3c55a
+    commit: 660d554f6acd2dba8b605c84e8fa69e45708bc14
   extra-dep: true
 - location:
     git: https://github.com/haskell-distributed/distributed-process-systest.git
-    commit: b4a6b646adb6c81725ddac4babcfc21b86944d98
+    commit: d43a6ee475b1ea2d3c5edcf460517a948eba7a78
   extra-dep: true
 
 # Packages to be pulled from upstream that are not in the resolver (e.g., acme-missiles-0.3)
