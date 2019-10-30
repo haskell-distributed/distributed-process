@@ -1,0 +1,21 @@
+resolver: lts-14.11
+
+packages:
+- .
+- distributed-process-tests/
+
+extra-deps:
+- text-1.2.4.0
+- binary-0.8.7.0
+- containers-0.5.11.0
+- rank1dynamic-0.4.0
+- distributed-static-0.3.8
+- network-transport-0.5.2
+- network-transport-inmemory-0.5.2
+- rematch-0.2.0.0
+- git: https://github.com/haskell-distributed/network-transport-tcp.git
+  commit: d87d6f55697a94a1fbf211ff9c1bb769a1e129cd
+
+flags:
+  distributed-process-tests:
+    tcp: true
