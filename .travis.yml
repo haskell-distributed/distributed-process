@@ -16,6 +16,7 @@ matrix:
 cache:
   directories:
   - $HOME/.stack
+  - $TRAVIS_BUILD_DIR/.stack-work
 
 before_install:
 - export PATH=$HOME/.local/bin:$PATH;
