@@ -2,6 +2,10 @@ Unreleased
 
 *
 
+2019-12-31  Facundo Domínguez  <facundo.dominguez@tweag.io>  0.2.4.3
+
+* Relaxed upper bound on containers.
+
 2016-10-05  Facundo Domínguez  <facundo.dominguez@tweag.io>  0.2.4.2
 
 * Remove upper bound for ansi-terminal.
