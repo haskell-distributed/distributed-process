@@ -4,8 +4,11 @@ next release
 
 2019-12-31 FacundoDominguez <facundo.dominguez@tweag.io> 0.7.0
 
-* Relax dependency bounds to build with ghc-8.6.5
 * Added support for unaddressable endpoints. (#61)
+
+2019-12-31 FacundoDominguez <facundo.dominguez@tweag.io> 0.6.1
+
+* Relax dependency bounds to build with ghc-8.6.5
 * apiSend RELY violation is removed for closed remote endpoints (#70)
 * The server no longer needs crash if accept throws an exception.
 * Check peer-reported host against socket host (#54)
