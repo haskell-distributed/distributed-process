@@ -353,6 +353,7 @@ newtype Process a = Process {
   deriving ( Applicative
            , Functor
            , Monad
+           , MonadFail
            , MonadFix
            , MonadIO
            , MonadReader LocalProcess
