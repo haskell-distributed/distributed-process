@@ -388,7 +388,7 @@ send to it, we don't allocate any unneeded resources).
 
 [1]: http://www.olcf.ornl.gov/center-projects/common-communication-interface/
 [2]: https://groups.google.com/forum/?fromgroups#!forum/parallel-haskell
-[4]: /tutorials/2.nt_tutorial.html
+[4]: /tutorials/tutorial-NT2.html
 [5]: /wiki/newtransports.html
 [6]: /wiki/newdesign.html
 [7]: /wiki/protocols.html
