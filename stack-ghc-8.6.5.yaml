@@ -1,16 +1,16 @@
-resolver: nightly-2016-03-08
+resolver: lts-14.27 # Use GHC 8.6.5
 
 packages:
-- .
-- distributed-process-tests/
+  - .
+  - distributed-process-tests/
 
 extra-deps:
-- rank1dynamic-0.4.0
-- distributed-static-0.3.8
-- network-transport-0.5.2
-- network-transport-inmemory-0.5.2
+- distributed-static-0.3.9
 - rematch-0.2.0.0
-- exceptions-0.8.2.1 # test dependency
+- network-transport-inmemory-0.5.2
+- containers-0.5.11.0
+- text-1.2.4.0
+- binary-0.8.8.0
 - git: https://github.com/haskell-distributed/network-transport-tcp.git
   commit: d87d6f55697a94a1fbf211ff9c1bb769a1e129cd
 
