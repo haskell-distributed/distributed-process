@@ -34,7 +34,7 @@ library
                      exceptions >= 0.5,
                      HUnit >= 1.2 && < 1.7,
                      network-transport >= 0.4.1.0 && < 0.6,
-                     network >= 2.5 && < 2.9,
+                     network >= 2.5 && < 3.2,
                      random >= 1.0 && < 1.2,
                      rematch >= 0.1.2.1,
                      setenv >= 0.1.1.3,

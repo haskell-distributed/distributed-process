@@ -359,6 +359,8 @@ newtype Process a = Process {
            , Typeable
            )
 
+instance MonadFail Process where
+  fail = liftIO . fail
 instance MonadThrow Process where
   throwM = liftIO . throwIO
 instance MonadCatch Process where
