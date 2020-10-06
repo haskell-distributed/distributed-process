@@ -4,12 +4,12 @@ sudo: false
 
 matrix:
   include:
-    - env: CABALVER=1.22 GHCVER=7.8.4
-      addons: {apt: {packages: [cabal-install-1.22,ghc-7.8.4], sources: [hvr-ghc]}}
-    - env: CABALVER=1.22 GHCVER=7.10.3
-      addons: {apt: {packages: [cabal-install-1.22,ghc-7.10.3],sources: [hvr-ghc]}}
-    - env: CABALVER=1.24 GHCVER=8.0.2
-      addons: {apt: {packages: [cabal-install-1.24,ghc-8.0.2], sources: [hvr-ghc]}}
+    - env: CABALVER=2.4 GHCVER=8.4.4
+      addons: {apt: {packages: [cabal-install-2.4,ghc-8.4.4], sources: [hvr-ghc]}}
+    - env: CABALVER=2.4 GHCVER=8.6.5
+      addons: {apt: {packages: [cabal-install-2.4,ghc-8.6.5],sources: [hvr-ghc]}}
+    - env: CABALVER=2.4 GHCVER=8.8.4
+      addons: {apt: {packages: [cabal-install-2.4,ghc-8.8.4], sources: [hvr-ghc]}}
 
 cache:
   directories:
@@ -19,16 +19,16 @@ before_install:
   - export PATH=/opt/ghc/$GHCVER/bin:/opt/cabal/$CABALVER/bin:~/.cabal/bin:$PATH
   - ghc --version
   - cabal --version
-  - cabal update
+  - cabal v1-update
   # workaround for https://ghc.haskell.org/trac/ghc/ticket/9221
   # taken from https://github.com/hvr/multi-ghc-travis/blob/0fa68f78c2b1b059f904c9abc85510a3bb4f57e2/README.md
   - sed -i 's/^jobs:/-- jobs:/' $HOME/.cabal/config
 
 install:
   - git clone https://github.com/haskell-distributed/network-transport-tests.git
-  - cabal sandbox init
-  - cabal sandbox add-source network-transport-tests
-  - cabal install --only-dependencies --enable-tests
+  - cabal v1-sandbox init
+  - cabal v1-sandbox add-source network-transport-tests
+  - cabal v1-install --only-dependencies --enable-tests
 
 script:
-  - cabal test --show-details=streaming
+  - cabal v1-test --show-details=streaming
