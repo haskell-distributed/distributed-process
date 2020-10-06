@@ -31,7 +31,7 @@ Library
                    data-accessor >= 0.2 && < 0.3,
                    containers >= 0.4 && < 0.7,
                    bytestring >= 0.9 && < 0.11,
-                   network >= 2.6.2 && < 2.9,
+                   network >= 3.1 && < 3.2,
                    uuid >= 1.3 && < 1.4
   Exposed-modules: Network.Transport.TCP,
                    Network.Transport.TCP.Internal
@@ -51,7 +51,7 @@ Test-Suite TestTCP
   Build-Depends:   base >= 4.3 && < 5,
                    bytestring >= 0.9 && < 0.11,
                    network-transport-tests >= 0.2.1.0 && < 0.3,
-                   network >= 2.3 && < 2.9,
+                   network >= 3.1 && < 3.2,
                    network-transport,
                    network-transport-tcp
   ghc-options:     -threaded -rtsopts -with-rtsopts=-N

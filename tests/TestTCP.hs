@@ -64,7 +64,7 @@ import qualified Network.Transport.TCP.Mock.Socket as N
 #else
 import qualified Network.Socket as N
 #endif
-  ( sClose
+  ( close
   , ServiceName
   , Socket
   , AddrInfo
@@ -199,7 +199,7 @@ testEarlyDisconnect = do
         sendMany sock (encodeWord32 10002 : prependLength ["pong"])
 
         -- Close the socket
-        N.sClose sock
+        N.close sock
 
       let ourAddress = encodeEndPointAddress "127.0.0.1" clientPort 0
       putMVar clientAddr ourAddress
@@ -215,7 +215,7 @@ testEarlyDisconnect = do
 
       -- Close the socket without closing the connection explicitly
       -- The server should receive an error event
-      N.sClose sock
+      N.close sock
 
 -- | Test the behaviour of a premature CloseSocket request
 testEarlyCloseSocket :: IO ()
@@ -316,7 +316,7 @@ testEarlyCloseSocket = do
             encodeWord32 (encodeControlHeader CloseSocket)
           , encodeWord32 1024
           ]
-        N.sClose sock
+        N.close sock
 
       let ourAddress = encodeEndPointAddress "127.0.0.1" clientPort 0
       putMVar clientAddr ourAddress
@@ -336,7 +336,7 @@ testEarlyCloseSocket = do
           encodeWord32 (encodeControlHeader CloseSocket)
         , encodeWord32 0
         ]
-      N.sClose sock
+      N.close sock
 
 -- | Test the creation of a transport with an invalid address
 testInvalidAddress :: IO ()
@@ -451,7 +451,7 @@ testIgnoreCloseSocket = do
         encodeWord32 (encodeControlHeader CloseSocket)
       , encodeWord32 1024
       ]
-    N.sClose sock
+    N.close sock
 
     putMVar clientDone ()
 
@@ -576,9 +576,9 @@ testUnnecessaryConnect numThreads = do
           -- We might get either Invalid or Crossed (the transport does not
           -- maintain enough history to be able to tell)
           Right (_, sock, ConnectionRequestInvalid) ->
-            N.sClose sock
+            N.close sock
           Right (_, sock, ConnectionRequestCrossed) ->
-            N.sClose sock
+            N.close sock
           Left _ ->
             return ()
         putMVar done ()
