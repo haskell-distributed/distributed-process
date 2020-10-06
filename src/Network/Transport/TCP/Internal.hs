@@ -42,6 +42,7 @@ import qualified Network.Transport.TCP.Mock.Socket as N
 import qualified Network.Socket as N
 #endif
   ( HostName
+  , NameInfoFlag(NI_NUMERICHOST)
   , ServiceName
   , Socket
   , SocketType(Stream)
@@ -49,19 +50,18 @@ import qualified Network.Socket as N
   , getAddrInfo
   , defaultHints
   , socket
-  , bindSocket
+  , bind
   , listen
   , addrFamily
   , addrAddress
   , defaultProtocol
   , setSocketOption
   , accept
-  , sClose
+  , close
   , socketPort
   , shutdown
   , ShutdownCmd(ShutdownBoth)
   , SockAddr(..)
-  , inet_ntoa
   , getNameInfo
   )
 
@@ -235,13 +235,13 @@ forkServer host port backlog reuseAddr errorHandler terminationHandler requestHa
     bracketOnError (N.socket (N.addrFamily addr) N.Stream N.defaultProtocol)
                    tryCloseSocket $ \sock -> do
       when reuseAddr $ N.setSocketOption sock N.ReuseAddr 1
-      N.bindSocket sock (N.addrAddress addr)
+      N.bind sock (N.addrAddress addr)
       N.listen sock backlog
 
       -- Close up and fill the synchonizing MVar.
       let release :: ((N.Socket, N.SockAddr), MVar ()) -> IO ()
           release ((sock, _), socketClosed) =
-            N.sClose sock `finally` putMVar socketClosed ()
+            N.close sock `finally` putMVar socketClosed ()
 
       -- Run the request handler.
       let act restore (sock, sockAddr) = do
@@ -263,7 +263,7 @@ forkServer host port backlog reuseAddr errorHandler terminationHandler requestHa
             -- Looks like 'act' will never throw an exception, but to be
             -- safe we'll close the socket if it does.
             let handler :: SomeException -> IO ()
-                handler _ = N.sClose sock
+                handler _ = N.close sock
             catch (act restore (sock, sockAddr)) handler
 
       -- We start listening for incoming requests in a separate thread. When
@@ -296,7 +296,7 @@ recvWord32 = fmap (decodeWord32 . BS.concat) . flip recvExact 4
 -- | Close a socket, ignoring I/O exceptions.
 tryCloseSocket :: N.Socket -> IO ()
 tryCloseSocket sock = void . tryIO $
-  N.sClose sock
+  N.close sock
 
 -- | Shutdown socket sends and receives, ignoring I/O exceptions.
 tryShutdownSocketBoth :: N.Socket -> IO ()
@@ -330,7 +330,7 @@ resolveSockAddr sockAddr = case sockAddr of
     (mResolvedHost, mResolvedPort) <- N.getNameInfo [] True False sockAddr
     case (mResolvedHost, mResolvedPort) of
       (Just resolvedHost, Nothing) -> do
-        numericHost <- N.inet_ntoa host
+        (Just numericHost, _) <- N.getNameInfo [N.NI_NUMERICHOST] True False sockAddr
         return $ Just (numericHost, resolvedHost, show port)
       _ -> error $ concat [
           "decodeSockAddr: unexpected resolution "
