@@ -1043,9 +1043,12 @@ testCrossing transport numRepeats = do
 
 -- Transport tests
 testTransport :: IO (Either String Transport) -> IO ()
-testTransport newTransport = do
+testTransport = testTransportWithFilter (const True)
+
+testTransportWithFilter :: (String -> Bool) -> IO (Either String Transport) -> IO ()
+testTransportWithFilter p newTransport = do
   Right transport <- newTransport
-  runTests
+  runTests $ filter (p . fst)
     [ ("PingPong",              testPingPong transport numPings)
     , ("EndPoints",             testEndPoints transport numPings)
     , ("Connections",           testConnections transport numPings)
