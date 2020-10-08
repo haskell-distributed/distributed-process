@@ -2,6 +2,10 @@ Unreleased
 
 *
 
+2020-10-09  Facundo Domínguez  <facundo.dominguez@tweag.io>  0.3.0
+
+* Added testTransportWithFilter to allow selecting which tests to run.
+
 2019-12-31  Facundo Domínguez  <facundo.dominguez@tweag.io>  0.2.4.3
 
 * Relaxed upper bound on containers.
