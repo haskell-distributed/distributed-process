@@ -92,7 +92,7 @@ import Data.String (fromString)
 import GHC.IO.Exception (ioe_errno)
 import Foreign.C.Error (Errno(..), eADDRNOTAVAIL)
 import System.Timeout (timeout)
-import Network.Transport.Tests (testTransport)
+import Network.Transport.Tests (testTransportWithFilter)
 import Network.Transport.Tests.Auxiliary (forkTry, runTests)
 import Network.Transport.Tests.Traced
 
@@ -1113,7 +1113,7 @@ main = do
            , ("EarlyCloseSocket",       testEarlyCloseSocket)
            , ("IgnoreCloseSocket",      testIgnoreCloseSocket)
            , ("BlockAfterCloseSocket",  testBlockAfterCloseSocket)
-           , ("UnnecessaryConnect",     testUnnecessaryConnect 10)
+           -- , ("UnnecessaryConnect",     testUnnecessaryConnect 10)  -- flaky: #91
            , ("InvalidAddress",         testInvalidAddress)
            , ("InvalidConnect",         testInvalidConnect)
            , ("Many",                   testMany)
@@ -1129,9 +1129,13 @@ main = do
            , ("UnreachableConnect",     testUnreachableConnect)
            ]
   -- Run the generic tests even if the TCP specific tests failed..
-  testTransport (either (Left . show) (Right) <$>
+  testTransportWithFilter (`notElem` flakies) (either (Left . show) (Right) <$>
     createTransport (defaultTCPAddr "127.0.0.1" "0") defaultTCPParameters)
   -- ..but if the generic tests pass, still fail if the specific tests did not
   case tcpResult of
     Left err -> throwIO err
     Right () -> return ()
+  where
+    flakies =
+      [ "ParallelConnects"   -- #92
+      ]
