@@ -118,7 +118,7 @@ import Control.Concurrent.STM.TChan (TChan)
 import Control.Monad.Catch (MonadThrow(..), MonadCatch(..), MonadMask(..))
 import qualified Network.Transport as NT (EndPoint, EndPointAddress, Connection)
 import Control.Applicative
-#if !MIN_VERSION_base(4,13,0)
+#if !MIN_VERSION_base(4,13,0) && MIN_VERSION_base(4,9,0)
 import Control.Monad.Fail (MonadFail)
 #endif
 import Control.Monad.Fix (MonadFix)
@@ -356,7 +356,9 @@ newtype Process a = Process {
   deriving ( Applicative
            , Functor
            , Monad
+#if MIN_VERSION_base(4,9,0)
            , MonadFail
+#endif
            , MonadFix
            , MonadIO
            , MonadReader LocalProcess
