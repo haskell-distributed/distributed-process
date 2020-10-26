@@ -10,12 +10,13 @@ matrix:
     addons: {apt: {packages: [libgmp-dev]}}
   - env: ARGS="--stack-yaml stack-ghc-8.4.4.yaml"
     addons: {apt: {packages: [libgmp-dev]}}
-  - env: ARGS="--stack-yaml stack-nightly.yaml --resolver nightly"
+  - env: ARGS="--stack-yaml stack-ghc-8.6.5.yaml"
     addons: {apt: {packages: [libgmp-dev]}}
 
 cache:
   directories:
   - $HOME/.stack
+  - $TRAVIS_BUILD_DIR/.stack-work
 
 before_install:
 - export PATH=$HOME/.local/bin:$PATH;

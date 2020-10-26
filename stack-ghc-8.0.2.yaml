@@ -3,12 +3,8 @@ resolver: lts-9.21
 # since c7fd79 broke the client facing API for createTransport :/
 
 packages:
-- '.'
+- .
 - distributed-process-tests/
-- location:
-    git: https://github.com/haskell-distributed/network-transport-tcp.git
-    commit: d87d6f55697a94a1fbf211ff9c1bb769a1e129cd
-  extra-dep: true
 
 extra-deps:
 - rank1dynamic-0.4.0
@@ -17,6 +13,8 @@ extra-deps:
 - network-transport-inmemory-0.5.2
 - rematch-0.2.0.0
 # - exceptions-0.8.2.1 # test dependency
+- git: https://github.com/haskell-distributed/network-transport-tcp.git
+  commit: d87d6f55697a94a1fbf211ff9c1bb769a1e129cd
 
 flags:
   distributed-process-tests:
