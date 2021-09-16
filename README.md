@@ -4,7 +4,7 @@
 
 This repository is part of Cloud Haskell.
 
-See http://haskell-distributed.github.com for documentation, user guides,
+See http://haskell-distributed.github.io for documentation, user guides,
 tutorials and assistance.
 
 ## Getting Help / Raising Issues
