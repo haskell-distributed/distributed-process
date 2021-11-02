@@ -1,0 +1,14 @@
+resolver: lts-16.31 # Use GHC 8.8.4
+
+packages:
+  - .
+  - distributed-process-tests/
+
+extra-deps:
+- distributed-static-0.3.9@sha256:0eb308ee416db4541cb5b4d2dff387e7c9394e6deaf76b7e829ce46add4448bc,2237
+- network-2.8.0.1@sha256:0f165dffa752d8cde30c2bde86f80609c4f1dc5eeb3182d593041f97839c5b3b,3011
+- rematch-0.2.0.0@sha256:86019f4d6a4347e1291a0a9f85ba6324e1447e2b93d75958e59c24212e9d8178,1245
+
+flags:
+  distributed-process-tests:
+    tcp: true
