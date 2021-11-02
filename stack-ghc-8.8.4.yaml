@@ -5,9 +5,20 @@ packages:
   - distributed-process-tests/
 
 extra-deps:
-- distributed-static-0.3.9@sha256:0eb308ee416db4541cb5b4d2dff387e7c9394e6deaf76b7e829ce46add4448bc,2237
+- distributed-static-0.3.9
+- rematch-0.2.0.0
+- network-transport-inmemory-0.5.2
+- containers-0.5.11.0
+- text-1.2.4.0
+- binary-0.8.8.0
+- git: https://github.com/haskell-distributed/network-transport-tcp.git
+  commit: d87d6f55697a94a1fbf211ff9c1bb769a1e129cd
+- Cabal-3.2.1.0@sha256:8743076ec022296f9771d962000c9ca3a0fe02e68c37b992c63e382a675f791d,27482
 - network-2.8.0.1@sha256:0f165dffa752d8cde30c2bde86f80609c4f1dc5eeb3182d593041f97839c5b3b,3011
-- rematch-0.2.0.0@sha256:86019f4d6a4347e1291a0a9f85ba6324e1447e2b93d75958e59c24212e9d8178,1245
+- parsec-3.1.14.0@sha256:72d5c57e6e126adaa781ab97b19dc76f68490c0a3d88f14038219994cabe94e1,4356
+
+
+
 
 flags:
   distributed-process-tests:
