@@ -1,0 +1,13 @@
+resolver: lts-18.16 # Use GHC 8.10.7
+
+packages:
+  - .
+  - distributed-process-tests/
+
+extra-deps:
+- distributed-static-0.3.9
+- rematch-0.2.0.0
+
+flags:
+  distributed-process-tests:
+    tcp: true
