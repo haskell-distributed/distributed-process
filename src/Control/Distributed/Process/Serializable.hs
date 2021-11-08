@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveDataTypeable  #-}
+{-# LANGUAGE ConstraintKinds  #-}
 {-# LANGUAGE UndecidableInstances  #-}
 {-# LANGUAGE FlexibleInstances  #-}
 {-# LANGUAGE ScopedTypeVariables  #-}
@@ -40,8 +41,7 @@ data TypeableDict a where
   deriving (Typeable)
 
 -- | Objects that can be sent across the network
-class (Binary a, Typeable a) => Serializable a
-instance (Binary a, Typeable a) => Serializable a
+type Serializable a = (Binary a, Typeable a)
 
 -- | Encode type representation as a bytestring
 encodeFingerprint :: Fingerprint -> ByteString

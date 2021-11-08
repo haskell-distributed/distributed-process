@@ -31,7 +31,6 @@ import Control.Concurrent.STM
   , orElse
   , retry
   )
-import Control.Applicative ((<$>), (<*>))
 import Control.Exception (mask_, onException)
 import System.Timeout (timeout)
 import Control.Distributed.Process.Internal.StrictMVar
@@ -45,7 +44,6 @@ import Control.Distributed.Process.Internal.StrictList
   , append
   )
 import Data.Maybe (fromJust)
-import Data.Traversable (traverse)
 import GHC.MVar (MVar(MVar))
 import GHC.IO (IO(IO), unIO)
 import GHC.Exts (mkWeak#)

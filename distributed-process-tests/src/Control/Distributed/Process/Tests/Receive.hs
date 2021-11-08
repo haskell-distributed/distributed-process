@@ -101,44 +101,44 @@ master = do
   kill p "BANG"
 
   liftIO $ putStrLn "\n---- Test 2 ----"
-  (s1,r1) <- newChan
-  (s2,r2) <- newChan
-  p <- spawnLocal (recTest2 waitr syncs r1 r2)
+  (s1',r1') <- newChan
+  (_  ,r2') <- newChan
+  p' <- spawnLocal (recTest2 waitr syncs r1' r2')
 
-  sendChan s1 "a" >> go "received1 a"
-  send p "foo" >> go "received2 foo"
-  sendChan s1 "a" >> send p "foo" >> go "received1 a"
-  sendChan s1 "a" >> send p "bar" >> go "received1 a"
+  sendChan s1' "a" >> go "received1 a"
+  send p' "foo" >> go "received2 foo"
+  sendChan s1' "a" >> send p "foo" >> go "received1 a"
+  sendChan s1' "a" >> send p "bar" >> go "received1 a"
   go "received2 foo"
 
-  kill p "BANG"
+  kill p' "BANG"
 
   liftIO $ putStrLn "\n---- Test 3 ----"
-  (s1,r1) <- newChan
-  (s2,r2) <- newChan
-  p <- spawnLocal (recTest3 waitr syncs r1 r2)
+  (s1'',r1'') <- newChan
+  (_   ,r2'') <- newChan
+  p'' <- spawnLocal (recTest3 waitr syncs r1'' r2'')
 
-  sendChan s1 "a" >> go "received2 a"
-  send p "foo" >> go "received1 foo"
-  sendChan s1 "a" >> send p "foo" >> go "received1 foo"
-  sendChan s1 "a" >> send p "bar" >> go "received2 a"
+  sendChan s1'' "a" >> go "received2 a"
+  send p'' "foo" >> go "received1 foo"
+  sendChan s1'' "a" >> send p "foo" >> go "received1 foo"
+  sendChan s1'' "a" >> send p "bar" >> go "received2 a"
   go "received2 a"
 
-  kill p "BANG"
+  kill p'' "BANG"
 
   liftIO $ putStrLn "\n---- Test 4 ----"
-  (s1,r1) <- newChan
-  (s2,r2) <- newChan
-  p <- spawnLocal (recTest4 waitr syncs r1 r2)
+  (s1''',r1''') <- newChan
+  (_    ,r2''') <- newChan
+  p''' <- spawnLocal (recTest4 waitr syncs r1''' r2''')
 
-  sendChan s1 "a" >> go "received2 a"
-  send p "foo" >> go "received1 foo"
-  send p "bar" >> go "received3 bar"
-  sendChan s1 "a" >> send p "foo" >> go "received1 foo"
-  send p "bar" >> go "received2 a"
-  send p "foo" >> go "received1 foo" >> go "received3 bar"
+  sendChan s1''' "a" >> go "received2 a"
+  send p''' "foo" >> go "received1 foo"
+  send p''' "bar" >> go "received3 bar"
+  sendChan s1''' "a" >> send p''' "foo" >> go "received1 foo"
+  send p''' "bar" >> go "received2 a"
+  send p''' "foo" >> go "received1 foo" >> go "received3 bar"
 
-  kill p "BANG"
+  kill p''' "BANG"
 
   terminate
 

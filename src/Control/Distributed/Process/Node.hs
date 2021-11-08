@@ -28,11 +28,8 @@ import Data.Binary (decode)
 import Data.Map (Map)
 import qualified Data.Map as Map
   ( empty
-  , delete
   , toList
   , fromList
-  , insert
-  , lookup
   , partition
   , partitionWithKey
   , elems
@@ -213,9 +210,6 @@ import Control.Distributed.Process.Internal.Primitives
   , match
   , sendChan
   , unwrapMessage
-  , monitor
-  , unmonitorAsync
-  , getSelfNode
   , SayMessage(..)
   )
 import Control.Distributed.Process.Internal.Types (SendPort, Tracer(..))
