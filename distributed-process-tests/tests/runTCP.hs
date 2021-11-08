@@ -5,7 +5,7 @@ module Main where
 import TEST_SUITE_MODULE (tests)
 
 import Network.Transport.Test (TestTransport(..))
-import Network.Socket (sClose)
+import Network.Socket (close)
 import Network.Transport.TCP
   ( createTransportExposeInternals
   , TransportInternals(socketBetween)
@@ -31,7 +31,7 @@ main = do
       { testTransport = transport
       , testBreakConnection = \addr1 addr2 -> do
           esock <- try $ socketBetween internals addr1 addr2
-          either (\e -> const (return ()) (e :: IOException)) sClose esock
+          either (\e -> const (return ()) (e :: IOException)) close esock
           threadDelay 10000
       }
     args <- getArgs
