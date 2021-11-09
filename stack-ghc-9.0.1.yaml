@@ -1,0 +1,16 @@
+resolver: nightly-2021-11-06 # Use GHC 9.0.1
+
+packages:
+  - .
+  - distributed-process-tests/
+
+extra-deps:
+- distributed-static-0.3.9
+- rematch-0.2.0.0
+- network-transport-tcp-0.8.0
+- git: https://github.com/haskell-distributed/network-transport-inmemory.git
+  commit: 0ce97924f15a8c1570b2355151834305c9bd2a28
+
+flags:
+  distributed-process-tests:
+    tcp: true

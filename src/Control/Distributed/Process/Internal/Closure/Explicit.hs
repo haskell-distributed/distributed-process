@@ -25,6 +25,7 @@ import Control.Distributed.Process.Internal.Closure.BuiltIn
     staticDecode
   )
 import Control.Distributed.Process
+import Data.Kind (Type)
 import Data.Rank1Dynamic
 import Data.Rank1Typeable
 import Data.Binary(encode,put,get,Binary)
@@ -118,7 +119,7 @@ instance Curry (b -> c) r => Curry ((a,b) -> c) (a -> r) where
 -- This generic uncurry courtesy Andrea Vezzosi
 data HTrue
 data HFalse
-data Fun :: * -> * -> * -> * where
+data Fun :: Type -> Type -> Type -> Type where
   Done :: Fun EndOfTuple r r
   Moar :: Fun xs f r -> Fun (x,xs) (x -> f) r
 

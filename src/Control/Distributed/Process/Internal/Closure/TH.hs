@@ -48,6 +48,9 @@ import Language.Haskell.TH
    -- .. Top-level declarations
   , funD
   , sigD
+#if MIN_VERSION_template_haskell(2,17,0)
+  , Specificity
+#endif
   )
 import Data.Maybe (catMaybes)
 import Data.Binary (encode)
@@ -72,6 +75,12 @@ import Control.Distributed.Process.Serializable
   ( SerializableDict(SerializableDict)
   )
 import Control.Distributed.Process.Internal.Closure.BuiltIn (staticDecode)
+
+#if MIN_VERSION_template_haskell(2,17,0)
+type TyVarBndr' = TyVarBndr Specificity
+#else
+type TyVarBndr' = TyVarBndr
+#endif
 
 --------------------------------------------------------------------------------
 -- User-level API                                                             --
@@ -202,7 +211,7 @@ generateDefs (origName, fullType) = do
            , concat [register, registerSDict, registerTDict]
            )
   where
-    makeStatic :: [TyVarBndr] -> Type -> Q ([Dec], [Q Exp])
+    makeStatic :: [TyVarBndr'] -> Type -> Q ([Dec], [Q Exp])
     makeStatic typVars typ = do
       static <- generateStatic origName typVars typ
       let dyn = case typVars of
@@ -221,7 +230,7 @@ generateDefs (origName, fullType) = do
              )
 
 -- | Turn a polymorphic type into a monomorphic type using ANY and co
-monomorphize :: [TyVarBndr] -> Type -> Q Type
+monomorphize :: [TyVarBndr'] -> Type -> Q Type
 monomorphize tvs =
     let subst = zip (map tyVarBndrName tvs) anys
     in everywhereM (mkM (applySubst subst))
@@ -246,7 +255,7 @@ monomorphize tvs =
     applySubst s t = gmapM (mkM (applySubst s)) t
 
 -- | Generate a static value
-generateStatic :: Name -> [TyVarBndr] -> Type -> Q [Dec]
+generateStatic :: Name -> [TyVarBndr'] -> Type -> Q [Dec]
 generateStatic n xs typ = do
     staticTyp <- [t| Static |]
     sequence
@@ -258,7 +267,7 @@ generateStatic n xs typ = do
       , sfnD (staticName n) [| staticLabel $(showFQN n) |]
       ]
   where
-    typeable :: TyVarBndr -> Q Pred
+    typeable :: TyVarBndr' -> Q Pred
     typeable tv =
 #if MIN_VERSION_template_haskell(2,10,0)
       conT (mkName "Typeable") `appT` varT (tyVarBndrName tv)
@@ -314,9 +323,14 @@ sfnD :: Name -> Q Exp -> Q Dec
 sfnD n e = funD n [clause [] (normalB e) []]
 
 -- | The name of a type variable binding occurrence
-tyVarBndrName :: TyVarBndr -> Name
+tyVarBndrName :: TyVarBndr' -> Name
+#if MIN_VERSION_template_haskell(2,17,0)
+tyVarBndrName (PlainTV n _)    = n
+tyVarBndrName (KindedTV n _ _) = n
+#else
 tyVarBndrName (PlainTV n)    = n
 tyVarBndrName (KindedTV n _) = n
+#endif
 
 -- | Fully qualified name; that is, the name and the _current_ module
 --
