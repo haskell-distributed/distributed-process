@@ -1,6 +1,6 @@
 Name:          network-transport
 Version:       0.5.5
-Cabal-Version: >=1.6
+Cabal-Version: >=1.10
 Build-Type:    Simple
 License:       BSD3
 License-File:  LICENSE
@@ -75,7 +75,7 @@ Library
   Exposed-Modules: Network.Transport,
                    Network.Transport.Util
                    Network.Transport.Internal
-  Extensions:      ForeignFunctionInterface,
+  Other-Extensions: ForeignFunctionInterface,
                    RankNTypes,
                    ScopedTypeVariables,
                    DeriveDataTypeable,
@@ -83,5 +83,6 @@ Library
                    CPP
   GHC-Options:     -Wall -fno-warn-unused-do-bind
   HS-Source-Dirs:  src
+  Default-Language: Haskell2010
   if os(win32)
       extra-libraries: ws2_32
