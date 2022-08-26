@@ -8,7 +8,9 @@ import           Test.HUnit                     hiding (Test)
 import           Unsafe.Coerce
 
 funKindStr :: String
-#if __GLASGOW_HASKELL__ >= 804
+#if defined(MIN_VERSION_GLASGOW_HASKELL) && MIN_VERSION_GLASGOW_HASKELL(9,2,1,0)
+funKindStr = "FUN"
+#elif __GLASGOW_HASKELL__ >= 804
 funKindStr = "->"
 #else
 funKindStr = "(->)"
