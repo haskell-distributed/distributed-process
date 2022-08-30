@@ -1,3 +1,7 @@
+2022-08-30  Facundo Domínguez <facundo.dominguez@tweag.io> 0.5.6
+
+* Fix extension fields in the cabal file (#41).
+
 2022-08-09  Facundo Domínguez <facundo.dominguez@tweag.io> 0.5.5
 
 * Relax dependency bounds to build with ghc9 (#40).
