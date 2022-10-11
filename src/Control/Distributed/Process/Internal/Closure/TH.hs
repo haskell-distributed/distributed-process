@@ -183,7 +183,7 @@ generateDefs (origName, fullType) = do
                                            _                    -> ([], fullType)
 
     -- The main "static" entry
-    (static, register) <- makeStatic typVars typ' --M_TODO
+    (static, register) <- makeStatic typVars typ'
 
     -- If n :: T1 -> T2, static serializable dictionary for T1
     -- TODO: we should check if arg is an instance of Serializable, but we cannot
