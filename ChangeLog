@@ -2,6 +2,10 @@ next release
 
 *
 
+2022-10-12 FacundoDominguez <facundo.dominguez@tweag.io> 0.8.1
+
+* Fix imports for ghc 9 (#93).
+
 2020-10-09 FacundoDominguez <facundo.dominguez@tweag.io> 0.8.0
 
 * Move to network 3.
