@@ -28,6 +28,9 @@ import Language.Haskell.TH
   , Exp
   , Type(AppT, ForallT, VarT, ArrowT)
   , Info(VarI)
+#if MIN_VERSION_template_haskell(2,17,0)
+  , Specificity
+#endif
   , TyVarBndr(PlainTV, KindedTV)
   , Pred
 #if MIN_VERSION_template_haskell(2,10,0)
@@ -203,7 +206,11 @@ generateDefs (origName, fullType) = do
            , concat [register, registerSDict, registerTDict]
            )
   where
+#if MIN_VERSION_template_haskell(2,17,0)
+    makeStatic :: [TyVarBndr Specificity] -> Type -> Q ([Dec], [Q Exp])
+#else
     makeStatic :: [TyVarBndr] -> Type -> Q ([Dec], [Q Exp])
+#endif
     makeStatic typVars typ = do
       static <- generateStatic origName typVars typ
       let dyn = case typVars of
@@ -222,7 +229,12 @@ generateDefs (origName, fullType) = do
              )
 
 -- | Turn a polymorphic type into a monomorphic type using ANY and co
+#if MIN_VERSION_template_haskell(2,17,0)
+monomorphize :: [TyVarBndr Specificity] -> Type -> Q Type
+#else
 monomorphize :: [TyVarBndr] -> Type -> Q Type
+#endif
+
 monomorphize tvs =
     let subst = zip (map tyVarBndrName tvs) anys
     in everywhereM (mkM (applySubst subst))
@@ -247,7 +259,11 @@ monomorphize tvs =
     applySubst s t = gmapM (mkM (applySubst s)) t
 
 -- | Generate a static value
+#if MIN_VERSION_template_haskell(2,17,0)
+generateStatic :: Name -> [TyVarBndr Specificity] -> Type -> Q [Dec]
+#else
 generateStatic :: Name -> [TyVarBndr] -> Type -> Q [Dec]
+#endif
 generateStatic n xs typ = do
     staticTyp <- [t| Static |]
     sequence
@@ -259,7 +275,11 @@ generateStatic n xs typ = do
       , sfnD (staticName n) [| staticLabel $(showFQN n) |]
       ]
   where
+#if MIN_VERSION_template_haskell(2,17,0)
+    typeable :: TyVarBndr Specificity -> Q Pred
+#else
     typeable :: TyVarBndr -> Q Pred
+#endif
     typeable tv =
 #if MIN_VERSION_template_haskell(2,10,0)
       conT (mkName "Typeable") `appT` varT (tyVarBndrName tv)
@@ -315,9 +335,16 @@ sfnD :: Name -> Q Exp -> Q Dec
 sfnD n e = funD n [clause [] (normalB e) []]
 
 -- | The name of a type variable binding occurrence
+#if MIN_VERSION_template_haskell(2,17,0)
+tyVarBndrName :: TyVarBndr Specificity -> Name
+tyVarBndrName (PlainTV n _)    = n
+tyVarBndrName (KindedTV n _ _) = n
+#else
 tyVarBndrName :: TyVarBndr -> Name
 tyVarBndrName (PlainTV n)    = n
 tyVarBndrName (KindedTV n _) = n
+#endif
+
 
 -- | Fully qualified name; that is, the name and the _current_ module
 --
