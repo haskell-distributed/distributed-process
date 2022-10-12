@@ -21,7 +21,7 @@ jobs:
         uses: actions/cache@v2
         with:
           path: ${{ github.workspace }}/stack-root
-          key: cache-key-${{ runner.os }}-${{ hashFiles(format('stack-ghc-{{0}}.yaml', matrix.ghcVersion)) }}
+          key: cache-key-${{ runner.os }}-${{ hashFiles(format('stack-ghc-{0}.yaml', matrix.ghcVersion)) }}
       - shell: bash
         name: run tests
         run: |
