@@ -2,6 +2,10 @@ Unreleased
 
 *
 
+2022-10-12  Facundo Domínguez  <facundo.dominguez@tweag.io>  0.3.1
+
+* Update dependency bounds for ghc 9.
+
 2020-10-09  Facundo Domínguez  <facundo.dominguez@tweag.io>  0.3.0
 
 * Added testTransportWithFilter to allow selecting which tests to run.
