@@ -12,6 +12,7 @@ jobs:
           , "8.8.4"
           , "8.10.7"
           , "9.0.2"
+	  , "9.2.6"
           ]
     container: "fpco/stack-build-small"
     steps:
