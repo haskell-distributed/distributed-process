@@ -49,7 +49,7 @@ Library
                      transformers >= 0.2 && < 0.6,
                      mtl >= 2.0 && < 2.4,
                      data-accessor >= 0.2 && < 0.3,
-                     bytestring >= 0.9 && < 0.12,
+                     bytestring >= 0.9 && <= 0.12,
                      random >= 1.0 && < 1.3,
                      distributed-static >= 0.2 && < 0.4,
                      rank1dynamic >= 0.1 && < 0.5,
@@ -122,7 +122,7 @@ benchmark distributed-process-throughput
   Build-Depends:   base >= 4.6 && < 5,
                    distributed-process,
                    network-transport-tcp >= 0.3 && <= 0.81,
-                   bytestring >= 0.9 && < 0.12,
+                   bytestring >= 0.9 && <= 0.12,
                    binary >= 0.6.3 && < 0.10
   Main-Is:         benchmarks/Throughput.hs
   ghc-options:     -Wall
@@ -132,7 +132,7 @@ benchmark distributed-process-latency
   Build-Depends:   base >= 4.6 && < 5,
                    distributed-process,
                    network-transport-tcp >= 0.3 && <= 0.81,
-                   bytestring >= 0.9 && < 0.12,
+                   bytestring >= 0.9 && <= 0.12,
                    binary >= 0.6.3 && < 0.10
   Main-Is:         benchmarks/Latency.hs
   ghc-options:     -Wall
@@ -142,7 +142,7 @@ benchmark distributed-process-channels
   Build-Depends:   base >= 4.6 && < 5,
                    distributed-process,
                    network-transport-tcp >= 0.3 && <= 0.81,
-                   bytestring >= 0.9 && < 0.12,
+                   bytestring >= 0.9 && <= 0.12,
                    binary >= 0.6.3 && < 0.10
   Main-Is:         benchmarks/Channels.hs
   ghc-options:     -Wall
@@ -152,7 +152,7 @@ benchmark distributed-process-spawns
   Build-Depends:   base >= 4.6 && < 5,
                    distributed-process,
                    network-transport-tcp >= 0.3 && <= 0.81,
-                   bytestring >= 0.9 && < 0.12,
+                   bytestring >= 0.9 && <= 0.12,
                    binary >= 0.6.3 && < 0.10
   Main-Is:         benchmarks/Spawns.hs
   ghc-options:     -Wall
@@ -162,7 +162,7 @@ benchmark distributed-process-ring
   Build-Depends:   base >= 4.6 && < 5,
                    distributed-process,
                    network-transport-tcp >= 0.3 && <= 0.81,
-                   bytestring >= 0.9 && < 0.12,
+                   bytestring >= 0.9 && <= 0.12,
                    binary >= 0.6.3 && < 0.10
   Main-Is:         benchmarks/ProcessRing.hs
   ghc-options:     -Wall -threaded -O2 -rtsopts
