@@ -1,0 +1,19 @@
+resolver: nightly-2023-05-01 # Use GHC 9.4.5
+
+packages:
+  - .
+  - distributed-process-tests/
+
+extra-deps:
+# Both distributed-static and network-transport-inmemory have
+# revisions on hackage that bump dependencies like containers and
+# bytestring. Explicit sha256 hashes seem to be needed to get the
+# right revisions (4/30/23).
+- distributed-static-0.3.9@sha256:f5e781867eddec660cb3b39805c849e3f096b7da245d43a07d8529e3c92b3a27
+- network-transport-inmemory-0.5.2@sha256:eead1fb207672127ccca1d04ae6a0eb20ee6ec10223eefb4274694dbbf4e9908
+- rematch-0.2.0.0
+- network-transport-tcp-0.8.1
+
+flags:
+  distributed-process-tests:
+    tcp: true
