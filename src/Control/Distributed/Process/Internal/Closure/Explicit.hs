@@ -7,6 +7,7 @@
   , KindSignatures
   , GADTs
   , EmptyDataDecls
+  , TypeOperators
   , DeriveDataTypeable #-}
 module Control.Distributed.Process.Internal.Closure.Explicit
   (
@@ -29,6 +30,7 @@ import Data.Rank1Dynamic
 import Data.Rank1Typeable
 import Data.Binary(encode,put,get,Binary)
 import qualified Data.ByteString.Lazy as B
+import Data.Kind (Type)
 
 -- | A RemoteRegister is a trasformer on a RemoteTable to register additional static values.
 type RemoteRegister = RemoteTable -> RemoteTable
@@ -118,7 +120,7 @@ instance Curry (b -> c) r => Curry ((a,b) -> c) (a -> r) where
 -- This generic uncurry courtesy Andrea Vezzosi
 data HTrue
 data HFalse
-data Fun :: * -> * -> * -> * where
+data Fun :: Type -> Type -> Type -> Type where
   Done :: Fun EndOfTuple r r
   Moar :: Fun xs f r -> Fun (x,xs) (x -> f) r
 
