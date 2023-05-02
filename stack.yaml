@@ -1,12 +1,1 @@
-resolver: lts-16.0
-packages:
-- '.'
-extra-deps:
-- git: https://github.com/davidsd/distributed-process.git
-  commit: 144818f5174522ee4a027a4681ec047e0567c11b
-- git: https://github.com/haskell-distributed/distributed-process-systest.git
-  commit: d43a6ee475b1ea2d3c5edcf460517a948eba7a78
-- rematch-0.2.0.0
-- distributed-static-0.3.9
-- network-transport-tcp-0.6.0
-flags: {}
+stack-ghc-9.4.5.yaml
