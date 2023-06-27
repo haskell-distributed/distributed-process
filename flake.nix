@@ -11,11 +11,16 @@
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
+    rank1dynamic-src = {
+      flake = false;
+      url = "github:haskell-distributed/rank1dynamic/53c5453121592453177370daa06f098cb014c0d3";
+    };
   };
 
   outputs = {
     self,
     nixpkgs,
+    rank1dynamic-src
   }: let
     forAllSystems = function: nixpkgs.lib.genAttrs [ "x86_64-linux" "aarch64-linux" ] (system: function rec {
       inherit system;
@@ -27,7 +32,7 @@
           distributed-process = hfinal.callCabal2nix "distributed-process" ./. {};
 
           # External Packages
-          rank1dynamic = dontCheck (markUnbroken (hprev.rank1dynamic));
+          rank1dynamic = hfinal.callCabal2nix "rank1dynamic" rank1dynamic-src {};
         };
       };
     });

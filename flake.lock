@@ -16,9 +16,27 @@
         "type": "github"
       }
     },
+    "rank1dynamic-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1661536488,
+        "narHash": "sha256-SmDhpAA97NPTF7WiYKUQNNeCpR4yO9iQrtflJXiTu8c=",
+        "owner": "haskell-distributed",
+        "repo": "rank1dynamic",
+        "rev": "53c5453121592453177370daa06f098cb014c0d3",
+        "type": "github"
+      },
+      "original": {
+        "owner": "haskell-distributed",
+        "repo": "rank1dynamic",
+        "rev": "53c5453121592453177370daa06f098cb014c0d3",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": "nixpkgs",
+        "rank1dynamic-src": "rank1dynamic-src"
       }
     }
   },
