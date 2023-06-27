@@ -1,0 +1,12 @@
+cradle:
+  cabal:
+    - path: "./src"
+      component: "lib:distributed-process"
+    - path: "./benchmark/Latency.hs"
+      component: "bench:distributed-process-latency"
+    - path: "./benchmark/Channels.hs"
+      component: "bench:distributed-process-channels"
+    - path: "./benchmark/Spawns.hs"
+      component: "bench:distributed-process-spawns"
+    - path: "./benchmark/ProcessRing.hs"
+      component: "bench:distributed-process-ring"
