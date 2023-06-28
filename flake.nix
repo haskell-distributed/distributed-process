@@ -27,7 +27,7 @@
       compilerVersion = "ghc945";
       pkgs = nixpkgs.legacyPackages.${system};
       hsPkgs = pkgs.haskell.packages.${compilerVersion}.override {
-        overrides = hfinal: hprev: with pkgs.haskell.lib; {
+        overrides = hfinal: hprev: {
           # Internal Packages
           distributed-process = hfinal.callCabal2nix "distributed-process" ./. {};
 
@@ -38,9 +38,6 @@
     });
   in {
     formatter = forAllSystems ({pkgs, ...}: pkgs.alejandra);
-
-    # You can't build the servicehub package as a check because of IFD in cabal2nix
-    checks = {};
 
     # nix develop
     devShells = forAllSystems ({hsPkgs, pkgs, ...}: {
