@@ -14,7 +14,6 @@ module Control.Distributed.Process.Management.Internal.Types
   , Addressable(..)
   ) where
 
-import Control.Applicative (Applicative)
 import Control.Concurrent.STM
   ( TChan
   )

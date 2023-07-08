@@ -12,7 +12,6 @@ module Control.Distributed.Process.Internal.Closure.TH
   ) where
 
 import Prelude hiding (succ, any)
-import Control.Applicative ((<$>))
 import Language.Haskell.TH
   ( -- Q monad and operations
     Q

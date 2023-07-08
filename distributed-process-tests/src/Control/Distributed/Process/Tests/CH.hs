@@ -42,9 +42,7 @@ import Control.Distributed.Process.Internal.Types
   , createUnencodedMessage
   )
 import Control.Distributed.Process.Node
-import Control.Distributed.Process.Debug
-import Control.Distributed.Process.Management.Internal.Types
-import Control.Distributed.Process.Tests.Internal.Utils (shouldBe, pause)
+import Control.Distributed.Process.Tests.Internal.Utils (pause)
 import Control.Distributed.Process.Serializable (Serializable)
 import Data.Maybe (isNothing, isJust)
 import Test.HUnit (Assertion, assertBool, assertFailure)
@@ -101,14 +99,6 @@ whereisRemote nid string = do
 
 verifyWhereIsRemote :: NodeId -> String -> Process ProcessId
 verifyWhereIsRemote n s = whereisRemote n s >>= maybe (die "remote name not found") return
-
-waitForExit :: ProcessId -> Process DiedReason
-waitForExit pid = monitor pid >>= waitForDown
-
-waitForDown :: MonitorRef -> Process DiedReason
-waitForDown ref =
-  receiveWait [ matchIf (\(ProcessMonitorNotification ref' _ _) -> ref == ref')
-                        (\(ProcessMonitorNotification _ _ dr) -> return dr) ]
 
 syncBreakConnection :: (NT.EndPointAddress -> NT.EndPointAddress -> IO ()) -> LocalNode -> LocalNode -> IO ()
 syncBreakConnection breakConnection nid0 nid1 = do
@@ -706,9 +696,9 @@ testRegistry TestTransport{..} = do
     checkRegException name pid dead =
       try (register name dead) >>= checkReg name pid
 
-    checkReg name pid res =
+    checkReg _ _ res =
       case res of
-        Left (ProcessRegistrationException name pid) -> return ()
+        Left (ProcessRegistrationException _ _) -> return ()
         _ -> die $ "Unexpected Registration" ++ show res
 
 testRegistryRemoteProcess :: TestTransport -> Assertion
@@ -759,7 +749,7 @@ testRemoteRegistry TestTransport{..} = do
     -- test that if process was not registered Nothing is returned
     -- in owner field.
     registerRemoteAsync nid1 "dead" deadProcess
-    receiveWait [ matchIf (\(RegisterReply label' f mPid) -> "dead" == label')
+    receiveWait [ matchIf (\(RegisterReply label' _ _) -> "dead" == label')
                           (\(RegisterReply _ f mPid) -> return (not f && isNothing mPid))
                 ] >>= liftIO . assertBool "Expected False Nothing in RegisterReply"
 
@@ -1296,7 +1286,7 @@ testChanLifecycle TestTransport{..} = let delay = 3000000 in do
       res <- receiveChanTimeout delay rp
       case res of
         Nothing -> say "initial chan () missing!" >> (liftIO $ putMVar result False)
-        Just () -> do mr <- monitor pid
+        Just () -> do _ <- monitor pid
                       pause 10000
                       -- say "sending pid a second () will cause it to exit"
                       send pid ()
@@ -1571,7 +1561,7 @@ testRegistryMonitoring TestTransport{..} = do
     res <- whereis regName
     send pid ()
     say $ " sent finish signal to " ++ show pid
-    us <- getSelfPid
+    _ <- getSelfPid
     liftIO $ assertBool "expected (Just pid)" $ res == (Just pid)
 
 
@@ -1600,7 +1590,7 @@ testRegistryMonitoring TestTransport{..} = do
   res <- takeMVar regHere
   case res of
     Nothing  -> return ()
-    Just pid -> assertBool ("expected Nothing, but got " ++ show pid) False
+    _        -> assertBool ("expected Nothing, but got " ++ show pid) False
 
   where
     runUntilRegistered nid us = do
@@ -1613,7 +1603,7 @@ testRegistryMonitoring TestTransport{..} = do
     delayUntilMaybeUnregistered nid p = do
       whereisRemoteAsync nid regName
       res <- receiveTimeout 20000000 {- 20 sec delay -} [
-          matchIf (\(WhereIsReply n p) -> n == regName && isNothing p)
+          matchIf (\(WhereIsReply n p') -> n == regName && isNothing p')
                   (const $ return ())
         ]
       case res of

@@ -41,7 +41,7 @@ flag old-locale
  default: False
 
 Library
-  Build-Depends:     base >= 4.6 && < 5,
+  Build-Depends:     base >= 4.9 && < 5,
                      binary >= 0.6.3 && < 0.10,
                      hashable >= 1.2.0.5 && <= 1.4.2.0,
                      network-transport >= 0.4.1.0 && < 0.6,
@@ -119,7 +119,7 @@ Library
 
 benchmark distributed-process-throughput
   Type:            exitcode-stdio-1.0
-  Build-Depends:   base >= 4.6 && < 5,
+  Build-Depends:   base >= 4.9 && < 5,
                    distributed-process,
                    network-transport-tcp >= 0.3 && <= 0.81,
                    bytestring >= 0.9 && <= 0.12,
@@ -129,7 +129,7 @@ benchmark distributed-process-throughput
 
 benchmark distributed-process-latency
   Type:            exitcode-stdio-1.0
-  Build-Depends:   base >= 4.6 && < 5,
+  Build-Depends:   base >= 4.9 && < 5,
                    distributed-process,
                    network-transport-tcp >= 0.3 && <= 0.81,
                    bytestring >= 0.9 && <= 0.12,
@@ -139,7 +139,7 @@ benchmark distributed-process-latency
 
 benchmark distributed-process-channels
   Type:            exitcode-stdio-1.0
-  Build-Depends:   base >= 4.6 && < 5,
+  Build-Depends:   base >= 4.9 && < 5,
                    distributed-process,
                    network-transport-tcp >= 0.3 && <= 0.81,
                    bytestring >= 0.9 && <= 0.12,
@@ -149,7 +149,7 @@ benchmark distributed-process-channels
 
 benchmark distributed-process-spawns
   Type:            exitcode-stdio-1.0
-  Build-Depends:   base >= 4.6 && < 5,
+  Build-Depends:   base >= 4.9 && < 5,
                    distributed-process,
                    network-transport-tcp >= 0.3 && <= 0.81,
                    bytestring >= 0.9 && <= 0.12,
@@ -159,7 +159,7 @@ benchmark distributed-process-spawns
 
 benchmark distributed-process-ring
   Type:            exitcode-stdio-1.0
-  Build-Depends:   base >= 4.6 && < 5,
+  Build-Depends:   base >= 4.9 && < 5,
                    distributed-process,
                    network-transport-tcp >= 0.3 && <= 0.81,
                    bytestring >= 0.9 && <= 0.12,

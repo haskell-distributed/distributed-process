@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wno-unused-top-binds #-}
 {-# LANGUAGE TemplateHaskell, KindSignatures #-}
 module Control.Distributed.Process.Tests.Closure (tests) where
 
@@ -19,14 +20,12 @@ import Control.Concurrent.MVar
   , modifyMVar_
   , newMVar
   )
-import Control.Applicative ((<$>))
 import System.Random (randomIO)
 import Control.Distributed.Process
 import Control.Distributed.Process.Closure
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Internal.Types
-  ( NodeId(nodeAddress)
-  , createMessage
+  ( createMessage
   , messageToPayload
   )
 import Control.Distributed.Static (staticLabel, staticClosure)
