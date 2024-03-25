@@ -24,7 +24,6 @@ import Control.Distributed.Process.Serializable
   )
 import Data.Binary
 import Data.Typeable (Typeable)
-import Data.Monoid
 
 import GHC.Generics
 
