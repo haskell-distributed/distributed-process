@@ -1,6 +1,7 @@
-[Unrealeased]
+2018-06-12 David Simmons-Duffin <dsd@caltech.edu> 0.7.5
 
-*
+* Bumped dependencies to build with GHC 9.8
+* Turn Serializable into a type synonym
 
 2018-06-12 Facundo Domínguez <facundo.dominguez@tweag.io> 0.7.4
 

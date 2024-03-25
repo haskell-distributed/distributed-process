@@ -11,6 +11,7 @@ extra-deps:
 - distributed-static-0.3.10
 - network-transport-inmemory-0.5.2@sha256:eead1fb207672127ccca1d04ae6a0eb20ee6ec10223eefb4274694dbbf4e9908
 - rematch-0.2.0.0
+- network-transport-0.5.7
 - network-transport-tcp-0.8.2
 
 flags:
