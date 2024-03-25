@@ -60,13 +60,6 @@ initMulticast host port bufferSize = do
 
 type UDPState = Map SockAddr BSL.ByteString
 
-#if MIN_VERSION_network(2,4,0)
--- network-2.4.0 provides the Ord instance for us
-#else
-instance Ord SockAddr where
-  compare = compare `on` show
-#endif
-
 bufferFor :: SockAddr -> Accessor UDPState BSL.ByteString
 bufferFor = DAC.mapDefault BSL.empty
 
