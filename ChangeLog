@@ -1,6 +1,6 @@
-next release
+2023-03-25 David Simmons-Duffin <dsd@caltech.edu> 0.8.2
 
-*
+* Bump bytestring version to build with GHC 9.8.
 
 2022-10-12 FacundoDominguez <facundo.dominguez@tweag.io> 0.8.1
 
