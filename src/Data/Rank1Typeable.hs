@@ -98,7 +98,6 @@ module Data.Rank1Typeable
 import Prelude hiding (succ)
 import Control.Arrow ((***), second)
 import Control.Monad (void)
-import Control.Applicative ((<$>))
 import Data.Binary
 import Data.Function (on)
 import Data.List (intersperse, isPrefixOf)
