@@ -1,5 +1,5 @@
 Name:          distributed-process-simplelocalnet
-Version:       0.2.4
+Version:       0.3.0
 Cabal-Version: >=1.8
 Build-Type:    Simple
 License:       BSD3
@@ -23,13 +23,10 @@ Source-Repository head
   Type:     git
   Location: https://github.com/haskell-distributed/distributed-process-simplelocalnet
 
-Flag build-example
-  Default: False
-  Description: Build a simple example application
-
 Library
   Build-Depends:     base >= 4.4 && < 5,
                      bytestring >= 0.9 && < 0.12,
+                     exceptions >= 0.5 && <0.11,
                      network >= 3.0 && < 3.2,
                      network-multicast >= 0.1.1 && < 0.4,
                      data-accessor >= 0.2 && < 0.3,
@@ -46,10 +43,13 @@ Library
   ghc-options:       -Wall
   HS-Source-Dirs:    src
 
-Executable TestSimpleLocalnet
-  Main-Is:           TestSimpleLocalnet.hs
-  Build-Depends:     base >= 4.4 && < 5,
-                     distributed-process >= 0.5.0 && < 0.8,
-                     distributed-process-simplelocalnet
-  ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind 
-  HS-Source-Dirs:    tests
+Test-Suite SimpleLocalNet-TestSuite
+    Type:             exitcode-stdio-1.0
+    Hs-Source-Dirs:   tests
+    Main-Is:          Main.hs
+    ghc-options:      -threaded -with-rtsopts=-N
+    Build-Depends:    base
+                    , distributed-process
+                    , distributed-process-simplelocalnet
+                    , tasty
+                    , tasty-hunit

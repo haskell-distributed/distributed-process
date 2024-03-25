@@ -105,6 +105,7 @@ import Data.Typeable (Typeable)
 import Control.Applicative ((<$>))
 import Control.Exception (throw)
 import Control.Monad (forever, replicateM, replicateM_)
+import Control.Monad.Catch (bracket, try, finally)
 import Control.Monad.IO.Class (liftIO)
 import Control.Concurrent (forkIO, threadDelay, ThreadId)
 import Control.Concurrent.MVar (MVar, newMVar, readMVar, modifyMVar_)
@@ -129,13 +130,10 @@ import Control.Distributed.Process
   , unmonitor
   , NodeMonitorNotification(..)
   , ProcessRegistrationException
-  , finally
   , newChan
   , receiveChan
   , nsend
   , SendPort
-  , bracket
-  , try
   , send
   )
 import qualified Control.Distributed.Process.Node as Node

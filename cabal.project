@@ -1,0 +1,12 @@
+packages: *.cabal
+
+test-show-details: streaming
+tests: True
+
+-- We require a version of distributed-process which is
+-- support a wider range of dependency versions, notably for 
+-- `hashable`
+source-repository-package
+  type:     git
+  location: https://github.com/haskell-distributed/distributed-process
+  tag:      fe963293cd82afcbba61fc877ba2a6137cbaf469

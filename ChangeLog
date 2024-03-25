@@ -1,3 +1,8 @@
+unreleased  0.3.0
+
+* Breaking change: update dependency bounds to require network-3.0.
+* Use various functions from the `exceptions` package instead of the deprecated ones from `distributed-process`.
+
 2017-08-22  Facundo Domínguez <facundo.dominguezy@tweag.io>  0.2.4
 
 * Update dependency bounds to build with ghc-8.2.1.

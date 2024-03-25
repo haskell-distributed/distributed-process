@@ -1,0 +1,57 @@
+name: Continuous Integration
+
+on: [push, pull_request]
+
+jobs:
+  continuous-integration:
+    strategy:
+      matrix:
+        ghc-version:
+          - "9.0.2"
+          - "9.2.8"
+          - "9.4.5"
+          - "9.6.4"
+          - "9.8.2"
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install cabal/ghc
+      uses: haskell-actions/setup@v2
+      id: setup-haskell
+      with:
+        ghc-version: ${{ matrix.ghc-version }}
+        cabal-version: '3.10.3.0'
+    
+    - name: Generate freeze file
+      run: |
+        cabal update
+        cabal configure --disable-optimization
+        cabal freeze
+        # 'cabal freeze' will use the nearest index state which might not be exactly equal
+        # to the index state specified in 'cabal.project'
+        sed '/^index-state: /d' cabal.project.freeze > dependencies-versions
+    
+    - name: Cache cabal work
+      uses: actions/cache@v4
+      with:
+        path: |
+          dist-newstyle
+          ${{ steps.setup-haskell.outputs.cabal-store }}
+        # We are using the hash of 'cabal.project.local' so that different levels
+        # of optimizations are cached separately
+        key: ${{ runner.os }}-${{ hashFiles('dependencies-versions', 'cabal.project', 'cabal.project.local') }}-cabal-install
+
+    - name: Build dependencies only
+      run: |
+        cabal build --enable-tests --only-dependencies
+    
+    - name: Build this package
+      run: |
+        cabal build --enable-tests
+        
+    - name: Run tests
+      run: |
+        cabal test
