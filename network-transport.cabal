@@ -1,5 +1,5 @@
 Name:          network-transport
-Version:       0.5.6
+Version:       0.5.7
 Cabal-Version: >=1.10
 Build-Type:    Simple
 License:       BSD3
@@ -66,10 +66,10 @@ Source-Repository head
 Library
   Build-Depends:   base >= 4.6 && < 5,
                    binary >= 0.5 && < 0.9,
-                   bytestring >= 0.9 && < 0.12,
+                   bytestring >= 0.9 && < 0.13,
                    hashable >= 1.2.0.5 && < 1.5,
                    transformers >= 0.2 && < 0.7,
-                   deepseq >= 1.0 && < 1.5
+                   deepseq >= 1.0 && < 1.6
   if impl(ghc < 7.6)
     Build-Depends: ghc-prim >= 0.2 && < 0.4
   Exposed-Modules: Network.Transport,

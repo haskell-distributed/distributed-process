@@ -37,7 +37,6 @@ import qualified Data.ByteString.Internal as BSI
   , toForeignPtr
   )
 import Data.Word (Word32, Word16)
-import Control.Applicative ((<$>))
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Exception
   ( IOException

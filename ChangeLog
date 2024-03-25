@@ -1,3 +1,7 @@
+2024-03-25  David Simmons-Duffin <dsd@caltech.edu> 0.5.7
+
+* Bump bytestring and deepseq versions to build with GHC 9.8.
+
 2022-08-30  Facundo Domínguez <facundo.dominguez@tweag.io> 0.5.6
 
 * Fix extension fields in the cabal file (#41).
