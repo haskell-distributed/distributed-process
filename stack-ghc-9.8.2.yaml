@@ -5,15 +5,11 @@ packages:
   - distributed-process-tests/
 
 extra-deps:
-# network-transport-inmemory has revisions on hackage that bump
-# dependencies like containers and bytestring. Explicit sha256 hashes
-# seem to be needed to get the right revisions (4/30/23).
 - distributed-static-0.3.10
 - rematch-0.2.0.0
 - network-transport-0.5.7
 - network-transport-tcp-0.8.2
-- git: https://github.com/haskell-distributed/network-transport-inmemory.git
-  commit: 7a98331e092eff11f2c19daad2e364f794d90b91
+- network-transport-inmemory-0.5.3
 
 flags:
   distributed-process-tests:

@@ -178,11 +178,12 @@ usend them msg = do
 sendChan :: Serializable a => SendPort a -> a -> Process ()
 sendChan (SendPort cid) msg = do
   proc <- ask
-  let node = processNode proc
-      pid  = processId proc
-      us   = localNodeId node
-      them = processNodeId (sendPortProcessId cid)
-      msg' = wrapMessage msg in do
+  let
+    node = processNode proc
+    pid  = processId proc
+    us   = localNodeId node
+    them = processNodeId (sendPortProcessId cid)
+    msg' = wrapMessage msg
   liftIO $ traceEvent (localEventBus node) (MxSentToPort pid cid msg')
   if them == us
     then unsafeSendChanLocal cid msg' -- NB: we wrap to P.Message !!!

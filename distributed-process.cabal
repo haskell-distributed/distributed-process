@@ -1,6 +1,6 @@
 Name:          distributed-process
 Version:       0.7.5
-Cabal-Version: >=1.8
+Cabal-Version: >=1.10
 Build-Type:    Simple
 License:       BSD3
 License-File:  LICENSE
@@ -83,6 +83,7 @@ Library
                      Control.Distributed.Process.Management.Internal.Trace.Remote,
                      Control.Distributed.Process.Management.Internal.Trace.Types,
                      Control.Distributed.Process.Management.Internal.Trace.Tracer
+  default-language:  Haskell2010
   ghc-options:       -Wall
   HS-Source-Dirs:    src
   other-extensions:  BangPatterns
@@ -118,51 +119,56 @@ Library
 -- Tests are in distributed-process-test package, for convenience.
 
 benchmark distributed-process-throughput
-  Type:            exitcode-stdio-1.0
-  Build-Depends:   base >= 4.9 && < 5,
-                   distributed-process,
-                   network-transport-tcp >= 0.3 && <= 0.81,
-                   bytestring >= 0.9 && < 0.13,
-                   binary >= 0.6.3 && < 0.10
-  Main-Is:         benchmarks/Throughput.hs
-  ghc-options:     -Wall
+  Type:             exitcode-stdio-1.0
+  Build-Depends:    base >= 4.9 && < 5,
+                    distributed-process,
+                    network-transport-tcp >= 0.3 && <= 0.81,
+                    bytestring >= 0.9 && < 0.13,
+                    binary >= 0.6.3 && < 0.10
+  Main-Is:          benchmarks/Throughput.hs
+  default-language: Haskell2010
+  ghc-options:      -Wall
 
 benchmark distributed-process-latency
-  Type:            exitcode-stdio-1.0
-  Build-Depends:   base >= 4.9 && < 5,
-                   distributed-process,
-                   network-transport-tcp >= 0.3 && <= 0.81,
-                   bytestring >= 0.9 && < 0.13,
-                   binary >= 0.6.3 && < 0.10
-  Main-Is:         benchmarks/Latency.hs
-  ghc-options:     -Wall
+  Type:             exitcode-stdio-1.0
+  Build-Depends:    base >= 4.9 && < 5,
+                    distributed-process,
+                    network-transport-tcp >= 0.3 && <= 0.81,
+                    bytestring >= 0.9 && < 0.13,
+                    binary >= 0.6.3 && < 0.10
+  Main-Is:          benchmarks/Latency.hs
+  default-language: Haskell2010
+  ghc-options:      -Wall
 
 benchmark distributed-process-channels
-  Type:            exitcode-stdio-1.0
-  Build-Depends:   base >= 4.9 && < 5,
-                   distributed-process,
-                   network-transport-tcp >= 0.3 && <= 0.81,
-                   bytestring >= 0.9 && < 0.13,
-                   binary >= 0.6.3 && < 0.10
-  Main-Is:         benchmarks/Channels.hs
-  ghc-options:     -Wall
+  Type:             exitcode-stdio-1.0
+  Build-Depends:    base >= 4.9 && < 5,
+                    distributed-process,
+                    network-transport-tcp >= 0.3 && <= 0.81,
+                    bytestring >= 0.9 && < 0.13,
+                    binary >= 0.6.3 && < 0.10
+  Main-Is:          benchmarks/Channels.hs
+  default-language: Haskell2010
+  ghc-options:      -Wall
 
 benchmark distributed-process-spawns
-  Type:            exitcode-stdio-1.0
-  Build-Depends:   base >= 4.9 && < 5,
-                   distributed-process,
-                   network-transport-tcp >= 0.3 && <= 0.81,
-                   bytestring >= 0.9 && < 0.13,
-                   binary >= 0.6.3 && < 0.10
-  Main-Is:         benchmarks/Spawns.hs
-  ghc-options:     -Wall
+  Type:             exitcode-stdio-1.0
+  Build-Depends:    base >= 4.9 && < 5,
+                    distributed-process,
+                    network-transport-tcp >= 0.3 && <= 0.81,
+                    bytestring >= 0.9 && < 0.13,
+                    binary >= 0.6.3 && < 0.10
+  Main-Is:          benchmarks/Spawns.hs
+  default-language: Haskell2010
+  ghc-options:      -Wall
 
 benchmark distributed-process-ring
-  Type:            exitcode-stdio-1.0
-  Build-Depends:   base >= 4.9 && < 5,
-                   distributed-process,
-                   network-transport-tcp >= 0.3 && <= 0.81,
-                   bytestring >= 0.9 && < 0.13,
-                   binary >= 0.6.3 && < 0.10
-  Main-Is:         benchmarks/ProcessRing.hs
-  ghc-options:     -Wall -threaded -O2 -rtsopts
+  Type:             exitcode-stdio-1.0
+  Build-Depends:    base >= 4.9 && < 5,
+                    distributed-process,
+                    network-transport-tcp >= 0.3 && <= 0.81,
+                    bytestring >= 0.9 && < 0.13,
+                    binary >= 0.6.3 && < 0.10
+  Main-Is:          benchmarks/ProcessRing.hs
+  default-language: Haskell2010
+  ghc-options:      -Wall -threaded -O2 -rtsopts

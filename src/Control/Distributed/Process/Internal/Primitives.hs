@@ -253,7 +253,7 @@ send them msg = do
   let us       = processId proc
       node     = processNode proc
       nodeId   = localNodeId node
-      destNode = (processNodeId them) in do
+      destNode = (processNodeId them)
   liftIO $ traceEvent (localEventBus node)
                       (MxSent them us (createUnencodedMessage msg))
   if destNode == nodeId
@@ -344,7 +344,7 @@ sendChan (SendPort cid) msg = do
   let node = processNode proc
       pid  = processId proc
       us   = localNodeId node
-      them = processNodeId (sendPortProcessId cid) in do
+      them = processNodeId (sendPortProcessId cid)
   liftIO $ traceEvent (localEventBus node) (MxSentToPort pid cid $ wrapMessage msg)
   case them == us of
     True  -> sendChanLocal cid msg
@@ -493,7 +493,7 @@ forward msg them = do
   let node     = processNode proc
       us       = processId proc
       nid      = localNodeId node
-      destNode = (processNodeId them) in do
+      destNode = (processNodeId them)
   liftIO $ traceEvent (localEventBus node) (MxSent them us msg)
   if destNode == nid
     then sendCtrlMsg Nothing (LocalSend them msg)
@@ -514,7 +514,7 @@ uforward msg them = do
   let node     = processNode proc
       us       = processId proc
       nid      = localNodeId node
-      destNode = (processNodeId them) in do
+      destNode = (processNodeId them)
   liftIO $ traceEvent (localEventBus node) (MxSent them us msg)
   if destNode == nid
     then sendCtrlMsg Nothing (LocalSend them msg)
