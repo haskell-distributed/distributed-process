@@ -360,9 +360,14 @@ findSlaves backend = do
    -- Wait for the replies
    catMaybes <$> replicateM (length nodes) (
      receiveWait
-       [ match (\(WhereIsReply "slaveController" mPid) -> return mPid)
+       [ match handleWhereIsReply
        , match (\(NodeMonitorNotification {}) -> return Nothing)
        ])
+  where
+    handleWhereIsReply :: WhereIsReply -> Process (Maybe ProcessId)
+    handleWhereIsReply (WhereIsReply name mPid)
+      | name == "slaveController" = return mPid
+      | otherwise                 = return Nothing
 
 -- | Terminate all slaves
 terminateAllSlaves :: Backend -> Process ()
