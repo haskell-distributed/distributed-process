@@ -210,7 +210,6 @@ import Data.Binary
 import Data.ByteString.Lazy (ByteString, empty)
 import Data.Map (Map)
 import qualified Data.Map as Map (lookup, empty, insert)
-import Control.Applicative ((<$>), (<*>))
 import Control.Arrow as Arrow ((***), app)
 import Control.DeepSeq (NFData(rnf), force)
 import Data.Rank1Dynamic (Dynamic, toDynamic, fromDynamic, dynApply)

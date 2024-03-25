@@ -1,5 +1,5 @@
 Name:                distributed-static
-Version:             0.3.9
+Version:             0.3.10
 Synopsis:            Compositional, type-safe, polymorphic static values and closures
 Description:         /Towards Haskell in the Cloud/ (Epstein et al, Haskell
                      Symposium 2011) introduces the concept of /static/ values:
@@ -35,7 +35,7 @@ Library
   Build-Depends:       base >= 4.8 && < 5,
                        rank1dynamic >= 0.1 && < 0.5,
                        containers >= 0.4 && < 0.7,
-                       bytestring >= 0.10 && < 0.12,
+                       bytestring >= 0.10 && < 0.13,
                        binary >= 0.5 && < 0.9,
                        deepseq >= 1.3.0.1 && < 1.6
   HS-Source-Dirs:      src

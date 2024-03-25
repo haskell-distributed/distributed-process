@@ -1,3 +1,7 @@
+2024-03-25  David Simmons-Duffin  <dsd@caltech.edu>  0.3.10
+
+* Relax bytestring bounds to to build with ghc-9.8.
+
 2019-05-12  Facundo Domínguez  <facundo.dominguez@tweag.io>  0.3.9
 
 * Relax bounds to to build with ghc-8.6.
