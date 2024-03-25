@@ -18,7 +18,6 @@ import qualified Data.ByteString.Lazy as BSL
   )
 import Data.Accessor (Accessor, (^:), (^.), (^=))
 import qualified Data.Accessor.Container as DAC (mapDefault)
-import Control.Applicative ((<$>))
 import Network.Socket (HostName, PortNumber, Socket, SockAddr)
 import qualified Network.Socket.ByteString as NBS (recvFrom, sendManyTo)
 import Network.Transport.Internal (decodeNum32, encodeEnum32)
