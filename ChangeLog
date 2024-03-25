@@ -1,3 +1,5 @@
+0.5.3
+* Bump bytestring bound to build with ghc-9.8.
 0.5.2
 * Introduce internal module.
 * Fixes dependency bounds.
