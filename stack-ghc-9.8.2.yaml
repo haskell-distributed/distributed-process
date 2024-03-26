@@ -1,0 +1,12 @@
+resolver: nightly-2024-03-24 # Use GHC 9.8.2
+
+packages:
+  - .
+
+extra-deps:
+- distributed-process-0.7.5
+- distributed-static-0.3.10
+- rematch-0.2.0.0
+- network-transport-0.5.7
+- network-transport-tcp-0.8.2
+- network-transport-inmemory-0.5.3

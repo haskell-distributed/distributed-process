@@ -74,7 +74,7 @@ import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable()
 import Control.Monad.Catch
 
-import Control.Exception (AsyncException(ThreadKilled), SomeException)
+import Control.Exception (AsyncException(ThreadKilled))
 import Control.Monad (forever)
 import Control.Monad.STM (atomically)
 import Control.Rematch hiding (match)
@@ -174,8 +174,8 @@ newLogger = do
   _ <- forkIO $ logger q
   return $ Logger tid q
   where logger q' = forever $ do
-        msg <- atomically $ readTQueue q'
-        putStrLn msg
+          msg <- atomically $ readTQueue q'
+          putStrLn msg
 
 -- | Send a message to the Logger
 putLogMsg :: Logger -> String -> Process ()

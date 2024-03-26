@@ -1,6 +1,7 @@
-[Unrealeased]
+2024-03-26 David Simmons-Duffin <dsd@caltech.edu> 0.3.1
 
-*
+* Relaxed upper bounds to build with ghc-9.8
+* Fixed syntax errors with Haskell2010
 
 2018-11-10 Tim Watson <watson.timothy@gmail.com> 0.3.0
 

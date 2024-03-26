@@ -1,10 +1,1 @@
-resolver: lts-12.17
-
-packages:
-- .
-
-extra-deps:
-- ansi-terminal-0.6.3.1
-- rematch-0.2.0.0
-- distributed-process-0.7.4
-- exceptions-0.10.0
+stack-ghc-9.8.2.yaml
