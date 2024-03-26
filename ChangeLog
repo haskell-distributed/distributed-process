@@ -1,6 +1,6 @@
-Unreleased
+2024-03-25  David Simmons-Duffin  <dsd@caltech.edu>  0.3.2
 
-*
+* Update dependency bounds for ghc 9.8.
 
 2022-10-12  Facundo Domínguez  <facundo.dominguez@tweag.io>  0.3.1
 

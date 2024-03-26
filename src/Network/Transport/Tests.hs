@@ -21,7 +21,7 @@ import Control.Exception
   , ErrorCall(..)
   )
 import Control.Monad (replicateM, replicateM_, when, guard, forM_, unless)
-import Control.Monad.Error ()
+import Control.Monad.Except ()
 import Control.Applicative ((<$>))
 import Network.Transport
 import Network.Transport.Internal (tlog, tryIO, timeoutMaybe)
