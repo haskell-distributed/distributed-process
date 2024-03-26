@@ -23,7 +23,7 @@ library
                      binary >= 0.5 && < 1.0,
                      bytestring >= 0.9 && < 0.13,
                      distributed-process >= 0.6.1 && < 0.8,
-                     distributed-static,
+                     distributed-static < 0.4,
                      HUnit >= 1.2 && < 2,
                      network-transport >= 0.4.1.0 && < 0.6,
                      network >= 2.5 && < 3.2,
@@ -31,8 +31,8 @@ library
                      rematch >= 0.1.2.1 && < 0.3,
                      test-framework >= 0.6 && < 0.9,
                      test-framework-hunit >= 0.2.0 && < 0.4,
-                     exceptions,
-                     stm
+                     exceptions < 0.11,
+                     stm < 2.6
   hs-source-dirs:    src
   default-language:  Haskell2010
   ghc-options:       -Wall -fno-warn-unused-do-bind
