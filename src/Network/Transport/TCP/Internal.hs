@@ -71,7 +71,7 @@ import qualified Network.Transport.TCP.Mock.Socket.ByteString as NBS (recv)
 import qualified Network.Socket.ByteString as NBS (recv)
 #endif
 
-import Data.Word (Word32, Word64)
+import Data.Word (Word32)
 
 import Control.Monad (forever, when)
 import Control.Exception (SomeException, catch, bracketOnError, throwIO, mask_)
@@ -82,27 +82,15 @@ import Control.Concurrent.MVar
   , putMVar
   , readMVar
   )
-import Control.Monad (forever, when)
 import Control.Exception
-  ( SomeException
-  , catch
-  , bracketOnError
-  , throwIO
-  , mask_
-  , mask
+  ( mask
   , finally
-  , onException
   )
 
-import Control.Applicative ((<$>), (<*>))
-import Data.Word (Word32)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (length, concat, null)
 import Data.ByteString.Lazy.Internal (smallChunkSize)
-import Data.ByteString.Lazy (toStrict)
 import qualified Data.ByteString.Char8 as BSC (unpack, pack)
-import Data.ByteString.Builder (word64BE, toLazyByteString)
-import Data.Monoid ((<>))
 import qualified Data.UUID as UUID
 import qualified Data.UUID.V4 as UUID
 
@@ -326,7 +314,7 @@ recvExact sock len = go [] len
 -- Will only give 'Just' for IPv4 addresses.
 resolveSockAddr :: N.SockAddr -> IO (Maybe (N.HostName, N.HostName, N.ServiceName))
 resolveSockAddr sockAddr = case sockAddr of
-  N.SockAddrInet port host -> do
+  N.SockAddrInet port _ -> do
     (mResolvedHost, mResolvedPort) <- N.getNameInfo [] True False sockAddr
     case (mResolvedHost, mResolvedPort) of
       (Just resolvedHost, Nothing) -> do
