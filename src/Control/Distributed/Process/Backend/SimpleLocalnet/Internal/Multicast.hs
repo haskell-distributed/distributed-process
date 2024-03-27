@@ -1,4 +1,5 @@
 -- | Multicast utilities
+{-# LANGUAGE RankNTypes #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Control.Distributed.Process.Backend.SimpleLocalnet.Internal.Multicast (initMulticast) where
 

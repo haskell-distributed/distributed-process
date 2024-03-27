@@ -255,21 +255,20 @@ apiRedirectLogsHere _backend slavecontrollers = do
   myPid <- getSelfPid
 
   forM_ mLogger $ \logger -> do
+    bracket
+      (mapM monitor slavecontrollers)
+      (mapM unmonitor)
+      $ \_ -> do
 
-  bracket
-   (mapM monitor slavecontrollers)
-   (mapM unmonitor)
-   $ \_ -> do
+      -- fire off redirect requests
+      forM_ slavecontrollers $ \pid -> send pid (RedirectLogsTo logger myPid)
 
-   -- fire off redirect requests
-   forM_ slavecontrollers $ \pid -> send pid (RedirectLogsTo logger myPid)
-
-   -- Wait for the replies
-   replicateM_ (length slavecontrollers) $ do
-     receiveWait
-       [ match (\(RedirectLogsReply {}) -> return ())
-       , match (\(NodeMonitorNotification {}) -> return ())
-       ]
+      -- Wait for the replies
+      replicateM_ (length slavecontrollers) $ do
+        receiveWait
+          [ match (\(RedirectLogsReply {}) -> return ())
+          , match (\(NodeMonitorNotification {}) -> return ())
+          ]
 
 --------------------------------------------------------------------------------
 -- Slaves                                                                     --

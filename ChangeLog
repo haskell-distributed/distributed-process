@@ -1,4 +1,4 @@
-unreleased  0.3.0
+2024-03-27  Laurent P. René de Cotret <laurent.decotret@outlook.com>  0.3.0
 
 * Breaking change: update dependency bounds to require network-3.0.
 * Use various functions from the `exceptions` package instead of the deprecated ones from `distributed-process`.
