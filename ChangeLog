@@ -1,3 +1,7 @@
+2023-03-26 David Simmons-Duffin <dsd@caltech.edu> 0.8.3
+
+* Disable a flaky test
+
 2023-03-25 David Simmons-Duffin <dsd@caltech.edu> 0.8.2
 
 * Bump bytestring version to build with GHC 9.8.
