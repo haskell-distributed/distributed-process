@@ -1,7 +1,5 @@
 # network-transport-tcp
-[![travis](https://secure.travis-ci.org/haskell-distributed/network-transport-tcp.png)](http://travis-ci.org/haskell-distributed/network-transport-tcp)
 [![Release](https://img.shields.io/hackage/v/network-transport-tcp.svg)](https://hackage.haskell.org/package/network-transport-tcp)
-
 
 See http://haskell-distributed.github.com for documentation, user guides,
 tutorials and assistance.
