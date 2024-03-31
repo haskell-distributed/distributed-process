@@ -10,7 +10,7 @@ Maintainer:    Tim Watson <watson.timothy@gmail.com>
 copyright:     Well-Typed LLP
 category:      Control, Cloud Haskell
 build-type:    Simple
-cabal-version: >=1.8
+cabal-version: >=1.10
 
 flag tcp
   Description: build and run TCP tests
@@ -42,6 +42,7 @@ library
                      test-framework-hunit >= 0.2.0 && < 0.4,
                      stm
   hs-source-dirs:    src
+  default-language:  Haskell98
   ghc-options:       -Wall -fno-warn-unused-do-bind
   extensions:        CPP,
                      ExistentialQuantification,
@@ -66,6 +67,7 @@ Test-Suite TestCHInMemory
                      network-transport-inmemory >= 0.5,
                      test-framework >= 0.6 && < 0.9
   Extensions:        CPP
+  default-language:  Haskell98
   ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   HS-Source-Dirs:    tests
 
@@ -83,6 +85,7 @@ Test-Suite TestCHInTCP
   else
     Buildable:       False
   Extensions:        CPP
+  default-language:  Haskell98
   ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   HS-Source-Dirs:    tests
 
@@ -98,6 +101,7 @@ Test-Suite TestClosure
                      network-transport-inmemory >= 0.5,
                      test-framework >= 0.6 && < 0.9
   Extensions:        CPP
+  default-language:  Haskell98
   ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   HS-Source-Dirs:    tests
 
@@ -112,6 +116,7 @@ Test-Suite TestStats
                      network-transport-inmemory >= 0.5,
                      test-framework >= 0.6 && < 0.9
   Extensions:        CPP
+  default-language:  Haskell98
   ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   HS-Source-Dirs:    tests
 
@@ -126,6 +131,7 @@ Test-Suite TestMxInMemory
                      network-transport-inmemory >= 0.5,
                      test-framework >= 0.6 && < 0.9
   Extensions:        CPP
+  default-language:  Haskell98
   ghc-options:       -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   HS-Source-Dirs:    tests
 
@@ -140,6 +146,7 @@ Test-Suite TestTracingInMemory
                      network-transport-inmemory >= 0.5,
                      test-framework >= 0.6 && < 0.9
   Extensions:        CPP
+  default-language:  Haskell98
   ghc-options:       -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   HS-Source-Dirs:    tests
 
@@ -154,5 +161,6 @@ Test-Suite TestMxInTCP
                      network-transport-inmemory >= 0.5,
                      test-framework >= 0.6 && < 0.9
   Extensions:        CPP
+  default-language:  Haskell98
   ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   HS-Source-Dirs:    tests

@@ -25,7 +25,7 @@ main = do
     hSetBuffering stdout LineBuffering
     hSetBuffering stderr LineBuffering
     Right (transport, internals) <-
-      createTransportExposeInternals (defaultTCPAddr "127.0.0.1" "8080")
+      createTransportExposeInternals (defaultTCPAddr "127.0.0.1" "0")
         defaultTCPParameters { transportConnectTimeout = Just 3000000 }
     ts <- tests TestTransport
       { testTransport = transport
