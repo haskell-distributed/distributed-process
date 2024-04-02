@@ -1,7 +1,0 @@
-resolver: nightly-2018-11-10
-
-packages:
-- '.'
-
-extra-deps:
-- rank1dynamic-0.4.0

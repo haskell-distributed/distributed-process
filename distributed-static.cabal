@@ -24,7 +24,8 @@ Copyright:           Well-Typed LLP
 Category:            Control
 Build-Type:          Simple
 Cabal-Version:       >=1.10
-extra-source-files: ChangeLog
+extra-source-files:  ChangeLog
+Tested-With:         GHC==9.0.2 GHC==9.2.8 GHC==9.4.5 GHC==9.6.4 GHC==9.8.2
 
 Source-Repository head
   Type:     git
