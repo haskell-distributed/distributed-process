@@ -1,3 +1,7 @@
+2024-04-03 David Simmons-Duffin <dsd@caltech.edu> 0.7.6
+
+* Bumped hashable upper bound.
+
 2018-06-12 David Simmons-Duffin <dsd@caltech.edu> 0.7.5
 
 * Bumped dependencies to build with ghc-9.8
