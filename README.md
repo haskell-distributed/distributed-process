@@ -1,7 +1,7 @@
 # network-transport-tcp
 [![Release](https://img.shields.io/hackage/v/network-transport-tcp.svg)](https://hackage.haskell.org/package/network-transport-tcp)
 
-See http://haskell-distributed.github.com for documentation, user guides,
+See http://haskell-distributed.github.io for documentation, user guides,
 tutorials and assistance.
 
 ## Getting Help / Raising Issues
