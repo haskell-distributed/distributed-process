@@ -8,7 +8,7 @@ Copyright:     Well-Typed LLP
 Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
 Maintainer:    Facundo Domínguez <facundo.dominguez@tweag.io>
 Stability:     experimental
-Homepage:      http://haskell-distributed.github.com
+Homepage:      https://haskell-distributed.github.io
 Bug-Reports:   https://github.com/haskell-distributed/network-transport/issues
 Synopsis:      Network abstraction layer
 Description:   "Network.Transport" is a Network Abstraction Layer which provides
