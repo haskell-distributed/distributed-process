@@ -525,6 +525,7 @@ data TCPParameters = TCPParameters {
     -- Defaults to True.
   , tcpNoDelay :: Bool
     -- | Should we set TCP_KEEPALIVE on connection sockets?
+    -- Defaults to False.
   , tcpKeepAlive :: Bool
     -- | Value of TCP_USER_TIMEOUT in milliseconds
   , tcpUserTimeout :: Maybe Int
@@ -536,6 +537,8 @@ data TCPParameters = TCPParameters {
     --
     -- Connection requests to this transport will also timeout if they don't
     -- send the required data before this many microseconds.
+    --
+    -- Defaults to Nothing (no timeout).
   , transportConnectTimeout :: Maybe Int
     -- | Create a QDisc for an EndPoint.
   , tcpNewQDisc :: forall t . IO (QDisc t)
@@ -554,10 +557,12 @@ data TCPParameters = TCPParameters {
     -- This is useful when operating on untrusted networks, because the peer
     -- could otherwise deny service to some victim by claiming the victim's
     -- address.
+    -- Defaults to False.
   , tcpCheckPeerHost :: Bool
     -- | What to do if there's an exception when accepting a new TCP
     -- connection. Throwing an exception here will cause the server to
     -- terminate.
+    -- Defaults to `throwIO`.
   , tcpServerExceptionHandler :: SomeException -> IO ()
   }
 
@@ -678,7 +683,7 @@ defaultTCPParameters = TCPParameters {
     tcpBacklog         = N.maxListenQueue
   , tcpReuseServerAddr = True
   , tcpReuseClientAddr = True
-  , tcpNoDelay         = False
+  , tcpNoDelay         = True
   , tcpKeepAlive       = False
   , tcpUserTimeout     = Nothing
   , tcpNewQDisc        = simpleUnboundedQDisc

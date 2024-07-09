@@ -1,3 +1,7 @@
+2024-07-09 Laurent P. René de Cotret <laurent.decotret@outlook.com> 0.8.4
+
+* Set TCP_NODELAY by default. The documentation erroneously reported it as the default. (#66)
+
 2023-03-26 David Simmons-Duffin <dsd@caltech.edu> 0.8.3
 
 * Disable a flaky test
