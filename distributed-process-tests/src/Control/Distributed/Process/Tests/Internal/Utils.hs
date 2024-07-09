@@ -21,11 +21,8 @@ module Control.Distributed.Process.Tests.Internal.Utils
   , Ping(Ping)
   , ping
   , pause
-  , shouldBe
-  , shouldMatch
   , shouldContain
   , shouldNotContain
-  , expectThat
   , synchronisedAssertion
   -- test process utilities
   , TestProcessControl
@@ -82,8 +79,6 @@ import Control.Exception (AsyncException(ThreadKilled), SomeException)
 import Control.Monad (forever, void)
 import Control.Monad.Catch (finally, catch)
 import Control.Monad.STM (atomically)
-import Control.Rematch hiding (match)
-import Control.Rematch.Run
 import Data.Binary
 import Data.Typeable (Typeable)
 
@@ -142,23 +137,13 @@ synchronisedAssertion note localNode expected testProc lock = do
 stash :: TestResult a -> a -> Process ()
 stash mvar x = liftIO $ putMVar mvar x
 
-expectThat :: a -> Matcher a -> Process ()
-expectThat a matcher = case res of
-  MatchSuccess -> return ()
-  (MatchFailure msg) -> liftIO $ assertFailure msg
-  where res = runMatch matcher a
-
-shouldBe :: a -> Matcher a -> Process ()
-shouldBe = expectThat
 
 shouldContain :: (Show a, Eq a) => [a] -> a -> Process ()
-shouldContain xs x = expectThat xs $ hasItem (equalTo x)
+shouldContain xs x = liftIO $ assertBool mempty (x `elem` xs)
 
 shouldNotContain :: (Show a, Eq a) => [a] -> a -> Process ()
-shouldNotContain xs x = expectThat xs $ isNot (hasItem (equalTo x))
+shouldNotContain xs x = liftIO $ assertBool mempty (not $ x `elem` xs)
 
-shouldMatch :: a -> Matcher a -> Process ()
-shouldMatch = expectThat
 
 -- | Run the supplied @testProc@ using an @MVar@ to collect and assert
 -- against its result. Uses the supplied @note@ if the assertion fails.

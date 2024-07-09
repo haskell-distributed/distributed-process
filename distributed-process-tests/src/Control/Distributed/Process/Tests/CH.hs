@@ -45,11 +45,9 @@ import Control.Distributed.Process.Node
 import Control.Distributed.Process.Tests.Internal.Utils (pause)
 import Control.Distributed.Process.Serializable (Serializable)
 import Data.Maybe (isNothing, isJust)
-import Test.HUnit (Assertion, assertBool, assertFailure)
+import Test.HUnit (Assertion, assertBool, assertEqual, assertFailure)
 import Test.Framework (Test, testGroup)
 import Test.Framework.Providers.HUnit (testCase)
-import Control.Rematch hiding (match, isNothing, isJust)
-import Control.Rematch.Run (Match(..))
 
 newtype Ping = Ping ProcessId
   deriving (Typeable, Binary, Show)
@@ -60,12 +58,6 @@ newtype Pong = Pong ProcessId
 --------------------------------------------------------------------------------
 -- Supporting definitions                                                     --
 --------------------------------------------------------------------------------
-
-expectThat :: a -> Matcher a -> Assertion
-expectThat a matcher = case res of
-  MatchSuccess -> return ()
-  (MatchFailure msg) -> assertFailure msg
-  where res = runMatch matcher a
 
 -- | Like fork, but throw exceptions in the child thread to the parent
 forkTry :: IO () -> IO ThreadId
@@ -1408,7 +1400,7 @@ testHandleMessageIf TestTransport{..} = do
     return ()
 
   result <- takeMVar done
-  expectThat result $ equalTo (5, 10)
+  assertEqual mempty (5, 10) result
 
 testCatches :: TestTransport -> Assertion
 testCatches TestTransport{..} = do
@@ -1436,7 +1428,7 @@ testMaskRestoreScope TestTransport{..} = do
 
   parent <- liftIO $ takeMVar parentPid
   child <- liftIO $ takeMVar spawnedPid
-  expectThat parent $ isNot $ equalTo child
+  assertBool mempty (not $ parent == child)
 
 testDie :: TestTransport -> Assertion
 testDie TestTransport{..} = do

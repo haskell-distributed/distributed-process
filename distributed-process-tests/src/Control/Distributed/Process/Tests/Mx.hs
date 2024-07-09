@@ -35,7 +35,6 @@ import Control.Distributed.Process.Management
   )
 import Control.Monad (void, unless)
 import Control.Monad.Catch(finally, bracket, try)
-import Control.Rematch (equalTo)
 import Data.Binary
 import Data.List (find, sort, intercalate)
 import Data.Maybe (isJust, fromJust, isNothing, fromMaybe, catMaybes)
@@ -50,6 +49,7 @@ import Test.Framework
   , testGroup
   )
 import Test.Framework.Providers.HUnit (testCase)
+import Test.HUnit (assertBool, assertEqual)
 
 data Publish = Publish
   deriving (Typeable, Generic, Eq)
@@ -111,7 +111,7 @@ testAgentDualInput result = do
   died <- receiveTimeout 10000000 [
       matchIf (\(ProcessMonitorNotification r _ _) -> r == mRef) (const $ return True)
     ]
-  died `shouldBe` equalTo (Just True)
+  liftIO $ assertEqual mempty (Just True) died
 
 testAgentPrioritisation :: TestResult [String] -> Process ()
 testAgentPrioritisation result = do
@@ -257,22 +257,22 @@ testMxRegEvents result = do
 
     register label p1
     reg1 <- receiveChanTimeout delay regSink
-    reg1 `shouldBe` equalTo (Just (label, p1))
+    liftIO $ assertEqual mempty (Just (label, p1)) reg1
 
     unregister label
     unreg1 <- receiveChanTimeout delay unRegSink
-    unreg1 `shouldBe` equalTo (Just (label, p1))
+    liftIO $ assertEqual mempty (Just (label, p1)) unreg1
 
     register label p2
     reg2 <- receiveChanTimeout delay regSink
-    reg2 `shouldBe` equalTo (Just (label, p2))
+    liftIO $ assertEqual mempty (Just (label, p2)) reg2
 
     reregister label p1
     unreg2 <- receiveChanTimeout delay unRegSink
-    unreg2 `shouldBe` equalTo (Just (label, p2))
+    liftIO $ assertEqual mempty (Just (label, p2)) unreg2 
 
     reg3 <- receiveChanTimeout delay regSink
-    reg3 `shouldBe` equalTo (Just (label, p1))
+    liftIO $ assertEqual mempty (Just (label, p1)) reg3
 
     mapM_ (flip kill $ "test-complete") [agent, p1, p2]
 
@@ -308,17 +308,17 @@ testMxRegMon remoteNode result = do
 
     register label1 p1
     reg1 <- receiveChanTimeout delay regSink
-    reg1 `shouldBe` equalTo (Just (label1, p1))
+    liftIO $ assertEqual mempty (Just (label1, p1)) reg1 
 
     register label2 p1
     reg2 <- receiveChanTimeout delay regSink
-    reg2 `shouldBe` equalTo (Just (label2, p1))
+    liftIO $ assertEqual mempty (Just (label2, p1)) reg2
 
     n1 <- whereis label1
-    n1 `shouldBe` equalTo (Just p1)
+    liftIO $ assertEqual mempty (Just p1) n1
 
     n2 <- whereis label2
-    n2 `shouldBe` equalTo (Just p1)
+    liftIO $ assertEqual mempty (Just p1) n2
 
     kill p1 "goodbye"
 
@@ -448,7 +448,7 @@ testMxSend mNode label test = do
 
   case res of
     Left  (ProcessExitException _ m) -> (liftIO $ putStrLn $ "SomeException-" ++ show m) >> die m
-    Right tr                         -> tr `shouldBe` equalTo True
+    Right tr                         -> liftIO $ assertBool mempty tr
 
 
   where
