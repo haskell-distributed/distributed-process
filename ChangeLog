@@ -1,3 +1,8 @@
+2024-08-28  Laurent P. René de Cotret <laurent.decotret@outlook.com>  0.3.1
+
+* Now tested with GHC 9.10.1.
+* Updated dependency bounds.
+
 2024-03-27  Laurent P. René de Cotret <laurent.decotret@outlook.com>  0.3.0
 
 * Breaking change: update dependency bounds to require network-3.0.

@@ -1,5 +1,5 @@
 Name:          distributed-process-simplelocalnet
-Version:       0.3.0
+Version:       0.3.1
 Cabal-Version: >=1.10
 Build-Type:    Simple
 License:       BSD3
@@ -15,7 +15,7 @@ Description:   Simple backend based on the TCP transport which offers node
                discovery based on UDP multicast. This is a zero-configuration
                backend designed to get you going with Cloud Haskell quickly
                without imposing any structure on your application.
-Tested-With:   GHC==9.0.2 GHC==9.2.8 GHC==9.4.5 GHC==9.6.4 GHC==9.8.2
+Tested-With:   GHC==9.0.2 GHC==9.2.8 GHC==9.4.5 GHC==9.6.4 GHC==9.8.2 GHC==9.10.1
 Category:      Control
 extra-source-files: ChangeLog
 
@@ -25,9 +25,9 @@ Source-Repository head
 
 Library
   Build-Depends:     base >= 4.4 && < 5,
-                     bytestring >= 0.9 && < 0.12,
+                     bytestring >= 0.9 && < 0.13,
                      exceptions >= 0.5 && <0.11,
-                     network >= 3.0 && < 3.2,
+                     network >= 3.0 && < 3.3,
                      network-multicast >= 0.1.1 && < 0.4,
                      data-accessor >= 0.2 && < 0.3,
                      binary >= 0.6.3 && < 0.9,
