@@ -1,0 +1,179 @@
+name:           distributed-process-extras
+version:        0.3.5
+cabal-version:  >=1.8
+build-type:     Simple
+license:        BSD3
+license-file:   LICENCE
+stability:      experimental
+Copyright:      Tim Watson 2012 - 2017
+Author:         Tim Watson
+Maintainer:     Tim Watson <watson.timothy@gmail.com>
+Homepage:       http://github.com/haskell-distributed/distributed-process-extras
+Bug-Reports:    http://github.com/haskell-distributed/distributed-process-extras/issues
+synopsis:       Cloud Haskell Extras
+description:    Supporting library, providing common types and utilities used by the
+                various libraries built on top of distributed-process
+category:       Control
+Tested-With:    GHC==7.10.3 GHC==8.0.1 GHC==8.0.2
+data-dir:       ""
+extra-source-files: ChangeLog
+
+source-repository head
+  type:      git
+  location:  https://github.com/haskell-distributed/distributed-process-extras
+
+flag old-locale
+  description: If false then depend on time >= 1.5.
+               .
+               If true then depend on time < 1.5 together with old-locale.
+  default: False
+
+library
+  build-depends:   base >= 4.8 && < 5,
+                   distributed-process >= 0.6.0 && < 0.8,
+                   binary >= 0.6.3.0 && < 0.9,
+                   deepseq >= 1.3.0.1 && < 1.6,
+                   mtl >= 2.0 && < 2.4,
+                   containers >= 0.4 && < 0.6,
+                   exceptions >= 0.5,
+                   hashable >= 1.2.0.5 && < 1.3,
+                   unordered-containers >= 0.2.3.0 && < 0.3,
+                   fingertree < 0.2,
+                   stm >= 2.4 && < 2.5,
+                   transformers >= 0.2 && < 0.6
+  if flag(old-locale)
+    Build-Depends:   time < 1.5, old-locale >= 1.0 && <1.1
+  else
+    Build-Depends:   time >= 1.5
+  extensions:      CPP
+  other-extensions: ExistentialQuantification
+  ghc-options:      -Wall
+  HS-Source-Dirs:    src
+  exposed-modules:
+                   Control.Distributed.Process.Extras,
+                   Control.Distributed.Process.Extras.Call,
+                   Control.Distributed.Process.Extras.Monitoring,
+                   Control.Distributed.Process.Extras.SystemLog,
+                   Control.Distributed.Process.Extras.Time,
+                   Control.Distributed.Process.Extras.Timer,
+                   Control.Distributed.Process.Extras.UnsafePrimitives,
+                   Control.Concurrent.Utils,
+                   Control.Distributed.Process.Extras.Internal.Containers.MultiMap,
+                   Control.Distributed.Process.Extras.Internal.Primitives,
+                   Control.Distributed.Process.Extras.Internal.Types,
+                   Control.Distributed.Process.Extras.Internal.Queue.SeqQ,
+                   Control.Distributed.Process.Extras.Internal.Queue.PriorityQ
+                   Control.Distributed.Process.Extras.Internal.Unsafe
+
+test-suite InternalQueueTests
+  type:            exitcode-stdio-1.0
+  x-uses-tf:       true
+  build-depends:
+                   base >= 4.6 && < 5,
+                   ansi-terminal >= 0.5 && < 0.9,
+                   distributed-process >= 0.6.0 && < 0.8,
+                   distributed-process-extras,
+                   distributed-process-systest >= 0.1.0 && < 0.3.0,
+                   HUnit >= 1.2 && < 2,
+                   test-framework >= 0.6 && < 0.9,
+                   test-framework-hunit,
+                   QuickCheck >= 2.4,
+                   test-framework-quickcheck2,
+                   rematch >= 0.2.0.0,
+                   ghc-prim
+  hs-source-dirs:
+                   tests
+  ghc-options:     -Wall -rtsopts
+  extensions:      CPP
+  main-is:         TestQueues.hs
+  cpp-options:     -DTESTING
+
+test-suite PrimitivesTests
+  type:            exitcode-stdio-1.0
+  x-uses-tf:       true
+  build-depends:
+                   base >= 4.6 && < 5,
+                   ansi-terminal >= 0.5 && < 0.9,
+                   distributed-process >= 0.6.0 && < 0.8,
+                   distributed-process-extras,
+                   distributed-process-systest >= 0.1.0 && < 0.3.0,
+                   network-transport >= 0.4 && < 0.6,
+                   mtl,
+                   containers >= 0.4 && < 0.6,
+                   network-transport-tcp >= 0.4 && < 0.6,
+                   binary >= 0.6.3.0 && < 0.9,
+                   deepseq >= 1.3.0.1 && < 1.6,
+                   network >= 2.3 && < 2.7,
+                   HUnit >= 1.2 && < 2,
+                   stm >= 2.3 && < 2.5,
+                   test-framework >= 0.6 && < 0.9,
+                   test-framework-hunit,
+                   rematch >= 0.2.0.0,
+                   transformers
+  hs-source-dirs:
+                   tests
+  ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
+  extensions:      CPP
+  main-is:         TestPrimitives.hs
+
+test-suite TimerTests
+  type:            exitcode-stdio-1.0
+  x-uses-tf:       true
+  build-depends:
+                   base >= 4.6 && < 5,
+                   ansi-terminal >= 0.5 && < 0.9,
+                   deepseq >= 1.3.0.1 && < 1.6,
+                   distributed-process >= 0.6.0 && < 0.8,
+                   distributed-process-extras,
+                   distributed-process-systest >= 0.1.0 && < 0.3.0,
+                   network-transport >= 0.4 && < 0.6,
+                   network-transport-tcp >= 0.4 && < 0.6,
+                   HUnit >= 1.2 && < 2,
+                   test-framework >= 0.6 && < 0.9,
+                   test-framework-hunit,
+                   QuickCheck >= 2.4,
+                   test-framework-quickcheck2,
+                   rematch >= 0.2.0.0,
+                   ghc-prim
+  hs-source-dirs:
+                   tests
+  ghc-options:     -Wall -rtsopts
+  extensions:      CPP
+  main-is:         TestTimer.hs
+  cpp-options:     -DTESTING
+
+test-suite LoggerTests
+  type:            exitcode-stdio-1.0
+--  x-uses-tf:       true
+  build-depends:
+                   base >= 4.6 && < 5,
+                   ansi-terminal >= 0.5 && < 0.9,
+                   containers,
+                   hashable,
+                   unordered-containers >= 0.2.3.0 && < 0.3,
+                   distributed-process >= 0.6.0 && < 0.8,
+                   distributed-process-extras,
+                   distributed-process-systest >= 0.1.0 && < 0.3.0,
+                   distributed-static,
+                   bytestring,
+                   data-accessor,
+                   fingertree < 0.2,
+                   network-transport >= 0.4 && < 0.6,
+                   deepseq >= 1.3.0.1 && < 1.6,
+                   mtl,
+                   network-transport-tcp >= 0.4 && < 0.6,
+                   binary >= 0.6.3.0 && < 0.9,
+                   network >= 2.3 && < 2.7,
+                   HUnit >= 1.2 && < 2,
+                   stm >= 2.3 && < 2.5,
+                   time > 1.4 && < 1.9,
+                   test-framework >= 0.6 && < 0.9,
+                   test-framework-hunit,
+                   transformers,
+                   rematch >= 0.2.0.0,
+                   ghc-prim
+  hs-source-dirs:
+                   tests
+  ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
+  extensions:      CPP
+  main-is:         TestLog.hs
