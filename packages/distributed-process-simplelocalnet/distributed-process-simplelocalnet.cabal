@@ -1,0 +1,55 @@
+Name:          distributed-process-simplelocalnet
+Version:       0.3.1
+Cabal-Version: >=1.10
+Build-Type:    Simple
+License:       BSD3
+License-File:  LICENSE
+Copyright:     Well-Typed LLP
+Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
+Maintainer:    The Distributed Haskell team
+Stability:     experimental
+Homepage:      http://haskell-distributed.github.com
+Bug-Reports:   https://github.com/haskell-distributed/distributed-process-simplelocalnet/issues
+Synopsis:      Simple zero-configuration backend for Cloud Haskell
+Description:   Simple backend based on the TCP transport which offers node
+               discovery based on UDP multicast. This is a zero-configuration
+               backend designed to get you going with Cloud Haskell quickly
+               without imposing any structure on your application.
+Tested-With:   GHC==9.0.2 GHC==9.2.8 GHC==9.4.5 GHC==9.6.4 GHC==9.8.2 GHC==9.10.1
+Category:      Control
+extra-source-files: ChangeLog
+
+Source-Repository head
+  Type:     git
+  Location: https://github.com/haskell-distributed/distributed-process-simplelocalnet
+
+Library
+  Build-Depends:     base >= 4.4 && < 5,
+                     bytestring >= 0.9 && < 0.13,
+                     exceptions >= 0.5 && <0.11,
+                     network >= 3.0 && < 3.3,
+                     network-multicast >= 0.1.1 && < 0.4,
+                     data-accessor >= 0.2 && < 0.3,
+                     binary >= 0.6.3 && < 0.9,
+                     containers >= 0.4 && < 0.8,
+                     transformers >= 0.2 && < 0.7,
+                     network-transport >= 0.5 && < 0.6,
+                     network-transport-tcp >= 0.4 && < 0.9,
+                     distributed-process >= 0.5.0 && < 0.8
+  Exposed-modules:   Control.Distributed.Process.Backend.SimpleLocalnet,
+                     Control.Distributed.Process.Backend.SimpleLocalnet.Internal.Multicast
+  Default-Language:  Haskell2010
+  ghc-options:       -Wall
+  HS-Source-Dirs:    src
+
+Test-Suite SimpleLocalNet-TestSuite
+    Type:             exitcode-stdio-1.0
+    Hs-Source-Dirs:   tests
+    Main-Is:          Main.hs
+    Default-Language: Haskell2010
+    ghc-options:      -threaded -with-rtsopts=-N
+    Build-Depends:    base
+                    , distributed-process
+                    , distributed-process-simplelocalnet
+                    , tasty
+                    , tasty-hunit

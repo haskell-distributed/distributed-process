@@ -1,0 +1,82 @@
+2024-08-28  Laurent P. René de Cotret <laurent.decotret@outlook.com>  0.3.1
+
+* Now tested with GHC 9.10.1.
+* Updated dependency bounds.
+
+2024-03-27  Laurent P. René de Cotret <laurent.decotret@outlook.com>  0.3.0
+
+* Breaking change: update dependency bounds to require network-3.0.
+* Use various functions from the `exceptions` package instead of the deprecated ones from `distributed-process`.
+
+2017-08-22  Facundo Domínguez <facundo.dominguezy@tweag.io>  0.2.4
+
+* Update dependency bounds to build with ghc-8.2.1.
+
+2016-10-13  Facundo Domínguez <facundo.dominguezy@tweag.io>  0.2.3.3
+
+* Update dependency bounds.
+
+2016-02-16  Facundo Domínguez <facundo.dominguezy@tweag.io>  0.2.3.2
+
+* Update dependency bounds.
+
+2015-01-29  Facundo Domínguez <facundo.dominguezy@tweag.io>  0.2.3.1
+
+* Update dependency bounds.
+
+2013-01-27  Facundo Domínguez <facundo.dominguezy@tweag.io>  0.2.3.0
+
+* Fix dependency bounds.
+* Minor improvements to tests.
+
+2013-01-27  Tim Watson <watson.timothy@gmail.com>  0.2.2.0
+
+* Bump dependencies
+
+2013-01-27  Tim Watson <watson.timothy@gmail.com>  0.2.1.0
+
+2013-01-27  Tim Watson <watson.timothy@gmail.com>  0.2.0.9
+
+* Shut down the logger process before exiting
+* Improvements to the redirection of logging
+* Fix restarting of master
+
+2012-11-22  Edsko de Vries  <edsko@well-typed.com>  0.2.0.8
+
+* Use the new 'register' semantics (depends on distributed-process-0.4.1).
+Patch by Jeff Epstein
+* Relax package bounds to allow for Binary 0.6
+
+2012-10-23  Edsko de Vries  <edsko@well-typed.com>  0.2.0.7
+
+* Fix cabal script so that the example program compiles
+
+2012-10-03  Edsko de Vries  <edsko@well-typed.com>  0.2.0.6
+
+* Use new version of network-transport
+* network-2.4.0 compatibility
+* Relax upper bound on distributed-process dependency
+
+2012-08-22  Edsko de Vries  <edsko@well-typed.com>  0.2.0.5
+
+* Don't assume slaves are still alive in findSlaves
+
+2012-08-09  Edsko de Vries  <edsko@well-typed.com>  0.2.0.4
+
+* Relax version bounds for distributed-process
+
+2012-07-17  Edsko de Vries  <edsko@well-typed.com>  0.2.0.3
+
+* Improve documentation
+
+2012-07-16  Edsko de Vries  <edsko@well-typed.com>  0.2.0.2
+
+* Relax contraints on bytestring and containers
+
+2012-07-09  Edsko de Vries  <edsko@well-typed.com>  0.2.0.1
+
+* Bugfix: Documentation referred to old module name 
+
+2012-07-07  Edsko de Vries  <edsko@well-typed.com>  0.2.0
+
+* Initial release.
