@@ -1,6 +1,0 @@
-dist/
-dist-newstyle
-.cabal-sandbox
-cabal.sandbox.config
-cabal.project.local
-.stack*
