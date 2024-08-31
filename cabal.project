@@ -1,6 +1,4 @@
 packages: packages/*/**.cabal
 
-allow-newer: distributed-static:containers
-           , distributed-process-extras:containers
-           , distributed-process-extras:hashable
-           , distributed-process-extras:stm
+package distributed-process-tests
+  flags: +tcp

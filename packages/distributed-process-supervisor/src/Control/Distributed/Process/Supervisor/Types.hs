@@ -80,7 +80,7 @@ type ChildPid = ProcessId
 -- | The maximum number of restarts a supervisor will tollerate, created by
 -- evaluating "maxRestarts".
 newtype MaxRestarts = MaxR { maxNumberOfRestarts :: Int }
-  deriving (Typeable, Generic, Show)
+  deriving (Typeable, Generic, Show, Eq)
 instance Binary MaxRestarts where
 instance Hashable MaxRestarts where
 instance NFData MaxRestarts where

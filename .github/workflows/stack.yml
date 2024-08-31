@@ -1,4 +1,4 @@
-name: distributed-process-ci
+name: Continuous integration with stack
 on: [push, pull_request]
 jobs:
   test:
