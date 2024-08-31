@@ -30,7 +30,7 @@ jobs:
     - name: Generate freeze file
       run: |
         cabal update
-        cabal configure --disable-optimization --enable-tests
+        cabal configure --enable-tests --test-show-details=direct
         cabal freeze --minimize-conflict-set
         # 'cabal freeze' will use the nearest index state which might not be exactly equal
         # to the index state specified in 'cabal.project'
