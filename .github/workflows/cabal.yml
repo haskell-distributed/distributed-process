@@ -1,6 +1,11 @@
 name: Continuous integration with cabal
 
-on: [push, pull_request]
+on:
+  push:
+    paths-ignore:
+      - 'website/*/**'
+      - 'README.md'
+  pull_request:
 
 jobs:
   continuous-integration:

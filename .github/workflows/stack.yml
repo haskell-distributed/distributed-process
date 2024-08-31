@@ -1,5 +1,12 @@
 name: Continuous integration with stack
-on: [push, pull_request]
+
+on:
+  push:
+    paths-ignore:
+      - 'website/*/**'
+      - 'README.md'
+  pull_request:
+
 jobs:
   test:
     runs-on: ubuntu-latest
