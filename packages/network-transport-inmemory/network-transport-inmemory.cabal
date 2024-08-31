@@ -1,0 +1,67 @@
+Name:          network-transport-inmemory
+Version:       0.5.4
+Cabal-Version: >=1.10
+Build-Type:    Simple
+License:       BSD3
+License-file:  LICENSE
+Copyright:     Well-Typed LLP, Tweag I/O Limited
+Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries, Alexander Vershilov
+Maintainer:    Facundo Domínguez <facundo.dominguez@tweag.io>
+Stability:     experimental
+Homepage:      http://haskell-distributed.github.com
+Bug-Reports:   https://github.com/haskell-distributed/network-transport-inmemory/issues
+Synopsis:      In-memory instantiation of Network.Transport
+Description:   This is a transport implementation that could be used for local
+               communication in the same address space (i.e. one process).
+               .
+               It could be used either for testing purposes or for local
+               communication that require the network-transport semantics.
+               .
+               NB: network-tranpsport-inmemory does not support cross-transport
+               communication. All endpoints that want to comminicate should be
+               created using the same transport.
+
+Tested-With:   GHC==9.0.2 GHC==9.2.8 GHC==9.4.5 GHC==9.6.4 GHC==9.8.2
+Category:      Network
+extra-source-files: ChangeLog
+
+Source-Repository head
+  Type:     git
+  Location: https://github.com/haskell-distributed/network-transport-inmemory
+
+Library
+  Build-Depends:   base >= 4.6 && < 5,
+                   network-transport >= 0.4.0.0 && < 0.7,
+                   data-accessor >= 0.2 && < 0.3,
+                   bytestring >= 0.9 && < 0.13,
+                   containers >= 0.4 && < 0.8,
+                   stm >= 2.0 && < 3.0
+  Exposed-modules: Network.Transport.InMemory
+                   Network.Transport.InMemory.Internal
+                   Network.Transport.InMemory.Debug
+  default-language: Haskell2010
+  ghc-options:     -Wall
+  HS-Source-Dirs:  src
+
+Test-Suite TestMulticastInMemory
+  Type:            exitcode-stdio-1.0
+  Build-Depends:   base >= 4.6 && < 5,
+                   network-transport-inmemory,
+                   network-transport,
+                   network-transport-tests >= 0.1 && < 0.4
+  Main-Is:         TestMulticastInMemory.hs
+  default-language: Haskell2010
+  ghc-options:     -Wall -fno-warn-unused-do-bind
+  HS-Source-Dirs:  tests
+  Buildable:       False
+
+Test-Suite TestInMemory
+  Type:            exitcode-stdio-1.0
+  Build-Depends:   base >= 4.6 && < 5,
+                   network-transport-inmemory,
+                   network-transport-tests >= 0.1 && < 0.4,
+                   network-transport
+  Main-Is:         TestInMemory.hs
+  default-language: Haskell2010
+  ghc-options:     -Wall -fno-warn-unused-do-bind
+  HS-Source-Dirs:  tests
