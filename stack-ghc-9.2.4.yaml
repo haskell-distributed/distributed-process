@@ -10,6 +10,7 @@ packages:
   - packages/distributed-process-simplelocalnet
   - packages/distributed-process-supervisor
   - packages/distributed-process-tests
+  - packages/distributed-static
 
 extra-deps:
 # Need to clone network-transport-tcp package and patch the file:
