@@ -7,8 +7,8 @@ packages:
   - packages/distributed-process-client-server
   - packages/distributed-process-execution
   - packages/distributed-process-extras
+  - packages/distributed-process-simplelocalnet
   - packages/distributed-process-tests
-
 
 extra-deps:
 # Need to clone network-transport-tcp package and patch the file:
