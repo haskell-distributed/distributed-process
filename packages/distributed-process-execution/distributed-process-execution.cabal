@@ -1,0 +1,143 @@
+name:           distributed-process-execution
+version:        0.1.2.2
+cabal-version:  >=1.8
+build-type:     Simple
+license:        BSD3
+license-file:   LICENCE
+stability:      experimental
+Copyright:      Tim Watson 2012 - 2013
+Author:         Tim Watson
+Maintainer:     Tim Watson <watson.timothy@gmail.com>
+Stability:      experimental
+Homepage:       http://github.com/haskell-distributed/distributed-process-execution
+Bug-Reports:    http://github.com/haskell-distributed/distributed-process-execution/issues
+synopsis:       Execution Framework for The Cloud Haskell Application Platform
+description:
+                The Execution Framework provides tools for load regulation, workload shedding and remote hand-off.
+                The currently implementation provides only a subset of the plumbing required, comprising tools
+                for event management, mailbox buffering and message routing.
+category:       Control
+tested-with:    GHC == 7.4.2 GHC == 7.6.2
+data-dir:       ""
+extra-source-files: ChangeLog
+
+source-repository head
+  type:      git
+  location:  https://github.com/haskell-distributed/distributed-process-execution
+
+library
+  build-depends:
+                   base >= 4.4 && < 5,
+                   data-accessor >= 0.2.2.3,
+                   distributed-process >= 0.6.6 && < 0.7,
+                   distributed-process-extras >= 0.3.1 && < 0.4,
+                   distributed-process-supervisor >= 0.2.0 && < 0.3,
+                   distributed-process-client-server >= 0.2.0 && < 0.3,
+                   binary >= 0.6.3.0 && < 0.9,
+                   deepseq >= 1.3.0.1 && < 1.5,
+                   mtl,
+                   containers >= 0.4 && < 0.6,
+                   hashable >= 1.2.0.5 && < 1.3,
+                   unordered-containers >= 0.2.3.0 && < 0.3,
+                   fingertree < 0.2,
+                   stm >= 2.4 && < 2.5,
+                   time,
+                   transformers
+  if impl(ghc <= 7.5)
+    Build-Depends:   template-haskell == 2.7.0.0,
+                     derive == 2.5.5,
+                     uniplate == 1.6.12,
+                     ghc-prim
+  extensions:      CPP
+  hs-source-dirs:   src
+  ghc-options:      -Wall
+  exposed-modules:
+                   Control.Distributed.Process.Execution,
+                   Control.Distributed.Process.Execution.EventManager,
+                   Control.Distributed.Process.Execution.Exchange,
+                   Control.Distributed.Process.Execution.Mailbox
+  other-modules:
+                   Control.Distributed.Process.Execution.Exchange.Broadcast,
+                   Control.Distributed.Process.Execution.Exchange.Internal,
+                   Control.Distributed.Process.Execution.Exchange.Router
+
+
+test-suite ExchangeTests
+  type:            exitcode-stdio-1.0
+--  x-uses-tf:       true
+  build-depends:
+                   base >= 4.4 && < 5,
+                   ansi-terminal >= 0.5 && < 0.7,
+                   containers,
+                   hashable,
+                   unordered-containers >= 0.2.3.0 && < 0.3,
+                   distributed-process >= 0.5.3 && < 0.7,
+                   distributed-process-execution,
+                   distributed-process-extras >= 0.3.1 && < 0.4,
+                   distributed-process-systest >= 0.1.1 && < 0.2,
+                   distributed-static,
+                   bytestring,
+                   data-accessor,
+                   fingertree < 0.2,
+                   network-transport >= 0.4 && < 0.5,
+                   deepseq >= 1.3.0.1 && < 1.5,
+                   mtl,
+                   network-transport-tcp >= 0.4 && < 0.6,
+                   binary >= 0.6.3.0 && < 0.9,
+                   network >= 2.3 && < 2.7,
+                   HUnit >= 1.2 && < 2,
+                   stm >= 2.3 && < 2.5,
+                   time,
+                   test-framework >= 0.6 && < 0.9,
+                   test-framework-hunit,
+                   QuickCheck >= 2.4,
+                   test-framework-quickcheck2,
+                   transformers,
+                   rematch >= 0.2.0.0,
+                   ghc-prim
+  hs-source-dirs:
+                   tests
+  ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind -eventlog
+  extensions:      CPP
+  main-is:         TestExchange.hs
+
+
+test-suite MailboxTests
+  type:            exitcode-stdio-1.0
+--  x-uses-tf:       true
+  build-depends:
+                   base >= 4.4 && < 5,
+                   ansi-terminal >= 0.5 && < 0.7,
+                   containers,
+                   hashable,
+                   unordered-containers >= 0.2.3.0 && < 0.3,
+                   distributed-process >= 0.6.6 && < 0.7,
+                   distributed-process-execution,
+                   distributed-process-extras >= 0.3.1 && < 0.4,
+                   distributed-process-systest >= 0.1.1 && < 0.2,
+                   distributed-static,
+                   bytestring,
+                   data-accessor,
+                   fingertree < 0.2,
+                   network-transport >= 0.4 && < 0.5,
+                   deepseq >= 1.3.0.1 && < 1.5,
+                   mtl,
+                   network-transport-tcp >= 0.4 && < 0.6,
+                   binary >= 0.6.3.0 && < 0.9,
+                   network >= 2.3 && < 2.7,
+                   HUnit >= 1.2 && < 2,
+                   stm >= 2.3 && < 2.5,
+                   time,
+                   test-framework >= 0.6 && < 0.9,
+                   test-framework-hunit,
+                   QuickCheck >= 2.4,
+                   test-framework-quickcheck2,
+                   transformers,
+                   rematch >= 0.2.0.0,
+                   ghc-prim
+  hs-source-dirs:
+                   tests
+  ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind -eventlog
+  extensions:      CPP
+  main-is:         TestMailbox.hs
+  other-modules:   MailboxTestFilters
