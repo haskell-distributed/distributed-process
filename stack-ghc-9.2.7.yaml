@@ -11,14 +11,10 @@ packages:
   - packages/distributed-process-tests
   - packages/distributed-static
   - packages/network-transport
+  - packages/network-transport-inmemory
 
 
 extra-deps:
-# network-transport-inmemory has
-# revisions on hackage that bump dependencies like containers and
-# bytestring. Explicit sha256 hashes seem to be needed to get the
-# right revisions (4/30/23).
-- network-transport-inmemory-0.5.2@sha256:eead1fb207672127ccca1d04ae6a0eb20ee6ec10223eefb4274694dbbf4e9908
 - network-transport-tcp-0.8.1
 
 flags:

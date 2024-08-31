@@ -11,10 +11,10 @@ packages:
   - packages/distributed-process-tests
   - packages/distributed-static
   - packages/network-transport
+  - packages/network-transport-inmemory
 
 extra-deps:
 - network-transport-tcp-0.8.2
-- network-transport-inmemory-0.5.3
 
 flags:
   distributed-process-tests:

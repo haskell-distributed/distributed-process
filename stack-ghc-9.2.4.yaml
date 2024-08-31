@@ -12,11 +12,7 @@ packages:
   - packages/distributed-process-tests
   - packages/distributed-static
   - packages/network-transport
-
-extra-deps:
-# This version has its containers dependency bumped
-- git: https://github.com/haskell-distributed/network-transport-inmemory.git
-  commit: 0ce97924f15a8c1570b2355151834305c9bd2a28
+  - packages/network-transport-inmemory
 
 flags:
   distributed-process-tests:
