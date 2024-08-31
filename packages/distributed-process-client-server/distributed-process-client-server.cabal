@@ -76,7 +76,7 @@ test-suite ManagedProcessTests
                    network-transport >= 0.4 && < 0.7,
                    mtl,
                    fingertree,
-                   network-transport-tcp >= 0.6 && < 0.7,
+                   network-transport-tcp >= 0.6 && < 0.9,
                    binary >= 0.6.3.0 && < 0.9,
                    deepseq,
                    network >= 2.3 && < 3.3,

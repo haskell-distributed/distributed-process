@@ -122,7 +122,7 @@ benchmark distributed-process-throughput
   Type:             exitcode-stdio-1.0
   Build-Depends:    base >= 4.9 && < 5,
                     distributed-process,
-                    network-transport-tcp >= 0.3 && <= 0.81,
+                    network-transport-tcp >= 0.3 && <= 0.9,
                     bytestring >= 0.9 && < 0.13,
                     binary >= 0.6.3 && < 0.10
   Main-Is:          benchmarks/Throughput.hs
@@ -133,7 +133,7 @@ benchmark distributed-process-latency
   Type:             exitcode-stdio-1.0
   Build-Depends:    base >= 4.9 && < 5,
                     distributed-process,
-                    network-transport-tcp >= 0.3 && <= 0.81,
+                    network-transport-tcp >= 0.3 && <= 0.9,
                     bytestring >= 0.9 && < 0.13,
                     binary >= 0.6.3 && < 0.10
   Main-Is:          benchmarks/Latency.hs
@@ -144,7 +144,7 @@ benchmark distributed-process-channels
   Type:             exitcode-stdio-1.0
   Build-Depends:    base >= 4.9 && < 5,
                     distributed-process,
-                    network-transport-tcp >= 0.3 && <= 0.81,
+                    network-transport-tcp >= 0.3 && <= 0.9,
                     bytestring >= 0.9 && < 0.13,
                     binary >= 0.6.3 && < 0.10
   Main-Is:          benchmarks/Channels.hs
@@ -155,7 +155,7 @@ benchmark distributed-process-spawns
   Type:             exitcode-stdio-1.0
   Build-Depends:    base >= 4.9 && < 5,
                     distributed-process,
-                    network-transport-tcp >= 0.3 && <= 0.81,
+                    network-transport-tcp >= 0.3 && <= 0.9,
                     bytestring >= 0.9 && < 0.13,
                     binary >= 0.6.3 && < 0.10
   Main-Is:          benchmarks/Spawns.hs
@@ -166,7 +166,7 @@ benchmark distributed-process-ring
   Type:             exitcode-stdio-1.0
   Build-Depends:    base >= 4.9 && < 5,
                     distributed-process,
-                    network-transport-tcp >= 0.3 && <= 0.81,
+                    network-transport-tcp >= 0.3 && <= 0.9,
                     bytestring >= 0.9 && < 0.13,
                     binary >= 0.6.3 && < 0.10
   Main-Is:          benchmarks/ProcessRing.hs
