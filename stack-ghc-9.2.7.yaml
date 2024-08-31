@@ -4,6 +4,7 @@ packages:
   - packages/distributed-process
   - packages/distributed-process-async
   - packages/distributed-process-client-server
+  - packages/distributed-process-execution
   - packages/distributed-process-tests
 
 extra-deps:
