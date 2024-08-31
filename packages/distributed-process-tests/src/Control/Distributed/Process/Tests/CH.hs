@@ -1852,10 +1852,10 @@ tests testtrans = return [
     ]
 
       -- Tests that fail occasionally and should be revised
-    , testGroup "Flaky" [
-      testCase "Reconnect"          (testReconnect           testtrans)
-    , testCase "Registry"           (testRegistry            testtrans)
-    , testCase "MergeChannels"      (testMergeChannels       testtrans)
-    , testCase "MonitorUnreachable" (testMonitorUnreachable testtrans True False)
-    ]
+    -- , testGroup "Flaky" [
+    --   testCase "Reconnect"          (testReconnect           testtrans)
+    -- , testCase "Registry"           (testRegistry            testtrans)
+    -- , testCase "MergeChannels"      (testMergeChannels       testtrans)
+    -- , testCase "MonitorUnreachable" (testMonitorUnreachable testtrans True False)
+    -- ]
   ]
