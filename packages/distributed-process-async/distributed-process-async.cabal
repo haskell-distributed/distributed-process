@@ -57,7 +57,7 @@ test-suite AsyncTests
                    distributed-process-async,
                    distributed-process-systest >= 0.2.0,
                    exceptions >= 0.8.2.1 && < 1.0,
-                   network >= 2.5 && < 2.7,
+                   network >= 2.5 && < 3.3,
                    network-transport >= 0.4 && < 0.6,
                    network-transport-tcp >= 0.6 && < 0.9,
                    binary >= 0.6.3.0 && < 0.9,

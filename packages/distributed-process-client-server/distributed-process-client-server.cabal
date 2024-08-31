@@ -79,7 +79,7 @@ test-suite ManagedProcessTests
                    network-transport-tcp >= 0.6 && < 0.7,
                    binary >= 0.6.3.0 && < 0.9,
                    deepseq,
-                   network >= 2.3 && < 2.7,
+                   network >= 2.3 && < 3.3,
                    HUnit >= 1.2 && < 2,
                    stm,
                    test-framework >= 0.6 && < 0.9,
