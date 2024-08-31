@@ -1,0 +1,61 @@
+2024-03-25  David Simmons-Duffin  <dsd@caltech.edu>  0.3.10
+
+* Relax bytestring bounds to to build with ghc-9.8.
+
+2019-05-12  Facundo Domínguez  <facundo.dominguez@tweag.io>  0.3.9
+
+* Relax bounds to to build with ghc-8.6.
+
+2017-08-28  Facundo Domínguez  <facundo.dominguez@tweag.io>  0.3.8
+
+* Remove support for ghc-7.8 and lower
+* Fix build errors with ghc-8.2.1
+
+2017-08-22  Facundo Domínguez  <facundo.dominguez@tweag.io>  0.3.7
+
+* Make nominal the role of static
+
+2017-08-22  Facundo Domínguez  <facundo.dominguez@tweag.io>  0.3.6
+
+* Move upper bound of rank1dynamic to support ghc-8.2.1.
+* Remove dynamic type check in Static Binary instance.
+
+2016-06-01  Facundo Domínguez  <facundo.dominguez@tweag.io>  0.3.5.0
+
+* Add compatibility with ghc-8.
+
+2016-02-18  Facundo Domínguez  <facundo.dominguez@tweag.io>  0.3.4.0
+
+* Support static pointers.
+* Update .travis.yml to drop ghc-7.4 and test ghc-7.10.
+* Make Closure and Static strict data types.
+
+2015-06-15  Facundo Domínguez  <facundo.dominguez@tweag.io>  0.3.2.0
+
+* Loosen rank1dynamic bounds.
+* Add NFData instances.
+
+2014-12-09  Tim Watson  <watson.timothy@gmail.com>  0.3.1.0
+
+* Eq and Ord instances for Closure and Static
+
+2014-05-30  Tim Watson  <watson.timothy@gmail.com>  0.3.0.0
+
+* Bump binary dependency
+
+2012-11-22  Edsko de Vries  <edsko@well-typed.com>  0.2.1.1
+
+* Relax package bounds to allow for Binary 0.6
+
+2012-10-03  Edsko de Vries  <edsko@well-typed.com>  0.2.1
+
+* Add support for 'staticFlip'
+
+2012-08-16  Edsko de Vries  <edsko@well-typed.com>  0.2
+
+* Hide the 'Closure' constructor and export 'closure' instead so that we are
+free to change the internal representation
+
+2012-08-10  Edsko de Vries  <edsko@well-typed.com>  0.1
+
+* Initial release
