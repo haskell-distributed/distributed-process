@@ -20,7 +20,7 @@ description:    A part of the Cloud Haskell framework
 
                 For detailed information see "Control.Distributed.Process.Supervisor"
 category:       Control
-tested-with:    GHC == 8.2.2
+tested-with:    GHC==8.10.7 GHC==9.0.2 GHC==9.2.8 GHC==9.4.5 GHC==9.6.4 GHC==9.8.2 GHC==9.10.1
 extra-source-files: ChangeLog
 
 source-repository head

@@ -21,7 +21,7 @@ Description:   This is an implementation of Cloud Haskell, as described in
 
                You will probably also want to install a Cloud Haskell backend such
                as distributed-process-simplelocalnet.
-Tested-With:   GHC==7.10.3 GHC==8.0.2 GHC==8.2.2 GHC==8.4.4
+tested-with:   GHC==8.10.7 GHC==9.0.2 GHC==9.2.8 GHC==9.4.5 GHC==9.6.4 GHC==9.8.2 GHC==9.10.1
 Category:      Control
 extra-source-files: ChangeLog
 

@@ -55,7 +55,7 @@ Description:   "Network.Transport" is a Network Abstraction Layer which provides
                This package provides the generic interface only; you will
                probably also want to install at least one transport
                implementation (network-transport-*).
-Tested-With:   GHC==7.6.3 GHC==7.8.4 GHC==7.10.3
+tested-with:   GHC==8.10.7 GHC==9.0.2 GHC==9.2.8 GHC==9.4.5 GHC==9.6.4 GHC==9.8.2 GHC==9.10.1
 Category:      Network
 extra-source-files: ChangeLog
 
