@@ -3,6 +3,7 @@ allow-newer: true
 
 packages:
   - packages/distributed-process
+  - packages/distributed-process-async
   - packages/distributed-process-tests
 
 extra-deps:

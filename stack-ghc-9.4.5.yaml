@@ -2,6 +2,7 @@ resolver: nightly-2023-05-01 # Use GHC 9.4.5
 
 packages:
   - packages/distributed-process
+  - packages/distributed-process-async
   - packages/distributed-process-tests
 
 extra-deps:

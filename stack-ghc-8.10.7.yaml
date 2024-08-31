@@ -2,6 +2,7 @@ resolver: lts-18.16 # Use GHC 8.10.7
 
 packages:
   - packages/distributed-process
+  - packages/distributed-process-async
   - packages/distributed-process-tests
 
 extra-deps:
