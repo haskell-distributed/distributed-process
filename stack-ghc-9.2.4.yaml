@@ -13,6 +13,7 @@ packages:
   - packages/distributed-static
   - packages/network-transport
   - packages/network-transport-inmemory
+  - packages/network-transport-tcp
 
 flags:
   distributed-process-tests:

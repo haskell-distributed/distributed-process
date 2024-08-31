@@ -12,9 +12,8 @@ packages:
   - packages/distributed-static
   - packages/network-transport
   - packages/network-transport-inmemory
+  - packages/network-transport-tcp
 
-extra-deps:
-- network-transport-tcp-0.8.2
 
 flags:
   distributed-process-tests:
