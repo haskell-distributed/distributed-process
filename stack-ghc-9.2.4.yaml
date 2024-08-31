@@ -15,6 +15,7 @@ packages:
   - packages/network-transport
   - packages/network-transport-inmemory
   - packages/network-transport-tcp
+  - packages/network-transport-tests
   - packages/rank1dynamic
 
 
