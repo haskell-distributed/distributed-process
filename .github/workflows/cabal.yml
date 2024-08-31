@@ -5,6 +5,7 @@ on: [push, pull_request]
 jobs:
   continuous-integration:
     strategy:
+      fail-fast: false
       matrix:
         ghc-version:
           - "9.0.2"
