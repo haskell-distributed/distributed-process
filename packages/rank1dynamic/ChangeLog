@@ -1,0 +1,44 @@
+2020-10-24  Facundo Domínguez  <facundo.dominguez@tweag.io>  0.4.1
+
+* Support ghc-8.6.5 and ghc-8.8.4
+
+2017-08-22  Facundo Domínguez  <facundo.dominguez@tweag.io>  0.4.0
+
+* Add compatibility with ghc-8.2.1.
+* Drop support for ghc-7.6 and ghc-7.8.
+
+2016-05-31  Facundo Domínguez  <facundo.dominguez@tweag.io>  0.3.3.0
+
+* Add compatibility with ghc-8.
+* Update bug report url in cabal file.
+
+2016-02-18  Facundo Domínguez  <facundo.dominguez@tweag.io>  0.3.2.0
+
+* Stop testing ghc-7.4 and test ghc-7.10.
+* Add unsafeToDynamic.
+
+2016-01-25  Facundo Domínguez  <facundo.dominguez@tweag.io>  0.3.1.1
+
+* Push HUnit upper bound.
+
+2015-06-15  Facundo Domínguez  <facundo.dominguez@tweag.io>  0.2.1.0
+
+* Loosen upper bound of ghc-prim.
+
+2014-05-30  Tim Watson  <watson.timothy@gmail.com>  0.2.0.0
+
+* Fix funResultTy so @funResultTy ANY _ = ANY@
+* Ensure the result of funResultTy is consistent with unification
+* Bump binary version to include 0.7.*
+
+2012-11-22  Edsko de Vries  <edsko@well-typed.com>  0.1.0.2
+
+* Relax package bounds to allow for Binary 0.6
+
+2012-09-27  Edsko de Vries  <edsko@well-typed.com>  0.1.0.1
+
+* Relax lower bound of base to 4.4 (ghc 7.2)
+
+2012-08-10  Edsko de Vries  <edsko@well-typed.com>  0.1.0.0
+
+* Initial release.
