@@ -12,7 +12,6 @@ packages:
   - packages/distributed-static
 
 extra-deps:
-- distributed-static-0.3.10
 - network-transport-0.5.7
 - network-transport-tcp-0.8.2
 - network-transport-inmemory-0.5.3
