@@ -10,9 +10,9 @@ packages:
   - packages/distributed-process-supervisor
   - packages/distributed-process-tests
   - packages/distributed-static
+  - packages/network-transport
 
 extra-deps:
-- network-transport-0.5.7
 - network-transport-tcp-0.8.2
 - network-transport-inmemory-0.5.3
 

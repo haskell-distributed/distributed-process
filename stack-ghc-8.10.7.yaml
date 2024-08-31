@@ -10,6 +10,7 @@ packages:
   - packages/distributed-process-supervisor
   - packages/distributed-process-tests
   - packages/distributed-static
+  - packages/network-transport
 
 
 extra-deps:
