@@ -57,9 +57,6 @@ import Prelude hiding
   , return
   , fail
   , (>>)
-#if ! MIN_VERSION_base(4,6,0)
-  , catch
-#endif
   )
 import qualified Prelude
 import Control.Exception (catches, Handler(..), SomeException, throwIO, Exception(..), IOException)

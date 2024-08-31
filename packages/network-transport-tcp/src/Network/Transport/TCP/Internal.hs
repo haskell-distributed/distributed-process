@@ -23,10 +23,6 @@ module Network.Transport.TCP.Internal
   , currentProtocolVersion
   ) where
 
-#if ! MIN_VERSION_base(4,6,0)
-import Prelude hiding (catch)
-#endif
-
 import Network.Transport.Internal
   ( decodeWord32
   , encodeWord32

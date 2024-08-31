@@ -124,19 +124,11 @@ module Control.Distributed.Process.Internal.Primitives
   , sendCtrlMsg
   ) where
 
-#if ! MIN_VERSION_base(4,6,0)
-import Prelude hiding (catch)
-#endif
-
 import Data.Binary (Binary(..), Put, Get, decode)
 import Data.Time.Clock (getCurrentTime, UTCTime(..))
 import Data.Time.Calendar (Day(..))
 import Data.Time.Format (formatTime)
-#if MIN_VERSION_time(1,5,0)
 import Data.Time.Format (defaultTimeLocale)
-#else
-import System.Locale (defaultTimeLocale)
-#endif
 import System.Timeout (timeout)
 import Control.Monad (when, void)
 import Control.Monad.Reader (ask)

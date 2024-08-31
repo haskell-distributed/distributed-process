@@ -322,11 +322,7 @@ import Control.Distributed.Process.Internal.Spawn
   )
 import qualified Control.Monad.Catch as Catch
 
-#if MIN_VERSION_base(4,6,0)
 import Prelude
-#else
-import Prelude hiding (catch)
-#endif
 import qualified Control.Exception as Exception (onException)
 import Data.Accessor ((^.))
 import Data.Foldable (forM_)

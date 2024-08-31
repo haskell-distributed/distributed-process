@@ -38,11 +38,7 @@ import qualified Data.Map as Map
   , foldlWithKey
   )
 import Data.Time.Format (formatTime)
-#if MIN_VERSION_time(1,5,0)
 import Data.Time.Format (defaultTimeLocale)
-#else
-import System.Locale (defaultTimeLocale)
-#endif
 import Data.Set (Set)
 import qualified Data.Set as Set
   ( empty

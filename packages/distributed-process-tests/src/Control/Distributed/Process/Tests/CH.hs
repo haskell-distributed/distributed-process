@@ -1,8 +1,5 @@
 module Control.Distributed.Process.Tests.CH (tests) where
 
-#if ! MIN_VERSION_base(4,6,0)
-import Prelude hiding (catch)
-#endif
 
 import Network.Transport.Test (TestTransport(..))
 

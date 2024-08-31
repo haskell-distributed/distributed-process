@@ -77,10 +77,6 @@ import Data.Time.Format (formatTime)
 import Debug.Trace (traceEventIO)
 import Prelude
 
-#if ! MIN_VERSION_base(4,6,0)
-import Prelude hiding (catch)
-#endif
-
 import System.Environment (getEnv)
 import System.IO
   ( Handle
@@ -91,11 +87,7 @@ import System.IO
   , hPutStrLn
   , hSetBuffering
   )
-#if MIN_VERSION_time(1,5,0)
 import Data.Time.Format (defaultTimeLocale)
-#else
-import System.Locale (defaultTimeLocale)
-#endif
 import System.Mem.Weak
   ( Weak
   )

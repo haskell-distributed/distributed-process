@@ -45,9 +45,6 @@ module Control.Distributed.Process.Tests.Internal.Utils
   , stash
   ) where
 
-#if ! MIN_VERSION_base(4,6,0)
-import Prelude hiding (catch)
-#endif
 import Control.Concurrent
   ( ThreadId
   , myThreadId

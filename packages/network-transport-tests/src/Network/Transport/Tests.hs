@@ -7,9 +7,6 @@ import Prelude hiding
   , return
   , fail
   , (>>)
-#if ! MIN_VERSION_base(4,6,0)
-  , catch
-#endif
   )
 import Control.Concurrent (forkIO, killThread, yield)
 import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar, readMVar, tryTakeMVar, modifyMVar_, newMVar)

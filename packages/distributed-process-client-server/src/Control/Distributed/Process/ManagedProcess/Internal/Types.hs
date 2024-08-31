@@ -288,12 +288,10 @@ instance forall s . MonadMask (GenProcess s) where
         (a', _) <- lift $ restoreP $ runProcess ourSTate p2
         return a'
 
-#if MIN_VERSION_exceptions(0,10,0)
   generalBracket acquire release inner = GenProcess $ 
     generalBracket (unManaged acquire)
                    (\a e -> unManaged $ release a e)
                    (unManaged . inner)
-#endif
 
 -- | Run an action in the @GenProcess@ monad.
 runProcess :: State s -> GenProcess s a -> Process (a, State s)

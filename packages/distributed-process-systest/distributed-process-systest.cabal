@@ -18,10 +18,10 @@ source-repository head
 
 library
   exposed-modules:   Control.Distributed.Process.SysTest.Utils
-  Build-Depends:     base >= 4.4 && < 5,
+  Build-Depends:     base >= 4.14 && < 5,
                      ansi-terminal >= 0.5 && < 1.1,
-                     binary >= 0.5 && < 1.0,
-                     bytestring >= 0.9 && < 0.13,
+                     binary >= 0.8 && < 1.0,
+                     bytestring >= 0.10 && < 0.13,
                      distributed-process >= 0.6.1 && < 0.8,
                      distributed-static < 0.4,
                      HUnit >= 1.2 && < 2,

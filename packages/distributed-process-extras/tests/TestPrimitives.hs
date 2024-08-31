@@ -19,9 +19,6 @@ import Control.Monad (void)
 import Control.Rematch hiding (match)
 import qualified Network.Transport as NT (Transport)
 import Network.Transport.TCP()
-#if ! MIN_VERSION_base(4,6,0)
-import Prelude hiding (catch)
-#endif
 
 import Test.HUnit (Assertion)
 import Test.Framework (Test, testGroup, defaultMain)

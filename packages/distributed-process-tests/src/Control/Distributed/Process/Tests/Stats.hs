@@ -16,10 +16,6 @@ import Control.Distributed.Process.Node
 import Data.Binary ()
 import Data.Typeable ()
 
-#if ! MIN_VERSION_base(4,6,0)
-import Prelude hiding (catch)
-#endif
-
 import Test.Framework
   ( Test
   , testGroup

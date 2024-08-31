@@ -10,10 +10,6 @@ module Network.Transport.Tests.Auxiliary
   , randomThreadDelay
   ) where
 
-#if ! MIN_VERSION_base(4,6,0)
-import Prelude hiding (catch)
-#endif
-
 import Control.Concurrent (myThreadId, forkIO, ThreadId, throwTo, threadDelay)
 import Control.Concurrent.Chan (Chan)
 import Control.Monad (liftM2, unless)

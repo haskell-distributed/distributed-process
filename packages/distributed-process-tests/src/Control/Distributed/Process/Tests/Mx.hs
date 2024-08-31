@@ -40,9 +40,6 @@ import Data.List (find, sort, intercalate)
 import Data.Maybe (isJust, fromJust, isNothing, fromMaybe, catMaybes)
 import Data.Typeable
 import GHC.Generics hiding (from)
-#if ! MIN_VERSION_base(4,6,0)
-import Prelude hiding (catch, log)
-#endif
 
 import Test.Framework
   ( Test

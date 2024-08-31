@@ -28,22 +28,17 @@ library
                    distributed-process >= 0.6.6 && < 0.8,
                    distributed-process-extras >= 0.3.1 && < 0.4,
                    distributed-process-async >= 0.2.4 && < 0.3,
-                   binary >= 0.6.3.0 && < 0.9,
-                   deepseq >= 1.3.0.1 && < 1.6,
+                   binary >= 0.8 && < 0.9,
+                   deepseq >= 1.4 && < 1.6,
                    mtl,
-                   containers >= 0.4 && < 0.8,
+                   containers >= 0.6 && < 0.8,
                    hashable >= 1.2.0.5 && < 1.6,
                    unordered-containers >= 0.2.3.0 && < 0.3,
                    fingertree < 0.2,
                    stm >= 2.4 && < 2.6,
                    time > 1.4 && < 1.15,
                    transformers,
-                   exceptions >= 0.5 && < 0.11
-  if impl(ghc <= 7.5)
-    Build-Depends:   template-haskell == 2.7.0.0,
-                     derive == 2.5.5,
-                     uniplate == 1.6.12,
-                     ghc-prim
+                   exceptions >= 0.10 && < 0.11
   hs-source-dirs:   src
   ghc-options:      -Wall
   exposed-modules:
@@ -63,7 +58,7 @@ test-suite ManagedProcessTests
   type:            exitcode-stdio-1.0
   x-uses-tf:       true
   build-depends:
-                   base >= 4.4 && < 5,
+                   base >= 4.14 && < 5,
                    ansi-terminal >= 0.5 && < 0.9,
                    containers,
                    distributed-process,
@@ -75,7 +70,7 @@ test-suite ManagedProcessTests
                    mtl,
                    fingertree,
                    network-transport-tcp >= 0.6 && < 0.9,
-                   binary >= 0.6.3.0 && < 0.9,
+                   binary >= 0.8 && < 0.9,
                    deepseq,
                    network >= 2.3 && < 3.3,
                    HUnit >= 1.2 && < 2,
@@ -100,7 +95,7 @@ test-suite PrioritisedProcessTests
   type:            exitcode-stdio-1.0
   x-uses-tf:       true
   build-depends:
-                   base >= 4.4 && < 5,
+                   base >= 4.14 && < 5,
                    ansi-terminal,
                    containers,
                    distributed-process,

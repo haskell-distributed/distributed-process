@@ -64,14 +64,12 @@ Source-Repository head
   Location: https://github.com/haskell-distributed/network-transport
 
 Library
-  Build-Depends:   base >= 4.6 && < 5,
-                   binary >= 0.5 && < 0.9,
-                   bytestring >= 0.9 && < 0.13,
+  Build-Depends:   base >= 4.14 && < 5,
+                   binary >= 0.8 && < 0.9,
+                   bytestring >= 0.10 && < 0.13,
                    hashable >= 1.2.0.5 && < 1.6,
                    transformers >= 0.2 && < 0.7,
                    deepseq >= 1.0 && < 1.6
-  if impl(ghc < 7.6)
-    Build-Depends: ghc-prim >= 0.2 && < 0.4
   Exposed-Modules: Network.Transport
                    Network.Transport.Util
                    Network.Transport.Internal

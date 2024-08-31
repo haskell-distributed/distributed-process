@@ -25,10 +25,6 @@ import MathsDemo
 import Counter
 import qualified SafeCounter as SafeCounter
 
-#if ! MIN_VERSION_base(4,6,0)
-import Prelude hiding (catch)
-#endif
-
 import Test.Framework (Test, testGroup)
 import Test.Framework.Providers.HUnit (testCase)
 import TestUtils

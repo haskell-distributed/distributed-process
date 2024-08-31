@@ -38,10 +38,6 @@ import Data.List (isInfixOf)
 import Data.Maybe (isNothing, isJust)
 import Data.Typeable (Typeable)
 
-#if ! MIN_VERSION_base(4,6,0)
-import Prelude hiding (catch)
-#endif
-
 import Test.Framework (Test, testGroup)
 import Test.Framework.Providers.HUnit (testCase)
 import TestUtils

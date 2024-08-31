@@ -20,11 +20,7 @@ import Control.Distributed.Process.Extras.Timer
 import Control.Monad (void)
 import Data.List (delete)
 
-#if ! MIN_VERSION_base(4,6,0)
-import Prelude hiding (catch, drop, Read)
-#else
 import Prelude hiding (drop, read, Read)
-#endif
 
 import Test.Framework (Test, testGroup, defaultMain)
 import Test.Framework.Providers.HUnit (testCase)

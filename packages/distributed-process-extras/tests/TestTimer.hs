@@ -2,9 +2,6 @@
 {-# LANGUAGE CPP #-}
 module Main where
 
-#if ! MIN_VERSION_base(4,6,0)
-import Prelude hiding (catch)
-#endif
 import Control.Monad (forever)
 import Control.Concurrent.MVar
   ( newEmptyMVar

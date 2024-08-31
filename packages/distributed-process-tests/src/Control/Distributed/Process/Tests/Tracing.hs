@@ -23,11 +23,7 @@ import Control.Distributed.Process.Management
 import qualified Control.Exception as IO (bracket)
 import Data.List (isPrefixOf, isSuffixOf)
 
-#if ! MIN_VERSION_base(4,6,0)
-import Prelude hiding (catch, log)
-#else
 import Prelude hiding ((<*))
-#endif
 
 import Test.Framework
   ( Test

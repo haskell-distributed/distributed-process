@@ -9,9 +9,6 @@ import Prelude hiding
   , return
   , fail
   , (>>)
-#if ! MIN_VERSION_base(4,6,0)
-  , catch
-#endif
   )
 import Network.Transport
 import Network.Transport.TCP ( createTransport

@@ -24,10 +24,6 @@ module Network.Transport.Internal
   , tlog
   ) where
 
-#if ! MIN_VERSION_base(4,6,0)
-import Prelude hiding (catch)
-#endif
-
 import Foreign.Storable (pokeByteOff, peekByteOff)
 import Foreign.ForeignPtr (withForeignPtr)
 import Data.ByteString (ByteString)

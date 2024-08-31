@@ -118,9 +118,6 @@ import Control.Concurrent.STM.TChan (TChan)
 import Control.Monad.Catch (MonadThrow(..), MonadCatch(..), MonadMask(..))
 import qualified Network.Transport as NT (EndPoint, EndPointAddress, Connection)
 import Control.Applicative
-#if !MIN_VERSION_base(4,13,0) && MIN_VERSION_base(4,9,0)
-import Control.Monad.Fail (MonadFail)
-#endif
 import Control.Monad.Fix (MonadFix)
 import Control.Monad.Reader (MonadReader(..), ReaderT, runReaderT)
 import Control.Monad.IO.Class (MonadIO(..))
@@ -356,9 +353,7 @@ newtype Process a = Process {
   deriving ( Applicative
            , Functor
            , Monad
-#if MIN_VERSION_base(4,9,0)
            , MonadFail
-#endif
            , MonadFix
            , MonadIO
            , MonadReader LocalProcess
@@ -372,14 +367,13 @@ instance MonadCatch Process where
     lproc <- ask
     liftIO $ catch (runLocalProcess lproc p) (runLocalProcess lproc . h)
 instance MonadMask Process where
-#if MIN_VERSION_exceptions(0,10,0)
   generalBracket acquire release inner = do
     lproc <- ask
     liftIO $
       generalBracket (runLocalProcess lproc acquire)
                      (\a e -> runLocalProcess lproc $ release a e)
                      (runLocalProcess lproc . inner)
-#endif
+
   mask p = do
       lproc <- ask
       liftIO $ mask $ \restore ->
@@ -477,11 +471,7 @@ data Message =
   deriving (Typeable)
 
 instance NFData Message where
-#if MIN_VERSION_bytestring(0,10,0)
   rnf (EncodedMessage _ e) = rnf e `seq` ()
-#else
-  rnf (EncodedMessage _ e) = BSL.length e `seq` ()
-#endif
   rnf (UnencodedMessage _ a) = e `seq` ()
     where e = BSL.length (encode a)
 

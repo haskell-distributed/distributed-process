@@ -23,10 +23,6 @@ import Control.Distributed.Process.ManagedProcess
 import qualified Control.Distributed.Process.ManagedProcess.UnsafeClient as Unsafe
 import Control.Distributed.Process.Serializable()
 
-#if ! MIN_VERSION_base(4,6,0)
-import Prelude hiding (catch)
-#endif
-
 import TestUtils
 
 type Launcher a = a -> Process (ProcessId, MVar ExitReason)

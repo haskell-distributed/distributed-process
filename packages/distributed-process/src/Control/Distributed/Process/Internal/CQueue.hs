@@ -288,11 +288,7 @@ dequeue (CQueue arrived incoming size) blockSpec matchons = mask_ $ decrementJus
 -- | Weak reference to a CQueue
 mkWeakCQueue :: CQueue a -> IO () -> IO (Weak (CQueue a))
 mkWeakCQueue m@(CQueue (StrictMVar (MVar m#)) _ _) f = IO $ \s ->
-#if MIN_VERSION_base(4,9,0)
   case mkWeak# m# m (unIO f) s of (# s1, w #) -> (# s1, Weak w #)
-#else
-  case mkWeak# m# m f s of (# s1, w #) -> (# s1, Weak w #)
-#endif
 
 queueSize :: CQueue a -> IO Int
 queueSize (CQueue _ _ size) = readTVarIO size

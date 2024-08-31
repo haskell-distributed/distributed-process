@@ -25,13 +25,13 @@ library
                      Control.Distributed.Process.Tests.Stats
                      Control.Distributed.Process.Tests.Tracing
                      Control.Distributed.Process.Tests.Internal.Utils
-  Build-Depends:     base >= 4.9 && < 5,
+  Build-Depends:     base >= 4.14 && < 5,
                      ansi-terminal >= 0.5,
-                     binary >= 0.5 && < 0.9,
-                     bytestring >= 0.9 && < 0.13,
+                     binary >= 0.8 && < 0.9,
+                     bytestring >= 0.10 && < 0.13,
                      distributed-process >= 0.6.0 && < 0.8,
                      distributed-static,
-                     exceptions >= 0.5,
+                     exceptions >= 0.10,
                      HUnit >= 1.2 && < 1.7,
                      network-transport >= 0.4.1.0 && < 0.6,
                      network >= 2.5 && < 3.3,
@@ -52,14 +52,12 @@ library
                       RankNTypes,
                       RecordWildCards,
                       ScopedTypeVariables
-  if impl(ghc <= 7.4.2)
-    Build-Depends:   ghc-prim == 0.2.0.0
 
 Test-Suite TestCHInMemory
   Type:              exitcode-stdio-1.0
   Main-Is:           runInMemory.hs
   CPP-Options:       -DTEST_SUITE_MODULE=Control.Distributed.Process.Tests.CH
-  Build-Depends:     base >= 4.9 && < 5,
+  Build-Depends:     base >= 4.14 && < 5,
                      distributed-process-tests,
                      network >= 2.3 && < 3.3,
                      network-transport >= 0.4.1.0 && < 0.6,
@@ -75,7 +73,7 @@ Test-Suite TestCHInTCP
   Main-Is:           runTCP.hs
   CPP-Options:       -DTEST_SUITE_MODULE=Control.Distributed.Process.Tests.CH
   if flag(tcp)
-    Build-Depends:     base >= 4.9 && < 5,
+    Build-Depends:     base >= 4.14 && < 5,
                        distributed-process-tests,
                        network >= 2.5 && < 3.2,
                        network-transport >= 0.4.1.0 && < 0.6,
@@ -93,7 +91,7 @@ Test-Suite TestClosure
   Type:              exitcode-stdio-1.0
   Main-Is:           runInMemory.hs
   CPP-Options:       -DTEST_SUITE_MODULE=Control.Distributed.Process.Tests.Closure
-  Build-Depends:     base >= 4.9 && < 5,
+  Build-Depends:     base >= 4.14 && < 5,
                      distributed-process-tests,
                      network >= 2.3 && < 3.3,
                      network-transport >= 0.4.1.0 && < 0.6,
@@ -108,7 +106,7 @@ Test-Suite TestStats
   Type:              exitcode-stdio-1.0
   Main-Is:           runInMemory.hs
   CPP-Options:       -DTEST_SUITE_MODULE=Control.Distributed.Process.Tests.Stats
-  Build-Depends:     base >= 4.9 && < 5,
+  Build-Depends:     base >= 4.14 && < 5,
                      distributed-process-tests,
                      network >= 2.3 && < 3.3,
                      network-transport >= 0.4.1.0 && < 0.6,
@@ -123,7 +121,7 @@ Test-Suite TestMxInMemory
   Type:              exitcode-stdio-1.0
   Main-Is:           runInMemory.hs
   CPP-Options:       -DTEST_SUITE_MODULE=Control.Distributed.Process.Tests.Mx
-  Build-Depends:     base >= 4.9 && < 5,
+  Build-Depends:     base >= 4.14 && < 5,
                      distributed-process-tests,
                      network >= 2.3 && < 3.3,
                      network-transport >= 0.4.1.0 && < 0.6,
@@ -138,7 +136,7 @@ Test-Suite TestTracingInMemory
   Type:              exitcode-stdio-1.0
   Main-Is:           runInMemory.hs
   CPP-Options:       -DTEST_SUITE_MODULE=Control.Distributed.Process.Tests.Tracing
-  Build-Depends:     base >= 4.9 && < 5,
+  Build-Depends:     base >= 4.14 && < 5,
                      distributed-process-tests,
                      network >= 2.3 && < 3.3,
                      network-transport >= 0.4.1.0 && < 0.6,
@@ -153,7 +151,7 @@ Test-Suite TestMxInTCP
   Type:              exitcode-stdio-1.0
   Main-Is:           runInMemory.hs
   CPP-Options:       -DTEST_SUITE_MODULE=Control.Distributed.Process.Tests.Mx
-  Build-Depends:     base >= 4.9 && < 5,
+  Build-Depends:     base >= 4.14 && < 5,
                      distributed-process-tests,
                      network >= 2.3 && < 3.3,
                      network-transport >= 0.4.1.0 && < 0.6,

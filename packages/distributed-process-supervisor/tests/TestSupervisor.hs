@@ -58,10 +58,6 @@ import Control.Rematch
 import Data.ByteString.Lazy (empty)
 import Data.Maybe (catMaybes)
 
-#if !MIN_VERSION_base(4,6,0)
-import Prelude hiding (catch)
-#endif
-
 import Test.HUnit (Assertion, assertFailure)
 import Test.Framework (Test, testGroup)
 import Test.Framework.Providers.HUnit (testCase)

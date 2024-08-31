@@ -20,11 +20,7 @@ import Control.Distributed.Process.SysTest.Utils
 import Control.Monad (void, forM, forever)
 import Control.Rematch (equalTo)
 
-#if ! MIN_VERSION_base(4,6,0)
-import Prelude hiding (catch, drop)
-#else
 import Prelude hiding (drop)
-#endif
 import Network.Transport.TCP
 import qualified Network.Transport as NT
 import Test.Framework as TF (defaultMain, testGroup, Test)
