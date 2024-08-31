@@ -21,3 +21,7 @@ cabal.project.local
 cabal.project.local~
 .HTF/
 .ghc.environment.*
+.*.swo
+.*.swp
+_site
+.DS_Store
