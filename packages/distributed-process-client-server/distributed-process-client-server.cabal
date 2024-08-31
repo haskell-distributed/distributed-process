@@ -1,0 +1,135 @@
+name:           distributed-process-client-server
+version:        0.2.5.1
+cabal-version:  >=1.8
+build-type:     Simple
+license:        BSD3
+license-file:   LICENCE
+stability:      experimental
+Copyright:      Tim Watson 2012 - 2017
+Author:         Tim Watson
+Maintainer:     Tim Watson <watson.timothy@gmail.com>
+Homepage:       http://github.com/haskell-distributed/distributed-process-client-server
+Bug-Reports:    http://github.com/haskell-distributed/distributed-process-client-server/issues
+synopsis:       The Cloud Haskell Application Platform
+description:    Modelled after Erlang OTP's gen_server, this framework provides similar
+                facilities for Cloud Haskell, grouping essential practices for client/server
+                development into a set of modules and standards designed to help you build
+                concurrent, distributed applications with relative ease.
+category:       Control
+Tested-With:    GHC==8.2.2
+data-dir:       ""
+
+source-repository head
+  type:      git
+  location:  https://github.com/haskell-distributed/distributed-process-client-server
+
+library
+  build-depends:
+                   base >= 4.8.2.0 && < 5,
+                   distributed-process >= 0.6.6 && < 0.8,
+                   distributed-process-extras >= 0.3.1 && < 0.4,
+                   distributed-process-async >= 0.2.4 && < 0.3,
+                   binary >= 0.6.3.0 && < 0.9,
+                   deepseq >= 1.3.0.1 && < 1.6,
+                   mtl,
+                   containers >= 0.4 && < 0.6,
+                   hashable >= 1.2.0.5 && < 1.3,
+                   unordered-containers >= 0.2.3.0 && < 0.3,
+                   fingertree < 0.2,
+                   stm >= 2.4 && < 2.5,
+                   time > 1.4 && < 1.9.2,
+                   transformers,
+                   exceptions >= 0.5 && < 0.11
+  if impl(ghc <= 7.5)
+    Build-Depends:   template-haskell == 2.7.0.0,
+                     derive == 2.5.5,
+                     uniplate == 1.6.12,
+                     ghc-prim
+  extensions:      CPP
+  hs-source-dirs:   src
+  ghc-options:      -Wall
+  exposed-modules:
+                   Control.Distributed.Process.ManagedProcess,
+                   Control.Distributed.Process.ManagedProcess.Client,
+                   Control.Distributed.Process.ManagedProcess.UnsafeClient,
+                   Control.Distributed.Process.ManagedProcess.Server,
+                   Control.Distributed.Process.ManagedProcess.Server.Priority,
+                   Control.Distributed.Process.ManagedProcess.Server.Restricted,
+                   Control.Distributed.Process.ManagedProcess.Server.Gen,
+                   Control.Distributed.Process.ManagedProcess.Timer,
+                   Control.Distributed.Process.ManagedProcess.Internal.Types,
+                   Control.Distributed.Process.ManagedProcess.Internal.GenProcess
+  other-modules:   Control.Distributed.Process.ManagedProcess.Internal.PriorityQueue
+
+test-suite ManagedProcessTests
+  type:            exitcode-stdio-1.0
+  x-uses-tf:       true
+  build-depends:
+                   base >= 4.4 && < 5,
+                   ansi-terminal >= 0.5 && < 0.9,
+                   containers,
+                   distributed-process,
+                   distributed-process-extras,
+                   distributed-process-async,
+                   distributed-process-client-server,
+                   distributed-process-systest >= 0.1.1,
+                   network-transport >= 0.4 && < 0.7,
+                   mtl,
+                   fingertree,
+                   network-transport-tcp >= 0.6 && < 0.7,
+                   binary >= 0.6.3.0 && < 0.9,
+                   deepseq,
+                   network >= 2.3 && < 2.7,
+                   HUnit >= 1.2 && < 2,
+                   stm,
+                   test-framework >= 0.6 && < 0.9,
+                   test-framework-hunit,
+                   transformers,
+                   rematch >= 0.2.0.0,
+                   ghc-prim,
+                   exceptions
+  other-modules:   Counter,
+                   ManagedProcessCommon,
+                   MathsDemo,
+                   SafeCounter,
+                   TestUtils
+  hs-source-dirs:
+                   tests
+  ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
+  extensions:      CPP
+  main-is:         TestManagedProcess.hs
+
+test-suite PrioritisedProcessTests
+  type:            exitcode-stdio-1.0
+  x-uses-tf:       true
+  build-depends:
+                   base >= 4.4 && < 5,
+                   ansi-terminal,
+                   containers,
+                   distributed-process,
+                   distributed-process-extras,
+                   distributed-process-async,
+                   distributed-process-client-server,
+                   distributed-process-systest >= 0.1.1,
+                   network-transport,
+                   mtl,
+                   fingertree,
+                   network-transport-tcp,
+                   binary,
+                   deepseq,
+                   network,
+                   HUnit,
+                   stm,
+                   test-framework,
+                   test-framework-hunit,
+                   transformers,
+                   rematch,
+                   ghc-prim,
+                   exceptions
+  other-modules:   ManagedProcessCommon,
+                   TestUtils
+  hs-source-dirs:
+                   tests
+  ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
+  extensions:      CPP
+  main-is:         TestPrioritisedProcess.hs

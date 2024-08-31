@@ -1,0 +1,22 @@
+MAJOR TODOs (in no particular order)
+
+- implement Observable for Mailbox
+- implement PCopy / pcopy :: PCopy a -> Process () and precv :: Process (Maybe (PCopy a))
+- provide InputChannel for PCopy data, i.e.:
+
+data InputChannel a = ReadChan (ReceivePort a) | ReadSTM (STM a)
+
+read (ReadChan rp)  = expectChan rp
+read (ReadSTM  stm) = liftIO $ atomically stm
+
+offer 
+
+- implement RoundRobinRouter, ContentBasedRouter
+- finish off ResourcePool
+- double check we're using NFSerializable where possible/necessary
+
+- implement LocalRegistry (?)
+- possibly rationalise Registry with LocalRegistry (?)
+- Health checks for services
+- Service Monitoring
+
