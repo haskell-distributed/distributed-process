@@ -13,6 +13,7 @@ packages:
   - packages/network-transport
   - packages/network-transport-inmemory
   - packages/network-transport-tcp
+  - packages/rank1dynamic
 
 
 flags:
