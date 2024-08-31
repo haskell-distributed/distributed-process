@@ -8,6 +8,7 @@ packages:
   - packages/distributed-process-extras
   - packages/distributed-process-simplelocalnet
   - packages/distributed-process-supervisor
+  - packages/distributed-process-systest
   - packages/distributed-process-tests
   - packages/distributed-static
   - packages/network-transport
