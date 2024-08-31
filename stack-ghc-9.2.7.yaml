@@ -3,7 +3,6 @@ resolver: lts-20.19 # Use GHC 9.2.7
 packages:
   - packages/distributed-process
   - packages/distributed-process-async
-  - packages/distributed-process-azure
   - packages/distributed-process-client-server
   - packages/distributed-process-tests
 

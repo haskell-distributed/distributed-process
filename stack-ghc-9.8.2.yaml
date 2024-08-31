@@ -3,7 +3,6 @@ resolver: nightly-2024-03-24 # Use GHC 9.8.2
 packages:
   - packages/distributed-process
   - packages/distributed-process-async
-  - packages/distributed-process-azure
   - packages/distributed-process-client-server
   - packages/distributed-process-tests
 
