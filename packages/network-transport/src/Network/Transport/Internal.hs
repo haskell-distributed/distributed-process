@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP  #-}
 -- | Internal functions
 module Network.Transport.Internal
   ( -- * Encoders/decoders

@@ -1,4 +1,5 @@
 {-# LANGUAGE RebindableSyntax #-}
+{-# LANGUAGE CPP  #-}
 module Network.Transport.Tests where
 
 import Prelude hiding

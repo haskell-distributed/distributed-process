@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP  #-}
 -- | Add tracing to the IO monad (see examples).
 --
 -- [Usage]

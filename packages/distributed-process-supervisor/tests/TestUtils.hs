@@ -1,5 +1,6 @@
+{-# LANGUAGE CPP                       #-}
 {-# LANGUAGE DeriveDataTypeable        #-}
-{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TupleSections             #-}
 {-# LANGUAGE TemplateHaskell           #-}
 {-# LANGUAGE DeriveGeneric             #-}
 

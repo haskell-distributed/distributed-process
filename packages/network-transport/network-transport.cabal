@@ -1,8 +1,8 @@
+cabal-version: 3.0
 Name:          network-transport
 Version:       0.5.7
-Cabal-Version: >=1.10
 Build-Type:    Simple
-License:       BSD3
+License:       BSD-3-Clause
 License-File:  LICENSE
 Copyright:     Well-Typed LLP
 Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
@@ -72,7 +72,7 @@ Library
                    deepseq >= 1.0 && < 1.6
   if impl(ghc < 7.6)
     Build-Depends: ghc-prim >= 0.2 && < 0.4
-  Exposed-Modules: Network.Transport,
+  Exposed-Modules: Network.Transport
                    Network.Transport.Util
                    Network.Transport.Internal
   Other-Extensions: ForeignFunctionInterface

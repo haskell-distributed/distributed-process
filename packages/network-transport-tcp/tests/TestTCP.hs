@@ -1,5 +1,6 @@
 {-# LANGUAGE RebindableSyntax, TemplateHaskell #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP  #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Main where
 

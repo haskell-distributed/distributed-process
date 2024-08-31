@@ -1,8 +1,8 @@
+cabal-version:  3.0
 name:           distributed-process-extras
 version:        0.3.5
-cabal-version:  >=1.8
 build-type:     Simple
-license:        BSD3
+license:        BSD-3-Clause
 license-file:   LICENCE
 stability:      experimental
 Copyright:      Tim Watson 2012 - 2017
@@ -15,7 +15,6 @@ description:    Supporting library, providing common types and utilities used by
                 various libraries built on top of distributed-process
 category:       Control
 Tested-With:    GHC==7.10.3 GHC==8.0.1 GHC==8.0.2
-data-dir:       ""
 extra-source-files: ChangeLog
 
 source-repository head
@@ -45,23 +44,22 @@ library
     Build-Depends:   time < 1.5, old-locale >= 1.0 && <1.1
   else
     Build-Depends:   time >= 1.5
-  extensions:      CPP
   other-extensions: ExistentialQuantification
   ghc-options:      -Wall
   HS-Source-Dirs:    src
   exposed-modules:
-                   Control.Distributed.Process.Extras,
-                   Control.Distributed.Process.Extras.Call,
-                   Control.Distributed.Process.Extras.Monitoring,
-                   Control.Distributed.Process.Extras.SystemLog,
-                   Control.Distributed.Process.Extras.Time,
-                   Control.Distributed.Process.Extras.Timer,
-                   Control.Distributed.Process.Extras.UnsafePrimitives,
-                   Control.Concurrent.Utils,
-                   Control.Distributed.Process.Extras.Internal.Containers.MultiMap,
-                   Control.Distributed.Process.Extras.Internal.Primitives,
-                   Control.Distributed.Process.Extras.Internal.Types,
-                   Control.Distributed.Process.Extras.Internal.Queue.SeqQ,
+                   Control.Distributed.Process.Extras
+                   Control.Distributed.Process.Extras.Call
+                   Control.Distributed.Process.Extras.Monitoring
+                   Control.Distributed.Process.Extras.SystemLog
+                   Control.Distributed.Process.Extras.Time
+                   Control.Distributed.Process.Extras.Timer
+                   Control.Distributed.Process.Extras.UnsafePrimitives
+                   Control.Concurrent.Utils
+                   Control.Distributed.Process.Extras.Internal.Containers.MultiMap
+                   Control.Distributed.Process.Extras.Internal.Primitives
+                   Control.Distributed.Process.Extras.Internal.Types
+                   Control.Distributed.Process.Extras.Internal.Queue.SeqQ
                    Control.Distributed.Process.Extras.Internal.Queue.PriorityQ
                    Control.Distributed.Process.Extras.Internal.Unsafe
 
@@ -84,7 +82,6 @@ test-suite InternalQueueTests
   hs-source-dirs:
                    tests
   ghc-options:     -Wall -rtsopts
-  extensions:      CPP
   main-is:         TestQueues.hs
   cpp-options:     -DTESTING
 
@@ -113,7 +110,6 @@ test-suite PrimitivesTests
   hs-source-dirs:
                    tests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
-  extensions:      CPP
   main-is:         TestPrimitives.hs
 
 test-suite TimerTests
@@ -138,7 +134,6 @@ test-suite TimerTests
   hs-source-dirs:
                    tests
   ghc-options:     -Wall -rtsopts
-  extensions:      CPP
   main-is:         TestTimer.hs
   cpp-options:     -DTESTING
 
@@ -175,5 +170,4 @@ test-suite LoggerTests
   hs-source-dirs:
                    tests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
-  extensions:      CPP
   main-is:         TestLog.hs

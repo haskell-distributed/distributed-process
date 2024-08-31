@@ -10,7 +10,7 @@
 -- Applications that use the TCP transport should use
 -- 'Network.Socket.withSocketsDo' in their main function for Windows
 -- compatibility (see "Network.Socket").
-
+{-# LANGUAGE CPP  #-}
 {-# LANGUAGE RecursiveDo #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE RankNTypes #-}

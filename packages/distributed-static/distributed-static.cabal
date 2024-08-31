@@ -1,3 +1,4 @@
+cabal-version:       3.0
 Name:                distributed-static
 Version:             0.3.10
 Synopsis:            Compositional, type-safe, polymorphic static values and closures
@@ -15,7 +16,7 @@ Description:         /Towards Haskell in the Cloud/ (Epstein et al, Haskell
                      and various extensions: type safety (including for
                      polymorphic static values) and compositionality.
 Homepage:            http://haskell-distributed.github.com
-License:             BSD3
+License:             BSD-3-Clause
 License-File:        LICENSE
 Author:              Edsko de Vries
 Maintainer:          Facundo Domínguez <facundo.dominguez@tweag.io>
@@ -23,7 +24,6 @@ Bug-Reports:         https://github.com/haskell-distributed/distributed-static/i
 Copyright:           Well-Typed LLP
 Category:            Control
 Build-Type:          Simple
-Cabal-Version:       >=1.10
 extra-source-files:  ChangeLog
 Tested-With:         GHC==9.0.2 GHC==9.2.8 GHC==9.4.5 GHC==9.6.4 GHC==9.8.2
 

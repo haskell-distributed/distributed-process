@@ -1,8 +1,8 @@
+cabal-version: 3.0
 Name:          network-transport-inmemory
-Version:       0.5.4
-Cabal-Version: >=1.10
+Version:       0.5.40
 Build-Type:    Simple
-License:       BSD3
+License:       BSD-3-Clause
 License-file:  LICENSE
 Copyright:     Well-Typed LLP, Tweag I/O Limited
 Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries, Alexander Vershilov

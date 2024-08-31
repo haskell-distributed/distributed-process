@@ -1,8 +1,8 @@
+cabal-version: 3.0
 Name:          distributed-process
 Version:       0.7.6
-Cabal-Version: >=1.10
 Build-Type:    Simple
-License:       BSD3
+License:       BSD-3-Clause
 License-File:  LICENSE
 Copyright:     Well-Typed LLP, Tweag I/O Limited
 Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
@@ -57,31 +57,31 @@ Library
                      exceptions >= 0.5,
                      containers >= 0.5 && < 0.8,
                      deepseq >= 1.3.0.1 && < 1.6
-  Exposed-modules:   Control.Distributed.Process,
-                     Control.Distributed.Process.Closure,
-                     Control.Distributed.Process.Debug,
-                     Control.Distributed.Process.Internal.BiMultiMap,
-                     Control.Distributed.Process.Internal.Closure.BuiltIn,
-                     Control.Distributed.Process.Internal.Closure.Explicit,
-                     Control.Distributed.Process.Internal.CQueue,
-                     Control.Distributed.Process.Internal.Messaging,
-                     Control.Distributed.Process.Internal.Primitives,
-                     Control.Distributed.Process.Internal.Spawn,
-                     Control.Distributed.Process.Internal.StrictContainerAccessors,
-                     Control.Distributed.Process.Internal.StrictList,
-                     Control.Distributed.Process.Internal.StrictMVar,
-                     Control.Distributed.Process.Internal.Types,
-                     Control.Distributed.Process.Internal.WeakTQueue,
-                     Control.Distributed.Process.Management,
-                     Control.Distributed.Process.Node,
-                     Control.Distributed.Process.Serializable,
+  Exposed-modules:   Control.Distributed.Process
+                     Control.Distributed.Process.Closure
+                     Control.Distributed.Process.Debug
+                     Control.Distributed.Process.Internal.BiMultiMap
+                     Control.Distributed.Process.Internal.Closure.BuiltIn
+                     Control.Distributed.Process.Internal.Closure.Explicit
+                     Control.Distributed.Process.Internal.CQueue
+                     Control.Distributed.Process.Internal.Messaging
+                     Control.Distributed.Process.Internal.Primitives
+                     Control.Distributed.Process.Internal.Spawn
+                     Control.Distributed.Process.Internal.StrictContainerAccessors
+                     Control.Distributed.Process.Internal.StrictList
+                     Control.Distributed.Process.Internal.StrictMVar
+                     Control.Distributed.Process.Internal.Types
+                     Control.Distributed.Process.Internal.WeakTQueue
+                     Control.Distributed.Process.Management
+                     Control.Distributed.Process.Node
+                     Control.Distributed.Process.Serializable
                      Control.Distributed.Process.UnsafePrimitives
-                     Control.Distributed.Process.Management.Internal.Agent,
-                     Control.Distributed.Process.Management.Internal.Bus,
-                     Control.Distributed.Process.Management.Internal.Types,
-                     Control.Distributed.Process.Management.Internal.Trace.Primitives,
-                     Control.Distributed.Process.Management.Internal.Trace.Remote,
-                     Control.Distributed.Process.Management.Internal.Trace.Types,
+                     Control.Distributed.Process.Management.Internal.Agent
+                     Control.Distributed.Process.Management.Internal.Bus
+                     Control.Distributed.Process.Management.Internal.Types
+                     Control.Distributed.Process.Management.Internal.Trace.Primitives
+                     Control.Distributed.Process.Management.Internal.Trace.Remote
+                     Control.Distributed.Process.Management.Internal.Trace.Types
                      Control.Distributed.Process.Management.Internal.Trace.Tracer
   default-language:  Haskell2010
   ghc-options:       -Wall

@@ -1,14 +1,13 @@
+cabal-version:  3.0
 name:           distributed-process-execution
 version:        0.1.2.2
-cabal-version:  >=1.8
 build-type:     Simple
-license:        BSD3
+license:        BSD-3-Clause
 license-file:   LICENCE
 stability:      experimental
 Copyright:      Tim Watson 2012 - 2013
 Author:         Tim Watson
 Maintainer:     Tim Watson <watson.timothy@gmail.com>
-Stability:      experimental
 Homepage:       http://github.com/haskell-distributed/distributed-process-execution
 Bug-Reports:    http://github.com/haskell-distributed/distributed-process-execution/issues
 synopsis:       Execution Framework for The Cloud Haskell Application Platform
@@ -18,7 +17,6 @@ description:
                 for event management, mailbox buffering and message routing.
 category:       Control
 tested-with:    GHC == 7.4.2 GHC == 7.6.2
-data-dir:       ""
 extra-source-files: ChangeLog
 
 source-repository head
@@ -48,7 +46,6 @@ library
                      derive == 2.5.5,
                      uniplate == 1.6.12,
                      ghc-prim
-  extensions:      CPP
   hs-source-dirs:   src
   ghc-options:      -Wall
   exposed-modules:
@@ -98,7 +95,6 @@ test-suite ExchangeTests
   hs-source-dirs:
                    tests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind -eventlog
-  extensions:      CPP
   main-is:         TestExchange.hs
 
 
@@ -138,6 +134,5 @@ test-suite MailboxTests
   hs-source-dirs:
                    tests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind -eventlog
-  extensions:      CPP
   main-is:         TestMailbox.hs
   other-modules:   MailboxTestFilters

@@ -1,8 +1,8 @@
 Name:          distributed-process-simplelocalnet
 Version:       0.3.1
-Cabal-Version: >=1.10
+cabal-version: >=2.0
 Build-Type:    Simple
-License:       BSD3
+License:       BSD-3-Clause
 License-File:  LICENSE
 Copyright:     Well-Typed LLP
 Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries

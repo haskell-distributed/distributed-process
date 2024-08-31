@@ -1,3 +1,4 @@
+cabal-version:       3.0
 Name:                rank1dynamic
 Version:             0.4.1
 Synopsis:            Like Data.Dynamic/Data.Typeable but with support for rank-1 polymorphic types
@@ -5,7 +6,7 @@ Description:         "Data.Typeable" and "Data.Dynamic" only support monomorphic
                      In this package we provide similar functionality but with
                      support for rank-1 polymorphic types.
 Homepage:            http://haskell-distributed.github.com
-License:             BSD3
+License:             BSD-3-Clause
 License-File:        LICENSE
 Author:              Edsko de Vries
 Maintainer:          Facundo Domínguez <facundo.dominguez@tweag.io>
@@ -13,7 +14,6 @@ Bug-Reports:         https://github.com/haskell-distributed/rank1dynamic/issues
 Copyright:           Well-Typed LLP, Tweag I/O Limited
 Category:            Data
 Build-Type:          Simple
-Cabal-Version:       >=1.10
 extra-source-files: ChangeLog
 
 Source-Repository head

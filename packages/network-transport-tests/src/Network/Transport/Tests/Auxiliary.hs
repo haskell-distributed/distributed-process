@@ -1,4 +1,5 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# LANGUAGE CPP  #-}
 module Network.Transport.Tests.Auxiliary
   ( -- Running tests
     runTest

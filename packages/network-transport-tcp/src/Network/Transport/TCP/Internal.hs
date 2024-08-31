@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP  #-}
 -- | Utility functions for TCP sockets
 module Network.Transport.TCP.Internal
   ( ControlHeader(..)

@@ -1,16 +1,16 @@
+cabal-version: 3.0
 name:          distributed-process-tests
 version:       0.4.12
 synopsis:      Tests and test support tools for distributed-process.
 homepage:      http://github.com/haskell-distributed/distributed-process/tree/master/distributed-process-tests
 description:   Tests and test suite for Cloud Haskell libraries.
-license:       BSD3
+license:       BSD-3-Clause
 license-file:  LICENSE
 Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
 Maintainer:    Tim Watson <watson.timothy@gmail.com>
 copyright:     Well-Typed LLP
 category:      Control, Cloud Haskell
 build-type:    Simple
-cabal-version: >=1.10
 
 flag tcp
   Description: build and run TCP tests

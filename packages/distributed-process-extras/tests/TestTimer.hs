@@ -1,4 +1,5 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
+{-# LANGUAGE CPP #-}
 module Main where
 
 #if ! MIN_VERSION_base(4,6,0)

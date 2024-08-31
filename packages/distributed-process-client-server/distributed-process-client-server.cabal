@@ -1,8 +1,8 @@
+cabal-version:  3.0
 name:           distributed-process-client-server
 version:        0.2.5.1
-cabal-version:  >=1.8
 build-type:     Simple
-license:        BSD3
+license:        BSD-3-Clause
 license-file:   LICENCE
 stability:      experimental
 Copyright:      Tim Watson 2012 - 2017
@@ -17,7 +17,6 @@ description:    Modelled after Erlang OTP's gen_server, this framework provides 
                 concurrent, distributed applications with relative ease.
 category:       Control
 Tested-With:    GHC==8.2.2
-data-dir:       ""
 
 source-repository head
   type:      git
@@ -45,7 +44,6 @@ library
                      derive == 2.5.5,
                      uniplate == 1.6.12,
                      ghc-prim
-  extensions:      CPP
   hs-source-dirs:   src
   ghc-options:      -Wall
   exposed-modules:
@@ -96,7 +94,6 @@ test-suite ManagedProcessTests
   hs-source-dirs:
                    tests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
-  extensions:      CPP
   main-is:         TestManagedProcess.hs
 
 test-suite PrioritisedProcessTests
@@ -131,5 +128,4 @@ test-suite PrioritisedProcessTests
   hs-source-dirs:
                    tests
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
-  extensions:      CPP
   main-is:         TestPrioritisedProcess.hs
