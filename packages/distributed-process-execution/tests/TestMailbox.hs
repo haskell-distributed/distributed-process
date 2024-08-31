@@ -259,7 +259,6 @@ main = testMain $ tests
 -- | Given a @builder@ function, make and run a test suite on a single transport
 testMain :: (NT.Transport -> IO [Test]) -> IO ()
 testMain builder = do
-  Right (transport, _) <- createTransportExposeInternals
-                                    "127.0.0.1" "10501" defaultTCPParameters
+  Right (transport, _) <- createTransportExposeInternals (defaultTCPAddr "127.0.0.1" "10501") defaultTCPParameters
   testData <- builder transport
   defaultMain testData
