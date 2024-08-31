@@ -8,9 +8,9 @@ jobs:
         ghcVersion:
           [ "8.10.7"
           , "9.0.2"
-	  , "9.2.7"
-	  , "9.4.5"
-	  , "9.8.2"
+          , "9.2.7"
+          , "9.4.5"
+          , "9.8.2"
           ]
     container: "fpco/stack-build-small"
     steps:

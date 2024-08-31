@@ -1,8 +1,8 @@
 resolver: nightly-2024-03-24 # Use GHC 9.8.2
 
 packages:
-  - .
-  - distributed-process-tests/
+  - packages/distributed-process
+  - packages/distributed-process-tests
 
 extra-deps:
 - distributed-static-0.3.10

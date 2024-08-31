@@ -1,8 +1,8 @@
 resolver: lts-20.19 # Use GHC 9.2.7
 
 packages:
-  - .
-  - distributed-process-tests/
+  - packages/distributed-process
+  - packages/distributed-process-tests
 
 extra-deps:
 # Both distributed-static and network-transport-inmemory have

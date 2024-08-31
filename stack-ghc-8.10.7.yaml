@@ -1,8 +1,8 @@
 resolver: lts-18.16 # Use GHC 8.10.7
 
 packages:
-  - .
-  - distributed-process-tests/
+  - packages/distributed-process
+  - packages/distributed-process-tests
 
 extra-deps:
 - distributed-static-0.3.9
