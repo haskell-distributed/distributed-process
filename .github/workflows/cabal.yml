@@ -1,4 +1,4 @@
-name: Continuous integration with cabal
+name: Continuous integration
 
 on:
   push:
@@ -20,8 +20,11 @@ jobs:
           - "9.6.4"
           - "9.8.2"
           - "9.10.1"
+        operating-system:
+          - "ubuntu-latest"
+          - "windows-latest"
 
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.operating-system }}
 
     steps:
     - uses: actions/checkout@v4
@@ -35,12 +38,8 @@ jobs:
     
     - name: Generate freeze file
       run: |
-        cabal update
         cabal configure --enable-tests --test-show-details=direct
         cabal freeze --minimize-conflict-set
-        # 'cabal freeze' will use the nearest index state which might not be exactly equal
-        # to the index state specified in 'cabal.project'
-        sed '/^index-state: /d' cabal.project.freeze > dependencies-versions
     
     - name: Cache cabal work
       uses: actions/cache@v4
@@ -50,7 +49,7 @@ jobs:
           ${{ steps.setup-haskell.outputs.cabal-store }}
         # We are using the hash of 'cabal.project.local' so that different levels
         # of optimizations are cached separately
-        key: ${{ runner.os }}-${{ hashFiles('dependencies-versions', 'cabal.project', 'cabal.project.local') }}-cabal-install
+        key: ${{ runner.os }}-${{ hashFiles('cabal.project', 'cabal.project.local') }}-cabal-install
 
     - name: Build dependencies only
       run: cabal build all --only-dependencies
