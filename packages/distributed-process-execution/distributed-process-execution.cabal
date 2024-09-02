@@ -7,7 +7,7 @@ license-file:   LICENCE
 stability:      experimental
 Copyright:      Tim Watson 2012 - 2013
 Author:         Tim Watson
-Maintainer:     Tim Watson <watson.timothy@gmail.com>
+maintainer:     The Distributed Haskell team
 Homepage:       http://github.com/haskell-distributed/distributed-process-execution
 Bug-Reports:    http://github.com/haskell-distributed/distributed-process-execution/issues
 synopsis:       Execution Framework for The Cloud Haskell Application Platform

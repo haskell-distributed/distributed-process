@@ -6,7 +6,7 @@ License:       BSD-3-Clause
 License-file:  LICENSE
 Copyright:     Well-Typed LLP, Tweag I/O Limited
 Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
-maintainer:    Facundo Domínguez <facundo.dominguez@tweag.io>
+maintainer:    The Distributed Haskell team
 Stability:     experimental
 Homepage:      http://haskell-distributed.github.com
 Bug-Reports:   https://github.com/haskell-distributed/network-transport-tcp/issues

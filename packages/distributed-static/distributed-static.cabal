@@ -19,7 +19,7 @@ Homepage:            http://haskell-distributed.github.com
 License:             BSD-3-Clause
 License-File:        LICENSE
 Author:              Edsko de Vries
-Maintainer:          Facundo Domínguez <facundo.dominguez@tweag.io>
+maintainer:          The Distributed Haskell team
 Bug-Reports:         https://github.com/haskell-distributed/distributed-static/issues
 Copyright:           Well-Typed LLP
 Category:            Control

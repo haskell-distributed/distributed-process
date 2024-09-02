@@ -7,7 +7,7 @@ homepage:      http://github.com/haskell-distributed/distributed-process-systest
 license:       BSD-3-Clause
 license-file:  LICENSE
 Author:        Tim Watson
-Maintainer:    watson.timothy@gmail.com
+maintainer:    The Distributed Haskell team
 copyright:     Tim Watson
 category:      Control, Cloud Haskell
 build-type:    Simple
