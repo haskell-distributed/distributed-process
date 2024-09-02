@@ -22,7 +22,6 @@ jobs:
           - "9.10.1"
         operating-system:
           - "ubuntu-latest"
-          - "windows-latest"
 
     runs-on: ${{ matrix.operating-system }}
 
