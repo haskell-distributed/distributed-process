@@ -21,3 +21,5 @@ packages:
 flags:
   distributed-process-tests:
     tcp: true
+extra-deps:
+- rematch-0.2.0.0@sha256:86019f4d6a4347e1291a0a9f85ba6324e1447e2b93d75958e59c24212e9d8178,1245
