@@ -23,7 +23,7 @@ Source-Repository head
 Library
   Exposed-Modules:     Data.Rank1Dynamic,
                        Data.Rank1Typeable
-  Build-Depends:       base >= 4.8 && < 5,
+  Build-Depends:       base >= 4.14 && < 5,
                        binary >= 0.8 && < 0.9
   HS-Source-Dirs:      src
   GHC-Options:         -Wall

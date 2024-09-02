@@ -29,7 +29,7 @@ source-repository head
 
 library
   build-depends:
-                   base >= 4.8.2.0 && < 5,
+                   base >= 4.14 && < 5,
                    bytestring >= 0.10,
                    data-accessor >= 0.2.2.3,
                    distributed-static >= 0.3.4.0 && < 0.4,
@@ -58,7 +58,7 @@ library
 test-suite SupervisorTests
   type:            exitcode-stdio-1.0
   build-depends:
-                   base >= 4.8.2.0 && < 5,
+                   base >= 4.14 && < 5,
                    ansi-terminal >= 0.5 && < 0.9,
                    containers,
                    unordered-containers,
@@ -97,7 +97,7 @@ test-suite SupervisorTests
 test-suite NonThreadedSupervisorTests
   type:            exitcode-stdio-1.0
   build-depends:
-                   base >= 4.8.2.0 && < 5,
+                   base >= 4.14 && < 5,
                    ansi-terminal >= 0.5 && < 0.9,
                    containers,
                    unordered-containers,

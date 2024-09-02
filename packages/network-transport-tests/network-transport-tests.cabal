@@ -22,7 +22,7 @@ library
                        Network.Transport.Tests.Auxiliary,
                        Network.Transport.Tests.Traced
   -- other-modules:
-  build-depends:       base >= 4.5 && < 5,
+  build-depends:       base >= 4.14 && < 5,
                        network-transport >= 0.4.1.0 && < 0.6,
                        containers >= 0.6 && < 0.7,
                        bytestring >= 0.10 && < 0.13,

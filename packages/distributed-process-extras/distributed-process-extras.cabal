@@ -22,7 +22,7 @@ source-repository head
   location:  https://github.com/haskell-distributed/distributed-process-extras
 
 library
-  build-depends:   base >= 4.8 && < 5,
+  build-depends:   base >= 4.14 && < 5,
                    distributed-process >= 0.6.0 && < 0.8,
                    binary >= 0.8 && < 0.9,
                    deepseq >= 1.4 && < 1.6,

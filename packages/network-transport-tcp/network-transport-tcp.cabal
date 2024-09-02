@@ -25,7 +25,7 @@ Flag use-mock-network
   Default:         False
 
 Library
-  Build-Depends:   base >= 4.3 && < 5,
+  Build-Depends:   base >= 4.14 && < 5,
                    async >= 2.2 && < 2.3,
                    network-transport >= 0.5 && < 0.6,
                    data-accessor >= 0.2 && < 0.3,
@@ -48,7 +48,7 @@ Library
 Test-Suite TestTCP
   Type:            exitcode-stdio-1.0
   Main-Is:         TestTCP.hs
-  Build-Depends:   base >= 4.3 && < 5,
+  Build-Depends:   base >= 4.14 && < 5,
                    bytestring >= 0.10,
                    network-transport-tests >= 0.3 && < 0.4,
                    network >= 3.1,
@@ -66,7 +66,7 @@ Test-Suite TestQC
   Type:           exitcode-stdio-1.0
   Main-Is:        TestQC.hs
   If flag(use-mock-network)
-    Build-Depends:  base >= 4.3 && < 5,
+    Build-Depends:  base >= 4.14 && < 5,
                     test-framework,
                     test-framework-quickcheck2,
                     test-framework-hunit,
