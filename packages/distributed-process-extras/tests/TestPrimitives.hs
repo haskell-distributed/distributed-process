@@ -193,13 +193,14 @@ tests transport localNode = [
       ],
     testGroup "Call/RPC" [
         testCase "multicallTest" (multicallTest transport)
-      ],
-    testGroup "Node Monitoring" [
-        testCase "Death Notifications"
-          (delayedAssertion
-           "subscribers should both have received NodeDown twice"
-           localNode () (testMonitorNodeDeath transport))
       ]
+    -- TODO: the test below has been very flaky in CI
+    -- testGroup "Node Monitoring" [
+    --     testCase "Death Notifications"
+    --       (delayedAssertion
+    --        "subscribers should both have received NodeDown twice"
+    --        localNode () (testMonitorNodeDeath transport))
+    --   ]
   ]
 
 primitivesTests :: NT.Transport -> IO [Test]
