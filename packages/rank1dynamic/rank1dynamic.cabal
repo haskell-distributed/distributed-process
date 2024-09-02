@@ -20,19 +20,30 @@ Source-Repository head
   Type:     git
   Location: https://github.com/haskell-distributed/rank1dynamic
 
+common warnings
+    ghc-options: -Wall
+                 -Wcompat
+                 -Widentities
+                 -Wincomplete-uni-patterns
+                 -Wincomplete-record-updates
+                 -Wredundant-constraints
+                 -fhide-source-paths
+                 -Wpartial-fields
+
 Library
+  import:              warnings
   Exposed-Modules:     Data.Rank1Dynamic,
                        Data.Rank1Typeable
   Build-Depends:       base >= 4.14 && < 5,
                        binary >= 0.8 && < 0.9
   HS-Source-Dirs:      src
-  GHC-Options:         -Wall
   default-language:    Haskell2010
   Default-Extensions:  EmptyDataDecls,
                        DeriveDataTypeable,
                        ViewPatterns
 
 Test-Suite TestRank1Dynamic
+  import:            warnings
   Type:              exitcode-stdio-1.0
   Main-Is:           test.hs
   Build-Depends:     base >= 4.14 && < 5,
@@ -40,6 +51,5 @@ Test-Suite TestRank1Dynamic
                      rank1dynamic,
                      test-framework >= 0.6 && < 0.9,
                      test-framework-hunit >= 0.2.0 && < 0.4
-  ghc-options:       -Wall
   default-language:    Haskell2010
   HS-Source-Dirs:    tests

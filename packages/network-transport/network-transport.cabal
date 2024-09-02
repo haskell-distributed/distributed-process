@@ -63,7 +63,18 @@ Source-Repository head
   Type:     git
   Location: https://github.com/haskell-distributed/network-transport
 
+common warnings
+    ghc-options: -Wall
+                 -Wcompat
+                 -Widentities
+                 -Wincomplete-uni-patterns
+                 -Wincomplete-record-updates
+                 -Wredundant-constraints
+                 -fhide-source-paths
+                 -Wpartial-fields
+
 Library
+  import:          warnings
   Build-Depends:   base >= 4.14 && < 5,
                    binary >= 0.8 && < 0.9,
                    bytestring >= 0.10 && < 0.13,
@@ -80,7 +91,7 @@ Library
                    DeriveDataTypeable,
                    GeneralizedNewtypeDeriving,
                    CPP
-  GHC-Options:     -Wall -fno-warn-unused-do-bind
+  GHC-Options:     -fno-warn-unused-do-bind
   HS-Source-Dirs:  src
   Default-Language: Haskell2010
   if os(win32)

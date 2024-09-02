@@ -25,6 +25,16 @@ tested-with:   GHC==8.10.7 GHC==9.0.2 GHC==9.2.8 GHC==9.4.5 GHC==9.6.4 GHC==9.8.
 Category:      Control
 extra-source-files: ChangeLog
 
+common warnings
+    ghc-options: -Wall
+                 -Wcompat
+                 -Widentities
+                 -Wincomplete-uni-patterns
+                 -Wincomplete-record-updates
+                 -Wredundant-constraints
+                 -fhide-source-paths
+                 -Wpartial-fields
+
 Source-Repository head
   Type:     git
   Location: https://github.com/haskell-distributed/distributed-process
@@ -35,6 +45,7 @@ flag th
   default: True
 
 Library
+  import:            warnings
   Build-Depends:     base >= 4.14 && < 5,
                      binary >= 0.8 && < 0.10,
                      hashable >= 1.2.0.5 && < 1.6,
@@ -79,7 +90,6 @@ Library
                      Control.Distributed.Process.Management.Internal.Trace.Types
                      Control.Distributed.Process.Management.Internal.Trace.Tracer
   default-language:  Haskell2010
-  ghc-options:       -Wall
   HS-Source-Dirs:    src
   other-extensions:  BangPatterns
                      CPP
@@ -110,6 +120,7 @@ Library
 -- Tests are in distributed-process-test package, for convenience.
 
 benchmark distributed-process-throughput
+  import:           warnings
   Type:             exitcode-stdio-1.0
   Build-Depends:    base >= 4.14 && < 5,
                     distributed-process,
@@ -118,9 +129,9 @@ benchmark distributed-process-throughput
                     binary >= 0.8 && < 0.10
   Main-Is:          benchmarks/Throughput.hs
   default-language: Haskell2010
-  ghc-options:      -Wall
 
 benchmark distributed-process-latency
+  import:           warnings
   Type:             exitcode-stdio-1.0
   Build-Depends:    base >= 4.14 && < 5,
                     distributed-process,
@@ -129,9 +140,9 @@ benchmark distributed-process-latency
                     binary >= 0.8 && < 0.10
   Main-Is:          benchmarks/Latency.hs
   default-language: Haskell2010
-  ghc-options:      -Wall
 
 benchmark distributed-process-channels
+  import:           warnings
   Type:             exitcode-stdio-1.0
   Build-Depends:    base >= 4.14 && < 5,
                     distributed-process,
@@ -140,9 +151,9 @@ benchmark distributed-process-channels
                     binary >= 0.8 && < 0.10
   Main-Is:          benchmarks/Channels.hs
   default-language: Haskell2010
-  ghc-options:      -Wall
 
 benchmark distributed-process-spawns
+  import:           warnings
   Type:             exitcode-stdio-1.0
   Build-Depends:    base >= 4.14 && < 5,
                     distributed-process,
@@ -151,9 +162,9 @@ benchmark distributed-process-spawns
                     binary >= 0.8 && < 0.10
   Main-Is:          benchmarks/Spawns.hs
   default-language: Haskell2010
-  ghc-options:      -Wall
 
 benchmark distributed-process-ring
+  import:           warnings
   Type:             exitcode-stdio-1.0
   Build-Depends:    base >= 4.14 && < 5,
                     distributed-process,
@@ -162,4 +173,4 @@ benchmark distributed-process-ring
                     binary >= 0.8 && < 0.10
   Main-Is:          benchmarks/ProcessRing.hs
   default-language: Haskell2010
-  ghc-options:      -Wall -threaded -O2 -rtsopts
+  ghc-options:      -threaded -O2 -rtsopts

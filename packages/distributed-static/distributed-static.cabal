@@ -31,7 +31,18 @@ Source-Repository head
   Type:     git
   Location: https://github.com/haskell-distributed/distributed-static
 
+common warnings
+    ghc-options: -Wall
+                 -Wcompat
+                 -Widentities
+                 -Wincomplete-uni-patterns
+                 -Wincomplete-record-updates
+                 -Wredundant-constraints
+                 -fhide-source-paths
+                 -Wpartial-fields
+
 Library
+  import:              warnings
   Exposed-Modules:     Control.Distributed.Static
   Build-Depends:       base >= 4.14 && < 5,
                        rank1dynamic >= 0.1 && < 0.5,
@@ -43,4 +54,3 @@ Library
   Default-Language:    Haskell2010
   Default-Extensions:  DeriveDataTypeable
                        ScopedTypeVariables
-  GHC-Options:         -Wall

@@ -16,7 +16,18 @@ flag tcp
   Description: build and run TCP tests
   Default:     False
 
+common warnings
+    ghc-options: -Wall
+                 -Wcompat
+                 -Widentities
+                 -Wincomplete-uni-patterns
+                 -Wincomplete-record-updates
+                 -Wredundant-constraints
+                 -fhide-source-paths
+                 -Wpartial-fields
+
 library
+  import:            warnings
   exposed-modules:   Network.Transport.Test
                      Control.Distributed.Process.Tests.CH
                      Control.Distributed.Process.Tests.Closure
@@ -42,7 +53,7 @@ library
                      stm
   hs-source-dirs:    src
   default-language:  Haskell98
-  ghc-options:       -Wall -fno-warn-unused-do-bind
+  ghc-options:       -fno-warn-unused-do-bind
   default-extensions: CPP,
                       ExistentialQuantification,
                       FlexibleInstances,
@@ -54,6 +65,7 @@ library
                       ScopedTypeVariables
 
 Test-Suite TestCHInMemory
+  import:            warnings
   Type:              exitcode-stdio-1.0
   Main-Is:           runInMemory.hs
   CPP-Options:       -DTEST_SUITE_MODULE=Control.Distributed.Process.Tests.CH
@@ -65,10 +77,11 @@ Test-Suite TestCHInMemory
                      test-framework >= 0.6 && < 0.9
   default-extensions: CPP
   default-language:  Haskell98
-  ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
+  ghc-options:       -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   HS-Source-Dirs:    tests
 
 Test-Suite TestCHInTCP
+  import:            warnings
   Type:              exitcode-stdio-1.0
   Main-Is:           runTCP.hs
   CPP-Options:       -DTEST_SUITE_MODULE=Control.Distributed.Process.Tests.CH
@@ -83,11 +96,12 @@ Test-Suite TestCHInTCP
     Buildable:       False
   default-extensions: CPP
   default-language:  Haskell98
-  ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
+  ghc-options:       -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   HS-Source-Dirs:    tests
 
 
 Test-Suite TestClosure
+  import:            warnings
   Type:              exitcode-stdio-1.0
   Main-Is:           runInMemory.hs
   CPP-Options:       -DTEST_SUITE_MODULE=Control.Distributed.Process.Tests.Closure
@@ -99,10 +113,11 @@ Test-Suite TestClosure
                      test-framework >= 0.6 && < 0.9
   default-extensions: CPP
   default-language:  Haskell98
-  ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
+  ghc-options:       -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   HS-Source-Dirs:    tests
 
 Test-Suite TestStats
+  import:            warnings
   Type:              exitcode-stdio-1.0
   Main-Is:           runInMemory.hs
   CPP-Options:       -DTEST_SUITE_MODULE=Control.Distributed.Process.Tests.Stats
@@ -114,10 +129,11 @@ Test-Suite TestStats
                      test-framework >= 0.6 && < 0.9
   default-extensions: CPP
   default-language:  Haskell98
-  ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
+  ghc-options:       -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   HS-Source-Dirs:    tests
 
 Test-Suite TestMxInMemory
+  import:            warnings
   Type:              exitcode-stdio-1.0
   Main-Is:           runInMemory.hs
   CPP-Options:       -DTEST_SUITE_MODULE=Control.Distributed.Process.Tests.Mx
@@ -133,6 +149,7 @@ Test-Suite TestMxInMemory
   HS-Source-Dirs:    tests
 
 Test-Suite TestTracingInMemory
+  import:            warnings
   Type:              exitcode-stdio-1.0
   Main-Is:           runInMemory.hs
   CPP-Options:       -DTEST_SUITE_MODULE=Control.Distributed.Process.Tests.Tracing
@@ -148,6 +165,7 @@ Test-Suite TestTracingInMemory
   HS-Source-Dirs:    tests
 
 Test-Suite TestMxInTCP
+  import:            warnings
   Type:              exitcode-stdio-1.0
   Main-Is:           runInMemory.hs
   CPP-Options:       -DTEST_SUITE_MODULE=Control.Distributed.Process.Tests.Mx
@@ -159,5 +177,5 @@ Test-Suite TestMxInTCP
                      test-framework >= 0.6 && < 0.9
   default-extensions: CPP
   default-language:  Haskell98
-  ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
+  ghc-options:       -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   HS-Source-Dirs:    tests

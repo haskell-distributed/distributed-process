@@ -1,6 +1,6 @@
+cabal-version: 3.0
 Name:          distributed-process-simplelocalnet
 Version:       0.3.1
-cabal-version: >=2.0
 Build-Type:    Simple
 License:       BSD-3-Clause
 License-File:  LICENSE
@@ -23,7 +23,18 @@ Source-Repository head
   Type:     git
   Location: https://github.com/haskell-distributed/distributed-process-simplelocalnet
 
+common warnings
+    ghc-options: -Wall
+                 -Wcompat
+                 -Widentities
+                 -Wincomplete-uni-patterns
+                 -Wincomplete-record-updates
+                 -Wredundant-constraints
+                 -fhide-source-paths
+                 -Wpartial-fields
+
 Library
+  import:            warnings
   Build-Depends:     base >= 4.14 && < 5,
                      bytestring >= 0.10 && < 0.13,
                      exceptions >= 0.10 && <0.11,
@@ -39,10 +50,10 @@ Library
   Exposed-modules:   Control.Distributed.Process.Backend.SimpleLocalnet,
                      Control.Distributed.Process.Backend.SimpleLocalnet.Internal.Multicast
   Default-Language:  Haskell2010
-  ghc-options:       -Wall
   HS-Source-Dirs:    src
 
 Test-Suite SimpleLocalNet-TestSuite
+    import:           warnings
     Type:             exitcode-stdio-1.0
     Hs-Source-Dirs:   tests
     Main-Is:          Main.hs

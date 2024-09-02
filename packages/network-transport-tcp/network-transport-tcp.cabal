@@ -20,11 +20,22 @@ Source-Repository head
   Type:     git
   Location: https://github.com/haskell-distributed/network-transport-tcp
 
+common warnings
+    ghc-options: -Wall
+                 -Wcompat
+                 -Widentities
+                 -Wincomplete-uni-patterns
+                 -Wincomplete-record-updates
+                 -Wredundant-constraints
+                 -fhide-source-paths
+                 -Wpartial-fields
+
 Flag use-mock-network
   Description:     Use mock network implementation (for testing)
   Default:         False
 
 Library
+  import:          warnings
   Build-Depends:   base >= 4.14 && < 5,
                    async >= 2.2 && < 2.3,
                    network-transport >= 0.5 && < 0.6,
@@ -38,7 +49,7 @@ Library
   Default-Extensions: CPP
   default-language: Haskell2010
   Other-Extensions:   RecursiveDo
-  ghc-options:     -Wall -fno-warn-unused-do-bind
+  ghc-options:     -fno-warn-unused-do-bind
   HS-Source-Dirs:  src
   If flag(use-mock-network)
     CPP-Options:     -DUSE_MOCK_NETWORK
@@ -46,6 +57,7 @@ Library
                      Network.Transport.TCP.Mock.Socket.ByteString
 
 Test-Suite TestTCP
+  import:          warnings
   Type:            exitcode-stdio-1.0
   Main-Is:         TestTCP.hs
   Build-Depends:   base >= 4.14 && < 5,
@@ -63,6 +75,7 @@ Test-Suite TestTCP
     CPP-Options:   -DUSE_MOCK_NETWORK
 
 Test-Suite TestQC
+  import:         warnings
   Type:           exitcode-stdio-1.0
   Main-Is:        TestQC.hs
   If flag(use-mock-network)

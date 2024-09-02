@@ -23,7 +23,18 @@ source-repository head
   type:      git
   location:  https://github.com/haskell-distributed/distributed-process-execution
 
+common warnings
+    ghc-options: -Wall
+                 -Wcompat
+                 -Widentities
+                 -Wincomplete-uni-patterns
+                 -Wincomplete-record-updates
+                 -Wredundant-constraints
+                 -fhide-source-paths
+                 -Wpartial-fields
+
 library
+  import:          warnings
   build-depends:
                    base >= 4.14 && < 5,
                    data-accessor >= 0.2.2.3,
@@ -42,7 +53,6 @@ library
                    time,
                    transformers
   hs-source-dirs:   src
-  ghc-options:      -Wall
   exposed-modules:
                    Control.Distributed.Process.Execution,
                    Control.Distributed.Process.Execution.EventManager,
@@ -55,6 +65,7 @@ library
 
 
 test-suite ExchangeTests
+  import:          warnings
   type:            exitcode-stdio-1.0
 --  x-uses-tf:       true
   build-depends:
@@ -89,11 +100,12 @@ test-suite ExchangeTests
                    ghc-prim
   hs-source-dirs:
                    tests
-  ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind -eventlog
+  ghc-options:     -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind -eventlog
   main-is:         TestExchange.hs
 
 
 test-suite MailboxTests
+  import:          warnings
   type:            exitcode-stdio-1.0
 --  x-uses-tf:       true
   build-depends:
@@ -128,6 +140,6 @@ test-suite MailboxTests
                    ghc-prim
   hs-source-dirs:
                    tests
-  ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind -eventlog
+  ghc-options:     -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind -eventlog
   main-is:         TestMailbox.hs
   other-modules:   MailboxTestFilters

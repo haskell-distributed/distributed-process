@@ -16,7 +16,18 @@ source-repository head
   type:      git
   location:  https://github.com/haskell-distributed/distributed-process-systest
 
+common warnings
+    ghc-options: -Wall
+                 -Wcompat
+                 -Widentities
+                 -Wincomplete-uni-patterns
+                 -Wincomplete-record-updates
+                 -Wredundant-constraints
+                 -fhide-source-paths
+                 -Wpartial-fields
+
 library
+  import:            warnings
   exposed-modules:   Control.Distributed.Process.SysTest.Utils
   Build-Depends:     base >= 4.14 && < 5,
                      ansi-terminal >= 0.5 && < 1.1,

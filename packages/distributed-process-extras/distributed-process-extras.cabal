@@ -14,14 +14,25 @@ synopsis:       Cloud Haskell Extras
 description:    Supporting library, providing common types and utilities used by the
                 various libraries built on top of distributed-process
 category:       Control
-tested-with:   GHC==8.10.7 GHC==9.0.2 GHC==9.2.8 GHC==9.4.5 GHC==9.6.4 GHC==9.8.2 GHC==9.10.1
+tested-with:    GHC==8.10.7 GHC==9.0.2 GHC==9.2.8 GHC==9.4.5 GHC==9.6.4 GHC==9.8.2 GHC==9.10.1
 extra-source-files: ChangeLog
 
 source-repository head
   type:      git
   location:  https://github.com/haskell-distributed/distributed-process-extras
 
+common warnings
+    ghc-options: -Wall
+                 -Wcompat
+                 -Widentities
+                 -Wincomplete-uni-patterns
+                 -Wincomplete-record-updates
+                 -Wredundant-constraints
+                 -fhide-source-paths
+                 -Wpartial-fields
+
 library
+  import:          warnings
   build-depends:   base >= 4.14 && < 5,
                    distributed-process >= 0.6.0 && < 0.8,
                    binary >= 0.8 && < 0.9,
@@ -36,7 +47,6 @@ library
                    transformers >= 0.2 && < 0.7,
                    time >= 1.5
   other-extensions: ExistentialQuantification
-  ghc-options:      -Wall
   HS-Source-Dirs:    src
   exposed-modules:
                    Control.Distributed.Process.Extras
@@ -55,6 +65,7 @@ library
                    Control.Distributed.Process.Extras.Internal.Unsafe
 
 test-suite InternalQueueTests
+  import:          warnings
   type:            exitcode-stdio-1.0
   x-uses-tf:       true
   build-depends:
@@ -70,13 +81,13 @@ test-suite InternalQueueTests
                    test-framework-quickcheck2,
                    rematch >= 0.2.0.0,
                    ghc-prim
-  hs-source-dirs:
-                   tests
-  ghc-options:     -Wall -rtsopts
+  hs-source-dirs:  tests
+  ghc-options:     -rtsopts
   main-is:         TestQueues.hs
   cpp-options:     -DTESTING
 
 test-suite PrimitivesTests
+  import:          warnings
   type:            exitcode-stdio-1.0
   x-uses-tf:       true
   build-depends:
@@ -98,12 +109,12 @@ test-suite PrimitivesTests
                    test-framework-hunit,
                    rematch >= 0.2.0.0,
                    transformers
-  hs-source-dirs:
-                   tests
-  ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
+  hs-source-dirs:  tests
+  ghc-options:     -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   main-is:         TestPrimitives.hs
 
 test-suite TimerTests
+  import:          warnings
   type:            exitcode-stdio-1.0
   x-uses-tf:       true
   build-depends:
@@ -122,13 +133,13 @@ test-suite TimerTests
                    test-framework-quickcheck2,
                    rematch >= 0.2.0.0,
                    ghc-prim
-  hs-source-dirs:
-                   tests
-  ghc-options:     -Wall -rtsopts
+  hs-source-dirs:  tests
+  ghc-options:     -rtsopts
   main-is:         TestTimer.hs
   cpp-options:     -DTESTING
 
 test-suite LoggerTests
+  import:          warnings
   type:            exitcode-stdio-1.0
 --  x-uses-tf:       true
   build-depends:
@@ -158,7 +169,6 @@ test-suite LoggerTests
                    transformers,
                    rematch >= 0.2.0.0,
                    ghc-prim
-  hs-source-dirs:
-                   tests
-  ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
+  hs-source-dirs:  tests
+  ghc-options:     -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   main-is:         TestLog.hs
