@@ -11,23 +11,18 @@ import Network.Transport
   )
 import Control.Exception (throwIO)
 import Control.Concurrent (forkIO)
-import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 
--- | Fork a new thread, create a new end point on that thread, and run the specified IO operation on that thread.
+-- | Create a new end point, fork a new thread, and run the specified IO operation on that thread.
 --
 -- Returns the address of the new end point.
 spawn :: Transport -> (EndPoint -> IO ()) -> IO EndPointAddress
 spawn transport proc = do
-  addrMVar <- newEmptyMVar
-  forkIO $ do
-    mEndPoint <- newEndPoint transport
-    case mEndPoint of
-      Left err ->
-        putMVar addrMVar (Left err)
-      Right endPoint -> do
-        putMVar addrMVar (Right (address endPoint))
-        proc endPoint
-  mAddr <- takeMVar addrMVar
-  case mAddr of
-    Left err   -> throwIO err
-    Right addr -> return addr
+  -- `newEndPoint` used to be done in a separate thread, in case it was slow.
+  -- However, in this case, care must be taken to appropriately handle asynchronous exceptions.
+  -- Instead, for reliability, we now create the new endpoint in this thread.
+  mEndPoint <- newEndPoint transport
+  case mEndPoint of
+    Left err -> throwIO err
+    Right endPoint -> do
+      forkIO $ proc endPoint
+      return $ address endPoint
