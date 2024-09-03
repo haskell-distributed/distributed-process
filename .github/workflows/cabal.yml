@@ -3,12 +3,18 @@ name: Continuous integration
 on:
   push:
     paths-ignore:
-      - 'website/*/**'
       - 'README.md'
+      - 'CONTRIBUTING.md'
   pull_request:
 
 jobs:
   continuous-integration:
+    # You can skip continuous integration by writing '[ci skip]' or '[skip ci]' in a commit message,
+    # which is useful to preserve computing resources
+    #
+    # For example:
+    #   > git commit -am "[skip ci] fixed x y z"
+    if: contains(toJson(github.event.commits), '[ci skip]') == false && contains(toJson(github.event.commits), '[skip ci]') == false
     strategy:
       fail-fast: false
       matrix:
