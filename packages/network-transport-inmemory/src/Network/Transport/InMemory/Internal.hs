@@ -307,7 +307,7 @@ apiClose chan state lconn = do
 -- [Multicast]
 -- Currently multicast implementation doesn't pass it's tests, so it
 -- disabled. Here we have old code that could be improved, see GitHub ISSUE 5
--- https://github.com/haskell-distributed/network-transport-inmemory/issues/5
+-- https://github.com/haskell-distributed/distributed-process/issues/420
 
 -- | Construct a multicast group
 --

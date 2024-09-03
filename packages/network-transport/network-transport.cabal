@@ -1,6 +1,6 @@
 cabal-version: 3.0
 Name:          network-transport
-Version:       0.5.7
+Version:       0.5.8
 Build-Type:    Simple
 License:       BSD-3-Clause
 License-File:  LICENSE
@@ -57,7 +57,7 @@ Description:   "Network.Transport" is a Network Abstraction Layer which provides
                implementation (network-transport-*).
 tested-with:   GHC==8.10.7 GHC==9.0.2 GHC==9.2.8 GHC==9.4.5 GHC==9.6.4 GHC==9.8.2 GHC==9.10.1
 Category:      Network
-extra-source-files: ChangeLog
+extra-doc-files: ChangeLog
 
 source-repository head
   Type:     git

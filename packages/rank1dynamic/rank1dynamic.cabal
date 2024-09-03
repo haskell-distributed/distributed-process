@@ -1,6 +1,6 @@
 cabal-version:       3.0
 Name:                rank1dynamic
-Version:             0.4.1
+Version:             0.4.2
 Synopsis:            Like Data.Dynamic/Data.Typeable but with support for rank-1 polymorphic types
 Description:         "Data.Typeable" and "Data.Dynamic" only support monomorphic types.
                      In this package we provide similar functionality but with
@@ -14,7 +14,7 @@ Bug-Reports:         https://github.com/haskell-distributed/distributed-process/
 Copyright:           Well-Typed LLP, Tweag I/O Limited
 Category:            Data
 Build-Type:          Simple
-extra-source-files: ChangeLog
+extra-doc-files: ChangeLog
 
 source-repository head
   Type:     git

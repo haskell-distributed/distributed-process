@@ -1,5 +1,10 @@
 # Change Log
 
+2024-09-03 Laurent P. René de Cotret <laurent.decotret@outlook.com> 0.2.6.0
+
+* Bumped dependency bounds to support GHC 8.10.7 - GHC 9.10.1
+* Updated links to point to Distributed Haskell monorepo
+
 ## [v0.2.5.1](https://github.com/haskell-distributed/distributed-process-client-server/tree/v0.2.5.1) (2018-06-14)
 [Full Changelog](https://github.com/haskell-distributed/distributed-process-client-server/compare/v0.2.3...v0.2.5.1)
 

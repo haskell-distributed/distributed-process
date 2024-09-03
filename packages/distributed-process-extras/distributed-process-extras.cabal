@@ -1,6 +1,6 @@
 cabal-version:  3.0
 name:           distributed-process-extras
-version:        0.3.5
+version:        0.3.6
 build-type:     Simple
 license:        BSD-3-Clause
 license-file:   LICENCE
@@ -15,7 +15,7 @@ description:    Supporting library, providing common types and utilities used by
                 various libraries built on top of distributed-process
 category:       Control
 tested-with:    GHC==8.10.7 GHC==9.0.2 GHC==9.2.8 GHC==9.4.5 GHC==9.6.4 GHC==9.8.2 GHC==9.10.1
-extra-source-files: ChangeLog
+extra-doc-files: ChangeLog
 
 source-repository head
   Type:     git
@@ -64,6 +64,7 @@ library
                    Control.Distributed.Process.Extras.Internal.Queue.SeqQ
                    Control.Distributed.Process.Extras.Internal.Queue.PriorityQ
                    Control.Distributed.Process.Extras.Internal.Unsafe
+  default-language: Haskell2010
 
 test-suite InternalQueueTests
   import:          warnings
@@ -86,6 +87,7 @@ test-suite InternalQueueTests
   ghc-options:     -rtsopts
   main-is:         TestQueues.hs
   cpp-options:     -DTESTING
+  default-language: Haskell2010
 
 test-suite PrimitivesTests
   import:          warnings
@@ -113,6 +115,7 @@ test-suite PrimitivesTests
   hs-source-dirs:  tests
   ghc-options:     -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   main-is:         TestPrimitives.hs
+  default-language: Haskell2010
 
 test-suite TimerTests
   import:          warnings
@@ -138,6 +141,7 @@ test-suite TimerTests
   ghc-options:     -rtsopts
   main-is:         TestTimer.hs
   cpp-options:     -DTESTING
+  default-language: Haskell2010
 
 test-suite LoggerTests
   import:          warnings
@@ -173,3 +177,4 @@ test-suite LoggerTests
   hs-source-dirs:  tests
   ghc-options:     -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   main-is:         TestLog.hs
+  default-language: Haskell2010

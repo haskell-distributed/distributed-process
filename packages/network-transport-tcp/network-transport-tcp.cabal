@@ -1,6 +1,6 @@
 cabal-version: 3.0
 Name:          network-transport-tcp
-Version:       0.8.4
+Version:       0.8.5
 Build-Type:    Simple
 License:       BSD-3-Clause
 License-file:  LICENSE
@@ -11,10 +11,10 @@ Stability:     experimental
 Homepage:      http://haskell-distributed.github.com
 Bug-Reports:   https://github.com/haskell-distributed/distributed-process/issues
 Synopsis:      TCP instantiation of Network.Transport
-Description:   TCP instantiation of Network.Transport
+Description:   TCP instantiation of Network.Transport, which can be used to create Cloud Haskell backends
 tested-with:   GHC==8.10.7 GHC==9.0.2 GHC==9.2.8 GHC==9.4.5 GHC==9.6.4 GHC==9.8.2 GHC==9.10.1
 Category:      Network
-extra-source-files: ChangeLog
+extra-doc-files: ChangeLog
 
 source-repository head
   Type:     git

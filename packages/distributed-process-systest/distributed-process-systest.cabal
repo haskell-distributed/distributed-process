@@ -1,6 +1,6 @@
 cabal-version: 3.0
 name:          distributed-process-systest
-version:       0.3.1
+version:       0.3.2
 synopsis:      Cloud Haskell Test Support
 description:   Testing Frameworks and Capabilities for programs built on Cloud Haskell
 homepage:      http://github.com/haskell-distributed/distributed-process-systest
@@ -11,6 +11,7 @@ maintainer:    The Distributed Haskell team
 copyright:     Tim Watson
 category:      Control, Cloud Haskell
 build-type:    Simple
+extra-doc-files: ChangeLog
 
 source-repository head
   Type:     git

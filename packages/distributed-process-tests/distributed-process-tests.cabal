@@ -1,9 +1,9 @@
 cabal-version: 3.0
 name:          distributed-process-tests
-version:       0.4.12
+version:       0.4.13
 synopsis:      Tests and test support tools for distributed-process.
 homepage:      http://github.com/haskell-distributed/distributed-process/tree/master/distributed-process-tests
-description:   Tests and test suite for Cloud Haskell libraries.
+description:   Tests and test suite for Cloud Haskell libraries, specifically the core distributed-process library.
 license:       BSD-3-Clause
 license-file:  LICENSE
 Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries

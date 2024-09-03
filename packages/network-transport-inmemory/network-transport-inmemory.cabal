@@ -1,6 +1,6 @@
 cabal-version: 3.0
 Name:          network-transport-inmemory
-Version:       0.5.40
+Version:       0.5.41
 Build-Type:    Simple
 License:       BSD-3-Clause
 License-file:  LICENSE
@@ -23,7 +23,7 @@ Description:   This is a transport implementation that could be used for local
 
 tested-with:   GHC==8.10.7 GHC==9.0.2 GHC==9.2.8 GHC==9.4.5 GHC==9.6.4 GHC==9.8.2 GHC==9.10.1
 Category:      Network
-extra-source-files: ChangeLog
+extra-doc-files: ChangeLog
 
 source-repository head
   Type:     git

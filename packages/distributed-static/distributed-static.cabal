@@ -1,6 +1,6 @@
 cabal-version:       3.0
 Name:                distributed-static
-Version:             0.3.10
+Version:             0.3.11
 Synopsis:            Compositional, type-safe, polymorphic static values and closures
 Description:         /Towards Haskell in the Cloud/ (Epstein et al, Haskell
                      Symposium 2011) introduces the concept of /static/ values:
@@ -24,7 +24,7 @@ Bug-Reports:         https://github.com/haskell-distributed/distributed-process/
 Copyright:           Well-Typed LLP
 Category:            Control
 Build-Type:          Simple
-extra-source-files:  ChangeLog
+extra-doc-files:  ChangeLog
 tested-with:         GHC==8.10.7 GHC==9.0.2 GHC==9.2.8 GHC==9.4.5 GHC==9.6.4 GHC==9.8.2 GHC==9.10.1
 
 source-repository head
