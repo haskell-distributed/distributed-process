@@ -8,8 +8,8 @@ stability:      experimental
 Copyright:      Tim Watson 2012 - 2013
 Author:         Tim Watson
 maintainer:     The Distributed Haskell team
-Homepage:       http://github.com/haskell-distributed/distributed-process-execution
-Bug-Reports:    http://github.com/haskell-distributed/distributed-process-execution/issues
+Homepage:       http://github.com/haskell-distributed/distributed-process
+Bug-Reports:    http://github.com/haskell-distributed/distributed-process/issues
 synopsis:       Execution Framework for The Cloud Haskell Application Platform
 description:
                 The Execution Framework provides tools for load regulation, workload shedding and remote hand-off.
@@ -20,8 +20,9 @@ tested-with:   GHC==8.10.7 GHC==9.0.2 GHC==9.2.8 GHC==9.4.5 GHC==9.6.4 GHC==9.8.
 extra-source-files: ChangeLog
 
 source-repository head
-  type:      git
-  location:  https://github.com/haskell-distributed/distributed-process-execution
+  Type:     git
+  Location: https://github.com/haskell-distributed/distributed-process
+  SubDir:   packages/distributed-process-execution
 
 common warnings
     ghc-options: -Wall

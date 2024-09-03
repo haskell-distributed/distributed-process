@@ -9,16 +9,17 @@ Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
 maintainer:    The Distributed Haskell team
 Stability:     experimental
 Homepage:      http://haskell-distributed.github.com
-Bug-Reports:   https://github.com/haskell-distributed/network-transport-tcp/issues
+Bug-Reports:   https://github.com/haskell-distributed/distributed-process/issues
 Synopsis:      TCP instantiation of Network.Transport
 Description:   TCP instantiation of Network.Transport
 tested-with:   GHC==8.10.7 GHC==9.0.2 GHC==9.2.8 GHC==9.4.5 GHC==9.6.4 GHC==9.8.2 GHC==9.10.1
 Category:      Network
 extra-source-files: ChangeLog
 
-Source-Repository head
+source-repository head
   Type:     git
-  Location: https://github.com/haskell-distributed/network-transport-tcp
+  Location: https://github.com/haskell-distributed/distributed-process
+  SubDir:   packages/network-transport-tcp
 
 common warnings
     ghc-options: -Wall

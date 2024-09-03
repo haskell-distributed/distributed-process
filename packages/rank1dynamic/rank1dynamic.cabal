@@ -10,15 +10,16 @@ License:             BSD-3-Clause
 License-File:        LICENSE
 Author:              Edsko de Vries
 maintainer:          The Distributed Haskell team
-Bug-Reports:         https://github.com/haskell-distributed/rank1dynamic/issues
+Bug-Reports:         https://github.com/haskell-distributed/distributed-process/issues
 Copyright:           Well-Typed LLP, Tweag I/O Limited
 Category:            Data
 Build-Type:          Simple
 extra-source-files: ChangeLog
 
-Source-Repository head
+source-repository head
   Type:     git
-  Location: https://github.com/haskell-distributed/rank1dynamic
+  Location: https://github.com/haskell-distributed/distributed-process
+  SubDir:   packages/rank1dynamic
 
 common warnings
     ghc-options: -Wall

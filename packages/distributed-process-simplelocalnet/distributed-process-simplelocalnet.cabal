@@ -9,7 +9,7 @@ Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
 maintainer:    The Distributed Haskell team
 Stability:     experimental
 Homepage:      http://haskell-distributed.github.com
-Bug-Reports:   https://github.com/haskell-distributed/distributed-process-simplelocalnet/issues
+Bug-Reports:   https://github.com/haskell-distributed/distributed-process/issues
 Synopsis:      Simple zero-configuration backend for Cloud Haskell
 Description:   Simple backend based on the TCP transport which offers node
                discovery based on UDP multicast. This is a zero-configuration
@@ -19,9 +19,10 @@ tested-with:   GHC==8.10.7 GHC==9.0.2 GHC==9.2.8 GHC==9.4.5 GHC==9.6.4 GHC==9.8.
 Category:      Control
 extra-source-files: ChangeLog
 
-Source-Repository head
+source-repository head
   Type:     git
-  Location: https://github.com/haskell-distributed/distributed-process-simplelocalnet
+  Location: https://github.com/haskell-distributed/distributed-process
+  SubDir:   packages/distributed-process-simplelocalnet
 
 common warnings
     ghc-options: -Wall

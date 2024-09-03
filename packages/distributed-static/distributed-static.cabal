@@ -20,16 +20,17 @@ License:             BSD-3-Clause
 License-File:        LICENSE
 Author:              Edsko de Vries
 maintainer:          The Distributed Haskell team
-Bug-Reports:         https://github.com/haskell-distributed/distributed-static/issues
+Bug-Reports:         https://github.com/haskell-distributed/distributed-process/issues
 Copyright:           Well-Typed LLP
 Category:            Control
 Build-Type:          Simple
 extra-source-files:  ChangeLog
 tested-with:         GHC==8.10.7 GHC==9.0.2 GHC==9.2.8 GHC==9.4.5 GHC==9.6.4 GHC==9.8.2 GHC==9.10.1
 
-Source-Repository head
+source-repository head
   Type:     git
-  Location: https://github.com/haskell-distributed/distributed-static
+  Location: https://github.com/haskell-distributed/distributed-process
+  SubDir:   packages/distributed-static
 
 common warnings
     ghc-options: -Wall

@@ -8,8 +8,8 @@ stability:      experimental
 Copyright:      Tim Watson 2012 - 2016
 Author:         Tim Watson
 maintainer:     The Distributed Haskell team
-Homepage:       http://github.com/haskell-distributed/distributed-process-async
-Bug-Reports:    http://github.com/haskell-distributed/distributed-process-async/issues
+Homepage:       http://github.com/haskell-distributed/distributed-process
+Bug-Reports:    http://github.com/haskell-distributed/distributed-process/issues
 synopsis:       Cloud Haskell Async API
 description:    This package provides a higher-level interface over Processes, in which an Async a is a
                 concurrent, possibly distributed Process that will eventually deliver a value of type a.
@@ -18,8 +18,9 @@ category:       Control
 tested-with:   GHC==8.10.7 GHC==9.0.2 GHC==9.2.8 GHC==9.4.5 GHC==9.6.4 GHC==9.8.2 GHC==9.10.1
 
 source-repository head
-  type:      git
-  location:  https://github.com/haskell-distributed/distributed-process-async
+  Type:     git
+  Location: https://github.com/haskell-distributed/distributed-process
+  SubDir:   packages/distributed-process-async
 
 common warnings
     ghc-options: -Wall

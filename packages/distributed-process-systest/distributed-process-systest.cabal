@@ -13,8 +13,9 @@ category:      Control, Cloud Haskell
 build-type:    Simple
 
 source-repository head
-  type:      git
-  location:  https://github.com/haskell-distributed/distributed-process-systest
+  Type:     git
+  Location: https://github.com/haskell-distributed/distributed-process
+  SubDir:   packages/distributed-process-systest
 
 common warnings
     ghc-options: -Wall

@@ -35,10 +35,10 @@ common warnings
                  -fhide-source-paths
                  -Wpartial-fields
 
-Source-Repository head
+source-repository head
   Type:     git
   Location: https://github.com/haskell-distributed/distributed-process
-  SubDir:   distributed-process
+  SubDir:   packages/distributed-process
 
 flag th
   description: Build with Template Haskell support

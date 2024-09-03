@@ -12,9 +12,10 @@ copyright:           Well-Typed LLP
 category:            Network
 build-type:          Simple
 
-Source-Repository head
+source-repository head
   Type:     git
-  Location: https://github.com/haskell-distributed/network-transport-tests
+  Location: https://github.com/haskell-distributed/distributed-process
+  SubDir:   packages/network-transport-tests
 
 common warnings
     ghc-options: -Wall

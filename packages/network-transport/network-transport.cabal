@@ -9,7 +9,7 @@ Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
 maintainer:    The Distributed Haskell team
 Stability:     experimental
 Homepage:      https://haskell-distributed.github.io
-Bug-Reports:   https://github.com/haskell-distributed/network-transport/issues
+Bug-Reports:   https://github.com/haskell-distributed/distributed-process/issues
 Synopsis:      Network abstraction layer
 Description:   "Network.Transport" is a Network Abstraction Layer which provides
                the following high-level concepts:
@@ -59,9 +59,10 @@ tested-with:   GHC==8.10.7 GHC==9.0.2 GHC==9.2.8 GHC==9.4.5 GHC==9.6.4 GHC==9.8.
 Category:      Network
 extra-source-files: ChangeLog
 
-Source-Repository head
+source-repository head
   Type:     git
-  Location: https://github.com/haskell-distributed/network-transport
+  Location: https://github.com/haskell-distributed/distributed-process
+  SubDir:   packages/network-transport
 
 common warnings
     ghc-options: -Wall
