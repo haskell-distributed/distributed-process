@@ -1,15 +1,25 @@
 resolver: nightly-2024-03-24 # Use GHC 9.8.2
 
 packages:
-  - .
-  - distributed-process-tests/
+  - packages/distributed-process
+  - packages/distributed-process-async
+  - packages/distributed-process-client-server
+  - packages/distributed-process-execution
+  - packages/distributed-process-extras
+  - packages/distributed-process-simplelocalnet
+  - packages/distributed-process-supervisor
+  - packages/distributed-process-systest
+  - packages/distributed-process-tests
+  - packages/distributed-static
+  - packages/network-transport
+  - packages/network-transport-inmemory
+  - packages/network-transport-tcp
+  - packages/network-transport-tests
+  - packages/rank1dynamic
 
-extra-deps:
-- distributed-static-0.3.10
-- network-transport-0.5.7
-- network-transport-tcp-0.8.2
-- network-transport-inmemory-0.5.3
 
 flags:
   distributed-process-tests:
     tcp: true
+extra-deps:
+- rematch-0.2.0.0@sha256:86019f4d6a4347e1291a0a9f85ba6324e1447e2b93d75958e59c24212e9d8178,1245

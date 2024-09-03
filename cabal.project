@@ -1,0 +1,4 @@
+packages: packages/*/**.cabal
+
+package distributed-process-tests
+  flags: +tcp

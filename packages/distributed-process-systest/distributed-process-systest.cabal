@@ -1,0 +1,58 @@
+cabal-version: 3.0
+name:          distributed-process-systest
+version:       0.3.1
+synopsis:      Cloud Haskell Test Support
+description:   Testing Frameworks and Capabilities for programs built on Cloud Haskell
+homepage:      http://github.com/haskell-distributed/distributed-process-systest
+license:       BSD-3-Clause
+license-file:  LICENSE
+Author:        Tim Watson
+maintainer:    The Distributed Haskell team
+copyright:     Tim Watson
+category:      Control, Cloud Haskell
+build-type:    Simple
+
+source-repository head
+  type:      git
+  location:  https://github.com/haskell-distributed/distributed-process-systest
+
+common warnings
+    ghc-options: -Wall
+                 -Wcompat
+                 -Widentities
+                 -Wincomplete-uni-patterns
+                 -Wincomplete-record-updates
+                 -Wredundant-constraints
+                 -fhide-source-paths
+                 -Wpartial-fields
+
+library
+  import:            warnings
+  exposed-modules:   Control.Distributed.Process.SysTest.Utils
+  Build-Depends:     base >= 4.14 && < 5,
+                     ansi-terminal >= 0.5 && < 1.1,
+                     binary >= 0.8 && < 1.0,
+                     bytestring >= 0.10 && < 0.13,
+                     distributed-process >= 0.6.1 && < 0.8,
+                     distributed-static < 0.4,
+                     HUnit >= 1.2 && < 2,
+                     network-transport >= 0.4.1.0 && < 0.6,
+                     network >= 2.5 && < 3.3,
+                     random >= 1.0 && < 1.3,
+                     rematch >= 0.1.2.1 && < 0.3,
+                     test-framework >= 0.6 && < 0.9,
+                     test-framework-hunit >= 0.2.0 && < 0.4,
+                     exceptions < 0.11,
+                     stm < 2.6
+  hs-source-dirs:    src
+  default-language:  Haskell2010
+  ghc-options:       -Wall -fno-warn-unused-do-bind
+  default-extensions: CPP,
+                      ExistentialQuantification,
+                      FlexibleInstances,
+                      DeriveDataTypeable,
+                      DeriveGeneric,
+                      GeneralizedNewtypeDeriving,
+                      RankNTypes,
+                      RecordWildCards,
+                      ScopedTypeVariables

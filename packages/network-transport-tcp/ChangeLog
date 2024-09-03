@@ -1,0 +1,103 @@
+2024-07-09 Laurent P. René de Cotret <laurent.decotret@outlook.com> 0.8.4
+
+* Set TCP_NODELAY by default. The documentation erroneously reported it as the default. (#66)
+
+2023-03-26 David Simmons-Duffin <dsd@caltech.edu> 0.8.3
+
+* Disable a flaky test
+
+2023-03-25 David Simmons-Duffin <dsd@caltech.edu> 0.8.2
+
+* Bump bytestring version to build with GHC 9.8.
+
+2022-10-12 FacundoDominguez <facundo.dominguez@tweag.io> 0.8.1
+
+* Fix imports for ghc 9 (#93).
+
+2020-10-09 FacundoDominguez <facundo.dominguez@tweag.io> 0.8.0
+
+* Move to network 3.
+
+2019-12-31 FacundoDominguez <facundo.dominguez@tweag.io> 0.7.0
+
+* Added support for unaddressable endpoints. (#61)
+
+2019-12-31 FacundoDominguez <facundo.dominguez@tweag.io> 0.6.1
+
+* Relax dependency bounds to build with ghc-8.6.5
+* apiSend RELY violation is removed for closed remote endpoints (#70)
+* The server no longer needs crash if accept throws an exception.
+* Check peer-reported host against socket host (#54)
+* Fix possible endless waiting on the 'crossed' MVar (#74)
+* Fix possible msg corruption on a busy network (#85)
+
+2017-08-21 FacundoDominguez <facundo.dominguez@tweag.io> 0.6.0
+
+* Implemented protocol versioning (#55)
+* Extend interface so queue policies and lengths can be configured.
+* Test improvements
+* Fix races when an EndPoint is closed or failed (#60)
+* Fix timeout socket connections (#53)
+* Use equality rather than ordering in socket close (#56)
+* apiCloseEndPoint blocks until no longer reciving
+* Shutdown sockets when closing endpoints
+* Allow computing the external address from the chosen bind port (#50)
+* Discard remote endpoints when they close or fail (#43)
+
+2016-02-17 FacundoDominguez <facundo.dominguez@tweag.io> 0.5.0
+
+* Add TCP_KEEPALIVE support for sockets.
+* Run nearly all tests on non hardcoded ports.
+* Remove obsolete top-level Makefile.
+* Yield an error when tcpUserTimeout is set in unsupported systems.
+* Fix for NTTCP-10. Have apiConnect respect timeouts.
+* Make schedule - runScheduled pair exception safe.
+* Allow to specify a default timeout for all connect calls.
+* Allow to set TCP_USER_TIMEOUT on tcp connections.
+* Implement configuration parameter to set TCP_NODELAY.
+* Fix for NTTCP-9 / #23. Handle network failures when connection requests cross.
+
+2015-06-15 FacundoDominguez <facundo.dominguez@tweag.io> 0.4.2
+
+* Update dependencies.
+* Fixes in test-suite.
+* Bug fixes DP-109, NTTCP-11.
+
+2014-12-09  Tim Watson  <watson.timothy@gmail.com>  0.4.1
+
+* Update dependencies
+
+2014-05-30  Tim Watson  <watson.timothy@gmail.com>  0.4.0
+
+* Update dependencies
+
+2012-10-19  Edsko de Vries  <edsko@well-typed.com>  0.3.1
+
+* Bugfix. Reconnecting between endpoints did not work under certain
+circumstances.
+
+2012-10-03  Edsko de Vries  <edsko@well-typed.com>  0.3.0
+
+* Implement new disconnection semantics
+* Make 'connect' asynchronous (sender allocated connection IDs)
+* Fix distributed deadlock 
+* Optimize treatment of crossed connection requests
+* Relax upper bound on network
+* Fix memory leaks
+
+2012-08-20  Edsko de Vries  <edsko@well-typed.com>  0.2.0.3
+
+* Allow for colons in hostnames (for IPv6)
+
+2012-07-16  Edsko de Vries  <edsko@well-typed.com>  0.2.0.2
+
+* Base 4.6 compatibility
+* Relax package contraints on bytestring and containers
+
+2012-07-12  Edsko de Vries  <edsko@well-typed.com>  0.2.0.1
+
+* Fix bug in recvExact
+
+2012-07-07  Edsko de Vries  <edsko@well-typed.com>  0.2.0
+
+* Initial release.

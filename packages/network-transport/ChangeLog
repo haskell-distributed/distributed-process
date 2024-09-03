@@ -1,0 +1,81 @@
+2024-03-25  David Simmons-Duffin <dsd@caltech.edu> 0.5.7
+
+* Bump bytestring and deepseq versions to build with GHC 9.8.
+
+2022-08-30  Facundo Domínguez <facundo.dominguez@tweag.io> 0.5.6
+
+* Fix extension fields in the cabal file (#41).
+
+2022-08-09  Facundo Domínguez <facundo.dominguez@tweag.io> 0.5.5
+
+* Relax dependency bounds to build with ghc9 (#40).
+
+2019-05-12  Facundo Domínguez <facundo.dominguez@tweag.io> 0.5.4
+
+* Fix documentation typo (#39).
+
+2019-05-12  Facundo Domínguez <facundo.dominguez@tweag.io> 0.5.3
+
+* Relax upper bound of hashable.
+
+2017-07-25  Facundo Domínguez <facundo.dominguez@tweag.io> 0.5.2
+
+* prependLength checks for overflow (5608f0f)
+* Drop inlinePerformIO for unsafeDupablePerformIO (18bf80c)
+* Have travis build n-t even with no tests (7ffe43e)
+
+2017-02-23  Facundo Domínguez <facundo.dominguez@tweag.io> 0.5.1
+
+* Add {encode|decode}{Word|Enum|Num}{32|16}.
+* Removed {encode|decode}Int{32|16}
+
+2016-01-28  Facundo Domínguez <facundo.dominguez@tweag.io> 0.4.4.0
+
+* Add compatibility with ghc-8.
+
+2016-01-28  Facundo Domínguez <facundo.dominguez@tweag.io> 0.4.3.0
+
+* Derive Binary instances for missing types.
+* Use auto-derive for Reliability as Binary instance.
+* Stop testing with ghc-7.4 and build with ghc-7.10.
+
+2015-06-15  Facundo Domínguez <facundo.dominguez@tweag.io> 0.4.2.0
+
+* Add NFData instance for EndPointAddress.
+* Relax dependency bounds.
+
+2014-12-09  Tim Watson  <watson.timothy@gmail.com>  0.4.1.0
+
+* foreigns htonl, ntohl, htons, ntohs are imported from ws2_32 on windows 
+* Created Data instance for EndPointAddress (thanks Andrew Rademacher)
+
+2014-05-30  Tim Watson  <watson.timothy@gmail.com>  0.4.0.0
+
+* Fix build for GHC 7.4 - thanks mboes!
+* Allow transformers above v5
+* Bump binary version to include 0.7.*
+* Binary instance for 'Reliability' - thanks mboes!
+* Hashable instance for 'EndPointAddress'
+
+2012-11-22  Edsko de Vries  <edsko@well-typed.com>  0.3.0.1
+
+* Relax bounds on Binary
+
+2012-10-03  Edsko de Vries  <edsko@well-typed.com>  0.3.0
+
+* Clarify disconnection
+* Require that 'connect' be "as asynchronous as possible"
+* Added strictness annotations
+
+2012-07-16  Edsko de Vries  <edsko@well-typed.com>  0.2.0.2
+
+* Base 4.6 compatible test suites
+* Relax package constraints for bytestring
+
+2012-07-16  Edsko de Vries  <edsko@well-typed.com>  0.2.0.1
+
+* Hide catch only for base < 4.6
+
+2012-07-07  Edsko de Vries  <edsko@well-typed.com>  0.2.0
+
+* Initial release.

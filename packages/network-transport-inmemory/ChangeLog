@@ -1,0 +1,14 @@
+0.5.4
+* Bump bounds in test suite.
+0.5.3
+* Bump bytestring bound to build with ghc-9.8.
+0.5.2
+* Introduce internal module.
+* Fixes dependency bounds.
+0.5.1
+* Fixed bug in cleanup procedure.
+0.5 
+* Complete reimplementation based on STM primitives.
+* Rename Network.Transport.Chan to Network.Transport.InMemory.
+* Disable multicast support until it is properly implemented.
+* Expose internals.

@@ -1,0 +1,144 @@
+cabal-version:  3.0
+name:           distributed-process-supervisor
+version:        0.2.1
+build-type:     Simple
+license:        BSD-3-Clause
+license-file:   LICENSE
+Copyright:      Tim Watson 2012 - 2013
+Author:         Tim Watson
+maintainer:     The Distributed Haskell team
+Stability:      experimental
+Homepage:       http://github.com/haskell-distributed/distributed-process-supervisor
+Bug-Reports:    http://github.com/haskell-distributed/distributed-process-supervisor/issues
+synopsis:       Supervisors for The Cloud Haskell Application Platform
+description:    A part of the Cloud Haskell framework
+
+                This package implements a process which supervises a set of other processes, referred to as its children.
+                These child processes can be either workers (i.e., processes that do something useful in your application)
+                or other supervisors. In this way, supervisors may be used to build a hierarchical process structure
+                called a supervision tree, which provides a convenient structure for building fault tolerant software.
+
+                For detailed information see "Control.Distributed.Process.Supervisor"
+category:       Control
+tested-with:    GHC==8.10.7 GHC==9.0.2 GHC==9.2.8 GHC==9.4.5 GHC==9.6.4 GHC==9.8.2 GHC==9.10.1
+extra-source-files: ChangeLog
+
+source-repository head
+  type:      git
+  location:  https://github.com/haskell-distributed/distributed-process-supervisor
+
+common warnings
+    ghc-options: -Wall
+                 -Wcompat
+                 -Widentities
+                 -Wincomplete-uni-patterns
+                 -Wincomplete-record-updates
+                 -Wredundant-constraints
+                 -fhide-source-paths
+                 -Wpartial-fields
+
+library
+  import:          warnings
+  build-depends:
+                   base >= 4.14 && < 5,
+                   bytestring >= 0.10,
+                   data-accessor >= 0.2.2.3,
+                   distributed-static >= 0.3.4.0 && < 0.4,
+                   distributed-process >= 0.7.3 && < 0.8,
+                   distributed-process-extras >= 0.3.1 && < 0.4,
+                   distributed-process-client-server >= 0.2.0 && < 0.4,
+                   binary >= 0.8 && < 0.9,
+                   deepseq >= 1.4 && < 1.6,
+                   mtl,
+                   containers >= 0.6 && < 0.8,
+                   hashable >= 1.2.0.5 && < 1.6,
+                   unordered-containers >= 0.2.3.0 && < 0.3,
+                   fingertree < 0.2,
+                   stm >= 2.4 && < 2.6,
+                   time > 1.4 && < 1.15,
+                   transformers,
+                   exceptions >= 0.10 && < 0.11
+  hs-source-dirs:   src
+  exposed-modules:
+                   Control.Distributed.Process.Supervisor
+                   Control.Distributed.Process.Supervisor.Management
+  other-modules:
+                   Control.Distributed.Process.Supervisor.Types
+
+test-suite SupervisorTests
+  import:          warnings
+  type:            exitcode-stdio-1.0
+  build-depends:
+                   base >= 4.14 && < 5,
+                   ansi-terminal >= 0.5 && < 0.9,
+                   containers,
+                   unordered-containers,
+                   hashable,
+                   distributed-static >= 0.3.5.0 && < 0.4,
+                   distributed-process >= 0.7.3 && < 0.8,
+                   distributed-process-supervisor,
+                   distributed-process-extras >= 0.3 && < 0.4,
+                   distributed-process-client-server,
+                   distributed-static,
+                   bytestring,
+                   random,
+                   data-accessor,
+                   fingertree < 0.2,
+                   network-transport >= 0.4 && < 0.6,
+                   mtl,
+                   network-transport-tcp >= 0.4 && < 0.9,
+                   binary >= 0.8 && < 0.9,
+                   deepseq,
+                   network >= 2.3 && < 3.3,
+                   HUnit >= 1.2 && < 2,
+                   stm,
+                   time,
+                   test-framework >= 0.6 && < 0.9,
+                   test-framework-hunit,
+                   transformers,
+                   rematch >= 0.2.0.0,
+                   ghc-prim,
+                   exceptions >= 0.10 && < 0.11
+  hs-source-dirs:  tests
+  ghc-options:     -threaded -rtsopts -with-rtsopts=-N -fno-warn-name-shadowing -fno-warn-unused-do-bind -eventlog
+  main-is:         TestSupervisor.hs
+  other-modules:   TestUtils
+
+test-suite NonThreadedSupervisorTests
+  import:          warnings
+  type:            exitcode-stdio-1.0
+  build-depends:
+                   base >= 4.14 && < 5,
+                   ansi-terminal >= 0.5 && < 0.9,
+                   containers,
+                   unordered-containers,
+                   hashable,
+                   distributed-static >= 0.3.5.0 && < 0.4,
+                   distributed-process >= 0.7.3 && < 0.8,
+                   distributed-process-supervisor,
+                   distributed-process-extras,
+                   distributed-process-client-server,
+                   distributed-static,
+                   bytestring,
+                   random,
+                   data-accessor,
+                   fingertree < 0.2,
+                   network-transport,
+                   mtl,
+                   network-transport-tcp >= 0.4 && < 0.9,
+                   binary >= 0.8 && < 0.9,
+                   deepseq,
+                   network >= 2.3 && < 3.3,
+                   HUnit >= 1.2 && < 2,
+                   stm,
+                   time,
+                   test-framework >= 0.6 && < 0.9,
+                   test-framework-hunit,
+                   transformers,
+                   rematch >= 0.2.0.0,
+                   ghc-prim,
+                   exceptions >= 0.10 && < 0.11
+  hs-source-dirs:  tests
+  ghc-options:     -rtsopts -fno-warn-unused-do-bind -fno-warn-name-shadowing
+  main-is:         TestSupervisor.hs
+  other-modules:   TestUtils

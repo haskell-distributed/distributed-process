@@ -1,0 +1,18 @@
+2024-03-26 David Simmons-Duffin <dsd@caltech.edu> 0.3.1
+
+* Relaxed upper bounds to build with ghc-9.8
+* Fixed syntax errors with Haskell2010
+
+2018-11-10 Tim Watson <watson.timothy@gmail.com> 0.3.0
+
+* Relaxed upper bounds to allow for newer versions of exceptions
+* Support for GHC 8.2 (thanks agentm)
+* further relax upper bounds for HUnit (thanks Alexander Vershilov)
+
+2017-02-05 Tim Watson <watson.timothy@gmail.com> 0.1.1
+
+* Bugfix: relax upper bounds for HUnit
+
+2017-02-04 Tim Watson <watson.timothy@gmail.com> 0.1.0
+
+* Initial Release

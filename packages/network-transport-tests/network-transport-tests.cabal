@@ -1,0 +1,52 @@
+cabal-version:       3.0
+name:                network-transport-tests
+version:             0.3.2
+synopsis:            Unit tests for Network.Transport implementations
+-- description:
+homepage:            http://haskell-distributed.github.com
+license:             BSD-3-Clause
+license-file:        LICENSE
+author:              Edsko de Vries
+maintainer:          The Distributed Haskell team
+copyright:           Well-Typed LLP
+category:            Network
+build-type:          Simple
+
+Source-Repository head
+  Type:     git
+  Location: https://github.com/haskell-distributed/network-transport-tests
+
+common warnings
+    ghc-options: -Wall
+                 -Wcompat
+                 -Widentities
+                 -Wincomplete-uni-patterns
+                 -Wincomplete-record-updates
+                 -Wredundant-constraints
+                 -fhide-source-paths
+                 -Wpartial-fields
+
+library
+  import:              warnings
+  exposed-modules:     Network.Transport.Tests,
+                       Network.Transport.Tests.Multicast,
+                       Network.Transport.Tests.Auxiliary,
+                       Network.Transport.Tests.Traced
+  -- other-modules:
+  build-depends:       base >= 4.14 && < 5,
+                       network-transport >= 0.4.1.0 && < 0.6,
+                       containers >= 0.6 && < 0.7,
+                       bytestring >= 0.10 && < 0.13,
+                       random >= 1.0 && < 1.3,
+                       mtl >= 2.2.1 && < 2.4,
+                       ansi-terminal >= 0.5
+  hs-source-dirs:      src
+  ghc-options:         -fno-warn-unused-do-bind
+  default-language:    Haskell2010
+  default-extensions:  CPP,
+                       ExistentialQuantification,
+                       FlexibleInstances,
+                       DeriveDataTypeable,
+                       RankNTypes,
+                       OverloadedStrings,
+                       OverlappingInstances

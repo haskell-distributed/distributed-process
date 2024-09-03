@@ -1,0 +1,30 @@
+2017-06-13 Alexander Vershilov <alexander.vershilov@gmail.com> 0.3.5
+* Bump dependencies
+* Cleanup code
+
+2017-02-05 Tim Watson <watson.timothy @ google mail service dot com> 0.3.0
+
+* re-implement whereIsRemote in terms of whereIsRemoteAsync
+* re-implement whereisOrStart to avoid leaking zombie processes
+* implement general NFSerializable instances
+* make Resolvable instance of (NodeId, String) exception safe
+* remove dependency on data-accessor
+* Relax upper bound on time for testing
+* documentation fixes and improvements
+
+2017-02-05 Tim Watson <watson.timothy @ google mail service dot com> 0.3.0
+
+* Update dependency bounds - drop support for distributed-process < 0.6.6
+* Drop support for GHC < 7.10
+* Fixes for testing with latest stack and CI changes
+
+2016-02-16 Facundo Domínguez <facundo.dominguez@tweag.io> 0.2.1.2
+
+* Update dependency bounds.
+
+2015-06-15 Facundo Domínguez <facundo.dominguez@tweag.io> 0.2.1
+
+* Use random port in tests.
+* Add compatibility with ghc-7.10.
+* Fix dependency bounds.
+* Add missing NFData instances.
