@@ -1,3 +1,8 @@
+2024-09-03 Laurent P. René de Cotret <laurent.decotret@outlook.com> 0.3.2
+
+* Bumped dependency bounds to support GHC 8.10.7 - GHC 9.10.1
+* Updated links to point to Distributed Haskell monorepo
+
 2024-03-26 David Simmons-Duffin <dsd@caltech.edu> 0.3.1
 
 * Relaxed upper bounds to build with ghc-9.8

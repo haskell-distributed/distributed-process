@@ -1,6 +1,6 @@
 cabal-version: 3.0
 Name:          distributed-process-simplelocalnet
-Version:       0.3.1
+Version:       0.3.2
 Build-Type:    Simple
 License:       BSD-3-Clause
 License-File:  LICENSE
@@ -9,7 +9,7 @@ Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
 maintainer:    The Distributed Haskell team
 Stability:     experimental
 Homepage:      http://haskell-distributed.github.com
-Bug-Reports:   https://github.com/haskell-distributed/distributed-process-simplelocalnet/issues
+Bug-Reports:   https://github.com/haskell-distributed/distributed-process/issues
 Synopsis:      Simple zero-configuration backend for Cloud Haskell
 Description:   Simple backend based on the TCP transport which offers node
                discovery based on UDP multicast. This is a zero-configuration
@@ -17,11 +17,12 @@ Description:   Simple backend based on the TCP transport which offers node
                without imposing any structure on your application.
 tested-with:   GHC==8.10.7 GHC==9.0.2 GHC==9.2.8 GHC==9.4.5 GHC==9.6.4 GHC==9.8.2 GHC==9.10.1
 Category:      Control
-extra-source-files: ChangeLog
+extra-doc-files: ChangeLog
 
-Source-Repository head
+source-repository head
   Type:     git
-  Location: https://github.com/haskell-distributed/distributed-process-simplelocalnet
+  Location: https://github.com/haskell-distributed/distributed-process
+  SubDir:   packages/distributed-process-simplelocalnet
 
 common warnings
     ghc-options: -Wall

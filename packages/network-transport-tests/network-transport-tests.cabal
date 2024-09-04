@@ -1,8 +1,8 @@
 cabal-version:       3.0
 name:                network-transport-tests
-version:             0.3.2
+version:             0.3.3
 synopsis:            Unit tests for Network.Transport implementations
--- description:
+description:         Unit tests for Network-Transport implementations.
 homepage:            http://haskell-distributed.github.com
 license:             BSD-3-Clause
 license-file:        LICENSE
@@ -11,10 +11,12 @@ maintainer:          The Distributed Haskell team
 copyright:           Well-Typed LLP
 category:            Network
 build-type:          Simple
+extra-doc-files:     ChangeLog
 
-Source-Repository head
+source-repository head
   Type:     git
-  Location: https://github.com/haskell-distributed/network-transport-tests
+  Location: https://github.com/haskell-distributed/distributed-process
+  SubDir:   packages/network-transport-tests
 
 common warnings
     ghc-options: -Wall
