@@ -414,7 +414,9 @@ receiveWait ms = do
 -- If the timeout is zero do a non-blocking check for matching messages. A
 -- non-zero timeout is applied only when waiting for incoming messages (that is,
 -- /after/ we have checked the messages that are already in the mailbox).
-receiveTimeout :: Int -> [Match b] -> Process (Maybe b)
+receiveTimeout :: Int -- ^ Timeout in microseconds
+               -> [Match b] 
+               -> Process (Maybe b)
 receiveTimeout t ms = do
   queue <- processQueue <$> ask
   let blockSpec = if t == 0 then NonBlocking else Timeout t
@@ -1020,7 +1022,9 @@ catchesHandler handlers e = foldr tryHandler (throwM e) handlers
 --------------------------------------------------------------------------------
 
 -- | Like 'expect' but with a timeout
-expectTimeout :: forall a. Serializable a => Int -> Process (Maybe a)
+expectTimeout :: forall a. Serializable a 
+              => Int  -- ^ Timeout in microseconds
+              -> Process (Maybe a)
 expectTimeout n = receiveTimeout n [match return]
 
 -- | Asynchronous version of 'spawn'

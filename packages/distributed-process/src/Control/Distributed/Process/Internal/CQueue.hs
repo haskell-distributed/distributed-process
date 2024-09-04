@@ -72,7 +72,7 @@ enqueueSTM (CQueue _arrived incoming size) !a = do
 data BlockSpec =
     NonBlocking
   | Blocking
-  | Timeout Int
+  | Timeout Int -- ^ Timeout in microseconds
 
 -- Match operations
 --
