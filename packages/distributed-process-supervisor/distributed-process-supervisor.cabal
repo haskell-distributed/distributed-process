@@ -42,7 +42,6 @@ library
   import:          warnings
   build-depends:
                    base >= 4.14 && < 5,
-                   bytestring >= 0.10,
                    data-accessor >= 0.2.2.3,
                    distributed-static >= 0.3.4.0 && < 0.4,
                    distributed-process >= 0.7.3 && < 0.8,
@@ -50,14 +49,9 @@ library
                    distributed-process-client-server >= 0.2.0 && < 0.4,
                    binary >= 0.8 && < 0.9,
                    deepseq >= 1.4 && < 1.6,
-                   mtl,
                    containers >= 0.6 && < 0.8,
                    hashable >= 1.2.0.5 && < 1.6,
-                   unordered-containers >= 0.2.3.0 && < 0.3,
-                   fingertree < 0.2,
-                   stm >= 2.4 && < 2.6,
                    time > 1.4 && < 1.15,
-                   transformers,
                    exceptions >= 0.10 && < 0.11
   hs-source-dirs:   src
   exposed-modules:
@@ -72,10 +66,6 @@ test-suite SupervisorTests
   type:            exitcode-stdio-1.0
   build-depends:
                    base >= 4.14 && < 5,
-                   ansi-terminal >= 0.5 && < 0.9,
-                   containers,
-                   unordered-containers,
-                   hashable,
                    distributed-static >= 0.3.5.0 && < 0.4,
                    distributed-process >= 0.7.3 && < 0.8,
                    distributed-process-supervisor,
@@ -84,22 +74,15 @@ test-suite SupervisorTests
                    distributed-static,
                    bytestring,
                    random,
-                   data-accessor,
-                   fingertree < 0.2,
                    network-transport >= 0.4 && < 0.6,
-                   mtl,
                    network-transport-tcp >= 0.4 && < 0.9,
                    binary >= 0.8 && < 0.9,
                    deepseq,
-                   network >= 2.3 && < 3.3,
                    HUnit >= 1.2 && < 2,
                    stm,
-                   time,
                    test-framework >= 0.6 && < 0.9,
                    test-framework-hunit,
-                   transformers,
                    rematch >= 0.2.0.0,
-                   ghc-prim,
                    exceptions >= 0.10 && < 0.11
   hs-source-dirs:  tests
   ghc-options:     -threaded -rtsopts -with-rtsopts=-N -fno-warn-name-shadowing -fno-warn-unused-do-bind
@@ -112,34 +95,23 @@ test-suite NonThreadedSupervisorTests
   type:            exitcode-stdio-1.0
   build-depends:
                    base >= 4.14 && < 5,
-                   ansi-terminal >= 0.5 && < 0.9,
-                   containers,
-                   unordered-containers,
-                   hashable,
+                   bytestring,
                    distributed-static >= 0.3.5.0 && < 0.4,
                    distributed-process >= 0.7.3 && < 0.8,
                    distributed-process-supervisor,
                    distributed-process-extras,
                    distributed-process-client-server,
                    distributed-static,
-                   bytestring,
                    random,
-                   data-accessor,
-                   fingertree < 0.2,
                    network-transport,
-                   mtl,
                    network-transport-tcp >= 0.4 && < 0.9,
                    binary >= 0.8 && < 0.9,
                    deepseq,
-                   network >= 2.3 && < 3.3,
                    HUnit >= 1.2 && < 2,
                    stm,
-                   time,
                    test-framework >= 0.6 && < 0.9,
                    test-framework-hunit,
-                   transformers,
                    rematch >= 0.2.0.0,
-                   ghc-prim,
                    exceptions >= 0.10 && < 0.11
   hs-source-dirs:  tests
   ghc-options:     -rtsopts -fno-warn-unused-do-bind -fno-warn-name-shadowing
