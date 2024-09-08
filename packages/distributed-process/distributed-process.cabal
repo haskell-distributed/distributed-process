@@ -61,7 +61,7 @@ Library
                      syb >= 0.3 && < 0.8,
                      exceptions >= 0.10,
                      containers >= 0.6 && < 0.8,
-                     deepseq >= 1.4 && < 1.6,
+                     deepseq >= 1.4 && < 1.7,
                      time >= 1.9
   Exposed-modules:   Control.Distributed.Process
                      Control.Distributed.Process.Closure

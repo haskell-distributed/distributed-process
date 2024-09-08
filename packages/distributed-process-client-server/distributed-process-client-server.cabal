@@ -42,7 +42,7 @@ library
                    distributed-process-extras >= 0.3.1 && < 0.4,
                    distributed-process-async >= 0.2.4 && < 0.3,
                    binary >= 0.8 && < 0.9,
-                   deepseq >= 1.4 && < 1.6,
+                   deepseq >= 1.4 && < 1.7,
                    mtl,
                    containers >= 0.6 && < 0.8,
                    hashable >= 1.2.0.5 && < 1.6,
