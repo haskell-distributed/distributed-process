@@ -1,6 +1,6 @@
 cabal-version:  3.0
 name:           distributed-process-execution
-version:        0.1.3.0
+version:        0.1.4.0
 build-type:     Simple
 license:        BSD-3-Clause
 license-file:   LICENCE
@@ -79,7 +79,7 @@ test-suite ExchangeTests
                    distributed-process,
                    distributed-process-execution,
                    distributed-process-extras,
-                   distributed-process-systest >= 0.1.1 && < 0.4,
+                   distributed-process-systest ^>= 0.4,
                    distributed-static,
                    bytestring,
                    data-accessor,
@@ -119,7 +119,7 @@ test-suite MailboxTests
                    distributed-process,
                    distributed-process-execution,
                    distributed-process-extras,
-                   distributed-process-systest >= 0.1.1 && < 0.4,
+                   distributed-process-systest ^>= 0.4,
                    distributed-static,
                    bytestring,
                    data-accessor,

@@ -1,6 +1,6 @@
 cabal-version:  3.0
 name:           distributed-process-client-server
-version:        0.2.6.0
+version:        0.2.7.0
 build-type:     Simple
 license:        BSD-3-Clause
 license-file:   LICENCE
@@ -79,7 +79,7 @@ test-suite ManagedProcessTests
                    distributed-process-extras,
                    distributed-process-async,
                    distributed-process-client-server,
-                   distributed-process-systest >= 0.1.1,
+                   distributed-process-systest ^>= 0.4,
                    network-transport >= 0.4 && < 0.7,
                    mtl,
                    fingertree,
@@ -117,7 +117,7 @@ test-suite PrioritisedProcessTests
                    distributed-process-extras,
                    distributed-process-async,
                    distributed-process-client-server,
-                   distributed-process-systest >= 0.1.1,
+                   distributed-process-systest ^>= 0.4,
                    network-transport,
                    mtl,
                    fingertree,
