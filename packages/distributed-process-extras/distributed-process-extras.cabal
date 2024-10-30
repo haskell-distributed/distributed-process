@@ -1,6 +1,6 @@
 cabal-version:  3.0
 name:           distributed-process-extras
-version:        0.3.7
+version:        0.3.8
 build-type:     Simple
 license:        BSD-3-Clause
 license-file:   LICENCE
