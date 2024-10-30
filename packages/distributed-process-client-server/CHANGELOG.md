@@ -1,5 +1,9 @@
 # Change Log
 
+2024-10-30  David Simmons-Duffin <dsd@caltech.edu> 0.2.7.1
+
+* Bump dependency bound for ansi-terminal
+
 2024-10-30 Laurent P. René de Cotret <laurent.decotret@outlook.com> 0.2.7.0
 
 * Removed dependency on `rematch` (#459)
