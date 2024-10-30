@@ -72,7 +72,7 @@ test-suite ExchangeTests
 --  x-uses-tf:       true
   build-depends:
                    base >= 4.14 && < 5,
-                   ansi-terminal >= 0.5 && < 0.7,
+                   ansi-terminal >= 0.5 && < 1.2,
                    containers,
                    hashable,
                    unordered-containers >= 0.2.3.0 && < 0.3,
@@ -112,7 +112,7 @@ test-suite MailboxTests
 --  x-uses-tf:       true
   build-depends:
                    base >= 4.14 && < 5,
-                   ansi-terminal >= 0.5 && < 0.7,
+                   ansi-terminal >= 0.5 && < 1.2,
                    containers,
                    hashable,
                    unordered-containers >= 0.2.3.0 && < 0.3,
