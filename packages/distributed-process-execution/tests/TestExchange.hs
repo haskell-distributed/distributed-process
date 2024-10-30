@@ -18,13 +18,13 @@ import qualified Control.Distributed.Process.Execution.EventManager as EventMana
   )
 import Control.Distributed.Process.SysTest.Utils
 import Control.Monad (void, forM, forever)
-import Control.Rematch (equalTo)
 
 import Prelude hiding (drop)
 import Network.Transport.TCP
 import qualified Network.Transport as NT
 import Test.Framework as TF (defaultMain, testGroup, Test)
 import Test.Framework.Providers.HUnit
+import Test.HUnit (assertEqual, assertBool)
 
 testKeyBasedRouting :: TestResult Bool -> Process ()
 testKeyBasedRouting result = do
@@ -67,20 +67,22 @@ testMultipleRoutes result = do
   received <- forM (replicate (2 * 3) us) (const $ receiveChanTimeout 1000 rp)
 
   -- all bindings for 'abc' fired correctly
-  received `shouldContain` Just (p1, Left "Hello")
-  received `shouldContain` Just (p3, Left "Hello")
-  received `shouldContain` Just (p1, Right (123 :: Int))
-  received `shouldContain` Just (p3, Right (123 :: Int))
+  liftIO $ do
 
-  -- however the bindings for 'def' never fired
-  received `shouldContain` Nothing
-  received `shouldNotContain` Just (p2, Left "Hello")
-  received `shouldNotContain` Just (p2, Right (123 :: Int))
+    assertBool mempty $ Just (p1, Left "Hello") `elem` received
+    assertBool mempty $ Just (p3, Left "Hello") `elem` received
+    assertBool mempty $ Just (p1, Right (123 :: Int)) `elem` received
+    assertBool mempty $ Just (p3, Right (123 :: Int)) `elem` received
 
-  -- none of the bindings should have examined the headers!
-  received `shouldNotContain` Just (p1, Left "Goodbye")
-  received `shouldNotContain` Just (p2, Left "Goodbye")
-  received `shouldNotContain` Just (p3, Left "Goodbye")
+    -- however the bindings for 'def' never fired
+    assertBool mempty $ Nothing `elem` received
+    assertBool mempty $ Just (p2, Left "Hello") `notElem` received
+    assertBool mempty $ Just (p2, Right (123 :: Int)) `notElem` received
+ 
+    -- none of the bindings should have examined the headers!
+    assertBool mempty $ Just (p1, Left "Goodbye") `notElem` received
+    assertBool mempty $ Just (p2, Left "Goodbye") `notElem` received
+    assertBool mempty $ Just (p3, Left "Goodbye") `notElem` received
 
 testHeaderBasedRouting :: TestResult () -> Process ()
 testHeaderBasedRouting result = do
@@ -110,14 +112,16 @@ testHeaderBasedRouting result = do
   received <- forM (replicate 5 us) (const $ receiveChanTimeout 1000 rp)
 
   -- all bindings fired correctly
-  received `shouldContain` Just (p1, Left "Hello")
-  received `shouldContain` Just (p1, Right (123 :: Int))
-  received `shouldContain` Just (p2, Right (456 :: Int))
-  received `shouldContain` Just (p2, Right (789 :: Int))
-  received `shouldContain` Nothing
+  liftIO $ do
+    assertBool mempty $ Just (p1, Left "Hello") `elem` received
+    assertBool mempty $ Just (p1, Left "Hello") `elem` received
+    assertBool mempty $ Just (p1, Right (123 :: Int)) `elem` received
+    assertBool mempty $ Just (p2, Right (456 :: Int)) `elem` received
+    assertBool mempty $ Just (p2, Right (789 :: Int)) `elem` received
+    assertBool mempty $ Nothing `elem` received
 
   -- simple check that no other bindings have fired
-  length received `shouldBe` equalTo (5 :: Int)
+  liftIO $ assertEqual mempty 5 (length received)
 
 testSimpleEventHandling :: TestResult Bool -> Process ()
 testSimpleEventHandling result = do

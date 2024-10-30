@@ -81,7 +81,6 @@ test-suite InternalQueueTests
                    test-framework-hunit,
                    QuickCheck >= 2.4,
                    test-framework-quickcheck2,
-                   rematch >= 0.2.0.0,
                    ghc-prim
   hs-source-dirs:  tests
   ghc-options:     -rtsopts
@@ -110,7 +109,6 @@ test-suite PrimitivesTests
                    stm,
                    test-framework >= 0.6 && < 0.9,
                    test-framework-hunit,
-                   rematch >= 0.2.0.0,
                    transformers
   hs-source-dirs:  tests
   ghc-options:     -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
@@ -135,7 +133,6 @@ test-suite TimerTests
                    test-framework-hunit,
                    QuickCheck >= 2.4,
                    test-framework-quickcheck2,
-                   rematch >= 0.2.0.0,
                    ghc-prim
   hs-source-dirs:  tests
   ghc-options:     -rtsopts
@@ -172,7 +169,6 @@ test-suite LoggerTests
                    test-framework >= 0.6 && < 0.9,
                    test-framework-hunit,
                    transformers,
-                   rematch >= 0.2.0.0,
                    ghc-prim
   hs-source-dirs:  tests
   ghc-options:     -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind

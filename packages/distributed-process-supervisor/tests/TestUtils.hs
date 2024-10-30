@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP                       #-}
 {-# LANGUAGE DeriveDataTypeable        #-}
 {-# LANGUAGE TupleSections             #-}
 {-# LANGUAGE TemplateHaskell           #-}
@@ -9,12 +8,7 @@ module TestUtils
     -- ping !
   , Ping(Ping)
   , ping
-  , shouldBe
-  , shouldMatch
-  , shouldContain
-  , shouldNotContain
   , shouldExitWith
-  , expectThat
   -- test process utilities
   , TestProcessControl
   , startTestProcess
@@ -66,9 +60,7 @@ import qualified Control.Exception as Exception
 import Control.Monad (forever)
 import Control.Monad.Catch (catch)
 import Control.Monad.STM (atomically)
-import Control.Rematch hiding (match)
-import Control.Rematch.Run
-import Test.HUnit (Assertion, assertFailure)
+import Test.HUnit (Assertion, assertEqual)
 import Test.HUnit.Base (assertBool)
 import Test.Framework (Test, defaultMain)
 import Control.DeepSeq
@@ -80,32 +72,11 @@ import Data.Binary
 import Data.Typeable
 import GHC.Generics
 
---expect :: a -> Matcher a -> Process ()
---expect a m = liftIO $ Rematch.expect a m
-
-expectThat :: a -> Matcher a -> Process ()
-expectThat a matcher = case res of
-  MatchSuccess -> return ()
-  (MatchFailure msg) -> liftIO $ assertFailure msg
-  where res = runMatch matcher a
-
-shouldBe :: a -> Matcher a -> Process ()
-shouldBe = expectThat
-
-shouldContain :: (Show a, Eq a) => [a] -> a -> Process ()
-shouldContain xs x = expectThat xs $ hasItem (equalTo x)
-
-shouldNotContain :: (Show a, Eq a) => [a] -> a -> Process ()
-shouldNotContain xs x = expectThat xs $ isNot (hasItem (equalTo x))
-
-shouldMatch :: a -> Matcher a -> Process ()
-shouldMatch = expectThat
-
 shouldExitWith :: (Resolvable a) => a -> DiedReason -> Process ()
 shouldExitWith a r = do
   _ <- resolve a
   d <- receiveWait [ match (\(ProcessMonitorNotification _ _ r') -> return r') ]
-  d `shouldBe` equalTo r
+  liftIO $ assertEqual mempty d r
 
 waitForExit :: MVar ExitReason
             -> Process (Maybe ExitReason)

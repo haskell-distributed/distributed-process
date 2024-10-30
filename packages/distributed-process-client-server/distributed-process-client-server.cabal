@@ -92,7 +92,6 @@ test-suite ManagedProcessTests
                    test-framework >= 0.6 && < 0.9,
                    test-framework-hunit,
                    transformers,
-                   rematch >= 0.2.0.0,
                    ghc-prim,
                    exceptions
   other-modules:   Counter,
@@ -131,7 +130,6 @@ test-suite PrioritisedProcessTests
                    test-framework,
                    test-framework-hunit,
                    transformers,
-                   rematch,
                    ghc-prim,
                    exceptions
   other-modules:   ManagedProcessCommon,

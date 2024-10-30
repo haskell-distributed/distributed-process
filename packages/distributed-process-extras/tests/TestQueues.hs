@@ -1,26 +1,20 @@
 {-# LANGUAGE PatternGuards  #-}
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 module Main where
 
 import qualified Control.Distributed.Process.Extras.Internal.Queue.SeqQ as FIFO
 import Control.Distributed.Process.Extras.Internal.Queue.SeqQ ( SeqQ )
 import qualified Control.Distributed.Process.Extras.Internal.Queue.PriorityQ as PQ
 
-import Control.Rematch hiding (on)
-import Control.Rematch.Run
 import Data.Function (on)
-import Data.List
+import Data.List ( sortBy )
 import Test.Framework as TF (defaultMain, testGroup, Test)
 import Test.Framework.Providers.HUnit
 import Test.Framework.Providers.QuickCheck2 (testProperty)
-import Test.HUnit (Assertion, assertFailure)
+import Test.HUnit (assertBool, assertEqual)
 
 import Prelude
 
-expectThat :: a -> Matcher a -> Assertion
-expectThat a matcher = case res of
-  MatchSuccess -> return ()
-  (MatchFailure msg) -> assertFailure msg
-  where res = runMatch matcher a
 
 -- NB: these tests/properties are not meant to be complete, but rather
 -- they exercise the small number of behaviours that we actually use!
@@ -72,13 +66,11 @@ tests = [
      ],
      testGroup "FIFO Queue Tests" [
         testCase "New Queue Should Be Empty"
-          (expectThat (FIFO.isEmpty $ FIFO.empty) $ equalTo True),
+          (assertBool mempty (FIFO.isEmpty $ FIFO.empty)),
         testCase "Singleton Queue Should Contain One Element"
-          (expectThat (FIFO.dequeue $ FIFO.singleton "hello") $
-             equalTo $ Just ("hello", FIFO.empty)),
+          (assertEqual mempty (FIFO.dequeue $ FIFO.singleton "hello") $ Just ("hello", FIFO.empty)),
         testCase "Dequeue Empty Queue Should Be Nothing"
-          (expectThat (FIFO.dequeue $ (FIFO.empty :: SeqQ ())) $
-            is (Nothing :: Maybe ((), SeqQ ()))),
+          (assertEqual mempty  (FIFO.dequeue $ (FIFO.empty :: SeqQ ())) $ (Nothing :: Maybe ((), SeqQ ()))),
         testProperty "Enqueue/Dequeue should respect FIFO order"
             prop_fifo_enqueue,
         testProperty "Enqueue/Dequeue should respect isEmpty"

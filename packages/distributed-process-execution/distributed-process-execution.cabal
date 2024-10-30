@@ -98,7 +98,6 @@ test-suite ExchangeTests
                    QuickCheck >= 2.4,
                    test-framework-quickcheck2,
                    transformers,
-                   rematch >= 0.2.0.0,
                    ghc-prim
   hs-source-dirs:
                    tests
@@ -139,7 +138,6 @@ test-suite MailboxTests
                    QuickCheck >= 2.4,
                    test-framework-quickcheck2,
                    transformers,
-                   rematch >= 0.2.0.0,
                    ghc-prim
   hs-source-dirs:
                    tests

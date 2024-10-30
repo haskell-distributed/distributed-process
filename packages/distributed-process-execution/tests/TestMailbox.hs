@@ -13,15 +13,13 @@ import Control.Distributed.Process.Extras.Time
 import Control.Distributed.Process.Extras.Timer
 import Control.Distributed.Process.SysTest.Utils
 
-
-import Control.Rematch (equalTo)
-
 import Prelude hiding (drop)
 
 import Data.Maybe (catMaybes)
 
 import Test.Framework as TF (defaultMain, testGroup, Test)
 import Test.Framework.Providers.HUnit
+import Test.HUnit (assertEqual)
 
 import qualified MailboxTestFilters (__remoteTable)
 import MailboxTestFilters (myFilter, intFilter)
@@ -77,9 +75,10 @@ bufferLimiting buffT result = do
   MailboxStats{ pendingMessages = pending'
               , droppedMessages = dropped'
               , currentLimit    = limit' } <- statistics mbox
-  pending' `shouldBe` equalTo 4
-  dropped' `shouldBe` equalTo 3
-  limit'   `shouldBe` equalTo 4
+  liftIO $ do
+    assertEqual mempty 4 pending'
+    assertEqual mempty 3 dropped'
+    assertEqual mempty 4 limit'  
 
   active mbox acceptEverything
   Just Delivery{ messages = recvd

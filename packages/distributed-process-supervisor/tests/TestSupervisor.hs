@@ -1,9 +1,9 @@
-{-# LANGUAGE CPP                 #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell     #-}
 {-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE PatternGuards       #-}
 {-# LANGUAGE Rank2Types          #-}
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 
 -- NOTICE: Some of these tests are /unsafe/, and will fail intermittently, since
 -- they rely on ordering constraints which the Cloud Haskell runtime does not
@@ -47,18 +47,11 @@ import Control.Distributed.Process.Serializable()
 import Control.Distributed.Static (staticLabel)
 import Control.Monad (void, unless, forM_, forM)
 import Control.Monad.Catch (finally)
-import Control.Rematch
-  ( equalTo
-  , is
-  , isNot
-  , isNothing
-  , isJust
-  )
 
 import Data.ByteString.Lazy (empty)
-import Data.Maybe (catMaybes)
+import Data.Maybe (catMaybes, isNothing, isJust)
 
-import Test.HUnit (Assertion, assertFailure)
+import Test.HUnit (Assertion, assertFailure, assertEqual, assertBool)
 import Test.Framework (Test, testGroup)
 import Test.Framework.Providers.HUnit (testCase)
 import TestUtils hiding (waitForExit)
@@ -119,7 +112,7 @@ permChild clj =
 ensureProcessIsAlive :: ProcessId -> Process ()
 ensureProcessIsAlive pid = do
   result <- isProcessAlive pid
-  expectThat result $ is True
+  liftIO $ assertBool mempty result
 
 runInTestContext :: LocalNode
                  -> MVar ()
@@ -178,7 +171,7 @@ verifyChildWasRestarted key pid sup = do
   -- TODO: handle (ChildRestarting _) too!
   case cSpec of
     Just (ref, _) -> do Just pid' <- resolve ref
-                        expectThat pid' $ isNot $ equalTo pid
+                        liftIO $ assertBool mempty ( pid' /= pid)
     _             -> do
       liftIO $ assertFailure $ "unexpected child ref: " ++ (show (key, cSpec))
 
@@ -195,7 +188,7 @@ verifyTempChildWasRemoved pid sup = do
   void $ waitForExit pid
   sleepFor 500 Millis
   cSpec <- lookupChild sup "temp-worker"
-  expectThat cSpec isNothing
+  liftIO $ assertBool mempty (isNothing cSpec)
 
 waitForExit :: ProcessId -> Process DiedReason
 waitForExit pid = do
@@ -232,11 +225,11 @@ verifySingleRestart Context{..} key = do
   mx <- receiveChanTimeout t sniffer
   case mx of
     Just rs@SupervisedChildRestarting{} -> do
-      (childSpecKey rs) `shouldBe` equalTo key
+      liftIO $ assertEqual mempty (childSpecKey rs) key
       mx' <- receiveChanTimeout t sniffer
       case mx' of
         Just cs@SupervisedChildStarted{} -> do
-          (childSpecKey cs) `shouldBe` equalTo key
+          liftIO $ assertEqual mempty (childSpecKey cs) key
           debug logChannel $ "restart ok for " ++ (show cs)
         _ -> liftIO $ assertFailure $ " Unexpected Waiting Child Started " ++ (show mx')
     _ -> liftIO $ assertFailure $ "Unexpected Waiting Child Restarted " ++ (show mx)
@@ -257,14 +250,14 @@ verifySeqStartOrder Context{..} xs toStop = do
     case mx of
       Just SupervisedChildRestarting{..} -> do
         debug logChannel $ "for restart " ++ (show childSpecKey) ++ " we're expecting " ++ (childKey cs)
-        childSpecKey `shouldBe` equalTo (childKey cs)
+        liftIO $ assertEqual mempty childSpecKey (childKey cs)
         unless (childSpecKey == toStop) $ do
           Just SupervisedChildStopped{..} <- receiveChanTimeout t sniffer
           debug logChannel $ "for " ++ (show childRef) ++ " we're expecting " ++ (show oCr)
-          childRef `shouldBe` equalTo oCr
+          liftIO $ assertEqual mempty childRef oCr
         mx' <- receiveChanTimeout t sniffer
         case mx' of
-          Just SupervisedChildStarted{..} -> childRef `shouldBe` equalTo cr
+          Just SupervisedChildStarted{..} -> liftIO $ assertEqual mempty childRef cr
           _                               -> do
             liftIO $ assertFailure $ "After Stopping " ++ (show cs) ++
                                      " received unexpected " ++ (show mx)
@@ -287,7 +280,7 @@ verifyStopStartOrder Context{..} xs restarted toStop = do
     case mx of
       Just SupervisedChildRestarting{..} -> do
         debug logChannel $ "for restart " ++ (show childSpecKey) ++ " we're expecting " ++ (childKey cs)
-        childSpecKey `shouldBe` equalTo (childKey cs)
+        liftIO $ assertEqual mempty childSpecKey (childKey cs)
         if childSpecKey /= toStop
           then do Just SupervisedChildStopped{..} <- receiveChanTimeout t sniffer
                   debug logChannel $ "for " ++ (show childRef) ++ " we're expecting " ++ (show oCr)
@@ -304,7 +297,7 @@ verifyStopStartOrder Context{..} xs restarted toStop = do
     debug logChannel $ "checking (reverse) start order for " ++ (show cr)
     mx <- receiveTimeout t [ matchChan sniffer return ]
     case mx of
-      Just SupervisedChildStarted{..} -> childRef `shouldBe` equalTo cr
+      Just SupervisedChildStarted{..} -> liftIO $ assertEqual mempty childRef cr
       _ -> liftIO $ assertFailure $ "Bad Child Start: " ++ (show mx)
 
 checkStartupOrder :: Context -> [Child] -> Process ()
@@ -314,7 +307,7 @@ checkStartupOrder Context{..} children = do
     debug logChannel $ "checking " ++ (show cr)
     mx <- receiveTimeout (asTimeout waitTimeout) [ matchChan sniffer return ]
     case mx of
-      Just SupervisedChildStarted{..} -> childRef `shouldBe` equalTo cr
+      Just SupervisedChildStarted{..} -> liftIO $ assertEqual mempty childRef cr
       _ -> liftIO $ assertFailure $ "Bad Child Start: " ++ (show mx)
 
 exitIgnore :: Process ()
@@ -469,7 +462,7 @@ addChildWithoutRestart :: ChildStart -> ProcessId -> Process ()
 addChildWithoutRestart cs sup =
   let spec = transientWorker cs in do
     response <- addChild sup spec
-    response `shouldBe` equalTo (ChildAdded ChildStopped)
+    liftIO $ assertEqual mempty response (ChildAdded ChildStopped)
 
 addChildThenStart :: ChildStart -> ProcessId -> Process ()
 addChildThenStart cs sup =
@@ -479,7 +472,7 @@ addChildThenStart cs sup =
     case response of
       ChildStartOk (ChildRunning pid) -> do
         alive <- isProcessAlive pid
-        alive `shouldBe` equalTo True
+        liftIO $ assertBool mempty alive
       _ -> do
         liftIO $ putStrLn (show response)
         die "Ooops"
@@ -487,13 +480,13 @@ addChildThenStart cs sup =
 startUnknownChild :: ChildStart -> ProcessId -> Process ()
 startUnknownChild cs sup = do
   response <- startChild sup (childKey (transientWorker cs))
-  response `shouldBe` equalTo ChildStartUnknownId
+  liftIO $ assertEqual mempty response ChildStartUnknownId
 
 setupChild :: ChildStart -> ProcessId -> Process (ChildRef, ChildSpec)
 setupChild cs sup = do
   let spec = transientWorker cs
   response <- addChild sup spec
-  response `shouldBe` equalTo (ChildAdded ChildStopped)
+  liftIO $ assertEqual mempty response (ChildAdded ChildStopped)
   Just child <- lookupChild sup "transient-worker"
   return child
 
@@ -501,19 +494,19 @@ addDuplicateChild :: ChildStart -> ProcessId -> Process ()
 addDuplicateChild cs sup = do
   (ref, spec) <- setupChild cs sup
   dup <- addChild sup spec
-  dup `shouldBe` equalTo (ChildFailedToStart $ StartFailureDuplicateChild ref)
+  liftIO $ assertEqual mempty dup (ChildFailedToStart $ StartFailureDuplicateChild ref)
 
 startDuplicateChild :: ChildStart -> ProcessId -> Process ()
 startDuplicateChild cs sup = do
   (ref, spec) <- setupChild cs sup
   dup <- startNewChild sup spec
-  dup `shouldBe` equalTo (ChildFailedToStart $ StartFailureDuplicateChild ref)
+  liftIO $ assertEqual mempty dup (ChildFailedToStart $ StartFailureDuplicateChild ref)
 
 startBadClosure :: ChildStart -> ProcessId -> Process ()
 startBadClosure cs sup = do
   let spec = tempWorker cs
   child <- startNewChild sup spec
-  child `shouldBe` equalTo
+  liftIO $ assertEqual mempty child
     (ChildFailedToStart $ StartFailureBadClosure
        "user error (Could not resolve closure: Invalid static label 'non-existing')")
 
@@ -532,7 +525,7 @@ deleteExistingChild cs sup = do
   let spec = transientWorker cs
   (ChildAdded ref) <- startNewChild sup spec
   result <- deleteChild sup "transient-worker"
-  result `shouldBe` equalTo (ChildNotStopped ref)
+  liftIO $ assertEqual mempty result (ChildNotStopped ref)
 
 deleteStoppedTempChild :: ChildStart -> ProcessId -> Process ()
 deleteStoppedTempChild cs sup = do
@@ -543,7 +536,7 @@ deleteStoppedTempChild cs sup = do
   -- child needs to be stopped
   waitForExit pid
   result <- deleteChild sup (childKey spec)
-  result `shouldBe` equalTo ChildNotFound
+  liftIO $ assertEqual mempty result ChildNotFound
 
 deleteStoppedChild :: ChildStart -> ProcessId -> Process ()
 deleteStoppedChild cs sup = do
@@ -554,7 +547,7 @@ deleteStoppedChild cs sup = do
   -- child needs to be stopped
   waitForExit pid
   result <- deleteChild sup (childKey spec)
-  result `shouldBe` equalTo ChildDeleted
+  liftIO $ assertEqual mempty result ChildDeleted
 
 permanentChildrenAlwaysRestart :: ChildStart -> ProcessId -> Process ()
 permanentChildrenAlwaysRestart cs sup = do
@@ -601,7 +594,7 @@ transientChildrenExitShutdown cs Context{..} = do
   waitForDown mRef
 
   mx <- receiveChanTimeout 1000 sniffer :: Process (Maybe MxSupervisor)
-  expectThat mx isNothing
+  liftIO $ assertBool mempty (isNothing mx)
   verifyChildWasNotRestarted (childKey spec) pid sup
 
 intrinsicChildrenAbnormalExit :: ChildStart -> ProcessId -> Process ()
@@ -619,19 +612,19 @@ intrinsicChildrenNormalExit cs sup = do
   Just pid <- resolve ref
   testProcessStop pid
   reason <- waitForExit sup
-  expectThat reason $ equalTo DiedNormal
+  liftIO $ assertEqual mempty reason DiedNormal
 
 explicitRestartRunningChild :: ChildStart -> ProcessId -> Process ()
 explicitRestartRunningChild cs sup = do
   let spec = tempWorker cs
   ChildAdded ref <- startNewChild sup spec
   result <- restartChild sup (childKey spec)
-  expectThat result $ equalTo $ ChildRestartFailed (StartFailureAlreadyRunning ref)
+  liftIO $ assertEqual mempty result (ChildRestartFailed (StartFailureAlreadyRunning ref))
 
 explicitRestartUnknownChild :: ProcessId -> Process ()
 explicitRestartUnknownChild sup = do
   result <- restartChild sup "unknown-id"
-  expectThat result $ equalTo ChildRestartUnknownId
+  liftIO $ assertEqual mempty result ChildRestartUnknownId
 
 explicitRestartRestartingChild :: ChildStart -> ProcessId -> Process ()
 explicitRestartRestartingChild cs sup = do
@@ -660,7 +653,7 @@ explicitRestartStoppedChild cs sup = do
   restarted <- restartChild sup key
   sleepFor 500 Millis
   Just (ref', _) <- lookupChild sup key
-  expectThat ref $ isNot $ equalTo ref'
+  liftIO $ assertBool mempty (ref /= ref')
   case restarted of
     ChildRestartOk (ChildRunning _) -> return ()
     _ -> liftIO $ assertFailure $ "unexpected exit: " ++ (show restarted)
@@ -673,7 +666,7 @@ stopChildImmediately cs sup = do
   mRef <- monitor ref
   void $ stopChild sup (childKey spec)
   reason <- waitForDown mRef
-  expectThat reason $ equalTo $ DiedException (expectedExitReason sup)
+  liftIO $ assertEqual mempty reason (DiedException (expectedExitReason sup))
 
 stoppingChildExceedsDelay :: ProcessId -> Process ()
 stoppingChildExceedsDelay sup = do
@@ -684,7 +677,7 @@ stoppingChildExceedsDelay sup = do
   mRef <- monitor ref
   void $ stopChild sup (childKey spec)
   reason <- waitForDown mRef
-  expectThat reason $ equalTo $ DiedException (expectedExitReason sup)
+  liftIO $ assertEqual mempty reason (DiedException (expectedExitReason sup))
 
 stoppingChildObeysDelay :: ProcessId -> Process ()
 stoppingChildObeysDelay sup = do
@@ -732,7 +725,7 @@ delayedRestartAfterThreeAttempts withSupervisor = do
     case ref of
       ChildRestarting _ -> do
         SupervisedChildStarted{..} <- receiveChan sniffer
-        childSpecKey `shouldBe` equalTo (childKey spec)
+        liftIO $ assertEqual mempty childSpecKey (childKey spec)
       _ -> liftIO $ assertFailure $ "Unexpected ChildRef: " ++ (show ref)
 
     mapM_ (const $ verifySingleRestart ctx (childKey spec)) [1..3 :: Int]
@@ -757,7 +750,7 @@ permanentChildExceedsRestartsIntensity cs withSupervisor = do
     void $ ((startNewChild sup spec >> return ())
              `catchExit` (\_ (_ :: ExitReason) -> return ()))
     reason <- waitForDown ref
-    expectThat reason $ equalTo $
+    liftIO $ assertEqual mempty reason $
                       DiedException $ "exit-from=" ++ (show sup) ++
                                       ",reason=ReachedMaxRestartIntensity"
 
@@ -841,7 +834,7 @@ restartLeftWithLeftToRightSeqRestarts cs withSupervisor = do
             True  -> liftIO $ assertFailure $ "unexpected exit from " ++ show pid'
             False -> return ())
       ]
-    expectThat r isNothing
+    liftIO $ assertBool mempty (isNothing r)
 
 restartRightWithLeftToRightSeqRestarts ::
      ChildStart
@@ -873,7 +866,7 @@ restartRightWithLeftToRightSeqRestarts cs withSupervisor = do
             True  -> liftIO $ assertFailure $ "unexpected exit from " ++ show pid'
             False -> return ())
       ]
-    expectThat r isNothing
+    liftIO $ assertBool mempty (isNothing r)
 
 restartAllWithLeftToRightRestarts :: ProcessId -> Process ()
 restartAllWithLeftToRightRestarts sup = do
@@ -907,7 +900,7 @@ restartAllWithLeftToRightRestarts sup = do
   children' <- listChildren sup
   drainAllChildren children'
   let [c1, c2] = [map fst cs | cs <- [children, children']]
-  forM_ (zip c1 c2) $ \(p1, p2) -> expectThat p1 $ isNot $ equalTo p2
+  forM_ (zip c1 c2) $ \(p1, p2) -> liftIO $ assertBool mempty (p1 /= p2)
   where
     drainAllChildren children = do
       -- Receive all pids then verify they arrived in the correct order.
@@ -977,7 +970,7 @@ expectLeftToRightRestarts ctx@Context{..} = do
                [ matchIf
                  (\(ProcessMonitorNotification r _ _) -> (Just r) == (snd $ head refs))
                  (\sig@(ProcessMonitorNotification _ _ _) -> return sig) ]
-  expectThat initRes $ isJust
+  liftIO $ assertBool mempty (isJust initRes)
 
   forM_ (reverse (filter ((/= ref) .fst ) refs)) $ \(_, Just mRef) -> do
     (ProcessMonitorNotification ref' _ _) <- expect
@@ -1022,7 +1015,7 @@ restartLeftWhenLeftmostChildDies cs sup = do
   verifyChildWasRestarted (childKey spec) pid sup
   Just (ref3, _) <- lookupChild sup "child2"
   Just pid2' <- resolve ref3
-  pid2 `shouldBe` equalTo pid2'
+  liftIO $ assertEqual mempty pid2 pid2'
 
 restartWithoutTempChildren :: ChildStart -> ProcessId -> Process ()
 restartWithoutTempChildren cs sup = do
@@ -1044,8 +1037,9 @@ restartRightWhenRightmostChildDies cs sup = do
   (ChildAdded ref2) <- startNewChild sup $ spec { childKey = "child2" }
   (ChildAdded ref) <- startNewChild sup $ spec { childKey = "child1" }
   [ch1, ch2] <- listChildren sup
-  (fst ch1) `shouldBe` equalTo ref2
-  (fst ch2) `shouldBe` equalTo ref
+  liftIO $ do
+    assertEqual mempty (fst ch1) ref2
+    assertEqual mempty (fst ch2) ref
   Just pid <- resolve ref
   Just pid2 <- resolve ref2
   -- ref (and therefore pid) is 'rightmost' now
@@ -1053,7 +1047,7 @@ restartRightWhenRightmostChildDies cs sup = do
   verifyChildWasRestarted "child1" pid sup
   Just (ref3, _) <- lookupChild sup "child2"
   Just pid2' <- resolve ref3
-  pid2 `shouldBe` equalTo pid2'
+  liftIO $ assertEqual mempty pid2 pid2'
 
 restartLeftWithLeftToRightRestarts :: Bool -> Context -> Process ()
 restartLeftWithLeftToRightRestarts rev ctx@Context{..} = do
@@ -1084,7 +1078,7 @@ restartLeftWithLeftToRightRestarts rev ctx@Context{..} = do
   verifyStopStartOrder ctx xs restarted toStop
 
   let [c1, c2] = [map fst cs | cs <- [(snd $ split children), notRestarted]]
-  forM_ (zip c1 c2) $ \(p1, p2) -> p1 `shouldBe` equalTo p2
+  forM_ (zip c1 c2) $ \(p1, p2) -> liftIO $ assertEqual mempty p1 p2
 
 restartRightWithLeftToRightRestarts :: Bool -> Context -> Process ()
 restartRightWithLeftToRightRestarts rev ctx@Context{..} = do
@@ -1116,7 +1110,7 @@ restartRightWithLeftToRightRestarts rev ctx@Context{..} = do
   verifyStopStartOrder ctx xs restarted toStop
 
   let [c1, c2] = [map fst cs | cs <- [(fst $ splitAt 3 children), notRestarted]]
-  forM_ (zip c1 c2) $ \(p1, p2) -> p1 `shouldBe` equalTo p2
+  forM_ (zip c1 c2) $ \(p1, p2) -> liftIO $ assertEqual mempty p1 p2
 
 restartRightWithRightToLeftRestarts :: Bool -> Context -> Process ()
 restartRightWithRightToLeftRestarts rev ctx@Context{..} = do
@@ -1148,7 +1142,7 @@ restartRightWithRightToLeftRestarts rev ctx@Context{..} = do
   verifyStopStartOrder ctx xs (reverse restarted) toStop
 
   let [c1, c2] = [map fst cs | cs <- [(fst $ split children), notRestarted]]
-  forM_ (zip c1 c2) $ \(p1, p2) -> p1 `shouldBe` equalTo p2
+  forM_ (zip c1 c2) $ \(p1, p2) -> liftIO $ assertEqual mempty p1 p2
 
 restartLeftWithRightToLeftRestarts :: Bool -> Context -> Process ()
 restartLeftWithRightToLeftRestarts rev ctx@Context{..} = do
@@ -1182,7 +1176,7 @@ restartLeftWithRightToLeftRestarts rev ctx@Context{..} = do
   verifyStopStartOrder ctx xs (reverse restarted) toStop
 
   let [c1, c2] = [map fst cs | cs <- [toSurvive, notRestarted]]
-  forM_ (zip c1 c2) $ \(p1, p2) -> p1 `shouldBe` equalTo p2
+  forM_ (zip c1 c2) $ \(p1, p2) -> liftIO $ assertEqual mempty p1 p2
 
 -- remote table definition and main
 

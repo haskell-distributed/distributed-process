@@ -9,7 +9,6 @@ import Control.Concurrent.MVar
   , takeMVar
   , withMVar
   )
-import qualified Network.Transport as NT (Transport)
 import Network.Transport.TCP()
 import Control.DeepSeq (NFData)
 import Control.Distributed.Process

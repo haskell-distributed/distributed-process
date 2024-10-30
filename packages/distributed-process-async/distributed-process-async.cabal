@@ -79,7 +79,6 @@ test-suite AsyncTests
                    stm >= 2.3 && < 2.6,
                    test-framework >= 0.6 && < 0.9,
                    test-framework-hunit,
-                   rematch >= 0.2.0.0,
                    transformers
   hs-source-dirs:
                    tests
