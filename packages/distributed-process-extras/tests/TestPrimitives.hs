@@ -16,11 +16,9 @@ import Control.Distributed.Process.Extras.Call
 import Control.Distributed.Process.Extras.Monitoring
 import Control.Distributed.Process.Extras.Time
 import Control.Monad (void)
-import Control.Rematch hiding (match)
-import qualified Network.Transport as NT (Transport)
 import Network.Transport.TCP()
 
-import Test.HUnit (Assertion)
+import Test.HUnit (Assertion, assertEqual, assertBool)
 import Test.Framework (Test, testGroup, defaultMain)
 import Test.Framework.Providers.HUnit (testCase)
 import Network.Transport.TCP
@@ -113,8 +111,9 @@ testMonitorNodeDeath transport result = do
     mn1 <- liftIO $ takeMVar nid2
     mn2 <- liftIO $ takeMVar nid3
 
-    [mn1, mn2] `shouldContain` n1
-    [mn1, mn2] `shouldContain` n2
+    liftIO $ do
+      assertBool mempty $ n1 `elem` [mn1, mn2]
+      assertBool mempty $ n2 `elem` [mn1, mn2]
 
     nid4 <- liftIO $ newEmptyMVar
     node4 <- liftIO $ newLocalNode transport initRemoteTable
@@ -125,7 +124,7 @@ testMonitorNodeDeath transport result = do
 
     mn3 <- liftIO $ takeMVar nid4
     NodeUp n3 <- expect
-    mn3 `shouldBe` (equalTo n3)
+    liftIO $ assertEqual mempty n3 mn3
 
     liftIO $ closeLocalNode node4
     stash result ()

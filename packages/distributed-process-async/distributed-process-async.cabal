@@ -1,6 +1,6 @@
 cabal-version:  3.0
 name:           distributed-process-async
-version:        0.2.8
+version:        0.2.9
 build-type:     Simple
 license:        BSD-3-Clause
 license-file:   LICENCE
@@ -68,7 +68,7 @@ test-suite AsyncTests
                    ansi-terminal >= 0.5 && < 0.9,
                    distributed-process,
                    distributed-process-async,
-                   distributed-process-systest >= 0.2.0,
+                   distributed-process-systest ^>= 0.4,
                    exceptions >= 0.10 && < 1.0,
                    network >= 2.5 && < 3.3,
                    network-transport >= 0.4 && < 0.6,
@@ -79,7 +79,6 @@ test-suite AsyncTests
                    stm >= 2.3 && < 2.6,
                    test-framework >= 0.6 && < 0.9,
                    test-framework-hunit,
-                   rematch >= 0.2.0.0,
                    transformers
   hs-source-dirs:
                    tests

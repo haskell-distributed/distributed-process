@@ -20,6 +20,7 @@ import Control.Distributed.Process.ManagedProcess
 import Control.Distributed.Process.SysTest.Utils
 import Control.Distributed.Process.Extras.Time
 import Control.Distributed.Process.Serializable()
+import Control.Monad (replicateM_)
 
 import MathsDemo
 import Counter
@@ -197,7 +198,7 @@ testCounterExceedsLimit result = do
   mref <- monitor pid
 
   -- exceed the limit
-  9 `times` (void $ incCount pid)
+  9 `replicateM_` (void $ incCount pid)
 
   -- this time we should fail
   _ <- (incCount pid)

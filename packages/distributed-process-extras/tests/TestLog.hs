@@ -4,7 +4,6 @@
 
 module Main where
 
--- import Control.Exception (SomeException)
 import Control.Concurrent.MVar (MVar, newMVar, takeMVar, putMVar, newEmptyMVar)
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TChan
@@ -12,7 +11,7 @@ import Control.Distributed.Process hiding (monitor)
 import Control.Distributed.Process.Closure (remotable, mkStaticClosure)
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Extras hiding (__remoteTable)
-import qualified Control.Distributed.Process.Extras.SystemLog as Log (Logger, error)
+import qualified Control.Distributed.Process.Extras.SystemLog as Log (Logger)
 import Control.Distributed.Process.Extras.SystemLog hiding (Logger, error)
 import Control.Distributed.Process.SysTest.Utils
 import Control.Distributed.Process.Extras.Time
@@ -31,7 +30,6 @@ import GHC.Read
 import Text.ParserCombinators.ReadP as P
 import Text.ParserCombinators.ReadPrec
 
-import qualified Network.Transport as NT
 
 logLevelFormatter :: Message -> Process (Maybe String)
 logLevelFormatter m = handleMessage m showLevel

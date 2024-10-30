@@ -1,3 +1,7 @@
+2024-10-30 Laurent P. René de Cotret <laurent.decotret@outlook.com> 0.2.9
+
+* Removed dependency on `rematch` (#459)
+
 2024-09-03 Laurent P. René de Cotret <laurent.decotret@outlook.com> 0.2.8
 
 * Bumped dependency bounds to support GHC 8.10.7 - GHC 9.10.1

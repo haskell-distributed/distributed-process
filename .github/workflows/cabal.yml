@@ -45,6 +45,7 @@ jobs:
       run: |
         cabal configure --enable-tests --test-show-details=direct
         cabal freeze --minimize-conflict-set
+        cat cabal.project.freeze
     
     - name: Cache cabal work
       uses: actions/cache@v4

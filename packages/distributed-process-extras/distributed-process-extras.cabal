@@ -1,6 +1,6 @@
 cabal-version:  3.0
 name:           distributed-process-extras
-version:        0.3.6
+version:        0.3.7
 build-type:     Simple
 license:        BSD-3-Clause
 license-file:   LICENCE
@@ -75,13 +75,12 @@ test-suite InternalQueueTests
                    ansi-terminal >= 0.5 && < 0.9,
                    distributed-process >= 0.6.0 && < 0.8,
                    distributed-process-extras,
-                   distributed-process-systest >= 0.1.0 && < 0.4,
+                   distributed-process-systest ^>= 0.4,
                    HUnit >= 1.2 && < 2,
                    test-framework >= 0.6 && < 0.9,
                    test-framework-hunit,
                    QuickCheck >= 2.4,
                    test-framework-quickcheck2,
-                   rematch >= 0.2.0.0,
                    ghc-prim
   hs-source-dirs:  tests
   ghc-options:     -rtsopts
@@ -98,7 +97,7 @@ test-suite PrimitivesTests
                    ansi-terminal >= 0.5 && < 0.9,
                    distributed-process >= 0.6.0 && < 0.8,
                    distributed-process-extras,
-                   distributed-process-systest >= 0.1.0 && < 0.4,
+                   distributed-process-systest ^>= 0.4,
                    network-transport >= 0.4 && < 0.6,
                    mtl,
                    containers,
@@ -110,7 +109,6 @@ test-suite PrimitivesTests
                    stm,
                    test-framework >= 0.6 && < 0.9,
                    test-framework-hunit,
-                   rematch >= 0.2.0.0,
                    transformers
   hs-source-dirs:  tests
   ghc-options:     -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
@@ -127,7 +125,7 @@ test-suite TimerTests
                    deepseq,
                    distributed-process >= 0.6.0 && < 0.8,
                    distributed-process-extras,
-                   distributed-process-systest >= 0.1.0 && < 0.4,
+                   distributed-process-systest ^>= 0.4,
                    network-transport >= 0.4 && < 0.6,
                    network-transport-tcp >= 0.4 && < 0.9,
                    HUnit >= 1.2 && < 2,
@@ -135,7 +133,6 @@ test-suite TimerTests
                    test-framework-hunit,
                    QuickCheck >= 2.4,
                    test-framework-quickcheck2,
-                   rematch >= 0.2.0.0,
                    ghc-prim
   hs-source-dirs:  tests
   ghc-options:     -rtsopts
@@ -155,7 +152,7 @@ test-suite LoggerTests
                    unordered-containers >= 0.2.3.0 && < 0.3,
                    distributed-process >= 0.6.0 && < 0.8,
                    distributed-process-extras,
-                   distributed-process-systest >= 0.1.0 && < 0.4,
+                   distributed-process-systest ^>= 0.4,
                    distributed-static,
                    bytestring,
                    data-accessor,
@@ -172,7 +169,6 @@ test-suite LoggerTests
                    test-framework >= 0.6 && < 0.9,
                    test-framework-hunit,
                    transformers,
-                   rematch >= 0.2.0.0,
                    ghc-prim
   hs-source-dirs:  tests
   ghc-options:     -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
