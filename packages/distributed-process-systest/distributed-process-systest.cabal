@@ -1,6 +1,6 @@
 cabal-version: 3.0
 name:          distributed-process-systest
-version:       0.4.0
+version:       0.4.1
 synopsis:      Cloud Haskell Test Support
 description:   Testing Frameworks and Capabilities for programs built on Cloud Haskell
 homepage:      http://github.com/haskell-distributed/distributed-process-systest
@@ -32,7 +32,7 @@ library
   import:            warnings
   exposed-modules:   Control.Distributed.Process.SysTest.Utils
   Build-Depends:     base >= 4.14 && < 5,
-                     ansi-terminal >= 0.5 && < 1.1,
+                     ansi-terminal >= 0.5 && < 1.2,
                      binary >= 0.8 && < 1.0,
                      bytestring >= 0.10 && < 0.13,
                      distributed-process >= 0.6.1 && < 0.8,

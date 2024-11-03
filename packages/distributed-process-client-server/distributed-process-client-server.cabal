@@ -1,6 +1,6 @@
 cabal-version:  3.0
 name:           distributed-process-client-server
-version:        0.2.7.0
+version:        0.2.7.1
 build-type:     Simple
 license:        BSD-3-Clause
 license-file:   LICENCE
@@ -73,7 +73,7 @@ test-suite ManagedProcessTests
   x-uses-tf:       true
   build-depends:
                    base >= 4.14 && < 5,
-                   ansi-terminal >= 0.5 && < 0.9,
+                   ansi-terminal >= 0.5 && < 1.2,
                    containers,
                    distributed-process,
                    distributed-process-extras,
