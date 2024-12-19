@@ -12,7 +12,7 @@ Homepage:      http://haskell-distributed.github.com
 Bug-Reports:   https://github.com/haskell-distributed/distributed-process/issues
 Synopsis:      TCP instantiation of Network.Transport
 Description:   TCP instantiation of Network.Transport, which can be used to create Cloud Haskell backends
-tested-with:   GHC==8.10.7 GHC==9.0.2 GHC==9.2.8 GHC==9.4.5 GHC==9.6.4 GHC==9.8.2 GHC==9.10.1
+tested-with:   GHC==8.10.7 GHC==9.0.2 GHC==9.2.8 GHC==9.4.5 GHC==9.6.4 GHC==9.8.2 GHC==9.10.1 GHC==9.12.1
 Category:      Network
 extra-doc-files: ChangeLog
 

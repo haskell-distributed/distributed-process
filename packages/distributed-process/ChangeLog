@@ -1,6 +1,7 @@
 Unreleased
 
 * Added documentation on the unit of measurement for timeout durations (#340)
+* Added upper bound on `template-haskell` to prevent future breakage.
 
 2024-09-03 Laurent P. René de Cotret <laurent.decotret@outlook.com> 0.7.7
 

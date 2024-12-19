@@ -18,18 +18,26 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ghc-version:
-          - "8.10.7"
-          - "9.0.2"
-          - "9.2.8"
-          - "9.4.5"
-          - "9.6.4"
-          - "9.8.2"
-          - "9.10.1"
-        operating-system:
-          - "ubuntu-latest"
+        include:
+          - ghc-version: "8.10.7"
+            cabal-flags: ""
+          - ghc-version: "9.0.2"
+            cabal-flags: ""
+          - ghc-version: "9.2.8"
+            cabal-flags: ""
+          - ghc-version: "9.4.5"
+            cabal-flags: ""
+          - ghc-version: "9.6.4"
+            cabal-flags: ""
+          - ghc-version: "9.8.2"
+            cabal-flags: ""
+          - ghc-version: "9.10.1"
+            cabal-flags: ""
+          # Temporary cabal flags until all dependencies are updated
+          - ghc-version: "9.12.1"
+            cabal-flags: "--allow-newer=base --allow-newer=template-haskell --allow-newer=ghc-prim"
 
-    runs-on: ${{ matrix.operating-system }}
+    runs-on: "ubuntu-latest"
 
     steps:
     - uses: actions/checkout@v4
@@ -44,7 +52,7 @@ jobs:
     - name: Generate freeze file
       run: |
         cabal configure --enable-tests --test-show-details=direct
-        cabal freeze --minimize-conflict-set
+        cabal freeze ${{matrix.cabal-flags}} --minimize-conflict-set
         cat cabal.project.freeze
     
     - name: Cache cabal work
@@ -58,10 +66,10 @@ jobs:
         key: ${{ runner.os }}-${{ hashFiles('cabal.project', 'cabal.project.local') }}-cabal-install
 
     - name: Build dependencies only
-      run: cabal build all --only-dependencies
+      run: cabal build all --only-dependencies ${{matrix.cabal-flags}}
     
     - name: Build all packages
-      run: cabal build all
+      run: cabal build all ${{matrix.cabal-flags}}
         
     - name: Run all tests
-      run: cabal test all
+      run: cabal test all ${{matrix.cabal-flags}}

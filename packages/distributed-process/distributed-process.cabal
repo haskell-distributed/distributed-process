@@ -1,6 +1,6 @@
 cabal-version: 3.0
 Name:          distributed-process
-Version:       0.7.7
+Version:       0.7.8
 Build-Type:    Simple
 License:       BSD-3-Clause
 License-File:  LICENSE
@@ -21,7 +21,7 @@ Description:   This is an implementation of Cloud Haskell, as described in
 
                You will probably also want to install a Cloud Haskell backend such
                as distributed-process-simplelocalnet.
-tested-with:   GHC==8.10.7 GHC==9.0.2 GHC==9.2.8 GHC==9.4.5 GHC==9.6.4 GHC==9.8.2 GHC==9.10.1
+tested-with:   GHC==8.10.7 GHC==9.0.2 GHC==9.2.8 GHC==9.4.5 GHC==9.6.4 GHC==9.8.2 GHC==9.10.1 GHC==9.12.1
 Category:      Control
 extra-doc-files: ChangeLog
 
@@ -113,7 +113,7 @@ Library
                      UndecidableInstances
   if flag(th)
      other-extensions: TemplateHaskell
-     Build-Depends: template-haskell >= 2.6
+     Build-Depends: template-haskell >= 2.6 && <2.24
      Exposed-modules: Control.Distributed.Process.Internal.Closure.TH
      CPP-Options:     -DTemplateHaskellSupport
 
