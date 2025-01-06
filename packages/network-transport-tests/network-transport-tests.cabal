@@ -39,7 +39,7 @@ library
                        network-transport >= 0.4.1.0 && < 0.6,
                        containers >= 0.6 && < 0.8,
                        bytestring >= 0.10 && < 0.13,
-                       random >= 1.0 && < 1.3,
+                       random >= 1.0 && < 1.4,
                        mtl >= 2.2.1 && < 2.4,
                        ansi-terminal >= 0.5
   hs-source-dirs:      src
