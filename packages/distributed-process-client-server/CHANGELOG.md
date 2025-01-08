@@ -1,5 +1,9 @@
 # Change Log
 
+Unreleased
+
+* Ported test suite to use `tasty` rather than `test-framework`.
+
 2024-10-30  David Simmons-Duffin <dsd@caltech.edu> 0.2.7.1
 
 * Bump dependency bound for ansi-terminal
