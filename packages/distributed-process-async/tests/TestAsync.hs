@@ -17,8 +17,8 @@ import Data.Typeable()
 import Network.Transport.TCP
 import qualified Network.Transport as NT
 
-import Test.Framework (Test, testGroup, defaultMain)
-import Test.Framework.Providers.HUnit (testCase)
+import Test.Tasty(TestTree, testGroup, defaultMain)
+import Test.Tasty.HUnit (testCase)
 
 testAsyncPoll :: TestResult (AsyncResult ()) -> Process ()
 testAsyncPoll result = do
@@ -158,8 +158,8 @@ testAsyncRecursive result = do
     myNode <- getSelfNode
     fib (myNode,6) >>= stash result
 
-tests :: LocalNode  -> [Test]
-tests localNode = [
+tests :: LocalNode -> TestTree
+tests localNode = testGroup "" [
     testGroup "Handling async results with STM" [
           testCase "testAsyncCancel"
             (delayedAssertion
@@ -210,14 +210,14 @@ tests localNode = [
       ]
   ]
 
-asyncStmTests :: NT.Transport -> IO [Test]
+asyncStmTests :: NT.Transport -> IO TestTree
 asyncStmTests transport = do
   localNode <- newLocalNode transport $ __remoteTableDecl initRemoteTable
   let testData = tests localNode
   return testData
 
 -- | Given a @builder@ function, make and run a test suite on a single transport
-testMain :: (NT.Transport -> IO [Test]) -> IO ()
+testMain :: (NT.Transport -> IO TestTree) -> IO ()
 testMain builder = do
   Right (transport, _) <- createTransportExposeInternals (defaultTCPAddr "127.0.0.1" "0") defaultTCPParameters
   testData <- builder transport
