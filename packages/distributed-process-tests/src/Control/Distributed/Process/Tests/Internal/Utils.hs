@@ -79,8 +79,7 @@ import Control.Monad.STM (atomically)
 import Data.Binary
 import Data.Typeable (Typeable)
 
-import Test.HUnit (Assertion, assertFailure)
-import Test.HUnit.Base (assertBool)
+import Test.Tasty.HUnit (Assertion, assertBool)
 
 import GHC.Generics
 import System.Timeout (timeout)

@@ -42,9 +42,8 @@ import Control.Distributed.Process.Node
 import Control.Distributed.Process.Tests.Internal.Utils (pause)
 import Control.Distributed.Process.Serializable (Serializable)
 import Data.Maybe (isNothing, isJust)
-import Test.HUnit (Assertion, assertBool, assertEqual, assertFailure)
-import Test.Framework (Test, testGroup)
-import Test.Framework.Providers.HUnit (testCase)
+import Test.Tasty (TestTree, testGroup)
+import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, testCase)
 
 newtype Ping = Ping ProcessId
   deriving (Typeable, Binary, Show)
@@ -1770,8 +1769,8 @@ testCallLocal TestTransport{..} = do
   takeMVar result4 >>= assertBool "Expected 'True'"
   -- XXX: Testing that when mask_ $ callLocal p runs p in masked state.
 
-tests :: TestTransport -> IO [Test]
-tests testtrans = return [
+tests :: TestTransport -> IO TestTree
+tests testtrans = return $ testGroup "CH" [
      testGroup "Basic features" [
         testCase "Ping"                (testPing                testtrans)
       , testCase "Math"                (testMath                testtrans)

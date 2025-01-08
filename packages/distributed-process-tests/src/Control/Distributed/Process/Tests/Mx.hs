@@ -41,12 +41,8 @@ import Data.Maybe (isJust, fromJust, isNothing, fromMaybe, catMaybes)
 import Data.Typeable
 import GHC.Generics hiding (from)
 
-import Test.Framework
-  ( Test
-  , testGroup
-  )
-import Test.Framework.Providers.HUnit (testCase)
-import Test.HUnit (assertBool, assertEqual)
+import Test.Tasty (TestTree, testGroup)
+import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
 
 data Publish = Publish
   deriving (Typeable, Generic, Eq)
@@ -461,11 +457,11 @@ testMxSend mNode label test = do
       send p' s
       return r
 
-tests :: TestTransport -> IO [Test]
+tests :: TestTransport -> IO TestTree
 tests TestTransport{..} = do
   node1 <- newLocalNode testTransport initRemoteTable
   node2 <- newLocalNode testTransport initRemoteTable
-  return [
+  return $ testGroup "Mx" [
       testGroup "MxAgents" [
           testCase "EventHandling"
               (delayedAssertion
@@ -527,7 +523,7 @@ tests TestTransport{..} = do
     build :: LocalNode
           -> LocalNode
           -> [(String, [(String, (Maybe LocalNode -> Process ()))])]
-          -> [Test]
+          -> [TestTree]
     build n ln specs =
       [ testGroup (intercalate "-" [groupName, caseSuffix]) [
              testCase (intercalate "-" [caseName, caseSuffix])

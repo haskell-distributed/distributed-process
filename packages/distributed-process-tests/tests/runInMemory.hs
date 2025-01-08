@@ -6,9 +6,8 @@ import TEST_SUITE_MODULE (tests)
 
 import Network.Transport.Test (TestTransport(..))
 import Network.Transport.InMemory
-import Test.Framework (defaultMainWithArgs)
-
-import System.Environment (getArgs)
+import Test.Tasty (defaultMain, localOption)
+import Test.Tasty.Runners (NumThreads)
 
 main :: IO ()
 main = do
@@ -17,7 +16,6 @@ main = do
       { testTransport = transport
       , testBreakConnection = \addr1 addr2 -> breakConnection internals addr1 addr2 "user error"
       }
-    args <- getArgs
     -- Tests are time sensitive. Running the tests concurrently can slow them
     -- down enough that threads using threadDelay would wake up later than
     -- expected, thus changing the order in which messages were expected.
@@ -27,4 +25,4 @@ main = do
     -- The problem was first detected with
     -- 'Control.Distributed.Process.Tests.CH.testMergeChannels'
     -- in particular.
-    defaultMainWithArgs ts ("-j" : "1" : args)
+    defaultMain (localOption (1::NumThreads) ts)

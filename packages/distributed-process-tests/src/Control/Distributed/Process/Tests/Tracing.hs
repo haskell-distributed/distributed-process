@@ -25,11 +25,8 @@ import Data.List (isPrefixOf, isSuffixOf)
 
 import Prelude hiding ((<*))
 
-import Test.Framework
-  ( Test
-  , testGroup
-  )
-import Test.Framework.Providers.HUnit (testCase)
+import Test.Tasty (TestTree, testGroup)
+import Test.Tasty.HUnit ( testCase)
 import System.Environment (getEnvironment)
 -- These are available in System.Environment only since base 4.7
 import System.SetEnv (setEnv, unsetEnv)
@@ -375,14 +372,14 @@ testSystemLoggerMxUnRegistered t = testSystemLoggerMsg t
     (getSelfPid >>= register "a" >> unregister "a" >> getSelfPid)
     (\self -> isPrefixOf $ "MxUnRegistered " ++ show self ++ " " ++ show "a")
 
-tests :: TestTransport -> IO [Test]
+tests :: TestTransport -> IO TestTree
 tests testtrans@TestTransport{..} = do
   node1 <- newLocalNode testTransport initRemoteTable
   -- if we execute the test cases in parallel, the
   -- various tracers will race with one another and
   -- we'll get garbage results (or worse, deadlocks)
   lock <- liftIO $ newMVar ()
-  return [
+  return $ testGroup "Tracing" [
     testGroup "Tracing" [
            testCase "Spawn Tracing"
              (synchronisedAssertion

@@ -31,9 +31,8 @@ import Control.Distributed.Process.Internal.Types
 import Control.Distributed.Static (staticLabel, staticClosure)
 import qualified Network.Transport as NT
 
-import Test.HUnit (Assertion)
-import Test.Framework (Test)
-import Test.Framework.Providers.HUnit (testCase)
+import Test.Tasty (TestTree, testGroup)
+import Test.Tasty.HUnit (Assertion, testCase)
 
 --------------------------------------------------------------------------------
 -- Supporting definitions                                                     --
@@ -563,10 +562,10 @@ testSpawnTerminate TestTransport{..} rtable = do
 
   takeMVar masterDone
 
-tests :: TestTransport -> IO [Test]
+tests :: TestTransport -> IO TestTree
 tests testtrans = do
     let rtable = __remoteTable . __remoteTableDecl $ initRemoteTable
-    return
+    return $ testGroup "Closure"
         [ testCase "Unclosure"       (testUnclosure       testtrans rtable)
         , testCase "Bind"            (testBind            testtrans rtable)
         , testCase "SendPureClosure" (testSendPureClosure testtrans rtable)
