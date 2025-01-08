@@ -78,10 +78,9 @@ test-suite SupervisorTests
                    network-transport-tcp >= 0.4 && < 0.9,
                    binary >= 0.8 && < 0.9,
                    deepseq,
-                   HUnit >= 1.2 && < 2,
                    stm,
-                   test-framework >= 0.6 && < 0.9,
-                   test-framework-hunit,
+                   tasty >= 1.5 && <1.6,
+                   tasty-hunit >=0.10 && <0.11,
                    exceptions >= 0.10 && < 0.11
   hs-source-dirs:  tests
   ghc-options:     -threaded -rtsopts -with-rtsopts=-N -fno-warn-name-shadowing -fno-warn-unused-do-bind
@@ -106,10 +105,9 @@ test-suite NonThreadedSupervisorTests
                    network-transport-tcp >= 0.4 && < 0.9,
                    binary >= 0.8 && < 0.9,
                    deepseq,
-                   HUnit >= 1.2 && < 2,
                    stm,
-                   test-framework >= 0.6 && < 0.9,
-                   test-framework-hunit,
+                   tasty >= 1.5 && <1.6,
+                   tasty-hunit >=0.10 && <0.11,
                    exceptions >= 0.10 && < 0.11
   hs-source-dirs:  tests
   ghc-options:     -rtsopts -fno-warn-unused-do-bind -fno-warn-name-shadowing

@@ -60,9 +60,8 @@ import qualified Control.Exception as Exception
 import Control.Monad (forever)
 import Control.Monad.Catch (catch)
 import Control.Monad.STM (atomically)
-import Test.HUnit (Assertion, assertEqual)
-import Test.HUnit.Base (assertBool)
-import Test.Framework (Test, defaultMain)
+import Test.Tasty (TestTree, defaultMain)
+import Test.Tasty.HUnit (Assertion, assertEqual, assertBool)
 import Control.DeepSeq
 
 import Network.Transport.TCP
@@ -137,7 +136,7 @@ stopLogger :: Logger -> IO ()
 stopLogger = (flip Exception.throwTo) Exception.ThreadKilled . _tid
 
 -- | Given a @builder@ function, make and run a test suite on a single transport
-testMain :: (NT.Transport -> IO [Test]) -> IO ()
+testMain :: (NT.Transport -> IO TestTree) -> IO ()
 testMain builder = do
   Right (transport, _) <- createTransportExposeInternals (defaultTCPAddr "127.0.0.1" "0") defaultTCPParameters
   testData <- builder transport
