@@ -18,7 +18,7 @@ import Control.Distributed.Process.Node
 import Control.Distributed.Process.Extras
 import Control.Distributed.Process.Extras.Time
 import Control.Distributed.Process.Extras.Timer
-import Test.Framework (Test, defaultMain)
+import Test.Tasty (TestTree, defaultMain)
 
 import Network.Transport.TCP
 import qualified Network.Transport as NT
@@ -41,7 +41,7 @@ mkNode port = do
   newLocalNode transport1 initRemoteTable
 
 -- | Given a @builder@ function, make and run a test suite on a single transport
-testMain :: (NT.Transport -> IO [Test]) -> IO ()
+testMain :: (NT.Transport -> IO TestTree) -> IO ()
 testMain builder = do
   Right (transport, _) <- createTransportExposeInternals (defaultTCPAddr "127.0.0.1" "0") defaultTCPParameters
   testData <- builder transport
