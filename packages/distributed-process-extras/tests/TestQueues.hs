@@ -8,10 +8,9 @@ import qualified Control.Distributed.Process.Extras.Internal.Queue.PriorityQ as 
 
 import Data.Function (on)
 import Data.List ( sortBy )
-import Test.Framework as TF (defaultMain, testGroup, Test)
-import Test.Framework.Providers.HUnit
-import Test.Framework.Providers.QuickCheck2 (testProperty)
-import Test.HUnit (assertBool, assertEqual)
+import Test.Tasty (TestTree, testGroup, defaultMain)
+import Test.Tasty.HUnit (Assertion, assertEqual, assertBool, testCase)
+import Test.Tasty.QuickCheck (testProperty)
 
 import Prelude
 
@@ -50,8 +49,8 @@ prop_enqueue_empty s =
       Just (_, q') = FIFO.dequeue q
   in (FIFO.isEmpty q') == ((FIFO.isEmpty q) == False)
 
-tests :: [TF.Test]
-tests = [
+tests :: TestTree
+tests = testGroup "TestQueues" [
      testGroup "Priority Queue Tests" [
         -- testCase "New Queue Should Be Empty"
         --   (expect (PQ.isEmpty $ PQ.empty) $ equalTo True),

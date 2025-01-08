@@ -37,8 +37,7 @@ main = do
     -- Tests are time sensitive. Running the tests concurrently can slow them
     -- down enough that threads using threadDelay would wake up later than
     -- expected, thus changing the order in which messages were expected.
-    -- Therefore we run the tests sequentially by passing "-j 1" to
-    -- test-framework. This does not solve the issue but makes it less likely.
+    -- Therefore we run the tests sequentially
     --
     -- The problem was first detected with
     -- 'Control.Distributed.Process.Tests.CH.testMergeChannels'

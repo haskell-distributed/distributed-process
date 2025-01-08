@@ -18,8 +18,8 @@ import Control.Distributed.Process.Extras.Time
 import Control.Distributed.Process.Extras.Timer
 import Control.Distributed.Process.SysTest.Utils
 
-import Test.Framework (Test, testGroup, defaultMain)
-import Test.Framework.Providers.HUnit (testCase)
+import Test.Tasty (TestTree, testGroup, defaultMain)
+import Test.Tasty.HUnit (Assertion, assertEqual, assertBool, testCase)
 import Network.Transport.TCP
 import qualified Network.Transport as NT
 
@@ -139,8 +139,8 @@ testSleep r = do
 -- Utilities and Plumbing                                                     --
 --------------------------------------------------------------------------------
 
-tests :: LocalNode  -> [Test]
-tests localNode = [
+tests :: LocalNode  -> TestTree
+tests localNode = testGroup "TestTimer" [
     testGroup "Timer Tests" [
         testCase "testSendAfter"
                  (delayedAssertion
@@ -173,14 +173,14 @@ tests localNode = [
       ]
   ]
 
-timerTests :: NT.Transport -> IO [Test]
+timerTests :: NT.Transport -> IO TestTree
 timerTests transport = do
   localNode <- newLocalNode transport initRemoteTable
   let testData = tests localNode
   return testData
 
 -- | Given a @builder@ function, make and run a test suite on a single transport
-testMain :: (NT.Transport -> IO [Test]) -> IO ()
+testMain :: (NT.Transport -> IO TestTree) -> IO ()
 testMain builder = do
   Right (transport, _) <- createTransportExposeInternals (defaultTCPAddr "127.0.0.1" "0") defaultTCPParameters
   testData <- builder transport

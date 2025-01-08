@@ -21,8 +21,8 @@ import Data.List (delete)
 
 import Prelude hiding (drop, read, Read)
 
-import Test.Framework (Test, testGroup, defaultMain)
-import Test.Framework.Providers.HUnit (testCase)
+import Test.Tasty (TestTree, testGroup, defaultMain)
+import Test.Tasty.HUnit (testCase)
 import Network.Transport.TCP
 import qualified Network.Transport as NT
 
@@ -98,7 +98,7 @@ testHarness levels chan result = do
          lift P.skipSpaces
          return x
 
-tests :: NT.Transport  -> IO [Test]
+tests :: NT.Transport  -> IO TestTree
 tests transport = do
   let ch = logChannel
   localNode <- newLocalNode transport $ __remoteTable initRemoteTable
@@ -107,7 +107,7 @@ tests transport = do
   void $ forkProcess localNode $ do (_, chan) <- testLoggingProcess
                                     liftIO $ putMVar ex chan
   chan <- takeMVar ex
-  return [
+  return $ testGroup "TestLog" [
       testGroup "Log Reports / LogText"
         (map (mkTestCase lock chan ch simpleShowToLog localNode) (enumFromTo Debug Emergency))
     , testGroup "Logging Raw Messages"
@@ -126,7 +126,7 @@ tests transport = do
     messageRaw      = unsafeWrapMessage
 
 -- | Given a @builder@ function, make and run a test suite on a single transport
-testMain :: (NT.Transport -> IO [Test]) -> IO ()
+testMain :: (NT.Transport -> IO TestTree) -> IO ()
 testMain builder = do
   Right (transport, _) <- createTransportExposeInternals (defaultTCPAddr "127.0.0.1" "0") defaultTCPParameters
   testData <- builder transport
