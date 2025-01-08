@@ -30,6 +30,7 @@ common warnings
                  -Wredundant-constraints
                  -fhide-source-paths
                  -Wpartial-fields
+                 -Wunused-packages
 
 Flag use-mock-network
   Description:     Use mock network implementation (for testing)
