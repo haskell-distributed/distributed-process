@@ -33,6 +33,7 @@ common warnings
                  -Wredundant-constraints
                  -fhide-source-paths
                  -Wpartial-fields
+                 -Wunused-packages
 
 library
   import:          warnings
@@ -45,14 +46,10 @@ library
                    distributed-process-client-server >= 0.2.0 && < 0.3,
                    binary >= 0.8 && < 0.9,
                    deepseq >= 1.4 && < 1.7,
-                   mtl,
                    containers >= 0.6 && < 0.8,
                    hashable >= 1.2.0.5 && < 1.6,
                    unordered-containers >= 0.2.3.0 && < 0.3,
-                   fingertree < 0.2,
                    stm >= 2.4 && < 2.6,
-                   time,
-                   transformers
   hs-source-dirs:   src
   exposed-modules:
                    Control.Distributed.Process.Execution,
@@ -69,38 +66,16 @@ library
 test-suite ExchangeTests
   import:          warnings
   type:            exitcode-stdio-1.0
---  x-uses-tf:       true
-  build-depends:
-                   base >= 4.14 && < 5,
-                   ansi-terminal >= 0.5 && < 1.2,
-                   containers,
-                   hashable,
-                   unordered-containers >= 0.2.3.0 && < 0.3,
+  build-depends:   base >= 4.14 && < 5,
                    distributed-process,
                    distributed-process-execution,
                    distributed-process-extras,
                    distributed-process-systest ^>= 0.4,
-                   distributed-static,
-                   bytestring,
-                   data-accessor,
-                   fingertree < 0.2,
                    network-transport >= 0.4 && < 0.6,
-                   deepseq,
-                   mtl,
                    network-transport-tcp >= 0.4 && < 0.9,
-                   binary >= 0.8 && < 0.9,
-                   network >= 2.3 && < 3.3,
-                   HUnit >= 1.2 && < 2,
-                   stm,
-                   time,
-                   test-framework >= 0.6 && < 0.9,
-                   test-framework-hunit,
-                   QuickCheck >= 2.4,
-                   test-framework-quickcheck2,
-                   transformers,
-                   ghc-prim
-  hs-source-dirs:
-                   tests
+                   tasty >= 1.5 && <1.6,
+                   tasty-hunit >=0.10 && <0.11,
+  hs-source-dirs:  tests
   ghc-options:     -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   main-is:         TestExchange.hs
   default-language: Haskell2010
@@ -109,38 +84,16 @@ test-suite ExchangeTests
 test-suite MailboxTests
   import:          warnings
   type:            exitcode-stdio-1.0
---  x-uses-tf:       true
-  build-depends:
-                   base >= 4.14 && < 5,
-                   ansi-terminal >= 0.5 && < 1.2,
-                   containers,
-                   hashable,
-                   unordered-containers >= 0.2.3.0 && < 0.3,
+  build-depends:   base >= 4.14 && < 5,
                    distributed-process,
                    distributed-process-execution,
                    distributed-process-extras,
                    distributed-process-systest ^>= 0.4,
-                   distributed-static,
-                   bytestring,
-                   data-accessor,
-                   fingertree < 0.2,
                    network-transport >= 0.4 && < 0.6,
-                   deepseq,
-                   mtl,
                    network-transport-tcp >= 0.4 && < 0.9,
-                   binary >= 0.8 && < 0.9,
-                   network >= 2.3 && < 3.3,
-                   HUnit >= 1.2 && < 2,
-                   stm,
-                   time,
-                   test-framework >= 0.6 && < 0.9,
-                   test-framework-hunit,
-                   QuickCheck >= 2.4,
-                   test-framework-quickcheck2,
-                   transformers,
-                   ghc-prim
-  hs-source-dirs:
-                   tests
+                   tasty >= 1.5 && <1.6,
+                   tasty-hunit >=0.10 && <0.11,
+  hs-source-dirs:  tests
   ghc-options:     -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   main-is:         TestMailbox.hs
   other-modules:   MailboxTestFilters

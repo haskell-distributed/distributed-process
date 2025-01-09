@@ -33,6 +33,7 @@ common warnings
                  -Wredundant-constraints
                  -fhide-source-paths
                  -Wpartial-fields
+                 -Wunused-packages
 
 library
   import:          warnings
@@ -87,10 +88,9 @@ test-suite ManagedProcessTests
                    binary >= 0.8 && < 0.9,
                    deepseq,
                    network >= 2.3 && < 3.3,
-                   HUnit >= 1.2 && < 2,
                    stm,
-                   test-framework >= 0.6 && < 0.9,
-                   test-framework-hunit,
+                   tasty >= 1.5 && <1.6,
+                   tasty-hunit >=0.10 && <0.11,
                    transformers,
                    ghc-prim,
                    exceptions
@@ -125,10 +125,9 @@ test-suite PrioritisedProcessTests
                    binary,
                    deepseq,
                    network,
-                   HUnit,
                    stm,
-                   test-framework,
-                   test-framework-hunit,
+                   tasty >= 1.5 && <1.6,
+                   tasty-hunit >=0.10 && <0.11,
                    transformers,
                    ghc-prim,
                    exceptions

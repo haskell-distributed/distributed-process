@@ -13,11 +13,11 @@ import Network.Transport.TCP
   , defaultTCPAddr
   , TCPParameters(..)
   )
-import Test.Framework (defaultMainWithArgs)
+import Test.Tasty (defaultMain, localOption)
+import Test.Tasty.Runners (NumThreads)
 
 import Control.Concurrent (threadDelay)
 import Control.Exception  (IOException, try)
-import System.Environment (getArgs)
 import System.IO
 
 main :: IO ()
@@ -34,14 +34,12 @@ main = do
           either (\e -> const (return ()) (e :: IOException)) close esock
           threadDelay 10000
       }
-    args <- getArgs
     -- Tests are time sensitive. Running the tests concurrently can slow them
     -- down enough that threads using threadDelay would wake up later than
     -- expected, thus changing the order in which messages were expected.
-    -- Therefore we run the tests sequentially by passing "-j 1" to
-    -- test-framework. This does not solve the issue but makes it less likely.
+    -- Therefore we run the tests sequentially
     --
     -- The problem was first detected with
     -- 'Control.Distributed.Process.Tests.CH.testMergeChannels'
     -- in particular.
-    defaultMainWithArgs ts ("-j" : "1" : args)
+    defaultMain (localOption (1::NumThreads) ts)

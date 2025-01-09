@@ -27,6 +27,7 @@ common warnings
                  -Wredundant-constraints
                  -fhide-source-paths
                  -Wpartial-fields
+                 -Wunused-packages
 
 library
   import:              warnings

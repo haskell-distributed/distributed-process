@@ -30,6 +30,7 @@ common warnings
                  -Wredundant-constraints
                  -fhide-source-paths
                  -Wpartial-fields
+                 -Wunused-packages
 
 Flag use-mock-network
   Description:     Use mock network implementation (for testing)
@@ -81,9 +82,6 @@ Test-Suite TestQC
   Main-Is:        TestQC.hs
   If flag(use-mock-network)
     Build-Depends:  base >= 4.14 && < 5,
-                    test-framework,
-                    test-framework-quickcheck2,
-                    test-framework-hunit,
                     QuickCheck,
                     HUnit,
                     network-transport,

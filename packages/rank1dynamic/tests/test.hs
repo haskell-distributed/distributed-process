@@ -2,9 +2,8 @@
 import           Data.Rank1Dynamic
 import           Data.Rank1Typeable
 
-import           Test.Framework
-import           Test.Framework.Providers.HUnit
-import           Test.HUnit                     hiding (Test)
+import           Test.Tasty
+import           Test.Tasty.HUnit
 import           Unsafe.Coerce
 
 funKindStr :: String
@@ -18,9 +17,9 @@ funKindStr = "(->)"
 
 
 main :: IO ()
-main = defaultMain tests
+main = defaultMain (testGroup "rank1dynamic" tests)
 
-tests :: [Test]
+tests :: [TestTree]
 tests =
   [ testGroup "Examples of isInstanceOf"
       [ testCase "CANNOT use a term of type 'Int -> Bool' as 'Int -> Int'" $

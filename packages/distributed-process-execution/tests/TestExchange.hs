@@ -22,9 +22,8 @@ import Control.Monad (void, forM, forever)
 import Prelude hiding (drop)
 import Network.Transport.TCP
 import qualified Network.Transport as NT
-import Test.Framework as TF (defaultMain, testGroup, Test)
-import Test.Framework.Providers.HUnit
-import Test.HUnit (assertEqual, assertBool)
+import Test.Tasty (defaultMain, testGroup, TestTree)
+import Test.Tasty.HUnit (assertEqual, assertBool, testCase)
 
 testKeyBasedRouting :: TestResult Bool -> Process ()
 testKeyBasedRouting result = do
@@ -158,10 +157,10 @@ myRemoteTable :: RemoteTable
 myRemoteTable =
   Control.Distributed.Process.Extras.__remoteTable initRemoteTable
 
-tests :: NT.Transport  -> IO [Test]
+tests :: NT.Transport  -> IO TestTree
 tests transport = do
   localNode <- newLocalNode transport myRemoteTable
-  return [
+  return $ testGroup "" [
         testGroup "Event Manager"
         [
           testCase "Simple Event Handlers"
@@ -187,7 +186,7 @@ main :: IO ()
 main = testMain $ tests
 
 -- | Given a @builder@ function, make and run a test suite on a single transport
-testMain :: (NT.Transport -> IO [Test]) -> IO ()
+testMain :: (NT.Transport -> IO TestTree) -> IO ()
 testMain builder = do
   Right (transport, _) <- createTransportExposeInternals (defaultTCPAddr "127.0.0.1" "10501") defaultTCPParameters
   testData <- builder transport

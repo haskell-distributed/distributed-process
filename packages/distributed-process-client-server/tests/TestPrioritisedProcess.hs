@@ -38,8 +38,8 @@ import Data.List (isInfixOf)
 import Data.Maybe (isNothing, isJust)
 import Data.Typeable (Typeable)
 
-import Test.Framework (Test, testGroup)
-import Test.Framework.Providers.HUnit (testCase)
+import Test.Tasty (TestTree, testGroup)
+import Test.Tasty.HUnit (testCase)
 import TestUtils
 import ManagedProcessCommon
 
@@ -534,10 +534,10 @@ testCallPrioritisation result = do
   let ms = rights st
   stash result $ ms == ["we do prioritise", "the longest", "commands", "first"]
 
-tests :: NT.Transport  -> IO [Test]
+tests :: NT.Transport  -> IO TestTree
 tests transport = do
   localNode <- newLocalNode transport initRemoteTable
-  return [
+  return $ testGroup "" [
         testGroup "basic server functionality matches un-prioritised processes" [
             testCase "basic call with explicit server reply"
             (delayedAssertion

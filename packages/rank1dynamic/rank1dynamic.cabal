@@ -30,6 +30,7 @@ common warnings
                  -Wredundant-constraints
                  -fhide-source-paths
                  -Wpartial-fields
+                 -Wunused-packages
 
 Library
   import:              warnings
@@ -50,7 +51,7 @@ Test-Suite TestRank1Dynamic
   Build-Depends:     base >= 4.14 && < 5,
                      HUnit >= 1.2 && < 1.7,
                      rank1dynamic,
-                     test-framework >= 0.6 && < 0.9,
-                     test-framework-hunit >= 0.2.0 && < 0.4
-  default-language:    Haskell2010
+                     tasty >= 1.5 && <1.6,
+                     tasty-hunit >=0.10 && <0.11,
+  default-language:  Haskell2010
   HS-Source-Dirs:    tests

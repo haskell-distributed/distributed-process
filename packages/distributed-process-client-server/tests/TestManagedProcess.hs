@@ -26,8 +26,8 @@ import MathsDemo
 import Counter
 import qualified SafeCounter as SafeCounter
 
-import Test.Framework (Test, testGroup)
-import Test.Framework.Providers.HUnit (testCase)
+import Test.Tasty (TestTree, testGroup)
+import Test.Tasty.HUnit (testCase)
 import TestUtils
 import ManagedProcessCommon
 
@@ -210,13 +210,14 @@ testCounterExceedsLimit result = do
     ]
   stash result (r /= DiedNormal)
 
-tests :: NT.Transport  -> IO [Test]
+tests :: NT.Transport  -> IO TestTree
 tests transport = do
   localNode <- newLocalNode transport initRemoteTable
   scpid <- newEmptyMVar
   _ <- forkProcess localNode $ SafeCounter.startCounter 5 >>= stash scpid
   safeCounter <- takeMVar scpid
-  return [
+  return $ 
+    testGroup "" [
         testGroup "Basic Client/Server Functionality" [
             testCase "basic call with explicit server reply"
             (delayedAssertion

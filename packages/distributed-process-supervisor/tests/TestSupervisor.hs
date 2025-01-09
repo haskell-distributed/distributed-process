@@ -51,9 +51,8 @@ import Control.Monad.Catch (finally)
 import Data.ByteString.Lazy (empty)
 import Data.Maybe (catMaybes, isNothing, isJust)
 
-import Test.HUnit (Assertion, assertFailure, assertEqual, assertBool)
-import Test.Framework (Test, testGroup)
-import Test.Framework.Providers.HUnit (testCase)
+import Test.Tasty (TestTree, testGroup)
+import Test.Tasty.HUnit (Assertion, assertFailure, assertEqual, assertBool, testCase)
 import TestUtils hiding (waitForExit)
 import qualified Network.Transport as NT
 
@@ -1198,7 +1197,7 @@ withClosure' fn clj ctx = do
   cs <- toChildStart clj
   fn cs ctx
 
-tests :: NT.Transport -> IO [Test]
+tests :: NT.Transport -> IO TestTree
 tests transport = do
   putStrLn $ concat [ "NOTICE: Branch Tests (Relying on Non-Guaranteed Message Order) "
                     , "Can Fail Intermittently" ]
@@ -1215,8 +1214,8 @@ tests transport = do
   let withSup' sm = runInTestContext' localNode sm
   let withSupervisor = runInTestContext localNode singleTestLock ParallelShutdown
   let withSupervisor' = runInTestContext' localNode ParallelShutdown
-  return
-    [ testGroup "Supervisor Processes"
+  return $
+    testGroup "Supervisor Processes"
       [
           testGroup "Starting And Adding Children"
           [
@@ -1449,14 +1448,6 @@ tests transport = do
                 (delayedRestartAfterThreeAttempts withSupervisor')
           ]
       ]
-{-    , testGroup "CI"
-      [ testCase "Flush [NonTest]"
-        (withSupervisor'
-          (RestartRight defaultLimits (RestartInOrder LeftToRight)) []
-           (\_ -> sleep $ seconds 20))
-      ]
--}
-    ]
 
 main :: IO ()
 main = testMain $ tests

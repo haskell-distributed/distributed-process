@@ -30,6 +30,7 @@ common warnings
                  -Wredundant-constraints
                  -fhide-source-paths
                  -Wpartial-fields
+                 -Wunused-packages
 
 library
   import:            warnings
@@ -42,19 +43,16 @@ library
                      Control.Distributed.Process.Tests.Tracing
                      Control.Distributed.Process.Tests.Internal.Utils
   Build-Depends:     base >= 4.14 && < 5,
-                     ansi-terminal >= 0.5,
                      binary >= 0.8 && < 0.9,
                      bytestring >= 0.10 && < 0.13,
                      distributed-process >= 0.6.0 && < 0.8,
                      distributed-static,
                      exceptions >= 0.10,
-                     HUnit >= 1.2 && < 1.7,
                      network-transport >= 0.4.1.0 && < 0.6,
-                     network >= 2.5 && < 3.3,
                      random >= 1.0 && < 1.4,
                      setenv >= 0.1.1.3,
-                     test-framework >= 0.6 && < 0.9,
-                     test-framework-hunit >= 0.2.0 && < 0.4,
+                     tasty >= 1.5 && <1.6,
+                     tasty-hunit >=0.10 && <0.11,
                      stm
   hs-source-dirs:    src
   default-language:  Haskell98
@@ -76,10 +74,8 @@ Test-Suite TestCHInMemory
   CPP-Options:       -DTEST_SUITE_MODULE=Control.Distributed.Process.Tests.CH
   Build-Depends:     base >= 4.14 && < 5,
                      distributed-process-tests,
-                     network >= 2.3 && < 3.3,
-                     network-transport >= 0.4.1.0 && < 0.6,
                      network-transport-inmemory >= 0.5,
-                     test-framework >= 0.6 && < 0.9
+                     tasty >= 1.5 && <1.6,
   default-extensions: CPP
   default-language:  Haskell98
   ghc-options:       -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
@@ -93,10 +89,9 @@ Test-Suite TestCHInTCP
   if flag(tcp)
     Build-Depends:     base >= 4.14 && < 5,
                        distributed-process-tests,
-                       network >= 2.5 && < 3.2,
-                       network-transport >= 0.4.1.0 && < 0.6,
+                       network >= 2.3 && < 3.3,
                        network-transport-tcp >= 0.5 && < 0.9,
-                       test-framework >= 0.6 && < 0.9
+                       tasty >= 1.5 && <1.6,
   else
     Buildable:       False
   default-extensions: CPP
@@ -112,10 +107,8 @@ Test-Suite TestClosure
   CPP-Options:       -DTEST_SUITE_MODULE=Control.Distributed.Process.Tests.Closure
   Build-Depends:     base >= 4.14 && < 5,
                      distributed-process-tests,
-                     network >= 2.3 && < 3.3,
-                     network-transport >= 0.4.1.0 && < 0.6,
                      network-transport-inmemory >= 0.5,
-                     test-framework >= 0.6 && < 0.9
+                     tasty >= 1.5 && <1.6,
   default-extensions: CPP
   default-language:  Haskell98
   ghc-options:       -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
@@ -128,10 +121,8 @@ Test-Suite TestStats
   CPP-Options:       -DTEST_SUITE_MODULE=Control.Distributed.Process.Tests.Stats
   Build-Depends:     base >= 4.14 && < 5,
                      distributed-process-tests,
-                     network >= 2.3 && < 3.3,
-                     network-transport >= 0.4.1.0 && < 0.6,
                      network-transport-inmemory >= 0.5,
-                     test-framework >= 0.6 && < 0.9
+                     tasty >= 1.5 && <1.6,
   default-extensions: CPP
   default-language:  Haskell98
   ghc-options:       -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
@@ -144,10 +135,8 @@ Test-Suite TestMxInMemory
   CPP-Options:       -DTEST_SUITE_MODULE=Control.Distributed.Process.Tests.Mx
   Build-Depends:     base >= 4.14 && < 5,
                      distributed-process-tests,
-                     network >= 2.3 && < 3.3,
-                     network-transport >= 0.4.1.0 && < 0.6,
                      network-transport-inmemory >= 0.5,
-                     test-framework >= 0.6 && < 0.9
+                     tasty >= 1.5 && <1.6,
   default-extensions: CPP
   default-language:  Haskell98
   ghc-options:       -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
@@ -160,10 +149,8 @@ Test-Suite TestTracingInMemory
   CPP-Options:       -DTEST_SUITE_MODULE=Control.Distributed.Process.Tests.Tracing
   Build-Depends:     base >= 4.14 && < 5,
                      distributed-process-tests,
-                     network >= 2.3 && < 3.3,
-                     network-transport >= 0.4.1.0 && < 0.6,
                      network-transport-inmemory >= 0.5,
-                     test-framework >= 0.6 && < 0.9
+                     tasty >= 1.5 && <1.6,
   default-extensions: CPP
   default-language:  Haskell98
   ghc-options:       -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
@@ -176,10 +163,8 @@ Test-Suite TestMxInTCP
   CPP-Options:       -DTEST_SUITE_MODULE=Control.Distributed.Process.Tests.Mx
   Build-Depends:     base >= 4.14 && < 5,
                      distributed-process-tests,
-                     network >= 2.3 && < 3.3,
-                     network-transport >= 0.4.1.0 && < 0.6,
                      network-transport-inmemory >= 0.5,
-                     test-framework >= 0.6 && < 0.9
+                     tasty >= 1.5 && <1.6,
   default-extensions: CPP
   default-language:  Haskell98
   ghc-options:       -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind

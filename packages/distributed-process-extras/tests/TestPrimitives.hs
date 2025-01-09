@@ -18,9 +18,8 @@ import Control.Distributed.Process.Extras.Time
 import Control.Monad (void)
 import Network.Transport.TCP()
 
-import Test.HUnit (Assertion, assertEqual, assertBool)
-import Test.Framework (Test, testGroup, defaultMain)
-import Test.Framework.Providers.HUnit (testCase)
+import Test.Tasty (TestTree, testGroup, defaultMain)
+import Test.Tasty.HUnit (Assertion, assertEqual, assertBool, testCase)
 import Network.Transport.TCP
 import qualified Network.Transport as NT
 import Control.Distributed.Process.SysTest.Utils
@@ -178,8 +177,8 @@ multicallTest transport =
 -- Utilities and Plumbing                                                     --
 --------------------------------------------------------------------------------
 
-tests :: NT.Transport -> LocalNode  -> [Test]
-tests transport localNode = [
+tests :: NT.Transport -> LocalNode  -> TestTree
+tests transport localNode = testGroup "TestPrimitives" [
     testGroup "Linking Tests" [
         testCase "testLinkingWithNormalExits"
                  (delayedAssertion
@@ -202,14 +201,14 @@ tests transport localNode = [
     --   ]
   ]
 
-primitivesTests :: NT.Transport -> IO [Test]
+primitivesTests :: NT.Transport -> IO TestTree
 primitivesTests transport = do
   localNode <- newLocalNode transport initRemoteTable
   let testData = tests transport localNode
   return testData
 
 -- | Given a @builder@ function, make and run a test suite on a single transport
-testMain :: (NT.Transport -> IO [Test]) -> IO ()
+testMain :: (NT.Transport -> IO TestTree) -> IO ()
 testMain builder = do
   Right (transport, _) <- createTransportExposeInternals (defaultTCPAddr "127.0.0.1" "0") defaultTCPParameters
   testData <- builder transport

@@ -16,12 +16,8 @@ import Control.Distributed.Process.Node
 import Data.Binary ()
 import Data.Typeable ()
 
-import Test.Framework
-  ( Test
-  , testGroup
-  )
-import Test.HUnit (Assertion)
-import Test.Framework.Providers.HUnit (testCase)
+import Test.Tasty (TestTree, testGroup)
+import Test.Tasty.HUnit (Assertion, testCase)
 
 testLocalDeadProcessInfo :: TestResult (Maybe ProcessInfo) -> Process ()
 testLocalDeadProcessInfo result = do
@@ -107,10 +103,10 @@ testRemoteLiveProcessInfo TestTransport{..} node1 = do
       a <- delayedAssertion "getProcessInfo remotePid failed" n True
       return a
 
-tests :: TestTransport -> IO [Test]
+tests :: TestTransport -> IO TestTree
 tests testtrans@TestTransport{..} = do
   node1 <- newLocalNode testTransport initRemoteTable
-  return [
+  return $ testGroup "Stats" [
     testGroup "Process Info" [
         testCase "testLocalDeadProcessInfo"
             (delayedAssertion

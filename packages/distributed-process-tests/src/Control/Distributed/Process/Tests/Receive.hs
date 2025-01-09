@@ -14,9 +14,8 @@ import Control.Distributed.Process.Node
 
 import Control.Monad
 
-import Test.HUnit (Assertion, (@?=))
-import Test.Framework (Test)
-import Test.Framework.Providers.HUnit (testCase)
+import Test.Tasty (TestTree, testGroup)
+import Test.Tasty.HUnit (Assertion, (@?=), testCase)
 
 -- Tests:
 
@@ -147,8 +146,8 @@ testReceive transport rtable = do
   node <- newLocalNode transport rtable
   runProcess node $ master
 
-tests :: TestTransport -> IO [Test]
+tests :: TestTransport -> IO TestTree
 tests TestTransport{..} = do
     let rtable = initRemoteTable
-    return
+    return $ testGroup "Receive"
         [ testCase "testReceive" (testReceive testTransport rtable) ]
