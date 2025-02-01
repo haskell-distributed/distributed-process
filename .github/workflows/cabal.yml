@@ -2,10 +2,12 @@ name: Continuous integration
 
 on:
   push:
+    branches: ['master']
     paths-ignore:
       - 'README.md'
       - 'CONTRIBUTING.md'
   pull_request:
+    branches: ['master']
 
 jobs:
   continuous-integration:
