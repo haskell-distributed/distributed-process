@@ -38,19 +38,10 @@ library
   import:          warnings
   build-depends:
                    base >= 4.14 && < 5,
-                   data-accessor >= 0.2.2.3,
                    distributed-process >= 0.6.1 && < 0.8,
                    exceptions >= 0.10 && < 1.0,
                    binary >= 0.8 && < 0.9,
-                   deepseq >= 1.4 && < 1.7,
-                   mtl,
-                   containers >= 0.6 && < 0.8,
-                   hashable >= 1.2.0.5 && < 1.6,
-                   unordered-containers >= 0.2.3.0 && < 0.3,
-                   fingertree < 0.2,
                    stm >= 2.4 && < 2.6,
-                   time >= 1.9,
-                   transformers
   default-extensions:      CPP
                    InstanceSigs
   hs-source-dirs:   src
@@ -66,20 +57,14 @@ test-suite AsyncTests
   x-uses-tf:       true
   build-depends:
                    base >= 4.14 && < 5,
-                   ansi-terminal >= 0.5 && < 1.2,
                    distributed-process,
                    distributed-process-async,
                    distributed-process-systest ^>= 0.4,
-                   exceptions >= 0.10 && < 1.0,
-                   network >= 2.5 && < 3.3,
                    network-transport >= 0.4 && < 0.6,
                    network-transport-tcp >= 0.6 && < 0.9,
                    binary >= 0.8 && < 0.9,
-                   deepseq >= 1.4 && < 1.7,
-                   stm >= 2.3 && < 2.6,
                    tasty >= 1.5 && <1.6,
                    tasty-hunit >=0.10 && <0.11,
-                   transformers
   hs-source-dirs:  tests
   default-language: Haskell2010
   ghc-options:     -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
