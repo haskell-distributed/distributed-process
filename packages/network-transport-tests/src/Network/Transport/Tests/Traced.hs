@@ -60,7 +60,6 @@ import Prelude hiding
   )
 import qualified Prelude
 import Control.Exception (catches, Handler(..), SomeException, throwIO, Exception(..), IOException)
-import Control.Applicative ((<$>))
 import Data.Typeable (Typeable)
 import Data.Maybe (catMaybes)
 import Data.ByteString (ByteString)

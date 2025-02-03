@@ -27,7 +27,7 @@ module Network.Transport.Internal
 import Foreign.Storable (pokeByteOff, peekByteOff)
 import Foreign.ForeignPtr (withForeignPtr)
 import Data.ByteString (ByteString)
-import Data.List (foldl')
+import Data.List(foldl')
 import qualified Data.ByteString as BS (length)
 import qualified Data.ByteString.Internal as BSI
   ( unsafeCreate
