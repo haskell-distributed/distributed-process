@@ -1,6 +1,6 @@
 cabal-version:       3.0
 name:                network-transport-tests
-version:             0.3.3
+version:             0.3.4
 synopsis:            Unit tests for Network.Transport implementations
 description:         Unit tests for Network-Transport implementations.
 homepage:            http://haskell-distributed.github.com

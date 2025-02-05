@@ -1,6 +1,6 @@
 cabal-version: 3.0
 Name:          network-transport
-Version:       0.5.8
+Version:       0.5.9
 Build-Type:    Simple
 License:       BSD-3-Clause
 License-File:  LICENSE

@@ -1,6 +1,6 @@
 cabal-version:  3.0
 name:           distributed-process-supervisor
-version:        0.2.2
+version:        0.2.4
 build-type:     Simple
 license:        BSD-3-Clause
 license-file:   LICENSE

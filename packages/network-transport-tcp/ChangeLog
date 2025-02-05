@@ -1,4 +1,4 @@
-Unreleased
+2025-02-04 Laurent P. René de Cotret <laurent.decotret@outlook.com> 0.8.6
 
 * Ported test suite to use `tasty` rather than `test-framework`.
 * Addressed some compilation warnings (#467)

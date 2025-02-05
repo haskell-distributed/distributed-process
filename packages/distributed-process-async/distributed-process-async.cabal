@@ -1,6 +1,6 @@
 cabal-version:  3.0
 name:           distributed-process-async
-version:        0.2.10
+version:        0.2.11
 build-type:     Simple
 license:        BSD-3-Clause
 license-file:   LICENCE

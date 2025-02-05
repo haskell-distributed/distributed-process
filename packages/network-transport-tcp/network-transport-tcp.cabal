@@ -1,6 +1,6 @@
 cabal-version: 3.0
 Name:          network-transport-tcp
-Version:       0.8.5
+Version:       0.8.6
 Build-Type:    Simple
 License:       BSD-3-Clause
 License-file:  LICENSE
