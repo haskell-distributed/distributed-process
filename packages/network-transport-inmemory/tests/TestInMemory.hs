@@ -4,7 +4,6 @@ import Network.Transport.Tests
 import Network.Transport.Tests.Auxiliary (runTests)
 import Network.Transport.InMemory
 import Network.Transport
-import Control.Applicative ((<$>))
 
 main :: IO ()
 main = do

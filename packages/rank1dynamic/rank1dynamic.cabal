@@ -49,7 +49,6 @@ Test-Suite TestRank1Dynamic
   Type:              exitcode-stdio-1.0
   Main-Is:           test.hs
   Build-Depends:     base >= 4.14 && < 5,
-                     HUnit >= 1.2 && < 1.7,
                      rank1dynamic,
                      tasty >= 1.5 && <1.6,
                      tasty-hunit >=0.10 && <0.11,

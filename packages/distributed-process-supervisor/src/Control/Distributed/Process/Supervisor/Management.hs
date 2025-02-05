@@ -52,7 +52,6 @@ import Control.Distributed.Process.Supervisor.Types
   , SupervisorPid
   )
 import Data.Binary
-import Data.Foldable (mapM_)
 import Data.Hashable (Hashable(..))
 import Control.Distributed.Process.Extras.Internal.Containers.MultiMap (MultiMap)
 import qualified Control.Distributed.Process.Extras.Internal.Containers.MultiMap as Map

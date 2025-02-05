@@ -19,7 +19,7 @@ import Control.Distributed.Process.Extras.Timer
 import Control.Distributed.Process.SysTest.Utils
 
 import Test.Tasty (TestTree, testGroup, defaultMain)
-import Test.Tasty.HUnit (Assertion, assertEqual, assertBool, testCase)
+import Test.Tasty.HUnit (testCase)
 import Network.Transport.TCP
 import qualified Network.Transport as NT
 

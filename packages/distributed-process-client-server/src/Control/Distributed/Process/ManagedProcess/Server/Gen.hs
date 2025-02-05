@@ -97,7 +97,6 @@ import qualified Control.Distributed.Process.ManagedProcess.Internal.GenProcess 
  , modifyState
  , setUserTimeout
  , setProcessState
- , GenProcess
  , peek
  , push
  , enqueue

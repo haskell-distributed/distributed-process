@@ -651,7 +651,6 @@ module Control.Distributed.Process.ManagedProcess
 import Control.Distributed.Process hiding (call, Message)
 import Control.Distributed.Process.ManagedProcess.Client
 import Control.Distributed.Process.ManagedProcess.Server
-import qualified Control.Distributed.Process.ManagedProcess.Server.Restricted as R
 import qualified Control.Distributed.Process.ManagedProcess.Server.Priority as P hiding (reject)
 import qualified Control.Distributed.Process.ManagedProcess.Internal.GenProcess as Gen
 import Control.Distributed.Process.ManagedProcess.Internal.GenProcess

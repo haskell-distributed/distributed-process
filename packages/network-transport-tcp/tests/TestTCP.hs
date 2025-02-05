@@ -27,14 +27,11 @@ import Control.Concurrent.MVar ( MVar
                                , putMVar
                                , takeMVar
                                , readMVar
-                               , isEmptyMVar
                                , newMVar
                                , modifyMVar
                                , modifyMVar_
-                               , swapMVar
                                )
-import Control.Monad (replicateM, guard, forM_, replicateM_, when)
-import Control.Applicative ((<$>))
+import Control.Monad (replicateM, guard, replicateM_, when)
 import Control.Exception (throwIO, try, SomeException)
 import Network.Transport.TCP ( socketToEndPoint )
 import Network.Transport.Internal ( prependLength
@@ -48,7 +45,6 @@ import Network.Transport.TCP.Internal
   , decodeControlHeader
   , ConnectionRequestResponse(..)
   , encodeConnectionRequestResponse
-  , decodeConnectionRequestResponse
   , encodeWord32
   , recvWord32
   , forkServer
@@ -63,12 +59,10 @@ import qualified Network.Transport.TCP.Mock.Socket as N
 import qualified Network.Socket as N
 #endif
   ( close
-  , ServiceName
   , Socket
   , AddrInfo
   , shutdown
   , ShutdownCmd(ShutdownSend)
-  , SockAddr(..)
   , SocketType(Stream)
   , AddrInfo(..)
   , getAddrInfo

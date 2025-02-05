@@ -67,7 +67,6 @@ import Control.Distributed.Process.Extras.Timer
 import Data.Binary (Binary)
 import Data.Maybe (isJust, fromJust)
 import Data.Typeable (Typeable)
-import GHC.Conc (registerDelay)
 import GHC.Generics
 
 --------------------------------------------------------------------------------

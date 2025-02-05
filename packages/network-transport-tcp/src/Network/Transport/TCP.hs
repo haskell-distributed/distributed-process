@@ -71,7 +71,6 @@ import Network.Transport.Internal
   ( prependLength
   , mapIOException
   , tryIO
-  , tryToEnum
   , void
   , timeoutMaybe
   , asyncWhenCancelled
@@ -130,7 +129,6 @@ import Control.Concurrent.MVar
   )
 import Control.Concurrent.Async (async, wait)
 import Control.Category ((>>>))
-import Control.Applicative ((<$>))
 import Control.Monad (when, unless, join, mplus, (<=<))
 import Control.Exception
   ( IOException
@@ -151,10 +149,10 @@ import Control.Exception
   )
 import Data.IORef (IORef, newIORef, writeIORef, readIORef, writeIORef)
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS (concat, length, null)
+import qualified Data.ByteString as BS (concat, null)
 import qualified Data.ByteString.Char8 as BSC (pack, unpack)
 import Data.Bits (shiftL, (.|.))
-import Data.Maybe (isJust, isNothing, fromJust)
+import Data.Maybe (isJust, isNothing)
 import Data.Word (Word32)
 import Data.Set (Set)
 import qualified Data.Set as Set
@@ -168,7 +166,6 @@ import qualified Data.Set as Set
   )
 import Data.Map (Map)
 import qualified Data.Map as Map (empty)
-import Data.Traversable (traverse)
 import Data.Accessor (Accessor, accessor, (^.), (^=), (^:))
 import qualified Data.Accessor.Container as DAC (mapMaybe)
 import Data.Foldable (forM_, mapM_)
@@ -821,8 +818,6 @@ apiConnect transport ourEndPoint theirAddress _reliability hints =
           { send  = apiSend  (ourEndPoint, theirEndPoint) connId connAlive
           , close = apiClose (ourEndPoint, theirEndPoint) connId connAlive
           }
-  where
-  params = transportParams transport
 
 -- | Close a connection
 apiClose :: EndPointPair -> LightweightConnectionId -> IORef Bool -> IO ()
@@ -1025,7 +1020,7 @@ handleConnectionRequest transport socketClosed (sock, sockAddr) = handle handleE
     handleConnectionRequestV0 :: (N.Socket, N.SockAddr) -> IO (Maybe (IO ()))
     handleConnectionRequestV0 (sock, sockAddr) = do
       -- Get the OS-determined host and port.
-      (numericHost, resolvedHost, actualPort) <-
+      (numericHost, resolvedHost, _actualPort) <-
         resolveSockAddr sockAddr >>=
           maybe (throwIO (userError "handleConnectionRequest: invalid socket address")) return
       -- The peer must send our identifier and their address promptly, if a
@@ -1304,7 +1299,7 @@ handleIncomingMessages params (ourEndPoint, theirEndPoint) =
 
     -- Close the socket (if we don't have any outgoing connections)
     closeSocket :: N.Socket -> LightweightConnectionId -> IO Bool
-    closeSocket sock lastReceivedId = do
+    closeSocket _sock lastReceivedId = do
       mAct <- modifyMVar theirState $ \st -> do
         case st of
           RemoteEndPointInvalid _ ->
@@ -1388,8 +1383,8 @@ handleIncomingMessages params (ourEndPoint, theirEndPoint) =
               "handleIncomingMessages:closeSocket (closed)"
       case mAct of
         Nothing -> return False
-        Just act -> do
-          runScheduledAction (ourEndPoint, theirEndPoint) act
+        Just act' -> do
+          runScheduledAction (ourEndPoint, theirEndPoint) act'
           return True
 
     -- Read a message and output it on the endPoint's channel. By rights we
@@ -2013,7 +2008,7 @@ schedule theirEndPoint act = do
 -- However, it will then wait until @p@ is executed (by this call to
 -- 'runScheduledAction' or by another).
 runScheduledAction :: EndPointPair -> Action a -> IO a
-runScheduledAction (ourEndPoint, theirEndPoint) mvar = do
+runScheduledAction (_ourEndPoint, theirEndPoint) mvar = do
     join $ readChan (remoteScheduled theirEndPoint)
     ma <- readMVar mvar
     case ma of

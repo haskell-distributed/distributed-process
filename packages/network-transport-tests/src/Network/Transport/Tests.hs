@@ -20,7 +20,6 @@ import Control.Exception
   )
 import Control.Monad (replicateM, replicateM_, when, guard, forM_, unless)
 import Control.Monad.Except ()
-import Control.Applicative ((<$>))
 import Network.Transport
 import Network.Transport.Internal (tlog, tryIO, timeoutMaybe)
 import Network.Transport.Util (spawn)
@@ -652,7 +651,7 @@ testCloseEndPoint transport _ = do
 
     -- First test (see client)
     do
-      theirAddr <- readMVar clientAddr1
+      _theirAddr <- readMVar clientAddr1
       ConnectionOpened cid ReliableOrdered addr <- receive endpoint
       -- Ensure that connecting to the supplied address reaches the peer.
       Right conn <- connect endpoint addr ReliableOrdered defaultConnectHints
@@ -716,7 +715,7 @@ testCloseEndPoint transport _ = do
       send conn ["ping"]
 
       -- Reply from the server
-      ConnectionOpened cid ReliableOrdered addr <- receive endpoint
+      ConnectionOpened cid ReliableOrdered _addr <- receive endpoint
       Received cid' ["pong"] <- receive endpoint ; True <- return $ cid == cid'
 
       -- Close the endpoint

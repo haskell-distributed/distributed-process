@@ -9,7 +9,7 @@ import qualified Control.Distributed.Process.Extras.Internal.Queue.PriorityQ as 
 import Data.Function (on)
 import Data.List ( sortBy )
 import Test.Tasty (TestTree, testGroup, defaultMain)
-import Test.Tasty.HUnit (Assertion, assertEqual, assertBool, testCase)
+import Test.Tasty.HUnit (assertEqual, assertBool, testCase)
 import Test.Tasty.QuickCheck (testProperty)
 
 import Prelude

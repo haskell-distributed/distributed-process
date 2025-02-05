@@ -2,17 +2,17 @@
 
 import Control.Concurrent (forkIO, threadDelay)
 import qualified Control.Concurrent.MVar as MVar
-import Control.Distributed.Process (NodeId, Process, liftIO)
 import Control.Distributed.Process.Node (initRemoteTable)
 import Control.Distributed.Process.Backend.SimpleLocalnet
 import Control.Monad (forM_)
+import Control.Monad.IO.Class (liftIO)
 import qualified Data.List as List
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertEqual, testCase)
 
 main :: IO ()
-main = defaultMain 
-     $ testGroup "Test suite" 
+main = defaultMain
+     $ testGroup "Test suite"
      [ testDiscoverNodes
      ]
 
@@ -24,7 +24,7 @@ testDiscoverNodes = testCase "discover nodes" $ do
     backend <- initializeBackend "127.0.0.1" port initRemoteTable
     _ <- forkIO $ startSlave backend
     threadDelay 100000
-  
+
   -- initialize master node
   discoveredNodesSlot <- MVar.newEmptyMVar
   backend <- initializeBackend "127.0.0.1" "10004" initRemoteTable
@@ -33,12 +33,12 @@ testDiscoverNodes = testCase "discover nodes" $ do
     liftIO $ MVar.putMVar discoveredNodesSlot nds
 
   discoveredNodes <- (List.sort . List.nub) <$> MVar.readMVar discoveredNodesSlot
-  assertEqual "Discovered nodes" 
+  assertEqual "Discovered nodes"
               [ "nid://127.0.0.1:10000:0"
               , "nid://127.0.0.1:10001:0"
               , "nid://127.0.0.1:10002:0"
               , "nid://127.0.0.1:10003:0"
-              ] 
+              ]
               (map show discoveredNodes)
 
 

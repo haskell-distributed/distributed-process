@@ -46,12 +46,8 @@ library
                    deepseq >= 1.4 && < 1.7,
                    mtl,
                    containers >= 0.6 && < 0.8,
-                   hashable >= 1.2.0.5 && < 1.6,
-                   unordered-containers >= 0.2.3.0 && < 0.3,
                    fingertree < 0.2,
                    stm >= 2.4 && < 2.6,
-                   time > 1.4 && < 1.15,
-                   transformers,
                    exceptions >= 0.10 && < 0.11
   hs-source-dirs:   src
   exposed-modules:
@@ -74,25 +70,17 @@ test-suite ManagedProcessTests
   x-uses-tf:       true
   build-depends:
                    base >= 4.14 && < 5,
-                   ansi-terminal >= 0.5 && < 1.2,
-                   containers,
                    distributed-process,
                    distributed-process-extras,
                    distributed-process-async,
                    distributed-process-client-server,
                    distributed-process-systest ^>= 0.4,
                    network-transport >= 0.4 && < 0.7,
-                   mtl,
-                   fingertree,
                    network-transport-tcp >= 0.6 && < 0.9,
                    binary >= 0.8 && < 0.9,
-                   deepseq,
-                   network >= 2.3 && < 3.3,
                    stm,
                    tasty >= 1.5 && <1.6,
                    tasty-hunit >=0.10 && <0.11,
-                   transformers,
-                   ghc-prim,
                    exceptions
   other-modules:   Counter,
                    ManagedProcessCommon,
@@ -111,25 +99,18 @@ test-suite PrioritisedProcessTests
   x-uses-tf:       true
   build-depends:
                    base >= 4.14 && < 5,
-                   ansi-terminal,
-                   containers,
                    distributed-process,
                    distributed-process-extras,
                    distributed-process-async,
                    distributed-process-client-server,
                    distributed-process-systest ^>= 0.4,
                    network-transport,
-                   mtl,
-                   fingertree,
                    network-transport-tcp,
                    binary,
                    deepseq,
-                   network,
                    stm,
                    tasty >= 1.5 && <1.6,
                    tasty-hunit >=0.10 && <0.11,
-                   transformers,
-                   ghc-prim,
                    exceptions
   other-modules:   ManagedProcessCommon,
                    TestUtils
