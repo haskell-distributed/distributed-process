@@ -3,6 +3,7 @@
 Unreleased
 
 * Ported test suite to use `tasty` rather than `test-framework`.
+* Removed unused dependencies and addressed some warnings (#467).
 
 2024-10-30  David Simmons-Duffin <dsd@caltech.edu> 0.2.7.1
 
