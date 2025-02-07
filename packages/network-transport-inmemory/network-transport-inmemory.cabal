@@ -17,8 +17,8 @@ Description:   This is a transport implementation that could be used for local
                It could be used either for testing purposes or for local
                communication that require the network-transport semantics.
                .
-               NB: network-tranpsport-inmemory does not support cross-transport
-               communication. All endpoints that want to comminicate should be
+               NB: network-transport-inmemory does not support cross-transport
+               communication. All endpoints that want to communicate should be
                created using the same transport.
 
 tested-with:   GHC==8.10.7 GHC==9.0.2 GHC==9.2.8 GHC==9.4.5 GHC==9.6.4 GHC==9.8.2 GHC==9.10.1 GHC==9.12.1
