@@ -74,4 +74,7 @@ jobs:
       run: cabal build all ${{matrix.cabal-flags}}
         
     - name: Run all tests
+      # We have seen in the past some tests hang for hours, wasting resources.
+      # The timeout below should be plenty
+      timeout-minutes: 10
       run: cabal test all ${{matrix.cabal-flags}}
