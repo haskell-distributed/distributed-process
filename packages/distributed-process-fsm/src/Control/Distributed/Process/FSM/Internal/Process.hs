@@ -121,19 +121,19 @@ walkPFSM st acc
 handleRpcRawInputs :: forall s d . (Show s) => State s d
                    -> (P.Message, SendPort P.Message)
                    -> Action (State s d)
-handleRpcRawInputs st@State{..} (msg, port) =
+handleRpcRawInputs st (msg, port) =
   handleInput msg $ st { stReply = (sendChan port), stTrans = Q.empty, stInput = Just msg }
 
 handleAllRawInputs :: forall s d. (Show s) => State s d
                    -> P.Message
                    -> Action (State s d)
-handleAllRawInputs st@State{..} msg =
+handleAllRawInputs st msg =
   handleInput msg $ st { stReply = noOp, stTrans = Q.empty, stInput = Just msg }
 
 handleExitReason :: forall s d. (Show s) => State s d
                    -> P.Message
                    -> Process (Maybe (ProcessAction (State s d)))
-handleExitReason st@State{..} msg =
+handleExitReason st msg =
   let st' = st { stReply = noOp, stTrans = Q.empty, stInput = Just msg }
   in tryHandleInput st' msg
 
