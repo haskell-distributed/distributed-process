@@ -50,7 +50,7 @@ library
                    distributed-process-client-server >= 0.2.0 && < 0.4,
                    binary >= 0.8 && < 0.9,
                    deepseq >= 1.4 && < 1.7,
-                   containers >= 0.6 && < 0.8,
+                   containers >= 0.6 && < 0.9,
                    hashable >= 1.2.0.5 && < 1.6,
                    time > 1.4 && < 1.15,
                    exceptions >= 0.10 && < 0.11

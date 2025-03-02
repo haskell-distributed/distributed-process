@@ -1,3 +1,7 @@
+Unreleased
+
+* Added support for `containers-0.8`.
+
 2025-02-04 Laurent P. René de Cotret <laurent.decotret@outlook.com> 0.7.8
 
 * Added documentation on the unit of measurement for timeout durations (#340)
@@ -190,7 +194,7 @@ $(mkClosure 'f) within the body of "f".
 * Numerous memory leaks plugged
 * Relax upper bound on dependency on 'network'
 * New primitive 'matchAny'
-* Remove 'whereisRemote' (see comment of 'whereisRemoteAsync') 
+* Remove 'whereisRemote' (see comment of 'whereisRemoteAsync')
 
 2012-08-16  Edsko de Vries  <edsko@well-typed.com>  0.3.1
 
@@ -240,9 +244,9 @@ slave nodes could not be reused)
 2012-07-11  Edsko de Vries  <edsko@well-typed.com>  0.2.1
 
 * Complete redesign of the underlying implementation of static values and
-closures. 
+closures.
 
-* Add support for 'spawnChannel' 
+* Add support for 'spawnChannel'
 
 2012-07-09  Edsko de Vries  <edsko@well-typed.com>  0.2.0.1
 

@@ -39,7 +39,7 @@ library
                    distributed-process >= 0.6.0 && < 0.8,
                    binary >= 0.8 && < 0.9,
                    deepseq >= 1.4 && < 1.7,
-                   containers >= 0.6 && < 0.8,
+                   containers >= 0.6 && < 0.9,
                    exceptions >= 0.10,
                    hashable >= 1.2.0.5 && < 1.6,
                    unordered-containers >= 0.2.3.0 && < 0.3,

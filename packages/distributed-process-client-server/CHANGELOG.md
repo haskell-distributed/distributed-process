@@ -1,5 +1,9 @@
 # Change Log
 
+Unreleased
+
+* Added support for `containers-0.8`.
+
 2025-02-04 Laurent P. René de Cotret <laurent.decotret@outlook.com> 0.2.8.0
 
 * Ported test suite to use `tasty` rather than `test-framework`.

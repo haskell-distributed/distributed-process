@@ -1,3 +1,7 @@
+Unreleased
+
+* Added support for `containers-0.8`.
+
 2025-02-04 Laurent P. René de Cotret <laurent.decotret@outlook.com> 0.3.3
 
 * Removed unused dependencies and addressed some compilation warnings (#467).
@@ -84,7 +88,7 @@ Patch by Jeff Epstein
 
 2012-07-09  Edsko de Vries  <edsko@well-typed.com>  0.2.0.1
 
-* Bugfix: Documentation referred to old module name 
+* Bugfix: Documentation referred to old module name
 
 2012-07-07  Edsko de Vries  <edsko@well-typed.com>  0.2.0
 

@@ -47,7 +47,7 @@ Library
                    network-transport >= 0.4.0.0 && < 0.7,
                    data-accessor >= 0.2 && < 0.3,
                    bytestring >= 0.10 && < 0.13,
-                   containers >= 0.6 && < 0.8,
+                   containers >= 0.6 && < 0.9,
                    stm >= 2.0 && < 3.0
   Exposed-modules: Network.Transport.InMemory
                    Network.Transport.InMemory.Internal

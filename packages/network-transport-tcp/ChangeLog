@@ -1,3 +1,7 @@
+Unreleased
+
+* Added support for `containers-0.8`.
+
 2025-02-04 Laurent P. René de Cotret <laurent.decotret@outlook.com> 0.8.6
 
 * Ported test suite to use `tasty` rather than `test-framework`.
@@ -90,7 +94,7 @@ circumstances.
 
 * Implement new disconnection semantics
 * Make 'connect' asynchronous (sender allocated connection IDs)
-* Fix distributed deadlock 
+* Fix distributed deadlock
 * Optimize treatment of crossed connection requests
 * Relax upper bound on network
 * Fix memory leaks

@@ -1,3 +1,7 @@
+Unreleased
+
+* Added support for `containers-0.8`.
+
 2025-02-04 Laurent P. René de Cotret <laurent.decotret@outlook.com> 0.5.42
 
 * Addressed some compilation warnings (#467)
@@ -16,7 +20,7 @@
 * Fixes dependency bounds.
 0.5.1
 * Fixed bug in cleanup procedure.
-0.5 
+0.5
 * Complete reimplementation based on STM primitives.
 * Rename Network.Transport.Chan to Network.Transport.InMemory.
 * Disable multicast support until it is properly implemented.
