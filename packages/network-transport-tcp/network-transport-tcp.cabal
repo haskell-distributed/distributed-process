@@ -92,7 +92,6 @@ Test-Suite TestQC
                     data-accessor,
                     data-accessor-transformers,
                     mtl,
-                    transformers,
                     lockfree-queue
   Else
     Buildable: False
@@ -105,3 +104,27 @@ Test-Suite TestQC
                   DeriveDataTypeable
                   MultiParamTypeClasses
   default-language: Haskell2010
+
+executable chat-server
+  import:          warnings
+  main-is:         ChatServer.hs
+  hs-source-dirs:  tests/chat
+  Default-Language: Haskell2010
+  build-depends:   base >= 4.14 && < 5,
+                   bytestring,
+                   containers,
+                   mtl,
+                   network-transport,
+                   network-transport-tcp
+
+executable chat-client
+  import:          warnings
+  main-is:         ChatClient.hs
+  hs-source-dirs:  tests/chat
+  Default-Language: Haskell2010
+  build-depends:   base >= 4.14 && < 5,
+                   bytestring,
+                   containers,
+                   network-transport,
+                   network-transport-tcp
+  

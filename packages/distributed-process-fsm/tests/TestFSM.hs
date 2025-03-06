@@ -29,8 +29,6 @@ import Test.Tasty.HUnit (testCase, assertEqual, assertBool)
 import Network.Transport.TCP
 import qualified Network.Transport as NT
 
--- import Control.Distributed.Process.Serializable (Serializable)
--- import Control.Monad (void)
 import Data.Binary (Binary)
 import Data.Maybe (fromJust)
 import Data.Typeable (Typeable)
@@ -157,7 +155,7 @@ republicationOfEvents = do
   send pid "yo"
   send pid On
 
-  res' <- receiveChanTimeout (asTimeout $ seconds 20) rp :: Process (Maybe ())
+  _ <- receiveChanTimeout (asTimeout $ seconds 20) rp :: Process (Maybe ())
   liftIO $ assertEqual mempty (Just ()) res
 
   kill pid "thankyou byebye"

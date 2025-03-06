@@ -93,7 +93,7 @@ import Data.Sequence
  )
 import qualified Data.Sequence as Q (null)
 import Data.Typeable (Typeable, typeOf)
-import Data.Tuple (swap, uncurry)
+import Data.Tuple (swap)
 import GHC.Generics
 
 -- | The internal state of an FSM process.
@@ -312,7 +312,6 @@ apply st msg step
                          setProcessState s'
       -- (_, st') <- runFSM st (addTransition ev)
       return $ enqueue st (Just ev)
-  | otherwise = error $ baseErr ++ ".Internal.Types.apply:InvalidStep"
   where
     mstash = return . uncurry enqueue . swap
     stash (o, s) = return $ enqueue s (Just o)

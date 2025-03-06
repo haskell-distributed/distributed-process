@@ -127,7 +127,7 @@
 -- >          ^. ((event :: Event ButtonPush)
 -- >               ~> (  (On  ~@  enter Off))
 -- >                  .| (Off ~@ (set_ (+1) >> enter On))
--- >                  ) |> (reply currentState))
+-- >                  ) |> (reply currentState)
 --
 -- Our client code will need to use the @call@ function from the Client module,
 -- although it /is/ possible to interact synchronously with an FSM process (e.g.

@@ -1,6 +1,8 @@
+module Main (main) where
+
 import System.Environment (getArgs)
 import Network.Transport
-import Network.Transport.TCP (createTransport)
+import Network.Transport.TCP (createTransport, defaultTCPAddr, defaultTCPParameters)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, takeMVar, putMVar, newMVar, readMVar, modifyMVar_, modifyMVar)
 import Control.Concurrent (forkIO)
 import Control.Monad (forever, forM, unless, when)
@@ -11,12 +13,12 @@ import qualified Data.Map as Map (fromList, elems, insert, member, empty, size, 
 
 chatClient :: MVar () -> EndPoint -> EndPointAddress -> IO ()
 chatClient done endpoint serverAddr = do
-    connect endpoint serverAddr ReliableOrdered
+    _ <- connect endpoint serverAddr ReliableOrdered  defaultConnectHints
     cOut <- getPeers >>= connectToPeers
     cIn  <- newMVar Map.empty
 
     -- Listen for incoming messages
-    forkIO . forever $ do
+    _ <- forkIO . forever $ do
       event <- receive endpoint
       case event of
         Received _ msg ->
@@ -26,7 +28,7 @@ chatClient done endpoint serverAddr = do
           didAdd <- modifyMVar cOut $ \conns ->
             if not (Map.member addr conns)
               then do
-                Right conn <- connect endpoint addr ReliableOrdered
+                Right conn <- connect endpoint addr ReliableOrdered  defaultConnectHints
                 return (Map.insert addr conn conns, True)
               else
                 return (conns, False)
@@ -38,8 +40,7 @@ chatClient done endpoint serverAddr = do
             close (conns Map.! addr)
             return (Map.delete addr conns)
           showNumPeers cOut
-
-
+        _ -> pure () -- DO nothing for unrecognised events
 
 {-
     chatState <- newMVar (Map.fromList peerConns)
@@ -67,7 +68,7 @@ chatClient done endpoint serverAddr = do
     let go = do
           msg <- BSC.getLine
           unless (BS.null msg) $ do
-            readMVar cOut >>= \conns -> forM (Map.elems conns) $ \conn -> send conn [msg]
+            _ <- readMVar cOut >>= \conns -> forM (Map.elems conns) $ \conn -> send conn [msg]
             go
     go
     putMVar done ()
@@ -83,7 +84,7 @@ chatClient done endpoint serverAddr = do
     connectToPeers :: [EndPointAddress] -> IO (MVar (Map EndPointAddress Connection))
     connectToPeers addrs = do
       conns <- forM addrs $ \addr -> do
-        Right conn <- connect endpoint addr ReliableOrdered
+        Right conn <- connect endpoint addr ReliableOrdered  defaultConnectHints
         return (addr, conn)
       newMVar (Map.fromList conns)
 
@@ -97,11 +98,11 @@ chatClient done endpoint serverAddr = do
 main :: IO ()
 main = do
   host:port:server:_ <- getArgs
-  Right transport <- createTransport host port
+  Right transport <- createTransport (defaultTCPAddr host port) defaultTCPParameters
   Right endpoint <- newEndPoint transport
   clientDone <- newEmptyMVar
 
-  forkIO $ chatClient clientDone endpoint (EndPointAddress . BSC.pack $ server)
+  _ <- forkIO $ chatClient clientDone endpoint (EndPointAddress . BSC.pack $ server)
 
   takeMVar clientDone
 

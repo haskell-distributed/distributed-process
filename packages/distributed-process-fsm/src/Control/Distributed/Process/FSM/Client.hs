@@ -80,7 +80,7 @@ callTimeout pid msg ti = bracket (monitor pid) unmonitor $ \mRef -> do
     Just m  -> do mR <- unwrapMessage m
                   case mR of
                     Just r -> return $ Just r
-                    _      -> die $ ExitOther $ baseErr ++ ".Client:InvalidResponseType"
+                    Nothing -> die $ ExitOther $ baseErr ++ ".Client:InvalidResponseType"
 
 -- | Make a synchronous /call/ to the FSM process at "ProcessId". If a
 -- "Step" exists that upon receiving an event of type @m@ will eventually
@@ -98,4 +98,4 @@ call pid msg = bracket (monitor pid) unmonitor $ \mRef -> do
   mR <- unwrapMessage msg'
   case mR of
     Just r -> return r
-    _      -> die $ ExitOther $ baseErr ++ ".Client:InvalidResponseType"
+    Nothing -> die $ ExitOther $ baseErr ++ ".Client:InvalidResponseType"
