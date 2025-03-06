@@ -92,7 +92,6 @@ Test-Suite TestQC
                     data-accessor,
                     data-accessor-transformers,
                     mtl,
-                    transformers,
                     lockfree-queue
   Else
     Buildable: False

@@ -81,7 +81,6 @@ Library
                    binary >= 0.8 && < 0.9,
                    bytestring >= 0.10 && < 0.13,
                    hashable >= 1.2.0.5 && < 1.6,
-                   transformers >= 0.2 && < 0.7,
                    deepseq >= 1.0 && < 1.7
   Exposed-Modules: Network.Transport
                    Network.Transport.Util
