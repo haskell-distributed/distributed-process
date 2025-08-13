@@ -1,0 +1,108 @@
+cabal-version: 3.0
+Name:          network-transport-quic
+Version:       0.1.0
+build-Type:    Simple
+License:       BSD-3-Clause
+License-file:  LICENSE
+Copyright:     Laurent P. René de Cotret
+Author:        Laurent P. René de Cotret
+maintainer:    The Distributed Haskell team
+Stability:     experimental
+Homepage:      http://haskell-distributed.github.com
+Bug-Reports:   https://github.com/haskell-distributed/distributed-process/issues
+Synopsis:      Networking layer for Cloud Haskell based on QUIC
+Description:   Networking layer for Cloud Haskell based on QUIC
+tested-with:   GHC==8.10.7 GHC==9.0.2 GHC==9.2.8 GHC==9.4.5 GHC==9.6.4 GHC==9.8.2 GHC==9.10.1 GHC==9.12.1
+Category:      Network
+extra-doc-files: ChangeLog
+extra-source-files: test/credentials/*
+
+source-repository head
+  Type:     git
+  Location: https://github.com/haskell-distributed/distributed-process
+  SubDir:   packages/network-transport-quic
+
+common common
+    ghc-options:
+                 -- warnings
+                 -Wall
+                 -Wcompat
+                 -Widentities
+                 -Wincomplete-uni-patterns
+                 -Wincomplete-record-updates
+                 -Wredundant-constraints
+                 -fhide-source-paths
+                 -Wpartial-fields
+                 -Wunused-packages
+                 -- The -threaded option is /required/ to use the quic library
+                 -threaded
+
+library
+  import:             common
+  build-depends:      async
+                    , base >= 4.14 && < 5
+                    , binary >= 0.8 && < 0.10
+                    , bytestring >= 0.11 && < 0.13
+                    , containers
+                    , microlens-platform ^>=0.4
+                    , network >= 3.1 && < 3.3
+                    , network-transport >= 0.5 && < 0.6
+                    -- Prior to version 0.2.20, `quic` had issues with handling
+                    -- pending data in the stream buffer. This meant that vectored
+                    -- message sends did not work correctly at the transport layer
+                    , quic >=0.2.20 && <0.3
+                    , stm >=2.4 && <2.6
+                    , tls
+                    , tls-session-manager
+  exposed-modules:    Network.Transport.QUIC
+                      Network.Transport.QUIC.Internal
+  other-modules:      Network.Transport.QUIC.Internal.Configuration
+                      Network.Transport.QUIC.Internal.Client
+                      Network.Transport.QUIC.Internal.Messaging
+                      Network.Transport.QUIC.Internal.QUICAddr
+                      Network.Transport.QUIC.Internal.QUICTransport
+                      Network.Transport.QUIC.Internal.Server
+                      Network.Transport.QUIC.Internal.TLS
+  default-language:   Haskell2010
+  default-extensions: ImportQualifiedPost
+  hs-source-dirs:     src
+
+test-suite network-transport-quic-tests
+    import:             common
+    default-language:   Haskell2010
+    default-extensions: ImportQualifiedPost
+    main-is:            Main.hs
+    other-modules:      Test.Network.Transport.QUIC
+                        Test.Network.Transport.QUIC.Internal.Messaging
+                        Test.Network.Transport.QUIC.Internal.QUICAddr
+    type:               exitcode-stdio-1.0
+    hs-source-dirs:     test
+    build-depends:      base
+                      , bytestring
+                      , filepath
+                      , hedgehog
+                      , network
+                      , network-transport
+                      , network-transport-quic
+                      , network-transport-tests
+                      , tasty ^>=1.5
+                      , tasty-flaky ^>= 0.1.3
+                      , tasty-hedgehog
+                      , tasty-hunit
+
+benchmark network-transport-quic-bench
+    import:           common
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   bench
+    main-is:          Bench.hs
+    default-language: Haskell2010
+    ghc-options:      -rtsopts -with-rtsopts=-N
+    build-depends:    async
+                    , base              >=4.14 && <5
+                    , bytestring
+                    , filepath
+                    , network-transport
+                    , network-transport-tcp
+                    , network-transport-quic
+                    , tasty ^>=1.5
+                    , tasty-bench       >=0.4
