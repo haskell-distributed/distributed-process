@@ -1,4 +1,4 @@
-# distributed-process
+# distributed-process - a Cloud Haskell implementation
 [![Release](https://img.shields.io/hackage/v/distributed-process.svg)](https://hackage.haskell.org/package/distributed-process)
 
 This repository contains an implementation of Cloud Haskell. This includes:
