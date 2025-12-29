@@ -1,9 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE LambdaCase #-}
 
 module Test.Network.Transport.QUIC.Internal.Messaging (tests) where
 
-import Control.Monad (replicateM)
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
@@ -35,8 +33,8 @@ testMessageEncodingAndDecoding = testProperty "Encoded messages can be decoded" 
 
     getBytes <- liftIO $ messageDecoder encoded
 
-    decoded <- liftIO $ replicateM (length messages) (decodeMessage getBytes)
-    (Right . Message endpointId <$> messages) === decoded
+    decoded <- liftIO $ decodeMessage getBytes
+    Right (Message endpointId messages) === decoded
 
 messageDecoder :: ByteString -> IO (Int -> IO ByteString)
 messageDecoder allBytes = do

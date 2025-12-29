@@ -287,9 +287,9 @@ handleIncomingMessages ourEndPoint remoteEndPoint =
                     (writeTQueue ourQueue . ConnectionClosed . connectionId)
               )
 
-    handleMessage :: ClientConnId -> ByteString -> IO ()
+    handleMessage :: ClientConnId -> [ByteString] -> IO ()
     handleMessage clientConnId payload =
-      atomically (writeTQueue ourQueue (Received (connectionId clientConnId) [payload]))
+      atomically (writeTQueue ourQueue (Received (connectionId clientConnId) payload))
 
     prematureExit :: IOException -> IO ()
     prematureExit exc = do
