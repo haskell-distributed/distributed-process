@@ -49,13 +49,15 @@ jobs:
       with:
         ghc-version: ${{ matrix.ghc-version }}
         cabal-version: '3.12.1.0'
-    
+
     - name: Generate freeze file
       run: |
-        cabal configure --enable-tests --test-show-details=direct
+        # Cloud Haskell tests using the QUIC backend are quite flaky, but in CI only.
+        # Therefore, the 'quic' flag is normally enabled locally, but disabled in CI. 
+        cabal configure --enable-tests --test-show-details=direct --flags "-quic"
         cabal freeze ${{matrix.cabal-flags}} --minimize-conflict-set
         cat cabal.project.freeze
-    
+
     - name: Cache cabal work
       uses: actions/cache@v4
       with:
@@ -68,12 +70,14 @@ jobs:
 
     - name: Build dependencies only
       run: cabal build all --only-dependencies ${{matrix.cabal-flags}}
-    
+
     - name: Build all packages
       run: cabal build all ${{matrix.cabal-flags}}
-        
+
     - name: Run all tests
       # We have seen in the past some tests hang for hours, wasting resources.
       # The timeout below should be plenty
       timeout-minutes: 10
-      run: cabal test all ${{matrix.cabal-flags}}
+      # We run each test suite one-by-one to better observe problems.
+      run: cabal test all -j1 ${{matrix.cabal-flags}}
+

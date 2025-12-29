@@ -5,32 +5,32 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Network.Transport.QUIC.Internal.Messaging (
-  -- * Connections
-  ServerConnId,
-  serverSelfConnId,
-  firstNonReservedServerConnId,
-  ClientConnId,
-  createConnectionId,
-  sendMessage,
-  receiveMessage,
-  MessageReceived (..),
+module Network.Transport.QUIC.Internal.Messaging
+  ( -- * Connections
+    ServerConnId,
+    serverSelfConnId,
+    firstNonReservedServerConnId,
+    ClientConnId,
+    createConnectionId,
+    sendMessage,
+    receiveMessage,
+    MessageReceived (..),
 
-  -- * Specialized messages
-  sendAck,
-  sendRejection,
-  recvAck,
-  recvWord32,
-  sendCloseConnection,
-  sendCloseEndPoint,
+    -- * Specialized messages
+    sendAck,
+    sendRejection,
+    recvAck,
+    recvWord32,
+    sendCloseConnection,
+    sendCloseEndPoint,
 
-  -- * Handshake protocol
-  handshake,
+    -- * Handshake protocol
+    handshake,
 
-  -- * Re-exported for testing
-  encodeMessage,
-  decodeMessage,
-)
+    -- * Re-exported for testing
+    encodeMessage,
+    decodeMessage,
+  )
 where
 
 import Control.Exception (SomeException, catch, displayException, mask, throwIO, try)
@@ -50,11 +50,10 @@ import Network.Transport.Internal (decodeWord32, encodeWord32)
 import Network.Transport.QUIC.Internal.QUICAddr (QUICAddr (QUICAddr), decodeQUICAddr)
 import System.Timeout (timeout)
 
-{- | Send a message to a remote endpoint ID
-
-This function is thread-safe; while the data is sending, asynchronous
-exceptions are masked, to be rethrown after the data is sent.
--}
+-- | Send a message to a remote endpoint ID
+--
+-- This function is thread-safe; while the data is sending, asynchronous
+-- exceptions are masked, to be rethrown after the data is sent.
 sendMessage ::
   Stream ->
   ClientConnId ->
@@ -67,11 +66,10 @@ sendMessage stream connId messages =
         (encodeMessage connId messages)
     )
 
-{- | Receive a message, including its local destination endpoint ID
-
-This function is thread-safe; while the data is being received, asynchronous
-exceptions are masked, to be rethrown after the data is sent.
--}
+-- | Receive a message, including its local destination endpoint ID
+--
+-- This function is thread-safe; while the data is being received, asynchronous
+-- exceptions are masked, to be rethrown after the data is sent.
 receiveMessage ::
   Stream ->
   IO (Either String MessageReceived)
@@ -84,60 +82,65 @@ receiveMessage stream = mask $ \restore ->
     )
     `catch` (\(ex :: QUIC.QUICException) -> throwIO ex)
 
-{- | Encode a message.
-
-The encoding is composed of a header, and the payloads.
-The message header is composed of:
-1. A control byte, to determine how the message should be parsed.
-2. A 32-bit word that encodes the endpoint ID of the destination endpoint;
-3. A 32-bit word that encodes the number of frames in the message
-
-The payload frames are each prepended with the length of the frame.
--}
+-- | Encode a message.
+--
+-- The encoding is composed of a header, and the payloads.
+-- The message header is composed of:
+-- 1. A control byte, to determine how the message should be parsed.
+-- 2. A 32-bit word that encodes the endpoint ID of the destination endpoint;
+-- 3. A 32-bit word that encodes the number of frames in the message
+--
+-- The payload frames are each prepended with the length of the frame.
 encodeMessage ::
   ClientConnId ->
   [ByteString] ->
   [ByteString]
 encodeMessage connId messages =
   BS.concat
-    [ BS.singleton messageControlByte
-    , encodeWord32 (fromIntegral connId)
-    , encodeWord32 (fromIntegral $ length messages)
+    [ BS.singleton messageControlByte,
+      encodeWord32 (fromIntegral connId),
+      encodeWord32 (fromIntegral $ length messages)
     ]
     : [encodeWord32 (fromIntegral $ BS.length message) <> message | message <- messages]
 
-decodeMessage :: (Int -> IO ByteString) -> IO (Either String MessageReceived)
+decodeMessage ::
+  (Int -> IO ByteString) ->
+  IO (Either String MessageReceived)
 decodeMessage get =
-  get 1 >>= maybe (pure $ Right StreamClosed) go . flip BS.indexMaybe 0
- where
-  go ctrl
-    | ctrl == closeEndPointControlByte = pure $ Right CloseEndPoint
-    | ctrl == closeConnectionControlByte = Right . CloseConnection . fromIntegral <$> getWord32
-    | ctrl == messageControlByte = do
-        connId <- getWord32
-        numMessages <- getWord32
-        messages <- replicateM (fromIntegral numMessages) $ do
-          getWord32 >>= get . fromIntegral
-        pure . Right $ Message (fromIntegral connId) messages
-    | otherwise = pure $ Left $ "Unsupported control byte: " <> show ctrl
-  getWord32 = get 4 <&> decodeWord32
+  get 1
+    >>= maybe
+      (pure $ Right StreamClosed)
+      ( \controlByte ->
+          go controlByte `catch` (\(ex :: SomeException) -> pure $ Left (displayException ex))
+      ) . flip BS.indexMaybe 0
+  where
+    go ctrl
+      | ctrl == closeEndPointControlByte = pure $ Right CloseEndPoint
+      | ctrl == closeConnectionControlByte = Right . CloseConnection . fromIntegral <$> getWord32
+      | ctrl == messageControlByte = do
+          connId <- getWord32
+          numMessages <- getWord32
+          messages <- replicateM (fromIntegral numMessages) $ do
+            getWord32 >>= get . fromIntegral
+          pure . Right $ Message (fromIntegral connId) messages
+      | otherwise = pure $ Left $ "Unsupported control byte: " <> show ctrl
+    getWord32 = get 4 <&> decodeWord32
 
-{- | Wrap a method to fetch bytes, to ensure that we always get exactly the
-intended number of bytes.
--}
+-- | Wrap a method to fetch bytes, to ensure that we always get exactly the
+-- intended number of bytes.
 getAllBytes ::
   -- | Function to fetch at most 'n' bytes
   (Int -> IO ByteString) ->
   -- | Function to fetch exactly 'n' bytes
   (Int -> IO ByteString)
 getAllBytes get n = go n mempty
- where
-  go 0 !acc = pure $ BS.concat acc
-  go m !acc =
-    get m >>= \bytes ->
-      go
-        (m - BS.length bytes)
-        (acc <> [bytes])
+  where
+    go 0 !acc = pure $ BS.concat acc
+    go m !acc =
+      get m >>= \bytes ->
+        go
+          (m - BS.length bytes)
+          (acc <> [bytes])
 
 data MessageReceived
   = Message
@@ -178,17 +181,16 @@ recvAck stream = do
     >>= maybe
       (throwIO (AckException "Connection ack not received within acceptable timeframe"))
       go
- where
-  go response
-    | response == ackMessage = pure $ Right ()
-    | response == rejectMessage = pure $ Left ()
-    | otherwise = throwIO (AckException "Unexpected ack response")
+  where
+    go response
+      | response == ackMessage = pure $ Right ()
+      | response == rejectMessage = pure $ Left ()
+      | otherwise = throwIO (AckException "Unexpected ack response")
 
-{- | Receive a 'Word32'
-
-This function is thread-safe; while the data is being received, asynchronous
-exceptions are masked, to be rethrown after the data is sent.
--}
+-- | Receive a 'Word32'
+--
+-- This function is thread-safe; while the data is being received, asynchronous
+-- exceptions are masked, to be rethrown after the data is received.
 recvWord32 ::
   Stream ->
   IO (Either String Word32)
@@ -197,11 +199,10 @@ recvWord32 stream =
     restore
       ( QUIC.recvStream stream 4 <&> Right . decodeWord32
       )
-      `catch` (\(ex :: QUIC.QUICException) -> pure $ Left (displayException ex))
+      `catch` (\(ex :: SomeException) -> pure $ Left (displayException ex))
 
-{- | We perform some special actions based on a message's control byte.
-For example, if a client wants to close a connection.
--}
+-- | We perform some special actions based on a message's control byte.
+-- For example, if a client wants to close a connection.
 type ControlByte = Word8
 
 connectionAcceptedControlByte :: ControlByte
@@ -239,10 +240,8 @@ sendCloseEndPoint stream =
         )
     )
 
-{- | Handshake protocol that a client, connecting to a remote endpoint,
-has to perform.
--}
-
+-- | Handshake protocol that a client, connecting to a remote endpoint,
+-- has to perform.
 -- TODO: encode server part of the handhake
 handshake ::
   (EndPointAddress, EndPointAddress) ->
