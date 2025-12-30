@@ -13,7 +13,7 @@ Bug-Reports:    http://github.com/haskell-distributed/distributed-process-fsm/is
 synopsis:       The Cloud Haskell implementation of Erlang/OTP gen_statem
 description:    Cloud Haskell framework for building finite state machines around CSPs
 category:       Control
-Tested-With:    GHC==8.10.7 GHC==9.0.2 GHC==9.2.8 GHC==9.4.5 GHC==9.6.4 GHC==9.8.2 GHC==9.10.1 GHC==9.12.1
+Tested-With:    GHC==8.10.7 GHC==9.0.2 GHC==9.2.8 GHC==9.4.8 GHC==9.6.7 GHC==9.8.4 GHC==9.10.3 GHC==9.12.2
 
 source-repository head
   type:      git

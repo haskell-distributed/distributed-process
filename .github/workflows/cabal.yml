@@ -27,17 +27,16 @@ jobs:
             cabal-flags: ""
           - ghc-version: "9.2.8"
             cabal-flags: ""
-          - ghc-version: "9.4.5"
+          - ghc-version: "9.4.8"
             cabal-flags: ""
-          - ghc-version: "9.6.4"
+          - ghc-version: "9.6.7"
             cabal-flags: ""
-          - ghc-version: "9.8.2"
+          - ghc-version: "9.8.4"
             cabal-flags: ""
-          - ghc-version: "9.10.1"
+          - ghc-version: "9.10.3"
             cabal-flags: ""
-          # Temporary cabal flags until all dependencies are updated
-          - ghc-version: "9.12.1"
-            cabal-flags: "--allow-newer=base --allow-newer=template-haskell --allow-newer=ghc-prim"
+          - ghc-version: "9.12.2"
+            cabal-flags: ""
 
     runs-on: "ubuntu-latest"
 

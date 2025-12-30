@@ -16,7 +16,7 @@ description:    Modelled after Erlang OTP's gen_server, this framework provides 
                 development into a set of modules and standards designed to help you build
                 concurrent, distributed applications with relative ease.
 category:       Control
-tested-with:    GHC==8.10.7 GHC==9.0.2 GHC==9.2.8 GHC==9.4.5 GHC==9.6.4 GHC==9.8.2 GHC==9.10.1 GHC==9.12.1
+tested-with:    GHC==8.10.7 GHC==9.0.2 GHC==9.2.8 GHC==9.4.8 GHC==9.6.7 GHC==9.8.4 GHC==9.10.3 GHC==9.12.2
 extra-doc-files: CHANGELOG.md
 
 source-repository head
