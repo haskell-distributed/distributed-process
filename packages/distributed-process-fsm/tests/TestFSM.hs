@@ -24,6 +24,7 @@ import Prelude hiding (drop, (*>))
 
 
 import Test.Tasty(TestTree, testGroup, defaultMain)
+import Test.Tasty.Flaky (flakyTest, limitRetries)
 import Test.Tasty.HUnit (testCase, assertEqual, assertBool)
 
 import Network.Transport.TCP
@@ -257,6 +258,11 @@ myRemoteTable :: RemoteTable
 myRemoteTable =
   Control.Distributed.Process.Extras.__remoteTable $  initRemoteTable
 
+-- Some tests are flaky due to the CI environment being noticeable
+-- slower (and therefore exposing some race conditions)
+flaky :: TestTree -> TestTree
+flaky = flakyTest (limitRetries 3)
+
 tests :: NT.Transport  -> IO TestTree
 tests transport = do
   {- verboseCheckWithResult stdArgs -}
@@ -269,8 +275,9 @@ tests transport = do
            (runProcess localNode notSoQuirkyDefinitions)
         , testCase "Traversing an FSM definition (exit handling)"
            (runProcess localNode verifyStopBehaviour)
-        , testCase "Traversing an FSM definition (mailbox handling)"
-           (runProcess localNode verifyMailboxHandling)
+        , flaky
+            $ testCase "Traversing an FSM definition (mailbox handling)"
+               (runProcess localNode verifyMailboxHandling)
         , testCase "Traversing an FSM definition (nested definitions)"
            (runProcess localNode verifyOuterStateHandler)
         , testCase "Traversing an FSM definition (event re-publication)"

@@ -58,6 +58,7 @@ test-suite FsmTests
                      distributed-process-fsm,
                      binary,
                      tasty >= 1.5 && <1.6,
+                     tasty-flaky >= 0.1.2 && <0.2,
                      tasty-hunit >=0.10 && <0.11,
   hs-source-dirs:    tests
   ghc-options:       -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
