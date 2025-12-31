@@ -8,6 +8,9 @@
 -- NOTICE: Some of these tests are /unsafe/, and will fail intermittently, since
 -- they rely on ordering constraints which the Cloud Haskell runtime does not
 -- guarantee.
+--
+-- Such tests can be marked as 'flaky' using 'tasty-flaky', so they get
+-- retried on failure.
 
 module Main where
 
@@ -52,12 +55,16 @@ import Data.ByteString.Lazy (empty)
 import Data.Maybe (catMaybes, isNothing, isJust)
 
 import Test.Tasty (TestTree, testGroup)
+import Test.Tasty.Flaky (flakyTest, limitRetries)
 import Test.Tasty.HUnit (Assertion, assertFailure, assertEqual, assertBool, testCase)
 import TestUtils hiding (waitForExit)
 import qualified Network.Transport as NT
 
 import System.Random (mkStdGen, randomR)
 -- test utilities
+
+flaky :: TestTree -> TestTree
+flaky = flakyTest (limitRetries 3)
 
 expectedExitReason :: ProcessId -> String
 expectedExitReason sup = "killed-by=" ++ (show sup) ++
@@ -1304,10 +1311,11 @@ tests transport = do
                 (withSupervisor restartOne []
                     (withClosure transientChildrenAbnormalExit
                                  $(mkStaticClosure 'blockIndefinitely)))
-          , testCase "ExitShutdown Is Considered Normal"
-                (withSupervisor' restartOne []
-                    (withClosure' transientChildrenExitShutdown
-                                 $(mkStaticClosure 'blockIndefinitely)))
+          , flaky $
+              testCase "ExitShutdown Is Considered Normal"
+                  (withSupervisor' restartOne []
+                      (withClosure' transientChildrenExitShutdown
+                                   $(mkStaticClosure 'blockIndefinitely)))
           , testCase "Intrinsic Children Do Restart When Exiting Abnormally (Closure)"
                 (withSupervisor restartOne []
                     (withClosure intrinsicChildrenAbnormalExit

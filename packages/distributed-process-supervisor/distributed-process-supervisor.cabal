@@ -81,6 +81,7 @@ test-suite SupervisorTests
                    deepseq,
                    stm,
                    tasty >= 1.5 && <1.6,
+                   tasty-flaky >= 0.1.2 && <0.2,
                    tasty-hunit >=0.10 && <0.11,
                    exceptions >= 0.10 && < 0.11
   hs-source-dirs:  tests
@@ -109,6 +110,7 @@ test-suite NonThreadedSupervisorTests
                    stm,
                    tasty >= 1.5 && <1.6,
                    tasty-hunit >=0.10 && <0.11,
+                   tasty-flaky >= 0.1.2 && <0.2,
                    exceptions >= 0.10 && < 0.11
   hs-source-dirs:  tests
   ghc-options:     -rtsopts -fno-warn-unused-do-bind -fno-warn-name-shadowing
