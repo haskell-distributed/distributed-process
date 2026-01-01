@@ -18,6 +18,7 @@ as well as libraries for networking, including:
 
 * [network-transport](https://github.com/haskell-distributed/distributed-process/tree/master/packages/network-transport)
 * [network-transport-tcp](https://github.com/haskell-distributed/distributed-process/tree/master/packages/network-transport-tcp)
+* [network-transport-quic](https://github.com/haskell-distributed/distributed-process/tree/master/packages/network-transport-quic)
 * [network-transport-inmemory](https://github.com/haskell-distributed/distributed-process/tree/master/packages/network-transport-inmemory)
 
 See http://haskell-distributed.github.io for documentation, user guides, tutorials and assistance.

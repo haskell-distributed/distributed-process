@@ -1,3 +1,4 @@
+{-# LANGUAGE NumericUnderscores #-}
 module Control.Distributed.Process.Tests.CH (tests) where
 
 
@@ -42,8 +43,9 @@ import Control.Distributed.Process.Node
 import Control.Distributed.Process.Tests.Internal.Utils (pause)
 import Control.Distributed.Process.Serializable (Serializable)
 import Data.Maybe (isNothing, isJust)
+import System.Timeout (timeout)
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, testCase)
+import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, testCase, assertFailure)
 
 newtype Ping = Ping ProcessId
   deriving (Typeable, Binary, Show)
@@ -70,7 +72,12 @@ ping = do
   ping
 
 verifyClient :: String -> MVar Bool -> IO ()
-verifyClient s b = takeMVar b >>= assertBool s
+verifyClient s b =
+    -- The timeout below must be generous enough to support
+  -- running tests in the Github Actions CI environment, which is quite slow.
+  timeout 60_000_000
+    (takeMVar b >>= assertBool s)
+      >>= maybe (assertFailure $ "verifyClient timeout: " <> s) (\_ -> pure ())
 
 expectPing :: MVar Bool ->  Process ()
 expectPing mv = expect  >>= liftIO . putMVar mv . checkPing
@@ -175,14 +182,14 @@ monitorTestProcess theirAddr mOrL un reason monitorSetup done =
                 unmonitor ref
                 liftIO $ putMVar done ()
               (False, ref) -> do
-                receiveWait [
+                receiveTimeout 1_000_000 [
                     match (\(ProcessMonitorNotification ref' pid reason') -> do
                               liftIO $ do
                                 assertBool "Bad Monitor Signal"
                                            (Just ref' == ref && pid == theirAddr &&
                                               mOrL && reason == reason')
                                 putMVar done ())
-                  ]
+                  ] >>= maybe (liftIO $ assertFailure "No ProcessMonitorNotification received within timeout window") pure
         )
         (\(ProcessLinkException pid reason') -> do
             (liftIO $ assertBool "link exception unmatched" $
@@ -220,11 +227,11 @@ testPing TestTransport{..} = do
         p <- expectTimeout 3000000
         case p of
           Just (Ping _) -> return ()
-          Nothing       -> die "Failed to receive Ping"
+          Nothing       -> let msg = "Failed to receive Ping" in liftIO (putMVar clientDone (Left msg)) >> die msg
 
-    putMVar clientDone ()
+    putMVar clientDone (Right ())
 
-  takeMVar clientDone
+  takeMVar clientDone >>= either assertFailure pure
 
 -- | Monitor a process on an unreachable node
 testMonitorUnreachable :: TestTransport -> Bool -> Bool -> Assertion
@@ -348,6 +355,7 @@ testMonitorDisconnect TestTransport{..} mOrL un = do
     putMVar processAddr addr
     readMVar monitorSetup
     NT.closeEndPoint (localEndPoint localNode)
+    threadDelay 100_000
     putMVar processAddr2 addr2
 
   forkIO $ do
@@ -430,7 +438,7 @@ testTimeout TestTransport{..} = do
   done <- newEmptyMVar
 
   runProcess localNode $ do
-    res <- receiveTimeout 1000000 [match (\Add{} -> return ())]
+    res <- receiveTimeout 1_000_000 [match (\Add{} -> return ())]
     liftIO $ putMVar done $ res == Nothing
 
   verifyClient "Expected receiveTimeout to timeout..." done
@@ -447,7 +455,7 @@ testTimeout0 TestTransport{..} = do
       -- Variation on the venerable ping server which uses a zero timeout
       partner <- fix $ \loop ->
         receiveTimeout 0 [match (\(Pong partner) -> return partner)]
-          >>= maybe (liftIO (threadDelay 100000) >> loop) return
+          >>= maybe (liftIO (threadDelay 100_000) >> loop) return
       self <- getSelfPid
       send partner (Ping self)
     putMVar serverAddr addr
@@ -459,7 +467,7 @@ testTimeout0 TestTransport{..} = do
       pid <- getSelfPid
       -- Send a bunch of messages. A large number of messages that the server
       -- is not interested in, and then a single message that it wants
-      replicateM_ 10000 $ send server "Irrelevant message"
+      replicateM_ 10_000 $ send server "Irrelevant message"
       send server (Pong pid)
       expectPing clientDone
 
@@ -582,7 +590,7 @@ testMergeChannels TestTransport{..} = do
     charChannel c = do
       (sport, rport) <- newChan
       replicateM_ 3 $ sendChan sport c
-      liftIO $ threadDelay 10000 -- Make sure messages have been sent
+      liftIO $ threadDelay 10_000 -- Make sure messages have been sent
       return rport
 
 testTerminate :: TestTransport -> Assertion
@@ -621,15 +629,19 @@ testMonitorLiveNode TestTransport{..} = do
   forkProcess node2 $ do
     ref <- monitorNode (localNodeId node1)
     liftIO $ putMVar ready ()
+    -- node1 gets closed
     liftIO $ takeMVar readyr
     send p ()
-    receiveWait [
+    receiveTimeout 10_000_000 [
         match (\(NodeMonitorNotification ref' nid _) ->
                 (return $ ref == ref' && nid == localNodeId node1))
-      ] >>= liftIO . putMVar done
+         ] >>= maybe
+                (liftIO $ assertFailure "Did not receive NodeMonitorNotification message within timeout window")
+                (liftIO . putMVar done)
 
   takeMVar ready
   closeLocalNode node1
+  threadDelay 1_000_000
   putMVar readyr ()
 
   verifyClient "Expected NodeMonitorNotification for LIVE node" done
@@ -638,22 +650,27 @@ testMonitorChannel :: TestTransport -> Assertion
 testMonitorChannel TestTransport{..} = do
     [node1, node2] <- replicateM 2 $ newLocalNode testTransport initRemoteTable
     gotNotification <- newEmptyMVar
+    ready <- newEmptyMVar
 
     pid <- forkProcess node1 $ do
+      liftIO $ putMVar ready ()
       sport <- expect :: Process (SendPort ())
       ref <- monitorPort sport
-      receiveWait [
+      receiveTimeout 10_000_000 [
           -- reason might be DiedUnknownId if the receive port is GCed before the
           -- monitor is established (TODO: not sure that this is reasonable)
           match (\(PortMonitorNotification ref' port' reason) ->
                   return $ ref' == ref && port' == sendPortId sport &&
                     (reason == DiedNormal || reason == DiedUnknownId))
-        ] >>= liftIO . putMVar gotNotification
+        ] >>= maybe
+                (liftIO $ assertFailure "Did not receive PortMonitorNotification message within timeout window")
+                (liftIO . putMVar gotNotification)
 
     runProcess node2 $ do
       (sport, _) <- newChan :: Process (SendPort (), ReceivePort ())
+      liftIO $ takeMVar ready
       send pid sport
-      liftIO $ threadDelay 100000
+      liftIO $ threadDelay 100_000
 
     verifyClient "Expected PortMonitorNotification" gotNotification
 
