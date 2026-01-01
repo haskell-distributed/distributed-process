@@ -5,7 +5,7 @@ Synopsis:            Like Data.Dynamic/Data.Typeable but with support for rank-1
 Description:         "Data.Typeable" and "Data.Dynamic" only support monomorphic types.
                      In this package we provide similar functionality but with
                      support for rank-1 polymorphic types.
-Homepage:            http://haskell-distributed.github.com
+Homepage:            https://haskell-distributed.github.io
 License:             BSD-3-Clause
 License-File:        LICENSE
 Author:              Edsko de Vries

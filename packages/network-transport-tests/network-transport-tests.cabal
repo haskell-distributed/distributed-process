@@ -3,7 +3,7 @@ name:                network-transport-tests
 version:             0.3.4
 synopsis:            Unit tests for Network.Transport implementations
 description:         Unit tests for Network-Transport implementations.
-homepage:            http://haskell-distributed.github.com
+homepage:            https://haskell-distributed.github.io
 license:             BSD-3-Clause
 license-file:        LICENSE
 author:              Edsko de Vries

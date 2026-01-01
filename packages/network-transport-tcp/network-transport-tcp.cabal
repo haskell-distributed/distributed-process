@@ -8,7 +8,7 @@ Copyright:     Well-Typed LLP, Tweag I/O Limited
 Author:        Duncan Coutts, Nicolas Wu, Edsko de Vries
 maintainer:    The Distributed Haskell team
 Stability:     experimental
-Homepage:      http://haskell-distributed.github.com
+Homepage:      https://haskell-distributed.github.io
 Bug-Reports:   https://github.com/haskell-distributed/distributed-process/issues
 Synopsis:      TCP instantiation of Network.Transport
 Description:   TCP instantiation of Network.Transport, which can be used to create Cloud Haskell backends

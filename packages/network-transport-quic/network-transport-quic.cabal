@@ -8,7 +8,7 @@ Copyright:     Laurent P. René de Cotret
 Author:        Laurent P. René de Cotret
 maintainer:    The Distributed Haskell team
 Stability:     experimental
-Homepage:      http://haskell-distributed.github.com
+Homepage:      https://haskell-distributed.github.io
 Bug-Reports:   https://github.com/haskell-distributed/distributed-process/issues
 Synopsis:      Networking layer for Cloud Haskell based on QUIC
 Description:   Networking layer for Cloud Haskell based on QUIC

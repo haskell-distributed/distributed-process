@@ -15,7 +15,7 @@ Description:         /Towards Haskell in the Cloud/ (Epstein et al, Haskell
                      'RemoteTable'). In this module we implement this mimickry
                      and various extensions: type safety (including for
                      polymorphic static values) and compositionality.
-Homepage:            http://haskell-distributed.github.com
+Homepage:            https://haskell-distributed.github.io
 License:             BSD-3-Clause
 License-File:        LICENSE
 Author:              Edsko de Vries
