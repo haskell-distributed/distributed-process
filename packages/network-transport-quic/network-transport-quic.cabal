@@ -1,6 +1,6 @@
 cabal-version: 3.0
 Name:          network-transport-quic
-Version:       0.1.0
+Version:       0.1.1
 build-Type:    Simple
 License:       BSD-3-Clause
 License-file:  LICENSE
@@ -11,10 +11,20 @@ Stability:     experimental
 Homepage:      https://haskell-distributed.github.io
 Bug-Reports:   https://github.com/haskell-distributed/distributed-process/issues
 Synopsis:      Networking layer for Cloud Haskell based on QUIC
-Description:   Networking layer for Cloud Haskell based on QUIC
+Description:
+  Networking layer for Cloud Haskell based on QUIC.
+
+  The QUIC protocol has several advantages over TCP, including built-in encryption via TLS 1.3,
+  support for connection migration (e.g. when transitioning from WIFI to 5G), and stream multiplexing which
+  eliminates head-of-line blocking.
+
+  In dense network topologies, using ["Network.Transport.QUIC"] may improve performance by a factor of 2 over
+  other transport implementations.
 tested-with:   GHC==8.10.7 GHC==9.0.2 GHC==9.2.8 GHC==9.4.8 GHC==9.6.7 GHC==9.8.4 GHC==9.10.3 GHC==9.12.2
 Category:      Network
-extra-doc-files: CHANGELOG.md
+extra-doc-files:
+               README.md
+               CHANGELOG.md
 extra-source-files:
                test/credentials/cert.crt
                test/credentials/cert.key
