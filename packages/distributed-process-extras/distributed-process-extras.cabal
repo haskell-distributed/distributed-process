@@ -14,7 +14,7 @@ synopsis:       Cloud Haskell Extras
 description:    Supporting library, providing common types and utilities used by the
                 various libraries built on top of distributed-process
 category:       Control
-tested-with:    GHC==8.10.7 GHC==9.0.2 GHC==9.2.8 GHC==9.4.8 GHC==9.6.7 GHC==9.8.4 GHC==9.10.3 GHC==9.12.2
+tested-with:    GHC==8.10.7 GHC==9.0.2 GHC==9.2.8 GHC==9.4.8 GHC==9.6.7 GHC==9.8.4 GHC==9.10.3 GHC==9.12.2 GHC==9.14.1
 extra-doc-files: ChangeLog
 
 source-repository head
