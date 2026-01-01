@@ -12,10 +12,12 @@ Homepage:      http://haskell-distributed.github.com
 Bug-Reports:   https://github.com/haskell-distributed/distributed-process/issues
 Synopsis:      Networking layer for Cloud Haskell based on QUIC
 Description:   Networking layer for Cloud Haskell based on QUIC
-tested-with:   GHC==8.10.7 GHC==9.0.2 GHC==9.2.8 GHC==9.4.5 GHC==9.6.4 GHC==9.8.2 GHC==9.10.1 GHC==9.12.1
+tested-with:   GHC==8.10.7 GHC==9.0.2 GHC==9.2.8 GHC==9.4.8 GHC==9.6.7 GHC==9.8.4 GHC==9.10.3 GHC==9.12.2
 Category:      Network
-extra-doc-files: ChangeLog
-extra-source-files: test/credentials/*
+extra-doc-files: CHANGELOG.md
+extra-source-files:
+               test/credentials/cert.crt
+               test/credentials/cert.key
 
 source-repository head
   Type:     git
@@ -39,11 +41,11 @@ common common
 
 library
   import:             common
-  build-depends:      async
+  build-depends:      async >= 2.2 && <2.3
                     , base >= 4.14 && < 5
                     , binary >= 0.8 && < 0.10
                     , bytestring >= 0.11 && < 0.13
-                    , containers
+                    , containers >= 0.6 && <0.9
                     , microlens-platform ^>=0.4
                     , network >= 3.1 && < 3.3
                     , network-transport >= 0.5 && < 0.6
@@ -52,8 +54,8 @@ library
                     -- message sends did not work correctly at the transport layer
                     , quic >=0.2.20 && <0.3
                     , stm >=2.4 && <2.6
-                    , tls
-                    , tls-session-manager
+                    , tls >= 2.1 && < 2.2
+                    , tls-session-manager >= 0.0.5 && <0.1
   exposed-modules:    Network.Transport.QUIC
                       Network.Transport.QUIC.Internal
   other-modules:      Network.Transport.QUIC.Internal.Configuration
