@@ -39,7 +39,7 @@ library
                      distributed-process-client-server >= 0.2.5.1 && < 0.3,
                      binary >= 0.8 && < 0.10,
                      mtl >= 2.0 && <2.4,
-                     containers >= 0.4 && < 0.8,
+                     containers >= 0.4 && < 0.9,
                      exceptions >= 0.10
   hs-source-dirs:    src
   exposed-modules:   Control.Distributed.Process.FSM,

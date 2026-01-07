@@ -113,7 +113,7 @@ Library
                      UndecidableInstances
   if flag(th)
      other-extensions: TemplateHaskell
-     Build-Depends: template-haskell >= 2.6 && <2.24
+     Build-Depends: template-haskell >= 2.6 && <2.25
      Exposed-modules: Control.Distributed.Process.Internal.Closure.TH
      CPP-Options:     -DTemplateHaskellSupport
 
