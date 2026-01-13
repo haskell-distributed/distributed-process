@@ -64,7 +64,7 @@ library
                     -- message sends did not work correctly at the transport layer
                     , quic >=0.2.20 && <0.3
                     , stm >=2.4 && <2.6
-                    , tls >= 2.1 && < 2.2
+                    , tls >= 2.1 && < 2.3
                     , tls-session-manager >= 0.0.5 && <0.1
   exposed-modules:    Network.Transport.QUIC
                       Network.Transport.QUIC.Internal
