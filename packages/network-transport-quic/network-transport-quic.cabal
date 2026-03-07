@@ -62,10 +62,10 @@ library
                     -- Prior to version 0.2.20, `quic` had issues with handling
                     -- pending data in the stream buffer. This meant that vectored
                     -- message sends did not work correctly at the transport layer
-                    , quic >=0.2.20 && <0.3
+                    , quic >=0.2.20 && <0.4
                     , stm >=2.4 && <2.6
-                    , tls >= 2.1 && < 2.3
-                    , tls-session-manager >= 0.0.5 && <0.1
+                    , tls >= 2.1 && < 2.4
+                    , tls-session-manager >= 0.0.5 && <0.2
   exposed-modules:    Network.Transport.QUIC
                       Network.Transport.QUIC.Internal
   other-modules:      Network.Transport.QUIC.Internal.Configuration
