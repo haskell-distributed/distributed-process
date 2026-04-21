@@ -58,7 +58,15 @@ quicConfig =
           >>= \case
             Left errmsg -> throwIO $ userError errmsg
             Right credentials ->
-              QUIC.createTransport "127.0.0.1" "0" (credentials :| [])
+              QUIC.createTransport
+                ( QUIC.QUICTransportConfig
+                    { hostName = "127.0.0.1"
+                    , serviceName = "0"
+                    , credentials = credentials :| []
+                    , -- credentials are self-signed
+                      validateCredentials = False
+                    }
+                )
     }
 
 data BenchParams = BenchParams
@@ -115,8 +123,7 @@ throughputBench TransportConfig{mkTransport} BenchParams{messageSize, messageCou
     connections <-
       replicateM
         connectionCount
-        ( connect senderEP receiverAddr ReliableOrdered defaultConnectHints >>= either throwIO pure
-        )
+        (connect senderEP receiverAddr ReliableOrdered defaultConnectHints >>= either throwIO pure)
 
     takeMVar receiverReady
 
