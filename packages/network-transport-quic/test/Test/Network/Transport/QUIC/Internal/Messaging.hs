@@ -21,20 +21,16 @@ tests =
 
 testMessageEncodingAndDecoding :: TestTree
 testMessageEncodingAndDecoding = testProperty "Encoded messages can be decoded" $ property $ do
-    -- The connection ID and message length are encoded and decoded the same way, to/from
-    -- a Word32.
-    -- To exercise the parsing of Word32s, we need to make sure that the range
-    -- of data is generated above a Word8 (255), including the connection ID
-    -- and the number of bytes in the message
-    endpointId <- fmap fromIntegral <$> forAll $ Gen.word32 Range.constantBounded
-
+    -- The message length is encoded and decoded as a Word32. Generate data above
+    -- a Word8 (255) to exercise the Word32 parsing of the number of bytes in each
+    -- message.
     messages <- forAll (Gen.list (Range.linear 0 3) (Gen.bytes (Range.linear 1 4096)))
-    let encoded = mconcat $ encodeMessage endpointId messages
+    let encoded = mconcat $ encodeMessage messages
 
     getBytes <- liftIO $ messageDecoder encoded
 
     decoded <- liftIO $ decodeMessage getBytes
-    Right (Message endpointId messages) === decoded
+    Right (Message messages) === decoded
 
 messageDecoder :: ByteString -> IO (Int -> IO ByteString)
 messageDecoder allBytes = do

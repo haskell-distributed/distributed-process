@@ -22,7 +22,7 @@ module Network.Transport.QUIC.Internal
 where
 
 import Control.Concurrent (forkIO, killThread, modifyMVar_, newEmptyMVar, readMVar)
-import Control.Concurrent.MVar (modifyMVar, putMVar, takeMVar, withMVar)
+import Control.Concurrent.MVar (modifyMVar, putMVar, takeMVar, tryPutMVar, withMVar)
 import Control.Concurrent.STM (atomically, newTQueueIO)
 import Control.Concurrent.STM.TQueue
   ( TQueue,
@@ -34,13 +34,11 @@ import Control.Monad (unless, when)
 import Data.Bifunctor (Bifunctor (first))
 import Data.Binary qualified as Binary (decodeOrFail)
 import Data.ByteString (ByteString, fromStrict)
-import Data.Foldable (forM_)
 import Data.Function ((&))
 import Data.Functor ((<&>))
 import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.List.NonEmpty (NonEmpty)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (isNothing)
 import Lens.Micro.Platform ((+~))
 import Network.QUIC qualified as QUIC
 import Network.TLS (Credential)
@@ -62,8 +60,7 @@ import Network.Transport
   )
 import Network.Transport.QUIC.Internal.Configuration (credentialLoadX509)
 import Network.Transport.QUIC.Internal.Messaging
-  ( ClientConnId,
-    MessageReceived (..),
+  ( MessageReceived (..),
     createConnectionId,
     decodeMessage,
     encodeMessage,
@@ -101,7 +98,6 @@ import Network.Transport.QUIC.Internal.QUICTransport
     nextSelfConnOutId,
     remoteEndPointAddress,
     remoteEndPointState,
-    remoteIncoming,
     remoteServerConnId,
     remoteStream,
     transportConfig,
@@ -182,21 +178,15 @@ handleNewStream quicTransport stream = do
                     (remoteEndPoint, _) <- either throwIO pure =<< createRemoteEndPoint ourEndPoint remoteAddress Incoming
                     doneMVar <- newEmptyMVar
 
-                    -- Sending an ack is important, because otherwise
-                    -- the client may start sending messages well before we
-                    -- start being able to receive them
-
-                    clientConnId <- either (throwIO . userError) (pure . fromIntegral) =<< recvWord32 stream
                     let serverConnId = remoteServerConnId remoteEndPoint
-                        connectionId = createConnectionId serverConnId clientConnId
+                        -- One logical connection per stream; clientConnId is always 0.
+                        connectionId = createConnectionId serverConnId 0
 
                     let st =
                           RemoteEndPointValid $
                             ValidRemoteEndPointState
                               { _remoteStream = stream,
-                                _remoteStreamIsClosed = doneMVar,
-                                _remoteIncoming = Just clientConnId,
-                                _remoteNextConnOutId = 0
+                                _remoteStreamIsClosed = doneMVar
                               }
                     modifyMVar_
                       (remoteEndPoint ^. remoteEndPointState)
@@ -217,6 +207,13 @@ handleNewStream quicTransport stream = do
                             ReliableOrdered
                             remoteAddress
                         )
+
+                    -- Second handshake ack: only sent after ConnectionOpened is
+                    -- enqueued. The initiator's @connect@ call blocks on this ack, so
+                    -- when it returns, the caller can trust that any peer observing
+                    -- events on this endpoint will see ConnectionOpened before any
+                    -- messages the caller subsequently sends on other connections.
+                    sendAck stream
 
                     tid <-
                       forkIO $
@@ -250,12 +247,8 @@ handleIncomingMessages ourEndPoint remoteEndPoint =
     release (Left err) = closeRemoteEndPoint Incoming remoteEndPoint >> prematureExit err
     release (Right _) = closeRemoteEndPoint Incoming remoteEndPoint
 
-    connectionId = createConnectionId serverConnId
-
-    writeConnectionClosedSTM connId =
-      writeTQueue
-        ourQueue
-        (ConnectionClosed (connectionId connId))
+    -- One logical connection per stream; clientConnId is always 0.
+    connectionId = createConnectionId serverConnId 0
 
     go = either prematureExit loop
 
@@ -265,34 +258,31 @@ handleIncomingMessages ourEndPoint remoteEndPoint =
           Left errmsg -> do
             -- Throwing will trigger 'prematureExit'
             throwIO $ userError $ "(handleIncomingMessages) Failed with: " <> errmsg
-          Right (Message connId bytes) -> handleMessage connId bytes >> loop stream
+          Right (Message bytes) -> handleMessage bytes >> loop stream
           Right StreamClosed -> throwIO $ userError "(handleIncomingMessages) Stream closed"
-          Right (CloseConnection connId) -> do
-            atomically (writeConnectionClosedSTM connId)
+          Right CloseConnection -> do
+            atomically (writeTQueue ourQueue (ConnectionClosed connectionId))
             mAct <- modifyMVar (remoteEndPoint ^. remoteEndPointState) $ \case
               RemoteEndPointInit -> pure (RemoteEndPointClosed, Nothing)
               RemoteEndPointClosed -> pure (RemoteEndPointClosed, Nothing)
-              RemoteEndPointValid (ValidRemoteEndPointState _ isClosed _ _) -> do
+              RemoteEndPointValid (ValidRemoteEndPointState _ isClosed) -> do
                 pure (RemoteEndPointClosed, Just $ putMVar isClosed ())
             case mAct of
               Nothing -> pure ()
               Just cleanup -> cleanup
           Right CloseEndPoint -> do
-            connIds <- modifyMVar (remoteEndPoint ^. remoteEndPointState) $ \case
-              RemoteEndPointValid vst -> do
-                pure (RemoteEndPointClosed, vst ^. remoteIncoming)
-              other -> pure (other, Nothing)
-            unless
-              (isNothing connIds)
-              ( atomically $
-                  forM_
-                    connIds
-                    (writeTQueue ourQueue . ConnectionClosed . connectionId)
-              )
+            -- handleIncomingMessages only runs on incoming remote endpoints, so if
+            -- the state was still Valid there is exactly one logical connection to
+            -- surface as closed.
+            wasValid <- modifyMVar (remoteEndPoint ^. remoteEndPointState) $ \case
+              RemoteEndPointValid _ -> pure (RemoteEndPointClosed, True)
+              other -> pure (other, False)
+            when wasValid $
+              atomically $ writeTQueue ourQueue (ConnectionClosed connectionId)
 
-    handleMessage :: ClientConnId -> [ByteString] -> IO ()
-    handleMessage clientConnId payload =
-      atomically (writeTQueue ourQueue (Received (connectionId clientConnId) payload))
+    handleMessage :: [ByteString] -> IO ()
+    handleMessage payload =
+      atomically (writeTQueue ourQueue (Received connectionId payload))
 
     prematureExit :: IOException -> IO ()
     prematureExit exc = do
@@ -360,24 +350,24 @@ newConnection ourEndPoint creds validateCreds remoteAddress _reliability _connec
     else
       createConnectionTo creds validateCreds ourEndPoint remoteAddress >>= \case
         Left err -> pure $ Left err
-        Right (remoteEndPoint, connId) -> do
+        Right remoteEndPoint -> do
           connAlive <- newIORef True
           pure
             . Right
             $ Connection
-              { send = sendConn remoteEndPoint connAlive connId,
-                close = closeConn remoteEndPoint connAlive connId
+              { send = sendConn remoteEndPoint connAlive,
+                close = closeConn remoteEndPoint connAlive
               }
   where
     ourAddress = ourEndPoint ^. localAddress
-    sendConn remoteEndPoint connAlive connId packets =
+    sendConn remoteEndPoint connAlive packets =
       readMVar (remoteEndPoint ^. remoteEndPointState) >>= \case
         RemoteEndPointInit -> undefined
         RemoteEndPointValid vst ->
           readIORef connAlive >>= \case
             False -> pure . Left $ TransportError SendClosed "Connection closed"
             True ->
-              sendMessage (vst ^. remoteStream) connId packets
+              sendMessage (vst ^. remoteStream) packets
                 <&> first (TransportError SendFailed . show)
         RemoteEndPointClosed -> do
           readIORef connAlive >>= \case
@@ -387,16 +377,21 @@ newConnection ourEndPoint creds validateCreds remoteAddress _reliability _connec
             -- 'connAlive' IORefs.
             False -> pure . Left $ TransportError SendClosed "Connection closed"
             True -> pure . Left $ TransportError SendFailed "Remote endpoint closed"
-    closeConn remoteEndPoint connAlive connId = do
+    closeConn remoteEndPoint connAlive = do
       mCleanup <- modifyMVar (remoteEndPoint ^. remoteEndPointState) $ \case
-        RemoteEndPointValid vst@(ValidRemoteEndPointState stream isClosed _ _) -> do
+        RemoteEndPointValid vst@(ValidRemoteEndPointState stream isClosed) -> do
           readIORef connAlive >>= \case
             False -> pure (RemoteEndPointValid vst, Nothing)
             True -> do
               writeIORef connAlive False
-              -- We want to run this cleanup action OUTSIDE of the MVar modification
-              let cleanup = sendCloseConnection connId stream
-              pure (RemoteEndPointClosed, Just $ cleanup >> putMVar isClosed ())
+              -- Run cleanup OUTSIDE the MVar modification. tryPutMVar keeps this
+              -- safe against races with the finally in streamToEndpoint that can
+              -- also signal isClosed on QUIC.Client.run exit.
+              let cleanup = do
+                    _ <- sendCloseConnection stream
+                    _ <- tryPutMVar isClosed ()
+                    pure ()
+              pure (RemoteEndPointClosed, Just cleanup)
         _ -> pure (RemoteEndPointClosed, Nothing)
 
       case mCleanup of
