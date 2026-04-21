@@ -218,6 +218,13 @@ handleNewStream quicTransport stream = do
                             remoteAddress
                         )
 
+                    -- Second handshake ack: only sent after ConnectionOpened is
+                    -- enqueued. The initiator's @connect@ call blocks on this ack, so
+                    -- when it returns, the caller can trust that any peer observing
+                    -- events on this endpoint will see ConnectionOpened before any
+                    -- messages the caller subsequently sends on other connections.
+                    sendAck stream
+
                     tid <-
                       forkIO $
                         handleIncomingMessages

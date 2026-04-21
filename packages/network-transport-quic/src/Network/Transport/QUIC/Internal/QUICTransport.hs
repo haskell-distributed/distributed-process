@@ -72,11 +72,9 @@ where
 import Control.Concurrent.Async (forConcurrently_)
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar, putMVar, readMVar)
 import Control.Concurrent.STM.TQueue (TQueue, writeTQueue)
-import Control.Exception (Exception (displayException), SomeException, bracketOnError, try)
+import Control.Exception (bracketOnError)
 import Control.Monad (forM_)
 import Control.Monad.STM (atomically)
-import Data.Binary qualified as Binary
-import Data.ByteString qualified as BS
 import Data.Function ((&))
 import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NE
@@ -85,7 +83,6 @@ import Data.Map.Strict qualified as Map
 import Data.Word (Word32)
 import Lens.Micro.Platform (makeLenses, (%~), (+~), (^.))
 import Network.QUIC (Stream)
-import Network.QUIC qualified as QUIC
 import Network.Socket (HostName, ServiceName, Socket)
 import Network.Socket qualified as N
 import Network.TLS (Credential)
@@ -406,19 +403,24 @@ createConnectionTo ::
 createConnectionTo creds validateCreds localEndPoint remoteAddress = do
   createRemoteEndPoint localEndPoint remoteAddress Outgoing >>= \case
     Left err -> pure $ Left err
-    Right (remoteEndPoint, _) ->
+    Right (remoteEndPoint, _) -> do
+      -- TODO: each call to @connect@ currently opens a dedicated QUIC connection and
+      -- its logical connection id is always 0. To multiplex multiple logical
+      -- connections on a single stream (the purpose of @_remoteNextConnOutId@), this
+      -- should draw from and advance that counter instead of being hardcoded.
+      let clientConnId = 0
       streamToEndpoint
         creds
         validateCreds
         (localEndPoint ^. localAddress)
         remoteAddress
+        clientConnId
         (onException remoteEndPoint)
         onConnectionLost
         >>= \case
           Left exc -> pure $ Left exc
           Right (closeStream, stream) -> do
-            let clientConnId = 0
-                validState =
+            let validState =
                   RemoteEndPointValid $
                     ValidRemoteEndPointState
                       { _remoteStream = stream,
@@ -429,17 +431,7 @@ createConnectionTo creds validateCreds localEndPoint remoteAddress = do
             modifyMVar_
               (remoteEndPoint ^. remoteEndPointState)
               (\_ -> pure validState)
-
-            try
-              ( QUIC.sendStream
-                  stream
-                  ( BS.toStrict $
-                      Binary.encode clientConnId
-                  )
-              )
-              >>= \case
-                Left (exc :: SomeException) -> pure . Left $ TransportError ConnectFailed (displayException exc)
-                Right () -> pure $ Right (remoteEndPoint, clientConnId)
+            pure $ Right (remoteEndPoint, clientConnId)
   where
     onException remoteEndPoint _exception = do
         -- The handler runs when QUIC.Client.run exits with an exception — i.e. the

@@ -17,7 +17,7 @@ import Network.QUIC qualified as QUIC
 import Network.QUIC.Client qualified as QUIC.Client
 import Network.Transport (ConnectErrorCode (ConnectNotFound), EndPointAddress, TransportError (..))
 import Network.Transport.QUIC.Internal.Configuration (Credential, mkClientConfig)
-import Network.Transport.QUIC.Internal.Messaging (MessageReceived (..), handshake, receiveMessage)
+import Network.Transport.QUIC.Internal.Messaging (ClientConnId, MessageReceived (..), handshake, receiveMessage)
 import Network.Transport.QUIC.Internal.QUICAddr (QUICAddr (QUICAddr), decodeQUICAddr)
 
 streamToEndpoint ::
@@ -28,6 +28,8 @@ streamToEndpoint ::
   EndPointAddress ->
   -- | Their address
   EndPointAddress ->
+  -- | Client-allocated connection id to send as part of the handshake
+  ClientConnId ->
   -- | On exception
   (SomeException -> IO ()) ->
   -- | On a message to forcibly close the connection
@@ -40,7 +42,7 @@ streamToEndpoint ::
           QUIC.Stream
         )
     )
-streamToEndpoint creds validateCreds ourAddress theirAddress onExc onCloseForcibly =
+streamToEndpoint creds validateCreds ourAddress theirAddress clientConnId onExc onCloseForcibly =
   case decodeQUICAddr theirAddress of
     Left errmsg -> pure $ Left (TransportError ConnectNotFound errmsg)
     Right (QUICAddr hostname servicename _) -> do
@@ -54,7 +56,7 @@ streamToEndpoint creds validateCreds ourAddress theirAddress onExc onCloseForcib
             QUIC.waitEstablished conn
             restore $
               bracket (QUIC.stream conn) QUIC.closeStream $ \stream -> do
-                handshake (ourAddress, theirAddress) stream
+                handshake (ourAddress, theirAddress) clientConnId stream
                   >>= either
                     (\_ -> putMVar streamMVar (Left $ TransportError ConnectNotFound "handshake failed"))
                     (\_ -> putMVar streamMVar (Right stream))

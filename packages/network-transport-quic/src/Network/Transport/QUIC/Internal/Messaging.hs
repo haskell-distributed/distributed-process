@@ -4,6 +4,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Network.Transport.QUIC.Internal.Messaging
   ( -- * Connections
@@ -236,19 +237,26 @@ sendCloseEndPoint stream =
     )
 
 -- | Handshake protocol that a client, connecting to a remote endpoint,
--- has to perform.
--- TODO: encode server part of the handhake
+-- has to perform. Two round-trips:
+--
+-- 1. client -> server: address payload
+-- 2. server -> client: ack1 (handshake payload accepted)
+-- 3. client -> server: clientConnId
+-- 4. server -> client: ack2 (ConnectionOpened has been enqueued on server's endpoint)
+--
+-- The ack2 step is load-bearing: when this function returns, the server has
+-- already written ConnectionOpened to its local queue. Without it, the server's
+-- @connect@ would return before the peer's queue has the ConnectionOpened event,
+-- which races with subsequent sends on other connections.
 handshake ::
   (EndPointAddress, EndPointAddress) ->
+  ClientConnId ->
   Stream ->
   IO (Either () ())
-handshake (ourAddress, theirAddress) stream =
+handshake (ourAddress, theirAddress) clientConnId stream =
   case decodeQUICAddr theirAddress of
     Left errmsg -> throwIO $ userError ("Could not decode QUIC address: " <> errmsg)
     Right (QUICAddr _ _ serverEndPointId) -> do
-      -- Handshake on connection creation, which simply involves
-      -- sending our address over, and
-      -- the endpoint ID of the endpoint we want to communicate with
       let encodedPayload = BS.toStrict $ Binary.encode (ourAddress, serverEndPointId)
           payloadLength = encodeWord32 $ fromIntegral (BS.length encodedPayload)
 
@@ -260,10 +268,14 @@ handshake (ourAddress, theirAddress) stream =
         >>= \case
           Left (_exc :: SomeException) -> pure $ Left ()
           Right _ ->
-            -- Server acknowledgement that the handshake is complete
-            -- means that we cannot send messages until the server
-            -- is ready for them
-            recvAck stream
+            recvAck stream >>= \case
+              Left () -> pure $ Left ()
+              Right () ->
+                try @SomeException
+                  (QUIC.sendStream stream (BS.toStrict (Binary.encode clientConnId)))
+                  >>= \case
+                    Left _ -> pure $ Left ()
+                    Right () -> recvAck stream
 
 -- | Part of the connection ID that is client-allocated.
 newtype ClientConnId = ClientConnId Word32
