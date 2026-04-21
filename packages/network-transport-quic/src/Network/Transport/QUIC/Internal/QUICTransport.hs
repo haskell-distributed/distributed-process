@@ -60,8 +60,6 @@ module Network.Transport.QUIC.Internal.QUICTransport
     ValidRemoteEndPointState (..),
     remoteStream,
     remoteStreamIsClosed,
-    remoteIncoming,
-    remoteNextConnOutId,
     Direction (..),
 
     -- * Re-exports
@@ -228,9 +226,7 @@ data RemoteEndPointState
 
 data ValidRemoteEndPointState = ValidRemoteEndPointState
   { _remoteStream :: Stream,
-    _remoteStreamIsClosed :: MVar (),
-    _remoteIncoming :: !(Maybe ClientConnId),
-    _remoteNextConnOutId :: !ClientConnId
+    _remoteStreamIsClosed :: MVar ()
   }
 
 makeLenses ''QUICTransport
@@ -345,10 +341,10 @@ closeRemoteEndPoint direction remoteEndPoint = do
   mAct <- modifyMVar (remoteEndPoint ^. remoteEndPointState) $ \case
     RemoteEndPointInit -> pure (RemoteEndPointClosed, Nothing)
     RemoteEndPointClosed -> pure (RemoteEndPointClosed, Nothing)
-    RemoteEndPointValid (ValidRemoteEndPointState stream isClosed conns _) ->
+    RemoteEndPointValid (ValidRemoteEndPointState stream isClosed) ->
       let cleanup = do
             _ <- case direction of
-              Outgoing -> Right <$> forM_ conns (`sendCloseConnection` stream)
+              Outgoing -> sendCloseConnection stream
               Incoming -> sendCloseEndPoint stream
             _ <- tryPutMVar isClosed ()
             pure ()
@@ -401,18 +397,21 @@ createConnectionTo ::
   Bool ->
   LocalEndPoint ->
   EndPointAddress ->
-  IO (Either (TransportError ConnectErrorCode) (RemoteEndPoint, ClientConnId))
+  IO (Either (TransportError ConnectErrorCode) RemoteEndPoint)
 createConnectionTo creds validateCreds localEndPoint remoteAddress = do
   createRemoteEndPoint localEndPoint remoteAddress Outgoing >>= \case
     Left err -> pure $ Left err
     Right (remoteEndPoint, _) -> do
-      let clientConnId = 0
+      -- TODO: each call to @connect@ currently opens a dedicated QUIC connection
+      -- and carries a single logical connection on its stream. Preferred
+      -- architecture: one QUIC connection per (local endpoint, peer endpoint)
+      -- pair, with each logical connection carried on its own stream. Streams
+      -- already give us independent flow control and avoid head-of-line blocking.
       streamToEndpoint
         creds
         validateCreds
         (localEndPoint ^. localAddress)
         remoteAddress
-        clientConnId
         (surfaceConnectionLost remoteEndPoint)
         >>= \case
           Left exc -> pure $ Left exc
@@ -421,14 +420,12 @@ createConnectionTo creds validateCreds localEndPoint remoteAddress = do
                   RemoteEndPointValid $
                     ValidRemoteEndPointState
                       { _remoteStream = stream,
-                        _remoteStreamIsClosed = closeStream,
-                        _remoteIncoming = Nothing,
-                        _remoteNextConnOutId = clientConnId + 1
+                        _remoteStreamIsClosed = closeStream
                       }
             modifyMVar_
               (remoteEndPoint ^. remoteEndPointState)
               (\_ -> pure validState)
-            pure $ Right (remoteEndPoint, clientConnId)
+            pure $ Right remoteEndPoint
   where
     -- Idempotent: surfaces EventConnectionLost exactly once, only if the remote
     -- endpoint was still Valid when invoked. Called from multiple termination
@@ -438,9 +435,9 @@ createConnectionTo creds validateCreds localEndPoint remoteAddress = do
       mAct <- modifyMVar (remoteEndPoint ^. remoteEndPointState) $ \case
         RemoteEndPointInit -> pure (RemoteEndPointClosed, Nothing)
         RemoteEndPointClosed -> pure (RemoteEndPointClosed, Nothing)
-        RemoteEndPointValid (ValidRemoteEndPointState stream isClosed conns _) ->
+        RemoteEndPointValid (ValidRemoteEndPointState stream isClosed) ->
           let cleanup = do
-                forM_ conns $ \c -> sendCloseConnection c stream
+                _ <- sendCloseConnection stream
                 _ <- tryPutMVar isClosed ()
                 onConnectionLost
            in pure (RemoteEndPointClosed, Just cleanup)

@@ -50,20 +50,19 @@ import Network.Transport (ConnectionId, EndPointAddress)
 import Network.Transport.Internal (decodeWord32, encodeWord32)
 import Network.Transport.QUIC.Internal.QUICAddr (QUICAddr (QUICAddr), decodeQUICAddr)
 
--- | Send a message to a remote endpoint ID
+-- | Send a message on the stream.
 --
 -- This function is thread-safe; while the data is sending, asynchronous
 -- exceptions are masked, to be rethrown after the data is sent.
 sendMessage ::
   Stream ->
-  ClientConnId ->
   [ByteString] ->
   IO (Either QUIC.QUICException ())
-sendMessage stream connId messages =
+sendMessage stream messages =
   try
     ( QUIC.sendStreamMany
         stream
-        (encodeMessage connId messages)
+        (encodeMessage messages)
     )
 
 -- | Receive a message, including its local destination endpoint ID
@@ -87,18 +86,15 @@ receiveMessage stream = mask $ \restore ->
 -- The encoding is composed of a header, and the payloads.
 -- The message header is composed of:
 -- 1. A control byte, to determine how the message should be parsed.
--- 2. A 32-bit word that encodes the endpoint ID of the destination endpoint;
--- 3. A 32-bit word that encodes the number of frames in the message
+-- 2. A 32-bit word that encodes the number of frames in the message
 --
 -- The payload frames are each prepended with the length of the frame.
 encodeMessage ::
-  ClientConnId ->
   [ByteString] ->
   [ByteString]
-encodeMessage connId messages =
+encodeMessage messages =
   BS.concat
     [ BS.singleton messageControlByte,
-      encodeWord32 (fromIntegral connId),
       encodeWord32 (fromIntegral $ length messages)
     ]
     : [encodeWord32 (fromIntegral $ BS.length message) <> message | message <- messages]
@@ -116,13 +112,12 @@ decodeMessage get =
   where
     go ctrl
       | ctrl == closeEndPointControlByte = pure $ Right CloseEndPoint
-      | ctrl == closeConnectionControlByte = Right . CloseConnection . fromIntegral <$> getWord32
+      | ctrl == closeConnectionControlByte = pure $ Right CloseConnection
       | ctrl == messageControlByte = do
-          connId <- getWord32
           numMessages <- getWord32
           messages <- replicateM (fromIntegral numMessages) $ do
             getWord32 >>= get . fromIntegral
-          pure . Right $ Message (fromIntegral connId) messages
+          pure . Right $ Message messages
       | otherwise = pure $ Left $ "Unsupported control byte: " <> show ctrl
     getWord32 = get 4 <&> decodeWord32
 
@@ -146,10 +141,8 @@ getAllBytes get n = go n mempty
           else go (m - BS.length bytes) (acc <> [bytes])
 
 data MessageReceived
-  = Message
-      {-# UNPACK #-} !ClientConnId
-      {-# UNPACK #-} ![ByteString]
-  | CloseConnection !ClientConnId
+  = Message {-# UNPACK #-} ![ByteString]
+  | CloseConnection
   | CloseEndPoint
   | StreamClosed
   deriving (Show, Eq)
@@ -220,13 +213,12 @@ closeConnectionControlByte :: ControlByte
 closeConnectionControlByte = 255
 
 -- | Send a message to close the connection.
-sendCloseConnection :: ClientConnId -> Stream -> IO (Either QUIC.QUICException ())
-sendCloseConnection connId stream =
+sendCloseConnection :: Stream -> IO (Either QUIC.QUICException ())
+sendCloseConnection stream =
   try
     ( QUIC.sendStream
         stream
-        ( BS.concat [BS.singleton closeConnectionControlByte, encodeWord32 (fromIntegral connId)]
-        )
+        (BS.singleton closeConnectionControlByte)
     )
 
 -- | Send a message to close the connection.
@@ -240,12 +232,11 @@ sendCloseEndPoint stream =
     )
 
 -- | Handshake protocol that a client, connecting to a remote endpoint,
--- has to perform. Two round-trips:
+-- has to perform:
 --
 -- 1. client -> server: address payload
 -- 2. server -> client: ack1 (handshake payload accepted)
--- 3. client -> server: clientConnId
--- 4. server -> client: ack2 (ConnectionOpened has been enqueued on server's endpoint)
+-- 3. server -> client: ack2 (ConnectionOpened has been enqueued on server's endpoint)
 --
 -- The ack2 step is load-bearing: when this function returns, the server has
 -- already written ConnectionOpened to its local queue. Without it, the server's
@@ -253,10 +244,9 @@ sendCloseEndPoint stream =
 -- which races with subsequent sends on other connections.
 handshake ::
   (EndPointAddress, EndPointAddress) ->
-  ClientConnId ->
   Stream ->
   IO (Either () ())
-handshake (ourAddress, theirAddress) clientConnId stream =
+handshake (ourAddress, theirAddress) stream =
   case decodeQUICAddr theirAddress of
     Left errmsg -> throwIO $ userError ("Could not decode QUIC address: " <> errmsg)
     Right (QUICAddr _ _ serverEndPointId) -> do
@@ -273,12 +263,7 @@ handshake (ourAddress, theirAddress) clientConnId stream =
           Right _ ->
             recvAck stream >>= \case
               Left () -> pure $ Left ()
-              Right () ->
-                try @SomeException
-                  (QUIC.sendStream stream (BS.toStrict (Binary.encode clientConnId)))
-                  >>= \case
-                    Left _ -> pure $ Left ()
-                    Right () -> recvAck stream
+              Right () -> recvAck stream
 
 -- | Part of the connection ID that is client-allocated.
 newtype ClientConnId = ClientConnId Word32
