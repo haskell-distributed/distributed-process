@@ -56,8 +56,8 @@ jobs:
     - name: Generate freeze file
       run: |
         # Cloud Haskell tests using the QUIC backend are quite flaky, but in CI only.
-        # Therefore, the 'quic' flag is normally enabled locally, but disabled in CI. 
-        cabal configure --enable-tests --test-show-details=direct --flags "-quic" ${{matrix.cabal-flags}}
+        # Therefore, the 'quic' flag is normally enabled locally, but disabled in CI.
+        cabal configure --test-show-details=direct --flags "-quic" ${{matrix.cabal-flags}}
         cabal freeze --minimize-conflict-set
         cat cabal.project.freeze
 
@@ -82,5 +82,5 @@ jobs:
       # The timeout below should be plenty
       timeout-minutes: 10
       # We run each test suite one-by-one to better observe problems.
-      run: cabal test all -j1 
+      run: cabal test all -j1
 

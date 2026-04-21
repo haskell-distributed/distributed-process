@@ -10,18 +10,19 @@ import Control.Exception (bracket)
 import Control.Monad (replicateM_)
 import Data.ByteString qualified as BS
 import Data.List.NonEmpty (NonEmpty (..))
-import Network.Transport (EndPoint (..), Event (ConnectionClosed, ConnectionOpened, Received), Reliability (..), Transport (..), close, defaultConnectHints, send)
+import Network.Transport (EndPoint (..), Event (ConnectionClosed), Reliability (..), Transport (..), close, defaultConnectHints, send)
 import Network.Transport.QUIC (QUICTransportConfig (..))
 import Network.Transport.QUIC qualified as QUIC
 import Network.Transport.Tests (echoServer)
 import Network.Transport.Tests qualified as Tests
 import Network.Transport.Tests.Auxiliary (forkTry)
+import Network.Transport.Tests.Expect (expectConnectionOpened, expectEq, expectReceived, expectRight)
 import Network.Transport.Util (spawn)
 import System.FilePath ((</>))
 import System.Timeout (timeout)
 import Test.Tasty (TestName, TestTree, testGroup)
-import Test.Tasty.Flaky (flakyTest, limitRetries)
-import Test.Tasty.HUnit (Assertion, assertBool, assertFailure, testCase, (@?=))
+import Test.Tasty.Flaky (flakyTest, limitRetries, constantDelay)
+import Test.Tasty.HUnit (Assertion, assertFailure, testCase, (@?=))
 
 tests :: TestTree
 tests =
@@ -47,7 +48,7 @@ tests =
     ]
 
 flaky :: TestTree -> TestTree
-flaky = flakyTest (limitRetries 3)
+flaky = flakyTest (limitRetries 3 <> constantDelay 1_000)
 
 -- | Ensure that a test does not run for too long
 testCaseWithTimeout :: TestName -> Assertion -> TestTree
@@ -91,21 +92,22 @@ testSendVeryLargeMessages = testCase "Send very large messages" $ withQUICTransp
   let numPings = 10
   let bigMessage = BS.replicate 4091 66 -- Using an odd number of bytes (4091) to test message boundaries
   _ <- forkTry $ do
-    Right endpoint <- newEndPoint transport
+    endpoint <- expectRight "newEndPoint" =<< newEndPoint transport
     ping endpoint server numPings bigMessage
     putMVar result ()
 
   takeMVar result
   where
     ping endpoint serverAddr numPings message = do
-      Right conn <- connect endpoint serverAddr ReliableOrdered defaultConnectHints
+      conn <- expectRight "connect" =<< connect endpoint serverAddr ReliableOrdered defaultConnectHints
 
-      ConnectionOpened cid _ _ <- receive endpoint
+      (cid, _, _) <- expectConnectionOpened =<< receive endpoint
 
       replicateM_ numPings $ do
         _ <- send conn [message]
-        Received cid' [reply] <- receive endpoint
-        assertBool mempty $ cid == cid' && reply == message
+        (cid', payload) <- expectReceived =<< receive endpoint
+        expectEq "connection id" cid cid'
+        expectEq "payload"       [message] payload
 
       close conn
 

@@ -7,6 +7,7 @@ import Control.Concurrent.MVar (MVar, newEmptyMVar, takeMVar, putMVar, readMVar)
 import Data.ByteString (ByteString)
 import Data.List (elemIndex)
 import Network.Transport.Tests.Auxiliary (runTests)
+import Network.Transport.Tests.Expect (expectReceivedMulticast, expectRight)
 
 -- | Node for the "No confusion" test
 noConfusionNode :: Transport -- ^ Transport
@@ -18,16 +19,17 @@ noConfusionNode :: Transport -- ^ Transport
                 -> IO ()
 noConfusionNode transport groups ready numPings msgs done = do
   -- Create a new endpoint
-  Right endpoint <- newEndPoint transport
+  endpoint <- expectRight "noConfusionNode: newEndPoint" =<< newEndPoint transport
 
   -- Create a new multicast group and broadcast its address
-  Right myGroup <- newMulticastGroup endpoint
+  myGroup <- expectRight "noConfusionNode: newMulticastGroup" =<< newMulticastGroup endpoint
   putMVar (head groups) (multicastAddress myGroup)
 
   -- Subscribe to the given multicast groups
   addrs <- mapM readMVar (tail groups)
-  forM_ addrs $ \addr -> do Right group <- resolveMulticastGroup endpoint addr
-                            multicastSubscribe group
+  forM_ addrs $ \addr -> do
+    group <- expectRight "noConfusionNode: resolveMulticastGroup" =<< resolveMulticastGroup endpoint addr
+    multicastSubscribe group
 
   -- Indicate that we're ready and wait for everybody else to be ready
   putMVar (head ready) ()
@@ -38,15 +40,17 @@ noConfusionNode transport groups ready numPings msgs done = do
 
   -- ..while checking that the messages we receive are the right ones
   replicateM_ (2 * numPings) $ do
-    event <- receive endpoint
-    case event of
-      ReceivedMulticast addr [msg] ->
-        let mix = addr `elemIndex` addrs in
-        case mix of
-          Nothing -> error "Message from unexpected source"
-          Just ix -> when (msgs !! (ix + 1) /= msg) $ error "Unexpected message"
+    (addr, payload) <- expectReceivedMulticast =<< receive endpoint
+    case payload of
+      [msg] ->
+        case addr `elemIndex` addrs of
+          Nothing -> error $ "Message from unexpected source: " ++ show addr
+          Just ix -> when (msgs !! (ix + 1) /= msg) $
+            error $ "Unexpected message from " ++ show addr
+                 ++ ": expected " ++ show (msgs !! (ix + 1))
+                 ++ ", got " ++ show msg
       _ ->
-        error "Unexpected event"
+        error $ "expected ReceivedMulticast with a single fragment, got " ++ show (length payload) ++ " fragments"
 
   -- Success
   putMVar done ()

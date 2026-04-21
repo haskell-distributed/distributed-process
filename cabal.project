@@ -1,4 +1,5 @@
 packages: packages/*/**.cabal
+tests: true
 
 package distributed-process-tests
   flags: +tcp
