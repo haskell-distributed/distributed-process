@@ -311,10 +311,13 @@ closeLocalEndpoint quicTransport localEndPoint = do
     LocalEndPointStateClosed -> pure (LocalEndPointStateClosed, Nothing)
     LocalEndPointStateValid st -> pure (LocalEndPointStateClosed, Just st)
 
-  forM_ mPreviousState $ \vst ->
-    forConcurrently_
-      (vst ^. incomingConnections <> vst ^. outgoingConnections)
-      tryCloseRemoteStream
+  -- Close outgoing remote endpoints before incoming. The peer's handleIncomingMessages
+  -- reader writes ConnectionClosed in response to our outgoing close; its listenForClose
+  -- writes ErrorEvent in response to our incoming close. Processing outgoing first gives
+  -- the peer's event queue the expected ConnectionClosed-before-ErrorEvent ordering.
+  forM_ mPreviousState $ \vst -> do
+    forConcurrently_ (vst ^. outgoingConnections) tryCloseRemoteStream
+    forConcurrently_ (vst ^. incomingConnections) tryCloseRemoteStream
   atomically $ writeTQueue (localEndPoint ^. localQueue) EndPointClosed
   where
     tryCloseRemoteStream :: RemoteEndPoint -> IO ()
@@ -409,7 +412,7 @@ createConnectionTo creds validateCreds localEndPoint remoteAddress = do
         validateCreds
         (localEndPoint ^. localAddress)
         remoteAddress
-        (\_ -> closeRemoteEndPoint Outgoing remoteEndPoint)
+        (onException remoteEndPoint)
         onConnectionLost
         >>= \case
           Left exc -> pure $ Left exc
@@ -438,6 +441,25 @@ createConnectionTo creds validateCreds localEndPoint remoteAddress = do
                 Left (exc :: SomeException) -> pure . Left $ TransportError ConnectFailed (displayException exc)
                 Right () -> pure $ Right (remoteEndPoint, clientConnId)
   where
+    onException remoteEndPoint _exception = do
+        -- The handler runs when QUIC.Client.run exits with an exception — i.e. the
+        -- peer tore down the connection before we did. If the remote endpoint was
+        -- still Valid when this fires, our side had not initiated the close, so we
+        -- surface an EventConnectionLost. (If state is already Closed, we initiated
+        -- the close ourselves and the QUIC exception is just teardown noise.)
+        do
+            mAct <- modifyMVar (remoteEndPoint ^. remoteEndPointState) $ \case
+              RemoteEndPointInit -> pure (RemoteEndPointClosed, Nothing)
+              RemoteEndPointClosed -> pure (RemoteEndPointClosed, Nothing)
+              RemoteEndPointValid (ValidRemoteEndPointState stream isClosed conns _) ->
+                let cleanup = do
+                      forM_ conns $ \c -> sendCloseConnection c stream
+                      putMVar isClosed ()
+                      onConnectionLost
+                 in pure (RemoteEndPointClosed, Just cleanup)
+            case mAct of
+              Nothing -> pure ()
+              Just act -> act
     onConnectionLost =
       atomically
         . writeTQueue (localEndPoint ^. localQueue)
