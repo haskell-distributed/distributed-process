@@ -205,13 +205,10 @@ handleNewStream quicTransport stream = do
                           _ -> undefined
                       )
 
-                    tid <-
-                      forkIO $
-                        -- If we've reached this stage, the connection handhake succeeded
-                        handleIncomingMessages
-                          ourEndPoint
-                          remoteEndPoint
-
+                    -- Enqueue ConnectionOpened before forking the reader thread.
+                    -- Otherwise the reader may dequeue a Message off the stream and
+                    -- enqueue Received/ConnectionClosed before ConnectionOpened, which
+                    -- breaks the ordering guarantee the transport API owes callers.
                     atomically $
                       writeTQueue
                         (ourEndPoint ^. localQueue)
@@ -220,6 +217,12 @@ handleNewStream quicTransport stream = do
                             ReliableOrdered
                             remoteAddress
                         )
+
+                    tid <-
+                      forkIO $
+                        handleIncomingMessages
+                          ourEndPoint
+                          remoteEndPoint
 
                     takeMVar doneMVar
                     QUIC.shutdownStream stream

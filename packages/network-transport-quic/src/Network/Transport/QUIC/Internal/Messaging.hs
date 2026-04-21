@@ -48,7 +48,6 @@ import Network.QUIC qualified as QUIC
 import Network.Transport (ConnectionId, EndPointAddress)
 import Network.Transport.Internal (decodeWord32, encodeWord32)
 import Network.Transport.QUIC.Internal.QUICAddr (QUICAddr (QUICAddr), decodeQUICAddr)
-import System.Timeout (timeout)
 
 -- | Send a message to a remote endpoint ID
 --
@@ -176,11 +175,7 @@ sendRejection =
 
 recvAck :: Stream -> IO (Either () ())
 recvAck stream = do
-  -- TODO: make timeout configurable
-  timeout 500_000 (QUIC.recvStream stream 1)
-    >>= maybe
-      (throwIO (AckException "Connection ack not received within acceptable timeframe"))
-      go
+  QUIC.recvStream stream 1 >>= go
   where
     go response
       | response == ackMessage = pure $ Right ()
