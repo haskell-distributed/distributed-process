@@ -22,14 +22,24 @@ jobs:
       matrix:
         include:
           - ghc-version: "8.10.7"
+            cabal-flags: ""
           - ghc-version: "9.0.2"
+            cabal-flags: ""
           - ghc-version: "9.2.8"
+            cabal-flags: ""
           - ghc-version: "9.4.8"
+            cabal-flags: ""
           - ghc-version: "9.6.7"
+            cabal-flags: ""
           - ghc-version: "9.8.4"
+            cabal-flags: ""
           - ghc-version: "9.10.3"
+            cabal-flags: ""
           - ghc-version: "9.12.2"
+            cabal-flags: ""
           - ghc-version: "9.14.1"
+            # See issue 479 for when we can drop the following flags
+            cabal-flags: "--allow-newer=base --allow-newer=template-haskell"
 
     runs-on: "ubuntu-latest"
 
@@ -47,7 +57,7 @@ jobs:
       run: |
         # Cloud Haskell tests using the QUIC backend are quite flaky, but in CI only.
         # Therefore, the 'quic' flag is normally enabled locally, but disabled in CI.
-        cabal configure --test-show-details=direct --flags "-quic"
+        cabal configure --test-show-details=direct --flags "-quic" ${{matrix.cabal-flags}}
         cabal freeze --minimize-conflict-set
         cat cabal.project.freeze
 
@@ -57,7 +67,7 @@ jobs:
         path: |
           dist-newstyle
           ${{ steps.setup-haskell.outputs.cabal-store }}
-        key: ${{ runner.os }}-ghc-${{ matrix.ghc-version }}-${{ hashFiles('cabal.project', 'cabal.project.freeze') }}
+        key: ${{ runner.os }}-ghc-${{ matrix.ghc-version }}-${{ hashFiles('cabal.project', 'cabal.project.local', 'cabal.project.freeze') }}
         restore-keys: |
           ${{ runner.os }}-ghc-${{ matrix.ghc-version }}-
 
@@ -73,4 +83,3 @@ jobs:
       timeout-minutes: 10
       # We run each test suite one-by-one to better observe problems.
       run: cabal test all -j1
-
