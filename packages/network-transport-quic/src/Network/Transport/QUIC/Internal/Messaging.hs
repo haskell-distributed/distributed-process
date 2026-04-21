@@ -127,20 +127,23 @@ decodeMessage get =
     getWord32 = get 4 <&> decodeWord32
 
 -- | Wrap a method to fetch bytes, to ensure that we always get exactly the
--- intended number of bytes.
+-- intended number of bytes. Returns early (with the accumulated bytes) if the
+-- underlying fetcher signals EOF by returning an empty ByteString; otherwise a
+-- fetcher that repeatedly returns empty after a peer FIN would cause this to
+-- spin forever.
 getAllBytes ::
   -- | Function to fetch at most 'n' bytes
   (Int -> IO ByteString) ->
-  -- | Function to fetch exactly 'n' bytes
+  -- | Function to fetch exactly 'n' bytes (or fewer on EOF)
   (Int -> IO ByteString)
 getAllBytes get n = go n mempty
   where
     go 0 !acc = pure $ BS.concat acc
     go m !acc =
       get m >>= \bytes ->
-        go
-          (m - BS.length bytes)
-          (acc <> [bytes])
+        if BS.null bytes
+          then pure $ BS.concat acc
+          else go (m - BS.length bytes) (acc <> [bytes])
 
 data MessageReceived
   = Message

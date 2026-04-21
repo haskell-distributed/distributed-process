@@ -10,8 +10,8 @@ where
 
 import Control.Concurrent (forkIOWithUnmask, newEmptyMVar)
 import Control.Concurrent.Async (withAsync)
-import Control.Concurrent.MVar (MVar, putMVar, takeMVar)
-import Control.Exception (SomeException, bracket, catch, mask, mask_, throwIO)
+import Control.Concurrent.MVar (MVar, putMVar, takeMVar, tryPutMVar)
+import Control.Exception (SomeException, bracket, catch, finally, mask, mask_, throwIO)
 import Data.List.NonEmpty (NonEmpty)
 import Network.QUIC qualified as QUIC
 import Network.QUIC.Client qualified as QUIC.Client
@@ -30,9 +30,11 @@ streamToEndpoint ::
   EndPointAddress ->
   -- | Client-allocated connection id to send as part of the handshake
   ClientConnId ->
-  -- | On exception
-  (SomeException -> IO ()) ->
-  -- | On a message to forcibly close the connection
+  -- | Called when the QUIC connection or stream ends without us having initiated the
+  -- close. Must be idempotent (the caller typically gates on remote endpoint state so
+  -- that repeated invocations are safe) — this handler is invoked from multiple sites
+  -- (peer-initiated close signal, QUIC.Client.run exception, thread finally) to cover
+  -- every termination path.
   IO () ->
   IO
     ( Either
@@ -42,7 +44,7 @@ streamToEndpoint ::
           QUIC.Stream
         )
     )
-streamToEndpoint creds validateCreds ourAddress theirAddress clientConnId onExc onCloseForcibly =
+streamToEndpoint creds validateCreds ourAddress theirAddress clientConnId onConnLoss =
   case decodeQUICAddr theirAddress of
     Left errmsg -> pure $ Left (TransportError ConnectNotFound errmsg)
     Right (QUICAddr hostname servicename _) -> do
@@ -77,7 +79,8 @@ streamToEndpoint creds validateCreds ourAddress theirAddress clientConnId onExc 
                           (throwIO @SomeException)
                     )
               )
-              onExc
+              (\(_ :: SomeException) -> pure ())
+              `finally` onConnLoss
 
       streamOrError <- takeMVar streamMVar
 
@@ -87,11 +90,24 @@ streamToEndpoint creds validateCreds ourAddress theirAddress clientConnId onExc 
   listenForClose stream doneMVar =
     receiveMessage stream
       >>= \case
-        Right StreamClosed -> do
-          putMVar doneMVar ()
-        Right (CloseConnection _) -> do
-          putMVar doneMVar ()
-        Right CloseEndPoint -> do
-          putMVar doneMVar ()
-          onCloseForcibly
+        -- Any message from the peer on this stream means we're done listening.
+        -- Peer-initiated closes (StreamClosed/CloseEndPoint) additionally call
+        -- onConnLoss; the idempotent gate in the handler dedupes with the finally
+        -- that also fires on QUIC.Client.run exit.
+        --
+        -- Mask signalling+onConnLoss as an atomic pair: tryPutMVar unblocks
+        -- runClient's takeMVar, which causes withAsync to cancel this thread.
+        -- Without mask, the async ThreadKilled can fire partway through
+        -- onConnLoss, dropping the ErrorEvent. The finally in the parent thread
+        -- is a backup but cannot recover if surfaceConnectionLost already
+        -- transitioned the remote state to Closed.
+        Right StreamClosed -> mask_ $ do
+          _ <- tryPutMVar doneMVar ()
+          onConnLoss
+        Right (CloseConnection _) ->
+          -- Peer closed the logical connection cleanly; no ErrorEvent.
+          () <$ tryPutMVar doneMVar ()
+        Right CloseEndPoint -> mask_ $ do
+          _ <- tryPutMVar doneMVar ()
+          onConnLoss
         other -> throwIO . userError $ "Unexpected incoming message to client: " <> show other

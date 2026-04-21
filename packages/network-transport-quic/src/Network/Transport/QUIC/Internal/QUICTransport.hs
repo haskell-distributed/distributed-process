@@ -70,7 +70,7 @@ module Network.Transport.QUIC.Internal.QUICTransport
 where
 
 import Control.Concurrent.Async (forConcurrently_)
-import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar, putMVar, readMVar)
+import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar, readMVar, tryPutMVar)
 import Control.Concurrent.STM.TQueue (TQueue, writeTQueue)
 import Control.Exception (bracketOnError)
 import Control.Monad (forM_)
@@ -326,8 +326,9 @@ closeLocalEndpoint quicTransport localEndPoint = do
           pure
             ( RemoteEndPointClosed,
               Just $ do
-                sendCloseEndPoint (vst ^. remoteStream)
-                  >> putMVar (vst ^. remoteStreamIsClosed) ()
+                _ <- sendCloseEndPoint (vst ^. remoteStream)
+                _ <- tryPutMVar (vst ^. remoteStreamIsClosed) ()
+                pure ()
             )
 
       case mCleanup of
@@ -345,11 +346,12 @@ closeRemoteEndPoint direction remoteEndPoint = do
     RemoteEndPointInit -> pure (RemoteEndPointClosed, Nothing)
     RemoteEndPointClosed -> pure (RemoteEndPointClosed, Nothing)
     RemoteEndPointValid (ValidRemoteEndPointState stream isClosed conns _) ->
-      let cleanup =
-            case direction of
+      let cleanup = do
+            _ <- case direction of
               Outgoing -> Right <$> forM_ conns (`sendCloseConnection` stream)
               Incoming -> sendCloseEndPoint stream
-              >> putMVar isClosed ()
+            _ <- tryPutMVar isClosed ()
+            pure ()
        in pure (RemoteEndPointClosed, Just cleanup)
 
   case mAct of
@@ -404,10 +406,6 @@ createConnectionTo creds validateCreds localEndPoint remoteAddress = do
   createRemoteEndPoint localEndPoint remoteAddress Outgoing >>= \case
     Left err -> pure $ Left err
     Right (remoteEndPoint, _) -> do
-      -- TODO: each call to @connect@ currently opens a dedicated QUIC connection and
-      -- its logical connection id is always 0. To multiplex multiple logical
-      -- connections on a single stream (the purpose of @_remoteNextConnOutId@), this
-      -- should draw from and advance that counter instead of being hardcoded.
       let clientConnId = 0
       streamToEndpoint
         creds
@@ -415,8 +413,7 @@ createConnectionTo creds validateCreds localEndPoint remoteAddress = do
         (localEndPoint ^. localAddress)
         remoteAddress
         clientConnId
-        (onException remoteEndPoint)
-        onConnectionLost
+        (surfaceConnectionLost remoteEndPoint)
         >>= \case
           Left exc -> pure $ Left exc
           Right (closeStream, stream) -> do
@@ -433,25 +430,23 @@ createConnectionTo creds validateCreds localEndPoint remoteAddress = do
               (\_ -> pure validState)
             pure $ Right (remoteEndPoint, clientConnId)
   where
-    onException remoteEndPoint _exception = do
-        -- The handler runs when QUIC.Client.run exits with an exception — i.e. the
-        -- peer tore down the connection before we did. If the remote endpoint was
-        -- still Valid when this fires, our side had not initiated the close, so we
-        -- surface an EventConnectionLost. (If state is already Closed, we initiated
-        -- the close ourselves and the QUIC exception is just teardown noise.)
-        do
-            mAct <- modifyMVar (remoteEndPoint ^. remoteEndPointState) $ \case
-              RemoteEndPointInit -> pure (RemoteEndPointClosed, Nothing)
-              RemoteEndPointClosed -> pure (RemoteEndPointClosed, Nothing)
-              RemoteEndPointValid (ValidRemoteEndPointState stream isClosed conns _) ->
-                let cleanup = do
-                      forM_ conns $ \c -> sendCloseConnection c stream
-                      putMVar isClosed ()
-                      onConnectionLost
-                 in pure (RemoteEndPointClosed, Just cleanup)
-            case mAct of
-              Nothing -> pure ()
-              Just act -> act
+    -- Idempotent: surfaces EventConnectionLost exactly once, only if the remote
+    -- endpoint was still Valid when invoked. Called from multiple termination
+    -- sites (peer-initiated close, QUIC exception, forked-thread finally) so that
+    -- no close path can leave us silent — the state-transition gate dedupes them.
+    surfaceConnectionLost remoteEndPoint = do
+      mAct <- modifyMVar (remoteEndPoint ^. remoteEndPointState) $ \case
+        RemoteEndPointInit -> pure (RemoteEndPointClosed, Nothing)
+        RemoteEndPointClosed -> pure (RemoteEndPointClosed, Nothing)
+        RemoteEndPointValid (ValidRemoteEndPointState stream isClosed conns _) ->
+          let cleanup = do
+                forM_ conns $ \c -> sendCloseConnection c stream
+                _ <- tryPutMVar isClosed ()
+                onConnectionLost
+           in pure (RemoteEndPointClosed, Just cleanup)
+      case mAct of
+        Nothing -> pure ()
+        Just act -> act
     onConnectionLost =
       atomically
         . writeTQueue (localEndPoint ^. localQueue)

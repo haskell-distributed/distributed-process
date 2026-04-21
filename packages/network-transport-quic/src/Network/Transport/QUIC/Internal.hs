@@ -22,7 +22,7 @@ module Network.Transport.QUIC.Internal
 where
 
 import Control.Concurrent (forkIO, killThread, modifyMVar_, newEmptyMVar, readMVar)
-import Control.Concurrent.MVar (modifyMVar, putMVar, takeMVar, withMVar)
+import Control.Concurrent.MVar (modifyMVar, putMVar, takeMVar, tryPutMVar, withMVar)
 import Control.Concurrent.STM (atomically, newTQueueIO)
 import Control.Concurrent.STM.TQueue
   ( TQueue,
@@ -181,10 +181,6 @@ handleNewStream quicTransport stream = do
 
                     (remoteEndPoint, _) <- either throwIO pure =<< createRemoteEndPoint ourEndPoint remoteAddress Incoming
                     doneMVar <- newEmptyMVar
-
-                    -- Sending an ack is important, because otherwise
-                    -- the client may start sending messages well before we
-                    -- start being able to receive them
 
                     clientConnId <- either (throwIO . userError) (pure . fromIntegral) =<< recvWord32 stream
                     let serverConnId = remoteServerConnId remoteEndPoint
@@ -401,9 +397,14 @@ newConnection ourEndPoint creds validateCreds remoteAddress _reliability _connec
             False -> pure (RemoteEndPointValid vst, Nothing)
             True -> do
               writeIORef connAlive False
-              -- We want to run this cleanup action OUTSIDE of the MVar modification
-              let cleanup = sendCloseConnection connId stream
-              pure (RemoteEndPointClosed, Just $ cleanup >> putMVar isClosed ())
+              -- Run cleanup OUTSIDE the MVar modification. tryPutMVar keeps this
+              -- safe against races with the finally in streamToEndpoint that can
+              -- also signal isClosed on QUIC.Client.run exit.
+              let cleanup = do
+                    _ <- sendCloseConnection connId stream
+                    _ <- tryPutMVar isClosed ()
+                    pure ()
+              pure (RemoteEndPointClosed, Just cleanup)
         _ -> pure (RemoteEndPointClosed, Nothing)
 
       case mCleanup of
