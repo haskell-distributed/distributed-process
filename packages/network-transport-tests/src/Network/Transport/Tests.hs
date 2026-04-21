@@ -31,6 +31,18 @@ import qualified Data.Map as Map (empty, insert, delete, findWithDefault, adjust
 import Data.String (fromString)
 import Data.List (permutations)
 import Network.Transport.Tests.Auxiliary (forkTry, runTests, trySome, randomThreadDelay)
+import Network.Transport.Tests.Expect
+  ( expectConnectionClosed
+  , expectConnectionOpened
+  , expectEndPointClosed
+  , expectEq
+  , expectErrorEvent
+  , expectLeft
+  , expectReceived
+  , expectRight
+  , expectTransportError
+  , expectTrue
+  )
 import Network.Transport.Tests.Traced
 
 -- | Server that echoes messages straight back to the origin endpoint.
@@ -44,7 +56,7 @@ echoServer endpoint = do
       case event of
         ConnectionOpened cid rel addr -> do
           tlog $ "Opened new connection " ++ show cid
-          Right conn <- connect endpoint addr rel defaultConnectHints
+          conn <- expectRight "echoServer: connect" =<< connect endpoint addr rel defaultConnectHints
           go (Map.insert cid conn cs)
         Received cid payload -> do
           send (Map.findWithDefault (error $ "Received: Invalid cid " ++ show cid) cid cs) payload
@@ -66,18 +78,18 @@ ping :: EndPoint -> EndPointAddress -> Int -> ByteString -> IO ()
 ping endpoint server numPings msg = do
   -- Open connection to the server
   tlog "Connect to echo server"
-  Right conn <- connect endpoint server ReliableOrdered defaultConnectHints
+  conn <- expectRight "ping: connect" =<< connect endpoint server ReliableOrdered defaultConnectHints
 
   -- Wait for the server to open reply connection
   tlog "Wait for ConnectionOpened message"
-  ConnectionOpened cid _ _ <- receive endpoint
+  (cid, _, _) <- expectConnectionOpened =<< receive endpoint
 
   -- Send pings and wait for reply
   tlog "Send ping and wait for reply"
   replicateM_ numPings $ do
       send conn [msg]
-      Received cid' [reply] <- receive endpoint ; True <- return $ cid == cid' && reply == msg
-      return ()
+      ev <- receive endpoint
+      expectEq "ping: echoed event" (Received cid [msg]) ev
 
   -- Close the connection
   tlog "Close the connection"
@@ -85,7 +97,8 @@ ping endpoint server numPings msg = do
 
   -- Wait for the server to close its connection to us
   tlog "Wait for ConnectionClosed message"
-  ConnectionClosed cid' <- receive endpoint ; True <- return $ cid == cid'
+  ev <- receive endpoint
+  expectEq "ping: connection closed event" (ConnectionClosed cid) ev
 
   -- Done
   tlog "Ping client done"
@@ -100,7 +113,7 @@ testPingPong transport numPings = do
   -- Client
   forkTry $ do
     tlog "Ping client"
-    Right endpoint <- newEndPoint transport
+    endpoint <- expectRight "testPingPong: newEndPoint" =<< newEndPoint transport
     ping endpoint server numPings "ping"
     putMVar result ()
 
@@ -115,7 +128,7 @@ testEndPoints transport numPings = do
   forM_ (zip dones ['A'..]) $ \(done, name) -> forkTry $ do
     let name' :: ByteString
         name' = pack [name]
-    Right endpoint <- newEndPoint transport
+    endpoint <- expectRight "testEndPoints: newEndPoint" =<< newEndPoint transport
     tlog $ "Ping client " ++ show name' ++ ": " ++ show (address endpoint)
     ping endpoint server numPings name'
     putMVar done ()
@@ -130,14 +143,14 @@ testConnections transport numPings = do
 
   -- Client
   forkTry $ do
-    Right endpoint <- newEndPoint transport
+    endpoint <- expectRight "testConnections: newEndPoint" =<< newEndPoint transport
 
     -- Open two connections to the server
-    Right conn1 <- connect endpoint server ReliableOrdered defaultConnectHints
-    ConnectionOpened serv1 _ _ <- receive endpoint
+    conn1 <- expectRight "testConnections: connect (conn1)" =<< connect endpoint server ReliableOrdered defaultConnectHints
+    (serv1, _, _) <- expectConnectionOpened =<< receive endpoint
 
-    Right conn2 <- connect endpoint server ReliableOrdered defaultConnectHints
-    ConnectionOpened serv2 _ _ <- receive endpoint
+    conn2 <- expectRight "testConnections: connect (conn2)" =<< connect endpoint server ReliableOrdered defaultConnectHints
+    (serv2, _, _) <- expectConnectionOpened =<< receive endpoint
 
     -- One thread to send "pingA" on the first connection
     forkTry $ replicateM_ numPings $ send conn1 ["pingA"]
@@ -168,14 +181,14 @@ testCloseOneConnection transport numPings = do
 
   -- Client
   forkTry $ do
-    Right endpoint <- newEndPoint transport
+    endpoint <- expectRight "testCloseOneConnection: newEndPoint" =<< newEndPoint transport
 
     -- Open two connections to the server
-    Right conn1 <- connect endpoint server ReliableOrdered defaultConnectHints
-    ConnectionOpened serv1 _ _ <- receive endpoint
+    conn1 <- expectRight "testCloseOneConnection: connect (conn1)" =<< connect endpoint server ReliableOrdered defaultConnectHints
+    (serv1, _, _) <- expectConnectionOpened =<< receive endpoint
 
-    Right conn2 <- connect endpoint server ReliableOrdered defaultConnectHints
-    ConnectionOpened serv2 _ _ <- receive endpoint
+    conn2 <- expectRight "testCloseOneConnection: connect (conn2)" =<< connect endpoint server ReliableOrdered defaultConnectHints
+    (serv2, _, _) <- expectConnectionOpened =<< receive endpoint
 
     -- One thread to send "pingA" on the first connection
     forkTry $ do
@@ -213,17 +226,18 @@ testCloseOneDirection transport numPings = do
   -- A
   forkTry $ do
     tlog "A"
-    Right endpoint <- newEndPoint transport
+    endpoint <- expectRight "testCloseOneDirection (A): newEndPoint" =<< newEndPoint transport
     tlog (show (address endpoint))
     putMVar addrA (address endpoint)
 
     -- Connect to B
     tlog "Connect to B"
-    Right conn <- readMVar addrB >>= \addr -> connect endpoint addr ReliableOrdered defaultConnectHints
+    conn <- expectRight "testCloseOneDirection (A): connect to B"
+              =<< (readMVar addrB >>= \addr -> connect endpoint addr ReliableOrdered defaultConnectHints)
 
     -- Wait for B to connect to us
     tlog "Wait for B"
-    ConnectionOpened cid _ _ <- receive endpoint
+    (cid, _, _) <- expectConnectionOpened =<< receive endpoint
 
     -- Send pings to B
     tlog "Send pings to B"
@@ -235,12 +249,14 @@ testCloseOneDirection transport numPings = do
 
     -- Wait for B's pongs
     tlog "Wait for pongs from B"
-    replicateM_ numPings $ do Received _ _ <- receive endpoint ; return ()
+    replicateM_ numPings $ do
+      _ <- expectReceived =<< receive endpoint
+      return ()
 
     -- Wait for B to close it's connection to us
     tlog "Wait for B to close connection"
-    ConnectionClosed cid' <- receive endpoint
-    guard (cid == cid')
+    cid' <- expectConnectionClosed =<< receive endpoint
+    expectEq "testCloseOneDirection (A): closed connection id" cid cid'
 
     -- Done
     tlog "Done"
@@ -249,26 +265,29 @@ testCloseOneDirection transport numPings = do
   -- B
   forkTry $ do
     tlog "B"
-    Right endpoint <- newEndPoint transport
+    endpoint <- expectRight "testCloseOneDirection (B): newEndPoint" =<< newEndPoint transport
     tlog (show (address endpoint))
     putMVar addrB (address endpoint)
 
     -- Wait for A to connect
     tlog "Wait for A to connect"
-    ConnectionOpened cid _ _ <- receive endpoint
+    (cid, _, _) <- expectConnectionOpened =<< receive endpoint
 
     -- Connect to A
     tlog "Connect to A"
-    Right conn <- readMVar addrA >>= \addr -> connect endpoint addr ReliableOrdered defaultConnectHints
+    conn <- expectRight "testCloseOneDirection (B): connect to A"
+              =<< (readMVar addrA >>= \addr -> connect endpoint addr ReliableOrdered defaultConnectHints)
 
     -- Wait for A's pings
     tlog "Wait for pings from A"
-    replicateM_ numPings $ do Received _ _ <- receive endpoint ; return ()
+    replicateM_ numPings $ do
+      _ <- expectReceived =<< receive endpoint
+      return ()
 
     -- Wait for A to close it's connection to us
     tlog "Wait for A to close connection"
-    ConnectionClosed cid' <- receive endpoint
-    guard (cid == cid')
+    cid' <- expectConnectionClosed =<< receive endpoint
+    expectEq "testCloseOneDirection (B): closed connection id" cid cid'
 
     -- Send pongs to A
     tlog "Send pongs to A"
@@ -340,12 +359,13 @@ testCloseReopen transport numPings = do
 
   -- A
   forkTry $ do
-    Right endpoint <- newEndPoint transport
+    endpoint <- expectRight "testCloseReopen (A): newEndPoint" =<< newEndPoint transport
 
     forM_ [1 .. numRepeats] $ \i -> do
       tlog "A connecting"
       -- Connect to B
-      Right conn <- readMVar addrB >>= \addr -> connect endpoint addr ReliableOrdered defaultConnectHints
+      conn <- expectRight "testCloseReopen (A): connect"
+                =<< (readMVar addrB >>= \addr -> connect endpoint addr ReliableOrdered defaultConnectHints)
 
       tlog "A pinging"
       -- Say hi
@@ -359,14 +379,16 @@ testCloseReopen transport numPings = do
 
   -- B
   forkTry $ do
-    Right endpoint <- newEndPoint transport
+    endpoint <- expectRight "testCloseReopen (B): newEndPoint" =<< newEndPoint transport
     putMVar addrB (address endpoint)
 
     eventss <- collect endpoint (Just (numRepeats * (numPings + 2))) Nothing
 
     forM_ (zip [1 .. numRepeats] eventss) $ \(i, (_, events)) -> do
       forM_ (zip [1 .. numPings] events) $ \(j, event) -> do
-        guard (event == [pack $ "ping" ++ show i ++ "/" ++ show j])
+        expectEq ("testCloseReopen (B): ping " ++ show i ++ "/" ++ show j)
+                 [pack $ "ping" ++ show i ++ "/" ++ show j]
+                 event
 
     putMVar doneB ()
 
@@ -378,11 +400,11 @@ testParallelConnects transport numPings = do
   server <- spawn transport echoServer
   done   <- newEmptyMVar
 
-  Right endpoint <- newEndPoint transport
+  endpoint <- expectRight "testParallelConnects: newEndPoint" =<< newEndPoint transport
 
   -- Spawn lots of clients
   forM_ [1 .. numPings] $ \i -> forkTry $ do
-    Right conn <- connect endpoint server ReliableOrdered defaultConnectHints
+    conn <- expectRight "testParallelConnects: connect" =<< connect endpoint server ReliableOrdered defaultConnectHints
     send conn [pack $ "ping" ++ show i]
     send conn [pack $ "ping" ++ show i]
     close conn
@@ -390,8 +412,10 @@ testParallelConnects transport numPings = do
   forkTry $ do
     eventss <- collect endpoint (Just (numPings * 4)) Nothing
     -- Check that no pings got sent to the wrong connection
-    forM_ eventss $ \(_, [[ping1], [ping2]]) ->
-      guard (ping1 == ping2)
+    forM_ eventss $ \(_, events) -> case events of
+      [[ping1], [ping2]] -> expectEq "testParallelConnects: both pings on same connection match" ping1 ping2
+      _ -> ioError $ userError $
+        "testParallelConnects: expected two single-fragment messages per connection, got " ++ show events
     putMVar done ()
 
   takeMVar done
@@ -399,13 +423,13 @@ testParallelConnects transport numPings = do
 -- | Test that sending an error to self gives an error in the sender
 testSelfSend :: Transport -> IO ()
 testSelfSend transport = do
-    Right endpoint <- newEndPoint transport
+    endpoint <- expectRight "testSelfSend: newEndPoint" =<< newEndPoint transport
 
-    Right conn <- connect endpoint (address endpoint) ReliableOrdered
-                          defaultConnectHints
+    conn <- expectRight "testSelfSend: connect"
+              =<< connect endpoint (address endpoint) ReliableOrdered defaultConnectHints
 
     -- Must clear the ConnectionOpened event or else sending may block
-    ConnectionOpened _ _ _ <- receive endpoint
+    _ <- expectConnectionOpened =<< receive endpoint
 
     do send conn [ error "bang!" ]
        error "testSelfSend: send didn't fail"
@@ -414,7 +438,7 @@ testSelfSend transport = do
     close conn
 
     -- Must clear this event or else closing the end point may block.
-    ConnectionClosed _ <- receive endpoint
+    _ <- expectConnectionClosed =<< receive endpoint
 
     closeEndPoint endpoint
 
@@ -425,23 +449,23 @@ testSendAfterClose transport numRepeats = do
   clientDone <- newEmptyMVar
 
   forkTry $ do
-    Right endpoint <- newEndPoint transport
+    endpoint <- expectRight "testSendAfterClose: newEndPoint" =<< newEndPoint transport
 
     -- We request two lightweight connections
     replicateM numRepeats $ do
-      Right conn1 <- connect endpoint server ReliableOrdered defaultConnectHints
-      Right conn2 <- connect endpoint server ReliableOrdered defaultConnectHints
+      conn1 <- expectRight "testSendAfterClose: connect (conn1)" =<< connect endpoint server ReliableOrdered defaultConnectHints
+      conn2 <- expectRight "testSendAfterClose: connect (conn2)" =<< connect endpoint server ReliableOrdered defaultConnectHints
 
       -- Close the second, but leave the first open; then output on the second
       -- connection (i.e., on a closed connection while there is still another
       -- connection open)
       close conn2
-      Left (TransportError SendClosed _) <- send conn2 ["ping2"]
+      send conn2 ["ping2"] >>= expectTransportError "testSendAfterClose: send on closed conn2 (first)" SendClosed
 
       -- Now close the first connection, and output on it (i.e., output while
       -- there are no lightweight connection at all anymore)
       close conn1
-      Left (TransportError SendClosed _) <- send conn2 ["ping2"]
+      send conn2 ["ping2"] >>= expectTransportError "testSendAfterClose: send on closed conn2 (second)" SendClosed
 
       return ()
 
@@ -456,12 +480,12 @@ testCloseTwice transport numRepeats = do
   clientDone <- newEmptyMVar
 
   forkTry $ do
-    Right endpoint <- newEndPoint transport
+    endpoint <- expectRight "testCloseTwice: newEndPoint" =<< newEndPoint transport
 
     replicateM numRepeats $ do
       -- We request two lightweight connections
-      Right conn1 <- connect endpoint server ReliableOrdered defaultConnectHints
-      Right conn2 <- connect endpoint server ReliableOrdered defaultConnectHints
+      conn1 <- expectRight "testCloseTwice: connect (conn1)" =<< connect endpoint server ReliableOrdered defaultConnectHints
+      conn2 <- expectRight "testCloseTwice: connect (conn2)" =<< connect endpoint server ReliableOrdered defaultConnectHints
 
       -- Close the second one twice
       close conn2
@@ -472,16 +496,16 @@ testCloseTwice transport numRepeats = do
       close conn1
 
       -- Verify expected response from the echo server
-      ConnectionOpened cid1 _ _ <- receive endpoint
-      ConnectionOpened cid2 _ _ <- receive endpoint
+      (cid1, _, _) <- expectConnectionOpened =<< receive endpoint
+      (cid2, _, _) <- expectConnectionOpened =<< receive endpoint
       -- ordering of the following messages may differ depending of
       -- implementation
       ms   <- replicateM 3 $ receive endpoint
-      True <- return $ testStreams ms [ [ ConnectionClosed cid2 ]
-                                      , [ Received cid1 ["ping"]
-                                        , ConnectionClosed cid1 ]
-                                      ]
-      return ()
+      expectTrue ("testCloseTwice: event interleaving " ++ show ms) $
+        testStreams ms [ [ ConnectionClosed cid2 ]
+                       , [ Received cid1 ["ping"]
+                         , ConnectionClosed cid1 ]
+                       ]
 
     putMVar clientDone ()
 
@@ -492,10 +516,11 @@ testConnectToSelf :: Transport -> Int -> IO ()
 testConnectToSelf transport numPings = do
   done <- newEmptyMVar
   reconnect <- newEmptyMVar
-  Right endpoint <- newEndPoint transport
+  endpoint <- expectRight "testConnectToSelf: newEndPoint" =<< newEndPoint transport
 
   tlog "Creating self-connection"
-  Right conn <- connect endpoint (address endpoint) ReliableOrdered defaultConnectHints
+  conn <- expectRight "testConnectToSelf: connect (writer)"
+            =<< connect endpoint (address endpoint) ReliableOrdered defaultConnectHints
 
   tlog "Talk to myself"
 
@@ -509,31 +534,33 @@ testConnectToSelf transport numPings = do
     tlog $ "Closing connection"
     close conn
     readMVar reconnect
-    ConnectionOpened cid' _ _ <- receive endpoint
-    ConnectionClosed cid'' <- receive endpoint ; True <- return $ cid' == cid''
-    return ()
+    (cid', _, _) <- expectConnectionOpened =<< receive endpoint
+    evClose <- receive endpoint
+    expectEq "testConnectToSelf (writer): ConnectionClosed for self-reconnect" (ConnectionClosed cid') evClose
 
   -- And one thread to read
   forkTry $ do
     tlog $ "reading"
 
     tlog "Waiting for ConnectionOpened"
-    ConnectionOpened cid _ addr <- receive endpoint
+    (cid, _, addr) <- expectConnectionOpened =<< receive endpoint
 
     tlog "Waiting for Received"
     replicateM_ numPings $ do
-       Received cid' ["ping"] <- receive endpoint ; True <- return $ cid == cid'
-       return ()
+      ev <- receive endpoint
+      expectEq "testConnectToSelf (reader): ping echo" (Received cid ["ping"]) ev
 
     tlog "Waiting for ConnectionClosed"
-    ConnectionClosed cid' <- receive endpoint ; True <- return $ cid == cid'
+    ev <- receive endpoint
+    expectEq "testConnectToSelf (reader): ConnectionClosed" (ConnectionClosed cid) ev
 
     putMVar reconnect ()
 
     -- Check that the addr supplied also connects to self.
     -- The other thread verifies this.
-    Right conn <- connect endpoint addr ReliableOrdered defaultConnectHints
-    close conn
+    conn' <- expectRight "testConnectToSelf: connect via returned addr"
+               =<< connect endpoint addr ReliableOrdered defaultConnectHints
+    close conn'
 
     tlog "Done"
     putMVar done ()
@@ -544,7 +571,7 @@ testConnectToSelf transport numPings = do
 testConnectToSelfTwice :: Transport -> Int -> IO ()
 testConnectToSelfTwice transport numPings = do
   done <- newEmptyMVar
-  Right endpoint <- newEndPoint transport
+  endpoint <- expectRight "testConnectToSelfTwice: newEndPoint" =<< newEndPoint transport
 
   tlog "Talk to myself"
 
@@ -556,7 +583,8 @@ testConnectToSelfTwice transport numPings = do
   -- One thread to write to the endpoint using the first connection
   forkTry $ do
     tlog "Creating self-connection"
-    Right conn1 <- connect endpoint (address endpoint) ReliableOrdered defaultConnectHints
+    conn1 <- expectRight "testConnectToSelfTwice: connect (conn1)"
+               =<< connect endpoint (address endpoint) ReliableOrdered defaultConnectHints
     putMVar firstConnectionMade ()
 
     tlog $ "writing"
@@ -571,7 +599,8 @@ testConnectToSelfTwice transport numPings = do
   forkTry $ do
     takeMVar firstConnectionMade
     tlog "Creating self-connection"
-    Right conn2 <- connect endpoint (address endpoint) ReliableOrdered defaultConnectHints
+    conn2 <- expectRight "testConnectToSelfTwice: connect (conn2)"
+               =<< connect endpoint (address endpoint) ReliableOrdered defaultConnectHints
     tlog $ "writing"
 
     tlog $ "Sending ping"
@@ -584,9 +613,14 @@ testConnectToSelfTwice transport numPings = do
   forkTry $ do
     tlog $ "reading"
 
-    [(_, events1), (_, events2)] <- collect endpoint (Just (2 * (numPings + 2))) Nothing
-    True <- return $ events1 == replicate numPings ["pingA"]
-    True <- return $ events2 == replicate numPings ["pingB"]
+    collected <- collect endpoint (Just (2 * (numPings + 2))) Nothing
+    case collected of
+      [(_, events1), (_, events2)] -> do
+        expectEq "testConnectToSelfTwice: pingA stream" (replicate numPings ["pingA"]) events1
+        expectEq "testConnectToSelfTwice: pingB stream" (replicate numPings ["pingB"]) events2
+      _ ->
+        ioError $ userError $
+          "testConnectToSelfTwice: expected two collected connections, got " ++ show (length collected)
 
     tlog "Done"
     putMVar done ()
@@ -597,42 +631,37 @@ testConnectToSelfTwice transport numPings = do
 -- or our transport
 testCloseSelf :: IO (Either String Transport) -> IO ()
 testCloseSelf newTransport = do
-  Right transport <- newTransport
-  Right endpoint1 <- newEndPoint transport
-  Right endpoint2 <- newEndPoint transport
-  Right conn1     <- connect endpoint1 (address endpoint1) ReliableOrdered defaultConnectHints
-  ConnectionOpened _ _ _ <- receive endpoint1
-  Right conn2     <- connect endpoint1 (address endpoint1) ReliableOrdered defaultConnectHints
-  ConnectionOpened _ _ _ <- receive endpoint1
-  Right conn3     <- connect endpoint2 (address endpoint2) ReliableOrdered defaultConnectHints
-  ConnectionOpened _ _ _ <- receive endpoint2
+  transport <- expectRight "testCloseSelf: newTransport" =<< newTransport
+  endpoint1 <- expectRight "testCloseSelf: newEndPoint (1)" =<< newEndPoint transport
+  endpoint2 <- expectRight "testCloseSelf: newEndPoint (2)" =<< newEndPoint transport
+  conn1     <- expectRight "testCloseSelf: connect (conn1)" =<< connect endpoint1 (address endpoint1) ReliableOrdered defaultConnectHints
+  _         <- expectConnectionOpened =<< receive endpoint1
+  conn2     <- expectRight "testCloseSelf: connect (conn2)" =<< connect endpoint1 (address endpoint1) ReliableOrdered defaultConnectHints
+  _         <- expectConnectionOpened =<< receive endpoint1
+  conn3     <- expectRight "testCloseSelf: connect (conn3)" =<< connect endpoint2 (address endpoint2) ReliableOrdered defaultConnectHints
+  _         <- expectConnectionOpened =<< receive endpoint2
 
   -- Close the conneciton and try to send
   close conn1
-  ConnectionClosed _ <- receive endpoint1
-  Left (TransportError SendClosed _) <- send conn1 ["ping"]
+  _ <- expectConnectionClosed =<< receive endpoint1
+  send conn1 ["ping"] >>= expectTransportError "testCloseSelf: send on closed conn1" SendClosed
 
   -- Close the first endpoint. We should not be able to use the first
   -- connection anymore, or open more self connections, but the self connection
   -- to the second endpoint should still be fine
   closeEndPoint endpoint1
-  EndPointClosed <- receive endpoint1
-  Left (TransportError SendFailed _) <- send conn2 ["ping"]
-  Left (TransportError ConnectFailed _) <- connect endpoint1 (address endpoint1) ReliableOrdered defaultConnectHints
-  Right () <- send conn3 ["ping"]
-  Received _ _ <- receive endpoint2
+  expectEndPointClosed =<< receive endpoint1
+  send conn2 ["ping"] >>= expectTransportError "testCloseSelf: send on conn2 after endpoint1 close" SendFailed
+  connect endpoint1 (address endpoint1) ReliableOrdered defaultConnectHints
+    >>= expectTransportError "testCloseSelf: connect on closed endpoint1" ConnectFailed
+  expectRight "testCloseSelf: send on conn3 (still valid)" =<< send conn3 ["ping"]
+  _ <- expectReceived =<< receive endpoint2
 
   -- Close the transport; now the second should no longer work
   closeTransport transport
-  Left (TransportError SendFailed _) <- send conn3 ["ping"]
-  Left r <- connect endpoint2 (address endpoint2) ReliableOrdered defaultConnectHints
-  case r of
-    TransportError ConnectFailed _ -> return ()
-    _ -> do putStrLn $ "Actual: " ++ show r
-            TransportError ConnectFailed _ <- return r
-            return ()
-
-  return ()
+  send conn3 ["ping"] >>= expectTransportError "testCloseSelf: send on conn3 after transport close" SendFailed
+  connect endpoint2 (address endpoint2) ReliableOrdered defaultConnectHints
+    >>= expectTransportError "testCloseSelf: connect after transport close" ConnectFailed
 
 -- | Test various aspects of 'closeEndPoint'
 testCloseEndPoint :: Transport -> Int -> IO ()
@@ -646,40 +675,47 @@ testCloseEndPoint transport _ = do
 
   -- Server
   forkTry $ do
-    Right endpoint <- newEndPoint transport
+    endpoint <- expectRight "testCloseEndPoint (server): newEndPoint" =<< newEndPoint transport
     putMVar serverAddr (address endpoint)
 
     -- First test (see client)
     do
       _theirAddr <- readMVar clientAddr1
-      ConnectionOpened cid ReliableOrdered addr <- receive endpoint
+      (cid, rel, addr) <- expectConnectionOpened =<< receive endpoint
+      expectEq "testCloseEndPoint (server, 1): opened reliability" ReliableOrdered rel
       -- Ensure that connecting to the supplied address reaches the peer.
-      Right conn <- connect endpoint addr ReliableOrdered defaultConnectHints
+      conn <- expectRight "testCloseEndPoint (server, 1): connect back" =<< connect endpoint addr ReliableOrdered defaultConnectHints
       close conn
       putMVar serverFirstTestDone ()
-      ConnectionClosed cid' <- receive endpoint ; True <- return $ cid == cid'
+      ev <- receive endpoint
+      expectEq "testCloseEndPoint (server, 1): ConnectionClosed" (ConnectionClosed cid) ev
       putMVar serverAddr (address endpoint)
-      return ()
 
     -- Second test
     do
       theirAddr <- readMVar clientAddr2
 
-      ConnectionOpened cid ReliableOrdered addr <- receive endpoint
+      (cid, rel, addr) <- expectConnectionOpened =<< receive endpoint
+      expectEq "testCloseEndPoint (server, 2): opened reliability" ReliableOrdered rel
       -- Ensure that connecting to the supplied address reaches the peer.
-      Right conn <- connect endpoint addr ReliableOrdered defaultConnectHints
-      close conn
-      Received cid' ["ping"] <- receive endpoint ; True <- return $ cid == cid'
+      conn1 <- expectRight "testCloseEndPoint (server, 2): connect via supplied addr"
+                 =<< connect endpoint addr ReliableOrdered defaultConnectHints
+      close conn1
+      ev1 <- receive endpoint
+      expectEq "testCloseEndPoint (server, 2): ping echo" (Received cid ["ping"]) ev1
 
-      Right conn <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
-      send conn ["pong"]
+      conn2 <- expectRight "testCloseEndPoint (server, 2): connect to theirAddr"
+                 =<< connect endpoint theirAddr ReliableOrdered defaultConnectHints
+      send conn2 ["pong"]
 
-      ConnectionClosed cid'' <- receive endpoint ; True <- return $ cid == cid''
-      ErrorEvent (TransportError (EventConnectionLost addr') _) <- receive endpoint ; True <- return $ addr' == theirAddr
+      ev2 <- receive endpoint
+      expectEq "testCloseEndPoint (server, 2): ConnectionClosed" (ConnectionClosed cid) ev2
+      ev3 <- receive endpoint
+      expectEq "testCloseEndPoint (server, 2): connection lost"
+               (ErrorEvent (TransportError (EventConnectionLost theirAddr) ""))
+               ev3
 
-      Left (TransportError SendFailed _) <- send conn ["pong2"]
-
-      return ()
+      send conn2 ["pong2"] >>= expectTransportError "testCloseEndPoint (server, 2): send after loss" SendFailed
 
     putMVar serverDone ()
 
@@ -689,49 +725,51 @@ testCloseEndPoint transport _ = do
     -- First test: close endpoint with one outgoing but no incoming connections
     do
       theirAddr <- takeMVar serverAddr
-      Right endpoint <- newEndPoint transport
+      endpoint <- expectRight "testCloseEndPoint (client, 1): newEndPoint" =<< newEndPoint transport
       putMVar clientAddr1 (address endpoint)
 
       -- Connect to the server, then close the endpoint without disconnecting explicitly
-      Right _ <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
-      ConnectionOpened cid _ _ <- receive endpoint
-      ConnectionClosed cid' <- receive endpoint ; True <- return $ cid == cid'
+      _ <- expectRight "testCloseEndPoint (client, 1): connect" =<< connect endpoint theirAddr ReliableOrdered defaultConnectHints
+      (cid, _, _) <- expectConnectionOpened =<< receive endpoint
+      evClose <- receive endpoint
+      expectEq "testCloseEndPoint (client, 1): ConnectionClosed" (ConnectionClosed cid) evClose
       -- Don't close before the remote server had a chance to digest the
       -- connection.
       readMVar serverFirstTestDone
       closeEndPoint endpoint
-      EndPointClosed <- receive endpoint
-      return ()
+      expectEndPointClosed =<< receive endpoint
 
     -- Second test: close endpoint with one outgoing and one incoming connection
     do
       theirAddr <- takeMVar serverAddr
-      Right endpoint <- newEndPoint transport
+      endpoint <- expectRight "testCloseEndPoint (client, 2): newEndPoint" =<< newEndPoint transport
       putMVar clientAddr2 (address endpoint)
 
-      Right conn <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
-      ConnectionOpened cid _ _ <- receive endpoint
-      ConnectionClosed cid' <- receive endpoint ; True <- return $ cid == cid'
+      conn <- expectRight "testCloseEndPoint (client, 2): connect" =<< connect endpoint theirAddr ReliableOrdered defaultConnectHints
+      (cid, _, _) <- expectConnectionOpened =<< receive endpoint
+      evClose <- receive endpoint
+      expectEq "testCloseEndPoint (client, 2): server-closed connection" (ConnectionClosed cid) evClose
       send conn ["ping"]
 
       -- Reply from the server
-      ConnectionOpened cid ReliableOrdered _addr <- receive endpoint
-      Received cid' ["pong"] <- receive endpoint ; True <- return $ cid == cid'
+      (cid', rel, _addr) <- expectConnectionOpened =<< receive endpoint
+      expectEq "testCloseEndPoint (client, 2): reply reliability" ReliableOrdered rel
+      ev <- receive endpoint
+      expectEq "testCloseEndPoint (client, 2): pong echo" (Received cid' ["pong"]) ev
 
       -- Close the endpoint
       closeEndPoint endpoint
-      EndPointClosed <- receive endpoint
+      expectEndPointClosed =<< receive endpoint
 
       -- Attempt to send should fail with connection closed
-      Left (TransportError SendFailed _) <- send conn ["ping2"]
+      send conn ["ping2"] >>= expectTransportError "testCloseEndPoint (client, 2): send after close" SendFailed
 
       -- An attempt to close the already closed connection should just return
-      () <- close conn
+      close conn
 
       -- And so should an attempt to connect
-      Left (TransportError ConnectFailed _) <- connect endpoint theirAddr ReliableOrdered defaultConnectHints
-
-      return ()
+      connect endpoint theirAddr ReliableOrdered defaultConnectHints
+        >>= expectTransportError "testCloseEndPoint (client, 2): connect after close" ConnectFailed
 
     putMVar clientDone ()
 
@@ -750,32 +788,39 @@ testCloseTransport newTransport = do
 
   -- Server
   forkTry $ do
-    Right transport <- newTransport
-    Right endpoint <- newEndPoint transport
+    transport <- expectRight "testCloseTransport (server): newTransport" =<< newTransport
+    endpoint <- expectRight "testCloseTransport (server): newEndPoint" =<< newEndPoint transport
     putMVar serverAddr (address endpoint)
 
     -- Client sets up first endpoint
     theirAddr1 <- readMVar clientAddr1
-    ConnectionOpened cid1 ReliableOrdered addr <- receive endpoint
+    (cid1, rel1, addr) <- expectConnectionOpened =<< receive endpoint
+    expectEq "testCloseTransport (server): reliability (1)" ReliableOrdered rel1
     -- Test that the address given does indeed point back to the client
-    Right conn <- connect endpoint theirAddr1 ReliableOrdered defaultConnectHints
-    close conn
-    Right conn <- connect endpoint addr ReliableOrdered defaultConnectHints
-    close conn
+    connA <- expectRight "testCloseTransport (server): connect via theirAddr1"
+               =<< connect endpoint theirAddr1 ReliableOrdered defaultConnectHints
+    close connA
+    connB <- expectRight "testCloseTransport (server): connect via opened addr"
+               =<< connect endpoint addr ReliableOrdered defaultConnectHints
+    close connB
 
     -- Client sets up second endpoint
     theirAddr2 <- readMVar clientAddr2
 
-    ConnectionOpened cid2 ReliableOrdered addr' <- receive endpoint
+    (cid2, rel2, addr') <- expectConnectionOpened =<< receive endpoint
+    expectEq "testCloseTransport (server): reliability (2)" ReliableOrdered rel2
     -- We're going to use addr' to connect back to the server, which tests
     -- that it's a valid address (but not *necessarily* == to theirAddr2
 
-    Received cid2' ["ping"] <- receive endpoint ; True <- return $ cid2' == cid2
+    evPing <- receive endpoint
+    expectEq "testCloseTransport (server): ping on cid2" (Received cid2 ["ping"]) evPing
 
-    Right conn <- connect endpoint theirAddr2 ReliableOrdered defaultConnectHints
-    send conn ["pong"]
-    close conn
-    Right conn <- connect endpoint addr' ReliableOrdered defaultConnectHints
+    connC <- expectRight "testCloseTransport (server): connect via theirAddr2"
+               =<< connect endpoint theirAddr2 ReliableOrdered defaultConnectHints
+    send connC ["pong"]
+    close connC
+    conn <- expectRight "testCloseTransport (server): connect via addr'"
+              =<< connect endpoint addr' ReliableOrdered defaultConnectHints
     send conn ["pong"]
 
     -- Client now closes down its transport. We should receive connection closed messages (we don't know the precise order, however)
@@ -786,66 +831,79 @@ testCloseTransport newTransport = do
                    -- , ErrorEvent (TransportError (EventConnectionLost theirAddr1) "")
                    , ErrorEvent (TransportError (EventConnectionLost addr') "")
                    ]
-    True <- return $ expected `elem` permutations evs
+    expectTrue ("testCloseTransport (server): events interleaving " ++ show evs) $
+      expected `elem` permutations evs
 
     -- An attempt to send to the endpoint should now fail
-    Left (TransportError SendFailed _) <- send conn ["pong2"]
+    send conn ["pong2"] >>= expectTransportError "testCloseTransport (server): send after transport close" SendFailed
 
     putMVar serverDone ()
 
   -- Client
   forkTry $ do
-    Right transport <- newTransport
+    transport <- expectRight "testCloseTransport (client): newTransport" =<< newTransport
     theirAddr <- readMVar serverAddr
 
     -- Set up endpoint with one outgoing but no incoming connections
-    Right endpoint1 <- newEndPoint transport
+    endpoint1 <- expectRight "testCloseTransport (client): newEndPoint (1)" =<< newEndPoint transport
     putMVar clientAddr1 (address endpoint1)
 
     -- Connect to the server, then close the endpoint without disconnecting explicitly
-    Right _ <- connect endpoint1 theirAddr ReliableOrdered defaultConnectHints
+    _ <- expectRight "testCloseTransport (client): initial connect" =<< connect endpoint1 theirAddr ReliableOrdered defaultConnectHints
     -- Server connects back to verify that both addresses they have for us
     -- are suitable to reach us.
-    ConnectionOpened cid ReliableOrdered _ <- receive endpoint1
-    ConnectionClosed cid' <- receive endpoint1 ; True <- return $ cid == cid'
-    ConnectionOpened cid ReliableOrdered _ <- receive endpoint1
-    ConnectionClosed cid' <- receive endpoint1 ; True <- return $ cid == cid'
+    (cidA, relA, _) <- expectConnectionOpened =<< receive endpoint1
+    expectEq "testCloseTransport (client, 1a): reliability" ReliableOrdered relA
+    evA <- receive endpoint1
+    expectEq "testCloseTransport (client, 1a): ConnectionClosed" (ConnectionClosed cidA) evA
+    (cidB, relB, _) <- expectConnectionOpened =<< receive endpoint1
+    expectEq "testCloseTransport (client, 1b): reliability" ReliableOrdered relB
+    evB <- receive endpoint1
+    expectEq "testCloseTransport (client, 1b): ConnectionClosed" (ConnectionClosed cidB) evB
 
     -- Set up an endpoint with one outgoing and one incoming connection
-    Right endpoint2 <- newEndPoint transport
+    endpoint2 <- expectRight "testCloseTransport (client): newEndPoint (2)" =<< newEndPoint transport
     putMVar clientAddr2 (address endpoint2)
 
     -- The outgoing connection.
-    Right conn <- connect endpoint2 theirAddr ReliableOrdered defaultConnectHints
+    conn <- expectRight "testCloseTransport (client): outgoing connect" =<< connect endpoint2 theirAddr ReliableOrdered defaultConnectHints
     send conn ["ping"]
 
     -- Reply from the server. It will connect twice, using both addresses
     -- (the one that the client sees, and the one that the server sees).
-    ConnectionOpened cid ReliableOrdered _ <- receive endpoint2
-    Received cid' ["pong"] <- receive endpoint2 ; True <- return $ cid == cid'
-    ConnectionClosed cid'' <- receive endpoint2 ; True <- return $ cid == cid''
-    ConnectionOpened cid ReliableOrdered _ <- receive endpoint2
-    Received cid' ["pong"] <- receive endpoint2 ; True <- return $ cid == cid'
+    (cidC, relC, _) <- expectConnectionOpened =<< receive endpoint2
+    expectEq "testCloseTransport (client, 2a): reliability" ReliableOrdered relC
+    evPongA <- receive endpoint2
+    expectEq "testCloseTransport (client, 2a): pong" (Received cidC ["pong"]) evPongA
+    evCloseA <- receive endpoint2
+    expectEq "testCloseTransport (client, 2a): ConnectionClosed" (ConnectionClosed cidC) evCloseA
+    (cidD, relD, _) <- expectConnectionOpened =<< receive endpoint2
+    expectEq "testCloseTransport (client, 2b): reliability" ReliableOrdered relD
+    evPongB <- receive endpoint2
+    expectEq "testCloseTransport (client, 2b): pong" (Received cidD ["pong"]) evPongB
 
     -- Now shut down the entire transport
     closeTransport transport
 
     -- Both endpoints should report that they have been closed
-    EndPointClosed <- receive endpoint1
-    EndPointClosed <- receive endpoint2
+    expectEndPointClosed =<< receive endpoint1
+    expectEndPointClosed =<< receive endpoint2
 
     -- Attempt to send should fail with connection closed
-    Left (TransportError SendFailed _) <- send conn ["ping2"]
+    send conn ["ping2"] >>= expectTransportError "testCloseTransport (client): send after transport close" SendFailed
 
     -- An attempt to close the already closed connection should just return
-    () <- close conn
+    close conn
 
     -- And so should an attempt to connect on either endpoint
-    Left (TransportError ConnectFailed _) <- connect endpoint1 theirAddr ReliableOrdered defaultConnectHints
-    Left (TransportError ConnectFailed _) <- connect endpoint2 theirAddr ReliableOrdered defaultConnectHints
+    connect endpoint1 theirAddr ReliableOrdered defaultConnectHints
+      >>= expectTransportError "testCloseTransport (client): connect via endpoint1" ConnectFailed
+    connect endpoint2 theirAddr ReliableOrdered defaultConnectHints
+      >>= expectTransportError "testCloseTransport (client): connect via endpoint2" ConnectFailed
 
     -- And finally, so should an attempt to create a new endpoint
-    Left (TransportError NewEndPointFailed _) <- newEndPoint transport
+    newEndPoint transport
+      >>= expectTransportError "testCloseTransport (client): newEndPoint after close" NewEndPointFailed
 
     putMVar clientDone ()
 
@@ -860,7 +918,7 @@ testConnectClosedEndPoint transport = do
 
   -- Server
   forkTry $ do
-    Right endpoint <- newEndPoint transport
+    endpoint <- expectRight "testConnectClosedEndPoint (server): newEndPoint" =<< newEndPoint transport
     putMVar serverAddr (address endpoint)
 
     closeEndPoint endpoint
@@ -868,10 +926,11 @@ testConnectClosedEndPoint transport = do
 
   -- Client
   forkTry $ do
-    Right endpoint <- newEndPoint transport
+    endpoint <- expectRight "testConnectClosedEndPoint (client): newEndPoint" =<< newEndPoint transport
     readMVar serverClosed
 
-    Left (TransportError ConnectNotFound _) <- readMVar serverAddr >>= \addr -> connect endpoint addr ReliableOrdered defaultConnectHints
+    (readMVar serverAddr >>= \addr -> connect endpoint addr ReliableOrdered defaultConnectHints)
+      >>= expectTransportError "testConnectClosedEndPoint (client): connect to closed endpoint" ConnectNotFound
 
     putMVar clientDone ()
 
@@ -881,50 +940,62 @@ testConnectClosedEndPoint transport = do
 -- notified that an endpoint has been closed
 testExceptionOnReceive :: IO (Either String Transport) -> IO ()
 testExceptionOnReceive newTransport = do
-  Right transport <- newTransport
+  transport <- expectRight "testExceptionOnReceive: newTransport" =<< newTransport
 
   -- Test one: when we close an endpoint specifically
-  Right endpoint1 <- newEndPoint transport
+  endpoint1 <- expectRight "testExceptionOnReceive: newEndPoint (1)" =<< newEndPoint transport
   closeEndPoint endpoint1
-  EndPointClosed <- receive endpoint1
-  Left _ <- trySome (receive endpoint1 >>= evaluate)
+  expectEndPointClosed =<< receive endpoint1
+  _ <- expectLeft "testExceptionOnReceive (1): receive after close"
+         =<< trySome (receive endpoint1 >>= evaluate)
 
   -- Test two: when we close the entire transport
-  Right endpoint2 <- newEndPoint transport
+  endpoint2 <- expectRight "testExceptionOnReceive: newEndPoint (2)" =<< newEndPoint transport
   closeTransport transport
-  EndPointClosed <- receive endpoint2
-  Left _ <- trySome (receive endpoint2 >>= evaluate)
+  expectEndPointClosed =<< receive endpoint2
+  _ <- expectLeft "testExceptionOnReceive (2): receive after close"
+         =<< trySome (receive endpoint2 >>= evaluate)
 
   return ()
 
 -- | Test what happens when the argument to 'send' is an exceptional value
 testSendException :: IO (Either String Transport) -> IO ()
 testSendException newTransport = do
-  Right transport <- newTransport
-  Right endpoint1 <- newEndPoint transport
-  Right endpoint2 <- newEndPoint transport
+  transport <- expectRight "testSendException: newTransport" =<< newTransport
+  endpoint1 <- expectRight "testSendException: newEndPoint (1)" =<< newEndPoint transport
+  endpoint2 <- expectRight "testSendException: newEndPoint (2)" =<< newEndPoint transport
 
   -- Connect endpoint1 to endpoint2
-  Right conn <- connect endpoint1 (address endpoint2) ReliableOrdered defaultConnectHints
-  ConnectionOpened _ _ _ <- receive endpoint2
+  conn <- expectRight "testSendException: connect" =<< connect endpoint1 (address endpoint2) ReliableOrdered defaultConnectHints
+  _ <- expectConnectionOpened =<< receive endpoint2
 
   -- Send an exceptional value
-  Left (TransportError SendFailed _) <- send conn (throw $ userError "uhoh")
+  send conn (throw $ userError "uhoh")
+    >>= expectTransportError "testSendException: send with exceptional payload" SendFailed
 
   -- This will have been as a failure to send by endpoint1, which will
   -- therefore have closed the socket. In turn this will have caused endpoint2
   -- to report that the connection was lost
-  ErrorEvent (TransportError (EventConnectionLost _) _) <- receive endpoint1
-  ErrorEvent (TransportError (EventConnectionLost _) _) <- receive endpoint2
+  ev1 <- receive endpoint1
+  err1 <- expectErrorEvent ev1
+  case err1 of
+    TransportError (EventConnectionLost _) _ -> return ()
+    _ -> ioError $ userError $ "testSendException: expected EventConnectionLost on endpoint1, got " ++ show ev1
+  ev2 <- receive endpoint2
+  err2 <- expectErrorEvent ev2
+  case err2 of
+    TransportError (EventConnectionLost _) _ -> return ()
+    _ -> ioError $ userError $ "testSendException: expected EventConnectionLost on endpoint2, got " ++ show ev2
 
   -- A new connection will re-establish the connection
-  Right conn2 <- connect endpoint1 (address endpoint2) ReliableOrdered defaultConnectHints
+  conn2 <- expectRight "testSendException: reconnect" =<< connect endpoint1 (address endpoint2) ReliableOrdered defaultConnectHints
   send conn2 ["ping"]
   close conn2
 
-  ConnectionOpened _ _ _ <- receive endpoint2
-  Received _ ["ping"]    <- receive endpoint2
-  ConnectionClosed _     <- receive endpoint2
+  _                 <- expectConnectionOpened =<< receive endpoint2
+  (_, pingPayload)  <- expectReceived        =<< receive endpoint2
+  expectEq "testSendException: ping payload" ["ping"] pingPayload
+  _                 <- expectConnectionClosed =<< receive endpoint2
 
   return ()
 
@@ -938,10 +1009,10 @@ testSendException newTransport = do
 -- happen when we run on multiple cores.
 testKill :: IO (Either String Transport) -> Int -> IO ()
 testKill newTransport numThreads = do
-  Right transport1 <- newTransport
-  Right transport2 <- newTransport
-  Right endpoint1 <- newEndPoint transport1
-  Right endpoint2 <- newEndPoint transport2
+  transport1 <- expectRight "testKill: newTransport (1)" =<< newTransport
+  transport2 <- expectRight "testKill: newTransport (2)" =<< newTransport
+  endpoint1 <- expectRight "testKill: newEndPoint (1)" =<< newEndPoint transport1
+  endpoint2 <- expectRight "testKill: newEndPoint (2)" =<< newEndPoint transport2
 
   threads <- replicateM numThreads . forkIO $ do
     randomThreadDelay 100
@@ -949,10 +1020,14 @@ testKill newTransport numThreads = do
             -- Note that we should not insert a randomThreadDelay into the
             -- exception handler itself as this means that the exception handler
             -- could be interrupted and we might not close
-            (\(Right conn) -> close conn)
-            (\(Right conn) -> do randomThreadDelay 100
-                                 Right () <- send conn ["ping"]
-                                 randomThreadDelay 100)
+            (\econn -> do
+              conn <- expectRight "testKill (bracket release): connect" econn
+              close conn)
+            (\econn -> do
+              conn <- expectRight "testKill (bracket use): connect" econn
+              randomThreadDelay 100
+              expectRight "testKill: send" =<< send conn ["ping"]
+              randomThreadDelay 100)
 
   numAlive <- newMVar (0 :: Int)
 
@@ -992,7 +1067,7 @@ testCrossing transport numRepeats = do
 
   -- A
   forkTry $ do
-    Right endpoint <- newEndPoint transport
+    endpoint <- expectRight "testCrossing (A): newEndPoint" =<< newEndPoint transport
     putMVar aAddr (address endpoint)
     theirAddress <- readMVar bAddr
 
@@ -1012,7 +1087,7 @@ testCrossing transport numRepeats = do
 
   -- B
   forkTry $ do
-    Right endpoint <- newEndPoint transport
+    endpoint <- expectRight "testCrossing (B): newEndPoint" =<< newEndPoint transport
     putMVar bAddr (address endpoint)
     theirAddress <- readMVar aAddr
 
@@ -1044,7 +1119,7 @@ testTransport = testTransportWithFilter (const True)
 
 testTransportWithFilter :: (String -> Bool) -> IO (Either String Transport) -> IO ()
 testTransportWithFilter p newTransport = do
-  Right transport <- newTransport
+  transport <- expectRight "testTransportWithFilter: newTransport" =<< newTransport
   runTests $ filter (p . fst)
     [ ("PingPong",              testPingPong transport numPings)
     , ("EndPoints",             testEndPoints transport numPings)

@@ -34,6 +34,7 @@ library
   exposed-modules:     Network.Transport.Tests,
                        Network.Transport.Tests.Multicast,
                        Network.Transport.Tests.Auxiliary,
+                       Network.Transport.Tests.Expect,
                        Network.Transport.Tests.Traced
   -- other-modules:
   build-depends:       base >= 4.14 && < 5,

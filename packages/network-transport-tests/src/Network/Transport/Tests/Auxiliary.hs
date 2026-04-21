@@ -90,6 +90,9 @@ instance Traceable Connection where
 instance Traceable Event where
   trace = traceShow
 
+instance Traceable Reliability where
+  trace = traceShow
+
 instance Show err => Traceable (TransportError err) where
   trace = traceShow
 
