@@ -32,7 +32,7 @@ import Data.Binary(encode,put,get,Binary)
 import qualified Data.ByteString.Lazy as B
 import Data.Kind (Type)
 
--- | A RemoteRegister is a trasformer on a RemoteTable to register additional static values.
+-- | A RemoteRegister is a transformer on a RemoteTable to register additional static values.
 type RemoteRegister = RemoteTable -> RemoteTable
 
 -- | This takes an explicit name and a value, and produces both a static reference to the name and a RemoteRegister for it.
@@ -43,10 +43,10 @@ mkStaticVal n v = (staticLabel n_s, registerStatic n_s (toDynamic v))
 class MkTDict a where
     mkTDict :: String -> a -> RemoteRegister
 
-instance (Serializable b) => MkTDict (Process b) where
+instance {-# OVERLAPPING #-} (Serializable b) => MkTDict (Process b) where
     mkTDict _ _ = registerStatic (show (typeOf (undefined :: b)) ++ "__staticDict") (toDynamic (SerializableDict :: SerializableDict b))
 
-instance MkTDict a where
+instance {-# OVERLAPPABLE #-} MkTDict a where
     mkTDict _ _ = id
 
 -- | This takes an explicit name, a function of arity one, and creates a creates a function yielding a closure and a remote register for it.
@@ -110,10 +110,10 @@ instance Binary EndOfTuple where
 class Curry a b | a -> b where
     curryFun :: a -> b
 
-instance Curry ((a, EndOfTuple) -> b) (a -> b) where
+instance {-# OVERLAPPING #-} Curry ((a, EndOfTuple) -> b) (a -> b) where
     curryFun f = \x -> f (x,undefined)
 
-instance Curry (b -> c) r => Curry ((a,b) -> c) (a -> r) where
+instance {-# OVERLAPPABLE #-} Curry (b -> c) r => Curry ((a,b) -> c) (a -> r) where
     curryFun f = \x -> curryFun (\y -> (f (x,y)))
 
 
@@ -144,6 +144,6 @@ uncurry' Done r _ = r
 uncurry' (Moar fun) f (x,xs) = uncurry' fun (f x) xs
 
 class IsFunction t b | t -> b
-instance (b ~ HTrue) => IsFunction (a -> c) b
-instance (b ~ HFalse) => IsFunction a b
+instance {-# OVERLAPPING #-} (b ~ HTrue) => IsFunction (a -> c) b
+instance {-# OVERLAPPABLE #-} (b ~ HFalse) => IsFunction a b
 

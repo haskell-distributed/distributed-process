@@ -2,6 +2,7 @@ Unreleased
 
 * Added support for `containers-0.8`.
 * Reworked benchmarks, which can now be run using `cabal bench distributed-process`.
+* Fixed an issue where `mkClosureValSingle` and `mkClosureVal` could not be used due to overlapping that were not declared as such.
 
 2025-02-04 Laurent P. René de Cotret <laurent.decotret@outlook.com> 0.7.8
 

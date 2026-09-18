@@ -5,7 +5,9 @@
 -- 'Control.Distributed.Static.Static' implementation from
 -- "Control.Distributed.Static". That module comes with its own extensive
 -- documentation, which you should read if you want to know the details.  Here
--- we explain the Template Haskell support only.
+-- we explain the Template Haskell support only; for the API that does not need
+-- Template Haskell, see /Working with static values and closures (without
+-- Template Haskell)/ below.
 --
 -- [Static values]
 --
@@ -180,6 +182,7 @@ module Control.Distributed.Process.Closure
   , cpExpect
   , cpNewChan
     -- * Working with static values and closures (without Template Haskell)
+    -- $withoutTH
   , RemoteRegister
   , MkTDict(..)
   , mkStaticVal
@@ -197,6 +200,33 @@ module Control.Distributed.Process.Closure
   , functionTDict
 #endif
   ) where
+
+-- $withoutTH
+--
+-- Closures can also be built /without/ Template Haskell. Instead of a
+-- @remotable@ splice, each of 'mkStaticVal', 'mkClosureValSingle' and
+-- 'mkClosureVal' returns the value you asked for paired with a
+-- 'RemoteRegister', a @'RemoteTable' -> 'RemoteTable'@ that registers the
+-- statics that value depends on:
+--
+-- > isPrime :: Integer -> Process Bool
+-- > isPrime n = return . (n `elem`) . takeWhile (<= n) . sieve $ [2..]
+-- >   where
+-- >     sieve :: [Integer] -> [Integer]
+-- >     sieve (p : xs) = p : sieve [x | x <- xs, x `mod` p > 0]
+-- >
+-- > isPrimeClosure :: Integer -> Closure (Process Bool)
+-- > isPrimeRegister :: RemoteRegister
+-- > (isPrimeClosure, isPrimeRegister) = mkClosureValSingle "isPrime" isPrime
+-- >
+-- > rtable :: RemoteTable
+-- > rtable = isPrimeRegister $ initRemoteTable
+-- >
+-- > master :: [NodeId] -> Process ()
+-- > master [] = liftIO $ putStrLn "no slaves"
+-- > master (slave:_) = do
+-- >   isPrime79 <- call' slave (isPrimeClosure 79)
+-- >   liftIO $ print isPrime79
 
 import Control.Distributed.Process.Serializable (SerializableDict(..))
 import Control.Distributed.Process.Internal.Closure.BuiltIn
