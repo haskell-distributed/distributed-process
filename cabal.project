@@ -1,6 +1,13 @@
 packages: packages/*/**.cabal
-tests: true
-benchmarks: true
+tests: True
+benchmarks: True
+
+-- In order to support GHC 9.14, until new versions
+-- of the following libraries, we must allow newer
+-- versions of base
+allow-newer:
+  cborg:base,
+  serialise:base
 
 package distributed-process-tests
   flags: +tcp

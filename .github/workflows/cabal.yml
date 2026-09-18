@@ -20,26 +20,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - ghc-version: "8.10.7"
-            cabal-flags: ""
-          - ghc-version: "9.0.2"
-            cabal-flags: ""
-          - ghc-version: "9.2.8"
-            cabal-flags: ""
-          - ghc-version: "9.4.8"
-            cabal-flags: ""
-          - ghc-version: "9.6.7"
-            cabal-flags: ""
-          - ghc-version: "9.8.4"
-            cabal-flags: ""
-          - ghc-version: "9.10.3"
-            cabal-flags: ""
-          - ghc-version: "9.12.2"
-            cabal-flags: ""
-          - ghc-version: "9.14.1"
-            # See issue 479 for when we can drop the following flags
-            cabal-flags: "--allow-newer=base --allow-newer=template-haskell"
+        ghc-version:
+          - "8.10"
+          - "9.0"
+          - "9.2"
+          - "9.4"
+          - "9.6"
+          - "9.8"
+          - "9.10"
+          - "9.12"
+          - "9.14"
 
     runs-on: "ubuntu-latest"
 
@@ -57,7 +47,7 @@ jobs:
       run: |
         # Cloud Haskell tests using the QUIC backend are quite flaky, but in CI only.
         # Therefore, the 'quic' flag is normally enabled locally, but disabled in CI.
-        cabal configure --test-show-details=direct --flags "-quic" ${{matrix.cabal-flags}}
+        cabal configure --test-show-details=direct --flags "-quic"
         cabal freeze --minimize-conflict-set
         cat cabal.project.freeze
 
