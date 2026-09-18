@@ -10,7 +10,7 @@ on:
     branches: ['master']
 
 jobs:
-  continuous-integration:
+  tests:
     # You can skip continuous integration by writing '[ci skip]' or '[skip ci]' in a commit message,
     # which is useful to preserve computing resources
     #
@@ -83,3 +83,45 @@ jobs:
       timeout-minutes: 10
       # We run each test suite one-by-one to better observe problems.
       run: cabal test all -j1
+
+  benchmark:
+    # You can skip continuous integration by writing '[ci skip]' or '[skip ci]' in a commit message,
+    # which is useful to preserve computing resources
+    #
+    # For example:
+    #   > git commit -am "[skip ci] fixed x y z"
+    if: contains(toJson(github.event.commits), '[ci skip]') == false && contains(toJson(github.event.commits), '[skip ci]') == false
+    runs-on: ubuntu-latest
+    env:
+      # See issue 479 for when we can move up to GHC 9.14
+      GHC_VERSION: '9.12'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: haskell-actions/setup@v2
+        id: setup
+        with:
+          ghc-version: ${{ env.GHC_VERSION }}
+
+      - name: Configure build
+        run: |
+          cabal configure --disable-tests --semaphore -j
+          # Generate a plan.json
+          cabal build all --project-file=cabal.optimized.project --dry-run
+
+      - name: Cache cabal store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.setup.outputs.cabal-store }}
+          key: ${{ runner.os }}-ghc-${{ env.GHC_VERSION }}-benchmark-${{ hashFiles('**/plan.json') }}
+          restore-keys: |
+            ${{ runner.os }}-ghc-${{ env.GHC_VERSION }}-benchmark
+
+      - name: Build
+        run: cabal build all --project-file=cabal.optimized.project
+
+      # Run benchmarks with j1 so that we don't get interleaved output
+      - name: Run benchmarks
+        run: |
+          cabal bench all -j1 --project-file=cabal.optimized.project
