@@ -1,5 +1,6 @@
 packages: packages/*/**.cabal
 tests: true
+benchmarks: true
 
 package distributed-process-tests
   flags: +tcp
