@@ -156,6 +156,7 @@ benchmarks fx =
         messaging fx,
         channels fx,
         receiving fx,
+        timeouts fx,
         messages fx,
         processes fx,
         monitoring fx,
@@ -300,6 +301,47 @@ receiving fx =
 
     selfSend :: (Serializable a) => a -> Process ()
     selfSend x = getSelfPid >>= \us -> unsafeSend us x
+
+timeouts :: Fixture -> Benchmark
+timeouts fx =
+  bgroup
+    "timeouts"
+    [ repsBench fx "expectTimeout 0 (message waiting)" 1000 $ do
+        leaveInMailbox
+        void (expectTimeout 0 :: Process (Maybe Int)),
+      repsBench fx "expectTimeout 1s (message waiting)" 1000 $ do
+        leaveInMailbox
+        void (expectTimeout 1000000 :: Process (Maybe Int)),
+      repsBench fx "receiveTimeout 0 (matchSTM ready)" 1000 $ do
+        liftIO (atomically (writeTQueue q ()))
+        void (receiveTimeout 0 [matchSTM (readTQueue q) return]),
+      repsBench fx "receiveTimeout 1s (matchSTM ready)" 1000 $ do
+        liftIO (atomically (writeTQueue q ()))
+        void (receiveTimeout 1000000 [matchSTM (readTQueue q) return]),
+      repsBench fx "receiveChanTimeout 0 (value waiting)" 1000 $ do
+        sendChan sp ()
+        barrier
+        void (receiveChanTimeout 0 rp),
+      repsBench fx "receiveChanTimeout 1s (value waiting)" 1000 $ do
+        sendChan sp ()
+        barrier
+        void (receiveChanTimeout 1000000 rp)
+    ]
+  where
+    (sp, rp) = fxChan fx
+    q = fxQueue fx
+
+    barrier :: Process ()
+    barrier = do
+      us <- getSelfPid
+      unsafeSend us ()
+      expect :: Process ()
+
+    leaveInMailbox :: Process ()
+    leaveInMailbox = do
+      us <- getSelfPid
+      unsafeSend us (1 :: Int)
+      barrier
 
 messages :: Fixture -> Benchmark
 messages fx =

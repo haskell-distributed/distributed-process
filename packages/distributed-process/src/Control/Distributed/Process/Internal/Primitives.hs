@@ -363,8 +363,13 @@ receiveChan = liftIO . atomically . receiveSTM
 receiveChanTimeout :: Serializable a => Int -> ReceivePort a -> Process (Maybe a)
 receiveChanTimeout 0 ch = liftIO . atomically $
   (Just <$> receiveSTM ch) `orElse` return Nothing
-receiveChanTimeout n ch = liftIO . timeout n . atomically $
-  receiveSTM ch
+receiveChanTimeout n ch = liftIO $ do
+  -- Checking if the mailbox has a message /before/ arming,
+  -- because arming a timeout can be expensive
+  r <- atomically $ (Just <$> receiveSTM ch) `orElse` return Nothing
+  case r of
+    Just _  -> return r
+    Nothing -> timeout n . atomically $ receiveSTM ch
 
 -- | Merge a list of typed channels.
 --

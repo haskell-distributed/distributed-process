@@ -43,7 +43,7 @@ import Control.Distributed.Process.Internal.StrictList
   ( StrictList(..)
   , append
   )
-import Data.Maybe (fromJust)
+import Control.Monad (join)
 import GHC.MVar (MVar(MVar))
 import GHC.IO (IO(IO), unIO)
 import GHC.Exts (mkWeak#)
@@ -126,16 +126,21 @@ dequeue :: forall m a.
         -> [MatchOn m a]     -- ^ List of matches
         -> IO (Maybe a)      -- ^ 'Nothing' only on timeout
 dequeue (CQueue arrived incoming size) blockSpec matchons = mask_ $ decrementJust $
-  case blockSpec of
-    Timeout n -> timeout n $ fmap fromJust run
-    _other    ->
-       case chunks of
-         [Right ports] -> -- channels only, this is easy:
-           case blockSpec of
-             NonBlocking -> atomically $ waitChans ports (return Nothing)
-             _           -> atomically $ waitChans ports retry
-                              -- no onException needed
-         _other -> run
+  case chunks of
+    [Right ports] -> -- channels only, this is easy:
+      case blockSpec of
+        NonBlocking -> atomically $ waitChans ports (return Nothing)
+        Blocking    -> atomically $ waitChans ports retry
+                         -- no onException needed
+        Timeout n   -> do
+          -- Arming the timer is not cheap, and get can get
+          -- much higher throughput in cases where the mailbox
+          -- is not empty by first checking if we even need a timeout
+          r <- atomically $ waitChans ports (return Nothing)
+          case r of
+            Just _  -> return r
+            Nothing -> join <$> timeout n (atomically $ waitChans ports retry)
+    _other -> run
   where
     -- Decrement counter is smth is returned from the queue,
     -- this is safe to use as method is called under a mask
@@ -155,7 +160,13 @@ dequeue (CQueue arrived incoming size) blockSpec matchons = mask_ $ decrementJus
                    Nothing -> return xs
                    Just x  -> grabNew (Snoc xs x)
            arr' <- grabNew arr
-           goCheck chunks arr'
+           checked <- goCheck chunks arr'
+           case checked of
+             Left r    -> return r
+             Right old -> case blockSpec of
+               NonBlocking -> returnOld old Nothing
+               Blocking    -> goWait old
+               Timeout n   -> join <$> timeout n (goWait old)
 
     -- Yields the value of the first succesful STM transaction as
     -- @Just (Left v)@. If all transactions fail, yields the value of the second
@@ -169,20 +180,20 @@ dequeue (CQueue arrived incoming size) blockSpec matchons = mask_ $ decrementJus
     -- mailbox.  For channel matches, we do a non-blocking check at
     -- this point.
     --
-    -- Yields @Just (Left a)@ when a channel is matched, @Just (Right a)@
-    -- when a message is matched and @Nothing@ when there are no messages and we
-    -- aren't blocking.
-    --
+    -- Yields @Left (Just (Left a))@ when a channel is matched and
+    -- @Left (Just (Right a))@ when a message is matched. When nothing
+    -- matched it yields @Right old@: the messages to hold on to, for the
+    -- caller to decide whether to wait for more.
     goCheck :: MatchChunks m a
             -> StrictList m  -- messages to check, in this order
-            -> IO (Maybe (Either a a))
+            -> IO (Either (Maybe (Either a a)) (StrictList m))
 
-    goCheck [] old = goWait old
+    goCheck [] old = return (Right old)
 
     goCheck (Right ports : rest) old = do
       r <- atomically $ waitChans ports (return Nothing) -- does not block
       case r of
-        Just _  -> returnOld old r
+        Just _  -> Left <$> returnOld old r
         Nothing -> goCheck rest old
 
     goCheck (Left matches : rest) old = do
@@ -192,7 +203,7 @@ dequeue (CQueue arrived incoming size) blockSpec matchons = mask_ $ decrementJus
            -- of passing around restore and setting up exception handlers is
            -- high.  So just don't use expensive matchIfs!
       case checkArrived matches old of
-        (old', Just r)  -> returnOld old' (Just (Right r))
+        (old', Just r)  -> Left <$> returnOld old' (Just (Right r))
         (old', Nothing) -> goCheck rest old'
           -- use the result list, which is now left-biased
 
@@ -207,12 +218,8 @@ dequeue (CQueue arrived incoming size) blockSpec matchons = mask_ $ decrementJus
     mkSTM (Right ports : rest)
       = foldr orElse (mkSTM rest) (map (fmap Right) ports)
 
-    waitIncoming :: IO (Maybe (Either m a))
-    waitIncoming = case blockSpec of
-      NonBlocking -> atomically $ fmap Just stm `orElse` return Nothing
-      _           -> atomically $ fmap Just stm
-     where
-      stm = mkSTM chunks
+    waitIncoming :: IO (Either m a)
+    waitIncoming = atomically (mkSTM chunks)
 
     --
     -- The initial pass didn't find a message, so now we go into blocking
@@ -223,23 +230,20 @@ dequeue (CQueue arrived incoming size) blockSpec matchons = mask_ $ decrementJus
     --
     goWait :: StrictList m -> IO (Maybe (Either a a))
     goWait old = do
-      r <- waitIncoming `onException` putMVar arrived old
-      case r of
-        --  Nothing => non-blocking and no message
-        Nothing -> returnOld old Nothing
-        Just e  -> case e of
-          --
-          -- Left => message arrived in the process mailbox.  We now have to
-          -- run through the MatchChunks checking each one, because we might
-          -- have a situation where the first chunk fails to match and the
-          -- second chunk is a channel match and there *is* a message in the
-          -- channel.  In that case the channel wins.
-          --
-          Left m -> goCheck1 chunks m old
-          --
-          -- Right => message arrived on a channel first
-          --
-          Right a -> returnOld old (Just (Left a))
+      e <- waitIncoming `onException` putMVar arrived old
+      case e of
+        --
+        -- Left => message arrived in the process mailbox.  We now have to
+        -- run through the MatchChunks checking each one, because we might
+        -- have a situation where the first chunk fails to match and the
+        -- second chunk is a channel match and there *is* a message in the
+        -- channel.  In that case the channel wins.
+        --
+        Left m -> goCheck1 chunks m old
+        --
+        -- Right => message arrived on a channel first
+        --
+        Right a -> returnOld old (Just (Left a))
 
     --
     -- A message arrived in the process inbox; check the MatchChunks for
