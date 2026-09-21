@@ -2,6 +2,10 @@ Unreleased
 
 * Added support for `containers-0.8`.
 * Reworked benchmarks, which can now be run using `cabal bench distributed-process`.
+* `receiveTimeout`, `expectTimeout` and `receiveChanTimeout` now arm the
+  system timer only once they are about to block. This results in up to a 9x speedup
+  in cases where a process receives lots of messages (in which case, a timeout isn't necessary).
+
 
 2025-02-04 Laurent P. René de Cotret <laurent.decotret@outlook.com> 0.7.8
 
