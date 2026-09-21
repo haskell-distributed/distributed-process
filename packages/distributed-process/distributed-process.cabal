@@ -1,6 +1,6 @@
 cabal-version: 3.0
 Name:          distributed-process
-Version:       0.7.8
+Version:       0.7.9
 Build-Type:    Simple
 License:       BSD-3-Clause
 License-File:  LICENSE
