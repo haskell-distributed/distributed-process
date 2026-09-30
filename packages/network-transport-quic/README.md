@@ -31,6 +31,7 @@ main = do
                             , serviceName = "https" -- alternatively, some port number
                             , credentials = NonEmpty.singleton credential
                             , validateCredentials = True -- should be 'False' for self-signed certificate
+                            , closeEndPointTimeout = 1000000
                             }
             transport <- createTransport config
             ...

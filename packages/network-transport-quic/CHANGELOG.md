@@ -1,3 +1,6 @@
+2026-09-30  Laurent P. René de Cotret <laurent.decotret@outlook.com> 0.2.0
+
+* Cleaned up the endpoint closing process, which required adding a new configuration to `QUICTransportConfig`.
 
 2026-04-21  Laurent P. René de Cotret <laurent.decotret@outlook.com> 0.1.2
 

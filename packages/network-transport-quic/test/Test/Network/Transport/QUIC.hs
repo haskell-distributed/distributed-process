@@ -33,18 +33,18 @@ tests =
       testCaseWithTimeout "connections" $ withQUICTransport $ flip Tests.testConnections 5,
       testCaseWithTimeout "closeOneConnection" $ withQUICTransport $ flip Tests.testCloseOneConnection 5,
       testCaseWithTimeout "closeOneDirection" $ withQUICTransport $ flip Tests.testCloseOneDirection 5,
-      flaky $ testCaseWithTimeout "closeReopen" $ withQUICTransport $ flip Tests.testCloseReopen 5,
+      testCaseWithTimeout "closeReopen" $ withQUICTransport $ flip Tests.testCloseReopen 5,
       -- This test is flaky specifically in Github Actions
       flaky $ testCaseWithTimeout "parallelConnects" $ withQUICTransport $ flip Tests.testParallelConnects 5,
       testCaseWithTimeout "selfSend" $ withQUICTransport Tests.testSelfSend,
-      flaky $ testCaseWithTimeout "closeTwice" $ withQUICTransport $ flip Tests.testCloseTwice 1,
+      testCaseWithTimeout "closeTwice" $ withQUICTransport $ flip Tests.testCloseTwice 1,
       testCaseWithTimeout "connectToSelf" $ withQUICTransport $ flip Tests.testConnectToSelf 5,
       testCaseWithTimeout "connectToSelfTwice" $ withQUICTransport $ flip Tests.testConnectToSelfTwice 5,
       testCaseWithTimeout "closeSelf" $ withQUICTransport (Tests.testCloseSelf . pure . Right),
-      flaky $ testCaseWithTimeout "closeEndPoint" $ withQUICTransport $ flip Tests.testCloseEndPoint 1,
-      flaky $ testCaseWithTimeout "closeTransport" $ Tests.testCloseTransport mkQUICTransport,
-      flaky $ testCaseWithTimeout "connectClosedEndPoint" $ withQUICTransport Tests.testConnectClosedEndPoint,
-      flaky testSendVeryLargeMessages
+      testCaseWithTimeout "closeEndPoint" $ withQUICTransport $ flip Tests.testCloseEndPoint 1,
+      testCaseWithTimeout "closeTransport" $ Tests.testCloseTransport mkQUICTransport,
+      testCaseWithTimeout "connectClosedEndPoint" $ withQUICTransport Tests.testConnectClosedEndPoint,
+      testSendVeryLargeMessages
     ]
 
 flaky :: TestTree -> TestTree
@@ -69,10 +69,8 @@ mkQUICTransport = do
       Right creds ->
         Right
           <$> QUIC.createTransport
-            ( QUICTransportConfig
-                { hostName = "127.0.0.1",
-                  serviceName = "0",
-                  credentials = creds :| [],
+            ( (QUIC.defaultQUICTransportConfig "127.0.0.1" (creds :| []))
+                { serviceName = "0",
                   -- credentials are self-signed
                   validateCredentials = False
                 }

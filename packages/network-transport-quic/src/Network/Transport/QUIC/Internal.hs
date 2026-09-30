@@ -30,7 +30,7 @@ import Control.Concurrent.STM.TQueue
     writeTQueue,
   )
 import Control.Exception (Exception (displayException), IOException, bracket, throwIO, try)
-import Control.Monad (unless, when)
+import Control.Monad (forM_, unless, void, when)
 import Data.Bifunctor (Bifunctor (first))
 import Data.Binary qualified as Binary (decodeOrFail)
 import Data.ByteString (ByteString, fromStrict)
@@ -274,11 +274,12 @@ handleIncomingMessages ourEndPoint remoteEndPoint =
             -- handleIncomingMessages only runs on incoming remote endpoints, so if
             -- the state was still Valid there is exactly one logical connection to
             -- surface as closed.
-            wasValid <- modifyMVar (remoteEndPoint ^. remoteEndPointState) $ \case
-              RemoteEndPointValid _ -> pure (RemoteEndPointClosed, True)
-              other -> pure (other, False)
-            when wasValid $
+            mIsClosed <- modifyMVar (remoteEndPoint ^. remoteEndPointState) $ \case
+              RemoteEndPointValid (ValidRemoteEndPointState _ isClosed) -> pure (RemoteEndPointClosed, Just isClosed)
+              other -> pure (other, Nothing)
+            forM_ mIsClosed $ \isClosed -> do
               atomically $ writeTQueue ourQueue (ConnectionClosed connectionId)
+              void $ tryPutMVar isClosed ()
 
     handleMessage :: [ByteString] -> IO ()
     handleMessage payload =

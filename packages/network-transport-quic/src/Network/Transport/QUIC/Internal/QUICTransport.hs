@@ -71,8 +71,9 @@ import Control.Concurrent.Async (forConcurrently_)
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar, readMVar, tryPutMVar)
 import Control.Concurrent.STM.TQueue (TQueue, writeTQueue)
 import Control.Exception (bracketOnError)
-import Control.Monad (forM_)
+import Control.Monad (forM_, void, when)
 import Control.Monad.STM (atomically)
+import Data.Either (isRight)
 import Data.Function ((&))
 import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NE
@@ -94,6 +95,7 @@ import Network.Transport.QUIC.Internal.Messaging
     sendCloseEndPoint,
   )
 import Network.Transport.QUIC.Internal.QUICAddr (EndPointId, QUICAddr (..), encodeQUICAddr)
+import System.Timeout (timeout)
 
 {- The QUIC transport has three levels of statefullness:
 
@@ -113,6 +115,9 @@ Finally, each connection between endpoint has some state, needed to receive data
 -}
 
 -- | Represents the configuration used by the entire transport.
+--
+-- You should use the default values in `defaultQUICTransportConfig` 
+-- and override the fields you care about.
 data QUICTransportConfig = QUICTransportConfig
   { -- | Host name, which can be an IP address or a domain name.
     hostName :: HostName,
@@ -123,7 +128,13 @@ data QUICTransportConfig = QUICTransportConfig
     -- | Note that if your credentials is self-signed, you will have
     -- to turn off 'validateCredentials'. This should only be set to 'False'
     -- in tests, or in a private network.
-    validateCredentials :: Bool
+    validateCredentials :: Bool,
+    -- | How long, in microseconds, closing an endpoint waits for each peer
+    -- to acknowledge that it has processed the close of our outgoing
+    -- connections to it.
+    --
+    -- @since 0.2.0
+    closeEndPointTimeout :: Int
   }
   deriving (Eq, Show)
 
@@ -133,7 +144,8 @@ defaultQUICTransportConfig host creds =
     { hostName = host,
       serviceName = "443",
       credentials = creds,
-      validateCredentials = True
+      validateCredentials = True,
+      closeEndPointTimeout = 1000000
     }
 
 data QUICTransport = QUICTransport
@@ -306,15 +318,17 @@ closeLocalEndpoint quicTransport localEndPoint = do
 
   -- Close outgoing remote endpoints before incoming. The peer's handleIncomingMessages
   -- reader writes ConnectionClosed in response to our outgoing close; its listenForClose
-  -- writes ErrorEvent in response to our incoming close. Processing outgoing first gives
-  -- the peer's event queue the expected ConnectionClosed-before-ErrorEvent ordering.
+  -- writes ErrorEvent in response to our incoming close. 
+  -- 
+  -- Each of these is read from a separate QUIC connection, so some synchronization is required.
+  -- That gives the peer's event queue the expected ConnectionClosed-before-ErrorEvent ordering.
   forM_ mPreviousState $ \vst -> do
-    forConcurrently_ (vst ^. outgoingConnections) tryCloseRemoteStream
-    forConcurrently_ (vst ^. incomingConnections) tryCloseRemoteStream
+    forConcurrently_ (vst ^. outgoingConnections) (tryCloseRemoteStream Outgoing)
+    forConcurrently_ (vst ^. incomingConnections) (tryCloseRemoteStream Incoming)
   atomically $ writeTQueue (localEndPoint ^. localQueue) EndPointClosed
   where
-    tryCloseRemoteStream :: RemoteEndPoint -> IO ()
-    tryCloseRemoteStream remoteEndPoint = do
+    tryCloseRemoteStream :: Direction -> RemoteEndPoint -> IO ()
+    tryCloseRemoteStream direction remoteEndPoint = do
       mCleanup <- modifyMVar (remoteEndPoint ^. remoteEndPointState) $ \case
         RemoteEndPointInit -> pure (RemoteEndPointClosed, Nothing)
         RemoteEndPointClosed -> pure (RemoteEndPointClosed, Nothing)
@@ -322,7 +336,12 @@ closeLocalEndpoint quicTransport localEndPoint = do
           pure
             ( RemoteEndPointClosed,
               Just $ do
-                _ <- sendCloseEndPoint (vst ^. remoteStream)
+                sent <- sendCloseEndPoint (vst ^. remoteStream)
+                when (direction == Outgoing && isRight sent) $
+                  void $
+                    timeout
+                      (closeEndPointTimeout $ quicTransport ^. transportConfig)
+                      (readMVar (vst ^. remoteStreamIsClosed))
                 _ <- tryPutMVar (vst ^. remoteStreamIsClosed) ()
                 pure ()
             )

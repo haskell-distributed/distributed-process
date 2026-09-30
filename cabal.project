@@ -9,5 +9,8 @@ allow-newer:
   cborg:base,
   serialise:base
 
+-- 2.1.3 is broken: https://github.com/kazu-yamamoto/crypton/issues/270
+constraints: crypton <2.1.3
+
 package distributed-process-tests
   flags: +tcp

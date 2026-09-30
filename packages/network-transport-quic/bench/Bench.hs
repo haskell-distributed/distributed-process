@@ -59,12 +59,10 @@ quicConfig =
             Left errmsg -> throwIO $ userError errmsg
             Right credentials ->
               QUIC.createTransport
-                ( QUIC.QUICTransportConfig
-                    { hostName = "127.0.0.1"
-                    , serviceName = "0"
-                    , credentials = credentials :| []
+                ( (QUIC.defaultQUICTransportConfig "127.0.0.1" (credentials :| []))
+                    { QUIC.serviceName = "0"
                     , -- credentials are self-signed
-                      validateCredentials = False
+                      QUIC.validateCredentials = False
                     }
                 )
     }
