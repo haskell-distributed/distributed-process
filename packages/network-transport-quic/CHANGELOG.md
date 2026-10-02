@@ -1,3 +1,11 @@
+Unreleased   Laurent P. René de Cotret <laurent.decotret@outlook.com> 0.2.0
+
+* All the logical connections between two endpoints are now carried by a single QUIC connection (one stream
+  each), rather than by one QUIC connection for each endpoint pairs. This has large performance implications:
+  for multiple logical connections between two endpoints, `network-transport-quic` throughput increases by 50% over
+  version 0.1.x, for a total of 3x throughput over `network-transport-quic`.
+* Breaking change: A new `socketOptions` field to `QUICTransportConfig`, allowing the user to control the UDP socket
+  underlying a connection.
 
 2026-04-21  Laurent P. René de Cotret <laurent.decotret@outlook.com> 0.1.2
 

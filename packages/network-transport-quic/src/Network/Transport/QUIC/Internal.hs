@@ -18,6 +18,9 @@ module Network.Transport.QUIC.Internal
     decodeMessage,
     MessageReceived (..),
     encodeMessage,
+
+    -- * Handshake
+    handshake,
   )
 where
 
@@ -29,7 +32,7 @@ import Control.Concurrent.STM.TQueue
     readTQueue,
     writeTQueue,
   )
-import Control.Exception (Exception (displayException), IOException, bracket, throwIO, try)
+import Control.Exception (Exception (displayException, fromException), SomeAsyncException, SomeException, bracket, catch, finally, throwIO, try)
 import Control.Monad (unless, when)
 import Data.Bifunctor (Bifunctor (first))
 import Data.Binary qualified as Binary (decodeOrFail)
@@ -64,7 +67,8 @@ import Network.Transport.QUIC.Internal.Messaging
     createConnectionId,
     decodeMessage,
     encodeMessage,
-    receiveMessage,
+    handshake,
+    messageReceiver,
     recvWord32,
     sendAck,
     sendCloseConnection,
@@ -84,6 +88,7 @@ import Network.Transport.QUIC.Internal.QUICTransport
     TransportState (..),
     ValidRemoteEndPointState (..),
     closeLocalEndpoint,
+    closeLocalEndpointDeferred,
     closeRemoteEndPoint,
     createConnectionTo,
     createRemoteEndPoint,
@@ -105,7 +110,7 @@ import Network.Transport.QUIC.Internal.QUICTransport
     transportState,
     (^.),
   )
-import Network.Transport.QUIC.Internal.Server (forkServer)
+import Network.Transport.QUIC.Internal.Server (forkServer, stopServer)
 
 -- | Create a new Transport based on the QUIC protocol.
 --
@@ -118,7 +123,7 @@ createTransport initialConfig = do
   quicTransport <- newQUICTransport initialConfig
 
   let resolvedConfig = quicTransport ^. transportConfig
-  serverThread <-
+  server <-
     forkServer
       (quicTransport ^. transportInputSocket)
       (credentials resolvedConfig)
@@ -129,12 +134,12 @@ createTransport initialConfig = do
   pure $
     Transport
       { newEndPoint = newTQueueIO >>= newEndpoint quicTransport,
-        closeTransport =
-          foldOpenEndPoints quicTransport (closeLocalEndpoint quicTransport)
-            >> killThread serverThread -- TODO: use a synchronization mechanism to close the thread gracefully
-            >> modifyMVar_
-              (quicTransport ^. transportState)
-              (\_ -> pure TransportStateClosed)
+        closeTransport = do
+          shutdownPeers <- foldOpenEndPoints quicTransport (closeLocalEndpointDeferred quicTransport)
+          stopServer server `finally` sequence_ shutdownPeers
+          modifyMVar_
+            (quicTransport ^. transportState)
+            (\_ -> pure TransportStateClosed)
       }
 
 -- | Handle a new incoming connection.
@@ -177,6 +182,7 @@ handleNewStream quicTransport stream = do
 
                     (remoteEndPoint, _) <- either throwIO pure =<< createRemoteEndPoint ourEndPoint remoteAddress Incoming
                     doneMVar <- newEmptyMVar
+                    drained <- newEmptyMVar
 
                     let serverConnId = remoteServerConnId remoteEndPoint
                         -- One logical connection per stream; clientConnId is always 0.
@@ -186,7 +192,8 @@ handleNewStream quicTransport stream = do
                           RemoteEndPointValid $
                             ValidRemoteEndPointState
                               { _remoteStream = stream,
-                                _remoteStreamIsClosed = doneMVar
+                                _remoteStreamIsClosed = doneMVar,
+                                _remoteStreamDrained = drained
                               }
                     modifyMVar_
                       (remoteEndPoint ^. remoteEndPointState)
@@ -220,10 +227,15 @@ handleNewStream quicTransport stream = do
                         handleIncomingMessages
                           ourEndPoint
                           remoteEndPoint
+                          `finally` tryPutMVar doneMVar ()
 
-                    takeMVar doneMVar
-                    QUIC.shutdownStream stream
-                    killThread tid
+                    -- Once 'ConnectionClosed' (or the like) was enqueued, finishing our
+                    -- end of the stream tells the other end that it was.
+                    ( takeMVar doneMVar
+                        >> (QUIC.shutdownStream stream `catch` \(_ :: SomeException) -> pure ())
+                        >> killThread tid
+                      )
+                      `finally` tryPutMVar drained ()
 
 -- | Infinite loop that listens for messages from the remote endpoint and processes them.
 --
@@ -237,39 +249,44 @@ handleIncomingMessages ourEndPoint remoteEndPoint =
     remoteAddress = remoteEndPoint ^. remoteEndPointAddress
     remoteState = remoteEndPoint ^. remoteEndPointState
 
-    acquire :: IO (Either IOError QUIC.Stream)
+    acquire :: IO (Either String QUIC.Stream)
     acquire = withMVar remoteState $ \case
-      RemoteEndPointInit -> pure . Left $ userError "handleIncomingMessages (init)"
-      RemoteEndPointClosed -> pure . Left $ userError "handleIncomingMessages (closed)"
+      RemoteEndPointInit -> pure . Left $ "handleIncomingMessages (init)"
+      RemoteEndPointClosed -> pure . Left $ "handleIncomingMessages (closed)"
       RemoteEndPointValid validState -> pure . Right $ validState ^. remoteStream
 
-    release :: Either IOError QUIC.Stream -> IO ()
-    release (Left err) = closeRemoteEndPoint Incoming remoteEndPoint >> prematureExit err
+    release :: Either String QUIC.Stream -> IO ()
+    release (Left reason) = connectionLost reason
     release (Right _) = closeRemoteEndPoint Incoming remoteEndPoint
 
     -- One logical connection per stream; clientConnId is always 0.
     connectionId = createConnectionId serverConnId 0
 
-    go = either prematureExit loop
+    go = either (const $ pure ()) run
 
-    loop stream =
-      receiveMessage stream
+    run stream =
+      (messageReceiver stream >>= loop)
+        `catch` \(exc :: SomeException) -> case fromException exc of
+          Just (_ :: SomeAsyncException) -> throwIO exc
+          Nothing -> connectionLost (displayException exc)
+
+    loop nextMessage =
+      nextMessage
         >>= \case
-          Left errmsg -> do
-            -- Throwing will trigger 'prematureExit'
-            throwIO $ userError $ "(handleIncomingMessages) Failed with: " <> errmsg
-          Right (Message bytes) -> handleMessage bytes >> loop stream
-          Right StreamClosed -> throwIO $ userError "(handleIncomingMessages) Stream closed"
+          Left errmsg -> connectionLost $ "(handleIncomingMessages) Failed with: " <> errmsg
+          Right (Message bytes) -> handleMessage bytes >> loop nextMessage
+          Right StreamClosed -> connectionLost "(handleIncomingMessages) Stream closed"
           Right CloseConnection -> do
-            atomically (writeTQueue ourQueue (ConnectionClosed connectionId))
             mAct <- modifyMVar (remoteEndPoint ^. remoteEndPointState) $ \case
               RemoteEndPointInit -> pure (RemoteEndPointClosed, Nothing)
               RemoteEndPointClosed -> pure (RemoteEndPointClosed, Nothing)
-              RemoteEndPointValid (ValidRemoteEndPointState _ isClosed) -> do
+              RemoteEndPointValid (ValidRemoteEndPointState _ isClosed _) -> do
                 pure (RemoteEndPointClosed, Just $ putMVar isClosed ())
             case mAct of
               Nothing -> pure ()
-              Just cleanup -> cleanup
+              Just cleanup -> do
+                atomically (writeTQueue ourQueue (ConnectionClosed connectionId))
+                cleanup
           Right CloseEndPoint -> do
             -- handleIncomingMessages only runs on incoming remote endpoints, so if
             -- the state was still Valid there is exactly one logical connection to
@@ -278,28 +295,30 @@ handleIncomingMessages ourEndPoint remoteEndPoint =
               RemoteEndPointValid _ -> pure (RemoteEndPointClosed, True)
               other -> pure (other, False)
             when wasValid $
-              atomically $ writeTQueue ourQueue (ConnectionClosed connectionId)
+              atomically $
+                writeTQueue ourQueue (ConnectionClosed connectionId)
 
     handleMessage :: [ByteString] -> IO ()
     handleMessage payload =
       atomically (writeTQueue ourQueue (Received connectionId payload))
 
-    prematureExit :: IOException -> IO ()
-    prematureExit exc = do
-      modifyMVar_ remoteState $ \case
-        RemoteEndPointValid {} -> pure RemoteEndPointClosed
-        RemoteEndPointInit -> pure RemoteEndPointClosed
-        RemoteEndPointClosed -> pure RemoteEndPointClosed
-      atomically
-        ( writeTQueue
-            ourQueue
-            ( ErrorEvent
-                ( TransportError
-                    (EventConnectionLost remoteAddress)
-                    (displayException exc)
-                )
-            )
-        )
+    connectionLost :: String -> IO ()
+    connectionLost reason = do
+      wasValid <- modifyMVar remoteState $ \case
+        RemoteEndPointValid {} -> pure (RemoteEndPointClosed, True)
+        RemoteEndPointInit -> pure (RemoteEndPointClosed, False)
+        RemoteEndPointClosed -> pure (RemoteEndPointClosed, False)
+      when wasValid $
+        atomically
+          ( writeTQueue
+              ourQueue
+              ( ErrorEvent
+                  ( TransportError
+                      (EventConnectionLost remoteAddress)
+                      reason
+                  )
+              )
+          )
 
 newEndpoint ::
   QUICTransport ->
@@ -379,7 +398,7 @@ newConnection ourEndPoint creds validateCreds remoteAddress _reliability _connec
             True -> pure . Left $ TransportError SendFailed "Remote endpoint closed"
     closeConn remoteEndPoint connAlive = do
       mCleanup <- modifyMVar (remoteEndPoint ^. remoteEndPointState) $ \case
-        RemoteEndPointValid vst@(ValidRemoteEndPointState stream isClosed) -> do
+        RemoteEndPointValid vst@(ValidRemoteEndPointState stream isClosed _) -> do
           readIORef connAlive >>= \case
             False -> pure (RemoteEndPointValid vst, Nothing)
             True -> do
