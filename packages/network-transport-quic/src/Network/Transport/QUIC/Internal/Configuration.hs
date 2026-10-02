@@ -12,7 +12,7 @@ module Network.Transport.QUIC.Internal.Configuration (
 import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NonEmpty
 import Network.QUIC.Client (ClientConfig(ccValidate), ccPortName, ccServerName, defaultClientConfig)
-import Network.QUIC.Internal (ServerConfig, ccCredentials)
+import Network.QUIC.Internal (Parameters (initialMaxStreamsBidi), ServerConfig (scParameters), ccCredentials, defaultParameters)
 import Network.QUIC.Server (ServerConfig (scCredentials, scSessionManager), defaultServerConfig)
 import Network.Socket (HostName, ServiceName)
 import Network.TLS (Credential, Credentials (Credentials))
@@ -43,4 +43,6 @@ mkServerConfig creds = do
         defaultServerConfig
             { scSessionManager = tlsSessionManager
             , scCredentials = Credentials (NonEmpty.toList creds)
+            , -- We support lots of streams per connection for dense network topologies
+              scParameters = defaultParameters{initialMaxStreamsBidi = 65536}
             }
