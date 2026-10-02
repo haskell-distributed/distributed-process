@@ -5,6 +5,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TupleSections #-}
 
 module Network.Transport.QUIC.Internal.QUICTransport
   ( -- * QUICTransport
@@ -40,7 +41,11 @@ module Network.Transport.QUIC.Internal.QUICTransport
     ValidLocalEndPointState,
     incomingConnections,
     outgoingConnections,
+    outgoingPeers,
     nextConnectionCounter,
+
+    -- ** OutgoingPeer
+    OutgoingPeer,
 
     -- ** ConnectionCounter
     ConnectionCounter,
@@ -60,6 +65,7 @@ module Network.Transport.QUIC.Internal.QUICTransport
     ValidRemoteEndPointState (..),
     remoteStream,
     remoteStreamIsClosed,
+    remoteStreamDrained,
     Direction (..),
 
     -- * Re-exports
@@ -67,17 +73,21 @@ module Network.Transport.QUIC.Internal.QUICTransport
   )
 where
 
-import Control.Concurrent.Async (forConcurrently_)
-import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar, readMVar, tryPutMVar)
+import Control.Concurrent (forkIO)
+import Control.Concurrent.Async (forConcurrently)
+import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, readMVar, tryPutMVar, tryReadMVar)
 import Control.Concurrent.STM.TQueue (TQueue, writeTQueue)
-import Control.Exception (bracketOnError)
-import Control.Monad (forM_)
+import Control.Exception (bracketOnError, onException)
+import Control.Monad (filterM, forM_, unless, void, when)
 import Control.Monad.STM (atomically)
 import Data.Function ((&))
+import Data.Functor ((<&>))
+import Data.IORef (IORef, atomicModifyIORef', newIORef)
 import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (catMaybes)
 import Data.Word (Word32)
 import Lens.Micro.Platform (makeLenses, (%~), (+~), (^.))
 import Network.QUIC (Stream)
@@ -85,7 +95,13 @@ import Network.Socket (HostName, ServiceName, Socket)
 import Network.Socket qualified as N
 import Network.TLS (Credential)
 import Network.Transport (ConnectErrorCode (ConnectFailed), EndPointAddress, Event (EndPointClosed, ErrorEvent), EventErrorCode (EventConnectionLost), NewEndPointErrorCode (NewEndPointFailed), TransportError (TransportError))
-import Network.Transport.QUIC.Internal.Client (streamToEndpoint)
+import Network.Transport.QUIC.Internal.Client
+  ( PeerConnection (..),
+    closeTimeout,
+    connectToPeer,
+    openStream,
+    superviseStream,
+  )
 import Network.Transport.QUIC.Internal.Messaging
   ( ClientConnId,
     ServerConnId,
@@ -94,6 +110,7 @@ import Network.Transport.QUIC.Internal.Messaging
     sendCloseEndPoint,
   )
 import Network.Transport.QUIC.Internal.QUICAddr (EndPointId, QUICAddr (..), encodeQUICAddr)
+import System.Timeout (timeout)
 
 {- The QUIC transport has three levels of statefullness:
 
@@ -197,6 +214,7 @@ data LocalEndPointState
 data ValidLocalEndPointState = ValidLocalEndPointState
   { _incomingConnections :: Map (EndPointAddress, ConnectionCounter) RemoteEndPoint,
     _outgoingConnections :: Map (EndPointAddress, ConnectionCounter) RemoteEndPoint,
+    _outgoingPeers :: Map EndPointAddress OutgoingPeer,
     _nextSelfConnOutId :: !ClientConnId,
     -- | We identify connections by remote endpoint address, AND ConnectionCounter,
     --    to support multiple connections between the same two endpoint addresses
@@ -218,18 +236,28 @@ instance Show RemoteEndPoint where
   show (RemoteEndPoint address _ _) = "<RemoteEndPoint @ " <> show address <> ">"
 
 data RemoteEndPointState
-  = -- | In the short window between a connection
-    --      being initiated and the handshake completing
+  = -- | In the short window between a connection being initiated and the handshake completing
     RemoteEndPointInit
   | RemoteEndPointValid ValidRemoteEndPointState
   | RemoteEndPointClosed
 
 data ValidRemoteEndPointState = ValidRemoteEndPointState
   { _remoteStream :: Stream,
-    _remoteStreamIsClosed :: MVar ()
+    _remoteStreamIsClosed :: MVar (),
+    _remoteStreamDrained :: MVar ()
   }
 
+data OutgoingPeer = OutgoingPeer
+  { _peerConnection :: !(MVar (Either (TransportError ConnectErrorCode) PeerConnection)),
+    _peerLostReported :: !(IORef Bool),
+    _peerStreams :: !(MVar (Maybe (Map EndPointId (RemoteEndPoint, MVar ()))))
+  }
+
+instance Show OutgoingPeer where
+  show _ = "<OutgoingPeer>"
+
 makeLenses ''QUICTransport
+makeLenses ''OutgoingPeer
 makeLenses ''TransportState
 makeLenses ''ValidTransportState
 makeLenses ''LocalEndPoint
@@ -237,6 +265,26 @@ makeLenses ''LocalEndPointState
 makeLenses ''ValidLocalEndPointState
 makeLenses ''RemoteEndPoint
 makeLenses ''ValidRemoteEndPointState
+
+dropPeer :: LocalEndPoint -> EndPointAddress -> OutgoingPeer -> IO ()
+dropPeer localEndPoint remoteAddress peer =
+  modifyMVar_ (localEndPoint ^. localEndPointState) $ \case
+    LocalEndPointStateClosed -> pure LocalEndPointStateClosed
+    LocalEndPointStateValid st ->
+      pure . LocalEndPointStateValid $
+        st & outgoingPeers %~ Map.update (\current -> if sameAs current then Nothing else Just current) remoteAddress
+  where
+    sameAs current = (current ^. peerConnection) == (peer ^. peerConnection)
+
+registerStream :: OutgoingPeer -> RemoteEndPoint -> MVar () -> IO Bool
+registerStream peer remoteEndPoint drained =
+  modifyMVar (peer ^. peerStreams) $ \case
+    Nothing -> pure (Nothing, False)
+    Just current -> pure (Just (Map.insert (remoteEndPoint ^. remoteEndPointId) (remoteEndPoint, drained) current), True)
+
+unregisterStream :: OutgoingPeer -> RemoteEndPoint -> IO ()
+unregisterStream peer remoteEndPoint =
+  modifyMVar_ (peer ^. peerStreams) (pure . fmap (Map.delete (remoteEndPoint ^. remoteEndPointId)))
 
 -- | Fold over all open local endpoitns of a transport
 foldOpenEndPoints :: QUICTransport -> (LocalEndPoint -> IO a) -> IO [a]
@@ -259,6 +307,7 @@ newLocalEndPoint quicTransport newLocalQueue = do
               ValidLocalEndPointState
                 { _incomingConnections = mempty,
                   _outgoingConnections = mempty,
+                  _outgoingPeers = mempty,
                   _nextConnInId = firstNonReservedServerConnId,
                   _nextSelfConnOutId = 0,
                   _nextConnectionCounter = 0
@@ -304,16 +353,17 @@ closeLocalEndpoint quicTransport localEndPoint = do
     LocalEndPointStateClosed -> pure (LocalEndPointStateClosed, Nothing)
     LocalEndPointStateValid st -> pure (LocalEndPointStateClosed, Just st)
 
-  -- Close outgoing remote endpoints before incoming. The peer's handleIncomingMessages
-  -- reader writes ConnectionClosed in response to our outgoing close; its listenForClose
-  -- writes ErrorEvent in response to our incoming close. Processing outgoing first gives
-  -- the peer's event queue the expected ConnectionClosed-before-ErrorEvent ordering.
+  -- Close outgoing remote endpoints before incoming
   forM_ mPreviousState $ \vst -> do
-    forConcurrently_ (vst ^. outgoingConnections) tryCloseRemoteStream
-    forConcurrently_ (vst ^. incomingConnections) tryCloseRemoteStream
+    outgoingDrained <- catMaybes <$> forConcurrently (Map.elems $ vst ^. outgoingConnections) tryCloseRemoteStream
+    _ <- timeout closeTimeout (mapM_ readMVar outgoingDrained)
+    _ <- forConcurrently (Map.elems $ vst ^. incomingConnections) tryCloseRemoteStream
+    -- Everything we had to say on these QUIC connections has been said.
+    forM_ (vst ^. outgoingPeers) shutdownPeer
   atomically $ writeTQueue (localEndPoint ^. localQueue) EndPointClosed
   where
-    tryCloseRemoteStream :: RemoteEndPoint -> IO ()
+    -- Returns the MVar which is filled once the stream is closed, if we had to close it.
+    tryCloseRemoteStream :: RemoteEndPoint -> IO (Maybe (MVar ()))
     tryCloseRemoteStream remoteEndPoint = do
       mCleanup <- modifyMVar (remoteEndPoint ^. remoteEndPointState) $ \case
         RemoteEndPointInit -> pure (RemoteEndPointClosed, Nothing)
@@ -324,12 +374,10 @@ closeLocalEndpoint quicTransport localEndPoint = do
               Just $ do
                 _ <- sendCloseEndPoint (vst ^. remoteStream)
                 _ <- tryPutMVar (vst ^. remoteStreamIsClosed) ()
-                pure ()
+                pure (vst ^. remoteStreamDrained)
             )
 
-      case mCleanup of
-        Nothing -> pure ()
-        Just cleanup -> cleanup
+      sequence mCleanup
 
 -- | Attempt to close a remote endpoint. If the remote endpoint is in
 -- any non-valid state (e.g. already closed), then nothing happens.
@@ -341,7 +389,7 @@ closeRemoteEndPoint direction remoteEndPoint = do
   mAct <- modifyMVar (remoteEndPoint ^. remoteEndPointState) $ \case
     RemoteEndPointInit -> pure (RemoteEndPointClosed, Nothing)
     RemoteEndPointClosed -> pure (RemoteEndPointClosed, Nothing)
-    RemoteEndPointValid (ValidRemoteEndPointState stream isClosed) ->
+    RemoteEndPointValid (ValidRemoteEndPointState stream isClosed _) ->
       let cleanup = do
             _ <- case direction of
               Outgoing -> sendCloseConnection stream
@@ -402,52 +450,137 @@ createConnectionTo creds validateCreds localEndPoint remoteAddress = do
   createRemoteEndPoint localEndPoint remoteAddress Outgoing >>= \case
     Left err -> pure $ Left err
     Right (remoteEndPoint, _) -> do
-      -- TODO: each call to @connect@ currently opens a dedicated QUIC connection
-      -- and carries a single logical connection on its stream. Preferred
-      -- architecture: one QUIC connection per (local endpoint, peer endpoint)
-      -- pair, with each logical connection carried on its own stream. Streams
-      -- already give us independent flow control and avoid head-of-line blocking.
-      streamToEndpoint
-        creds
-        validateCreds
-        (localEndPoint ^. localAddress)
-        remoteAddress
-        (surfaceConnectionLost remoteEndPoint)
-        >>= \case
-          Left exc -> pure $ Left exc
-          Right (closeStream, stream) -> do
-            let validState =
-                  RemoteEndPointValid $
-                    ValidRemoteEndPointState
-                      { _remoteStream = stream,
-                        _remoteStreamIsClosed = closeStream
-                      }
-            modifyMVar_
-              (remoteEndPoint ^. remoteEndPointState)
-              (\_ -> pure validState)
-            pure $ Right remoteEndPoint
+      let abandon :: TransportError ConnectErrorCode -> IO (Either (TransportError ConnectErrorCode) a)
+          abandon err = do
+            modifyMVar_ (remoteEndPoint ^. remoteEndPointState) (\_ -> pure RemoteEndPointClosed)
+            pure $ Left err
+
+      acquirePeer creds validateCreds localEndPoint remoteAddress >>= \case
+        Left err -> abandon err
+        Right (peer, peerConn) -> do
+          awaitPendingCloses peer
+          openStream peerConn (localEndPoint ^. localAddress) remoteAddress >>= \case
+            Left err -> abandon err
+            Right stream -> do
+              closeRequested <- newEmptyMVar
+              drained <- newEmptyMVar
+              -- The remote endpoint must be Valid before anything can observe the
+              -- stream ending, or a loss would be missed.
+              modifyMVar_
+                (remoteEndPoint ^. remoteEndPointState)
+                (\_ -> pure . RemoteEndPointValid $ ValidRemoteEndPointState stream closeRequested drained)
+
+              registerStream peer remoteEndPoint drained >>= \case
+                False -> do
+                  -- The peer was lost while we were connecting
+                  _ <- tryPutMVar closeRequested ()
+                  abandon (TransportError ConnectFailed "Connection lost")
+                True -> do
+                  superviseStream
+                    stream
+                    closeRequested
+                    drained
+                    (surfaceConnectionLost localEndPoint remoteAddress peer remoteEndPoint)
+                    (unregisterStream peer remoteEndPoint)
+                  pure $ Right remoteEndPoint
   where
-    -- Idempotent: surfaces EventConnectionLost exactly once, only if the remote
-    -- endpoint was still Valid when invoked. Called from multiple termination
-    -- sites (peer-initiated close, QUIC exception, forked-thread finally) so that
-    -- no close path can leave us silent — the state-transition gate dedupes them.
-    surfaceConnectionLost remoteEndPoint = do
-      mAct <- modifyMVar (remoteEndPoint ^. remoteEndPointState) $ \case
-        RemoteEndPointInit -> pure (RemoteEndPointClosed, Nothing)
-        RemoteEndPointClosed -> pure (RemoteEndPointClosed, Nothing)
-        RemoteEndPointValid (ValidRemoteEndPointState stream isClosed) ->
-          let cleanup = do
-                _ <- sendCloseConnection stream
-                _ <- tryPutMVar isClosed ()
-                onConnectionLost
-           in pure (RemoteEndPointClosed, Just cleanup)
-      case mAct of
-        Nothing -> pure ()
-        Just act -> act
-    onConnectionLost =
-      atomically
-        . writeTQueue (localEndPoint ^. localQueue)
-        . ErrorEvent
-        $ TransportError
-          (EventConnectionLost remoteAddress)
-          "Connection reset"
+    awaitPendingCloses peer = do
+      streams <- maybe [] Map.elems <$> readMVar (peer ^. peerStreams)
+      closing <- flip filterM streams $ \(remoteEndPoint, _) ->
+        readMVar (remoteEndPoint ^. remoteEndPointState) <&> \case
+          RemoteEndPointValid _ -> False
+          _ -> True
+      unless (null closing) $
+        () <$ timeout closeTimeout (forM_ closing (readMVar . snd))
+
+acquirePeer ::
+  NonEmpty Credential ->
+  -- | Validate credentials
+  Bool ->
+  LocalEndPoint ->
+  EndPointAddress ->
+  IO (Either (TransportError ConnectErrorCode) (OutgoingPeer, PeerConnection))
+acquirePeer creds validateCreds localEndPoint remoteAddress = do
+  candidate <- OutgoingPeer <$> newEmptyMVar <*> newIORef False <*> newMVar (Just mempty)
+
+  claim <- modifyMVar (localEndPoint ^. localEndPointState) $ \case
+    LocalEndPointStateClosed ->
+      pure (LocalEndPointStateClosed, Left $ TransportError ConnectFailed "endpoint is closed")
+    LocalEndPointStateValid st -> case Map.lookup remoteAddress (st ^. outgoingPeers) of
+      Just peer -> pure (LocalEndPointStateValid st, Right (peer, False))
+      Nothing ->
+        pure
+          ( LocalEndPointStateValid (st & outgoingPeers %~ Map.insert remoteAddress candidate),
+            Right (candidate, True)
+          )
+
+  case claim of
+    Left err -> pure $ Left err
+    Right (peer, weMustConnect) -> do
+      when weMustConnect $ do
+        result <-
+          connectToPeer creds validateCreds remoteAddress (onPeerLost peer)
+            `onException` do
+              _ <- tryPutMVar (peer ^. peerConnection) (Left $ TransportError ConnectFailed "interrupted")
+              dropPeer localEndPoint remoteAddress peer
+        _ <- tryPutMVar (peer ^. peerConnection) result
+        
+        either (const $ dropPeer localEndPoint remoteAddress peer) (const $ pure ()) result
+
+        stillOpen <-
+          readMVar (localEndPoint ^. localEndPointState) <&> \case
+            LocalEndPointStateValid _ -> True
+            LocalEndPointStateClosed -> False
+        unless stillOpen (shutdownPeer peer)
+
+      fmap (peer,) <$> readMVar (peer ^. peerConnection)
+  where
+    onPeerLost peer = do
+      dropPeer localEndPoint remoteAddress peer
+      streams <- modifyMVar (peer ^. peerStreams) (\current -> pure (Nothing, maybe [] (fmap fst . Map.elems) current))
+      forM_ streams (surfaceConnectionLost localEndPoint remoteAddress peer)
+
+
+
+-- | Idempotent: surfaces EventConnectionLost exactly once per peer, only if the remote
+-- endpoint was still Valid when invoked. Called from multiple termination
+-- sites (peer-initiated close, QUIC exception, loss of the QUIC connection) so that
+-- no close path can leave us silent — the state-transition gate dedupes them.
+surfaceConnectionLost :: LocalEndPoint -> EndPointAddress -> OutgoingPeer -> RemoteEndPoint -> IO ()
+surfaceConnectionLost localEndPoint remoteAddress peer remoteEndPoint = do
+  mAct <- modifyMVar (remoteEndPoint ^. remoteEndPointState) $ \case
+    RemoteEndPointInit -> pure (RemoteEndPointClosed, Nothing)
+    RemoteEndPointClosed -> pure (RemoteEndPointClosed, Nothing)
+    RemoteEndPointValid (ValidRemoteEndPointState stream isClosed _) ->
+      let cleanup = do
+            _ <- sendCloseConnection stream
+            _ <- tryPutMVar isClosed ()
+            reportPeerLost
+       in pure (RemoteEndPointClosed, Just cleanup)
+  sequence_ mAct
+  where
+    reportPeerLost = do
+      firstReport <- atomicModifyIORef' (peer ^. peerLostReported) (\reported -> (True, not reported))
+      when firstReport $ do
+        dropPeer localEndPoint remoteAddress peer
+        atomically
+          . writeTQueue (localEndPoint ^. localQueue)
+          . ErrorEvent
+          $ TransportError
+            (EventConnectionLost remoteAddress)
+            "Connection reset"
+
+        shutdownPeerWhenDrained
+
+    shutdownPeerWhenDrained =
+      void . forkIO $ do
+        streams <- maybe [] Map.elems <$> readMVar (peer ^. peerStreams)
+        _ <- timeout closeTimeout (forM_ streams (readMVar . snd))
+        shutdownPeer peer
+  
+-- | Close the QUIC connection to a peer. Streams on it must have been dealt with beforehand.
+shutdownPeer :: OutgoingPeer -> IO ()
+shutdownPeer peer =
+  tryReadMVar (peer ^. peerConnection) >>= \case
+    Just (Right peerConn) -> () <$ tryPutMVar (peerShutdown peerConn) ()
+    _ -> pure ()

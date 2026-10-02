@@ -28,8 +28,7 @@ import Network.Transport (
 import qualified Network.Transport.QUIC as QUIC
 import qualified Network.Transport.TCP as TCP
 import System.FilePath ((</>))
-import Test.Tasty (TestTree)
-import Test.Tasty.Bench (bench, bgroup, defaultMain, nfIO)
+import Test.Tasty.Bench (Benchmark, bench, bgroup, defaultMain, nfIO)
 
 data TransportConfig = TransportConfig
   { transportName :: String
@@ -132,8 +131,8 @@ throughputBench TransportConfig{mkTransport} BenchParams{messageSize, messageCou
 
     takeMVar receiverDone
 
-benchTransport :: TransportConfig -> TestTree
-benchTransport cfg@TransportConfig{transportName} =
+benchTransport :: TransportConfig -> Benchmark
+benchTransport cfg@TransportConfig {transportName} =
   bgroup
     transportName
     [ bgroup
@@ -146,9 +145,11 @@ benchTransport cfg@TransportConfig{transportName} =
             ]
         , bgroup
             "multi-connection"
-            [ bench "2-conn" $ nfIO $ throughputBench cfg smallMessages{connectionCount = 2, messageCount = 10_000}
-            , bench "5-conn" $ nfIO $ throughputBench cfg smallMessages{connectionCount = 5, messageCount = 10_000}
-            , bench "10-conn" $ nfIO $ throughputBench cfg smallMessages{connectionCount = 10, messageCount = 5_000}
+            [ bench "2-conn" $ nfIO $ throughputBench cfg smallMessages {connectionCount = 2, messageCount = 10_000}
+            , bench "5-conn" $ nfIO $ throughputBench cfg smallMessages {connectionCount = 5, messageCount = 10_000}
+            , bench "10-conn" $ nfIO $ throughputBench cfg smallMessages {connectionCount = 10, messageCount = 5_000}
+            , bench "50-conn" $ nfIO $ throughputBench cfg smallMessages {connectionCount = 50, messageCount = 100}
+            , bench "100-conn" $ nfIO $ throughputBench cfg smallMessages {connectionCount = 100, messageCount = 50}
             ]
         ]
     ]

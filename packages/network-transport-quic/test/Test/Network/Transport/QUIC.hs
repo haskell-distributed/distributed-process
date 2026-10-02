@@ -7,21 +7,23 @@ module Test.Network.Transport.QUIC (tests) where
 
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Exception (bracket)
-import Control.Monad (replicateM_)
+import Control.Monad (forM, forM_, replicateM, replicateM_)
 import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BSC
+import Data.List (sort)
 import Data.List.NonEmpty (NonEmpty (..))
-import Network.Transport (EndPoint (..), Event (ConnectionClosed), Reliability (..), Transport (..), close, defaultConnectHints, send)
+import Network.Transport (EndPoint (..), Event (..), Reliability (..), Transport (..), close, defaultConnectHints, send)
 import Network.Transport.QUIC (QUICTransportConfig (..))
 import Network.Transport.QUIC qualified as QUIC
 import Network.Transport.Tests (echoServer)
 import Network.Transport.Tests qualified as Tests
 import Network.Transport.Tests.Auxiliary (forkTry)
-import Network.Transport.Tests.Expect (expectConnectionOpened, expectEq, expectReceived, expectRight)
+import Network.Transport.Tests.Expect (expectConnectionClosed, expectConnectionOpened, expectEq, expectReceived, expectRight)
 import Network.Transport.Util (spawn)
 import System.FilePath ((</>))
 import System.Timeout (timeout)
 import Test.Tasty (TestName, TestTree, testGroup)
-import Test.Tasty.Flaky (flakyTest, limitRetries, constantDelay)
+import Test.Tasty.Flaky (constantDelay, flakyTest, limitRetries)
 import Test.Tasty.HUnit (Assertion, assertFailure, testCase, (@?=))
 
 tests :: TestTree
@@ -33,18 +35,20 @@ tests =
       testCaseWithTimeout "connections" $ withQUICTransport $ flip Tests.testConnections 5,
       testCaseWithTimeout "closeOneConnection" $ withQUICTransport $ flip Tests.testCloseOneConnection 5,
       testCaseWithTimeout "closeOneDirection" $ withQUICTransport $ flip Tests.testCloseOneDirection 5,
-      flaky $ testCaseWithTimeout "closeReopen" $ withQUICTransport $ flip Tests.testCloseReopen 5,
+      testCaseWithTimeout "closeReopen" $ withQUICTransport $ flip Tests.testCloseReopen 5,
       -- This test is flaky specifically in Github Actions
       flaky $ testCaseWithTimeout "parallelConnects" $ withQUICTransport $ flip Tests.testParallelConnects 5,
       testCaseWithTimeout "selfSend" $ withQUICTransport Tests.testSelfSend,
-      flaky $ testCaseWithTimeout "closeTwice" $ withQUICTransport $ flip Tests.testCloseTwice 1,
+      testCaseWithTimeout "closeTwice" $ withQUICTransport $ flip Tests.testCloseTwice 1,
       testCaseWithTimeout "connectToSelf" $ withQUICTransport $ flip Tests.testConnectToSelf 5,
       testCaseWithTimeout "connectToSelfTwice" $ withQUICTransport $ flip Tests.testConnectToSelfTwice 5,
       testCaseWithTimeout "closeSelf" $ withQUICTransport (Tests.testCloseSelf . pure . Right),
-      flaky $ testCaseWithTimeout "closeEndPoint" $ withQUICTransport $ flip Tests.testCloseEndPoint 1,
+      testCaseWithTimeout "closeEndPoint" $ withQUICTransport $ flip Tests.testCloseEndPoint 1,
       flaky $ testCaseWithTimeout "closeTransport" $ Tests.testCloseTransport mkQUICTransport,
-      flaky $ testCaseWithTimeout "connectClosedEndPoint" $ withQUICTransport Tests.testConnectClosedEndPoint,
-      flaky testSendVeryLargeMessages
+      testCaseWithTimeout "connectClosedEndPoint" $ withQUICTransport Tests.testConnectClosedEndPoint,
+      testCase "Send very large messages" $ withQUICTransport testSendVeryLargeMessages,
+      testCaseWithTimeout "many concurrent connections to one endpoint" $ withQUICTransport testManyConnections,
+      testCaseWithTimeout "a connection is closed before the next is opened" $ withQUICTransport testCloseThenConnect
     ]
 
 flaky :: TestTree -> TestTree
@@ -84,8 +88,8 @@ withQUICTransport =
     (mkQUICTransport >>= either assertFailure pure)
     closeTransport
 
-testSendVeryLargeMessages :: TestTree
-testSendVeryLargeMessages = testCase "Send very large messages" $ withQUICTransport $ \transport -> do
+testSendVeryLargeMessages :: Transport -> IO ()
+testSendVeryLargeMessages transport =  do
   server <- spawn transport echoServer
   result <- newEmptyMVar
 
@@ -112,3 +116,52 @@ testSendVeryLargeMessages = testCase "Send very large messages" $ withQUICTransp
       close conn
 
       receive endpoint >>= (@?=) (ConnectionClosed cid)
+
+testManyConnections :: Transport -> IO ()
+testManyConnections transport = do
+  let numConnections = 200
+
+  sender <- expectRight "newEndPoint (sender)" =<< newEndPoint transport
+  receiver <- expectRight "newEndPoint (receiver)" =<< newEndPoint transport
+
+  connected <- forM [1 .. numConnections :: Int] $ \i -> do
+    result <- newEmptyMVar
+    _ <- forkTry $ do
+      conn <- expectRight "connect" =<< connect sender (address receiver) ReliableOrdered defaultConnectHints
+      expectRight "send" =<< send conn [BSC.pack (show i)]
+      putMVar result conn
+    pure result
+  conns <- mapM takeMVar connected
+
+  events <- replicateM (2 * numConnections) (receive receiver)
+
+  -- Every connection is opened before anything is received on it
+  let ordered _ [] = True
+      ordered opened (ConnectionOpened cid _ _ : rest) = ordered (cid : opened) rest
+      ordered opened (Received cid _ : rest) = cid `elem` opened && ordered opened rest
+      ordered opened (_ : rest) = ordered opened rest
+  expectEq "events are ordered" True (ordered [] events)
+
+  expectEq "payloads" (sort [BSC.pack (show i) | i <- [1 .. numConnections]]) (sort [p | Received _ [p] <- events])
+
+  forM_ conns close
+  closed <- replicateM numConnections (receive receiver)
+  expectEq "all connections are closed" numConnections (length [() | ConnectionClosed _ <- closed])
+
+testCloseThenConnect :: Transport -> IO ()
+testCloseThenConnect transport = do
+  sender <- expectRight "newEndPoint (sender)" =<< newEndPoint transport
+  receiver <- expectRight "newEndPoint (receiver)" =<< newEndPoint transport
+
+  replicateM_ 100 $ do
+    a <- expectRight "connect (a)" =<< connect sender (address receiver) ReliableOrdered defaultConnectHints
+    close a
+    b <- expectRight "connect (b)" =<< connect sender (address receiver) ReliableOrdered defaultConnectHints
+    close b
+
+    (cidA, _, _) <- expectConnectionOpened =<< receive receiver
+    closedA <- expectConnectionClosed =<< receive receiver
+    expectEq "a is closed first" cidA closedA
+    (cidB, _, _) <- expectConnectionOpened =<< receive receiver
+    closedB <- expectConnectionClosed =<< receive receiver
+    expectEq "then b is closed" cidB closedB

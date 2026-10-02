@@ -1,3 +1,10 @@
+Unreleased
+
+* All the connections to an endpoint are now carried by a single QUIC connection (one stream
+  each), rather than by one QUIC connection for each.
+* The number of logical connections to one endpoint is no longer limited by the QUIC
+  concurrent stream limit.
+
 
 2026-04-21  Laurent P. René de Cotret <laurent.decotret@outlook.com> 0.1.2
 
