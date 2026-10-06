@@ -1,4 +1,4 @@
-Unreleased   Laurent P. René de Cotret <laurent.decotret@outlook.com> 0.2.0
+2026-10-06  Laurent P. René de Cotret <laurent.decotret@outlook.com> 0.2.0
 
 * All the logical connections between two endpoints are now carried by a single QUIC connection (one stream
   each), rather than by one QUIC connection for each endpoint pairs. This has large performance implications:
