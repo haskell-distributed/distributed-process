@@ -15,6 +15,7 @@ module Network.Transport.QUIC.Internal.Messaging
     createConnectionId,
     sendMessage,
     receiveMessage,
+    messageReceiver,
     MessageReceived (..),
 
     -- * Specialized messages
@@ -24,6 +25,7 @@ module Network.Transport.QUIC.Internal.Messaging
     recvWord32,
     sendCloseConnection,
     sendCloseEndPoint,
+    closeTimeout,
 
     -- * Handshake protocol
     handshake,
@@ -34,7 +36,7 @@ module Network.Transport.QUIC.Internal.Messaging
   )
 where
 
-import Control.Exception (SomeException, catch, displayException, mask, throwIO, try)
+import Control.Exception (SomeAsyncException, SomeException, catch, displayException, fromException, mask, throwIO, try)
 import Control.Monad (replicateM)
 import Data.Binary (Binary)
 import Data.Binary qualified as Binary
@@ -42,6 +44,7 @@ import Data.Bits (shiftL, (.|.))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.Functor ((<&>))
+import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.Word (Word32, Word8)
 import GHC.Exception (Exception)
 import Network.QUIC (Stream)
@@ -49,6 +52,7 @@ import Network.QUIC qualified as QUIC
 import Network.Transport (ConnectionId, EndPointAddress)
 import Network.Transport.Internal (decodeWord32, encodeWord32)
 import Network.Transport.QUIC.Internal.QUICAddr (QUICAddr (QUICAddr), decodeQUICAddr)
+import System.Timeout (timeout)
 
 -- | Send a message on the stream.
 --
@@ -65,21 +69,29 @@ sendMessage stream messages =
         (encodeMessage messages)
     )
 
--- | Receive a message, including its local destination endpoint ID
+-- | Receive a single message.
 --
--- This function is thread-safe; while the data is being received, asynchronous
--- exceptions are masked, to be rethrown after the data is sent.
+-- To receive several messages from a stream, use 'messageReceiver'.
 receiveMessage ::
   Stream ->
   IO (Either String MessageReceived)
-receiveMessage stream = mask $ \restore ->
-  restore
-    ( decodeMessage
-        -- Note that 'recvStream' may return less bytes than requested.
-        -- Therefore, we must wrap it in 'getAllBytes'.
-        (getAllBytes (QUIC.recvStream stream))
-    )
-    `catch` (\(ex :: QUIC.QUICException) -> throwIO ex)
+receiveMessage stream = messageReceiver stream >>= id
+
+-- | Create an action which receives the next message from a stream, every time it
+-- is run. Only one such receiver should exist per stream.
+messageReceiver ::
+  Stream ->
+  IO (IO (Either String MessageReceived))
+messageReceiver stream = do
+  -- The whole purpose of 'messageReceiver' is to amortize
+  -- reading with the following buffer
+  buffer <- newIORef BS.empty
+  pure $
+    decodeMessage
+      -- Note that 'recvStream' may return less bytes than requested.
+      -- Therefore, we must wrap it in 'getAllBytes'.
+      (getAllBytes buffer (QUIC.recvStream stream))
+      `catch` (\(ex :: QUIC.QUICException) -> throwIO ex)
 
 -- | Encode a message.
 --
@@ -107,8 +119,12 @@ decodeMessage get =
     >>= maybe
       (pure $ Right StreamClosed)
       ( \controlByte ->
-          go controlByte `catch` (\(ex :: SomeException) -> pure $ Left (displayException ex))
-      ) . flip BS.indexMaybe 0
+          go controlByte `catch` \(ex :: SomeException) ->
+            case fromException ex of
+              Just (_ :: SomeAsyncException) -> throwIO ex
+              Nothing -> pure $ Left (displayException ex)
+      )
+      . flip BS.indexMaybe 0
   where
     go ctrl
       | ctrl == closeEndPointControlByte = pure $ Right CloseEndPoint
@@ -127,18 +143,31 @@ decodeMessage get =
 -- fetcher that repeatedly returns empty after a peer FIN would cause this to
 -- spin forever.
 getAllBytes ::
+  -- | Bytes fetched, but not yet consumed
+  IORef ByteString ->
   -- | Function to fetch at most 'n' bytes
   (Int -> IO ByteString) ->
   -- | Function to fetch exactly 'n' bytes (or fewer on EOF)
   (Int -> IO ByteString)
-getAllBytes get n = go n mempty
+getAllBytes buffer get n = do
+  buffered <- readIORef buffer
+  go [buffered] (BS.length buffered)
   where
-    go 0 !acc = pure $ BS.concat acc
-    go m !acc =
-      get m >>= \bytes ->
-        if BS.null bytes
-          then pure $ BS.concat acc
-          else go (m - BS.length bytes) (acc <> [bytes])
+    go !acc !have
+      | have >= n = do
+          let (wanted, rest) = BS.splitAt n (BS.concat (reverse acc))
+          writeIORef buffer rest
+          pure wanted
+      | otherwise =
+          get (max (n - have) fetchSize) >>= \bytes ->
+            if BS.null bytes
+              then do
+                writeIORef buffer BS.empty
+                pure $ BS.concat (reverse acc)
+              else go (bytes : acc) (have + BS.length bytes)
+
+    fetchSize :: Int
+    fetchSize = 16384
 
 data MessageReceived
   = Message {-# UNPACK #-} ![ByteString]
@@ -189,8 +218,7 @@ recvWord32 ::
 recvWord32 stream =
   mask $ \restore ->
     restore
-      ( QUIC.recvStream stream 4 <&> Right . decodeWord32
-      )
+      (QUIC.recvStream stream 4 <&> Right . decodeWord32)
       `catch` (\(ex :: SomeException) -> pure $ Left (displayException ex))
 
 -- | We perform some special actions based on a message's control byte.
@@ -212,24 +240,29 @@ closeEndPointControlByte = 127
 closeConnectionControlByte :: ControlByte
 closeConnectionControlByte = 255
 
--- | Send a message to close the connection.
-sendCloseConnection :: Stream -> IO (Either QUIC.QUICException ())
-sendCloseConnection stream =
-  try
-    ( QUIC.sendStream
-        stream
-        (BS.singleton closeConnectionControlByte)
-    )
+-- | How long to wait for the remote end to take a message which closes a connection,
+-- or to acknowledge that a stream was closed.
+closeTimeout :: Int
+closeTimeout = 1_000_000
+
+-- | Send a control message which says that we are done with a stream.
+--
+-- Closing must never wait on the remote end: if it stopped reading, or is gone
+-- without us having noticed, the stream's flow control window may never reopen and
+-- sending would block forever. We give up after 'closeTimeout' instead; whoever is
+-- on the other side will find out when the QUIC connection ends.
+sendClosing :: ControlByte -> Stream -> IO (Either QUIC.QUICException ())
+sendClosing controlByte stream =
+  try (timeout closeTimeout (QUIC.sendStream stream (BS.singleton controlByte)))
+    <&> fmap (const ())
 
 -- | Send a message to close the connection.
+sendCloseConnection :: Stream -> IO (Either QUIC.QUICException ())
+sendCloseConnection = sendClosing closeConnectionControlByte
+
+-- | Send a message to close the endpoint.
 sendCloseEndPoint :: Stream -> IO (Either QUIC.QUICException ())
-sendCloseEndPoint stream =
-  try
-    ( QUIC.sendStream
-        stream
-        ( BS.singleton closeEndPointControlByte
-        )
-    )
+sendCloseEndPoint = sendClosing closeEndPointControlByte
 
 -- | Handshake protocol that a client, connecting to a remote endpoint,
 -- has to perform:

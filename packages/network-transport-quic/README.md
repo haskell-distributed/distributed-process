@@ -8,7 +8,7 @@ QUIC has many advantages over TCP, including:
 * Connection migration. Connections survive IP address changes, which is important when a device switches from e.g. WIFI to 5G;
 * Built-in encryption via TLS 1.3;
 
-In benchmarks, `network-transport-quic` performs better than `network-transport-tcp` in dense network topologies. For example, if every `EndPoint` in your network connects to every other `EndPoint`, you might benefit greatly from switching to `network-transport-quic`! 
+In benchmarks, `network-transport-quic` performs better than `network-transport-tcp` in dense network topologies. For multiple logical connections between two endpoints, `network-transport-quic` can be 3x faster (in throughput) compared to `network-transport-tcp`.
 
 ## Usage example
 
