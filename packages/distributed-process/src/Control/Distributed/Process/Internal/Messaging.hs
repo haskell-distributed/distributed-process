@@ -5,6 +5,8 @@ module Control.Distributed.Process.Internal.Messaging
   , disconnect
   , closeImplicitReconnections
   , impliesDeathOf
+  , deathKey
+  , deathKeys
   , sendCtrlMsg
   ) where
 
@@ -52,6 +54,8 @@ import Control.Distributed.Process.Internal.Types
   , Process(..)
   , SendPortId(sendPortProcessId)
   , Identifier(NodeIdentifier, ProcessIdentifier, SendPortIdentifier)
+  , IdentifierKind
+  , identifierKind
   )
 import Control.Distributed.Process.Serializable (Serializable)
 import Data.Foldable (forM_)
@@ -181,6 +185,27 @@ SendPortIdentifier cid `impliesDeathOf` SendPortIdentifier cid' =
   cid' == cid
 _ `impliesDeathOf` _ =
   False
+
+-- | @impliesDeathOf ident i@ if and only if @deathKey ident i@ is in
+-- @deathKeys ident@.
+--
+-- @deathKey ident@ is monotone (see the notes at 'Identifier', 'ProcessId' and
+-- 'SendPortId'), so the identifiers that die with @ident@ can be found with
+-- 'Control.Distributed.Process.Internal.BiMultiMap.partitionOn'.
+deathKey :: Identifier -> Identifier -> (IdentifierKind, Identifier)
+deathKey ident i = (identifierKind i, owner i)
+  where
+    -- @i@ cut to the level of @ident@: its node, its process, or @i@ itself.
+    owner = case ident of
+      NodeIdentifier _     -> NodeIdentifier . nodeOf
+      ProcessIdentifier _  -> \i' -> case i' of
+        SendPortIdentifier cid -> ProcessIdentifier (sendPortProcessId cid)
+        _                      -> i'
+      SendPortIdentifier _ -> id
+
+-- | See 'deathKey'.
+deathKeys :: Identifier -> [(IdentifierKind, Identifier)]
+deathKeys ident = [ (kind, ident) | kind <- [identifierKind ident ..] ]
 
 
 -- Send a control message. Evaluates the message to HNF before sending it.

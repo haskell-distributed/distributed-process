@@ -1,3 +1,9 @@
+Unreleased
+
+* The node controller handles the death of a node, process or typed channel in
+  time that depends on the number of links and monitors it affects, not on
+  their total number.
+
 2026-09-21 Laurent P. René de Cotret <laurent.decotret@outlook.com> 0.7.9
 
 * `receiveTimeout`, `expectTimeout` and `receiveChanTimeout` now arm the

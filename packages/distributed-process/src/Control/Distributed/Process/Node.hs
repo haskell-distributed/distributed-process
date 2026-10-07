@@ -29,7 +29,6 @@ import Data.Map (Map)
 import qualified Data.Map as Map
   ( empty
   , toList
-  , fromList
   , partition
   , partitionWithKey
   , elems
@@ -50,7 +49,7 @@ import qualified Data.Set as Set
   , union
   )
 import Data.Foldable (forM_)
-import Data.Maybe (isJust, fromJust, isNothing, catMaybes)
+import Data.Maybe (isJust, fromJust, isNothing)
 import Data.Typeable (Typeable)
 import Control.Category ((>>>))
 import Control.Applicative
@@ -123,6 +122,7 @@ import qualified Control.Distributed.Static as Static
   )
 import Control.Distributed.Process.Internal.Types
   ( NodeId(..)
+  , IdentifierKind(ProcessKind)
   , LocalProcessId(..)
   , ProcessId(..)
   , LocalNode(..)
@@ -199,6 +199,8 @@ import Control.Distributed.Process.Internal.Messaging
   ( sendBinary
   , closeImplicitReconnections
   , impliesDeathOf
+  , deathKey
+  , deathKeys
   )
 import Control.Distributed.Process.Internal.Primitives
   ( register
@@ -890,14 +892,15 @@ ncEffectDied ident reason = do
           , nid /= localNodeId node
     ]
 
+  -- Watchers and registered processes are keyed by ProcessId, so only the
+  -- death keys of processes can match.
+  let pidDeathKey = deathKey ident . ProcessIdentifier
+      pidDeathKeys = filter ((== ProcessKind) . fst) (deathKeys ident)
+
   -- Delete monitors in the local node.
   let deleteDeads :: (Ord a, Ord v)
                   => BiMultiMap a ProcessId v -> BiMultiMap a ProcessId v
-      deleteDeads = case ident of
-                      -- deleteAllBy2nd is faster than partitionWithKeyBy2nd
-                      ProcessIdentifier pid -> BiMultiMap.deleteAllBy2nd pid
-                      _ -> snd . BiMultiMap.partitionWithKeyBy2nd
-                        (\pid _ -> ident `impliesDeathOf` ProcessIdentifier pid)
+      deleteDeads = snd . BiMultiMap.partitionOnBy2nd pidDeathKey pidDeathKeys
       unaffectedLinks' = deleteDeads unaffectedLinks
       unaffectedMons' = deleteDeads unaffectedMons
 
@@ -909,16 +912,13 @@ ncEffectDied ident reason = do
   mapM_ (\(p, l) -> liftIO $ trace node (MxUnRegistered l p)) (Map.toList dropNames)
   modify' $ registeredHere ^= keepNames
 
-  remaining <- fmap Map.toList (gets (^. registeredOnNodes)) >>=
-      mapM (\(pid,nidlist) ->
-        case ident `impliesDeathOf` ProcessIdentifier pid of
-           True ->
-              do forM_ nidlist $ \(nid,_) ->
-                   when (not $ isLocal node (NodeIdentifier nid))
-                      (forwardDeath node nid)
-                 return Nothing
-           False -> return $ Just (pid,nidlist)  )
-  modify' $ registeredOnNodes ^= (Map.fromList (catMaybes remaining))
+  (deadRegs, liveRegs) <- gets $
+    BiMultiMap.partitionOn pidDeathKey pidDeathKeys . (^. registeredOnNodes)
+  forM_ (Map.elems deadRegs) $ \nidlist ->
+    forM_ nidlist $ \(nid,_) ->
+      when (not $ isLocal node (NodeIdentifier nid))
+        (forwardDeath node nid)
+  modify' $ registeredOnNodes ^= liveRegs
     where
        forwardDeath node nid = ncSendToNode nid
            NCMsg { ctrlMsgSender = NodeIdentifier (localNodeId node)
@@ -1277,13 +1277,13 @@ registeredOnNodesFor ident = registeredOnNodes >>> DAC.mapMaybe ident
 -- * the notifications for that process specifically and
 -- * the notifications for typed channels to that process.
 --
--- See https://github.com/haskell/containers/issues/14 for the bang on _v.
+-- Each set is a range of keys, so the cost does not depend on the number of
+-- unaffected notifications.
 splitNotif :: (Ord a, Ord v)
            => Identifier
            -> BiMultiMap Identifier a v
            -> (Map Identifier (Set (a,v)), BiMultiMap Identifier a v)
-splitNotif ident =
-    BiMultiMap.partitionWithKeyBy1st (\k !_v -> ident `impliesDeathOf` k)
+splitNotif ident = BiMultiMap.partitionOnBy1st (deathKey ident) (deathKeys ident)
 
 --------------------------------------------------------------------------------
 -- Auxiliary                                                                  --
