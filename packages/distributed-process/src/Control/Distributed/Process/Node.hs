@@ -30,7 +30,6 @@ import qualified Data.Map as Map
   ( empty
   , toList
   , partition
-  , partitionWithKey
   , elems
   , size
   , filterWithKey
@@ -459,7 +458,9 @@ forkProcess node proc = do
                    -> IO (ValidLocalNodeState, [NT.Connection])
     cleanupProcess pid vst = do
       let pid' = ProcessIdentifier pid
-      let (affected, unaffected) = Map.partitionWithKey (\(fr, _to) !_v -> impliesDeathOf pid' fr) (vst ^. localConnections)
+      let (affected, unaffected) =
+            BiMultiMap.partitionOn (deathKey pid' . fst) (deathKeys pid')
+                                   (vst ^. localConnections)
       return ( (localProcessWithId (processLocalId pid) ^= Nothing)
                . (localConnections ^= unaffected)
                $ vst
