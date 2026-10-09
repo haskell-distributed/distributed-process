@@ -3,8 +3,7 @@
 -- | Keeps the tracing API calls separate from the Tracer implementation,
 -- which allows us to avoid a nasty import cycle between tracing and
 -- the messaging primitives that rely on it, and also between the node
--- controller (which requires access to the tracing related elements of
--- our RemoteTable) and the Debug module, which requires @forkProcess@.
+-- controller and the Debug module, which requires @forkProcess@.
 -- This module is also used by the management agent, which relies on the
 -- tracing infrastructure's messaging fabric.
 module Control.Distributed.Process.Management.Internal.Trace.Primitives

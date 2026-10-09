@@ -7,7 +7,7 @@
 {-# LANGUAGE RecordWildCards      #-}
 {-# LANGUAGE FlexibleInstances    #-}
 {-# LANGUAGE EmptyDataDecls       #-}
-{-# LANGUAGE TemplateHaskell      #-}
+{-# LANGUAGE StaticPointers       #-}
 {-# LANGUAGE ImpredicativeTypes   #-}
 
 -----------------------------------------------------------------------------
@@ -115,8 +115,6 @@ module Control.Distributed.Process.Execution.Mailbox
   , FilterResult(..)
   , acceptEverything
   , acceptMatching
-    -- * Remote Table
-  , __remoteTable
   ) where
 
 import Control.Concurrent.STM (atomically)
@@ -129,10 +127,6 @@ import Control.Concurrent.STM.TChan
   )
 import Control.Distributed.Process hiding (call, monitor)
 import qualified Control.Distributed.Process as P (monitor)
-import Control.Distributed.Process.Closure
-  ( remotable
-  , mkStaticClosure
-  )
 import Control.Distributed.Process.Serializable hiding (SerializableDict)
 import Control.Distributed.Process.Extras
   ( ExitReason(..)
@@ -547,7 +541,7 @@ matching :: Closure (Message -> Process FilterResult)
          -> Message
          -> Process FilterResult
 matching predicate msg = do
-  pred' <- unClosure predicate :: Process (Message -> Process FilterResult)
+  pred' <- unclosure predicate :: Process (Message -> Process FilterResult)
   res   <- handleMessage msg pred'
   case res of
     Nothing -> return Skip
@@ -632,7 +626,7 @@ type Skipped = Integer
 sendMail :: State -> Process State
 sendMail st = do
     let Active f = st ^. state ^. mode
-    unCl <- catch (unClosure f >>= return . Just)
+    unCl <- catch (unclosure f >>= return . Just)
                   (\(_ :: SomeException) -> return Nothing)
     case unCl of
       Nothing -> return st -- TODO: Logging!?
@@ -721,12 +715,10 @@ stats = accessor getStats (\_ s -> s) -- TODO: use a READ ONLY accessor for this
   where
     getStats (State _ (BufferState _ _ lm sz dr op _)) = MailboxStats sz dr lm op
 
-$(remotable ['everything, 'matching])
-
 -- | A /do-nothing/ filter that accepts all messages (i.e., returns @Keep@
 -- for any input).
 acceptEverything :: Closure (Message -> Process FilterResult)
-acceptEverything = $(mkStaticClosure 'everything)
+acceptEverything = (static everything)
 
 -- | A filter that takes a @Closure (Message -> Process FilterResult)@ holding
 -- the filter function and applies it remotely (i.e., in the mailbox's own
@@ -734,7 +726,7 @@ acceptEverything = $(mkStaticClosure 'everything)
 --
 acceptMatching :: Closure (Closure (Message -> Process FilterResult)
                            -> Message -> Process FilterResult)
-acceptMatching = $(mkStaticClosure 'matching)
+acceptMatching = (static matching)
 
 -- | Instructs the mailbox to deliver all pending messages to the owner.
 --

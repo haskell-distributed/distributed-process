@@ -15,7 +15,7 @@ import Control.Exception (SomeException)
 import Control.Distributed.Process hiding (call, catch)
 import Control.Distributed.Process.Async (AsyncResult(AsyncDone))
 import Control.Distributed.Process.Node
-import Control.Distributed.Process.Extras hiding (__remoteTable, monitor, send, nsend)
+import Control.Distributed.Process.Extras hiding (monitor, send, nsend)
 import Control.Distributed.Process.ManagedProcess
 import Control.Distributed.Process.SysTest.Utils
 import Control.Distributed.Process.Extras.Time
@@ -212,7 +212,7 @@ testCounterExceedsLimit result = do
 
 tests :: NT.Transport  -> IO TestTree
 tests transport = do
-  localNode <- newLocalNode transport initRemoteTable
+  localNode <- newLocalNode transport
   scpid <- newEmptyMVar
   _ <- forkProcess localNode $ SafeCounter.startCounter 5 >>= stash scpid
   safeCounter <- takeMVar scpid

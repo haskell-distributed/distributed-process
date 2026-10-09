@@ -1,15 +1,16 @@
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
+{-# LANGUAGE StaticPointers #-}
 {-# LANGUAGE TemplateHaskell, KindSignatures #-}
 module Control.Distributed.Process.Tests.Closure (tests) where
 
 import Network.Transport.Test (TestTransport(..))
 
-import Data.ByteString.Lazy (empty)
 import Data.IORef
 import Data.Typeable (Typeable)
 import Data.Maybe
 import Control.Monad (join, replicateM, forever, replicateM_, void, when, unless)
 import Control.Exception (IOException, throw)
+import qualified Control.Monad.Catch as Catch
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar
   ( MVar
@@ -28,7 +29,9 @@ import Control.Distributed.Process.Internal.Types
   ( createMessage
   , messageToPayload
   )
-import Control.Distributed.Static (staticLabel, staticClosure)
+import Data.Binary (decode, encode)
+import Data.Word (Word64)
+import GHC.StaticPtr (StaticPtr)
 import qualified Network.Transport as NT
 
 import Test.Tasty (TestTree, testGroup)
@@ -81,44 +84,28 @@ typedPingServer () rport = forever $ do
 signal :: ProcessId -> Process ()
 signal pid = send pid ()
 
-remotable [ 'factorial
-          , 'addInt
-          , 'putInt
-          , 'sendPid
-          , 'sdictInt
-          , 'wait
-          , 'expectUnit
-          , 'typedPingServer
-          , 'isPrime
-          , 'quintuple
-          , 'signal
-          ]
-
 randomElement :: [a] -> IO a
 randomElement xs = do
   ix <- randomIO
   return (xs !! (ix `mod` length xs))
 
-remotableDecl [
-    [d| dfib :: ([NodeId], SendPort Integer, Integer) -> Process () ;
-        dfib (_, reply, 0) = sendChan reply 0
-        dfib (_, reply, 1) = sendChan reply 1
-        dfib (nids, reply, n) = do
-          nid1 <- liftIO $ randomElement nids
-          nid2 <- liftIO $ randomElement nids
-          (sport, rport) <- newChan
-          spawn nid1 $ $(mkClosure 'dfib) (nids, sport, n - 2)
-          spawn nid2 $ $(mkClosure 'dfib) (nids, sport, n - 1)
-          n1 <- receiveChan rport
-          n2 <- receiveChan rport
-          sendChan reply $ n1 + n2
-      |]
-  ]
+dfib :: ([NodeId], SendPort Integer, Integer) -> Process ()
+dfib (_, reply, 0) = sendChan reply 0
+dfib (_, reply, 1) = sendChan reply 1
+dfib (nids, reply, n) = do
+  nid1 <- liftIO $ randomElement nids
+  nid2 <- liftIO $ randomElement nids
+  (sport, rport) <- newChan
+  spawn nid1 $ $(mkClosure 'dfib) (nids, sport, n - 2)
+  spawn nid2 $ $(mkClosure 'dfib) (nids, sport, n - 1)
+  n1 <- receiveChan rport
+  n2 <- receiveChan rport
+  sendChan reply $ n1 + n2
 
 -- Just try creating a static polymorphic value
 staticQuintuple :: (Typeable a, Typeable b, Typeable c, Typeable d, Typeable e)
-                => Static (a -> b -> c -> d -> e -> (a, b, c, d, e))
-staticQuintuple = $(mkStatic 'quintuple)
+                => StaticPtr (a -> b -> c -> d -> e -> (a, b, c, d, e))
+staticQuintuple = (static quintuple)
 
 factorialClosure :: Int -> Closure (Process Int)
 factorialClosure = $(mkClosure 'factorial)
@@ -133,13 +120,13 @@ sendPidClosure :: ProcessId -> Closure (Process ())
 sendPidClosure = $(mkClosure 'sendPid)
 
 sendFac :: Int -> ProcessId -> Closure (Process ())
-sendFac n pid = factorialClosure n `bindCP` cpSend $(mkStatic 'sdictInt) pid
+sendFac n pid = factorialClosure n `bindCP` cpSend (static sdictInt) pid
 
 factorialOf :: Closure (Int -> Process Int)
-factorialOf = staticClosure $(mkStatic 'factorial)
+factorialOf = (static factorial)
 
 factorial' :: Int -> Closure (Process Int)
-factorial' n = returnCP $(mkStatic 'sdictInt) n `bindCP` factorialOf
+factorial' n = returnCP (static sdictInt) n `bindCP` factorialOf
 
 waitClosure :: Int -> Closure (Process ())
 waitClosure = $(mkClosure 'wait)
@@ -162,25 +149,25 @@ simulateNetworkFailure TestTransport{..} from to = liftIO $ do
 -- The tests proper                                                           --
 --------------------------------------------------------------------------------
 
-testUnclosure :: TestTransport -> RemoteTable -> Assertion
-testUnclosure TestTransport{..} rtable = do
-  node <- newLocalNode testTransport rtable
+testUnclosure :: TestTransport -> Assertion
+testUnclosure TestTransport{..} = do
+  node <- newLocalNode testTransport
   done <- newEmptyMVar
   forkProcess node $ do
-    i <- join . unClosure $ factorialClosure 5
+    i <- join . unclosure $ factorialClosure 5
     liftIO $ putMVar done ()
     if i == 720
       then return ()
       else error "Something went horribly wrong"
   takeMVar done
 
-testBind :: TestTransport -> RemoteTable -> Assertion
-testBind TestTransport{..} rtable = do
-  node <- newLocalNode testTransport rtable
+testBind :: TestTransport -> Assertion
+testBind TestTransport{..} = do
+  node <- newLocalNode testTransport
   done <- newEmptyMVar
   runProcess node $ do
     us <- getSelfPid
-    join . unClosure $ sendFac 6 us
+    join . unclosure $ sendFac 6 us
     (i :: Int) <- expect
     liftIO $ putMVar done ()
     if i == 720
@@ -188,37 +175,37 @@ testBind TestTransport{..} rtable = do
       else error "Something went horribly wrong"
   takeMVar done
 
-testSendPureClosure :: TestTransport -> RemoteTable -> Assertion
-testSendPureClosure TestTransport{..} rtable = do
+testSendPureClosure :: TestTransport -> Assertion
+testSendPureClosure TestTransport{..} = do
   serverAddr <- newEmptyMVar
   serverDone <- newEmptyMVar
 
   forkIO $ do
-    node <- newLocalNode testTransport rtable
+    node <- newLocalNode testTransport
     addr <- forkProcess node $ do
       cl <- expect
-      fn <- unClosure cl :: Process (Int -> Int)
+      fn <- unclosure cl :: Process (Int -> Int)
       (_ :: Int) <- return $ fn 6
       liftIO $ putMVar serverDone ()
     putMVar serverAddr addr
 
   forkIO $ do
-    node <- newLocalNode testTransport rtable
+    node <- newLocalNode testTransport
     theirAddr <- readMVar serverAddr
     runProcess node $ send theirAddr (addIntClosure 7)
 
   takeMVar serverDone
 
-testSendIOClosure :: TestTransport -> RemoteTable -> Assertion
-testSendIOClosure TestTransport{..} rtable = do
+testSendIOClosure :: TestTransport -> Assertion
+testSendIOClosure TestTransport{..} = do
   serverAddr <- newEmptyMVar
   serverDone <- newEmptyMVar
 
   forkIO $ do
-    node <- newLocalNode testTransport rtable
+    node <- newLocalNode testTransport
     addr <- forkProcess node $ do
       cl <- expect
-      io <- unClosure cl :: Process (MVar Int -> IO ())
+      io <- unclosure cl :: Process (MVar Int -> IO ())
       liftIO $ do
         someMVar <- newEmptyMVar
         io someMVar
@@ -230,31 +217,31 @@ testSendIOClosure TestTransport{..} rtable = do
     putMVar serverAddr addr
 
   forkIO $ do
-    node <- newLocalNode testTransport rtable
+    node <- newLocalNode testTransport
     theirAddr <- readMVar serverAddr
     runProcess node $ send theirAddr (putIntClosure 5)
 
   takeMVar serverDone
 
-testSendProcClosure :: TestTransport -> RemoteTable -> Assertion
-testSendProcClosure TestTransport{..} rtable = do
+testSendProcClosure :: TestTransport -> Assertion
+testSendProcClosure TestTransport{..} = do
   serverAddr <- newEmptyMVar
   clientDone <- newEmptyMVar
 
   forkIO $ do
-    node <- newLocalNode testTransport rtable
+    node <- newLocalNode testTransport
     addr <- forkProcess node $ do
       cl <- expect
-      pr <- unClosure cl :: Process (Int -> Process ())
+      pr <- unclosure cl :: Process (Int -> Process ())
       pr 5
     putMVar serverAddr addr
 
   forkIO $ do
-    node <- newLocalNode testTransport rtable
+    node <- newLocalNode testTransport
     theirAddr <- readMVar serverAddr
     runProcess node $ do
       pid <- getSelfPid
-      send theirAddr (cpSend $(mkStatic 'sdictInt) pid)
+      send theirAddr (cpSend (static sdictInt) pid)
       i <- expect :: Process Int
       if i == 5
         then liftIO $ putMVar clientDone ()
@@ -262,17 +249,17 @@ testSendProcClosure TestTransport{..} rtable = do
 
   takeMVar clientDone
 
-testSpawn :: TestTransport -> RemoteTable -> Assertion
-testSpawn TestTransport{..} rtable = do
+testSpawn :: TestTransport -> Assertion
+testSpawn TestTransport{..} = do
   serverNodeAddr <- newEmptyMVar
   clientDone <- newEmptyMVar
 
   forkIO $ do
-    node <- newLocalNode testTransport rtable
+    node <- newLocalNode testTransport
     putMVar serverNodeAddr (localNodeId node)
 
   forkIO $ do
-    node <- newLocalNode testTransport rtable
+    node <- newLocalNode testTransport
     nid <- readMVar serverNodeAddr
     runProcess node $ do
       pid   <- getSelfPid
@@ -294,10 +281,10 @@ testSpawn TestTransport{..} rtable = do
 -- remote peer the message that it is waiting to stop monitoring the caller,
 -- namely @()@.
 --
-testSpawnRace :: TestTransport -> RemoteTable -> Assertion
-testSpawnRace TestTransport{..} rtable = do
-    node1 <- newLocalNode (wrapTransport testTransport) rtable
-    node2 <- newLocalNode testTransport rtable
+testSpawnRace :: TestTransport -> Assertion
+testSpawnRace TestTransport{..} = do
+    node1 <- newLocalNode (wrapTransport testTransport)
+    node2 <- newLocalNode testTransport
 
     runProcess node1 $ do
       pid <- getSelfPid
@@ -330,53 +317,53 @@ testSpawnRace TestTransport{..} rtable = do
         if isHealthy then s msg
           else return $ Left $ NT.TransportError NT.SendFailed ""
 
-testCall :: TestTransport -> RemoteTable -> Assertion
-testCall TestTransport{..} rtable = do
+testCall :: TestTransport -> Assertion
+testCall TestTransport{..} = do
   serverNodeAddr <- newEmptyMVar
   clientDone <- newEmptyMVar
 
   forkIO $ do
-    node <- newLocalNode testTransport rtable
+    node <- newLocalNode testTransport
     putMVar serverNodeAddr (localNodeId node)
 
   forkIO $ do
-    node <- newLocalNode testTransport rtable
+    node <- newLocalNode testTransport
     nid <- readMVar serverNodeAddr
     runProcess node $ do
-      (a :: Int) <- call $(mkStatic 'sdictInt) nid (factorialClosure 5)
+      (a :: Int) <- call (static sdictInt) nid (factorialClosure 5)
       if a == 120
         then liftIO $ putMVar clientDone ()
         else error "something went horribly wrong"
 
   takeMVar clientDone
 
-testCallBind :: TestTransport -> RemoteTable -> Assertion
-testCallBind TestTransport{..} rtable = do
+testCallBind :: TestTransport -> Assertion
+testCallBind TestTransport{..} = do
   serverNodeAddr <- newEmptyMVar
   clientDone <- newEmptyMVar
 
   forkIO $ do
-    node <- newLocalNode testTransport rtable
+    node <- newLocalNode testTransport
     putMVar serverNodeAddr (localNodeId node)
 
   forkIO $ do
-    node <- newLocalNode testTransport rtable
+    node <- newLocalNode testTransport
     nid <- readMVar serverNodeAddr
     runProcess node $ do
-      (a :: Int) <- call $(mkStatic 'sdictInt) nid (factorial' 5)
+      (a :: Int) <- call (static sdictInt) nid (factorial' 5)
       if a == 120
         then liftIO $ putMVar clientDone ()
         else error "Something went horribly wrong"
 
   takeMVar clientDone
 
-testSeq :: TestTransport -> RemoteTable -> Assertion
-testSeq TestTransport{..} rtable = do
-  node <- newLocalNode testTransport rtable
+testSeq :: TestTransport -> Assertion
+testSeq TestTransport{..} = do
+  node <- newLocalNode testTransport
   done <- newEmptyMVar
   runProcess node $ do
     us <- getSelfPid
-    join . unClosure $ sendFac 5 us `seqCP` sendFac 6 us
+    join . unclosure $ sendFac 5 us `seqCP` sendFac 6 us
     a :: Int <- expect
     b :: Int <- expect
     if a == 120 && b == 720
@@ -390,9 +377,9 @@ testSeq TestTransport{..} rtable = do
 -- child. The supervisor then throws an exception, the child dies because it
 -- was linked to the supervisor, and the third process notices that the child
 -- dies.
-testSpawnSupervised :: TestTransport -> RemoteTable -> Assertion
-testSpawnSupervised TestTransport{..} rtable = do
-    [node1, node2]       <- replicateM 2 $ newLocalNode testTransport rtable
+testSpawnSupervised :: TestTransport -> Assertion
+testSpawnSupervised TestTransport{..} = do
+    [node1, node2]       <- replicateM 2 $ newLocalNode testTransport
     [superPid, childPid] <- replicateM 2 $ newEmptyMVar
     thirdProcessDone     <- newEmptyMVar
     linkUp               <- newEmptyMVar
@@ -401,7 +388,7 @@ testSpawnSupervised TestTransport{..} rtable = do
       us <- getSelfPid
       liftIO $ putMVar superPid us
       (child, _ref) <- spawnSupervised (localNodeId node2)
-                                       (sendPidClosure us `seqCP` $(mkStaticClosure 'expectUnit))
+                                       (sendPidClosure us `seqCP` (static expectUnit))
       _ <- expect :: Process ProcessId
 
       liftIO $ do putMVar childPid child
@@ -443,28 +430,31 @@ testSpawnSupervised TestTransport{..} rtable = do
     supervisorDeath :: IOException
     supervisorDeath = userError "Supervisor died"
 
-testSpawnInvalid :: TestTransport -> RemoteTable -> Assertion
-testSpawnInvalid TestTransport{..} rtable = do
-  node <- newLocalNode testTransport rtable
+-- | A closure that cannot be resolved, because it refers to a static pointer
+-- that does not exist
+unresolvableClosure :: Closure (Process ())
+unresolvableClosure = decode (encode (0 :: Word64, 0 :: Word64, 0 :: Word64))
+
+-- A closure can only be unresolvable if it comes from a different executable,
+-- so we can only test that resolving one fails cleanly.
+testSpawnInvalid :: TestTransport -> Assertion
+testSpawnInvalid TestTransport{..} = do
+  node <- newLocalNode testTransport
   done <- newEmptyMVar
   forkProcess node $ do
-    (pid, ref) <- spawnMonitor (localNodeId node) (closure (staticLabel "ThisDoesNotExist") empty)
-    ProcessMonitorNotification ref' pid' _reason <- expect
-    -- Depending on the exact interleaving, reason might be NoProc or the exception thrown by the absence of the static closure
-    res <- return $ ref' == ref && pid == pid'
-    if res == True
-      then liftIO $ putMVar done ()
-      else error "Something went horribly wrong"
-  takeMVar done
+    r <- Catch.try (unclosure unresolvableClosure)
+    liftIO $ putMVar done (either (\(_ :: IOException) -> True) (const False) r)
+  failed <- takeMVar done
+  unless failed $ error "Something went horribly wrong"
 
-testClosureExpect :: TestTransport -> RemoteTable -> Assertion
-testClosureExpect TestTransport{..} rtable = do
-  node <- newLocalNode testTransport rtable
+testClosureExpect :: TestTransport -> Assertion
+testClosureExpect TestTransport{..} = do
+  node <- newLocalNode testTransport
   done <- newEmptyMVar
   runProcess node $ do
     nodeId <- getSelfNode
     us     <- getSelfPid
-    them   <- spawn nodeId $ cpExpect $(mkStatic 'sdictInt) `bindCP` cpSend $(mkStatic 'sdictInt) us
+    them   <- spawn nodeId $ cpExpect (static sdictInt) `bindCP` cpSend (static sdictInt) us
     send them (1234 :: Int)
     (res :: Int) <- expect
     if res == 1234
@@ -472,14 +462,14 @@ testClosureExpect TestTransport{..} rtable = do
       else error "Something went horribly wrong"
   takeMVar done
 
-testSpawnChannel :: TestTransport -> RemoteTable -> Assertion
-testSpawnChannel TestTransport{..} rtable = do
+testSpawnChannel :: TestTransport -> Assertion
+testSpawnChannel TestTransport{..} = do
   done <- newEmptyMVar
-  [node1, node2] <- replicateM 2 $ newLocalNode testTransport rtable
+  [node1, node2] <- replicateM 2 $ newLocalNode testTransport
 
   forkProcess node1 $ do
     pingServer <- spawnChannel
-                    (sdictSendPort sdictUnit)
+                    (static SerializableDict)
                     (localNodeId node2)
                     ($(mkClosure 'typedPingServer) ())
     (sendReply, receiveReply) <- newChan
@@ -489,10 +479,10 @@ testSpawnChannel TestTransport{..} rtable = do
 
   takeMVar done
 
-testTDict :: TestTransport -> RemoteTable -> Assertion
-testTDict TestTransport{..} rtable = do
+testTDict :: TestTransport -> Assertion
+testTDict TestTransport{..} = do
   done <- newEmptyMVar
-  [node1, node2] <- replicateM 2 $ newLocalNode testTransport rtable
+  [node1, node2] <- replicateM 2 $ newLocalNode testTransport
   forkProcess node1 $ do
     res <- call $(functionTDict 'isPrime) (localNodeId node2) ($(mkClosure 'isPrime) (79 :: Integer))
     if res == True
@@ -500,9 +490,9 @@ testTDict TestTransport{..} rtable = do
       else error "Something went horribly wrong..."
   takeMVar done
 
-testFib :: TestTransport -> RemoteTable -> Assertion
-testFib TestTransport{..} rtable = do
-  nodes <- replicateM 4 $ newLocalNode testTransport rtable
+testFib :: TestTransport -> Assertion
+testFib TestTransport{..} = do
+  nodes <- replicateM 4 $ newLocalNode testTransport
   done <- newEmptyMVar
 
   forkProcess (head nodes) $ do
@@ -516,9 +506,9 @@ testFib TestTransport{..} rtable = do
 
   takeMVar done
 
-testSpawnReconnect :: TestTransport -> RemoteTable -> Assertion
-testSpawnReconnect testtrans@TestTransport{..} rtable = do
-  [node1, node2] <- replicateM 2 $ newLocalNode testTransport rtable
+testSpawnReconnect :: TestTransport -> Assertion
+testSpawnReconnect testtrans@TestTransport{..} = do
+  [node1, node2] <- replicateM 2 $ newLocalNode testTransport
   let nid1 = localNodeId node1
       -- nid2 = localNodeId node2
   done <- newEmptyMVar
@@ -548,10 +538,10 @@ testSpawnReconnect testtrans@TestTransport{..} rtable = do
 
 -- | 'spawn' used to ave a race condition which would be triggered if the
 -- spawning process terminates immediately after spawning
-testSpawnTerminate :: TestTransport -> RemoteTable -> Assertion
-testSpawnTerminate TestTransport{..} rtable = do
-  slave  <- newLocalNode testTransport rtable
-  master <- newLocalNode testTransport rtable
+testSpawnTerminate :: TestTransport -> Assertion
+testSpawnTerminate TestTransport{..} = do
+  slave  <- newLocalNode testTransport
+  master <- newLocalNode testTransport
   masterDone <- newEmptyMVar
 
   runProcess master $ do
@@ -564,24 +554,5 @@ testSpawnTerminate TestTransport{..} rtable = do
 
 tests :: TestTransport -> IO TestTree
 tests testtrans = do
-    let rtable = __remoteTable . __remoteTableDecl $ initRemoteTable
     return $ testGroup "Closure"
-        [ testCase "Unclosure"       (testUnclosure       testtrans rtable)
-        , testCase "Bind"            (testBind            testtrans rtable)
-        , testCase "SendPureClosure" (testSendPureClosure testtrans rtable)
-        , testCase "SendIOClosure"   (testSendIOClosure   testtrans rtable)
-        , testCase "SendProcClosure" (testSendProcClosure testtrans rtable)
-        , testCase "Spawn"           (testSpawn           testtrans rtable)
-        , testCase "SpawnRace"       (testSpawnRace       testtrans rtable)
-        , testCase "Call"            (testCall            testtrans rtable)
-        , testCase "CallBind"        (testCallBind        testtrans rtable)
-        , testCase "Seq"             (testSeq             testtrans rtable)
-        , testCase "SpawnSupervised" (testSpawnSupervised testtrans rtable)
-        , testCase "SpawnInvalid"    (testSpawnInvalid    testtrans rtable)
-        , testCase "ClosureExpect"   (testClosureExpect   testtrans rtable)
-        , testCase "SpawnChannel"    (testSpawnChannel    testtrans rtable)
-        , testCase "TDict"           (testTDict           testtrans rtable)
-        , testCase "Fib"             (testFib             testtrans rtable)
-        , testCase "SpawnTerminate"  (testSpawnTerminate  testtrans rtable)
-        , testCase "SpawnReconnect"  (testSpawnReconnect  testtrans rtable)
-        ]
+        [ testCase "Unclosure"       (testUnclosure       testtrans)        , testCase "Bind"            (testBind            testtrans)        , testCase "SendPureClosure" (testSendPureClosure testtrans)        , testCase "SendIOClosure"   (testSendIOClosure   testtrans)        , testCase "SendProcClosure" (testSendProcClosure testtrans)        , testCase "Spawn"           (testSpawn           testtrans)        , testCase "SpawnRace"       (testSpawnRace       testtrans)        , testCase "Call"            (testCall            testtrans)        , testCase "CallBind"        (testCallBind        testtrans)        , testCase "Seq"             (testSeq             testtrans)        , testCase "SpawnSupervised" (testSpawnSupervised testtrans)        , testCase "SpawnInvalid"    (testSpawnInvalid    testtrans)        , testCase "ClosureExpect"   (testClosureExpect   testtrans)        , testCase "SpawnChannel"    (testSpawnChannel    testtrans)        , testCase "TDict"           (testTDict           testtrans)        , testCase "Fib"             (testFib             testtrans)        , testCase "SpawnTerminate"  (testSpawnTerminate  testtrans)        , testCase "SpawnReconnect"  (testSpawnReconnect  testtrans)        ]

@@ -52,9 +52,7 @@ library
                      Control.Distributed.Process.Tests.Internal.Utils
   Build-Depends:     base >= 4.14 && < 5,
                      binary >= 0.8 && < 0.9,
-                     bytestring >= 0.10 && < 0.13,
-                     distributed-process >= 0.6.0 && < 0.8,
-                     distributed-static,
+                     distributed-process >= 0.8 && < 0.9,
                      exceptions >= 0.10,
                      network-transport >= 0.4.1.0 && < 0.6,
                      random >= 1.0 && < 1.4,

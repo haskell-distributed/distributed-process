@@ -194,9 +194,8 @@
 -- automatically, but the /handle/ based approach requires that the @Closure@
 -- responsible for spawning does the linking itself.
 --
--- Finally, we provide a simple shortcut to @staticClosure@, for consumers
--- who've manually registered with the /remote table/ and don't with to use
--- tempate haskell (e.g. users of the Explicit closures API).
+-- Finally, we provide a simple shortcut from a @StaticPtr (Process ())@, for
+-- consumers who don't wish to use template haskell.
 --
 -- [Supervision Trees & Supervisor Shutdown]
 --
@@ -288,7 +287,6 @@ import Control.Distributed.Process
   , Message
   , ProcessMonitorNotification(..)
   , Closure
-  , Static
   , exit
   , kill
   , match
@@ -308,7 +306,7 @@ import Control.Distributed.Process
   , unmonitor
   , withMonitor_
   , expect
-  , unClosure
+  , unclosure
   , receiveWait
   , receiveTimeout
   , handleMessageIf
@@ -376,10 +374,8 @@ import Control.Distributed.Process.Extras.SystemLog
   )
 import qualified Control.Distributed.Process.Extras.SystemLog as Log
 import Control.Distributed.Process.Extras.Time
-import Control.Distributed.Static
-  ( staticClosure
-  )
 import Control.Exception (SomeException, throwIO)
+import GHC.StaticPtr (StaticPtr, fromStaticPtr)
 import Control.Monad.Catch (catch, finally, mask)
 import Control.Monad (void, forM)
 
@@ -435,8 +431,8 @@ instance ToChildStart (Closure (Process ())) where
 instance ToChildStart (Closure (SupervisorPid -> Process (ChildPid, Message))) where
   toChildStart = return . CreateHandle
 
-instance ToChildStart (Static (Process ())) where
-  toChildStart = toChildStart . staticClosure
+instance ToChildStart (StaticPtr (Process ())) where
+  toChildStart p = toChildStart (fromStaticPtr p :: Closure (Process ()))
 
 -- internal APIs. The corresponding XxxResult types are in
 -- Control.Distributed.Process.Supervisor.Types
@@ -1251,13 +1247,13 @@ tryStartChild ChildSpec{..} =
     case childStart of
       RunClosure proc -> do
         -- TODO: cache your closures!!!
-        mProc <- catch (unClosure proc >>= return . Right)
+        mProc <- catch (unclosure proc >>= return . Right)
                        (\(e :: SomeException) -> return $ Left (show e))
         case mProc of
           Left err -> logStartFailure $ StartFailureBadClosure err
           Right p  -> wrapClosure childKey childRegName p >>= return . Right
       CreateHandle fn -> do
-        mFn <- catch (unClosure fn >>= return . Right)
+        mFn <- catch (unclosure fn >>= return . Right)
                      (\(e :: SomeException) -> return $ Left (show e))
         case mFn of
           Left err  -> logStartFailure $ StartFailureBadClosure err
@@ -1315,7 +1311,7 @@ tryStartChild ChildSpec{..} =
     maybeRegister (Just (LocalName n))            pid   = register n pid
     maybeRegister (Just (CustomRegister clj))     pid   = do
         -- TODO: cache your closures!!!
-        mProc <- catch (unClosure clj >>= return . Right)
+        mProc <- catch (unclosure clj >>= return . Right)
                        (\(e :: SomeException) -> return $ Left (show e))
         case mProc of
           Left err -> die $ ExitOther (show err)

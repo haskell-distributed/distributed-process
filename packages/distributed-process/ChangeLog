@@ -1,3 +1,13 @@
+Unreleased
+
+* Breaking: closures are now based on `StaticPtr` (see `Control.Distributed.Static`),
+  and the `RemoteTable` concept has been removed. 
+* Functions that took a `Static (SerializableDict a)` (`call`, `spawnChannel`,
+  `cpSend`, `cpExpect`, `cpNewChan`, `returnCP`, `remoteTask`) now take a
+  `Closure (SerializableDict a)`.
+* `unClosure` has been replaced by `unclosure` from `distributed-static-0.4.0`
+* Dropped the dependencies on `syb` and `rank1dynamic`.
+
 2026-09-21 Laurent P. René de Cotret <laurent.decotret@outlook.com> 0.7.9
 
 * `receiveTimeout`, `expectTimeout` and `receiveChanTimeout` now arm the
