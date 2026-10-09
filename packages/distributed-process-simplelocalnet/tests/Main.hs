@@ -2,7 +2,6 @@
 
 import Control.Concurrent (forkIO, threadDelay)
 import qualified Control.Concurrent.MVar as MVar
-import Control.Distributed.Process.Node (initRemoteTable)
 import Control.Distributed.Process.Backend.SimpleLocalnet
 import Control.Monad (forM_)
 import Control.Monad.IO.Class (liftIO)
@@ -21,13 +20,13 @@ testDiscoverNodes = testCase "discover nodes" $ do
 
   -- Initialize slave nodes
   forM_ ["10000", "10001", "10002", "10003"] $ \port -> do
-    backend <- initializeBackend "127.0.0.1" port initRemoteTable
+    backend <- initializeBackend "127.0.0.1" port
     _ <- forkIO $ startSlave backend
     threadDelay 100000
 
   -- initialize master node
   discoveredNodesSlot <- MVar.newEmptyMVar
-  backend <- initializeBackend "127.0.0.1" "10004" initRemoteTable
+  backend <- initializeBackend "127.0.0.1" "10004"
   startMaster backend $ \nds -> do
     terminateAllSlaves backend
     liftIO $ MVar.putMVar discoveredNodesSlot nds

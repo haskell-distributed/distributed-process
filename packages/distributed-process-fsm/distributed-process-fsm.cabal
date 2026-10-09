@@ -34,8 +34,8 @@ library
   import:            warnings
   default-language:  Haskell2010
   build-depends:     base >= 4.14 && < 5,
-                     distributed-process >= 0.6.6 && < 0.8,
-                     distributed-process-extras >= 0.3.1 && < 0.4,
+                     distributed-process >= 0.8 && < 0.9,
+                     distributed-process-extras >= 0.4 && < 0.5,
                      distributed-process-client-server >= 0.2.5.1 && < 0.3,
                      binary >= 0.8 && < 0.10,
                      mtl >= 2.0 && <2.4,
@@ -53,8 +53,8 @@ test-suite FsmTests
   build-depends:     base >= 4.14 && < 5,
                      network-transport >= 0.4 && < 0.6,
                      network-transport-tcp >= 0.4 && <= 0.9,
-                     distributed-process >= 0.6.6 && < 0.8,
-                     distributed-process-extras >= 0.3.1 && < 0.4,
+                     distributed-process >= 0.8 && < 0.9,
+                     distributed-process-extras >= 0.4 && < 0.5,
                      distributed-process-fsm,
                      binary,
                      tasty >= 1.5 && <1.6,

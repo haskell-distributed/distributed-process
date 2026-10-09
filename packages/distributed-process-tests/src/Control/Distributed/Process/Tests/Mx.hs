@@ -459,8 +459,8 @@ testMxSend mNode label test = do
 
 tests :: TestTransport -> IO TestTree
 tests TestTransport{..} = do
-  node1 <- newLocalNode testTransport initRemoteTable
-  node2 <- newLocalNode testTransport initRemoteTable
+  node1 <- newLocalNode testTransport
+  node2 <- newLocalNode testTransport
   return $ testGroup "Mx" [
       testGroup "MxAgents" [
           testCase "EventHandling"

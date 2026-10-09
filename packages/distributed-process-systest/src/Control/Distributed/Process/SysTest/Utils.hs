@@ -1,7 +1,5 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric      #-}
-{-# LANGUAGE TemplateHaskell    #-}
-
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  Control.Distributed.Process.SysTest.Utils

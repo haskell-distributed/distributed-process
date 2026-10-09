@@ -1,6 +1,17 @@
 Unreleased
 
-* Added support for `containers-0.8`.
+* Breaking: `Closure` now follows the definition from /Towards Haskell in the Cloud/:
+  it is a `StaticPtr (ByteString -> a)` together with an encoded environment.
+  As a consequence:
+  * The concept of `RemoteTable` and `Static` is gone
+  * `Closure`'s internals have changed. Combining closures (`closureApply`, `closureCompose`, `closureSplit`) builds
+    a tree, which is serialized as is, without encoding the closures being
+    combined into an environment.
+  * `unclosure` no longer takes a `RemoteTable`.
+  * `closureApplyStatic` takes a `StaticPtr`.
+  * `Closure` is an instance of `IsStatic`, so that `static f :: Closure a`.
+  * `closureCompose` and `closureSplit` require `Typeable` constraints on the types of the closures.
+* Dropped the dependencies on `containers` and `rank1dynamic`.
 
 2024-09-03 Laurent P. René de Cotret <laurent.decotret@outlook.com> 0.3.11
 

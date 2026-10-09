@@ -9,11 +9,10 @@ module Control.Distributed.Process.Internal.Spawn
   ) where
 
 import Control.Distributed.Static
-  ( Static
-  , Closure
+  ( Closure
   , closureCompose
-  , staticClosure
   )
+import GHC.StaticPtr (fromStaticPtr)
 import Control.Distributed.Process.Internal.Types
   ( NodeId(..)
   , ProcessId(..)
@@ -100,15 +99,15 @@ spawnMonitor nid proc = do
 -- We monitor the remote process: if it dies before it can send a reply, we die
 -- too.
 --
--- For more information about 'Static', 'SerializableDict', and 'Closure', see
+-- For more information about 'SerializableDict' and 'Closure', see
 -- "Control.Distributed.Process.Closure".
 --
 -- See also 'spawn'.
 call :: Serializable a
-        => Static (SerializableDict a)
-        -> NodeId
-        -> Closure (Process a)
-        -> Process a
+     => Closure (SerializableDict a)
+     -> NodeId
+     -> Closure (Process a)
+     -> Process a
 call dict nid proc = do
   us <- getSelfPid
   (pid, mRef) <- spawnMonitor nid (proc `bindCP`
@@ -148,7 +147,7 @@ spawnSupervised nid proc = do
 
 -- | Spawn a new process, supplying it with a new 'ReceivePort' and return
 -- the corresponding 'SendPort'.
-spawnChannel :: forall a. Serializable a => Static (SerializableDict a)
+spawnChannel :: forall a. Serializable a => Closure (SerializableDict a)
              -> NodeId
              -> Closure (ReceivePort a -> Process ())
              -> Process (SendPort a)
@@ -162,4 +161,4 @@ spawnChannel dict nid proc = do
            `bindCP`
              (cpSend (sdictSendPort dict) pid `splitCP` proc)
            `bindCP`
-             (idCP `closureCompose` staticClosure sndStatic)
+             (idCP `closureCompose` fromStaticPtr sndStatic)

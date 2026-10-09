@@ -1,4 +1,3 @@
-{-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -Wall #-}
 
 -- | XXX test doesn't work, because failure exceptions don't get propagated. The
@@ -141,13 +140,12 @@ master = do
 
   terminate
 
-testReceive :: Transport -> RemoteTable -> Assertion
-testReceive transport rtable = do
-  node <- newLocalNode transport rtable
+testReceive :: Transport -> Assertion
+testReceive transport = do
+  node <- newLocalNode transport
   runProcess node $ master
 
 tests :: TestTransport -> IO TestTree
 tests TestTransport{..} = do
-    let rtable = initRemoteTable
     return $ testGroup "Receive"
-        [ testCase "testReceive" (testReceive testTransport rtable) ]
+        [ testCase "testReceive" (testReceive testTransport) ]

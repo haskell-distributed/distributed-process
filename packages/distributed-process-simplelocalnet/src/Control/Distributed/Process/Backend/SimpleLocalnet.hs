@@ -12,7 +12,6 @@
 --
 -- > import System.Environment (getArgs)
 -- > import Control.Distributed.Process
--- > import Control.Distributed.Process.Node (initRemoteTable)
 -- > import Control.Distributed.Process.Backend.SimpleLocalnet
 -- >
 -- > master :: Backend -> [NodeId] -> Process ()
@@ -28,10 +27,10 @@
 -- >
 -- >   case args of
 -- >     ["master", host, port] -> do
--- >       backend <- initializeBackend host port initRemoteTable
+-- >       backend <- initializeBackend host port
 -- >       startMaster backend (master backend)
 -- >     ["slave", host, port] -> do
--- >       backend <- initializeBackend host port initRemoteTable
+-- >       backend <- initializeBackend host port
 -- >       startSlave backend
 --
 -- [Compiling and Running]
@@ -109,8 +108,7 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Concurrent (forkIO, threadDelay, ThreadId)
 import Control.Concurrent.MVar (MVar, newMVar, readMVar, modifyMVar_)
 import Control.Distributed.Process
-  ( RemoteTable
-  , NodeId
+  ( NodeId
   , Process
   , ProcessId
   , WhereIsReply(..)
@@ -171,8 +169,8 @@ data BackendState = BackendState {
  }
 
 -- | Initialize the backend
-initializeBackend :: N.HostName -> N.ServiceName -> RemoteTable -> IO Backend
-initializeBackend host port rtable = do
+initializeBackend :: N.HostName -> N.ServiceName -> IO Backend
+initializeBackend host port = do
   mTransport   <- NT.createTransport (NT.Addressable $ NT.TCPAddrInfo host port (\sn -> (host, sn)))
                                      NT.defaultTCPParameters
   (recv, sendp) <- initMulticast  "224.0.0.99" 9999 1024
@@ -188,7 +186,7 @@ initializeBackend host port rtable = do
     Left err -> throw err
     Right transport ->
       let backend = Backend {
-          newLocalNode       = apiNewLocalNode transport rtable backendState
+          newLocalNode       = apiNewLocalNode transport backendState
         , findPeers          = apiFindPeers sendp backendState
         , redirectLogsHere   = apiRedirectLogsHere backend
         }
@@ -196,11 +194,10 @@ initializeBackend host port rtable = do
 
 -- | Create a new local node
 apiNewLocalNode :: NT.Transport
-                -> RemoteTable
                 -> MVar BackendState
                 -> IO Node.LocalNode
-apiNewLocalNode transport rtable backendState = do
-  localNode <- Node.newLocalNode transport rtable
+apiNewLocalNode transport backendState = do
+  localNode <- Node.newLocalNode transport
   modifyMVar_ backendState $ return . (localNodes ^: (localNode :))
   return localNode
 

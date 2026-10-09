@@ -1,6 +1,5 @@
 {-# LANGUAGE DeriveDataTypeable        #-}
 {-# LANGUAGE TupleSections             #-}
-{-# LANGUAGE TemplateHaskell           #-}
 {-# LANGUAGE DeriveGeneric             #-}
 
 module TestUtils
@@ -93,7 +92,7 @@ mkNode :: String -> IO LocalNode
 mkNode port = do
   Right (transport1, _) <-
     createTransportExposeInternals (defaultTCPAddr "127.0.0.1" port) defaultTCPParameters
-  newLocalNode transport1 initRemoteTable
+  newLocalNode transport1
 
 -- | Run the supplied @testProc@ using an @MVar@ to collect and assert
 -- against its result. Uses the supplied @note@ if the assertion fails.

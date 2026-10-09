@@ -1,6 +1,6 @@
 cabal-version:  3.0
 name:           distributed-process-supervisor
-version:        0.2.4
+version:        0.3.0
 build-type:     Simple
 license:        BSD-3-Clause
 license-file:   LICENSE
@@ -44,9 +44,8 @@ library
   build-depends:
                    base >= 4.14 && < 5,
                    data-accessor >= 0.2.2.3,
-                   distributed-static >= 0.3.4.0 && < 0.4,
-                   distributed-process >= 0.7.3 && < 0.8,
-                   distributed-process-extras >= 0.3.1 && < 0.4,
+                   distributed-process >= 0.8 && < 0.9,
+                   distributed-process-extras >= 0.4 && < 0.5,
                    distributed-process-client-server >= 0.2.0 && < 0.4,
                    binary >= 0.8 && < 0.9,
                    deepseq >= 1.4 && < 1.7,
@@ -67,13 +66,10 @@ test-suite SupervisorTests
   type:            exitcode-stdio-1.0
   build-depends:
                    base >= 4.14 && < 5,
-                   distributed-static >= 0.3.5.0 && < 0.4,
-                   distributed-process >= 0.7.3 && < 0.8,
+                   distributed-process >= 0.8 && < 0.9,
                    distributed-process-supervisor,
-                   distributed-process-extras >= 0.3 && < 0.4,
+                   distributed-process-extras >= 0.4 && < 0.5,
                    distributed-process-client-server,
-                   distributed-static,
-                   bytestring,
                    random,
                    network-transport >= 0.4 && < 0.6,
                    network-transport-tcp >= 0.4 && < 0.9,
@@ -95,13 +91,10 @@ test-suite NonThreadedSupervisorTests
   type:            exitcode-stdio-1.0
   build-depends:
                    base >= 4.14 && < 5,
-                   bytestring,
-                   distributed-static >= 0.3.5.0 && < 0.4,
-                   distributed-process >= 0.7.3 && < 0.8,
+                   distributed-process >= 0.8 && < 0.9,
                    distributed-process-supervisor,
                    distributed-process-extras,
                    distributed-process-client-server,
-                   distributed-static,
                    random,
                    network-transport,
                    network-transport-tcp >= 0.4 && < 0.9,

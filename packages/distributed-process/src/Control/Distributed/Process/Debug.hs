@@ -131,7 +131,6 @@ module Control.Distributed.Process.Debug
   , traceLogFmt
   , traceMessage
     -- * Working with remote nodes
-  , Remote.remoteTable
   , Remote.startTraceRelay
   , Remote.setTraceFlagsRemote
     -- * Built in tracers
