@@ -1,5 +1,7 @@
 Unreleased
 
+* Breaking: the `ToChildStart` instance for `Static (Process ())` is now an instance for `StaticPtr (Process ())`,
+  and `Static` is no longer re-exported.
 * Added support for `containers-0.8`.
 
 2025-02-04 Laurent P. René de Cotret <laurent.decotret@outlook.com> 0.2.4

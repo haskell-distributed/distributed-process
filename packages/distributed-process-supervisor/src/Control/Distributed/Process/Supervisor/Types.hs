@@ -384,7 +384,7 @@ data MxSupervisor =
 instance Binary MxSupervisor where
 instance NFData MxSupervisor where
 
--- | Static labels (in the remote table) are strings.
+-- | The reason why a closure could not be resolved.
 type StaticLabel = String
 
 -- | Provides failure information when (re-)start failure is indicated.

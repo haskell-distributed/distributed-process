@@ -1,11 +1,14 @@
 {-# LANGUAGE CPP #-}
 -- | /Towards Haskell in the Cloud/ (Epstein et al., Haskell Symposium 2011)
 -- proposes a new type construct called 'static' that characterizes values that
--- are known statically. Cloud Haskell uses the
--- 'Control.Distributed.Static.Static' implementation from
--- "Control.Distributed.Static". That module comes with its own extensive
--- documentation, which you should read if you want to know the details.  Here
--- we explain the Template Haskell support only.
+-- are known statically. Cloud Haskell uses the 'GHC.StaticPtr.StaticPtr'
+-- implementation provided by GHC, and the 'Control.Distributed.Static.Closure'
+-- type from "Control.Distributed.Static". That module comes with its own
+-- documentation, which you should read if you want to know the details. Here
+-- we explain the Template Haskell support, which is a convenience: nothing in
+-- Cloud Haskell requires it. Every module which uses the Template Haskell
+-- functions below, or which uses @static@ directly, must enable the
+-- @StaticPointers@ language extension.
 --
 -- [Static values]
 --
@@ -14,67 +17,36 @@
 -- > f :: forall a1 .. an. T
 -- > f = ...
 --
--- you can use a Template Haskell splice to create a static version of 'f':
+-- you can create a static version of 'f' with a @static@ form:
 --
--- > $(mkStatic 'f) :: forall a1 .. an. (Typeable a1, .., Typeable an) => Static T
+-- > static f :: forall a1 .. an. (Typeable a1, .., Typeable an) => StaticPtr T
 --
--- Every module that you write that contains calls to 'mkStatic' needs to
--- have a call to 'remotable':
+-- A @static@ form can also be given the type of a closure, with an empty
+-- environment:
 --
--- > remotable [ 'f, 'g, ... ]
---
--- where you must pass every function (or other value) that you pass as an
--- argument to 'mkStatic'. The call to 'remotable' will create a definition
---
--- > __remoteTable :: RemoteTable -> RemoteTable
---
--- which can be used to construct the 'RemoteTable' used to initialize
--- Cloud Haskell. You should have (at most) one call to 'remotable' per module,
--- and compose all created functions when initializing Cloud Haskell:
---
--- > let rtable :: RemoteTable
--- >     rtable = M1.__remoteTable
--- >            . M2.__remoteTable
--- >            . ...
--- >            . Mn.__remoteTable
--- >            $ initRemoteTable
---
--- NOTE: If you get a type error from ghc along these lines
---
--- >  The exact Name `a_a30k' is not in scope
--- >       Probable cause: you used a unique name (NameU) in Template Haskell but did not bind it
---
--- then you need to enable the @ScopedTypeVariables@ language extension.
+-- > static f :: forall a1 .. an. (Typeable a1, .., Typeable an) => Closure T
 --
 -- [Static serialization dictionaries]
 --
--- Some Cloud Haskell primitives require static serialization dictionaries (**):
+-- Some Cloud Haskell primitives require static serialization dictionaries (**),
+-- as a 'Closure':
 --
--- > call :: Serializable a => Static (SerializableDict a) -> NodeId -> Closure (Process a) -> Process a
+-- > call :: Serializable a => Closure (SerializableDict a) -> NodeId -> Closure (Process a) -> Process a
 --
 -- Given some serializable type 'T' you can define
 --
--- > sdictT :: SerializableDict T
--- > sdictT = SerializableDict
---
--- and then have
---
--- > $(mkStatic 'sdictT) :: Static (SerializableDict T)
+-- > sdictT :: Closure (SerializableDict T)
+-- > sdictT = static SerializableDict
 --
 -- However, since these dictionaries are so frequently required Cloud Haskell
--- provides special support for them.  When you call 'remotable' on a
--- /monomorphic/ function @f :: T1 -> T2@
+-- provides special support for them.  If @f :: T1 -> T2@ is a /monomorphic/
+-- function, then
 --
--- > remotable ['f]
+-- > $(functionSDict 'f) :: Closure (SerializableDict T1)
 --
--- then a serialization dictionary is automatically created for you, which you
--- can access with
+-- In addition, if @f :: T1 -> Process T2@, then
 --
--- > $(functionSDict 'f) :: Static (SerializableDict T1)
---
--- In addition, if @f :: T1 -> Process T2@, then a second dictionary is created
---
--- > $(functionTDict 'f) :: Static (SerializableDict T2)
+-- > $(functionTDict 'f) :: Closure (SerializableDict T2)
 --
 -- [Closures]
 --
@@ -97,7 +69,7 @@
 --
 -- > $(mkClosure 'f) :: T1 -> Closure T2
 --
--- provided that 'T1' is serializable (*) (remember to pass 'f' to 'remotable').
+-- provided that 'T1' is serializable (*).
 --
 -- (You can also create closures manually--see the documentation of
 -- "Control.Distributed.Static" for examples.)
@@ -108,20 +80,17 @@
 -- dictionaries. It makes use of the Control.Distributed.Process.SimpleLocalnet
 -- Cloud Haskell backend.
 --
--- > {-# LANGUAGE TemplateHaskell #-}
+-- > {-# LANGUAGE TemplateHaskell, StaticPointers #-}
 -- > import System.Environment (getArgs)
 -- > import Control.Distributed.Process
 -- > import Control.Distributed.Process.Closure
 -- > import Control.Distributed.Process.Backend.SimpleLocalnet
--- > import Control.Distributed.Process.Node (initRemoteTable)
 -- >
 -- > isPrime :: Integer -> Process Bool
 -- > isPrime n = return . (n `elem`) . takeWhile (<= n) . sieve $ [2..]
 -- >   where
 -- >     sieve :: [Integer] -> [Integer]
 -- >     sieve (p : xs) = p : sieve [x | x <- xs, x `mod` p > 0]
--- >
--- > remotable ['isPrime]
 -- >
 -- > master :: [NodeId] -> Process ()
 -- > master [] = liftIO $ putStrLn "no slaves"
@@ -134,37 +103,27 @@
 -- >   args <- getArgs
 -- >   case args of
 -- >     ["master", host, port] -> do
--- >       backend <- initializeBackend host port rtable
+-- >       backend <- initializeBackend host port
 -- >       startMaster backend master
 -- >     ["slave", host, port] -> do
--- >       backend <- initializeBackend host port rtable
+-- >       backend <- initializeBackend host port
 -- >       startSlave backend
--- >   where
--- >     rtable :: RemoteTable
--- >     rtable = __remoteTable initRemoteTable
 --
 -- [Notes]
 --
 -- (*) If 'T1' is not serializable you will get a type error in the generated
---     code. Unfortunately, the Template Haskell infrastructure cannot check
---     a priori if 'T1' is serializable or not due to a bug in the Template
---     Haskell libraries (<http://hackage.haskell.org/trac/ghc/ticket/7066>)
+--     code.
 --
 -- (**) Even though 'call' is passed an explicit serialization
 --      dictionary, we still need the 'Serializable' constraint because
---      'Static' is not the /true/ static. If it was, we could 'unstatic'
---      the dictionary and pattern match on it to bring the 'Typeable'
---      instance into scope, but unless proper 'static' support is added to
---      ghc we need both the type class argument and the explicit dictionary.
+--      a 'StaticPtr' cannot be inspected to bring the 'Typeable' instance into
+--      scope.
 module Control.Distributed.Process.Closure
   ( -- * Serialization dictionaries (and their static versions)
     SerializableDict(..)
-  , staticDecode
   , sdictUnit
   , sdictProcessId
   , sdictSendPort
-  , sdictStatic
-  , sdictClosure
     -- * The CP type and associated combinators
   , CP
   , idCP
@@ -179,20 +138,9 @@ module Control.Distributed.Process.Closure
   , cpSend
   , cpExpect
   , cpNewChan
-    -- * Working with static values and closures (without Template Haskell)
-  , RemoteRegister
-  , MkTDict(..)
-  , mkStaticVal
-  , mkClosureValSingle
-  , mkClosureVal
-  , call'
 #ifdef TemplateHaskellSupport
-    -- * Template Haskell support for creating static values and closures
-  , remotable
-  , remotableDecl
-  , mkStatic
+    -- * Template Haskell support for creating closures and dictionaries
   , mkClosure
-  , mkStaticClosure
   , functionSDict
   , functionTDict
 #endif
@@ -201,12 +149,9 @@ module Control.Distributed.Process.Closure
 import Control.Distributed.Process.Serializable (SerializableDict(..))
 import Control.Distributed.Process.Internal.Closure.BuiltIn
   ( -- Static dictionaries and associated operations
-    staticDecode
-  , sdictUnit
+    sdictUnit
   , sdictProcessId
   , sdictSendPort
-  , sdictStatic
-  , sdictClosure
     -- The CP type and associated combinators
   , CP
   , idCP
@@ -222,23 +167,10 @@ import Control.Distributed.Process.Internal.Closure.BuiltIn
   , cpExpect
   , cpNewChan
   )
-import Control.Distributed.Process.Internal.Closure.Explicit
-  (
-    RemoteRegister
-  , MkTDict(..)
-  , mkStaticVal
-  , mkClosureValSingle
-  , mkClosureVal
-  , call'
-  )
 #ifdef TemplateHaskellSupport
 import Control.Distributed.Process.Internal.Closure.TH
-  ( remotable
-  , remotableDecl
-  , mkStatic
-  , functionSDict
+  ( functionSDict
   , functionTDict
   , mkClosure
-  , mkStaticClosure
   )
 #endif
