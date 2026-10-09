@@ -279,7 +279,7 @@ systemLog o c l f = go $ LogState o c l f defaultFormatters
           , (mxSink $ \(SetLevel lvl) ->
                 mxGetLocal >>= \st' -> mxSetLocal st' { level = lvl } >> mxReceive)
           , (mxSink $ \(AddFormatter f') -> do
-                fmt <- liftMX $ catch (unClosure f' >>= return . Just)
+                fmt <- liftMX $ catch (unclosure f' >>= return . Just)
                                       (\(_ :: SomeException) -> return Nothing)
                 case fmt of
                   Nothing -> mxReady

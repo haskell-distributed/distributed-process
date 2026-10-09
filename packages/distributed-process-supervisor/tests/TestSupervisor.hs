@@ -1,5 +1,5 @@
+{-# LANGUAGE StaticPointers #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell     #-}
 {-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE PatternGuards       #-}
 {-# LANGUAGE Rank2Types          #-}
@@ -23,7 +23,6 @@ import Control.Concurrent.MVar
 import qualified Control.Exception as Ex
 import Control.Exception (throwIO)
 import Control.Distributed.Process hiding (call, monitor, finally)
-import Control.Distributed.Process.Closure
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Extras.Internal.Types
 import Control.Distributed.Process.Extras.Internal.Primitives
@@ -47,11 +46,11 @@ import Control.Distributed.Process.Supervisor.Management
 import Control.Distributed.Process.ManagedProcess.Client (shutdown)
 import Control.Distributed.Process.Serializable()
 
-import Control.Distributed.Static (staticLabel)
+import Data.Binary (decode, encode)
+import Data.Word (Word64)
 import Control.Monad (void, unless, forM_, forM)
 import Control.Monad.Catch (finally)
 
-import Data.ByteString.Lazy (empty)
 import Data.Maybe (catMaybes, isNothing, isJust)
 
 import Test.Tasty (TestTree, testGroup)
@@ -328,6 +327,9 @@ blockIndefinitely = runTestProcess noOp
 notifyMe :: ProcessId -> Process ()
 notifyMe me = getSelfPid >>= send me >> obedient
 
+notifyMeClosure :: ProcessId -> Closure (Process ())
+notifyMeClosure me = closure (static (notifyMe . decode)) (encode me)
+
 sleepy :: Process ()
 sleepy = (sleepFor 5 Minutes)
            `catchExit` (\_ (_ :: ExitReason) -> return ()) >> sleepy
@@ -358,16 +360,6 @@ formatMxSupervisor msg = do
     Nothing -> return Nothing
     Just m' -> return $ Just (show m')
 
-$(remotable [ 'exitIgnore
-            , 'noOp
-            , 'blockIndefinitely
-            , 'sleepy
-            , 'obedient
-            , 'notifyMe
-            , 'runCore
-            , 'runApp
-            , 'formatMxSupervisor ])
-
 -- test cases start here...
 
 normalStartStop :: ProcessId -> Process ()
@@ -382,8 +374,8 @@ sequentialShutdown result = do
   (sp, rp) <- newChan
   (sg, rg) <- newChan
 
-  core' <- toChildStart $ $(mkClosure 'runCore) sp
-  app'  <- toChildStart $ $(mkClosure 'runApp) sg
+  core' <- toChildStart $ closure (static (runCore . decode)) (encode sp)
+  app'  <- toChildStart $ closure (static (runApp . decode)) (encode sg)
   let core = (permChild core') { childRegName = Just (LocalName "core")
                                , childStop = StopTimeout (Delay $ within 2 Seconds)
                                , childKey  = "child-1"
@@ -508,13 +500,18 @@ startDuplicateChild cs sup = do
   dup <- startNewChild sup spec
   liftIO $ assertEqual mempty dup (ChildFailedToStart $ StartFailureDuplicateChild ref)
 
+-- | A closure that cannot be resolved, because it refers to a static pointer
+-- that does not exist
+unresolvableClosure :: Closure (Process ())
+unresolvableClosure = decode (encode (0 :: Word64, 0 :: Word64, 0 :: Word64))
+
 startBadClosure :: ChildStart -> ProcessId -> Process ()
 startBadClosure cs sup = do
   let spec = tempWorker cs
   child <- startNewChild sup spec
   liftIO $ assertEqual mempty child
     (ChildFailedToStart $ StartFailureBadClosure
-       "user error (Could not resolve closure: Invalid static label 'non-existing')")
+       "user error (Could not resolve closure: invalid static pointer)")
 
 -- configuredBadClosure withSupervisor = do
 --   let spec = permChild (closure (staticLabel "non-existing") empty)
@@ -676,7 +673,7 @@ stopChildImmediately cs sup = do
 
 stoppingChildExceedsDelay :: ProcessId -> Process ()
 stoppingChildExceedsDelay sup = do
-  let spec = (tempWorker (RunClosure $(mkStaticClosure 'sleepy)))
+  let spec = (tempWorker (RunClosure (static sleepy)))
              { childStop = StopTimeout (Delay $ within 500 Millis) }
   ChildAdded ref <- startNewChild sup spec
 -- Just pid <- resolve ref
@@ -687,7 +684,7 @@ stoppingChildExceedsDelay sup = do
 
 stoppingChildObeysDelay :: ProcessId -> Process ()
 stoppingChildObeysDelay sup = do
-  let spec = (tempWorker (RunClosure $(mkStaticClosure 'obedient)))
+  let spec = (tempWorker (RunClosure (static obedient)))
              { childStop = StopTimeout (Delay $ within 1 Seconds) }
   ChildAdded child <- startNewChild sup spec
   Just pid <- resolve child
@@ -716,7 +713,7 @@ delayedRestartAfterThreeAttempts ::
      (RestartStrategy -> [ChildSpec] -> (Context -> Process ()) -> Assertion)
   -> Assertion
 delayedRestartAfterThreeAttempts withSupervisor = do
-  let spec = (permChild $ RunClosure $ $(mkStaticClosure 'blockIndefinitely))
+  let spec = (permChild $ RunClosure $ (static blockIndefinitely))
              { childRestartDelay = Just (seconds 3) }
   let strategy = RestartOne $ limit (maxRestarts 2) (seconds 2)
   withSupervisor strategy [spec] $ \ctx@Context{..} -> do
@@ -878,7 +875,7 @@ restartAllWithLeftToRightRestarts :: ProcessId -> Process ()
 restartAllWithLeftToRightRestarts sup = do
   let (lSz, _) = randomIshSizes
   self <- getSelfPid
-  let templ = permChild $ RunClosure ($(mkClosure 'notifyMe) self)
+  let templ = permChild $ RunClosure (notifyMeClosure self)
   let specs = [templ { childKey = (show i) } | i <- [1..lSz :: Int]]
   -- add the specs one by one
   forM_ specs $ \s -> void $ startNewChild sup s
@@ -918,7 +915,7 @@ restartAllWithLeftToRightRestarts sup = do
 restartAllWithRightToLeftSeqRestarts :: Context -> Process ()
 restartAllWithRightToLeftSeqRestarts ctx@Context{..} = do
   self <- getSelfPid
-  let templ = permChild $ RunClosure $(mkStaticClosure 'obedient)
+  let templ = permChild $ RunClosure (static obedient)
   let specs = [templ { childKey = (show i) } | i <- [1..listSize :: Int]]
 
   -- add the specs one by one
@@ -954,7 +951,7 @@ restartAllWithRightToLeftSeqRestarts ctx@Context{..} = do
 
 expectLeftToRightRestarts :: Context -> Process ()
 expectLeftToRightRestarts ctx@Context{..} = do
-  let templ = permChild $ RunClosure $(mkStaticClosure 'obedient)
+  let templ = permChild $ RunClosure (static obedient)
   let specs = [templ { childKey = (show i) } | i <- [1..listSize :: Int]]
   -- add the specs one by one
   forM_ specs $ \s -> void $ startNewChild sup s
@@ -985,7 +982,7 @@ expectLeftToRightRestarts ctx@Context{..} = do
 expectRightToLeftRestarts :: Bool -> Context -> Process ()
 expectRightToLeftRestarts rev ctx@Context{..} = do
   self <- getSelfPid
-  let templ = permChild $ RunClosure ($(mkClosure 'notifyMe) self)
+  let templ = permChild $ RunClosure (notifyMeClosure self)
   let specs = [templ { childKey = (show i) } | i <- [1..listSize :: Int]]
   -- add the specs one by one
   forM_ specs $ \s -> do
@@ -1058,7 +1055,7 @@ restartRightWhenRightmostChildDies cs sup = do
 restartLeftWithLeftToRightRestarts :: Bool -> Context -> Process ()
 restartLeftWithLeftToRightRestarts rev ctx@Context{..} = do
   self <- getSelfPid
-  let templ = permChild $ RunClosure ($(mkClosure 'notifyMe) self)
+  let templ = permChild $ RunClosure (notifyMeClosure self)
   let specs = [templ { childKey = (show i) } | i <- [1..listSize :: Int]]
   forM_ specs $ \s -> void $ startNewChild sup s
 
@@ -1089,7 +1086,7 @@ restartLeftWithLeftToRightRestarts rev ctx@Context{..} = do
 restartRightWithLeftToRightRestarts :: Bool -> Context -> Process ()
 restartRightWithLeftToRightRestarts rev ctx@Context{..} = do
 
-  let templ = permChild $ RunClosure $(mkStaticClosure 'obedient)
+  let templ = permChild $ RunClosure (static obedient)
   let specs = [templ { childKey = (show i) } | i <- [1..listSize :: Int]]
   forM_ specs $ \s -> void $ startNewChild sup s
 
@@ -1120,7 +1117,7 @@ restartRightWithLeftToRightRestarts rev ctx@Context{..} = do
 
 restartRightWithRightToLeftRestarts :: Bool -> Context -> Process ()
 restartRightWithRightToLeftRestarts rev ctx@Context{..} = do
-  let templ = permChild $ RunClosure $(mkStaticClosure 'obedient)
+  let templ = permChild $ RunClosure (static obedient)
   let specs = [templ { childKey = (show i) } | i <- [1..listSize :: Int]]
   forM_ specs $ \s -> void $ startNewChild sup s
 
@@ -1152,7 +1149,7 @@ restartRightWithRightToLeftRestarts rev ctx@Context{..} = do
 
 restartLeftWithRightToLeftRestarts :: Bool -> Context -> Process ()
 restartLeftWithRightToLeftRestarts rev ctx@Context{..} = do
-  let templ = permChild $ RunClosure $(mkStaticClosure 'obedient)
+  let templ = permChild $ RunClosure (static obedient)
   let specs = [templ { childKey = (show i) } | i <- [1..listSize :: Int]]
   forM_ specs $ \s -> void $ startNewChild sup s
 
@@ -1186,9 +1183,6 @@ restartLeftWithRightToLeftRestarts rev ctx@Context{..} = do
 
 -- remote table definition and main
 
-myRemoteTable :: RemoteTable
-myRemoteTable = Main.__remoteTable initRemoteTable
-
 withClosure :: (ChildStart -> ProcessId -> Process ())
             -> (Closure (Process ()))
             -> ProcessId -> Process ()
@@ -1208,13 +1202,13 @@ tests :: NT.Transport -> IO TestTree
 tests transport = do
   putStrLn $ concat [ "NOTICE: Branch Tests (Relying on Non-Guaranteed Message Order) "
                     , "Can Fail Intermittently" ]
-  localNode <- newLocalNode transport myRemoteTable
+  localNode <- newLocalNode transport
   singleTestLock <- newMVar ()
   runProcess localNode $ do
     void $ supervisionMonitor
     {-
     slog <- systemLogFile "supervisor.test.log" Debug return
-    addFormatter slog $(mkStaticClosure 'formatMxSupervisor)
+    addFormatter slog (static formatMxSupervisor)
     -}
   
   let withSup sm = runInTestContext localNode singleTestLock sm
@@ -1231,63 +1225,63 @@ tests transport = do
             , testCase "Add Child Without Starting"
                   (withSupervisor restartOne []
                         (withClosure addChildWithoutRestart
-                         $(mkStaticClosure 'blockIndefinitely)))
+                         (static blockIndefinitely)))
             , testCase "Start Previously Added Child"
                   (withSupervisor restartOne []
                         (withClosure addChildThenStart
-                         $(mkStaticClosure 'blockIndefinitely)))
+                         (static blockIndefinitely)))
             , testCase "Start Unknown Child"
                   (withSupervisor restartOne []
                         (withClosure startUnknownChild
-                         $(mkStaticClosure 'blockIndefinitely)))
+                         (static blockIndefinitely)))
             , testCase "Add Duplicate Child"
                   (withSupervisor restartOne []
                         (withClosure addDuplicateChild
-                           $(mkStaticClosure 'blockIndefinitely)))
+                           (static blockIndefinitely)))
             , testCase "Start Duplicate Child"
                   (withSupervisor restartOne []
                         (withClosure startDuplicateChild
-                           $(mkStaticClosure 'blockIndefinitely)))
+                           (static blockIndefinitely)))
             , testCase "Started Temporary Child Exits With Ignore"
                   (withSupervisor restartOne []
                         (withClosure startTemporaryChildExitsWithIgnore
-                           $(mkStaticClosure 'exitIgnore)))
+                           (static exitIgnore)))
             , testCase "Configured Temporary Child Exits With Ignore"
                   (configuredTemporaryChildExitsWithIgnore
-                   (RunClosure $(mkStaticClosure 'exitIgnore)) withSupervisor)
+                   (RunClosure (static exitIgnore)) withSupervisor)
             , testCase "Start Bad Closure"
                   (withSupervisor restartOne []
                    (withClosure startBadClosure
-                    (closure (staticLabel "non-existing") empty)))
+                    unresolvableClosure))
             , testCase "Configured Bad Closure"
                   (configuredTemporaryChildExitsWithIgnore
-                   (RunClosure $(mkStaticClosure 'exitIgnore)) withSupervisor)
+                   (RunClosure (static exitIgnore)) withSupervisor)
             , testCase "Started Non-Temporary Child Exits With Ignore"
                   (withSupervisor restartOne [] $
                    (withClosure startNonTemporaryChildExitsWithIgnore
-                    $(mkStaticClosure 'exitIgnore)))
+                    (static exitIgnore)))
             , testCase "Configured Non-Temporary Child Exits With Ignore"
                   (configuredNonTemporaryChildExitsWithIgnore
-                   (RunClosure $(mkStaticClosure 'exitIgnore)) withSupervisor)
+                   (RunClosure (static exitIgnore)) withSupervisor)
           ]
         , testGroup "Stopping And Deleting Children"
           [
             testCase "Delete Existing Child Fails"
                 (withSupervisor restartOne []
                     (withClosure deleteExistingChild
-                                 $(mkStaticClosure 'blockIndefinitely)))
+                                 (static blockIndefinitely)))
           , testCase "Delete Stopped Temporary Child (Doesn't Exist)"
                 (withSupervisor restartOne []
                     (withClosure deleteStoppedTempChild
-                                 $(mkStaticClosure 'blockIndefinitely)))
+                                 (static blockIndefinitely)))
           , testCase "Delete Stopped Child Succeeds"
                 (withSupervisor restartOne []
                     (withClosure deleteStoppedChild
-                                 $(mkStaticClosure 'blockIndefinitely)))
+                                 (static blockIndefinitely)))
           , testCase "Restart Minus Dropped (Temp) Child"
                 (withSupervisor restartAll []
                     (withClosure restartWithoutTempChildren
-                                 $(mkStaticClosure 'blockIndefinitely)))
+                                 (static blockIndefinitely)))
           , testCase "Sequential Shutdown Ordering"
              (delayedAssertion
               "expected the shutdown order to hold"
@@ -1298,51 +1292,51 @@ tests transport = do
             testCase "Permanent Children Always Restart (Closure)"
                 (withSupervisor restartOne []
                     (withClosure permanentChildrenAlwaysRestart
-                                 $(mkStaticClosure 'blockIndefinitely)))
+                                 (static blockIndefinitely)))
           , testCase "Temporary Children Never Restart (Closure)"
                 (withSupervisor restartOne []
                     (withClosure temporaryChildrenNeverRestart
-                                 $(mkStaticClosure 'blockIndefinitely)))
+                                 (static blockIndefinitely)))
           , testCase "Transient Children Do Not Restart When Exiting Normally (Closure)"
                 (withSupervisor restartOne []
                     (withClosure transientChildrenNormalExit
-                                 $(mkStaticClosure 'blockIndefinitely)))
+                                 (static blockIndefinitely)))
           , testCase "Transient Children Do Restart When Exiting Abnormally (Closure)"
                 (withSupervisor restartOne []
                     (withClosure transientChildrenAbnormalExit
-                                 $(mkStaticClosure 'blockIndefinitely)))
+                                 (static blockIndefinitely)))
           , flaky $
               testCase "ExitShutdown Is Considered Normal"
                   (withSupervisor' restartOne []
                       (withClosure' transientChildrenExitShutdown
-                                   $(mkStaticClosure 'blockIndefinitely)))
+                                   (static blockIndefinitely)))
           , testCase "Intrinsic Children Do Restart When Exiting Abnormally (Closure)"
                 (withSupervisor restartOne []
                     (withClosure intrinsicChildrenAbnormalExit
-                                 $(mkStaticClosure 'blockIndefinitely)))
+                                 (static blockIndefinitely)))
           , testCase (concat [ "Intrinsic Children Cause Supervisor Exits "
                              , "When Exiting Normally (Closure)"])
                 (withSupervisor restartOne []
                     (withClosure intrinsicChildrenNormalExit
-                                 $(mkStaticClosure 'blockIndefinitely)))
+                                 (static blockIndefinitely)))
           , testCase "Explicit Restart Of Running Child Fails (Closure)"
                 (withSupervisor restartOne []
                     (withClosure explicitRestartRunningChild
-                                 $(mkStaticClosure 'blockIndefinitely)))
+                                 (static blockIndefinitely)))
           , testCase "Explicit Restart Of Unknown Child Fails"
                 (withSupervisor restartOne [] explicitRestartUnknownChild)
           , testCase "Explicit Restart Whilst Child Restarting Fails (Closure)"
                 (withSupervisor
                  (RestartOne (limit (maxRestarts 500000000) (milliSeconds 1))) []
-                 (withClosure explicitRestartRestartingChild $(mkStaticClosure 'noOp)))
+                 (withClosure explicitRestartRestartingChild (static noOp)))
           , testCase "Explicit Restart Stopped Child (Closure)"
                 (withSupervisor restartOne []
                     (withClosure explicitRestartStoppedChild
-                                 $(mkStaticClosure 'blockIndefinitely)))
+                                 (static blockIndefinitely)))
           , testCase "Immediate Child Stop (Brutal Kill) (Closure)"
                 (withSupervisor restartOne []
                     (withClosure stopChildImmediately
-                                 $(mkStaticClosure 'blockIndefinitely)))
+                                 (static blockIndefinitely)))
           , testCase "Child Stop Exceeds Timeout/Delay (Becomes Brutal Kill)"
                 (withSupervisor restartOne [] stoppingChildExceedsDelay)
           , testCase "Child Stop Within Timeout/Delay"
@@ -1355,11 +1349,11 @@ tests transport = do
             [
               testCase "Stop Child Ignores Siblings"
                   (stopChildIgnoresSiblings
-                   (RunClosure $(mkStaticClosure 'blockIndefinitely))
+                   (RunClosure (static blockIndefinitely))
                    withSupervisor)
             , testCase "Restart All, Left To Right (Sequential) Restarts"
                   (restartAllWithLeftToRightSeqRestarts
-                   (RunClosure $(mkStaticClosure 'blockIndefinitely))
+                   (RunClosure (static blockIndefinitely))
                    withSupervisor')
             , testCase "Restart All, Right To Left (Sequential) Restarts"
                   (withSupervisor'
@@ -1393,12 +1387,12 @@ tests transport = do
             [
               testCase "Restart Left, Left To Right (Sequential) Restarts"
                   (restartLeftWithLeftToRightSeqRestarts
-                   (RunClosure $(mkStaticClosure 'blockIndefinitely))
+                   (RunClosure (static blockIndefinitely))
                    withSupervisor')
             , testCase "Restart Left, Leftmost Child Dies"
                   (withSupervisor restartLeft [] $
                     restartLeftWhenLeftmostChildDies
-                    (RunClosure $(mkStaticClosure 'blockIndefinitely)))
+                    (RunClosure (static blockIndefinitely)))
             , testCase "Restart Left, Left To Right Stop, Left To Right Start"
                   (withSupervisor'
                    (RestartLeft defaultLimits (RestartInOrder LeftToRight)) []
@@ -1420,12 +1414,12 @@ tests transport = do
             [
               testCase "Restart Right, Left To Right (Sequential) Restarts"
                   (restartRightWithLeftToRightSeqRestarts
-                   (RunClosure $(mkStaticClosure 'blockIndefinitely))
+                   (RunClosure (static blockIndefinitely))
                    withSupervisor)
             , testCase "Restart Right, Rightmost Child Dies"
                   (withSupervisor restartRight [] $
                     restartRightWhenRightmostChildDies
-                    (RunClosure $(mkStaticClosure 'blockIndefinitely)))
+                    (RunClosure (static blockIndefinitely)))
             , testCase "Restart Right, Left To Right Stop, Left To Right Start"
                   (withSupervisor'
                    (RestartRight defaultLimits (RestartInOrder LeftToRight)) []
@@ -1448,10 +1442,10 @@ tests transport = do
           [
             testCase "Three Attempts Before Successful Restart"
                 (restartAfterThreeAttempts
-                 (RunClosure $(mkStaticClosure 'blockIndefinitely)) withSupervisor)
+                 (RunClosure (static blockIndefinitely)) withSupervisor)
           , testCase "Permanent Child Exceeds Restart Limits"
                 (permanentChildExceedsRestartsIntensity
-                 (RunClosure $(mkStaticClosure 'noOp)) withSupervisor)
+                 (RunClosure (static noOp)) withSupervisor)
           , testCase "Permanent Child Delayed Restart"
                 (delayedRestartAfterThreeAttempts withSupervisor')
           ]

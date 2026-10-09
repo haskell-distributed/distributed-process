@@ -1,6 +1,5 @@
 {-# LANGUAGE CPP                   #-}
 {-# LANGUAGE BangPatterns          #-}
-{-# LANGUAGE TemplateHaskell       #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 
@@ -9,7 +8,6 @@ module Main where
 import Control.Distributed.Process hiding (monitor)
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Execution.EventManager hiding (start)
-import qualified Control.Distributed.Process.Extras
 import Control.Distributed.Process.Execution.Exchange
 import Control.Distributed.Process.Extras.Internal.Types
 import Control.Distributed.Process.Extras.Internal.Primitives
@@ -153,13 +151,9 @@ myHandler :: SendPort (String, String, String)
           -> Process ()
 myHandler sp s m@(_, _, _) = sendChan sp m >> return s
 
-myRemoteTable :: RemoteTable
-myRemoteTable =
-  Control.Distributed.Process.Extras.__remoteTable initRemoteTable
-
 tests :: NT.Transport  -> IO TestTree
 tests transport = do
-  localNode <- newLocalNode transport myRemoteTable
+  localNode <- newLocalNode transport
   return $ testGroup "" [
         testGroup "Event Manager"
         [

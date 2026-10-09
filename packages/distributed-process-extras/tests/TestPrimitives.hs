@@ -1,7 +1,5 @@
 {-# LANGUAGE CPP                       #-}
 {-# LANGUAGE DeriveDataTypeable        #-}
-{-# LANGUAGE TemplateHaskell           #-}
-
 module Main where
 
 import Control.Concurrent (threadDelay)
@@ -10,8 +8,7 @@ import Control.Distributed.Process
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable()
 
-import Control.Distributed.Process.Extras hiding (__remoteTable, monitor, send)
-import qualified Control.Distributed.Process.Extras (__remoteTable)
+import Control.Distributed.Process.Extras hiding (monitor, send)
 import Control.Distributed.Process.Extras.Call
 import Control.Distributed.Process.Extras.Monitoring
 import Control.Distributed.Process.Extras.Time
@@ -91,8 +88,8 @@ testMonitorNodeDeath transport result = do
     nid2 <- liftIO $ newEmptyMVar
     nid3 <- liftIO $ newEmptyMVar
 
-    node2 <- liftIO $ newLocalNode transport initRemoteTable
-    node3 <- liftIO $ newLocalNode transport initRemoteTable
+    node2 <- liftIO $ newLocalNode transport
+    node3 <- liftIO $ newLocalNode transport
 
     -- sending to (nodeId, "ignored") is a short cut to force a connection
     liftIO $ tryForkProcess node2 $ ensureNodeRunning nid2 (nid1, "ignored")
@@ -115,7 +112,7 @@ testMonitorNodeDeath transport result = do
       assertBool mempty $ n2 `elem` [mn1, mn2]
 
     nid4 <- liftIO $ newEmptyMVar
-    node4 <- liftIO $ newLocalNode transport initRemoteTable
+    node4 <- liftIO $ newLocalNode transport
     void $ liftIO $ runProcess node4 $ do
       us <- getSelfNode
       liftIO $ putMVar nid4 us
@@ -134,12 +131,9 @@ testMonitorNodeDeath transport result = do
         liftIO $ putMVar mvar us
         sendTo nid "connected"
 
-myRemoteTable :: RemoteTable
-myRemoteTable = Control.Distributed.Process.Extras.__remoteTable initRemoteTable
-
 multicallTest :: NT.Transport -> Assertion
 multicallTest transport =
-  do node1 <- newLocalNode transport myRemoteTable
+  do node1 <- newLocalNode transport
      tryRunProcess node1 $
        do pid1 <- whereisOrStart "server1" server1
           _ <- whereisOrStart "server2" server2
@@ -203,7 +197,7 @@ tests transport localNode = testGroup "TestPrimitives" [
 
 primitivesTests :: NT.Transport -> IO TestTree
 primitivesTests transport = do
-  localNode <- newLocalNode transport initRemoteTable
+  localNode <- newLocalNode transport
   let testData = tests transport localNode
   return testData
 

@@ -1,6 +1,6 @@
 cabal-version:  3.0
 name:           distributed-process-extras
-version:        0.3.9
+version:        0.4.0
 build-type:     Simple
 license:        BSD-3-Clause
 license-file:   LICENCE
@@ -36,7 +36,7 @@ common warnings
 library
   import:          warnings
   build-depends:   base >= 4.14 && < 5,
-                   distributed-process >= 0.6.0 && < 0.8,
+                   distributed-process >= 0.8 && < 0.9,
                    binary >= 0.8 && < 0.9,
                    deepseq >= 1.4 && < 1.7,
                    containers >= 0.6 && < 0.9,
@@ -87,7 +87,7 @@ test-suite PrimitivesTests
   x-uses-tf:       true
   build-depends:
                    base >= 4.14 && < 5,
-                   distributed-process >= 0.6.0 && < 0.8,
+                   distributed-process >= 0.8 && < 0.9,
                    distributed-process-extras,
                    distributed-process-systest ^>= 0.4,
                    network-transport >= 0.4 && < 0.6,
@@ -106,7 +106,7 @@ test-suite TimerTests
   build-depends:
                    base >= 4.14 && < 5,
                    deepseq,
-                   distributed-process >= 0.6.0 && < 0.8,
+                   distributed-process >= 0.8 && < 0.9,
                    distributed-process-extras,
                    distributed-process-systest ^>= 0.4,
                    network-transport >= 0.4 && < 0.6,
@@ -125,7 +125,7 @@ test-suite LoggerTests
 --  x-uses-tf:       true
   build-depends:
                    base >= 4.14 && < 5,
-                   distributed-process >= 0.6.0 && < 0.8,
+                   distributed-process >= 0.8 && < 0.9,
                    distributed-process-extras,
                    distributed-process-systest ^>= 0.4,
                    network-transport >= 0.4 && < 0.6,
