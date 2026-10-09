@@ -1,7 +1,7 @@
+{-# LANGUAGE StaticPointers #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
 
 module Main (main) where
@@ -15,7 +15,9 @@ import Control.Concurrent.STM
     writeTQueue,
   )
 import Control.Distributed.Process
-  ( Handler (Handler),
+  ( Closure,
+    closure,
+    Handler (Handler),
     MonitorRef,
     NodeId,
     Process,
@@ -87,16 +89,13 @@ import Control.Distributed.Process
     wrapMessage,
   )
 import Control.Distributed.Process.Closure
-  ( functionTDict,
-    mkClosure,
-    remotable,
+  ( SerializableDict (..),
     sdictUnit,
   )
 import Control.Distributed.Process.Node
   ( LocalNode (..),
     closeLocalNode,
     forkProcess,
-    initRemoteTable,
     newLocalNode,
     runProcess,
   )
@@ -104,7 +103,7 @@ import Control.Distributed.Process.Serializable (Serializable)
 import qualified Control.Exception as E
 import Control.Monad (forever, replicateM, replicateM_, void, when)
 import qualified Control.Monad.Catch as Catch
-import Data.Binary (Binary)
+import Data.Binary (Binary, decode, encode)
 import qualified Data.ByteString.Char8 as BS
 import GHC.Generics (Generic)
 import qualified Network.Transport as NT
@@ -121,28 +120,28 @@ import Test.Tasty.Bench
     whnfIO,
   )
 
--- A top-level splice only brings names into scope for later declaration
--- groups, so these must precede 'main' and every use of 'mkClosure'.
-
 remoteSignal :: ProcessId -> Process ()
 remoteSignal them = send them ()
+
+remoteSignalClosure :: ProcessId -> Closure (Process ())
+remoteSignalClosure them = closure (static (remoteSignal . decode)) (encode them)
 
 remoteChanEcho :: ProcessId -> ReceivePort () -> Process ()
 remoteChanEcho them rp = receiveChan rp >> send them ()
 
+remoteChanEchoClosure :: ProcessId -> Closure (ReceivePort () -> Process ())
+remoteChanEchoClosure them = closure (static (remoteChanEcho . decode)) (encode them)
+
 remoteAnswer :: () -> Process Int
 remoteAnswer () = return 42
 
-remotable ['remoteSignal, 'remoteChanEcho, 'remoteAnswer]
-
 main :: IO ()
 main = do
-  let rtable = __remoteTable initRemoteTable
   transport <-
     either E.throwIO return
       =<< createTransport (defaultTCPAddr "127.0.0.1" "0") defaultTCPParameters
-  ( E.bracket (newLocalNode transport rtable) closeLocalNode $ \node1 ->
-      E.bracket (newLocalNode transport rtable) closeLocalNode $ \node2 -> do
+  ( E.bracket (newLocalNode transport) closeLocalNode $ \node1 ->
+      E.bracket (newLocalNode transport) closeLocalNode $ \node2 -> do
         fx <- setup node1 node2
         defaultMain (benchmarks fx)
     )
@@ -549,24 +548,24 @@ remote fx =
           ],
       repsBench fx "spawn" 100 $ do
         us <- getSelfPid
-        _ <- spawn nid ($(mkClosure 'remoteSignal) us)
+        _ <- spawn nid (remoteSignalClosure us)
         expect :: Process (),
       repsBench fx "spawnMonitor + notification" 100 $ do
         us <- getSelfPid
-        (_, ref) <- spawnMonitor nid ($(mkClosure 'remoteSignal) us)
+        (_, ref) <- spawnMonitor nid (remoteSignalClosure us)
         expect :: Process ()
         awaitDown ref,
       repsBench fx "spawnChannel" 100 $ do
         us <- getSelfPid
-        sp <- spawnChannel sdictUnit nid ($(mkClosure 'remoteChanEcho) us)
+        sp <- spawnChannel sdictUnit nid (remoteChanEchoClosure us)
         sendChan sp ()
         expect :: Process (),
       repsBench fx "call" 100 $
         void
           ( call
-              $(functionTDict 'remoteAnswer)
+              (static SerializableDict)
               nid
-              ($(mkClosure 'remoteAnswer) ())
+              (closure (static (remoteAnswer . decode)) (encode ()))
           ),
       repsBench fx "getNodeStats" 100 $
         void (getNodeStats nid),

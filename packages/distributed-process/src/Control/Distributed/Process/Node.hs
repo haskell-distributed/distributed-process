@@ -15,7 +15,6 @@ module Control.Distributed.Process.Node
   , closeLocalNode
   , forkProcess
   , runProcess
-  , initRemoteTable
   , localNodeId
   ) where
 
@@ -116,11 +115,7 @@ import qualified Network.Transport as NT
   )
 import Data.Accessor (Accessor, accessor, (^.), (^=), (^:))
 import System.Random (randomIO)
-import Control.Distributed.Static (RemoteTable, Closure)
-import qualified Control.Distributed.Static as Static
-  ( unclosure
-  , initRemoteTable
-  )
+import Control.Distributed.Static (Closure, unclosure)
 import Control.Distributed.Process.Internal.Types
   ( NodeId(..)
   , LocalProcessId(..)
@@ -182,9 +177,6 @@ import Control.Distributed.Process.Management.Internal.Agent
 import Control.Distributed.Process.Management.Internal.Types
   ( MxEvent(..)
   )
-import qualified Control.Distributed.Process.Management.Internal.Trace.Remote as Trace
-  ( remoteTable
-  )
 import Control.Distributed.Process.Management.Internal.Trace.Tracer
   ( defaultTracer
   )
@@ -209,7 +201,6 @@ import Control.Distributed.Process.Internal.Primitives
   , SayMessage(..)
   )
 import Control.Distributed.Process.Internal.Types (SendPort, Tracer(..))
-import qualified Control.Distributed.Process.Internal.Closure.BuiltIn as BuiltIn (remoteTable)
 import Control.Distributed.Process.Internal.WeakTQueue (TQueue, writeTQueue)
 import qualified Control.Distributed.Process.Internal.StrictContainerAccessors as DAC
   ( mapMaybe
@@ -234,23 +225,20 @@ unblock = unsafeUnmask
 -- Initialization                                                             --
 --------------------------------------------------------------------------------
 
-initRemoteTable :: RemoteTable
-initRemoteTable = Trace.remoteTable $ BuiltIn.remoteTable Static.initRemoteTable
-
 -- | Initialize a new local node.
-newLocalNode :: NT.Transport -> RemoteTable -> IO LocalNode
-newLocalNode transport rtable = do
+newLocalNode :: NT.Transport -> IO LocalNode
+newLocalNode transport = do
     mEndPoint <- NT.newEndPoint transport
     case mEndPoint of
       Left ex -> throwIO ex
       Right endPoint -> do
-        localNode <- createBareLocalNode endPoint rtable
+        localNode <- createBareLocalNode endPoint
         startServiceProcesses localNode
         return localNode
 
 -- | Create a new local node (without any service processes running)
-createBareLocalNode :: NT.EndPoint -> RemoteTable -> IO LocalNode
-createBareLocalNode endPoint rtable = do
+createBareLocalNode :: NT.EndPoint -> IO LocalNode
+createBareLocalNode endPoint = do
     unq <- randomIO
     state <- newMVar $ LocalNodeValid $ ValidLocalNodeState
       { _localProcesses   = Map.empty
@@ -264,7 +252,6 @@ createBareLocalNode endPoint rtable = do
                          , localState    = state
                          , localCtrlChan = ctrlChan
                          , localEventBus = MxEventBusInitialising
-                         , remoteTable   = rtable
                          }
     tracedNode <- startMxAgent node
 
@@ -928,13 +915,9 @@ ncEffectDied ident reason = do
 -- [Unified: Table 13]
 ncEffectSpawn :: ProcessId -> Closure (Process ()) -> SpawnRef -> NC ()
 ncEffectSpawn pid cProc ref = do
-  mProc <- unClosure cProc
-  -- If the closure does not exist, we spawn a process that throws an exception
+  -- If the closure does not exist, the spawned process fails when it starts.
   -- This allows the remote node to find out what's happening
-  -- TODO:
-  let proc = case mProc of
-               Left err -> fail $ "Error: Could not resolve closure: " ++ err
-               Right p  -> p
+  let proc = unclosure cProc >>= id
   node <- ask
   pid' <- liftIO $ forkProcess node proc
   ncSendToProcess pid $ unsafeCreateUnencodedMessage $ DidSpawn ref pid'
@@ -1181,12 +1164,6 @@ destNid (SigShutdown)       = Nothing
 -- | Check if a process is local to our own node
 isLocal :: LocalNode -> Identifier -> Bool
 isLocal nid ident = nodeOf ident == localNodeId nid
-
--- | Lookup a local closure
-unClosure :: Typeable a => Closure a -> NC (Either String a)
-unClosure closure = do
-  rtable <- remoteTable <$> ask
-  return (Static.unclosure rtable closure)
 
 -- | Check if an identifier refers to a valid local object
 isValidLocalIdentifier :: Identifier -> NC Bool

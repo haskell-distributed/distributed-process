@@ -138,7 +138,7 @@ import Control.Distributed.Process.Internal.StrictMVar
   , modifyMVar_
   )
 import Control.Distributed.Process.Internal.WeakTQueue (TQueue)
-import Control.Distributed.Static (RemoteTable, Closure)
+import Control.Distributed.Static (Closure)
 import qualified Control.Distributed.Process.Internal.StrictContainerAccessors as DAC (mapMaybe)
 
 import Data.Hashable
@@ -264,9 +264,6 @@ data LocalNode = LocalNode
   , localCtrlChan   :: !(Chan NCMsg)
     -- | Internal management event bus
   , localEventBus   :: !MxEventBus
-    -- | Runtime lookup table for supporting closures
-    -- TODO: this should be part of the CH state, not the local endpoint state
-  , remoteTable     :: !RemoteTable
   }
 
 data ImplicitReconnect = WithImplicitReconnect | NoImplicitReconnect
