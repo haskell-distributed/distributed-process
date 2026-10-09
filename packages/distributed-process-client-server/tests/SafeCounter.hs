@@ -1,5 +1,4 @@
 {-# LANGUAGE DeriveDataTypeable   #-}
-{-# LANGUAGE TemplateHaskell      #-}
 {-# LANGUAGE ScopedTypeVariables  #-}
 {-# LANGUAGE BangPatterns         #-}
 {-# LANGUAGE DeriveGeneric        #-}
