@@ -69,6 +69,7 @@ mkQUICTransport = do
                   serviceName = "0",
                   credentials = creds :| [],
                   -- credentials are self-signed, and therefore cannot be validated
-                  validateCredentials = False
+                  validateCredentials = False,
+                  socketOptions = []
                 }
             )
