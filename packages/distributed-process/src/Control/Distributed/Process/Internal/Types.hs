@@ -176,6 +176,8 @@ data ProcessId = ProcessId
   , processLocalId :: {-# UNPACK #-} !LocalProcessId
   }
   deriving (Eq, Ord, Typeable, Data, Generic)
+-- 'Control.Distributed.Process.Internal.Messaging.deathKey' relies on the
+-- order of the fields and on the derived 'Ord'.
 
 instance Binary ProcessId where
 instance NFData ProcessId where rnf (ProcessId n _) = rnf n `seq` ()
@@ -191,6 +193,10 @@ data Identifier =
   | ProcessIdentifier !ProcessId
   | SendPortIdentifier !SendPortId
   deriving (Eq, Ord, Generic)
+-- The constructors are in the order of
+-- 'Control.Distributed.Process.Internal.Messaging.IdentifierKind'.
+-- 'Control.Distributed.Process.Internal.Messaging.deathKey' relies on that and
+-- on the derived 'Ord'.
 
 instance Hashable Identifier where
 instance NFData Identifier where
@@ -412,6 +418,8 @@ data SendPortId = SendPortId {
   , sendPortLocalId   :: {-# UNPACK #-} !LocalSendPortId
   }
   deriving (Eq, Ord, Typeable, Generic)
+-- 'Control.Distributed.Process.Internal.Messaging.deathKey' relies on the
+-- order of the fields and on the derived 'Ord'.
 
 instance Hashable SendPortId where
 instance Show SendPortId where

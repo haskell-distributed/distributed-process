@@ -12,6 +12,9 @@ module Control.Distributed.Process.Internal.BiMultiMap
   , deleteAllBy2nd
   , partitionWithKeyBy1st
   , partitionWithKeyBy2nd
+  , partitionOnBy1st
+  , partitionOnBy2nd
+  , partitionOn
   , flip
   ) where
 
@@ -100,9 +103,7 @@ partitionWithKeyBy1st :: (Ord a, Ord b, Ord v)
                       -> (Map a (Set (b, v)), BiMultiMap a b v)
 partitionWithKeyBy1st p (BiMultiMap m r) =
     let (m0, m1) = Map.partitionWithKey p m
-        r1 = foldl' (\rr (a, mb) -> reverseDelete a (Set.toList mb) rr) r $
-               Map.toList m0
-     in (m0, BiMultiMap m1 r1)
+     in (m0, BiMultiMap m1 (reverseDeleteAll m0 r))
 
 -- | Like 'partitionWithKeyBy1st' but the predicates takes the second component
 -- of the triplets as first argument.
@@ -111,6 +112,42 @@ partitionWithKeyBy2nd :: (Ord a, Ord b, Ord v)
                       -> (Map b (Set (a, v)), BiMultiMap a b v)
 partitionWithKeyBy2nd p b = let (m, b') = partitionWithKeyBy1st p $ flip b
                              in (m, flip b')
+
+-- | Like 'partitionOn' on the first component of the triplets.
+--
+-- @since 0.7.10
+partitionOnBy1st :: (Ord a, Ord b, Ord v, Ord p)
+                 => (a -> p) -> [p] -> BiMultiMap a b v
+                 -> (Map a (Set (b, v)), BiMultiMap a b v)
+partitionOnBy1st f ps (BiMultiMap m r) =
+    let (m0, m1) = partitionOn f ps m
+     in (m0, BiMultiMap m1 (reverseDeleteAll m0 r))
+
+-- | Like 'partitionOn' on the second component of the triplets.
+--
+-- @since 0.7.10
+partitionOnBy2nd :: (Ord a, Ord b, Ord v, Ord p)
+                 => (b -> p) -> [p] -> BiMultiMap a b v
+                 -> (Map b (Set (a, v)), BiMultiMap a b v)
+partitionOnBy2nd f ps b = let (m, b') = partitionOnBy1st f ps $ flip b
+                           in (m, flip b')
+
+-- | @partitionOn f ps m@ is @Map.partitionWithKey (\\k _ -> elem (f k) ps) m@,
+-- for a monotone @f@: @k1 <= k2@ implies @f k1 <= f k2@.
+--
+-- It takes O((length ps + r) * (log n)^2) time for a result of size r, instead
+-- of the O(n) of 'Map.partitionWithKey'.
+--
+-- @since 0.7.10
+partitionOn :: (Ord k, Ord p) => (k -> p) -> [p] -> Map k a -> (Map k a, Map k a)
+partitionOn f ps m0 = foldl' step (Map.empty, m0) ps
+  where
+    step (inside, m) p
+      | Map.null atP = (inside, m)
+      | otherwise    = (Map.union inside atP, Map.union below above)
+      where
+        (below, rest) = Map.spanAntitone ((< p) . f) m
+        (atP, above)  = Map.spanAntitone ((== p) . f) rest
 
 -- | Exchange the first and the second components of all triplets.
 flip :: BiMultiMap a b v -> BiMultiMap b a v
@@ -128,6 +165,14 @@ reverseDelete :: (Ord a, Ord b, Ord v)
 reverseDelete a bs r = foldl' (\rr (b, v) -> Map.update (rmb v) b rr) r bs
   where
     rmb v = nothingWhen Set.null . Set.delete (a, v)
+
+-- | @reverseDeleteAll m r@ removes from @r@ the triplets of @m@.
+--
+-- The @r@ map is in reversed form, like in 'reverseDelete'.
+reverseDeleteAll :: (Ord a, Ord b, Ord v)
+                 => Map a (Set (b, v)) -> Map b (Set (a, v)) -> Map b (Set (a, v))
+reverseDeleteAll m r =
+    foldl' (\rr (a, mb) -> reverseDelete a (Set.toList mb) rr) r $ Map.toList m
 
 -- | @nothingWhen p a@ is @Just a@ when @a@ satisfies predicate @p@.
 -- Yields @Nothing@ otherwise.

@@ -5,6 +5,10 @@ module Control.Distributed.Process.Internal.Messaging
   , disconnect
   , closeImplicitReconnections
   , impliesDeathOf
+  , IdentifierKind(..)
+  , identifierKind
+  , deathKey
+  , deathKeys
   , sendCtrlMsg
   ) where
 
@@ -181,6 +185,45 @@ SendPortIdentifier cid `impliesDeathOf` SendPortIdentifier cid' =
   cid' == cid
 _ `impliesDeathOf` _ =
   False
+
+-- | The constructors of 'Identifier', in the same order.
+--
+-- @since 0.7.10
+data IdentifierKind = NodeKind | ProcessKind | SendPortKind
+  deriving (Eq, Ord, Enum, Bounded, Show)
+
+-- | The constructor of an identifier.
+--
+-- @since 0.7.10
+identifierKind :: Identifier -> IdentifierKind
+identifierKind NodeIdentifier{}     = NodeKind
+identifierKind ProcessIdentifier{}  = ProcessKind
+identifierKind SendPortIdentifier{} = SendPortKind
+
+-- | @impliesDeathOf ident i@ if and only if @deathKey ident i@ is in
+-- @deathKeys ident@.
+--
+-- @deathKey ident@ is monotone (see the notes at 'Identifier', 'ProcessId' and
+-- 'SendPortId'), so the identifiers that die with @ident@ can be found with
+-- 'Control.Distributed.Process.Internal.BiMultiMap.partitionOn'.
+--
+-- @since 0.7.10
+deathKey :: Identifier -> Identifier -> (IdentifierKind, Identifier)
+deathKey ident i = (identifierKind i, owner i)
+  where
+    -- @i@ cut to the level of @ident@: its node, its process, or @i@ itself.
+    owner = case ident of
+      NodeIdentifier _     -> NodeIdentifier . nodeOf
+      ProcessIdentifier _  -> \i' -> case i' of
+        SendPortIdentifier cid -> ProcessIdentifier (sendPortProcessId cid)
+        _                      -> i'
+      SendPortIdentifier _ -> id
+
+-- | See 'deathKey'.
+--
+-- @since 0.7.10
+deathKeys :: Identifier -> [(IdentifierKind, Identifier)]
+deathKeys ident = [ (kind, ident) | kind <- [identifierKind ident ..] ]
 
 
 -- Send a control message. Evaluates the message to HNF before sending it.

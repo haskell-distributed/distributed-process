@@ -102,7 +102,7 @@ import Control.Distributed.Process.Node
   )
 import Control.Distributed.Process.Serializable (Serializable)
 import qualified Control.Exception as E
-import Control.Monad (forever, replicateM, replicateM_, void, when)
+import Control.Monad (forM_, forever, replicateM, replicateM_, void, when)
 import qualified Control.Monad.Catch as Catch
 import Data.Binary (Binary)
 import qualified Data.ByteString.Char8 as BS
@@ -118,6 +118,7 @@ import Test.Tasty.Bench
     bench,
     bgroup,
     defaultMain,
+    envWithCleanup,
     whnfIO,
   )
 
@@ -165,7 +166,8 @@ benchmarks fx =
         introspection fx,
         ring fx
       ],
-    remote fx
+    remote fx,
+    deaths fx
   ]
 
 -- | Cost of the harness alone, and so the floor below which the other numbers
@@ -416,11 +418,7 @@ monitoring fx =
         (getSelfNode >>= monitorNode) >>= unmonitor,
       repsBench fx "monitorPort/unmonitor" 100 $
         monitorPort (fst (fxChan fx)) >>= unmonitor,
-      repsBench fx "notification (normal exit)" 100 $ do
-        pid <- spawnLocal (expect :: Process ())
-        ref <- monitor pid
-        send pid ()
-        awaitDown ref,
+      repsBench fx "notification (normal exit)" 100 exitAndAwait,
       repsBench fx "notification (kill)" 100 $ do
         pid <- spawnLocal (expect :: Process ())
         ref <- monitor pid
@@ -576,6 +574,71 @@ remote fx =
   where
     echo = fxRemoteEcho fx
     nid = fxRemoteNodeId fx
+
+-- | A process death while the node holds many unrelated monitors or
+-- connections. Its cost should not depend on their number.
+deaths :: Fixture -> Benchmark
+deaths fx =
+  bgroup
+    "deaths"
+    [ bgroup
+        (show n ++ " " ++ what)
+        [ envWithCleanup (start fx n) (stopBackground fx) $ \_ ->
+            repsBench fx "notification (normal exit)" 100 exitAndAwait
+        ]
+    | (what, start) <-
+        [ ("monitors", monitoredBackground),
+          ("connections", connectedBackground)
+        ],
+      n <- [0, 1000, 10000]
+    ]
+
+-- | @n@ idle processes and, first in the list, one process that monitors them.
+monitoredBackground :: Fixture -> Int -> IO [ProcessId]
+monitoredBackground fx n = runWith fx $ do
+  us <- getSelfPid
+  pids <- replicateM n (spawnLocal (expect :: Process ()))
+  watcher <- spawnLocal $ do
+    mapM_ monitor pids
+    send us ()
+    expect :: Process ()
+  expect :: Process ()
+  return (watcher : pids)
+
+-- | @n@ idle processes, each with a connection to the other node.
+connectedBackground :: Fixture -> Int -> IO [ProcessId]
+connectedBackground fx n = runWith fx $ do
+  us <- getSelfPid
+  pids <- replicateM n $ spawnLocal $ do
+    getSelfPid >>= send (fxRemoteEcho fx)
+    expect :: Process ()
+    send us ()
+    expect :: Process ()
+  replicateM_ n (expect :: Process ())
+  return pids
+
+-- | Kills the processes one by one, in order, so that their deaths do not
+-- overlap with later benchmarks. Killing the watcher of 'monitoredBackground'
+-- first keeps the other deaths cheap.
+stopBackground :: Fixture -> [ProcessId] -> IO ()
+stopBackground fx pids = fxRun fx $ forM_ pids $ \pid -> do
+  ref <- monitor pid
+  kill pid "benchmark done"
+  awaitDown ref
+
+exitAndAwait :: Process ()
+exitAndAwait = do
+  pid <- spawnLocal (expect :: Process ())
+  ref <- monitor pid
+  send pid ()
+  awaitDown ref
+
+-- | Like 'fxRun', but returns the result.
+runWith :: Fixture -> Process a -> IO a
+runWith fx act = do
+  var <- newEmptyMVar
+  fxRun fx (act >>= liftIO . putMVar var)
+  takeMVar var
 
 -- | tasty-bench already repeats the body of the benchmark, but the benchmark
 -- fixture adds a baseline amount of time which drowns some of the faster benchmarks.
