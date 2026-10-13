@@ -13,7 +13,6 @@ module Control.Distributed.Process.Serializable
   , Fingerprint
   , showFingerprint
   , SerializableDict(SerializableDict)
-  , TypeableDict(TypeableDict)
   ) where
 
 import Data.Binary (Binary)
@@ -33,11 +32,6 @@ import System.IO.Unsafe (unsafePerformIO)
 -- | Reification of 'Serializable' (see "Control.Distributed.Process.Closure")
 data SerializableDict a where
     SerializableDict :: Serializable a => SerializableDict a
-  deriving (Typeable)
-
--- | Reification of 'Typeable'.
-data TypeableDict a where
-    TypeableDict :: Typeable a => TypeableDict a
   deriving (Typeable)
 
 -- | Objects that can be sent across the network

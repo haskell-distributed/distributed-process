@@ -209,13 +209,13 @@ testPing TestTransport{..} = do
 
   -- Server
   forkIO $ do
-    localNode <- newLocalNode testTransport initRemoteTable
+    localNode <- newLocalNode testTransport
     addr <- forkProcess localNode ping
     putMVar serverAddr addr
 
   -- Client
   forkIO $ do
-    localNode <- newLocalNode testTransport initRemoteTable
+    localNode <- newLocalNode testTransport
     pingServer <- readMVar serverAddr
 
     let numPings = 10000
@@ -240,13 +240,13 @@ testMonitorUnreachable TestTransport{..} mOrL un = do
   done <- newEmptyMVar
 
   forkIO $ do
-    localNode <- newLocalNode testTransport initRemoteTable
+    localNode <- newLocalNode testTransport
     addr <- forkProcess localNode expect
     closeLocalNode localNode
     putMVar deadProcess addr
 
   forkIO $ do
-    localNode <- newLocalNode testTransport initRemoteTable
+    localNode <- newLocalNode testTransport
     theirAddr <- readMVar deadProcess
     runProcess localNode $
       monitorTestProcess theirAddr mOrL un DiedDisconnect Nothing done
@@ -261,13 +261,13 @@ testMonitorNormalTermination TestTransport{..} mOrL un = do
   done <- newEmptyMVar
 
   forkIO $ do
-    localNode <- newLocalNode testTransport initRemoteTable
+    localNode <- newLocalNode testTransport
     addr <- forkProcess localNode $
       liftIO $ readMVar monitorSetup
     putMVar monitoredProcess addr
 
   forkIO $ do
-    localNode <- newLocalNode testTransport initRemoteTable
+    localNode <- newLocalNode testTransport
     theirAddr <- readMVar monitoredProcess
     runProcess localNode $
       monitorTestProcess theirAddr mOrL un DiedNormal (Just monitorSetup) done
@@ -284,14 +284,14 @@ testMonitorAbnormalTermination TestTransport{..} mOrL un = do
   let err = userError "Abnormal termination"
 
   forkIO $ do
-    localNode <- newLocalNode testTransport initRemoteTable
+    localNode <- newLocalNode testTransport
     addr <- forkProcess localNode . liftIO $ do
       readMVar monitorSetup
       throwIO err
     putMVar monitoredProcess addr
 
   forkIO $ do
-    localNode <- newLocalNode testTransport initRemoteTable
+    localNode <- newLocalNode testTransport
     theirAddr <- readMVar monitoredProcess
     runProcess localNode $
       monitorTestProcess theirAddr mOrL un (DiedException (show err)) (Just monitorSetup) done
@@ -302,7 +302,7 @@ testMonitorAbnormalTermination TestTransport{..} mOrL un = do
 testMonitorLocalDeadProcess :: TestTransport -> Bool -> Bool -> Assertion
 testMonitorLocalDeadProcess TestTransport{..} mOrL un = do
   processAddr <- newEmptyMVar
-  localNode <- newLocalNode testTransport initRemoteTable
+  localNode <- newLocalNode testTransport
   done <- newEmptyMVar
 
   forkIO $ do
@@ -327,12 +327,12 @@ testMonitorRemoteDeadProcess TestTransport{..} mOrL un = do
   done <- newEmptyMVar
 
   forkIO $ do
-    localNode <- newLocalNode testTransport initRemoteTable
+    localNode <- newLocalNode testTransport
     addr <- forkProcess localNode . liftIO $ putMVar processDead ()
     putMVar processAddr addr
 
   forkIO $ do
-    localNode <- newLocalNode testTransport initRemoteTable
+    localNode <- newLocalNode testTransport
     theirAddr <- readMVar processAddr
     readMVar processDead
     runProcess localNode $ do
@@ -349,7 +349,7 @@ testMonitorDisconnect TestTransport{..} mOrL un = do
   done <- newEmptyMVar
 
   forkIO $ do
-    localNode <- newLocalNode testTransport initRemoteTable
+    localNode <- newLocalNode testTransport
     addr <- forkProcess localNode $ expect
     addr2 <- forkProcess localNode $ return ()
     putMVar processAddr addr
@@ -359,7 +359,7 @@ testMonitorDisconnect TestTransport{..} mOrL un = do
     putMVar processAddr2 addr2
 
   forkIO $ do
-    localNode <- newLocalNode testTransport initRemoteTable
+    localNode <- newLocalNode testTransport
     theirAddr <- readMVar processAddr
     forkProcess localNode $ do
       lc <- liftIO $ readMVar processAddr2
@@ -377,13 +377,13 @@ testMath TestTransport{..} = do
 
   -- Server
   forkIO $ do
-    localNode <- newLocalNode testTransport initRemoteTable
+    localNode <- newLocalNode testTransport
     addr <- forkProcess localNode math
     putMVar serverAddr addr
 
   -- Client
   forkIO $ do
-    localNode <- newLocalNode testTransport initRemoteTable
+    localNode <- newLocalNode testTransport
     mathServer <- readMVar serverAddr
 
     runProcess localNode $ do
@@ -412,7 +412,7 @@ testSendToTerminated TestTransport{..} = do
 
   forkIO $ do
     terminated <- newEmptyMVar
-    localNode <- newLocalNode testTransport initRemoteTable
+    localNode <- newLocalNode testTransport
     addr1 <- forkProcess localNode $ liftIO $ putMVar terminated ()
     addr2 <- forkProcess localNode $ ping
     readMVar terminated
@@ -420,7 +420,7 @@ testSendToTerminated TestTransport{..} = do
     putMVar serverAddr2 addr2
 
   forkIO $ do
-    localNode <- newLocalNode testTransport initRemoteTable
+    localNode <- newLocalNode testTransport
     server1 <- readMVar serverAddr1
     server2 <- readMVar serverAddr2
     runProcess localNode $ do
@@ -434,7 +434,7 @@ testSendToTerminated TestTransport{..} = do
 -- | Test (non-zero) timeout
 testTimeout :: TestTransport -> Assertion
 testTimeout TestTransport{..} = do
-  localNode <- newLocalNode testTransport initRemoteTable
+  localNode <- newLocalNode testTransport
   done <- newEmptyMVar
 
   runProcess localNode $ do
@@ -450,7 +450,7 @@ testTimeout0 TestTransport{..} = do
   clientDone <- newEmptyMVar
 
   forkIO $ do
-    localNode <- newLocalNode testTransport initRemoteTable
+    localNode <- newLocalNode testTransport
     addr <- forkProcess localNode $ do
       -- Variation on the venerable ping server which uses a zero timeout
       partner <- fix $ \loop ->
@@ -461,7 +461,7 @@ testTimeout0 TestTransport{..} = do
     putMVar serverAddr addr
 
   forkIO $ do
-    localNode <- newLocalNode testTransport initRemoteTable
+    localNode <- newLocalNode testTransport
     server <- readMVar serverAddr
     runProcess localNode $ do
       pid <- getSelfPid
@@ -480,7 +480,7 @@ testTypedChannels TestTransport{..} = do
   clientDone <- newEmptyMVar
 
   forkIO $ do
-    localNode <- newLocalNode testTransport initRemoteTable
+    localNode <- newLocalNode testTransport
     forkProcess localNode $ do
       (serverSendPort, rport) <- newChan
       liftIO $ putMVar serverChannel serverSendPort
@@ -489,7 +489,7 @@ testTypedChannels TestTransport{..} = do
     return ()
 
   forkIO $ do
-    localNode <- newLocalNode testTransport initRemoteTable
+    localNode <- newLocalNode testTransport
     serverSendPort <- readMVar serverChannel
     runProcess localNode $ do
       (clientSendPort, rport) <- newChan
@@ -502,7 +502,7 @@ testTypedChannels TestTransport{..} = do
 -- | Test merging receive ports
 testMergeChannels :: TestTransport -> Assertion
 testMergeChannels TestTransport{..} = do
-    localNode <- newLocalNode testTransport initRemoteTable
+    localNode <- newLocalNode testTransport
     testFlat localNode True          "aaabbbccc"
     testFlat localNode False         "abcabcabc"
     testNested localNode True True   "aaabbbcccdddeeefffggghhhiii"
@@ -595,7 +595,7 @@ testMergeChannels TestTransport{..} = do
 
 testTerminate :: TestTransport -> Assertion
 testTerminate TestTransport{..} = do
-  localNode <- newLocalNode testTransport initRemoteTable
+  localNode <- newLocalNode testTransport
   runProcess localNode $ do
     e <- try terminate :: Process (Either ProcessTerminationException ())
     if either show show e == show ProcessTerminationException
@@ -604,7 +604,7 @@ testTerminate TestTransport{..} = do
 
 testMonitorNode :: TestTransport -> Assertion
 testMonitorNode TestTransport{..} = do
-  [node1, node2] <- replicateM 2 $ newLocalNode testTransport initRemoteTable
+  [node1, node2] <- replicateM 2 $ newLocalNode testTransport
   done <- newEmptyMVar
 
   closeLocalNode node1
@@ -620,7 +620,7 @@ testMonitorNode TestTransport{..} = do
 
 testMonitorLiveNode :: TestTransport -> Assertion
 testMonitorLiveNode TestTransport{..} = do
-  [node1, node2] <- replicateM 2 $ newLocalNode testTransport initRemoteTable
+  [node1, node2] <- replicateM 2 $ newLocalNode testTransport
   ready <- newEmptyMVar
   readyr <- newEmptyMVar
   done <- newEmptyMVar
@@ -648,7 +648,7 @@ testMonitorLiveNode TestTransport{..} = do
 
 testMonitorChannel :: TestTransport -> Assertion
 testMonitorChannel TestTransport{..} = do
-    [node1, node2] <- replicateM 2 $ newLocalNode testTransport initRemoteTable
+    [node1, node2] <- replicateM 2 $ newLocalNode testTransport
     gotNotification <- newEmptyMVar
     ready <- newEmptyMVar
 
@@ -676,7 +676,7 @@ testMonitorChannel TestTransport{..} = do
 
 testRegistry :: TestTransport -> Assertion
 testRegistry TestTransport{..} = do
-  node <- newLocalNode testTransport initRemoteTable
+  node <- newLocalNode testTransport
   done <- newEmptyMVar
 
   pingServer <- forkProcess node ping
@@ -708,8 +708,8 @@ testRegistry TestTransport{..} = do
 
 testRegistryRemoteProcess :: TestTransport -> Assertion
 testRegistryRemoteProcess TestTransport{..} = do
-  node1 <- newLocalNode testTransport initRemoteTable
-  node2 <- newLocalNode testTransport initRemoteTable
+  node1 <- newLocalNode testTransport
+  node2 <- newLocalNode testTransport
   done <- newEmptyMVar
 
   pingServer <- forkProcess node1 ping
@@ -728,8 +728,8 @@ testRegistryRemoteProcess TestTransport{..} = do
 
 testRemoteRegistry :: TestTransport -> Assertion
 testRemoteRegistry TestTransport{..} = do
-  node1 <- newLocalNode testTransport initRemoteTable
-  node2 <- newLocalNode testTransport initRemoteTable
+  node1 <- newLocalNode testTransport
+  node2 <- newLocalNode testTransport
 
   pingServer <- forkProcess node1 ping
   deadProcess <- forkProcess node1 (return ())
@@ -773,8 +773,8 @@ testRemoteRegistry TestTransport{..} = do
 
 testRemoteRegistryRemoteProcess :: TestTransport -> Assertion
 testRemoteRegistryRemoteProcess TestTransport{..} = do
-  node1 <- newLocalNode testTransport initRemoteTable
-  node2 <- newLocalNode testTransport initRemoteTable
+  node1 <- newLocalNode testTransport
+  node2 <- newLocalNode testTransport
   done <- newEmptyMVar
 
   pingServer <- forkProcess node2 ping
@@ -797,7 +797,7 @@ testRemoteRegistryRemoteProcess TestTransport{..} = do
 
 testSpawnLocal :: TestTransport -> Assertion
 testSpawnLocal TestTransport{..} = do
-  node <- newLocalNode testTransport initRemoteTable
+  node <- newLocalNode testTransport
   done <- newEmptyMVar
 
   runProcess node $ do
@@ -818,7 +818,7 @@ testSpawnLocal TestTransport{..} = do
 
 testSpawnAsyncStrictness :: TestTransport -> Assertion
 testSpawnAsyncStrictness TestTransport{..} = do
-  node <- newLocalNode testTransport initRemoteTable
+  node <- newLocalNode testTransport
   done <- newEmptyMVar
 
   runProcess node $ do
@@ -833,7 +833,7 @@ testSpawnAsyncStrictness TestTransport{..} = do
 
 testReconnect :: TestTransport -> Assertion
 testReconnect TestTransport{..} = do
-  [node1, node2] <- replicateM 2 $ newLocalNode testTransport initRemoteTable
+  [node1, node2] <- replicateM 2 $ newLocalNode testTransport
   let nid1 = localNodeId node1
   processA <- newEmptyMVar
   [sendTestOk, registerTestOk] <- replicateM 2 newEmptyMVar
@@ -911,7 +911,7 @@ testReconnect TestTransport{..} = do
 testUSend :: (ProcessId -> Int -> Process ())
           -> TestTransport -> Int -> Assertion
 testUSend usendPrim TestTransport{..} numMessages = do
-  [node1, node2] <- replicateM 2 $ newLocalNode testTransport initRemoteTable
+  [node1, node2] <- replicateM 2 $ newLocalNode testTransport
   let nid1 = localNodeId node1
       nid2 = localNodeId node2
   processA <- newEmptyMVar
@@ -964,7 +964,7 @@ testMatchAny TestTransport{..} = do
 
   -- Math server
   forkIO $ do
-    localNode <- newLocalNode testTransport initRemoteTable
+    localNode <- newLocalNode testTransport
     mathServer <- forkProcess localNode math
     proxyServer <- forkProcess localNode $ forever $ do
       msg <- receiveWait [ matchAny return ]
@@ -973,7 +973,7 @@ testMatchAny TestTransport{..} = do
 
   -- Client
   forkIO $ do
-    localNode <- newLocalNode testTransport initRemoteTable
+    localNode <- newLocalNode testTransport
     mathServer <- readMVar proxyAddr
 
     runProcess localNode $ do
@@ -1000,7 +1000,7 @@ testMatchAnyHandle TestTransport{..} = do
 
   -- Math server
   forkIO $ do
-    localNode <- newLocalNode testTransport initRemoteTable
+    localNode <- newLocalNode testTransport
     mathServer <- forkProcess localNode math
     proxyServer <- forkProcess localNode $ forever $ do
         receiveWait [
@@ -1010,7 +1010,7 @@ testMatchAnyHandle TestTransport{..} = do
 
   -- Client
   forkIO $ do
-    localNode <- newLocalNode testTransport initRemoteTable
+    localNode <- newLocalNode testTransport
     mathServer <- readMVar proxyAddr
 
     runProcess localNode $ do
@@ -1035,7 +1035,7 @@ testMatchAnyNoHandle TestTransport{..} = do
 
   -- Math server
   forkIO $ do
-    localNode <- newLocalNode testTransport initRemoteTable
+    localNode <- newLocalNode testTransport
     server <- forkProcess localNode $ forever $ do
         receiveWait [
           matchAnyIf
@@ -1058,7 +1058,7 @@ testMatchAnyNoHandle TestTransport{..} = do
 
   -- Client
   forkIO $ do
-    localNode <- newLocalNode testTransport initRemoteTable
+    localNode <- newLocalNode testTransport
     server <- readMVar addr
 
     runProcess localNode $ do
@@ -1080,7 +1080,7 @@ testMatchAnyIf TestTransport{..} = do
 
   -- echo server
   forkIO $ do
-    localNode <- newLocalNode testTransport initRemoteTable
+    localNode <- newLocalNode testTransport
     echoServer <- forkProcess localNode $ forever $ do
         receiveWait [
             matchAnyIf (\(_ :: ProcessId, (s :: String)) -> s /= "bar")
@@ -1090,7 +1090,7 @@ testMatchAnyIf TestTransport{..} = do
 
   -- Client
   forkIO $ do
-    localNode <- newLocalNode testTransport initRemoteTable
+    localNode <- newLocalNode testTransport
     server <- readMVar echoAddr
 
     runProcess localNode $ do
@@ -1123,7 +1123,7 @@ testMatchMessageWithUnwrap TestTransport{..} = do
 
     -- echo server
   forkIO $ do
-    localNode <- newLocalNode testTransport initRemoteTable
+    localNode <- newLocalNode testTransport
     echoServer <- forkProcess localNode $ forever $ do
         msg <- receiveWait [
             matchMessage (\(m :: Message) -> do
@@ -1137,7 +1137,7 @@ testMatchMessageWithUnwrap TestTransport{..} = do
 
   -- Client
   forkIO $ do
-    localNode <- newLocalNode testTransport initRemoteTable
+    localNode <- newLocalNode testTransport
     server <- readMVar echoAddr
 
     runProcess localNode $ do
@@ -1159,7 +1159,7 @@ testReceiveChanTimeout TestTransport{..} = do
   sendPort <- newEmptyMVar
 
   forkTry $ do
-    localNode <- newLocalNode testTransport initRemoteTable
+    localNode <- newLocalNode testTransport
     runProcess localNode $ do
       -- Create a typed channel
       (sp, rp) <- newChan :: Process (SendPort Bool, ReceivePort Bool)
@@ -1195,7 +1195,7 @@ testReceiveChanTimeout TestTransport{..} = do
       liftIO $ putMVar done ()
 
   forkTry $ do
-    localNode <- newLocalNode testTransport initRemoteTable
+    localNode <- newLocalNode testTransport
     runProcess localNode $ do
       sp <- liftIO $ readMVar sendPort
 
@@ -1214,7 +1214,7 @@ testReceiveChanFeatures TestTransport{..} = do
   done <- newEmptyMVar
 
   forkTry $ do
-    localNode <- newLocalNode testTransport initRemoteTable
+    localNode <- newLocalNode testTransport
     runProcess localNode $ do
       (spInt,  rpInt)  <- newChan :: Process (SendPort Int, ReceivePort Int)
       (spBool, rpBool) <- newChan :: Process (SendPort Bool, ReceivePort Bool)
@@ -1271,7 +1271,7 @@ testChanLifecycle :: TestTransport -> Assertion
 testChanLifecycle TestTransport{..} = let delay = 3000000 in do
   result <- newEmptyMVar
   tchMV <- newEmptyMVar
-  localNode <- newLocalNode testTransport initRemoteTable
+  localNode <- newLocalNode testTransport
   runProcess localNode $ do
 
     pid <- spawnLocal $ do tCh  <- newChan :: Process (SendPort (), ReceivePort ())
@@ -1339,7 +1339,7 @@ testChanLifecycle TestTransport{..} = let delay = 3000000 in do
 
 testKillLocal :: TestTransport -> Assertion
 testKillLocal TestTransport{..} = do
-  localNode <- newLocalNode testTransport initRemoteTable
+  localNode <- newLocalNode testTransport
 
   pid <- forkProcess localNode $ do
     liftIO $ threadDelay 1000000
@@ -1358,8 +1358,8 @@ testKillLocal TestTransport{..} = do
 
 testKillRemote :: TestTransport -> Assertion
 testKillRemote TestTransport{..} = do
-  node1 <- newLocalNode testTransport initRemoteTable
-  node2 <- newLocalNode testTransport initRemoteTable
+  node1 <- newLocalNode testTransport
+  node2 <- newLocalNode testTransport
 
   pid <- forkProcess node1 $ do
     liftIO $ threadDelay 1000000
@@ -1382,7 +1382,7 @@ testKillRemote TestTransport{..} = do
 
 testCatchesExit :: TestTransport -> Assertion
 testCatchesExit TestTransport{..} = do
-  localNode <- newLocalNode testTransport initRemoteTable
+  localNode <- newLocalNode testTransport
   done <- newEmptyMVar
 
   _ <- forkProcess localNode $ do
@@ -1398,7 +1398,7 @@ testCatchesExit TestTransport{..} = do
 
 testHandleMessageIf :: TestTransport -> Assertion
 testHandleMessageIf TestTransport{..} = do
-  localNode <- newLocalNode testTransport initRemoteTable
+  localNode <- newLocalNode testTransport
   done <- newEmptyMVar
   _ <- forkProcess localNode $ do
     self <- getSelfPid
@@ -1417,7 +1417,7 @@ testHandleMessageIf TestTransport{..} = do
 
 testCatches :: TestTransport -> Assertion
 testCatches TestTransport{..} = do
-  localNode <- newLocalNode testTransport initRemoteTable
+  localNode <- newLocalNode testTransport
   done <- newEmptyMVar
 
   _ <- forkProcess localNode $ do
@@ -1431,7 +1431,7 @@ testCatches TestTransport{..} = do
 
 testMaskRestoreScope :: TestTransport -> Assertion
 testMaskRestoreScope TestTransport{..} = do
-  localNode <- newLocalNode testTransport initRemoteTable
+  localNode <- newLocalNode testTransport
   parentPid <- newEmptyMVar :: IO (MVar ProcessId)
   spawnedPid <- newEmptyMVar :: IO (MVar ProcessId)
 
@@ -1445,7 +1445,7 @@ testMaskRestoreScope TestTransport{..} = do
 
 testDie :: TestTransport -> Assertion
 testDie TestTransport{..} = do
-  localNode <- newLocalNode testTransport initRemoteTable
+  localNode <- newLocalNode testTransport
   done <- newEmptyMVar
 
   _ <- forkProcess localNode $ do
@@ -1462,7 +1462,7 @@ testDie TestTransport{..} = do
 
 testPrettyExit :: TestTransport -> Assertion
 testPrettyExit TestTransport{..} = do
-  localNode <- newLocalNode testTransport initRemoteTable
+  localNode <- newLocalNode testTransport
   done <- newEmptyMVar
 
   _ <- forkProcess localNode $ do
@@ -1480,7 +1480,7 @@ testPrettyExit TestTransport{..} = do
 
 testExitLocal :: TestTransport -> Assertion
 testExitLocal TestTransport{..} = do
-  localNode <- newLocalNode testTransport initRemoteTable
+  localNode <- newLocalNode testTransport
   supervisedDone <- newEmptyMVar
   supervisorDone <- newEmptyMVar
   -- XXX: we guarantee that exception handler will be set up
@@ -1516,8 +1516,8 @@ testExitLocal TestTransport{..} = do
 
 testExitRemote :: TestTransport -> Assertion
 testExitRemote TestTransport{..} = do
-  node1 <- newLocalNode testTransport initRemoteTable
-  node2 <- newLocalNode testTransport initRemoteTable
+  node1 <- newLocalNode testTransport
+  node2 <- newLocalNode testTransport
   supervisedDone <- newEmptyMVar
   supervisorDone <- newEmptyMVar
 
@@ -1549,8 +1549,8 @@ testExitRemote TestTransport{..} = do
 
 testRegistryMonitoring :: TestTransport -> Assertion
 testRegistryMonitoring TestTransport{..} = do
-  node1 <- newLocalNode testTransport initRemoteTable
-  node2 <- newLocalNode testTransport initRemoteTable
+  node1 <- newLocalNode testTransport
+  node2 <- newLocalNode testTransport
 
   let nid = localNodeId node2
   pid <- forkProcess node1 $ do
@@ -1622,7 +1622,7 @@ testUnsafeSend TestTransport{..} = do
   serverAddr <- newEmptyMVar
   clientDone <- newEmptyMVar
 
-  localNode <- newLocalNode testTransport initRemoteTable
+  localNode <- newLocalNode testTransport
   void $ forkProcess localNode $ do
     self <- getSelfPid
     liftIO $ putMVar serverAddr self
@@ -1641,7 +1641,7 @@ testUnsafeUSend TestTransport{..} = do
   serverAddr <- newEmptyMVar
   clientDone <- newEmptyMVar
 
-  localNode <- newLocalNode testTransport initRemoteTable
+  localNode <- newLocalNode testTransport
   void $ forkProcess localNode $ do
     self <- getSelfPid
     liftIO $ putMVar serverAddr self
@@ -1659,7 +1659,7 @@ testUnsafeNSend :: TestTransport -> Assertion
 testUnsafeNSend TestTransport{..} = do
   clientDone <- newEmptyMVar
 
-  localNode <- newLocalNode testTransport initRemoteTable
+  localNode <- newLocalNode testTransport
 
   pid <- forkProcess localNode $ do
     expect >>= liftIO . putMVar clientDone
@@ -1674,8 +1674,8 @@ testUnsafeNSendRemote :: TestTransport -> Assertion
 testUnsafeNSendRemote TestTransport{..} = do
   clientDone <- newEmptyMVar
 
-  localNode1 <- newLocalNode testTransport initRemoteTable
-  localNode2 <- newLocalNode testTransport initRemoteTable
+  localNode1 <- newLocalNode testTransport
+  localNode2 <- newLocalNode testTransport
 
   _ <- forkProcess localNode1 $ do
     getSelfPid >>= register "foobar"
@@ -1693,7 +1693,7 @@ testUnsafeSendChan TestTransport{..} = do
   serverAddr <- newEmptyMVar
   clientDone <- newEmptyMVar
 
-  localNode <- newLocalNode testTransport initRemoteTable
+  localNode <- newLocalNode testTransport
   void $ forkProcess localNode $ do
     self <- getSelfPid
     liftIO $ putMVar serverAddr self
@@ -1711,7 +1711,7 @@ testUnsafeSendChan TestTransport{..} = do
 
 testCallLocal :: TestTransport -> Assertion
 testCallLocal TestTransport{..} = do
-  node <- newLocalNode testTransport initRemoteTable
+  node <- newLocalNode testTransport
 
   -- Testing that (/=) <$> getSelfPid <*> callLocal getSelfPid.
   result <- newEmptyMVar

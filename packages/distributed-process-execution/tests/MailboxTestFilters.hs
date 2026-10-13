@@ -1,5 +1,5 @@
+{-# LANGUAGE StaticPointers #-}
 {-# LANGUAGE CPP                 #-}
-{-# LANGUAGE TemplateHaskell     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module MailboxTestFilters where
@@ -10,7 +10,7 @@ import Control.Monad (forM)
 
 import Prelude hiding (drop)
 import Data.Maybe (catMaybes)
-import Control.Distributed.Process.Closure (remotable, mkClosure, mkStaticClosure)
+import Data.Binary (decode, encode)
 
 filterInputs :: (String, Int, Bool) -> Message -> Process FilterResult
 filterInputs (s, i, b) msg = do
@@ -30,11 +30,9 @@ filterEvens m = do
     Just fr -> return fr
     _       -> return Skip
 
-$(remotable ['filterInputs, 'filterEvens])
-
 intFilter :: Closure (Message -> Process FilterResult)
-intFilter = $(mkStaticClosure 'filterEvens)
+intFilter = (static filterEvens)
 
 myFilter :: (String, Int, Bool) -> Closure (Message -> Process FilterResult)
-myFilter = $(mkClosure 'filterInputs)
+myFilter x = closure (static (filterInputs . decode)) (encode x)
 

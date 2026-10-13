@@ -1,4 +1,4 @@
-{-# LANGUAGE BangPatterns, TemplateHaskell #-}
+{-# LANGUAGE BangPatterns #-}
 
 import Control.Monad
 import Control.Applicative

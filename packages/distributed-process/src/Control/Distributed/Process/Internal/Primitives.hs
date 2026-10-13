@@ -94,8 +94,6 @@ module Control.Distributed.Process.Internal.Primitives
   , whereisRemoteAsync
   , nsendRemote
     -- * Closures
-  , unClosure
-  , unStatic
     -- * Exception handling
   , catch
   , Handler(..)
@@ -162,12 +160,8 @@ import Control.Distributed.Process.Internal.CQueue
   )
 import Control.Distributed.Process.Serializable (Serializable, fingerprint)
 import Data.Accessor ((^.), (^:), (^=))
-import Control.Distributed.Static
-  ( Static
-  , Closure
-  )
-import Data.Rank1Typeable (Typeable)
-import qualified Control.Distributed.Static as Static (unstatic, unclosure)
+import Control.Distributed.Static (Closure)
+import Data.Typeable (Typeable)
 import qualified Control.Distributed.Process.UnsafePrimitives as Unsafe
 import Control.Distributed.Process.Internal.Types
   ( NodeId(..)
@@ -1261,26 +1255,6 @@ nsendRemote nid label msg = do
 -- the payload is fully evaluated before it is delivered.
 unsafeNSendRemote :: Serializable a => NodeId -> String -> a -> Process ()
 unsafeNSendRemote = Unsafe.nsendRemote
-
---------------------------------------------------------------------------------
--- Closures                                                                   --
---------------------------------------------------------------------------------
-
--- | Resolve a static value
-unStatic :: Typeable a => Static a -> Process a
-unStatic static = do
-  rtable <- remoteTable . processNode <$> ask
-  case Static.unstatic rtable static of
-    Left err -> fail $ "Could not resolve static value: " ++ err
-    Right x  -> return x
-
--- | Resolve a closure
-unClosure :: Typeable a => Closure a -> Process a
-unClosure closure = do
-  rtable <- remoteTable . processNode <$> ask
-  case Static.unclosure rtable closure of
-    Left err -> fail $ "Could not resolve closure: " ++ err
-    Right x  -> return x
 
 --------------------------------------------------------------------------------
 -- Reconnecting                                                               --

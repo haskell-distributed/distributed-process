@@ -6,7 +6,6 @@
 {-# LANGUAGE RecordWildCards       #-}
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE EmptyDataDecls        #-}
-{-# LANGUAGE TemplateHaskell       #-}
 {-# LANGUAGE ImpredicativeTypes    #-}
 {-# LANGUAGE UndecidableInstances  #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
