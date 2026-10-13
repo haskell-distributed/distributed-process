@@ -114,6 +114,8 @@ partitionWithKeyBy2nd p b = let (m, b') = partitionWithKeyBy1st p $ flip b
                              in (m, flip b')
 
 -- | Like 'partitionOn' on the first component of the triplets.
+--
+-- @since 0.7.10
 partitionOnBy1st :: (Ord a, Ord b, Ord v, Ord p)
                  => (a -> p) -> [p] -> BiMultiMap a b v
                  -> (Map a (Set (b, v)), BiMultiMap a b v)
@@ -122,6 +124,8 @@ partitionOnBy1st f ps (BiMultiMap m r) =
      in (m0, BiMultiMap m1 (reverseDeleteAll m0 r))
 
 -- | Like 'partitionOn' on the second component of the triplets.
+--
+-- @since 0.7.10
 partitionOnBy2nd :: (Ord a, Ord b, Ord v, Ord p)
                  => (b -> p) -> [p] -> BiMultiMap a b v
                  -> (Map b (Set (a, v)), BiMultiMap a b v)
@@ -133,6 +137,8 @@ partitionOnBy2nd f ps b = let (m, b') = partitionOnBy1st f ps $ flip b
 --
 -- It takes O((length ps + r) * (log n)^2) time for a result of size r, instead
 -- of the O(n) of 'Map.partitionWithKey'.
+--
+-- @since 0.7.10
 partitionOn :: (Ord k, Ord p) => (k -> p) -> [p] -> Map k a -> (Map k a, Map k a)
 partitionOn f ps m0 = foldl' step (Map.empty, m0) ps
   where

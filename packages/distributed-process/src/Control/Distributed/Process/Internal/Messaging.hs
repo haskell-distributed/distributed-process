@@ -5,6 +5,8 @@ module Control.Distributed.Process.Internal.Messaging
   , disconnect
   , closeImplicitReconnections
   , impliesDeathOf
+  , IdentifierKind(..)
+  , identifierKind
   , deathKey
   , deathKeys
   , sendCtrlMsg
@@ -54,8 +56,6 @@ import Control.Distributed.Process.Internal.Types
   , Process(..)
   , SendPortId(sendPortProcessId)
   , Identifier(NodeIdentifier, ProcessIdentifier, SendPortIdentifier)
-  , IdentifierKind
-  , identifierKind
   )
 import Control.Distributed.Process.Serializable (Serializable)
 import Data.Foldable (forM_)
@@ -186,12 +186,28 @@ SendPortIdentifier cid `impliesDeathOf` SendPortIdentifier cid' =
 _ `impliesDeathOf` _ =
   False
 
+-- | The constructors of 'Identifier', in the same order.
+--
+-- @since 0.7.10
+data IdentifierKind = NodeKind | ProcessKind | SendPortKind
+  deriving (Eq, Ord, Enum, Bounded, Show)
+
+-- | The constructor of an identifier.
+--
+-- @since 0.7.10
+identifierKind :: Identifier -> IdentifierKind
+identifierKind NodeIdentifier{}     = NodeKind
+identifierKind ProcessIdentifier{}  = ProcessKind
+identifierKind SendPortIdentifier{} = SendPortKind
+
 -- | @impliesDeathOf ident i@ if and only if @deathKey ident i@ is in
 -- @deathKeys ident@.
 --
 -- @deathKey ident@ is monotone (see the notes at 'Identifier', 'ProcessId' and
 -- 'SendPortId'), so the identifiers that die with @ident@ can be found with
 -- 'Control.Distributed.Process.Internal.BiMultiMap.partitionOn'.
+--
+-- @since 0.7.10
 deathKey :: Identifier -> Identifier -> (IdentifierKind, Identifier)
 deathKey ident i = (identifierKind i, owner i)
   where
@@ -204,6 +220,8 @@ deathKey ident i = (identifierKind i, owner i)
       SendPortIdentifier _ -> id
 
 -- | See 'deathKey'.
+--
+-- @since 0.7.10
 deathKeys :: Identifier -> [(IdentifierKind, Identifier)]
 deathKeys ident = [ (kind, ident) | kind <- [identifierKind ident ..] ]
 

@@ -20,8 +20,6 @@ module Control.Distributed.Process.Internal.Types
   , ProcessId(..)
   , Identifier(..)
   , nodeOf
-  , IdentifierKind(..)
-  , identifierKind
   , firstNonReservedProcessId
   , nullProcessId
     -- * Local nodes and processes
@@ -195,7 +193,8 @@ data Identifier =
   | ProcessIdentifier !ProcessId
   | SendPortIdentifier !SendPortId
   deriving (Eq, Ord, Generic)
--- The constructors are in the order of 'IdentifierKind'.
+-- The constructors are in the order of
+-- 'Control.Distributed.Process.Internal.Messaging.IdentifierKind'.
 -- 'Control.Distributed.Process.Internal.Messaging.deathKey' relies on that and
 -- on the derived 'Ord'.
 
@@ -214,15 +213,6 @@ nodeOf :: Identifier -> NodeId
 nodeOf (NodeIdentifier nid)     = nid
 nodeOf (ProcessIdentifier pid)  = processNodeId pid
 nodeOf (SendPortIdentifier cid) = processNodeId (sendPortProcessId cid)
-
--- | The constructors of 'Identifier', in the same order.
-data IdentifierKind = NodeKind | ProcessKind | SendPortKind
-  deriving (Eq, Ord, Enum, Bounded, Show)
-
-identifierKind :: Identifier -> IdentifierKind
-identifierKind NodeIdentifier{}     = NodeKind
-identifierKind ProcessIdentifier{}  = ProcessKind
-identifierKind SendPortIdentifier{} = SendPortKind
 
 --------------------------------------------------------------------------------
 -- Special PIDs                                                               --

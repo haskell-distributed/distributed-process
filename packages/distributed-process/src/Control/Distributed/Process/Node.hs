@@ -121,7 +121,6 @@ import qualified Control.Distributed.Static as Static
   )
 import Control.Distributed.Process.Internal.Types
   ( NodeId(..)
-  , IdentifierKind(ProcessKind)
   , LocalProcessId(..)
   , ProcessId(..)
   , LocalNode(..)
@@ -198,6 +197,7 @@ import Control.Distributed.Process.Internal.Messaging
   ( sendBinary
   , closeImplicitReconnections
   , impliesDeathOf
+  , IdentifierKind(ProcessKind)
   , deathKey
   , deathKeys
   )
