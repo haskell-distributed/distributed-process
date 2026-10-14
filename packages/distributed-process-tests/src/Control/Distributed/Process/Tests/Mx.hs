@@ -1,8 +1,11 @@
-{-# LANGUAGE DeriveGeneric    #-}
-{-# LANGUAGE ParallelListComp #-}
+{-# LANGUAGE DeriveGeneric      #-}
+{-# LANGUAGE LambdaCase         #-}
+{-# LANGUAGE NumericUnderscores #-}
 
 module Control.Distributed.Process.Tests.Mx (tests) where
 
+import Control.Concurrent.MVar (newEmptyMVar, putMVar, tryTakeMVar)
+import Control.Concurrent (threadDelay)
 import Control.Distributed.Process.Tests.Internal.Utils
 import Network.Transport.Test (TestTransport(..))
 import Control.Distributed.Process hiding (bracket, finally, try)
@@ -36,16 +39,15 @@ import Control.Distributed.Process.Management
 import Control.Monad (void, unless)
 import Control.Monad.Catch(finally, bracket, try)
 import Data.Binary
-import Data.List (find, sort, intercalate)
-import Data.Maybe (isJust, fromJust, isNothing, fromMaybe, catMaybes)
-import Data.Typeable
+import Data.List (sort, intercalate)
+import Data.Maybe (isJust, fromJust, fromMaybe)
 import GHC.Generics hiding (from)
 
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
 
 data Publish = Publish
-  deriving (Typeable, Generic, Eq)
+  deriving (Generic, Eq)
 
 instance Binary Publish where
 
@@ -147,81 +149,125 @@ testAgentMailboxHandling result = do
   stash result =<< receiveChanTimeout 1000000 rp
   kill agent "finished"
 
+
 testAgentEventHandling :: TestResult Bool -> Process ()
 testAgentEventHandling result = do
-  us <- getSelfPid
-  -- because this test is a bit racy, let's ensure it can't run indefinitely
-  timer <- spawnLocal $ do
-    pause (1000000 * 60 * 5)
-    -- okay we've waited 5 mins, let's kill the test off if it's stuck...
-    stash result False
-    kill us "Test Timed Out"
+  let timeout = 1_000_000
+
+  (ackSP, ackRP) <- newChan :: Process (SendPort MxEvent, ReceivePort MxEvent)
 
   let initState = [] :: [MxEvent]
-  (rc, rs) <- newChan
-  agentPid <- mxAgent (MxAgentId "lifecycle-listener-agent") initState [
-      (mxSink $ \ev -> do
-         st <- mxGetLocal
-         let act =
-               case ev of
-                 (MxSpawned _)       -> mxSetLocal (ev:st)
-                 (MxProcessDied _ _) -> mxSetLocal (ev:st)
-                 _                   -> return ()
-         act >> (liftMX $ sendChan rc ()) >> mxReady),
-      (mxSink $ \(ev, sp :: SendPort Bool) -> do
-          st <- mxGetLocal
-          let found =
-                case ev of
-                  MxSpawned p ->
-                    isJust $ find (\ev' ->
-                                    case ev' of
-                                      (MxSpawned p') -> p' == p
-                                      _              -> False) st
-                  MxProcessDied p r ->
-                    isJust $ find (\ev' ->
-                                    case ev' of
-                                      (MxProcessDied p' r') -> p' == p && r == r'
-                                      _                     -> False) st
-                  _ -> False
-          liftMX $ sendChan sp found
-          mxReady)
-    ]
 
-  -- TODO: yes, this is racy, but we're at the mercy of the scheduler here...
-  faff 2000000 rs
+  agentPid <- mxAgent  (MxAgentId "lifecycle-listener-agent") initState [
+    mxSink $ \ev -> do
+        case ev of
+          MxSpawned _ -> do
+            st <- mxGetLocal
+            mxSetLocal (ev : st)
+            liftMX $ sendChan ackSP ev
+
+          MxProcessDied _ _ -> do
+            st <- mxGetLocal
+            mxSetLocal (ev : st)
+            liftMX $ sendChan ackSP ev
+
+          _ -> pure ()
+
+        mxReady
+
+    , mxSink $ \(ev, sp :: SendPort Bool) -> do
+        st <- mxGetLocal
+
+        let found =
+              case ev of
+                MxSpawned p ->
+                  any (\case
+                    MxSpawned p' -> p' == p
+                    _            -> False) st
+
+                MxProcessDied p r ->
+                  any (\case
+                    MxProcessDied p' r' ->
+                      p' == p && r' == r
+                    _ -> False) st
+
+                _ -> False
+
+        liftMX $ sendChan sp found
+        mxReady
+    ]
 
   (sp, rp) <- newChan :: Process (SendPort (), ReceivePort ())
 
-  pid <- spawnLocal $ expect >>= sendChan sp
+  pid <- spawnLocal $ (expect :: Process ()) >> sendChan sp ()
 
-  -- By waiting for a monitor notification, we have a
-  -- higher probably that the agent has seen the spawn and died events
-  monitor pid
-
+  ref <- monitor pid
   send pid ()
-  rct <- receiveChanTimeout 10000000 rp
-  unless (isJust rct) $ die "No response on channel"
 
-  pmn <- receiveTimeout 2000000 [ match (\ProcessMonitorNotification{} -> return ()) ]
-  unless (isJust pmn) $ die "No monitor notification arrived"
+  completed <- receiveChanTimeout timeout rp
+  terminated <- receiveTimeout timeout
+    [ matchIf
+        (\(ProcessMonitorNotification r _ _) -> r == ref)
+        (\_ -> pure ())
+    ]
 
-  -- TODO: yes, this is racy, but we're at the mercy of the scheduler here...
-  faff 2000000 rs
+  takingTooLong <- liftIO newEmptyMVar
 
-  (replyTo, reply) <- newChan :: Process (SendPort Bool, ReceivePort Bool)
-  mxNotify (MxSpawned pid, replyTo)
-  mxNotify (MxProcessDied pid DiedNormal, replyTo)
+  spawnLocal . liftIO $ do
+    threadDelay timeout
+    putMVar takingTooLong ()
 
-  seenAlive <- receiveChanTimeout 10000000 reply
-  seenDead  <- receiveChanTimeout 10000000 reply
+  -- race conditions are eliminated by awaiting exactly the events
+  let awaitEvents seenSpawn seenDeath
+        | seenSpawn && seenDeath = pure True
+        | otherwise =
+            liftIO (tryTakeMVar takingTooLong) >>= \case
+              -- Awaiting is taking too long
+              Just () -> pure False
+              Nothing -> do
+                next <- receiveChanTimeout timeout ackRP
+                case next of
+                  Nothing -> pure False
 
-  stash result $ foldr (&&) True $ catMaybes [seenAlive, seenDead]
-  kill timer "test-complete"
+                  Just ev ->
+                    case ev of
+                      MxSpawned p
+                        | p == pid -> awaitEvents True seenDeath
+
+                      MxProcessDied p DiedNormal
+                        | p == pid -> awaitEvents seenSpawn True
+
+                      _ -> awaitEvents seenSpawn seenDeath
+
+
+
+  observed <- awaitEvents False False
+
+  (seenAlive, seenDead) <-
+    if observed
+      then do
+        (replyTo, reply) <- newChan :: Process (SendPort Bool, ReceivePort Bool)
+
+        mxNotify (MxSpawned pid, replyTo)
+        mxNotify (MxProcessDied pid DiedNormal, replyTo)
+
+        alive <- receiveChanTimeout timeout reply
+        dead  <- receiveChanTimeout timeout reply
+
+        return (alive, dead)
+
+      else return (Nothing, Nothing)
+
+  stash result $
+       and [ completed == Just ()
+           , isJust terminated
+           , observed
+           , seenAlive == Just True
+           , seenDead == Just True
+           ]
+
   kill agentPid "test-complete"
-  where
-    faff delay port = do
-      res <- receiveChanTimeout delay port
-      unless (isNothing res) $ pause delay
+
 
 testMxRegEvents :: TestResult () -> Process ()
 testMxRegEvents result = do
@@ -262,7 +308,7 @@ testMxRegEvents result = do
 
     reregister label p1
     unreg2 <- receiveChanTimeout delay unRegSink
-    liftIO $ assertEqual mempty (Just (label, p2)) unreg2 
+    liftIO $ assertEqual mempty (Just (label, p2)) unreg2
 
     reg3 <- receiveChanTimeout delay regSink
     liftIO $ assertEqual mempty (Just (label, p1)) reg3
@@ -301,7 +347,7 @@ testMxRegMon remoteNode result = do
 
     register label1 p1
     reg1 <- receiveChanTimeout delay regSink
-    liftIO $ assertEqual mempty (Just (label1, p1)) reg1 
+    liftIO $ assertEqual mempty (Just (label1, p1)) reg1
 
     register label2 p1
     reg2 <- receiveChanTimeout delay regSink
