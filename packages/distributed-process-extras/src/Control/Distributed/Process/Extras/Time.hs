@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveDataTypeable  #-}
 {-# LANGUAGE DeriveGeneric       #-}
 
 -----------------------------------------------------------------------------
@@ -58,8 +57,7 @@ import Control.Distributed.Process.Extras.Internal.Types
 import Control.Monad (void)
 import Data.Binary
 import Data.Ratio ((%))
-import Data.Time.Clock
-import Data.Typeable (Typeable)
+import Data.Time.Clock ( NominalDiffTime )
 
 import GHC.Generics
 
@@ -69,14 +67,14 @@ import GHC.Generics
 
 -- | Defines the time unit for a Timeout value
 data TimeUnit = Days | Hours | Minutes | Seconds | Millis | Micros
-    deriving (Typeable, Generic, Eq, Show)
+    deriving (Generic, Eq, Show)
 
 instance Binary TimeUnit where
 instance NFData TimeUnit where
 
 -- | A time interval.
 data TimeInterval = TimeInterval TimeUnit Int
-    deriving (Typeable, Generic, Eq, Show)
+    deriving (Generic, Eq, Show)
 
 instance Binary TimeInterval where
 instance NFData TimeInterval where
@@ -84,7 +82,7 @@ instance NFData TimeInterval where
 -- | Represents either a delay of 'TimeInterval', an infinite wait or no delay
 -- (i.e., non-blocking).
 data Delay = Delay TimeInterval | Infinity | NoDelay
-    deriving (Typeable, Generic, Eq, Show)
+    deriving (Generic, Eq, Show)
 
 instance Binary Delay where
 instance NFData Delay where
@@ -95,10 +93,9 @@ type Timeout = Maybe Int
 
 -- | Send to a process when a timeout expires.
 data TimeoutNotification = TimeoutNotification Tag
-       deriving (Typeable)
 
 instance Binary TimeoutNotification where
-  get = fmap TimeoutNotification $ get
+  get = fmap TimeoutNotification get
   put (TimeoutNotification n) = put n
 
 -- time interval/unit handling
@@ -198,13 +195,13 @@ timeIntervalToDiffTime ti = microsecondsToNominalDiffTime (fromIntegral $ asTime
 
 -- | given a @NominalDiffTim@@, provide an equivalent @TimeInterval@
 diffTimeToTimeInterval :: NominalDiffTime -> TimeInterval
-diffTimeToTimeInterval dt = microSeconds $ (fromIntegral (round (dt * 1000000) :: Integer))
+diffTimeToTimeInterval dt = microSeconds (fromIntegral (round (dt * 1000000) :: Integer))
 
 -- | given a @Delay@, provide an equivalent @NominalDiffTim@
 delayToDiffTime :: Delay -> NominalDiffTime
 delayToDiffTime (Delay ti) = timeIntervalToDiffTime ti
 delayToDiffTime Infinity   = error "trying to convert Delay.Infinity to a NominalDiffTime"
-delayToDiffTime (NoDelay)  = microsecondsToNominalDiffTime 0
+delayToDiffTime NoDelay  = microsecondsToNominalDiffTime 0
 
 -- | given a @NominalDiffTim@@, provide an equivalent @Delay@
 diffTimeToDelay :: NominalDiffTime -> Delay
@@ -212,7 +209,7 @@ diffTimeToDelay dt = Delay $ diffTimeToTimeInterval dt
 
 -- | Create a 'NominalDiffTime' from a number of microseconds.
 microsecondsToNominalDiffTime :: Integer -> NominalDiffTime
-microsecondsToNominalDiffTime x = fromRational (x % (fromIntegral microSecondsPerSecond))
+microsecondsToNominalDiffTime x = fromRational (x % fromIntegral microSecondsPerSecond)
 
 -- tenYearsAsMicroSeconds :: Integer
 -- tenYearsAsMicroSeconds = 10 * 365 * 24 * 60 * 60 * 1000000
@@ -223,10 +220,10 @@ instance Num TimeInterval where
   t1 - t2 = microSeconds $ asTimeout t1 - asTimeout t2
   _ * _ = error "trying to multiply two TimeIntervals"
   abs t = microSeconds $ abs (asTimeout t)
-  signum t = if (asTimeout t) == 0
-              then 0
-              else if (asTimeout t) < 0 then -1
-                                        else 1
+  signum t
+    | asTimeout t == 0 = 0
+    | asTimeout t < 0 = -1
+    | otherwise = 1
   fromInteger _ = error "trying to call fromInteger for a TimeInterval. Cannot guess units"
 
 -- | Allow @(+)@ and @(-)@ operations on @Delay@s
@@ -249,7 +246,7 @@ instance Num Delay where
   abs Infinity  = Infinity
   abs (Delay t) = Delay (abs t)
 
-  signum (NoDelay) = 0
+  signum NoDelay = 0
   signum Infinity  = 1
   signum (Delay t) = Delay (signum t)
 
