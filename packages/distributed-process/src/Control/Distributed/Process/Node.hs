@@ -975,7 +975,20 @@ ncEffectRegister from label atnode mPid reregistration = do
                     False -> flip incList
            in case mPid of
                 Nothing -> return ()
-                Just pid -> modify' $ registeredOnNodesFor pid ^: (maybeify $ operation atnode)
+                Just pid
+                  | reregistration -> modify' $ registeredOnNodesFor pid ^: maybeify (operation atnode)
+                  | otherwise -> do
+                      -- A remote registry relies on us to tell it when 'pid' dies. If it is already dead 
+                      -- then we need to tell them right away, as no down signal will arrive otherwise.
+                      alive <- if isLocal node (ProcessIdentifier pid)
+                                 then isValidLocalIdentifier (ProcessIdentifier pid)
+                                 else return True
+                      if alive
+                        then modify' $ registeredOnNodesFor pid ^: maybeify (operation atnode)
+                        else ncSendToNode atnode NCMsg
+                               { ctrlMsgSender = NodeIdentifier (localNodeId node)
+                               , ctrlMsgSignal = Died (ProcessIdentifier pid) DiedUnknownId
+                               }
       where updateRemote node (Just oldval) (Just newval) | processNodeId oldval /= processNodeId newval =
               do forward node (processNodeId oldval) (Register label atnode (Just oldval) True)
                  forward node (processNodeId newval) (Register label atnode (Just newval) False)
