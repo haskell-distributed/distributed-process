@@ -1047,7 +1047,7 @@ ncEffectLocalPortSend from msg = do
         ch <- deRefWeak chan'
         forM_ ch $ \chan -> deliverChan node from msg chan
   where deliverChan :: forall a . LocalNode -> SendPortId -> Message -> TQueue a -> IO ()
-        deliverChan n p (UnencodedMessage _ raw) chan' = do
+        deliverChan n p (UnencodedMessage _ raw _) chan' = do
             atomically $ writeTQueue chan' ((unsafeCoerce raw) :: a)
             trace n (MxReceivedPort p $ unsafeCreateUnencodedMessage raw)
         deliverChan _ _ (EncodedMessage   _ _) _ =

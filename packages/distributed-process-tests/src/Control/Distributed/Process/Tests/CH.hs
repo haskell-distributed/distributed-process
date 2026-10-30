@@ -37,15 +37,17 @@ import Control.Distributed.Process.Internal.Types
   ( LocalNode(localEndPoint)
   , ProcessExitException(..)
   , nullProcessId
+  , createMessage
   , createUnencodedMessage
   )
 import Control.Distributed.Process.Node
-import Control.Distributed.Process.Tests.Internal.Utils (pause)
+import Control.Distributed.Process.Tests.Internal.Utils (pause, (@^?=))
 import Control.Distributed.Process.Serializable (Serializable)
 import Data.Maybe (isNothing, isJust)
 import System.Timeout (timeout)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, testCase, assertFailure)
+import Data.Functor ((<&>))
 
 newtype Ping = Ping ProcessId
   deriving (Typeable, Binary, Show)
@@ -1070,6 +1072,28 @@ testMatchAnyNoHandle TestTransport{..} = do
   takeMVar clientDone
   takeMVar serverDone
 
+-- | Check that a decoded message that fails to match any of the predicates isn't lost
+testRejectedMessagesKeepPlace :: TestTransport -> Assertion
+testRejectedMessagesKeepPlace TestTransport{..} = do
+  node <- newLocalNode testTransport initRemoteTable
+
+  runProcess node $ do
+    us <- getSelfPid
+    forM_ [1, 2, 3 :: Int] $ \i -> uforward (createMessage i) us
+
+    -- Wait until [1,2,3] messages are received by sending and receiving a sentinel value, ()
+    send us ()
+    receiveWait [match (\() -> pure ())]
+
+    receiveTimeout 0 [matchIf (> (5 :: Int)) pure] @^?= Nothing
+    receiveTimeout 0 [matchIf (> (5 :: Int)) pure] @^?= Nothing
+    receiveTimeout 0 [matchAnyIf (> (5 :: Int)) (\_ -> pure ())] @^?= Nothing
+
+    receiveTimeout 0 [matchIf (== (2 :: Int)) pure] @^?= Just 2
+    receiveWait [matchAnyIf (== (3 :: Int)) (\m -> handleMessage m pure)] @^?= Just (3 :: Int)
+    expect @^?= (1 :: Int)
+    (receiveTimeout 0 [matchAny pure] <&> isNothing) @^?= True
+
 -- | Test 'matchAnyIf'. We provide an /echo/ server, but it ignores requests
 -- unless the text body @/= "bar"@ - this case should time out rather than
 -- removing the message from the process mailbox.
@@ -1806,6 +1830,7 @@ tests testtrans = return $ testGroup "CH" [
       , testCase "MatchAnyHandle"      (testMatchAnyHandle      testtrans)
       , testCase "MatchAnyNoHandle"    (testMatchAnyNoHandle    testtrans)
       , testCase "MatchAnyIf"          (testMatchAnyIf          testtrans)
+      , testCase "RejectedMessagesKeepPlace" (testRejectedMessagesKeepPlace testtrans)
       , testCase "MatchMessageUnwrap"  (testMatchMessageWithUnwrap testtrans)
       , testCase "ReceiveChanTimeout"  (testReceiveChanTimeout  testtrans)
       , testCase "ReceiveChanFeatures" (testReceiveChanFeatures testtrans)
