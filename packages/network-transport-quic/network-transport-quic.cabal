@@ -63,7 +63,7 @@ library
                     -- changes the way network-transport-quic works
                     , quic >=0.3.15 && <0.4
                     , stm >=2.4 && <2.6
-                    , tls >= 2.1 && < 2.5
+                    , tls >= 2.1 && < 2.6
                     , tls-session-manager >= 0.0.5 && <0.2
   exposed-modules:    Network.Transport.QUIC
                       Network.Transport.QUIC.Internal
