@@ -1617,6 +1617,79 @@ testRegistryMonitoring TestTransport{..} = do
 
     regName = "testRegisterRemote"
 
+waitUnregistered :: String -> Int -> Process Bool
+waitUnregistered name budget
+  | budget <= 0 = return False
+  | otherwise = do
+      mPid <- whereis name
+      case mPid of
+        Nothing -> return True
+        Just _  -> do
+          -- TODO: we need to write a test-transport so we can avoid these fudges
+          liftIO $ threadDelay 50000
+          waitUnregistered name (budget - 50000)
+
+spawnDeadProcessOn :: LocalNode -> Process ProcessId
+spawnDeadProcessOn node = do
+  pid <- liftIO $ forkProcess node (return ())
+  ref <- monitor pid
+  receiveWait [ matchIf (\(ProcessMonitorNotification ref' _ _) -> ref == ref')
+                        (const $ return ()) ]
+  return pid
+
+testRegistryDeadRemoteProcess :: TestTransport -> Assertion
+testRegistryDeadRemoteProcess TestTransport{..} = do
+  node1 <- newLocalNode testTransport initRemoteTable
+  node2 <- newLocalNode testTransport initRemoteTable
+  result <- newEmptyMVar
+
+  runProcess node1 $ do
+    pid <- spawnDeadProcessOn node2
+    -- either outcome is acceptable: rejection, or removal after the fact
+    _ <- try (register "dead-remote" pid) :: Process (Either ProcessRegistrationException ())
+    gone <- waitUnregistered "dead-remote" 5000000
+    liftIO $ putMVar result gone
+
+  takeMVar result >>= assertBool "name registered for an already-dead remote process was never removed"
+
+testRemoteRegistryDeadRemoteProcess :: TestTransport -> Assertion
+testRemoteRegistryDeadRemoteProcess TestTransport{..} = do
+  [node1, node2, node3] <- replicateM 3 $ newLocalNode testTransport initRemoteTable
+  result <- newEmptyMVar
+
+  runProcess node3 $ do
+    let nid1 = localNodeId node1
+    pid <- spawnDeadProcessOn node2
+    registerRemoteAsync nid1 "dead-remote" pid
+    receiveWait [ matchIf (\(RegisterReply l _ _) -> l == "dead-remote")
+                          (const $ return ()) ]
+    let loop :: Int -> Process Bool
+        loop 0 = return False
+        loop n = do
+          whereisRemoteAsync nid1 "dead-remote"
+          mPid <- receiveWait [ matchIf (\(WhereIsReply l _) -> l == "dead-remote")
+                                        (\(WhereIsReply _ p) -> return p) ]
+          case mPid of
+            Nothing -> return True
+            Just _  -> liftIO (threadDelay 50000) >> loop (n - 1)
+    loop 100 >>= liftIO . putMVar result
+
+  takeMVar result >>= assertBool "name registered for an already-dead remote process was never removed"
+
+testRegistryLiveRemoteProcessDies :: TestTransport -> Assertion
+testRegistryLiveRemoteProcessDies TestTransport{..} = do
+  node1 <- newLocalNode testTransport initRemoteTable
+  node2 <- newLocalNode testTransport initRemoteTable
+  result <- newEmptyMVar
+
+  runProcess node1 $ do
+    pid <- liftIO $ forkProcess node2 (expect :: Process ())
+    register "live-remote" pid
+    kill pid "goodbye"
+    waitUnregistered "live-remote" 5000000 >>= liftIO . putMVar result
+
+  takeMVar result >>= assertBool "name was not removed after its remote process died"
+
 testUnsafeSend :: TestTransport -> Assertion
 testUnsafeSend TestTransport{..} = do
   serverAddr <- newEmptyMVar
@@ -1820,6 +1893,9 @@ tests testtrans = return $ testGroup "CH" [
       , testCase "ExitLocal"           (testExitLocal           testtrans)
       , testCase "ExitRemote"          (testExitRemote          testtrans)
       , testCase "RegistryMonitoring"  (testRegistryMonitoring  testtrans)
+      , testCase "RegistryDeadRemoteProcess" (testRegistryDeadRemoteProcess testtrans)
+      , testCase "RemoteRegistryDeadRemoteProcess" (testRemoteRegistryDeadRemoteProcess testtrans)
+      , testCase "RegistryLiveRemoteProcessDies" (testRegistryLiveRemoteProcessDies testtrans)
       , testCase "TextCallLocal"       (testCallLocal           testtrans)
       -- Unsafe Primitives
       , testCase "TestUnsafeSend"      (testUnsafeSend          testtrans)
