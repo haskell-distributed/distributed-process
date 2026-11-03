@@ -1,13 +1,11 @@
 {-# LANGUAGE BangPatterns        #-}
 {-# LANGUAGE CPP                 #-}
-{-# LANGUAGE TemplateHaskell     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Main where
 
 import Control.Distributed.Process
 import Control.Distributed.Process.Node
-import qualified Control.Distributed.Process.Extras (__remoteTable)
 import Control.Distributed.Process.Execution.Mailbox
 import Control.Distributed.Process.Extras.Time
 import Control.Distributed.Process.Extras.Timer
@@ -20,7 +18,6 @@ import Data.Maybe (catMaybes)
 import Test.Tasty (defaultMain, testGroup, TestTree)
 import Test.Tasty.HUnit (assertEqual, testCase)
 
-import qualified MailboxTestFilters (__remoteTable)
 import MailboxTestFilters (myFilter, intFilter)
 
 import Network.Transport.TCP
@@ -168,16 +165,10 @@ waitForMailboxReady mbox sz = do
     True  -> return ()
     False -> waitForMailboxReady mbox sz
 
-myRemoteTable :: RemoteTable
-myRemoteTable =
-  Control.Distributed.Process.Execution.Mailbox.__remoteTable $
-  Control.Distributed.Process.Extras.__remoteTable $
-  MailboxTestFilters.__remoteTable initRemoteTable
-
 tests :: NT.Transport  -> IO TestTree
 tests transport = do
   {- verboseCheckWithResult stdArgs -}
-  localNode <- newLocalNode transport myRemoteTable
+  localNode <- newLocalNode transport
   return $ testGroup "" [
         testGroup "Dequeue/Pop Ordering"
         [

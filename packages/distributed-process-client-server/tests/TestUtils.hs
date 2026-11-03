@@ -1,5 +1,4 @@
 {-# LANGUAGE DeriveDataTypeable        #-}
-{-# LANGUAGE TemplateHaskell           #-}
 {-# LANGUAGE TupleSections             #-}
 
 module TestUtils
@@ -38,7 +37,7 @@ waitForExit exitReason = do
 mkNode :: String -> IO LocalNode
 mkNode port = do
   Right (transport1, _) <- createTransportExposeInternals (defaultTCPAddr "127.0.0.1" port) defaultTCPParameters
-  newLocalNode transport1 initRemoteTable
+  newLocalNode transport1
 
 -- | Given a @builder@ function, make and run a test suite on a single transport
 testMain :: (NT.Transport -> IO TestTree) -> IO ()

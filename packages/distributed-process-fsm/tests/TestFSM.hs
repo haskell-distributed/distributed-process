@@ -13,7 +13,6 @@ import Control.Distributed.Process.Extras
  ( ExitReason(..)
  , isProcessAlive
  )
-import qualified Control.Distributed.Process.Extras (__remoteTable)
 import Control.Distributed.Process.Extras.Time hiding (timeout)
 import Control.Distributed.Process.Extras.Timer
 import Control.Distributed.Process.FSM hiding (State, liftIO)
@@ -254,10 +253,6 @@ walkingAnFsmTree pid = do
   alive' <- isProcessAlive pid
   liftIO $ assertBool mempty (not alive')
 
-myRemoteTable :: RemoteTable
-myRemoteTable =
-  Control.Distributed.Process.Extras.__remoteTable $  initRemoteTable
-
 -- Some tests are flaky due to the CI environment being noticeable
 -- slower (and therefore exposing some race conditions)
 flaky :: TestTree -> TestTree
@@ -266,7 +261,7 @@ flaky = flakyTest (limitRetries 3)
 tests :: NT.Transport  -> IO TestTree
 tests transport = do
   {- verboseCheckWithResult stdArgs -}
-  localNode <- newLocalNode transport myRemoteTable
+  localNode <- newLocalNode transport
   return $ testGroup "Language/DSL"
         [
           testCase "Traversing an FSM definition (operators)"
