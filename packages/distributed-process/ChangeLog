@@ -1,3 +1,9 @@
+Unreleased
+
+* Messages that arrive from other nodes are now decoded at most once. 
+  This can substantially lower the overhead of matching messages, 
+  especially with messages queueing up and with a large number of `Match`es.
+
 2026-10-13 Laurent P. René de Cotret <laurent.decotret@outlook.com> 0.7.10
 
 * Improved the performance of a process death, as it were, to not scale with the

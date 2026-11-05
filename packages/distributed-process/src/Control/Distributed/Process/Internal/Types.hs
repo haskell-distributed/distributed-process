@@ -475,17 +475,19 @@ data Message =
   {
     messageFingerprint :: !Fingerprint
   , messagePayload     :: !a
+    -- | Contrary to other fields, we keep the encoded message payload deliberately lazy, so
+    -- that it is computed at most once
+  , messageEncoded     :: BSL.ByteString
   }
   deriving (Typeable)
 
 instance NFData Message where
   rnf (EncodedMessage _ e) = rnf e `seq` ()
-  rnf (UnencodedMessage _ a) = e `seq` ()
-    where e = BSL.length (encode a)
+  rnf (UnencodedMessage _ a e) = a `seq` BSL.length e `seq` ()
 
 instance Show Message where
   show (EncodedMessage fp enc) = show enc ++ " :: " ++ showFingerprint fp []
-  show (UnencodedMessage _ uenc) = "[unencoded message] :: " ++ (show $ typeOf uenc)
+  show (UnencodedMessage _ uenc _) = "[unencoded message] :: " ++ (show $ typeOf uenc)
 
 -- | /internal use only/.
 isEncoded :: Message -> Bool
@@ -506,17 +508,18 @@ createMessage a = EncodedMessage (fingerprint a) (encode a)
 -- | Turn any serializable term into an unencoded/local message
 createUnencodedMessage :: Serializable a => a -> Message
 createUnencodedMessage a =
-  let encoded = encode a in BSL.length encoded `seq` UnencodedMessage (fingerprint a) a
+  let encoded = encode a
+  in a `seq` BSL.length encoded `seq` UnencodedMessage { messageFingerprint = fingerprint a, messagePayload = a, messageEncoded = encoded }
 
 -- | Turn any serializable term into an unencodede/local message, without
 -- evalutaing it! This is a dangerous business.
 unsafeCreateUnencodedMessage :: Serializable a => a -> Message
-unsafeCreateUnencodedMessage a = UnencodedMessage (fingerprint a) a
+unsafeCreateUnencodedMessage a = UnencodedMessage { messageFingerprint = fingerprint a, messagePayload = a, messageEncoded = (encode a) }
 
 -- | Serialize a message
 messageToPayload :: Message -> [BSS.ByteString]
 messageToPayload (EncodedMessage fp enc) = encodeFingerprint fp : BSL.toChunks enc
-messageToPayload (UnencodedMessage fp m) = messageToPayload ((EncodedMessage fp (encode m)))
+messageToPayload (UnencodedMessage fp _ enc) = encodeFingerprint fp : BSL.toChunks enc
 
 -- | Deserialize a message
 payloadToMessage :: [BSS.ByteString] -> Message
