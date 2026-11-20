@@ -31,7 +31,9 @@ jobs:
           - "9.12"
           - "9.14"
 
-    runs-on: "ubuntu-latest"
+    # `ubuntu-latest` doesn't include the linker that GHC 9.2.8 and 9.4.8
+    # expect, leading to build failures
+    runs-on: "ubuntu-24.04"
 
     steps:
     - uses: actions/checkout@v4
