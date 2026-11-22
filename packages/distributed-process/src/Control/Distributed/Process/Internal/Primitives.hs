@@ -159,6 +159,7 @@ import Control.Distributed.Process.Internal.CQueue
   ( dequeue
   , BlockSpec(..)
   , MatchOn(..)
+  , MatchResult(..)
   )
 import Control.Distributed.Process.Serializable (Serializable, fingerprint)
 import Data.Accessor ((^.), (^:), (^=))
@@ -458,32 +459,35 @@ match = matchIf (const True)
 matchIf :: forall a b. Serializable a => (a -> Bool) -> (a -> Process b) -> Match b
 matchIf c p = Match $ MatchMsg $ \msg ->
   case messageFingerprint msg == fingerprint (undefined :: a) of
-    False -> Nothing
+    False -> NoMatch
     True  -> case msg of
-      (UnencodedMessage _ m) ->
+      (UnencodedMessage _ m _) ->
         let m' = unsafeCoerce m :: a in
         case (c m') of
-          True  -> Just (p m')
-          False -> Nothing
-      (EncodedMessage _ _) ->
-        if (c decoded) then Just (p decoded) else Nothing
+          True  -> Matched (p m')
+          False -> NoMatch
+      (EncodedMessage fp enc) ->
+        if (c decoded)
+          then Matched (p decoded)
+          -- the mailbox keeps the decoded value, so as not to decode it again on the next receive (#275)
+          else Refined (UnencodedMessage { messageFingerprint = fp, messagePayload = decoded, messageEncoded = enc })
         where
           decoded :: a
             -- Make sure the value is fully decoded so that we don't hang to
             -- bytestrings when the process calling 'matchIf' doesn't process
             -- the values immediately
-          !decoded = decode (messageEncoding msg)
+          !decoded = decode enc
 
 -- | Match against any message, regardless of the underlying (contained) type
 matchMessage :: (Message -> Process Message) -> Match Message
-matchMessage p = Match $ MatchMsg $ \msg -> Just (p msg)
+matchMessage p = Match $ MatchMsg $ \msg -> Matched (p msg)
 
 -- | Match against any message (regardless of underlying type) that satisfies a predicate
 matchMessageIf :: (Message -> Bool) -> (Message -> Process Message) -> Match Message
 matchMessageIf c p = Match $ MatchMsg $ \msg ->
     case (c msg) of
-      True  -> Just (p msg)
-      False -> Nothing
+      True  -> Matched (p msg)
+      False -> NoMatch
 
 -- | Forward a raw 'Message' to the given 'ProcessId'.
 forward :: Message -> ProcessId -> Process ()
@@ -562,7 +566,7 @@ unwrapMessage msg =
   case messageFingerprint msg == fingerprint (undefined :: a) of
     False -> return Nothing :: m (Maybe a)
     True  -> case msg of
-      (UnencodedMessage _ ms) ->
+      (UnencodedMessage _ ms _) ->
         let ms' = unsafeCoerce ms :: a
         in return (Just ms')
       (EncodedMessage _ _) ->
@@ -598,7 +602,7 @@ handleMessageIf msg c proc = do
   case messageFingerprint msg == fingerprint (undefined :: a) of
     False -> return Nothing :: m (Maybe b)
     True  -> case msg of
-      (UnencodedMessage _ ms) ->
+      (UnencodedMessage _ ms _) ->
         let ms' = unsafeCoerce ms :: a in
         case (c ms') of
           True  -> do { r <- proc ms'; return (Just r) }
@@ -632,7 +636,7 @@ handleMessageIf_ msg c proc = handleMessageIf msg c proc >> return ()
 -- removed from the mailbox, see 'handleMessage' and 'unwrapMessage'.
 --
 matchAny :: forall b. (Message -> Process b) -> Match b
-matchAny p = Match $ MatchMsg $ \msg -> Just (p msg)
+matchAny p = Match $ MatchMsg $ \msg -> Matched (p msg)
 
 -- | Match against an arbitrary message. Intended for use with 'handleMessage'
 -- and 'unwrapMessage', this function /only/ removes a message from the process
@@ -649,17 +653,20 @@ matchAnyIf :: forall a b. (Serializable a)
                        -> Match b
 matchAnyIf c p = Match $ MatchMsg $ \msg ->
   case messageFingerprint msg == fingerprint (undefined :: a) of
-     True | check -> Just (p msg)
-       where
-         check :: Bool
-         !check =
-           case msg of
-             (EncodedMessage _ _)    -> c decoded
-             (UnencodedMessage _ m') -> c (unsafeCoerce m')
+    False -> NoMatch
+    True  -> case msg of
+      (UnencodedMessage _ m' _)
+        | c (unsafeCoerce m') -> Matched (p msg)
+        | otherwise           -> NoMatch
+      (EncodedMessage fp enc)
+        | c decoded -> Matched (p decodedMsg)
+        | otherwise -> Refined decodedMsg
+        where
+          decoded :: a -- note [decoding]
+          !decoded = decode enc
 
-         decoded :: a -- note [decoding]
-         !decoded = decode (messageEncoding msg)
-     _ -> Nothing
+          decodedMsg :: Message
+          decodedMsg = UnencodedMessage { messageFingerprint = fp, messagePayload = decoded, messageEncoded = enc }
 
 {- note [decoding]
 For an EncodedMessage, we need to ensure the value is fully decoded so that
@@ -670,7 +677,7 @@ succeeds) that unsafeCoerce will not fail.
 
 -- | Remove any message from the queue
 matchUnknown :: Process b -> Match b
-matchUnknown p = Match $ MatchMsg (const (Just p))
+matchUnknown p = Match $ MatchMsg (const (Matched p))
 
 -- | Receives messages and forwards them to @pid@ if @p msg == True@.
 delegate :: ProcessId -> (Message -> Bool) -> Process ()

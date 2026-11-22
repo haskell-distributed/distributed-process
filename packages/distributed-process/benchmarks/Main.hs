@@ -16,6 +16,7 @@ import Control.Concurrent.STM
   )
 import Control.Distributed.Process
   ( Handler (Handler),
+    Message,
     MonitorRef,
     NodeId,
     Process,
@@ -86,6 +87,7 @@ import Control.Distributed.Process
     withMonitor_,
     wrapMessage,
   )
+import Control.Distributed.Process.Internal.Types (createMessage)
 import Control.Distributed.Process.Closure
   ( functionTDict,
     mkClosure,
@@ -276,6 +278,11 @@ receiving fx =
       repsBench fx "matchIf" 1000 $ do
         selfSend (1 :: Int)
         receiveWait [matchIf (> (0 :: Int)) (\_ -> return ())],
+      bgroup
+        "rescan mailbox of 100 encoded [Int] (1000 elems)"
+        [ oneBench fx (show scans ++ " scans") (rescanEncoded 100 scans)
+        | scans <- [0, 1, 10]
+        ],
       repsBench fx "matchAny" 1000 $ do
         selfSend ()
         receiveWait [matchAny (\_ -> return ())],
@@ -371,6 +378,17 @@ messages fx =
         unsafeSend us us
         receiveWait [matchAny (`uforward` fxEcho fx)]
         expect :: Process (),
+      -- A message wrapped once and then serialized on every forward: the
+      -- encoding should be shared rather than recomputed.
+      bgroup
+        "uforward (wrapped once) to remote"
+        [ oneBench fx name (uforwardTo (fxRemoteEcho fx) 1000 msg)
+        | (name, msg) <-
+            [ ("100 Ints", wrapMessage [1 .. 100 :: Int]),
+              ("10000 Ints", wrapMessage [1 .. 10000 :: Int]),
+              ("64KiB ByteString", wrapMessage (BS.replicate 65536 'x'))
+            ]
+        ],
       repsBench fx "relay" 1000 $ do
         send (fxRelay fx) ()
         expect :: Process (),
@@ -758,6 +776,31 @@ sendThrough srv n payload = do
   n' <- expect
   when (n' /= n) $
     die ("expected " ++ show n ++ " messages, server saw " ++ show n')
+
+-- | Fills our mailbox with @k@ still-encoded messages, scans it @scans@ times
+-- with a predicate that rejects all of them, then empties it.
+rescanEncoded :: Int -> Int -> Process ()
+rescanEncoded k scans = do
+  us <- getSelfPid
+  let msg = createMessage [1 .. 1000 :: Int]
+  replicateM_ k (uforward msg us)
+  -- Local delivery is asynchronous (via the node controller, which is FIFO), so
+  -- wait for a marker sent afterwards: all the messages are then in the mailbox.
+  -- Matching on () skips them by fingerprint, without decoding.
+  send us ()
+  receiveWait [match (\() -> return ())]
+  replicateM_ scans $
+    receiveTimeout 0 [matchIf (\(xs :: [Int]) -> null xs) (\_ -> return ())]
+  replicateM_ k (expect :: Process [Int])
+
+-- | @n@ forwards of the same message, then one round trip to confirm the
+-- receiver has drained them (messages between a pair of processes are ordered).
+uforwardTo :: ProcessId -> Int -> Message -> Process ()
+uforwardTo dest n msg = do
+  us <- getSelfPid
+  replicateM_ n (uforward msg dest)
+  send dest us
+  expect :: Process ()
 
 -- | The trailing 'matchAny' stops the mailbox growing if a benchmark sends
 -- something unexpected; a growing mailbox is rescanned on every 'receiveWait'

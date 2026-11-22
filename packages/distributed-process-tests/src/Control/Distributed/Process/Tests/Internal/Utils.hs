@@ -33,6 +33,7 @@ module Control.Distributed.Process.Tests.Internal.Utils
   , testProcessReport
   , delayedAssertion
   , assertComplete
+  , (@^?=)
   -- logging
   , Logger()
   , newLogger
@@ -79,7 +80,7 @@ import Control.Monad.STM (atomically)
 import Data.Binary
 import Data.Typeable (Typeable)
 
-import Test.Tasty.HUnit (Assertion, assertBool)
+import Test.Tasty.HUnit (Assertion, assertBool, assertEqual)
 
 import GHC.Generics
 import System.Timeout (timeout)
@@ -222,3 +223,6 @@ tryForkProcess :: LocalNode -> Process () -> IO ProcessId
 tryForkProcess node p = do
   tid <- liftIO myThreadId
   forkProcess node $ catch p (\e -> liftIO $ throwTo tid (e::SomeException))
+
+(@^?=) :: (Eq a, Show a) => Process a -> a -> Process ()
+test @^?= expected = test >>= \t -> liftIO $ assertEqual "" expected t

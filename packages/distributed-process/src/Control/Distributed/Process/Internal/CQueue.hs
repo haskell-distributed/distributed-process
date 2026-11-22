@@ -7,6 +7,7 @@ module Control.Distributed.Process.Internal.CQueue
   ( CQueue
   , BlockSpec(..)
   , MatchOn(..)
+  , MatchResult(..)
   , newCQueue
   , enqueue
   , enqueueSTM
@@ -74,11 +75,26 @@ data BlockSpec =
   | Blocking
   | Timeout Int -- ^ Timeout in microseconds
 
+-- | The outcome of matching a message.
+--
+-- For performance reasons, a decoded message that has not matched
+-- returned 'Refined' instead of 'NoMatch'. It is expected that messages
+-- are decoded at most once.
+data MatchResult m a
+  = NoMatch
+    -- ^ The message does not match, and is left in the mailbox as it is.
+  | Matched a
+    -- ^ The message matches, and is removed from the mailbox.
+  | Refined m
+    -- ^ The message does not match, but matching it required decoding the message.
+    -- The refined message should be placed back in the mailbox.
+  deriving (Functor)
+
 -- Match operations
 --
 -- They can be either a message match or a channel match.
 data MatchOn m a
- = MatchMsg  (m -> Maybe a)
+ = MatchMsg  (m -> MatchResult m a)
  | MatchChan (STM a)
  deriving (Functor)
 
@@ -87,7 +103,7 @@ data MatchOn m a
 -- Two consecutive chunks never have the same kind of matches. i.e. if one chunk
 -- contains message matches then the next one must contain channel matches and
 -- viceversa.
-type MatchChunks m a = [Either [m -> Maybe a] [STM a]]
+type MatchChunks m a = [Either [m -> MatchResult m a] [STM a]]
 
 -- Splits a list of matches into chunks.
 --
@@ -101,7 +117,7 @@ chunkMatches (MatchChan r : ms) = Right (r : chk) : chunkMatches rest
    where (chk, rest) = spanMatchChan ms
 
 -- | @spanMatchMsg = first (map (\(MatchMsg x) -> x)) . span isMatchMsg@
-spanMatchMsg :: [MatchOn m a] -> ([m -> Maybe a], [MatchOn m a])
+spanMatchMsg :: [MatchOn m a] -> ([m -> MatchResult m a], [MatchOn m a])
 spanMatchMsg [] = ([],[])
 spanMatchMsg (m : ms)
     | MatchMsg msg <- m = (msg:msgs, rest)
@@ -264,15 +280,16 @@ dequeue (CQueue arrived incoming size) blockSpec matchons = mask_ $ decrementJus
 
     goCheck1 (Left matches : rest) m old = do
       case checkMatches matches m of
-        Nothing -> goCheck1 rest m old
-        Just p  -> returnOld old (Just (Right p))
+        (m', Nothing) -> goCheck1 rest m' old -- m' may be a refinement of an encoded message, leading to at most one decode per message
+        (_,  Just p)  -> returnOld old (Just (Right p))
 
     -- a common pattern for putting back the arrived queue at the end
     returnOld :: StrictList m -> Maybe (Either a a) -> IO (Maybe (Either a a))
     returnOld old r = do putMVar arrived old; return r
 
-    -- as a side-effect, this left-biases the list
-    checkArrived :: [m -> Maybe a] -> StrictList m -> (StrictList m, Maybe a)
+    -- as a side-effect, this left-biases the list, and puts refined messages
+    -- in the place of the ones they refine
+    checkArrived :: [m -> MatchResult m a] -> StrictList m -> (StrictList m, Maybe a)
     checkArrived matches list = go list Nil
       where
         -- @go xs ys@ searches for a message match in @append xs ys@
@@ -281,13 +298,15 @@ dequeue (CQueue arrived incoming size) blockSpec matchons = mask_ $ decrementJus
         go (Append xs ys) tl = go xs (append ys tl)
         go (Snoc xs x)    tl = go xs (Cons x tl)
         go (Cons x xs)    tl
-          | Just y <- checkMatches matches x = (append xs tl, Just y)
-          | otherwise = let !(rest,r) = go xs tl in (Cons x rest, r)
+          = case checkMatches matches x of
+              (_,  Just y)  -> (append xs tl, Just y)
+              (x', Nothing) -> let !(rest,r) = go xs tl in (Cons x' rest, r)
 
-    checkMatches :: [m -> Maybe a] -> m -> Maybe a
-    checkMatches []     _ = Nothing
-    checkMatches (m:ms) a = case m a of Nothing -> checkMatches ms a
-                                        Just b  -> Just b
+    checkMatches :: [m -> MatchResult m a] -> m -> (m, Maybe a)
+    checkMatches []     a = (a, Nothing)
+    checkMatches (m:ms) a = case m a of NoMatch    -> checkMatches ms a
+                                        Refined a' -> checkMatches ms a'
+                                        Matched b  -> (a, Just b)
 
 -- | Weak reference to a CQueue
 mkWeakCQueue :: CQueue a -> IO () -> IO (Weak (CQueue a))
