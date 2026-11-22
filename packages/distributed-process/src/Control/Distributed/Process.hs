@@ -114,10 +114,7 @@ module Control.Distributed.Process
     -- * Closures
   , Closure
   , closure
-  , Static
-  , unStatic
-  , unClosure
-  , RemoteTable
+  , unclosure
     -- * Logging
   , say
     -- * Registry
@@ -173,8 +170,7 @@ import Control.Concurrent.MVar
 import Control.Distributed.Static
   ( Closure
   , closure
-  , Static
-  , RemoteTable
+  , unclosure
   )
 import Control.Distributed.Process.Internal.Types
   ( NodeId(..)
@@ -284,9 +280,6 @@ import Control.Distributed.Process.Internal.Primitives
   , unregisterRemoteAsync
   , whereisRemoteAsync
   , nsendRemote
-    -- Closures
-  , unStatic
-  , unClosure
     -- Exception handling
   , catch
   , Handler(..)

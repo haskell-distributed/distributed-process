@@ -175,7 +175,7 @@ tests localNode = testGroup "TestTimer" [
 
 timerTests :: NT.Transport -> IO TestTree
 timerTests transport = do
-  localNode <- newLocalNode transport initRemoteTable
+  localNode <- newLocalNode transport
   let testData = tests localNode
   return testData
 

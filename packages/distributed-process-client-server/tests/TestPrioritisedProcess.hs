@@ -15,7 +15,7 @@ import Control.Exception (SomeException)
 import Control.DeepSeq (NFData)
 import Control.Distributed.Process hiding (call, send, catch, sendChan, wrapMessage)
 import Control.Distributed.Process.Node
-import Control.Distributed.Process.Extras hiding (__remoteTable, monitor)
+import Control.Distributed.Process.Extras hiding (monitor)
 import Control.Distributed.Process.Async hiding (check)
 import Control.Distributed.Process.ManagedProcess hiding (reject, Message)
 import qualified Control.Distributed.Process.ManagedProcess.Server.Priority as P (Message)
@@ -536,7 +536,7 @@ testCallPrioritisation result = do
 
 tests :: NT.Transport  -> IO TestTree
 tests transport = do
-  localNode <- newLocalNode transport initRemoteTable
+  localNode <- newLocalNode transport
   return $ testGroup "" [
         testGroup "basic server functionality matches un-prioritised processes" [
             testCase "basic call with explicit server reply"

@@ -1,14 +1,10 @@
+{-# LANGUAGE StaticPointers #-}
 module Control.Distributed.Process.Management.Internal.Trace.Remote
   ( -- * Configuring A Remote Tracer
     setTraceFlagsRemote
   , startTraceRelay
-    -- * Remote Table
-  , remoteTable
   ) where
 
-import Control.Distributed.Process.Internal.Closure.BuiltIn
-  ( cpEnableTraceRemote
-  )
 import Control.Distributed.Process.Internal.Primitives
   ( getSelfPid
   , relay
@@ -32,14 +28,13 @@ import Control.Distributed.Process.Internal.Types
   , NodeId
   )
 import Control.Distributed.Static
-  ( RemoteTable
-  , registerStatic
+  ( Closure
+  , closure
   )
-import Data.Rank1Dynamic (toDynamic)
+import Data.Binary (decode, encode)
 
--- | Remote Table.
-remoteTable :: RemoteTable -> RemoteTable
-remoteTable = registerStatic "$enableTraceRemote" (toDynamic enableTraceRemote)
+cpEnableTraceRemote :: ProcessId -> Closure (Process ())
+cpEnableTraceRemote = closure (static (enableTraceRemote . decode)) . encode
 
 enableTraceRemote :: ProcessId -> Process ()
 enableTraceRemote pid =

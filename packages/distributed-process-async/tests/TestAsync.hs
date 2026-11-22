@@ -1,5 +1,5 @@
+{-# LANGUAGE StaticPointers #-}
 {-# LANGUAGE DeriveDataTypeable        #-}
-{-# LANGUAGE TemplateHaskell           #-}
 {-# LANGUAGE ScopedTypeVariables       #-}
 
 module Main where
@@ -12,7 +12,7 @@ import Control.Distributed.Process.Serializable()
 import Control.Distributed.Process.Async
 import Control.Distributed.Process.SysTest.Utils
 import Control.Monad (replicateM_)
-import Data.Binary()
+import Data.Binary (decode, encode)
 import Data.Typeable()
 import Network.Transport.TCP
 import qualified Network.Transport as NT
@@ -139,18 +139,15 @@ testAsyncWaitCancelTimeout result = do
      p1 <- async $ task expect
      waitCancelTimeout 1000000 p1 >>= stash result
 
-remotableDecl [
-    [d| fib :: (NodeId,Int) -> Process Integer ;
-        fib (_,0) = return 0
-        fib (_,1) = return 1
-        fib (myNode,n) = do
-          let tsk = remoteTask ($(functionTDict 'fib)) myNode ($(mkClosure 'fib) (myNode,n-2))
-          future <- async tsk
-          y <- fib (myNode,n-1)
-          (AsyncDone z) <- wait future
-          return $ y + z
-      |]
-  ]
+fib :: (NodeId,Int) -> Process Integer
+fib (_,0) = return 0
+fib (_,1) = return 1
+fib (myNode,n) = do
+  let tsk = remoteTask (static SerializableDict) myNode (closure (static (fib . decode)) (encode (myNode, n-2)))
+  future <- async tsk
+  y <- fib (myNode,n-1)
+  (AsyncDone z) <- wait future
+  return $ y + z
 
 -- Tests that wait returns when remote actions complete.
 testAsyncRecursive :: TestResult Integer -> Process ()
@@ -212,7 +209,7 @@ tests localNode = testGroup "" [
 
 asyncStmTests :: NT.Transport -> IO TestTree
 asyncStmTests transport = do
-  localNode <- newLocalNode transport $ __remoteTableDecl initRemoteTable
+  localNode <- newLocalNode transport
   let testData = tests localNode
   return testData
 

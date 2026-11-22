@@ -1,6 +1,6 @@
 cabal-version:  3.0
 name:           distributed-process-execution
-version:        0.1.5.0
+version:        0.2.0.0
 build-type:     Simple
 license:        BSD-3-Clause
 license-file:   LICENCE
@@ -40,9 +40,9 @@ library
   build-depends:
                    base >= 4.14 && < 5,
                    data-accessor >= 0.2.2.3,
-                   distributed-process >= 0.6.6 && < 0.8,
-                   distributed-process-extras >= 0.3.1 && < 0.4,
-                   distributed-process-supervisor >= 0.2.0 && < 0.3,
+                   distributed-process >= 0.8 && < 0.9,
+                   distributed-process-extras >= 0.4 && < 0.5,
+                   distributed-process-supervisor >= 0.3 && < 0.4,
                    distributed-process-client-server >= 0.2.0 && < 0.3,
                    binary >= 0.8 && < 0.9,
                    deepseq >= 1.4 && < 1.7,
@@ -85,6 +85,7 @@ test-suite MailboxTests
   import:          warnings
   type:            exitcode-stdio-1.0
   build-depends:   base >= 4.14 && < 5,
+                   binary >= 0.8 && < 0.9,
                    distributed-process,
                    distributed-process-execution,
                    distributed-process-extras,

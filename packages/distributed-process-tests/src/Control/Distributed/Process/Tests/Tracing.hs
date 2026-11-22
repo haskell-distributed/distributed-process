@@ -232,7 +232,7 @@ testRemoteTraceRelay :: TestTransport -> TestResult Bool -> Process ()
 testRemoteTraceRelay TestTransport{..} result =
   let flags = defaultTraceFlags { traceSpawned = traceOn }
   in do
-    node2 <- liftIO $ newLocalNode testTransport initRemoteTable
+    node2 <- liftIO $ newLocalNode testTransport
     mvNid <- liftIO $ newEmptyMVar
 
     -- As well as needing node2's NodeId, we want to
@@ -311,7 +311,7 @@ testSystemLoggerMsg :: TestTransport
 testSystemLoggerMsg t action interestingMessage =
     withEnv "DISTRIBUTED_PROCESS_TRACE_CONSOLE" "yes" $
     withEnv "DISTRIBUTED_PROCESS_TRACE_FLAGS" "pdnusrl" $ do
-    n <- newLocalNode (testTransport t) initRemoteTable
+    n <- newLocalNode (testTransport t)
 
     runProcess n $ do
       self <- getSelfPid
@@ -374,7 +374,7 @@ testSystemLoggerMxUnRegistered t = testSystemLoggerMsg t
 
 tests :: TestTransport -> IO TestTree
 tests testtrans@TestTransport{..} = do
-  node1 <- newLocalNode testTransport initRemoteTable
+  node1 <- newLocalNode testTransport
   -- if we execute the test cases in parallel, the
   -- various tracers will race with one another and
   -- we'll get garbage results (or worse, deadlocks)

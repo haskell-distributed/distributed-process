@@ -2,7 +2,7 @@
 {-# LANGUAGE DeriveGeneric         #-}
 {-# LANGUAGE StandaloneDeriving    #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
-{-# LANGUAGE TemplateHaskell       #-}
+{-# LANGUAGE StaticPointers        #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleInstances     #-}
 
@@ -51,15 +51,13 @@ module Control.Distributed.Process.Extras.Internal.Primitives
   , isProcessAlive
   , forever'
   , deliver
-
-    -- * Remote Table
-  , __remoteTable
   ) where
 
 import Control.Concurrent (myThreadId, throwTo)
 import Control.Distributed.Process hiding (monitor, finally, catch)
 import qualified Control.Distributed.Process as P (monitor, unmonitor)
-import Control.Distributed.Process.Closure (seqCP, remotable, mkClosure)
+import Control.Distributed.Process.Closure (seqCP)
+import Data.Binary (decode, encode)
 import Control.Distributed.Process.Serializable (Serializable)
 import Control.Distributed.Process.Extras.Internal.Types
   ( Addressable
@@ -204,8 +202,6 @@ registerSelf (name,target) =
      () <- expect
      return ()
 
-$(remotable ['registerSelf])
-
 -- | A remote equivalent of 'whereisOrStart'. It deals with the
 -- node registry on the given node, and the process, if it needs to be started,
 -- will run on that node. If the node is inaccessible, Nothing will be returned.
@@ -225,7 +221,7 @@ whereisOrStartRemote nid name proc =
            Just (Just pid) -> unmonitor mRef >> return (Just pid)
            Just Nothing ->
               do self <- getSelfPid
-                 sRef <- spawnAsync nid ($(mkClosure 'registerSelf) (name,self) `seqCP` proc)
+                 sRef <- spawnAsync nid (closure (static (registerSelf . decode)) (encode (name, self)) `seqCP` proc)
                  ret <- receiveWait [
                       matchIf (\(NodeMonitorNotification ref _ _) -> ref == mRef)
                               (\(NodeMonitorNotification _ _ _) -> return Nothing),

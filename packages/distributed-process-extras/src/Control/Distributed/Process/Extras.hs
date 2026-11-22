@@ -96,12 +96,8 @@ module Control.Distributed.Process.Extras
     -- * Registration and Process Lookup
   , whereisOrStart
   , whereisOrStartRemote
-
-    -- remote call table
-  , __remoteTable
   ) where
 
-import Control.Distributed.Process (RemoteTable)
 import Control.Distributed.Process.Extras.Internal.Types
   ( NFSerializable
   , Recipient(..)
@@ -116,11 +112,4 @@ import Control.Distributed.Process.Extras.Internal.Types
   , getTag
   )
 import Control.Distributed.Process.Extras.UnsafePrimitives
-import Control.Distributed.Process.Extras.Internal.Primitives hiding (__remoteTable)
-import qualified Control.Distributed.Process.Extras.Internal.Primitives (__remoteTable)
-
--- remote table
-
-__remoteTable :: RemoteTable -> RemoteTable
-__remoteTable =
-  Control.Distributed.Process.Extras.Internal.Primitives.__remoteTable
+import Control.Distributed.Process.Extras.Internal.Primitives

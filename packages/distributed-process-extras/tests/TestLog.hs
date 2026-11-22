@@ -1,5 +1,5 @@
+{-# LANGUAGE StaticPointers #-}
 {-# LANGUAGE CPP                 #-}
-{-# LANGUAGE TemplateHaskell     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Main where
@@ -8,9 +8,8 @@ import Control.Concurrent.MVar (MVar, newMVar, takeMVar, putMVar, newEmptyMVar)
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TChan
 import Control.Distributed.Process hiding (monitor)
-import Control.Distributed.Process.Closure (remotable, mkStaticClosure)
 import Control.Distributed.Process.Node
-import Control.Distributed.Process.Extras hiding (__remoteTable)
+import Control.Distributed.Process.Extras
 import qualified Control.Distributed.Process.Extras.SystemLog as Log (Logger)
 import Control.Distributed.Process.Extras.SystemLog hiding (Logger, error)
 import Control.Distributed.Process.SysTest.Utils
@@ -37,10 +36,8 @@ logLevelFormatter m = handleMessage m showLevel
     showLevel :: LogLevel -> Process String
     showLevel = return . show
 
-$(remotable ['logLevelFormatter])
-
 logFormat :: Closure (Message -> Process (Maybe String))
-logFormat = $(mkStaticClosure 'logLevelFormatter)
+logFormat = (static logLevelFormatter)
 
 testLoggingProcess :: Process (ProcessId, TChan String)
 testLoggingProcess = do
@@ -101,7 +98,7 @@ testHarness levels chan result = do
 tests :: NT.Transport  -> IO TestTree
 tests transport = do
   let ch = logChannel
-  localNode <- newLocalNode transport $ __remoteTable initRemoteTable
+  localNode <- newLocalNode transport
   lock <- newMVar ()
   ex <- newEmptyMVar
   void $ forkProcess localNode $ do (_, chan) <- testLoggingProcess

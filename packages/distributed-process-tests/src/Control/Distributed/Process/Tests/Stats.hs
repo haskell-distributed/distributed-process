@@ -84,7 +84,7 @@ testRemoteLiveProcessInfo TestTransport{..} node1 = do
   where
     launchRemote :: MVar ProcessId -> IO ()
     launchRemote locMV = do
-        node2 <- liftIO $ newLocalNode testTransport initRemoteTable
+        node2 <- liftIO $ newLocalNode testTransport
         _ <- liftIO $ forkProcess node2 $ do
             self <- getSelfPid
             liftIO $ putMVar locMV self
@@ -105,7 +105,7 @@ testRemoteLiveProcessInfo TestTransport{..} node1 = do
 
 tests :: TestTransport -> IO TestTree
 tests testtrans@TestTransport{..} = do
-  node1 <- newLocalNode testTransport initRemoteTable
+  node1 <- newLocalNode testTransport
   return $ testGroup "Stats" [
     testGroup "Process Info" [
         testCase "testLocalDeadProcessInfo"

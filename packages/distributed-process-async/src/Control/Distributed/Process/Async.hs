@@ -80,7 +80,7 @@ task :: Process a -> AsyncTask a
 task = AsyncTask
 
 -- | Wraps the components required and builds a remote 'AsyncTask'.
-remoteTask :: Static (SerializableDict a)
+remoteTask :: Closure (SerializableDict a)
               -> NodeId
               -> Closure (Process a)
               -> AsyncTask a

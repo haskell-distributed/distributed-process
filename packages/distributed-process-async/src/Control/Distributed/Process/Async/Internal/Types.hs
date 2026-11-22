@@ -1,5 +1,4 @@
 {-# LANGUAGE DeriveDataTypeable        #-}
-{-# LANGUAGE TemplateHaskell           #-}
 {-# LANGUAGE StandaloneDeriving        #-}
 {-# LANGUAGE RankNTypes                #-}
 {-# LANGUAGE ExistentialQuantification #-}
@@ -55,7 +54,7 @@ data AsyncTask a =
         asyncTask :: Process a -- ^ the task to be performed
       }
   | AsyncRemoteTask {
-        asyncTaskDict :: Static (SerializableDict a)
+        asyncTaskDict :: Closure (SerializableDict a)
           -- ^ the serializable dict required to spawn a remote process
       , asyncTaskNode :: NodeId
           -- ^ the node on which to spawn the asynchronous task
